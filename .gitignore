@@ -1,9 +1,46 @@
-xcherry-server
-xcherry-tools-postgres
-xcherry-tools-copyright
-test.log
+etest.log
 coverage.out
 .idea/
-gen/
-docker-compose/dev/data/
 *__debug*
+.ref/
+.DS_Store
+
+# Go binaries — never commit compiled output.
+# Matches the build targets from server/Dockerfile and benchmark/Dockerfile,
+# plus any ad-hoc `go build` output in the repo root or subfolders.
+#
+# IMPORTANT: bare names like `benchmarkworker` would also match the
+# directory `benchmark/cmd/benchmarkworker/` and silently hide every new
+# .go file added inside it. Always use a path (with `/`) for binaries
+# whose name collides with a package directory.
+server/main
+server/dex-server
+# go test -c output (package-named executables, e.g. cluster.test).
+*.test
+benchmark/benchmarkworker
+benchmark/cmd/benchmarkworker/benchmarkworker
+benchmark/dex-benchmark-worker
+/benchmarkworker
+/dex-server
+/dex-benchmark-worker
+
+# Catch-all: Go binaries have no extension on Linux/macOS.
+# Exclude common non-binary extensionless files via negation.
+# If a new extensionless source file is added, add a negation here.
+*.exe
+*.dll
+*.so
+*.dylib
+.idea/
+
+# Secrets — never commit credentials or local env files.
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+credentials.json
+token.json
