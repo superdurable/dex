@@ -2,6 +2,10 @@
 
 A minimal Next.js + Tailwind WebUI with two pages:
 
+:warning:**Warning:** This code is vibe-coded — written quickly with minimal review.
+Expect rough edges, missing tests, and things that may break without warning.
+Do not treat it as production-ready; read before you ship.
+
 - **List** (`/`) — calls `OpsService.ListRuns` to show recent runs for a
   namespace.
 - **Show** (`/flow/show?namespace=...&runId=...`) — combines two RPCs:

@@ -1,4 +1,4 @@
-# Durable Workflow Framework(DEX)
+# Durable Execution (DEX), Redefined
 
 This repository includes:
 
