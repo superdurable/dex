@@ -23,10 +23,10 @@ to make the import "more descriptive".
 
 ```go
 // Bad
-import servermetrics "github.com/durableworkflow/dex/server/internal/metrics"
-import mongostore "github.com/durableworkflow/dex/server/internal/persistence/mongo"
+import servermetrics "github.com/superdurable/dex/server/internal/metrics"
+import mongostore "github.com/superdurable/dex/server/internal/persistence/mongo"
 
 // Good
-import "github.com/durableworkflow/dex/server/internal/metrics"
-import "github.com/durableworkflow/dex/server/internal/persistence/mongo"
+import "github.com/superdurable/dex/server/internal/metrics"
+import "github.com/superdurable/dex/server/internal/persistence/mongo"
 ```

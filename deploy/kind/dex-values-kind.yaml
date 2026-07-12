@@ -1,0 +1,48 @@
+replicaCount: 3
+
+image:
+  repository: dex-server
+  tag: kind
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+server:
+  config:
+    log:
+      level: DEBUG
+    persistence:
+      backend: postgres
+      postgres:
+        uri: "${DEX_POSTGRES_URI}"
+    metrics:
+      provider: prometheus
+      metricPrefix: dex_
+      maxEmittingTier: 4
+      env: kind
+      prometheus:
+        listenAddress: ":9090"
+    shard:
+      maxShards: 16
+      defaultShardsForNewNamespaces: 16
+      leaseExpiryBuffer: 20s
+      cluster:
+        minMembersBeforeReady: 3
+        discovery:
+          refreshInterval: 5s
+    tasklist:
+      cluster:
+        minMembersBeforeReady: 3
+        discovery:
+          refreshInterval: 5s
+      numWritePartitions: 4
+      numReadPartitions: 4
+    taskProcessor:
+      immediatePollInterval: 50ms
+      attemptTimeout: 15s
+    runEngine:
+      # Local kind shares ~10 CPUs across 3 server pods + Postgres + the
+      # benchmark workers. Give heartbeats generous slack so the server does
+      # not falsely reclaim healthy in-flight runs under CPU contention.
+      heartbeatTimerDuration: 60s

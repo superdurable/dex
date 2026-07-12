@@ -9,8 +9,8 @@ alwaysApply: true
 
 ## 0. Backend selection (Postgres default, Mongo selectable)
 
-- The integration/e2e suite runs against the backend named by `DWF_TEST_PERSISTENCE_BACKEND` (`postgres` default, or `mongo`). CI runs the whole suite once per backend.
-- The backend URI comes from `DWF_TEST_POSTGRES_URI` or `DWF_TEST_MONGO_URI`; `testhelpers.TestDBURI()` returns the active one and tests skip when it is unset.
+- The integration/e2e suite runs against the backend named by `DEX_TEST_PERSISTENCE_BACKEND` (`postgres` default, or `mongo`). CI runs the whole suite once per backend.
+- The backend URI comes from `DEX_TEST_POSTGRES_URI` or `DEX_TEST_MONGO_URI`; `testhelpers.TestDBURI()` returns the active one and tests skip when it is unset.
 - Use the backend-agnostic helpers: `testhelpers.ApplyPersistence(t, &cfg, uri, dbPrefix)`, `testhelpers.PersistenceConfigForPrefix(uri, dbPrefix)`, `testhelpers.EnsureSchemaForPrefix(dbPrefix)`, and `testhelpers.NewStoreSetForTest(t, dbPrefix)` for direct store construction. Do NOT hardcode `mongo.New*` in integration tests.
 - Backend-specific package tests (`internal/persistence/mongo`, `internal/persistence/postgres`, `internal/engine`) read their own URI directly and skip when unset.
 
@@ -26,7 +26,7 @@ package mypkg
 import (
 	"testing"
 
-	"github.com/durableworkflow/dex/server/internal/integration/testhelpers"
+	"github.com/superdurable/dex/server/internal/integration/testhelpers"
 )
 
 const dbPrefix = "dex_test_integration_mypkg"

@@ -1,0 +1,134 @@
+name: Server Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "protocol-grpc/**"
+      # server/go.mod replaces github.com/superdurable/dex/sdk-go with
+      # ../sdk-go, so the server (e2e) tests compile against the local SDK.
+      - "sdk-go/**"
+      - ".github/workflows/server-tests.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - "protocol-grpc/**"
+      - "sdk-go/**"
+      - ".github/workflows/server-tests.yml"
+  workflow_dispatch:
+
+env:
+  GOPRIVATE: github.com/superdurable/*
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # Go module resolution does its own git ls-remote calls that don't
+      # inherit the checkout action's credentials. Rewrite HTTPS URLs to
+      # use the GITHUB_TOKEN so private module versions can be validated.
+      - name: Configure git auth for Go modules
+        run: git config --global url."https://${{ github.actor }}:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Build
+        run: go build ./...
+
+      # Unit tests skip every test that requires MongoDB (DEX_TEST_MONGO_URI
+      # unset → t.Skip). Provides a fast PR signal in <30s without docker.
+      - name: Unit tests
+        run: make test-unit
+
+  sdk:
+    name: SDK unit tests (-race)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sdk-go/go.mod
+          cache-dependency-path: sdk-go/go.sum
+
+      - name: Configure git auth for Go modules
+        run: git config --global url."https://${{ github.actor }}:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
+      # -race guards the worker run-loop / step-goroutine concurrency invariants
+      # (shared-map snapshotting) that pure functional tests can't catch.
+      - name: Race tests
+        run: go test -race ./...
+
+  integration:
+    name: Integration tests (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [postgres, mongo]
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Configure git auth for Go modules
+        run: git config --global url."https://${{ github.actor }}:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Start Postgres
+        if: matrix.backend == 'postgres'
+        run: |
+          docker compose -f dependency-docker-postgres.yaml up -d
+          echo "Waiting for Postgres initialization..."
+          for i in $(seq 1 60); do
+            if docker compose -f dependency-docker-postgres.yaml ps postgres-init | grep -qi 'exited'; then
+              echo "Postgres initialization complete"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Start MongoDB (sharded cluster)
+        if: matrix.backend == 'mongo'
+        run: |
+          docker compose -f dependency-docker-mongo-1shard.yaml up -d
+          echo "Waiting for MongoDB initialization..."
+          for i in $(seq 1 60); do
+            if docker compose -f dependency-docker-mongo-1shard.yaml ps mongo-init | grep -q 'exited'; then
+              echo "MongoDB initialization complete"
+              break
+            fi
+            sleep 2
+          done
+          docker compose -f dependency-docker-mongo-1shard.yaml exec -T mongos mongosh --port 27018 --eval 'db.adminCommand("ping")'
+
+      # Run via Makefile so local and CI use identical flags (timeouts, count,
+      # parallel strategy). One leg per backend; the integration suite runs
+      # against the matrix backend while backend-specific package tests skip
+      # when their URI is unset.
+      - name: Tests
+        run: make test-${{ matrix.backend }}
+
+      - name: Stop databases
+        if: always()
+        run: |
+          docker compose -f dependency-docker-postgres.yaml down -v || true
+          docker compose -f dependency-docker-mongo-1shard.yaml down -v || true

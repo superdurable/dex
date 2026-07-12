@@ -1,0 +1,47 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: us-central1-docker.pkg.dev/your-project/your-repo/dex-benchmark-worker
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9123
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: benchmark.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+server:
+  runServiceAddress: dex:7233
+  matchingServiceAddress: dex:7234
+
+benchmark:
+  httpListenAddress: ":9123"
+  namespace: default
+  taskListName: benchmark-workers
+  workerRunConcurrency: 100
+
+auth:
+  existingSecret: ""
+  tokenKey: token
+
+podAnnotations: {}
+podLabels: {}
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []

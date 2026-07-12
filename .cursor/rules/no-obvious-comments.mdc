@@ -32,13 +32,13 @@ do write short (see [short-comments.mdc](short-comments.mdc)).
 <bad>
 
 ```go
-// TestMain requires DWF_TEST_POSTGRES_URI — the Postgres store tests must run
+// TestMain requires DEX_TEST_POSTGRES_URI — the Postgres store tests must run
 // against a real Postgres, never silently skip (a skip would falsely report
 // PASS when the URI is missing). The Makefile excludes this package ...
 func TestMain(m *testing.M) {
 	uri := testURI()
 	if uri == "" {
-		fmt.Fprintln(os.Stderr, "DWF_TEST_POSTGRES_URI must be set to run the Postgres store tests")
+		fmt.Fprintln(os.Stderr, "DEX_TEST_POSTGRES_URI must be set to run the Postgres store tests")
 		os.Exit(1)
 	}
 	...
@@ -56,7 +56,7 @@ only restates the code.
 func TestMain(m *testing.M) {
 	uri := testURI()
 	if uri == "" {
-		fmt.Fprintln(os.Stderr, "DWF_TEST_POSTGRES_URI must be set to run the Postgres store tests")
+		fmt.Fprintln(os.Stderr, "DEX_TEST_POSTGRES_URI must be set to run the Postgres store tests")
 		os.Exit(1)
 	}
 	...

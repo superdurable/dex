@@ -1,0 +1,11 @@
+service:
+  type: LoadBalancer
+
+server:
+  runServiceAddress: dex:7233
+  matchingServiceAddress: dex:7234
+
+benchmark:
+  namespace: default
+  taskListName: benchmark-workers
+  workerRunConcurrency: 100

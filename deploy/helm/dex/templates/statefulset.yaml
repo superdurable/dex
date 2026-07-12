@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "dex.fullname" . }}
+  labels:
+    {{- include "dex.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "dex.headlessServiceName" . }}
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "dex.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dex.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      containers:
+        - name: dex
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - -config
+            - /etc/dex/config.yaml
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+              protocol: TCP
+            - name: matching-grpc
+              containerPort: {{ .Values.service.matchingGrpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+              protocol: TCP
+            - name: shard-gossip
+              containerPort: {{ .Values.headlessService.shardGossipPort }}
+              protocol: TCP
+            - name: shard-gos-u
+              containerPort: {{ .Values.headlessService.shardGossipPort }}
+              protocol: UDP
+            - name: tasklist-gossip
+              containerPort: {{ .Values.headlessService.tasklistGossipPort }}
+              protocol: TCP
+            - name: tasklist-gos-u
+              containerPort: {{ .Values.headlessService.tasklistGossipPort }}
+              protocol: UDP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: DEX_DB_BACKEND
+              value: {{ .Values.server.config.persistence.backend | quote }}
+            {{- if eq .Values.server.config.persistence.backend "mongo" }}
+            - name: DEX_MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mongo.existingSecret }}
+                  key: {{ .Values.secrets.mongo.uriKey }}
+            {{- else }}
+            - name: DEX_POSTGRES_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.existingSecret }}
+                  key: {{ .Values.secrets.postgres.uriKey }}
+            {{- end }}
+            {{- if .Values.secrets.datadog.existingSecret }}
+            - name: DD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.datadog.existingSecret }}
+                  key: {{ .Values.secrets.datadog.apiKeyKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "dex.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

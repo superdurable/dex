@@ -1,0 +1,103 @@
+name: WebUI Tests
+
+# The WebUI e2e suite (web/e2e/) brings up a docker-compose stack of
+# Mongo (single-node RS) + dex-server + benchmark worker, seeds runs
+# through the benchmark trigger endpoint, and asserts the rendered UI in
+# Chromium via Playwright. See web/README.md for the local workflow.
+#
+# Path filters trigger on any code that ends up in the e2e docker images
+# (server, protocol-grpc, sdk-go, benchmark) plus the web/ source itself.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "server/**"
+      - "protocol-grpc/**"
+      - "sdk-go/**"
+      - "benchmark/**"
+      - ".github/workflows/web-test.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "server/**"
+      - "protocol-grpc/**"
+      - "sdk-go/**"
+      - "benchmark/**"
+      - ".github/workflows/web-test.yml"
+  workflow_dispatch:
+
+jobs:
+  web-e2e:
+    name: WebUI e2e (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      # Buildx so the dex-server and benchmark-worker docker images
+      # build with layer caching across runs. Cold builds take ~1-2 min;
+      # warm builds finish in seconds.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # `npm run e2e` runs `playwright test`, whose globalSetup brings the
+      # docker-compose stack up and seeds runs. globalTeardown leaves the
+      # stack up by default; this step tears it down in CI.
+      - name: Run e2e tests
+        run: npm run e2e
+        env:
+          CI: '1'
+
+      - name: Dump container logs on failure
+        if: failure()
+        # The Playwright globalSetup composes the base + the selected backend
+        # override (postgres by default). Compose the same files here so the
+        # backend's services resolve; the unselected backend's lines no-op.
+        run: |
+          mkdir -p /tmp/web-e2e-logs
+          BACKEND="${DEX_DB_BACKEND:-postgres}"
+          CF="-f docker-compose.e2e.yaml -f docker-compose.${BACKEND}.yaml"
+          for svc in server benchmark postgres postgres-init mongo mongo-init; do
+            docker compose $CF -p dex-web-e2e logs --no-color "$svc" > "/tmp/web-e2e-logs/$svc.log" 2>/dev/null || true
+          done
+
+      - name: Upload Playwright report and container logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-failure
+          path: |
+            web/playwright-report/
+            web/test-results/
+            /tmp/web-e2e-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          BACKEND="${DEX_DB_BACKEND:-postgres}"
+          docker compose -f docker-compose.e2e.yaml -f docker-compose.${BACKEND}.yaml -p dex-web-e2e down -v || true

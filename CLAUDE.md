@@ -1,4 +1,4 @@
-# DWF — Claude Instructions
+# DEX — Claude Instructions
 
 Durable Workflow Framework: gRPC server (`server/`), Go SDK (`sdk-go/`), WebUI (`web/`), benchmarks (`benchmark/`), and deployment tooling (`deploy/`). See [README.md](README.md) for the full module map.
 
@@ -110,7 +110,7 @@ Exceptions: generated code (leave as-is); tightly grouped methods on different s
 
 ### `ptr.Any(...)` for Pointer Literals (Go)
 
-Use `ptr.Any(value)` instead of a throwaway local variable taken by address. Import: `github.com/durableworkflow/dex/server/common/utils/ptr`. Use explicit types for numerics: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
+Use `ptr.Any(value)` instead of a throwaway local variable taken by address. Import: `github.com/superdurable/dex/server/common/utils/ptr`. Use explicit types for numerics: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
 
 Do not use `ptr.Any` when the pointer must alias an existing named variable that is also read or mutated elsewhere.
 
@@ -157,7 +157,7 @@ Required dependencies must panic or `log.Fatal` if nil — fail fast at startup.
 
 ### Server Error Handling (`server/`)
 
-All server-side code that can fail must return `errors.CategorizedError` from `github.com/durableworkflow/dex/server/common/errors`, not plain `error`.
+All server-side code that can fail must return `errors.CategorizedError` from `github.com/superdurable/dex/server/common/errors`, not plain `error`.
 
 - Propagate `CategorizedError` directly — never re-wrap inside another `CategorizedError`.
 - At gRPC handler boundaries, use `errors.ToProtoError(err)` — never hand-pick `status.Errorf(codes.X, ...)`.
@@ -211,7 +211,7 @@ const dbPrefix = "dex_test_integration_mypkg"
 func TestMain(m *testing.M) { testhelpers.RunMain(m, dbPrefix) }
 ```
 
-Backend selection: `DWF_TEST_PERSISTENCE_BACKEND` (default `postgres`). Use backend-agnostic helpers — do not hardcode `mongo.New*` in integration tests.
+Backend selection: `DEX_TEST_PERSISTENCE_BACKEND` (default `postgres`). Use backend-agnostic helpers — do not hardcode `mongo.New*` in integration tests.
 
 ### Per-Test Isolation by Namespace
 

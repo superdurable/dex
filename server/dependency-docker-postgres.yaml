@@ -1,0 +1,45 @@
+# PostgreSQL dependency for server integration tests (the default backend).
+# Brings up a single Postgres and creates the six per-store databases + tables
+# via init.sh. Tests connect on localhost:5432.
+#
+#   docker compose -f dependency-docker-postgres.yaml up -d
+#   make test-postgres
+#   docker compose -f dependency-docker-postgres.yaml down -v
+services:
+  postgres:
+    image: postgres:16
+    # Raise max_connections well above the default 100: the integration suite
+    # runs many server instances in parallel (the 2-node cluster package alone
+    # opens ~2x6 store pools), each with its own pgx pool. 100 is exhausted
+    # under the full parallel run, causing pools to block and tests to hang.
+    command: ["postgres", "-c", "max_connections=400"]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dex
+      POSTGRES_PASSWORD: dex
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dex -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  postgres-init:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: dex
+      PGPASSWORD: dex
+    volumes:
+      - ./internal/persistence/postgres/schema:/schema:ro
+    entrypoint: ["bash", "/schema/init.sh"]
+
+volumes:
+  postgres_data:

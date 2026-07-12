@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dex-benchmark.fullname" . }}
+  labels:
+    {{- include "dex-benchmark.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "dex-benchmark.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "dex-benchmark.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      containers:
+        - name: benchmark-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: BENCHMARK_HTTP_LISTEN_ADDRESS
+              value: {{ .Values.benchmark.httpListenAddress | quote }}
+            - name: BENCHMARK_RUN_SERVICE_ADDRESS
+              value: {{ .Values.server.runServiceAddress | quote }}
+            - name: BENCHMARK_MATCHING_SERVICE_ADDRESS
+              value: {{ .Values.server.matchingServiceAddress | quote }}
+            - name: BENCHMARK_NAMESPACE
+              value: {{ .Values.benchmark.namespace | quote }}
+            - name: BENCHMARK_TASK_LIST_NAME
+              value: {{ .Values.benchmark.taskListName | quote }}
+            - name: BENCHMARK_WORKER_RUN_CONCURRENCY
+              value: {{ .Values.benchmark.workerRunConcurrency | quote }}
+            {{- if .Values.auth.existingSecret }}
+            - name: BENCHMARK_TRIGGER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.tokenKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

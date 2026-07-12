@@ -1,0 +1,63 @@
+import (
+  "context"
+  "time"
+
+  "github.com/superdurable/dex/server/common/errors"
+  "github.com/superdurable/dex/server/common/log"
+  "github.com/superdurable/dex/server/internal/metrics"
+  "{{.Vars.InterfaceImport}}"
+)
+
+{{ $decorator := (or .Vars.DecoratorName (printf "%sWithMetrics" .Interface.Name)) }}
+{{ $pkg := .Vars.InterfacePkg }}
+
+// {{$decorator}} instruments {{$pkg}}.{{.Interface.Name}} with metrics
+type {{$decorator}} struct {
+  base   {{$pkg}}.{{.Interface.Name}}
+  logger log.Logger
+}
+
+// New{{$decorator}} creates a new metered wrapper
+func New{{$decorator}}(base {{$pkg}}.{{.Interface.Name}}, logger log.Logger) {{$pkg}}.{{.Interface.Name}} {
+  return &{{$decorator}}{
+    base:   base,
+    logger: logger,
+  }
+}
+
+{{range $method := .Interface.Methods}}
+  // {{$method.Name}} implements {{$pkg}}.{{$.Interface.Name}}
+  func (_d *{{$decorator}}) {{$method.Declaration}} {
+    _since := time.Now()
+    defer func() {
+      methodTag := metrics.TagPersistenceMethodName("{{$.Interface.Name}}.{{$method.Name}}")
+
+      {{- if gt (len $method.Results) 0}}
+      {{- $lastIdx := len $method.Results | add -1}}
+      {{- $lastResult := index $method.Results $lastIdx}}
+      {{- if or (eq $lastResult.Type "error") (eq $lastResult.Type "errors.CategorizedError") }}
+      if {{$lastResult.Name}} != nil {
+        if catErr, ok := {{$lastResult.Name}}.(errors.CategorizedError); ok {
+          metrics.CounterStoreMethodError.Inc(methodTag, metrics.TagErrorCategoryFromCategorizedError(catErr))
+        } else {
+          metrics.CounterStoreMethodError.Inc(methodTag, metrics.TagErrorCategory("unknown"))
+        }
+      } else {
+        metrics.LatencyStoreMethod.Record(time.Since(_since), methodTag)
+      }
+      {{- else}}
+      metrics.LatencyStoreMethod.Record(time.Since(_since), methodTag)
+      {{- end}}
+      {{- else}}
+      metrics.LatencyStoreMethod.Record(time.Since(_since), methodTag)
+      {{- end}}
+    }()
+
+    {{- if gt (len $method.Results) 0}}
+    {{$method.ResultsNames}} = _d.base.{{$method.Name}}({{$method.ParamsNames}})
+    {{- else}}
+    _d.base.{{$method.Name}}({{$method.ParamsNames}})
+    {{- end}}
+    return
+  }
+{{end}}

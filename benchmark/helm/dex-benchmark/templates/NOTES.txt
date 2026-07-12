@@ -1,0 +1,8 @@
+1. Get the benchmark endpoint:
+   kubectl get svc {{ include "dex-benchmark.fullname" . }} -n {{ .Release.Namespace }}
+
+2. Port-forward locally:
+   kubectl port-forward svc/{{ include "dex-benchmark.fullname" . }} 9123:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+3. Trigger a benchmark:
+   curl "http://127.0.0.1:9123/trigger?mode=parallel&runs=10&numSteps=20&stateSize=4096"

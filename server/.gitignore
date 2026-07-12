@@ -1,0 +1,3 @@
+# go test -c output in this module (cluster.test, sdke2e.test, …).
+*.test
+/server

@@ -1,0 +1,8 @@
+1. Get the gRPC service address:
+   kubectl get svc {{ include "dex.fullname" . }} -n {{ .Release.Namespace }}
+
+2. Inspect the headless service used for membership discovery:
+   kubectl get svc {{ include "dex.headlessServiceName" . }} -n {{ .Release.Namespace }}
+
+3. Port-forward the metrics endpoint locally if desired:
+   kubectl port-forward svc/{{ include "dex.fullname" . }} 9090:{{ .Values.service.metricsPort }} -n {{ .Release.Namespace }}

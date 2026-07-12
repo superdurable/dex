@@ -1,0 +1,100 @@
+services:
+  mongo1:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1_2sh_data:/data/db
+    command: ["mongod", "--replSet", "rs0", "--shardsvr", "--bind_ip_all", "--port", "27017"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo2:
+    image: mongo:7
+    ports:
+      - "27027:27027"
+    volumes:
+      - mongo2_2sh_data:/data/db
+    command: ["mongod", "--replSet", "rs1", "--shardsvr", "--bind_ip_all", "--port", "27027"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27027", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongos-config:
+    image: mongo:7
+    ports:
+      - "27019:27019"
+    volumes:
+      - mongos_config_2sh_data:/data/configdb
+    command: ["mongod", "--configsvr", "--replSet", "configRs", "--bind_ip_all", "--port", "27019"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongos:
+    image: mongo:7
+    ports:
+      - "27018:27018"
+    command: ["mongos", "--configdb", "configRs/mongos-config:27019", "--bind_ip_all", "--port", "27018"]
+    depends_on:
+      mongos-config:
+        condition: service_healthy
+      mongo1:
+        condition: service_healthy
+      mongo2:
+        condition: service_healthy
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      - mongos
+    volumes:
+      - ./internal/persistence/mongo/schema:/schema
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for services...' && sleep 5 &&
+
+        echo 'Initiating shard rs0...' &&
+        mongosh --host mongo1:27017 --eval '
+          try { rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongo1:27017\"}]}) }
+          catch(e) { print(\"rs0 already initialized: \" + e.message) }
+        ' &&
+
+        echo 'Initiating shard rs1...' &&
+        mongosh --host mongo2:27027 --eval '
+          try { rs.initiate({_id: \"rs1\", members: [{_id: 0, host: \"mongo2:27027\"}]}) }
+          catch(e) { print(\"rs1 already initialized: \" + e.message) }
+        ' &&
+        sleep 3 &&
+
+        echo 'Initiating config replica set...' &&
+        mongosh --host mongos-config:27019 --eval '
+          try { rs.initiate({_id: \"configRs\", configsvr: true, members: [{_id: 0, host: \"mongos-config:27019\"}]}) }
+          catch(e) { print(\"configRs already initialized: \" + e.message) }
+        ' &&
+        sleep 3 &&
+
+        echo 'Adding shards to cluster...' &&
+        mongosh --host mongos:27018 --eval '
+          try { sh.addShard(\"rs0/mongo1:27017\") } catch(e) { print(\"rs0 add: \" + e.message) }
+          try { sh.addShard(\"rs1/mongo2:27027\") } catch(e) { print(\"rs1 add: \" + e.message) }
+        ' &&
+        sleep 2 &&
+
+        echo 'Running schema init...' &&
+        mongosh --host mongos:27018 /schema/v0.js &&
+
+        echo 'MongoDB initialization complete.'
+      "
+
+volumes:
+  mongo1_2sh_data:
+  mongo2_2sh_data:
+  mongos_config_2sh_data:

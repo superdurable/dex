@@ -1,0 +1,95 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: us-central1-docker.pkg.dev/your-project/your-repo/dex-server
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  annotations: {}
+  grpcPort: 7233
+  matchingGrpcPort: 7234
+  metricsPort: 9090
+
+headlessService:
+  annotations: {}
+  publishNotReadyAddresses: true
+  shardGossipPort: 7946
+  tasklistGossipPort: 7947
+
+secrets:
+  # Used when server.config.persistence.backend == postgres (the default).
+  # The DSN must not pin a dbname; the server derives per-store databases.
+  postgres:
+    existingSecret: dex-postgres
+    uriKey: uri
+  # Used when server.config.persistence.backend == mongo.
+  mongo:
+    existingSecret: dex-mongo
+    uriKey: uri
+  datadog:
+    existingSecret: ""
+    apiKeyKey: api-key
+
+podAnnotations: {}
+podLabels: {}
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []
+
+probes:
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+
+server:
+  config:
+    grpcListenAddress: ":7233"
+    matchingGrpcListenAddress: ":7234"
+    persistence:
+      # backend: "postgres" (default) or "mongo". Each store uses its own
+      # database on the configured server.
+      backend: postgres
+      postgres:
+        uri: "${DEX_POSTGRES_URI}"
+      # mongo:
+      #   uri: "${DEX_MONGO_URI}"
+    metrics:
+      provider: prometheus
+      metricPrefix: dex_
+      maxEmittingTier: 2
+      env: prod
+      prometheus:
+        listenAddress: ":9090"
+    shard:
+      namespaceShardsRegistry: {}
+      cluster:
+        bindAddress: "0.0.0.0:7946"
+        advertiseAddress: "${POD_IP}:7946"
+        advertiseGrpcAddress: "${POD_IP}:7233"
+        staticAddresses: []
+        discovery:
+          mode: dns
+          serviceDns: "{{ include \"dex.headlessServiceFQDN\" . }}"
+          port: 7946
+          refreshInterval: 10s
+    tasklist:
+      cluster:
+        bindAddress: "0.0.0.0:7947"
+        advertiseAddress: "${POD_IP}:7947"
+        advertiseGrpcAddress: "${POD_IP}:7234"
+        staticAddresses: []
+        discovery:
+          mode: dns
+          serviceDns: "{{ include \"dex.headlessServiceFQDN\" . }}"
+          port: 7947
+          refreshInterval: 10s

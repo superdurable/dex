@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dex;
 
-option go_package = "github.com/durableworkflow/dex/protocol-grpc/gen/dexpb";
+option go_package = "github.com/superdurable/dex/protocol-grpc/gen/dexpb";
 
 // ============================================================================
 // RunsService

@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+spec:
+  serviceName: mongodb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          command:
+            - mongod
+            - --bind_ip_all
+            - --replSet
+            - rs0
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mongosh --quiet --eval "db.adminCommand('ping').ok" | grep 1
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-rs-init
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mongosh
+          image: mongo:7.0
+          command:
+            - sh
+            - -c
+            - |
+              until mongosh --host mongodb --quiet --eval "db.adminCommand('ping').ok" | grep 1; do
+                sleep 2
+              done
+              mongosh --host mongodb --quiet --eval '
+                try {
+                  rs.status();
+                } catch (e) {
+                  rs.initiate({
+                    _id: "rs0",
+                    members: [{ _id: 0, host: "mongodb:27017" }]
+                  });
+                }
+              '

@@ -1,0 +1,58 @@
+# Base dex stack: dex-server + benchmark worker. This file has NO database —
+# compose it together with exactly ONE backend override so only that database
+# starts:
+#
+#   docker compose -f docker-compose.e2e.yaml -f docker-compose.postgres.yaml up -d
+#   docker compose -f docker-compose.e2e.yaml -f docker-compose.mongo.yaml    up -d
+#
+# dev-stack.sh (repo root) and the Playwright e2e suite pick the backend via
+# DEX_DB_BACKEND (default "postgres") and add the matching override file
+# automatically — so only the selected DB (not both) is started.
+#
+# The Next.js dev server is intentionally NOT in this stack — it runs on the
+# host so code edits hot-reload immediately. From the host the Web UI talks to
+# OpsService via the published 7235 port:
+#
+#     OPS_SERVICE_ADDRESS=127.0.0.1:7235 npm run dev
+#
+# The server and benchmark images are distroless, so their healthchecks live
+# OUTSIDE compose (in web/e2e/globalSetup.ts and dev-stack.sh, which poll the
+# published ports until they accept).
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    # DB env (DEX_DB_BACKEND, DEX_POSTGRES_URI / DEX_MONGO_URI) and the DB-init
+    # dependency are supplied by the backend override file.
+    volumes:
+      - ./dex-server.e2e.yaml:/config/dex.yaml:ro
+    environment:
+      DEX_CONFIG_PATH: /config/dex.yaml
+      DEX_GRPC_LISTEN_ADDRESS: ":7233"
+      DEX_MATCHING_GRPC_LISTEN_ADDRESS: ":7234"
+      DEX_OPS_GRPC_LISTEN_ADDRESS: ":7235"
+    # Host ports are configurable so the stack survives host port conflicts
+    # with unrelated local processes (defaults preserve the documented ports).
+    ports:
+      - "${RUN_PORT:-7233}:7233"
+      - "${MATCHING_PORT:-7234}:7234"
+      - "${OPS_PORT:-7235}:7235"
+
+  benchmark:
+    build:
+      context: ..
+      dockerfile: benchmark/Dockerfile
+    depends_on:
+      server:
+        condition: service_started
+    environment:
+      BENCHMARK_HTTP_LISTEN_ADDRESS: ":9123"
+      BENCHMARK_RUN_SERVICE_ADDRESS: "server:7233"
+      BENCHMARK_MATCHING_SERVICE_ADDRESS: "server:7234"
+      BENCHMARK_NAMESPACE: "default"
+      BENCHMARK_TASK_LIST_NAME: "benchmark-workers"
+      BENCHMARK_WORKER_RUN_CONCURRENCY: "100"
+    ports:
+      - "${BENCH_PORT:-9123}:9123"

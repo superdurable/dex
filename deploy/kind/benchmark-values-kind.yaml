@@ -1,0 +1,18 @@
+replicaCount: 1
+
+image:
+  repository: dex-benchmark-worker
+  tag: kind
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+server:
+  runServiceAddress: dex:7233
+  matchingServiceAddress: dex:7234
+
+benchmark:
+  namespace: default
+  taskListName: benchmark-workers
+  workerRunConcurrency: 50

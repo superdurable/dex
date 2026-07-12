@@ -24,7 +24,7 @@ func Any[T any](obj T) *T { return &obj }
   `*T` built from a literal or a one-off expression.
 - For a typed numeric literal, write the type explicitly so generic
   inference picks the right `T`: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
-- Import as `"github.com/durableworkflow/dex/server/common/utils/ptr"`.
+- Import as `"github.com/superdurable/dex/server/common/utils/ptr"`.
 
 ## When NOT to apply
 

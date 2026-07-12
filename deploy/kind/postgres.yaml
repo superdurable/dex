@@ -1,0 +1,108 @@
+# Single-node PostgreSQL for local kind validation (the default backend).
+# Mirrors the dev-stack postgres (web/docker-compose.postgres.yaml): one
+# server, the six per-store databases created by the schema-init Job.
+#
+# The schema-init Job mounts a ConfigMap named "dex-pg-schema" that the
+# e2e script builds from server/internal/persistence/postgres/schema/
+# (init.sh + v0.sql), so the DDL is never duplicated here.
+#
+# max_connections is raised well above the Postgres default of 100: each
+# server pod opens one pool per store (6) and the chart defaults to 3 pods,
+# so the cluster can need ~180 connections plus the benchmark/ops headroom.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          args:
+            - "-c"
+            - "max_connections=400"
+            - "-c"
+            - "shared_buffers=512MB"
+          env:
+            - name: POSTGRES_USER
+              value: dex
+            - name: POSTGRES_PASSWORD
+              value: dex
+            - name: POSTGRES_DB
+              value: postgres
+            # Data dir under a subdir so the emptyDir mount (which is not
+            # empty: it has lost+found on some FS) doesn't break initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U dex -d postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-schema-init
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:16
+          command: ["bash", "/schema/init.sh"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: dex
+            - name: PGPASSWORD
+              value: dex
+          volumeMounts:
+            - name: schema
+              mountPath: /schema
+              readOnly: true
+      volumes:
+        - name: schema
+          configMap:
+            name: dex-pg-schema

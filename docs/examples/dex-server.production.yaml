@@ -1,0 +1,80 @@
+grpcListenAddress: ":7233"
+matchingGrpcListenAddress: ":7234"
+
+persistence:
+  # backend selects the implementation: "postgres" (default) or "mongo".
+  # Each store uses its own database on the configured server; see
+  # docs/postgres-persistence-design.md and docs/mongo-persistence-design.md.
+  backend: postgres
+  postgres:
+    uri: "${DEX_POSTGRES_URI}" # DSN without a dbname, e.g. postgres://user:pass@host:5432/?sslmode=require
+  # To run against MongoDB instead, set backend: mongo and configure:
+  # mongo:
+  #   uri: "${DEX_MONGO_URI}"
+
+metrics:
+  provider: datadog
+  metricPrefix: dex_
+  maxEmittingTier: 2
+  env: prod
+  datadog:
+    apiKey: "${DD_API_KEY}"
+    endpoint: "api.datadoghq.com"
+
+shard:
+  maxShards: 128
+  leaseDuration: 30s
+  leaseRenewInterval: 10s
+  leaseRenewJitter: 2s
+  leaseExpiryBuffer: 5s
+  shutdownGracefulPeriod: 5s
+  defaultShardsForNewNamespaces: 128
+  namespaceShardsRegistry: {}
+  cluster:
+    bindAddress: "0.0.0.0:7946"
+    advertiseAddress: "${POD_IP}:7946"
+    advertiseGrpcAddress: "${POD_IP}:7233"
+    staticAddresses: []
+    numberOfVNodes: 128
+    minMembersBeforeReady: 3
+    claimRetryInterval: 1s
+    claimRetryIntervalJitter: 500ms
+    discovery:
+      mode: dns
+      serviceDns: "dex-headless.default.svc.cluster.local"
+      port: 7946
+      refreshInterval: 10s
+
+tasklist:
+  cluster:
+    bindAddress: "0.0.0.0:7947"
+    advertiseAddress: "${POD_IP}:7947"
+    advertiseGrpcAddress: "${POD_IP}:7234"
+    staticAddresses: []
+    numberOfVNodes: 128
+    minMembersBeforeReady: 3
+    claimRetryInterval: 1s
+    claimRetryIntervalJitter: 500ms
+    discovery:
+      mode: dns
+      serviceDns: "dex-headless.default.svc.cluster.local"
+      port: 7947
+      refreshInterval: 10s
+
+runEngine:
+  maxCASRetries: 3
+
+matchingEngine:
+  workerHeartbeatTimeout: 10s
+
+taskProcessor:
+  numWorkers: 4
+  immediateBatchReadLimit: 100
+  immediatePollInterval: 500ms
+  immediateDeleteInterval: 5s
+  immediateDeleteIntervalJitter: 1s
+  timerBatchReadLimit: 100
+  timerMinLookAheadDuration: 1s
+  timerMaxLookAheadDuration: 60s
+  timerDeleteInterval: 5s
+  timerDeleteIntervalJitter: 1s

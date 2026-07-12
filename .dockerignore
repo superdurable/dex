@@ -19,12 +19,12 @@
 # Go compiled binaries — exclude from Docker build context
 *.test
 server/main
-server/dwf-server
+server/dex-server
 benchmark/benchmarkworker
-benchmark/dwf-benchmark-worker
+benchmark/dex-benchmark-worker
 benchmarkworker
-dwf-server
-dwf-benchmark-worker
+dex-server
+dex-benchmark-worker
 *.exe
 *.dll
 *.so

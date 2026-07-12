@@ -1,0 +1,64 @@
+# Mongo backend override for the base docker-compose.e2e.yaml. Adds a
+# single-node replica-set MongoDB + its schema init and points the dex-server
+# at it. Compose both files together (see docker-compose.e2e.yaml header).
+#
+# Mongo runs as a single-node replica set (rs0) because dex uses multi-document
+# transactions; sharding (mongos) is not required. v0.js wraps each
+# sh.enableSharding / sh.shardCollection in try/catch so it SKIPs gracefully on
+# a non-sharded cluster while still creating all databases + indexes.
+services:
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    # Not published by default. Override MONGO_HOST_PORT=... to mongosh in.
+    ports:
+      - "${MONGO_HOST_PORT:-127.0.0.1:0}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ../server/internal/persistence/mongo/schema:/schema:ro
+    entrypoint:
+      - bash
+      - -lc
+      - |
+        set -e
+        echo "Initiating replica set rs0..."
+        mongosh --host mongo:27017 --quiet --eval '
+          try {
+            rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]});
+            print("rs0 initiated");
+          } catch (e) {
+            print("rs0 already initialized: " + e.message);
+          }
+        '
+        echo "Waiting for primary..."
+        for i in $(seq 1 30); do
+          state=$$(mongosh --host mongo:27017 --quiet --eval 'try { rs.status().myState } catch (e) { -1 }' || echo -1)
+          if [ "$$state" = "1" ]; then echo "Primary is up"; break; fi
+          sleep 1
+        done
+        echo "Running schema v0.js..."
+        mongosh --host mongo:27017 --quiet /schema/v0.js
+        echo "Mongo init complete."
+
+  server:
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    environment:
+      DEX_DB_BACKEND: "mongo"
+      DEX_MONGO_URI: "mongodb://mongo:27017/?replicaSet=rs0"
+
+volumes:
+  mongo_data:

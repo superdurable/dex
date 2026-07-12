@@ -1,0 +1,12 @@
+# Single-node docker e2e stack. In-container loopback for cross-service
+# clients; distinct memberlist ports (shard 7946, tasklist 7947).
+shard:
+  cluster:
+    bindAddress: "0.0.0.0:7946"
+    advertiseGrpcAddress: "127.0.0.1:7233"
+    minMembersBeforeReady: 1
+tasklist:
+  cluster:
+    bindAddress: "0.0.0.0:7947"
+    advertiseGrpcAddress: "127.0.0.1:7234"
+    minMembersBeforeReady: 1

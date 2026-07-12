@@ -7,7 +7,7 @@ alwaysApply: false
 # Server Error Handling: Always Use CategorizedError
 
 All server-side Go code (`server/`) must use `errors.CategorizedError` from
-`github.com/durableworkflow/dex/server/common/errors` — never plain `error`.
+`github.com/superdurable/dex/server/common/errors` — never plain `error`.
 
 ## Rules
 

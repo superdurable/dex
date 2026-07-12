@@ -1,0 +1,46 @@
+# Postgres backend override for the base docker-compose.e2e.yaml. Adds the
+# Postgres server + its schema init and points the dex-server at it. Compose
+# both files together (see docker-compose.e2e.yaml header). Used by default.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dex
+      POSTGRES_PASSWORD: dex
+      POSTGRES_DB: postgres
+    # Not published by default (only consumed inside the docker network).
+    # Override POSTGRES_HOST_PORT=127.0.0.1:5432 to psql in from the host.
+    ports:
+      - "${POSTGRES_HOST_PORT:-127.0.0.1:0}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dex -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  postgres-init:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: dex
+      PGPASSWORD: dex
+    volumes:
+      - ../server/internal/persistence/postgres/schema:/schema:ro
+    entrypoint: ["bash", "/schema/init.sh"]
+
+  server:
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+    environment:
+      DEX_DB_BACKEND: "postgres"
+      DEX_POSTGRES_URI: "postgres://dex:dex@postgres:5432/?sslmode=disable"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dex.headlessServiceName" . }}
+  labels:
+    {{- include "dex.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.headlessService.annotations | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: {{ .Values.headlessService.publishNotReadyAddresses }}
+  selector:
+    {{- include "dex.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: shard-gossip-tcp
+      port: {{ .Values.headlessService.shardGossipPort }}
+      targetPort: shard-gossip
+      protocol: TCP
+    - name: shard-gos-u
+      port: {{ .Values.headlessService.shardGossipPort }}
+      targetPort: {{ .Values.headlessService.shardGossipPort }}
+      protocol: UDP
+    - name: tasklist-gossip-tcp
+      port: {{ .Values.headlessService.tasklistGossipPort }}
+      targetPort: tasklist-gossip
+      protocol: TCP
+    - name: tasklist-gos-u
+      port: {{ .Values.headlessService.tasklistGossipPort }}
+      targetPort: {{ .Values.headlessService.tasklistGossipPort }}
+      protocol: UDP

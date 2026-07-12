@@ -1,0 +1,25 @@
+replicaCount: 3
+
+image:
+  repository: us-central1-docker.pkg.dev/your-project/your-repo/dex-server
+  tag: latest
+
+service:
+  type: ClusterIP
+
+secrets:
+  mongo:
+    existingSecret: dex-atlas
+    uriKey: uri
+
+server:
+  config:
+    metrics:
+      provider: prometheus
+      env: prod
+    persistence:
+      # This values file targets MongoDB Atlas; override the chart's
+      # postgres default. Per-store databases are derived automatically.
+      backend: mongo
+      mongo:
+        uri: "${DEX_MONGO_URI}"

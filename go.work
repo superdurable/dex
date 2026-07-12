@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	./benchmark
+	./examples-go
+	./protocol-grpc
+	./sdk-go
+	./server
+)
