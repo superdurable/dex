@@ -1,0 +1,79 @@
+---
+description: Server tests must isolate Mongo databases and ports per package so go test runs them in parallel
+alwaysApply: true
+---
+
+# Test Database & Port Isolation
+
+`server/` tests run in parallel across packages (no `-p 1`). Cross-package isolation is by **per-store database prefix** and **disjoint port ranges**, not by `DeleteAll`. Follow these rules whenever you add tests under `server/`.
+
+## 0. Backend selection (Postgres default, Mongo selectable)
+
+- The integration/e2e suite runs against the backend named by `DWF_TEST_PERSISTENCE_BACKEND` (`postgres` default, or `mongo`). CI runs the whole suite once per backend.
+- The backend URI comes from `DWF_TEST_POSTGRES_URI` or `DWF_TEST_MONGO_URI`; `testhelpers.TestDBURI()` returns the active one and tests skip when it is unset.
+- Use the backend-agnostic helpers: `testhelpers.ApplyPersistence(t, &cfg, uri, dbPrefix)`, `testhelpers.PersistenceConfigForPrefix(uri, dbPrefix)`, `testhelpers.EnsureSchemaForPrefix(dbPrefix)`, and `testhelpers.NewStoreSetForTest(t, dbPrefix)` for direct store construction. Do NOT hardcode `mongo.New*` in integration tests.
+- Backend-specific package tests (`internal/persistence/mongo`, `internal/persistence/postgres`, `internal/engine`) read their own URI directly and skip when unset.
+
+## 1. Per-package database prefix
+
+- Every test package that touches the DB MUST route its stores to its own `dex_test_<pkg>_*` databases (one per store, for either backend). Two packages must never share a database.
+- For `internal/integration/` sub-packages, use the existing helpers:
+
+```go
+// server/internal/integration/<pkg>/main_test.go
+package mypkg
+
+import (
+	"testing"
+
+	"github.com/durableworkflow/dex/server/internal/integration/testhelpers"
+)
+
+const dbPrefix = "dex_test_integration_mypkg"
+
+func TestMain(m *testing.M) { testhelpers.RunMain(m, dbPrefix) }
+```
+
+- Inside the package, use `testhelpers.ApplyPersistence(t, &cfg, uri, dbPrefix)` to overlay the per-store DBs onto a `config.Config` (backend-aware), or `testhelpers.NewStoreSetForTest(t, dbPrefix)` for direct store construction.
+- For tests that build a single `RunStore` / `BlobStore` directly, use `testhelpers.RunsDBName(dbPrefix)` instead of hardcoding any database name.
+
+## 2. Per-test isolation by namespace, NOT by DeleteAll
+
+- Tests MUST NOT call `DeleteAll`-style full-collection wipes — those force the package to run sequentially and break sharing of expensive setup (multi-node cluster, memberlist).
+- Generate a unique namespace per test: `ns := "mytest-" + uuid.NewString()`. Scope every write/read to that namespace. Stale data from prior tests then becomes invisible without ever being deleted.
+- One-shot table cleanup is acceptable in `TestMain` (e.g., wiping the runs collection once before any test runs to reset batch-reader cursors). Never per-test.
+
+## 3. Split heavy test packages
+
+- If a single test package's wall-time crosses **~30s**, split it into sub-packages (each with its own `dbPrefix`, `TestMain`, port range). The natural boundary is per-file.
+- Move shared helpers (`StartE2EServer`, fake stores, etc.) into `internal/integration/testhelpers/` (a regular Go package, not `_test`). Each sub-package imports them.
+- Don't grow `internal/integration/testhelpers/` with anything that isn't shared by ≥2 sub-packages. Per-package needs stay in the sub-package.
+
+## 4. Share expensive setup via `TestMain`
+
+- Multi-node clusters, memberlist, docker-managed processes, or any boot that takes >1s should be set up once in `TestMain` and shared across testcases. The cluster sub-package is the reference: see [server/internal/integration/cluster/main_test.go](server/internal/integration/cluster/main_test.go) and `bootSharedCluster` in [server/internal/integration/cluster/cluster_test.go](server/internal/integration/cluster/cluster_test.go).
+- Errors from the shared setup must be surfaced to the first test that uses them via a package-level `var <foo>StartErr error` so the failure is reported per-test (not as a cryptic process exit).
+
+## 5. No fixed `time.Sleep` for async convergence
+
+- Waiting for memberlist gossip, lease debounce, batch-reader cursors, or any other async state MUST use polling (`require.Eventually` or a hand-rolled loop), never `time.Sleep`.
+- Polling lets tests proceed as soon as the condition holds (typically <500ms instead of 2s+) and surfaces real timeouts loudly. Reference: the gossip-converged polling helpers used by the integration cluster tests in `server/internal/integration/cluster/`.
+- `time.Sleep` is only acceptable inside the *system under test* (e.g., a step that must take 100ms) — never as a barrier in test setup.
+
+## 6. Port ranges (disjoint per package)
+
+Memberlist requires a fixed UDP+TCP port (cannot use `:0`). All reservations live in [server/internal/integration/testhelpers/testports/testports.go](server/internal/integration/testhelpers/testports/testports.go) — never hardcode a literal port in a test file. Each test that needs fixed memberlist ports imports the constant and offsets from it. The `testports` package is intentionally a leaf (no imports outside the standard library) so that lower-level packages like `internal/cluster` can import it without creating an import cycle through the heavier helpers in `testhelpers`.
+
+Current reservations (keep in sync with `testports.go`):
+
+| Constant | Range | Used by |
+|---|---|---|
+| `testports.InternalCluster` | `37946–37999` | `server/internal/cluster` |
+| `testports.IntegrationCluster` | `17946–17999` | `server/internal/integration/cluster` |
+
+When adding a new package that needs memberlist ports, add a new constant (with a disjoint range) to `testports.go` and reference it from the new package's tests.
+
+## 7. Always run tests via Makefile target
+
+- Use `make test` / `make test-unit` / `make test-integration` rather than naked `go test ./...`. The Makefile is the single source of truth for parallel strategy, timeouts, and `-count`.
+- Both local dev and CI ([.github/workflows/server-tests.yml](.github/workflows/server-tests.yml)) call the Makefile, so changes to test invocation only happen in one place.

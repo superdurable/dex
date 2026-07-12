@@ -1,0 +1,24 @@
+---
+description: Keep compiled binaries out of git and Docker contexts
+alwaysApply: true
+---
+
+# Update Ignore Files When Producing Binaries
+
+Any command or code change that can produce a compiled binary must have a matching entry in **both** `.gitignore` and `.dockerignore` before the command runs.
+
+## When This Applies
+
+- `go build -o <path>` — add `<path>` to both ignore files.
+- `go test -c` — produces `*.test` executables (already covered repo-wide).
+- Adding a new `main` package (new directory with `package main`) — add the default binary name (`<dir-name>`) to both ignore files.
+- Dockerfile `RUN go build -o /out/<name>` — ensure the corresponding source-tree path for that binary is in `.dockerignore`.
+- Any Makefile target, shell script, or CI step that produces a binary.
+
+## Rules
+
+1. **Check first**: Before running `go build` or `go test -c`, verify the output path is already in `.gitignore` and `.dockerignore`. If not, add it.
+2. **Be specific**: Use exact paths (`benchmark/benchmarkworker`) not broad globs (`**benchmarkworker`) that can accidentally exclude source directories. Safe globs: `*.test`, `*.exe`, `*.dll`, `*.so`, `*.dylib`.
+3. **Both files**: Always update `.gitignore` AND `.dockerignore` together.
+4. **Delete strays**: If you find an uncommitted binary in the working tree, delete it.
+5. **New binaries in git status**: When `git status` shows untracked files that are compiled output (Mach-O/ELF executables, `*.test`, or extensionless binaries from `go build`), add an ignore entry for that path or pattern, update `.dockerignore` too, then delete the file — never stage or commit it.

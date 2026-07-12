@@ -1,0 +1,32 @@
+---
+description: Design plans must include both integration tests and end-to-end tests
+alwaysApply: true
+---
+
+# Plan Mode Must Include Test Plans
+
+Every design produced in plan mode must specify testing as part of the deliverable.
+
+## Prefer integration and E2E tests over unit tests
+
+- **Default to integration tests** (`server/internal/integration/runengine/`) and **SDK E2E tests** (`server/internal/integration/sdke2e/`). These exercise the real request path (gRPC client → handler → engine → store → DB) and catch wiring bugs that unit tests miss.
+- **Do NOT add unit tests by default.** Only add unit tests when the user explicitly asks for them, or when testing a pure function whose edge cases cannot be reached through any integration/E2E path.
+
+## Integration Tests (per-component)
+
+- Test each new or modified component with real dependencies (e.g., Postgres/Mongo) but without the full server stack.
+- Located alongside the component or in `server/internal/integration/runengine/`.
+- Example: a new engine flow gets a test in `runengine/runengine_test.go`; a new store method gets a test in `persistence/postgres/stores_test.go`.
+
+## End-to-End Tests (all components wired)
+
+- Test the full request path through the real server stack with the SDK worker.
+- Located in `server/internal/integration/sdke2e/`.
+- Must exercise cross-component interactions that integration tests can't cover (e.g., task processor picks up task written by RunsService, matching forwarding across instances, worker run-loop behavior).
+
+## In the Plan
+
+- The plan must list specific test scenarios, not just "add tests".
+- For each scenario, state whether it is integration or E2E and why.
+- For cluster features, include a multi-instance E2E test scenario.
+- Call out which existing tests need updating if interfaces change.

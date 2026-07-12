@@ -1,0 +1,798 @@
+syntax = "proto3";
+
+package dex;
+
+option go_package = "github.com/durableworkflow/dex/protocol-grpc/gen/dexpb";
+
+// ============================================================================
+// RunsService
+// ============================================================================
+
+service RunsService {
+  rpc StartRun(StartRunRequest) returns (StartRunResponse);
+  rpc StopRun(StopRunRequest) returns (StopRunResponse);
+  // Generic run read: returns full run state with blob refs resolved.
+  // Caller passes status_filter to only return if status matches.
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  rpc PublishToChannel(PublishToChannelRequest) returns (PublishToChannelResponse);
+  // Long-poll: blocks until the condition is met, the run closes, or the
+  // caller's RPC context deadline elapses. See WaitForHistoryEventRequest.
+  rpc WaitForHistoryEvent(WaitForHistoryEventRequest) returns (WaitForHistoryEventResponse);
+
+  // Worker calls these directly after executing steps (not through matching service).
+  // namespace is included in the request (worker gets it from PollForRunResponse).
+  rpc ProcessStepExecuteCompleted(StepExecuteCompletedRequest) returns (StepExecuteCompletedResponse);
+  // Note: this is wait for method completed, not the waitFor conditions satisfied
+  rpc ProcessStepWaitForCompleted(StepWaitForCompletedRequest) returns (StepWaitForCompletedResponse);
+  // ProcessStepsUnblocked is called by the worker to durably checkpoint
+  // sibling-step unblocks that driven by an external channel delivery or a worker-local timer
+  // fire while status=Running).
+  rpc ProcessStepsUnblocked(StepsUnblockedRequest) returns (StepsUnblockedResponse);
+  // Transition a run from WaitingForWorker to Running for async match pickup.
+  rpc ProcessAsyncMatch(ProcessAsyncMatchRequest) returns (ProcessAsyncMatchResponse);
+  // Record a heartbeat from the worker for the given run.
+  rpc ProcessRecordHeartbeat(ProcessRecordHeartbeatRequest) returns (ProcessRecordHeartbeatResponse);
+  // Worker releases a run: yield for shutdown or park all-steps-waiting.
+  rpc ProcessReleaseRun(ProcessReleaseRunRequest) returns (ProcessReleaseRunResponse);
+}
+
+// ============================================================================
+// MatchingService
+// ============================================================================
+
+service MatchingService {
+  // Worker long-polls for a single run.
+  rpc PollForRun(PollForRunRequest) returns (PollForRunResponse);
+  // Server-to-server bidi streaming RPC (called by task processor on run-service).
+  // Flow: engine sends DispatchRunRequest -> matching tries sync match ->
+  // matching sends DispatchRunResponse{sync_matched} -> engine marks run Running ->
+  // engine sends PollForRunResponse -> matching delivers to worker.
+  rpc DispatchRun(stream EngineToMatchingDispatchMessage) returns (stream MatchingToEngineDispatchMessage);
+
+  // Worker long-polls for external events (sticky to worker_id).
+  rpc PollForExternalEvents(PollForExternalEventsRequest) returns (PollForExternalEventsResponse);
+  // Best-effort delivery of external events (channel messages, stop requests)
+  // from RunEngine to the worker via the matching service. Sticky-routed by
+  // worker_id. Multiple event types share this single delivery channel so the
+  // worker only needs one poller goroutine pool for all out-of-band signals.
+  rpc DeliverExternalEvents(DeliverExternalEventsRequest) returns (DeliverExternalEventsResponse);
+}
+
+// ============================================================================
+// OpsService
+// ============================================================================
+//
+// OpsService is a read-only operational service(visibility&history)
+service OpsService {
+  // ListRuns returns one page of runs matching (namespace, flow_type,
+  // status).
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+
+  // GetHistoryEvents returns events for a run with id > after_id, ordered
+  // by id ASC. Default and max page size = 1000 (enforced server-side).
+  rpc GetHistoryEvents(GetHistoryEventsRequest) returns (GetHistoryEventsResponse);
+}
+
+// --- StartRun ---
+
+message StartRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string flow_type = 3;
+  string task_list_name = 4;
+  StartRunOptions options = 5;
+  // Starting steps to create as initial ActiveStepExecutions.
+  repeated NextStep starting_steps = 6;
+}
+
+message StartRunOptions {
+  // Reserved for future per-run options.
+}
+
+message StartRunResponse {}
+
+// --- StopRun ---
+
+message StopRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  // Target terminal status: STOP_DECISION_COMPLETE or STOP_DECISION_FAIL.
+  StopDecision stop_decision = 3;
+  // Optional user-provided reason, recorded on the RunStop history event.
+  string reason = 4;
+}
+
+message StopRunResponse {}
+
+// --- PublishToChannel ---
+
+message PublishToChannelRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string channel_name = 3;
+  repeated Value values = 4;
+}
+
+message PublishToChannelResponse {}
+
+// --- History ---
+
+message WaitForHistoryEventRequest {
+  string namespace = 1;
+  string run_id = 2;
+  reserved 4; // was timeout_ms; the RPC context deadline bounds the wait now
+  // Exactly one wait_type must be set (else InvalidArgument).
+  oneof condition {
+    // Wake when the run's latest inserted event id reaches at least this
+    // value (or the run closes).
+    int64 until_event_id = 5;
+    // Wake only when the run reaches a terminal (closed) state.
+    bool until_run_stop = 6;
+  }
+}
+
+message WaitForHistoryEventResponse {
+  int64 latest_event_id = 1;
+  // Terminal persistence.RunStatus (0..5) when the run has closed; -1 (invalid)
+  // otherwise. Zero is Pending, a real status, so it cannot mean "not closed".
+  int32 run_status = 2;
+}
+
+// --- GetRun ---
+
+message GetRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  // Only return the run if its status matches one of these values.
+  // Empty = no filter (return regardless of status).
+  repeated int32 status_filter = 3;
+}
+
+message GetRunResponse {
+  bool found = 1;  // false if run not found or status doesn't match filter
+  string run_id = 2;
+  string namespace = 3;
+  string flow_type = 4;
+  string task_list_name = 5;
+  int32 status = 6;
+  map<string, int32> step_execution_id_counters = 7;
+  map<string, Value> state = 8;
+  map<string, ChannelMessages> unconsumed_channel_messages = 9;
+  // key is step execution id
+  map<string, ActiveStepExecution> active_step_executions = 10;
+  int64 worker_request_counter = 11;
+  int64 version = 12;
+  int64 server_timestamp_ms = 13;
+  bool durable_timer_fired = 14;
+  // See PollForRunResponse.external_channel_message_counter — same semantics.
+  int64 external_channel_message_counter = 15;
+  string worker_id = 16;
+}
+
+// --- ProcessAsyncMatch ---
+
+message ProcessAsyncMatchRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string worker_id = 3;
+}
+
+message ProcessAsyncMatchResponse {
+  PollForRunResponse poll_for_run_response = 1;
+  AsyncMatchOutcome outcome = 2;
+}
+
+enum AsyncMatchOutcome {
+  ASYNC_MATCH_OUTCOME_SUCCESS = 0;
+  ASYNC_MATCH_OUTCOME_STALE_SUCCESS = 1;
+}
+
+// --- ProcessRecordHeartbeat ---
+
+message ProcessRecordHeartbeatRequest {
+  string namespace = 1;
+  string run_id = 2;
+  WorkerCallContext context = 3;
+}
+
+message ProcessRecordHeartbeatResponse {
+  WorkerCallResponse worker_call_response = 1;
+}
+
+// --- ProcessReleaseRun ---
+
+message ProcessReleaseRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string worker_id = 3;
+  ReleaseRunReason release_reason = 4;
+  WorkerCallContext context = 5;
+}
+
+enum ReleaseRunReason {
+  RELEASE_RUN_REASON_UNSPECIFIED = 0;
+  RELEASE_RUN_REASON_YIELD_TO_ANOTHER_WORKER = 1;
+  RELEASE_RUN_REASON_ALL_STEPS_WAITING = 2;
+}
+
+message ProcessReleaseRunResponse {
+  WorkerCallResponse worker_call_response = 1;
+}
+
+// --- PollForRun (long-poll unary) ---
+
+message PollForRunRequest {
+  string namespace = 1;
+  string task_list_name = 2;
+  string worker_id = 3;
+  // When non-empty, this poll was initiated by another matching-service
+  // partition (the value is the forwarder's wire name). The receiver
+  // (always root in our two-level model) MUST switch to non-blocking
+  // mode: try an immediate sync match / async pickup against its local
+  // matcher; if no task is ready right now, return an empty
+  // PollForRunResponse instead of holding the request open for the
+  // long-poll deadline. This lets the forwarding partition's matcher.Poll
+  // race a quick "is there anything at root?" attempt against its own
+  // local sources without sacrificing its long-poll budget.
+  // Empty when the poll comes directly from a worker's SDK.
+  string forwarded_from_partition = 4;
+}
+
+message PollForRunResponse {
+  string run_id = 1;
+  string namespace = 2;
+  map<string, int32> step_execution_id_counters = 3;
+  map<string, Value> state = 4;
+  map<string, ChannelMessages> unconsumed_channel_messages = 5;
+  map<string, ActiveStepExecution> active_step_executions = 6;
+  int64 server_timestamp_ms = 7;
+  int64 worker_request_counter = 8;
+  // true if this run was woken by a durable timer firing (AllStepsWaiting -> Pending).
+  // Worker uses this to know it should evaluate timer conditions as satisfied.
+  bool durable_timer_fired = 9;
+  // The registered flow type, so the worker can look up the correct step
+  // implementations from its registry.
+  string flow_type = 10;
+  // Highest external-channel-message id the engine has assigned to this run.
+  // The worker uses this to dedupe external channel message pushes that
+  // re-deliver a message already present in unconsumed_channel_messages
+  // (e.g. when the worker just polled). Starts at 0 if no external publish
+  // has reached the server yet.
+  int64 external_channel_message_counter = 11;
+  string worker_id = 12;
+  // Run-global method id counter; worker mirrors for pre-allocation.
+  int64 step_method_exe_counter = 13;
+}
+
+// Sent when a step's Execute method completes (both fresh execution and
+// after resume). Includes condition results so the server can record
+// the full picture in history and update the channel messages.
+// Worker sends this directly to RunsService.ProcessStepExecuteCompleted.
+message StepExecuteCompletedRequest {
+  string namespace = 1;
+  string run_id = 2;
+  // The step execution that completed. Server uses this to remove the step
+  // from active_step_executions.
+  string step_exe_id = 3;
+  bool request_to_drain_channels = 4;
+  StopDecision stop_decision = 5;
+  map<string, Value> state_to_upsert = 6;
+  repeated NextStep next_steps = 7;
+  repeated string canceled_step_executions = 8;
+  // Messages published by Execute to internal channels.
+  repeated ChannelPublish channel_publish = 9;
+  // Steps that the worker determined are now unblocked by the channel
+  // publishes above. The worker evaluates conditions locally and reports
+  // transitions from WAITING_FOR_CONDITION to INVOKING_EXECUTE.
+  repeated StepUnblocked steps_unblocked = 10;
+  WorkerCallContext context = 11;
+  StepMethodReport execute_method = 12;
+}
+
+message StepExecuteCompletedResponse {
+  string run_id = 1;
+  int64 history_event_id = 2;
+  WorkerCallResponse worker_call_response = 3;
+}
+
+message NextStep {
+  string step_id = 1;
+  Value input = 2;
+  // When true, the server creates the step with INVOKING_EXECUTE status
+  // (skipping WaitFor). When false, INVOKING_WAIT_FOR is used.
+  bool skip_wait_for = 3;
+  StepOptionsSnapshot step_options_snapshot = 4;
+  // Worker pre-allocated from its StepMethodExeCounter mirror. Zero when skip_wait_for.
+  int64 wait_for_method_exe_id = 5;
+  // Worker pre-allocated. Zero when not skip_wait_for.
+  int64 execute_method_exe_id = 6;
+}
+
+// Worker sends this directly to RunsService.ProcessStepWaitForCompleted.
+message StepWaitForCompletedRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string step_exe_id = 3;
+  WaitForCondition wait_for_condition = 4;
+  map<string, Value> state_to_upsert = 5;
+  repeated ChannelPublish channel_publish = 6;
+  // Steps that the worker determined are now unblocked by the channel
+  // publishes above. Each entry transitions a step from
+  // WAITING_FOR_CONDITION to INVOKING_EXECUTE on the server side.
+  repeated StepUnblocked steps_unblocked = 7;
+  WorkerCallContext context = 8;
+  StepMethodReport wait_for_method = 9;
+  // Set when WaitFor retries exhaust and ProceedToAfterRetryExhausted is configured.
+  repeated NextStep next_steps = 10;
+}
+
+message StepWaitForCompletedResponse {
+  string run_id = 1;
+  int64 history_event_id = 2;
+  WorkerCallResponse worker_call_response = 3;
+}
+
+message StepsUnblockedRequest {
+  string namespace = 1;
+  string run_id = 2;
+  repeated StepUnblocked steps_unblocked = 3;
+  WorkerCallContext context = 4;
+}
+
+message StepsUnblockedResponse {
+  WorkerCallResponse worker_call_response = 1;
+}
+
+// Reported by the worker when an internal channel publish satisfies
+// a waiting step's condition. The worker evaluates this locally.
+message StepUnblocked {
+  string step_exe_id = 1;
+  repeated ConditionResult condition_results = 2;
+  // Worker pre-allocated execute_method_exe_id for this promote.
+  int64 execute_method_exe_id = 3;
+}
+
+message ChannelPublish {
+  string channel_name = 1;
+  repeated Value values = 2;
+}
+
+
+
+// Per-method completion metadata on Completed RPCs and history events.
+message StepMethodReport {
+  StepMethodOutcome outcome = 1;
+  string error = 2;
+  string error_stack_trace = 3;
+  int32 attempt_count = 4;
+}
+
+// Per-step retry patch reported by the worker on every WorkerCallContext RPC.
+message StepRetryStateUpdate {
+  StepRetryState wait_for_retry_state = 1;
+  StepRetryState execute_retry_state = 2;
+  bool clear_wait_for_retry_state = 3;
+}
+
+message StepRetryState {
+  int64 first_attempt_time_ms = 1;
+  int32 current_attempts = 2;
+  string last_error = 3;
+  string last_error_stack_trace = 4;
+}
+
+enum StepMethodOutcome {
+  STEP_METHOD_OUTCOME_SUCCEEDED = 0;
+  STEP_METHOD_OUTCOME_FAILED = 1;
+}
+
+// --- Shared worker call context/response ---
+
+message WorkerCallContext {
+  string worker_id = 1;
+  int64 last_received_external_channel_message_id = 2;
+  // Monotonically increasing per-run counter for idempotency.
+  // Worker increments before each call. Server checks:
+  //   request == runRow → already processed (idempotent no-op)
+  //   request == runRow+1 → proceed ($set counter on success)
+  //   request > runRow+1 → bug (reject)
+  //   request < runRow → stale (reject)
+  // Applies to ALL worker→server APIs including ProcessRecordHeartbeat.
+  int64 worker_request_counter = 3;
+  map<string, StepRetryStateUpdate> active_step_retry_updates = 4;
+}
+
+message WorkerCallResponse {
+  // for worker catch up external messages delivery
+  repeated UnreceivedChannelMessage unreceived_external_channel_messages = 1;
+  bool stop_requested = 2;
+}
+
+message UnreceivedChannelMessage {
+  string channel_name = 1;
+  int64 id = 2;
+  Value value = 3;
+}
+
+message ChannelMessage {
+  int64 id = 1;
+  Value value = 2;
+}
+
+message ChannelMessages {
+  repeated ChannelMessage messages = 1;
+}
+
+message EngineToMatchingDispatchMessage {
+  oneof message {
+    DispatchRunRequest request = 1;
+    PollForRunResponse poll_for_run_response = 2;
+  }
+}
+
+message MatchingToEngineDispatchMessage {
+  oneof message {
+    DispatchRunResponse response = 1;
+  }
+}
+
+message DispatchRunRequest {
+  string namespace = 1;
+  string task_list_name = 2;
+  string run_id = 3;
+  int32 shard_id = 4;
+  // The immediate task ID that triggered this dispatch.
+  // Used as the task_id in async match upsert/delete for race safety.
+  string task_id = 5;
+  // Non-zero when this dispatch was triggered by a durable timer firing.
+  // The worker uses durable_timer_fire_at directly as effectiveNow when
+  // evaluating timer conditions, consistent with the server-side evaluation.
+  int64 durable_timer_fire_at = 6;
+  // When non-empty, this dispatch was forwarded from another matching-service
+  // partition (the value is the forwarder's wire name). The receiver
+  // (always root in our two-level model) acts as a sync-match-only
+  // endpoint: on sync match miss it MUST return sync_matched=false WITHOUT
+  // writing to its own DB — the forwarding partition will handle the
+  // async DB fallback locally. On sync match hit, root behaves identically
+  // to a normal DispatchRun (waits for caller's msg3 PollForRunResponse and
+  // delivers to the local poller); the forwarding partition is a
+  // transparent stream relay.
+  // Empty when the dispatch comes directly from the taskprocessor.
+  string forwarded_from_partition = 7;
+}
+
+message DispatchRunResponse {
+  // true if a worker picked up the run immediately (sync match)
+  bool sync_matched = 1;
+  string worker_id = 2;
+}
+
+// --- ExternalEvent (delivered via DeliverExternalEvents / PollForExternalEvents) ---
+
+// ExternalEvent is the unit of best-effort sticky-routed delivery from
+// RunEngine to a worker. The oneof discriminates the event type; new event
+// types can be added without changing the RPC surface.
+message ExternalEvent {
+  string run_id = 1;
+  oneof event {
+    // ChannelMessagesReceived: external channel publishes for the run.
+    // Worker applies in ID order to local channel state.
+    ChannelMessagesReceived channel_messages_received = 2;
+    // StopRequested: user called StopRun on this run. Worker should
+    // gracefully stop the run and call ProcessReleaseRun(yield).
+    // Same signal as WorkerCallResponse.stop_requested but delivered
+    // out-of-band (not piggybacked on a worker→server API response),
+    // so worker learns about it within ~ms instead of waiting for the
+    // next heartbeat (~24s).
+    StopRequested stop_requested = 3;
+  }
+}
+
+message ChannelMessagesReceived {
+  string channel_name = 1;
+  repeated ChannelMessage messages = 2;
+}
+
+message StopRequested {}
+
+// --- DeliverExternalEvents ---
+
+message DeliverExternalEventsRequest {
+  string namespace = 1;
+  string worker_id = 2;
+  repeated ExternalEvent events = 3;
+}
+
+message DeliverExternalEventsResponse {
+  // Number of events successfully sync-matched to a poller. < len(events)
+  // means some were dropped (no poller waiting). Catch-up via heartbeat
+  // backfills channel messages; stop_requested re-delivers via heartbeat
+  // response too so a dropped stop is not lost.
+  int32 delivered_count = 1;
+}
+
+// --- PollForExternalEvents ---
+
+message PollForExternalEventsRequest {
+  string namespace = 1;
+  string worker_id = 2;
+}
+
+message PollForExternalEventsResponse {
+  // Empty when long-poll timeout with no events available.
+  repeated ExternalEvent events = 1;
+}
+
+// HistoryEvent represents one append-only event in a run's history. The
+// payload oneof discriminates the schema; clients dispatch on the variant
+// rather than parsing a separate type+bytes pair.
+message HistoryEvent {
+  int64 id = 1;
+  int64 occurred_at_ms = 2;
+  // Best-effort: empty for events originated by API callers (StartRun,
+  // StopRun, PublishToChannel) and engine-internal events.
+  string worker_id = 3;
+  oneof payload {
+    HistoryRunStartPayload run_start = 10;
+    HistoryRunStopPayload run_stop = 11;
+    HistoryStepExecuteCompletedPayload step_execute_completed = 12;
+    HistoryStepWaitForCompletedPayload step_wait_for_completed = 13;
+    HistoryChannelPublishPayload channel_publish = 14;
+    HistoryStepsUnblockedPayload steps_unblocked = 15;
+  }
+}
+
+message GetHistoryEventsRequest {
+  string namespace = 1;
+  string run_id = 2;
+  int64 after_id = 3;
+  // 0 means "use server default (1000)"; values > 1000 are clamped to 1000.
+  int32 limit = 4;
+}
+
+message GetHistoryEventsResponse {
+  repeated HistoryEvent events = 1;
+}
+
+// --- History payload messages ---
+//
+// One message per HistoryEvent oneof variant. Each one mirrors the
+// corresponding API/worker request, omitting `namespace` and `run_id`
+// (those live on the HistoryEvent envelope and on the storage shard key).
+
+message HistoryRunStartPayload {
+  string flow_type = 1;
+  string task_list_name = 2;
+  StartRunOptions options = 3;
+  repeated NextStep starting_steps = 4;
+}
+
+// HistoryRunStopPayload carries the terminal status of the run, stamped
+// the moment it reached a terminal state.
+message HistoryRunStopPayload {
+  // persistence.RunStatus int (0..5).
+  int32 run_status = 1;
+  // User-provided stop reason from StopRun; empty for worker-driven ends.
+  string reason = 2;
+}
+
+message HistoryStepExecuteCompletedPayload {
+  string step_exe_id = 1;
+  string from_step_exe_id = 2;
+  int64 worker_request_counter = 3;
+  bool request_to_drain_channels = 4;
+  StopDecision stop_decision = 5;
+  map<string, Value> state_to_upsert = 6;
+  repeated NextStep next_steps = 7;
+  repeated string canceled_step_executions = 8;
+  repeated ConditionResult condition_results = 9;
+  repeated ChannelPublish channel_publish = 10;
+  repeated StepUnblocked steps_unblocked = 11;
+  StepMethodReport execute_method = 12;
+}
+
+message HistoryStepWaitForCompletedPayload {
+  string step_exe_id = 1;
+  int64 worker_request_counter = 2;
+  WaitForCondition wait_for_condition = 3;
+  map<string, Value> state_to_upsert = 4;
+  repeated ChannelPublish channel_publish = 5;
+  repeated StepUnblocked steps_unblocked = 6;
+  string from_step_exe_id = 7;
+  StepMethodReport wait_for_method = 8;
+  // Set when WaitFor retries exhaust and ProceedToAfterRetryExhausted is configured.
+  repeated NextStep next_steps = 9;
+}
+
+message HistoryChannelPublishPayload {
+  string channel_name = 1;
+  repeated Value values = 2;
+}
+
+message HistoryStepsUnblockedPayload {
+  int64 worker_request_counter = 1;
+  repeated StepUnblocked steps_unblocked = 2;
+}
+
+enum ListRunsOrderBy {
+  LIST_RUNS_ORDER_BY_START_TIME_DESC = 0;
+  LIST_RUNS_ORDER_BY_UPDATED_AT_DESC = 1;
+}
+
+message ListRunsRequest {
+  string namespace = 1;
+  // Empty string means "any flow type" (no filter applied).
+  string flow_type = 2;
+  // Unset (proto3 field-presence) means "any status". When set, must be a
+  // valid persistence.RunStatus value (0..5).
+  optional int32 status = 3;
+  ListRunsOrderBy order_by = 4;
+  // 0 means "use server default (1000)"; values > 1000 are clamped to 1000.
+  int32 limit = 5;
+  // Opaque cursor returned by the previous page. Empty for the first page.
+  string page_token = 6;
+}
+
+message ListRunsResponse {
+  repeated RunSummary runs = 1;
+  // Empty when the result set is exhausted.
+  string next_page_token = 2;
+}
+
+message RunSummary {
+  string run_id = 1;
+  string namespace = 2;
+  string flow_type = 3;
+  string task_list_name = 4;
+  int32 status = 5;
+  int64 start_time_ms = 6;
+  int64 updated_at_ms = 7;
+}
+
+// ============================================================================
+// Common Types
+// ============================================================================
+
+message EncodedObject {
+  string encoding = 1;
+  bytes payload = 2;
+}
+
+message Value {
+  oneof kind {
+    int64 int_value = 1;
+    double double_value = 2;
+    bool bool_value = 3;
+    NullValue null_value = 4;
+    EncodedObject encoded_object = 5;
+    // SERVER-INTERNAL ONLY. Storage form of an EncodedObject inside the
+    // HistoryStore + OpsFIFO outbox: the actual bytes live in BlobStore
+    // and this string holds the blob_id. The engine rewrites
+    // EncodedObject -> this variant before persisting any history payload
+    // (see engine/history_blob_walker.go); OpsService rewrites it back
+    // to EncodedObject after fetching blobs (see api/history_blob_walker.go).
+    //
+    // MUST NEVER appear on the wire to external clients, in any non-history
+    // persistence record, or as input to inbound RPCs. Servers that receive
+    // it on an inbound request silently drop the value to NullValue (see
+    // pbValueToPersistence) — no DoS surface — but no API contract makes any
+    // promise about what happens.
+    string encoded_object_blob_id_internal_only = 6;
+  }
+}
+
+enum NullValue {
+  NULL_VALUE = 0;
+}
+
+// ============================================================================
+// Wait Conditions
+// ============================================================================
+
+message WaitForCondition {
+  WaitType type = 1;
+  repeated SingleCondition conditions = 2;
+}
+
+enum WaitType {
+  WAIT_TYPE_ANY_OF = 0;
+  WAIT_TYPE_ALL_OF = 1;
+}
+
+message SingleCondition {
+  oneof condition {
+    TimerCondition timer = 1;
+    ChannelCondition channel = 2;
+  }
+}
+
+message TimerCondition {
+  int64 fire_at_unix_ms = 1;
+}
+
+message ChannelCondition {
+  string channel_name = 1;
+  int32 min = 2;
+  int32 max = 3;
+}
+
+message ConditionResult {
+  oneof result {
+    TimerConditionResult timer = 1;
+    ChannelConditionResult channel = 2;
+  }
+}
+
+message TimerConditionResult {
+  bool fired = 1;
+  int64 fire_at_unix_ms = 2;
+}
+
+message ChannelConditionResult {
+  string channel_name = 1;
+  bool satisfied = 2;
+  // Number of messages RESERVED for this step on this channel when the step
+  // was promoted WAITING_FOR_CONDITION -> INVOKING_EXECUTE. Messages stay in
+  // RunRow.UnconsumedChannelMessages until Execute completes (or a reserved
+  // step is cancelled), at which point the reserved range is spliced out.
+  int32 consumed_count = 3;
+}
+
+// ============================================================================
+// Step Execution
+// ============================================================================
+
+enum StepExecutionStatus {
+  STEP_EXECUTION_STATUS_INVOKING_WAIT_FOR = 0;
+  STEP_EXECUTION_STATUS_WAITING_FOR_CONDITION = 1;
+  STEP_EXECUTION_STATUS_INVOKING_EXECUTE = 2;
+}
+
+message ActiveStepExecution {
+  Value input = 1;
+  StepExecutionStatus status = 2;
+  // Only set when status = WAITING_FOR_CONDITION or INVOKING_EXECUTE (for resume context).
+  WaitForCondition wait_for_condition = 3;
+  // Only set when status = INVOKING_EXECUTE and the step was previously waiting.
+  // Contains the evaluated condition results so Execute knows what fired.
+  repeated ConditionResult condition_results = 4;
+  // Retry state reported by the worker via heartbeat. Enables durable backoff:
+  // when a run is re-dispatched to a new worker, the worker can continue the
+  // retry sequence from where the previous worker left off.
+  StepRetryState wait_for_retry_state = 5;
+  StepRetryState execute_retry_state = 6;
+  string from_step_exe_id = 7;
+  // Monotonic per-phase ID allocated when this step enters WaitFor.
+  // Used for locking ordering.
+  int64 wait_for_method_exe_id = 8;
+  // Monotonic per-phase ID allocated on transitioning to INVOKING_EXECUTE (promoted from
+  // waitFor on creation when SkipWaitFor). Used to determine channel reservation & locking ordering.
+  int64 execute_method_exe_id = 9;
+}
+
+enum StopDecision {
+  STOP_DECISION_NONE = 0;
+  STOP_DECISION_COMPLETE = 1;
+  STOP_DECISION_FAIL = 2;
+  STOP_DECISION_DEAD_END = 3;
+}
+
+// Debug/WebUI snapshot of StepOptions at step spawn time. Worker always
+// uses live GetStepOptions() from code — this is debug only.
+message StepRetryPolicySnapshot {
+  int32 max_attempts = 1;
+  int64 initial_interval_ms = 2;
+  double backoff_coefficient = 3;
+  int64 maximum_interval_ms = 4;
+  int64 total_timeout_ms = 5;
+}
+
+message StepOptionsSnapshot {
+  int64 wait_for_method_timeout_ms = 1;
+  int64 execute_method_timeout_ms = 2;
+  StepRetryPolicySnapshot wait_for_method_retry_policy = 3;
+  StepRetryPolicySnapshot execute_method_retry_policy = 4;
+  // Debug/WebUI: error-handler step id when retries exhaust (empty = fail run).
+  string wait_for_method_proceed_to_after_retry_exhausted_step_id = 5;
+  string execute_method_proceed_to_after_retry_exhausted_step_id = 6;
+}

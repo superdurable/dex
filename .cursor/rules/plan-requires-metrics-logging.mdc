@@ -1,0 +1,51 @@
+---
+description: Design plans must include metrics and logging with appropriate levels
+alwaysApply: true
+---
+
+# Plan Mode Must Include Metrics & Logging
+
+Every design produced in plan mode must specify **metrics and logging** as part of the deliverable, not as an afterthought.
+
+## Metrics
+
+- **Define new metrics** in `server/internal/metrics/metrics_defs.go` for any new subsystem or operation.
+- Use the existing tier system to classify each metric:
+  - `MetricTierCritical` (1): Business-critical invariants (e.g., run success rate).
+  - `MetricTierInfo` (2): Required for production operations (e.g., shard-level batch read/delete success/failure).
+  - `MetricTierDebug` (3): Troubleshooting (e.g., per-task counters, histogram sizes).
+  - `MetricTierDeepDebug` (4): Deep investigation only.
+- Add appropriate **tags** in `server/internal/metrics/tags_defs.go` for grouping (e.g., `task_kind`, `api_name`).
+- The plan must list each new metric with its tier, type (Counter/Gauge/Latency/Histogram), and name.
+
+### Default: only add necessary Critical/Info metrics
+
+By default, propose **only** `MetricTierCritical` (1) and `MetricTierInfo` (2) metrics — the ones needed to protect business invariants and run production ops. **Do not add `MetricTierDebug` (3) or `MetricTierDeepDebug` (4) metrics unless the user explicitly asks for them.** If a feature has no Critical/Info metric worth adding, say so (`N/A: <reason>`) rather than padding the plan with Debug counters. When you believe a Debug/DeepDebug metric would genuinely help, mention it as an optional suggestion and let the user opt in — never add it preemptively.
+
+## Logging Levels
+
+This is a **multi-tenant server**. A single tenant's bad input or misconfiguration must never pollute operator logs. Apply different rules for server-side vs worker-side (SDK) logging.
+
+### Server-side (`server/`)
+
+- **INFO**: Shard-level or low-frequency operations that operators need to see in production logs. Examples: batch read/delete results, offset commits, shard claims, shutdown cleanup.
+- **ERROR**: Infrastructure failures that need operator attention. Examples: failed batch read, failed range delete, failed offset commit, store corruption.
+- **WARN**: Degraded but recoverable infrastructure situations. Examples: retry after transient failure, stale data detected, shard re-election.
+- **DEBUG**: Per-task or high-frequency operations useful for troubleshooting but too noisy for production. Examples: individual task submission/completion, watermark advances, sequence allocation. **Also use DEBUG for any condition caused by user/tenant error** (invalid input, counter mismatch, worker mismatch, run not found). These are per-run events that can fire at high volume under a misbehaving tenant and must not inflate WARN/ERROR metrics.
+
+**Rule of thumb**: If the log fires once per shard per interval (seconds), use INFO. If it fires once per task (potentially thousands per second), use DEBUG. If a tenant can trigger it with bad input, use DEBUG regardless of frequency.
+
+### Worker-side (SDK, `sdk-go/`)
+
+- **ERROR**: Any unexpected failure the developer should investigate. Examples: RPC failed after retries, inbox full (catch-up dropped), flow/step not registered.
+- **WARN**: Degraded but recoverable situations the developer should be aware of. Examples: ownership lost on RPC, ReleaseRun best-effort failed, transient RPC retry.
+- **INFO**: Normal lifecycle milestones. Examples: run processing started/completed.
+- **DEBUG**: Per-step or high-frequency tracing. Examples: individual step task kicked off, timer fired, condition evaluated.
+
+**Rationale**: The worker runs inside the user's process. The user owns these logs and wants to see problems at WARN/ERROR so they can act on them. The server cannot assume the same — one tenant's errors must not drown the operator's log stream.
+
+## In the Plan
+
+- The plan must include a **metrics table** listing each new metric.
+- The plan must include a **logging table** mapping operations to log levels with example messages.
+- Do not defer metrics/logging to a follow-up task — include them in the same implementation plan.

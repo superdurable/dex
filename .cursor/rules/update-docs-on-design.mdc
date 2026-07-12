@@ -1,0 +1,16 @@
+---
+description: Design work in plan mode must include documentation updates
+alwaysApply: true
+---
+
+# Update Documentation on Design Changes
+
+When working in **plan mode** on a design or implementation plan, always include documentation as part of the deliverable — not as an afterthought.
+
+## Rules
+
+- **New features / subsystems**: create or update a design doc in `docs/` explaining the architecture, data flow, and key decisions.
+- **Interface changes**: update the relevant design doc if one exists (e.g., adding a new RPC, changing a store interface, new config fields).
+- **Plan output**: the plan itself should call out which docs need to be created or updated, with specific file paths.
+- **After implementation**: verify the docs match what was actually built. If the implementation diverged from the plan, update the docs to reflect reality.
+- **Inline code docs**: exported types, interfaces, and non-trivial functions must have Go doc comments explaining purpose and usage. This is in addition to (not a replacement for) design docs.

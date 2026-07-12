@@ -1,0 +1,84 @@
+---
+description: Inject the whole config-section pointer into a component's constructor, not individual config fields.
+globs: server/**/*.go
+alwaysApply: true
+---
+
+# Inject Config Sections by Pointer, Not Scattered Fields
+
+When a component (a service handler, engine, task-processor reader/factory,
+matcher, …) needs tunables from a `config` section, pass a pointer to that
+whole section — e.g. `*config.RunServiceConfig`, `*config.TaskProcessorConfig`,
+`*config.MatchingEngineConfig` — into its constructor and read fields off it.
+Do NOT thread the individual fields (`matchingAPITimeout`,
+`waitForHistoryMaxTimeout`, …) as separate constructor parameters.
+
+## Why
+
+Adding a new knob to the section should not churn every constructor signature
+and every call site between the bootstrap and the component. With the whole
+section injected, a new field is read at the use site only.
+
+## Rules
+
+- **Constructor takes `*config.XyzConfig`**, stored as an unexported `cfg`
+  field; the component reads `h.cfg.SomeKnob` at the use site.
+- **Pass the whole section, not the top-level `config.Config`.** A component
+  depends only on its own section (`&cfg.RunEngine`, `&cfg.TaskProcessor`),
+  never the entire `config.Config` — that would hide which section it uses and
+  couple it to unrelated config.
+- **Pointer, not value.** Config is read-only after startup; a pointer avoids
+  copying and makes "same config" identity obvious. Panic in the constructor if
+  the pointer is nil (required dependency — see no-unnecessary-nil-checks).
+- **Still applies with constructor injection** (see no-setter-injection): the
+  config pointer is a normal constructor argument, never a `SetConfig` setter.
+- This is the standard for `RunsService` + `RunEngine` (`*config.RunServiceConfig`)
+  and should be followed by the other components (task processor, matching, …)
+  as they are touched.
+
+## Examples
+
+<bad>
+
+```go
+// Bad: individual fields threaded through the constructor.
+func NewRunsServiceHandler(
+    ..., matchingAPITimeout time.Duration,
+    waitForHistoryMaxTimeout time.Duration,
+    waitForHistorySafetyBuffer time.Duration, logger log.Logger,
+) *RunsServiceHandler { ... }
+
+// Adding one knob forces a new param here AND at every call site.
+```
+
+</bad>
+
+<good>
+
+```go
+// Good: the whole section pointer; new knobs are read at the use site only.
+func NewRunsServiceHandler(
+    ..., historyNotifier historynotify.NotifierManager,
+    cfg *config.RunServiceConfig, logger log.Logger,
+) *RunsServiceHandler {
+    if cfg == nil { panic("NewRunsServiceHandler: cfg must not be nil") }
+    return &RunsServiceHandler{..., cfg: cfg, ...}
+}
+
+// Bootstrap: pass the section, not the whole Config, not scattered fields.
+h := NewRunsServiceHandler(..., historyNotifier, &cfg.RunEngine, logger)
+
+// Use site:
+timeout := h.cfg.MatchingServiceAPITimeout
+```
+
+</good>
+
+## Review checklist
+
+Reject:
+
+- A constructor with multiple scalar params that are all fields of one config
+  section — collapse them into a `*config.XyzConfig`.
+- A component taking the whole `config.Config` when it only reads one section.
+- Passing a config section by value where it will be stored long-term.

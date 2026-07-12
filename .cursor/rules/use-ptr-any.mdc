@@ -1,0 +1,62 @@
+---
+description: Use ptr.Any(...) to take the address of a literal/value instead of declaring a throwaway local just to take its address.
+globs: server/**/*.go,sdk-go/**/*.go,protocol-grpc/**/*.go,benchmark/**/*.go,examples-go/**/*.go
+alwaysApply: true
+---
+
+# Use `ptr.Any(...)` for Pointers to Literals
+
+When you need a `*T` from a literal or computed value, use the generic
+helper [`ptr.Any`](mdc:server/common/utils/ptr/any.go) instead of
+declaring a single-use local variable solely to take its address.
+
+```go
+// server/common/utils/ptr/any.go
+func Any[T any](obj T) *T { return &obj }
+```
+
+## Rules
+
+- **Never** introduce a throwaway local whose only purpose is `&local`.
+  Use `ptr.Any(value)` directly.
+- This applies to struct-update / patch fields (`*string`, `*int64`,
+  `*bool`, enum pointers, …), optional request fields, and any other
+  `*T` built from a literal or a one-off expression.
+- For a typed numeric literal, write the type explicitly so generic
+  inference picks the right `T`: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
+- Import as `"github.com/durableworkflow/dex/server/common/utils/ptr"`.
+
+## When NOT to apply
+
+- The pointer must alias an **existing, named variable** that is also
+  read/mutated elsewhere (you genuinely need the address of *that*
+  variable, not a copy). `ptr.Any` copies, so it's wrong there.
+- Taking the address of a struct you already have (`&myStruct`) — that's
+  not a literal-to-pointer conversion.
+
+## Examples
+
+<bad>
+
+```go
+emptyTimerID := ""
+var zeroFireAt int64
+update.ActiveDurableTimerID = &emptyTimerID
+update.DurableTimerFireAt = &zeroFireAt
+```
+
+</bad>
+
+<good>
+
+```go
+update.ActiveDurableTimerID = ptr.Any("")
+update.DurableTimerFireAt = ptr.Any(int64(0))
+```
+
+</good>
+
+## Review checklist
+
+- Reject a local variable declared on one line and only used on the next
+  as `&local` — replace with `ptr.Any(...)`.

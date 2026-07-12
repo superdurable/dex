@@ -1,0 +1,66 @@
+---
+description: Comments are a liability — only write non-obvious ones; never restate the code.
+alwaysApply: true
+---
+
+# Comment Only What The Code Can't Say
+
+Comments are a maintenance burden, not a free good: they are re-read on every
+pass, they drift out of sync, and a stale/obvious comment costs more than no
+comment. Write the FEWEST comments needed for a reader to understand what the
+code alone cannot. More comments is NOT better.
+
+## Do NOT write a comment that
+
+- Restates what the next line(s) of code plainly do.
+- Repeats what a well-named function / variable / type already says.
+- Explains language or stdlib mechanics a competent reader already knows.
+- Echoes an adjacent error message, log string, or test name.
+
+## DO write a (short) comment when
+
+- The **why** is non-obvious: a trade-off, workaround, ordering constraint,
+  subtle invariant, or "looks wrong but is intentional".
+- Behavior depends on something not visible here (another goroutine, a remote
+  contract, a protocol/hardware quirk).
+
+When in doubt, leave it out and improve the name instead. Keep the comments you
+do write short (see [short-comments.mdc](short-comments.mdc)).
+
+## Example
+
+<bad>
+
+```go
+// TestMain requires DWF_TEST_POSTGRES_URI — the Postgres store tests must run
+// against a real Postgres, never silently skip (a skip would falsely report
+// PASS when the URI is missing). The Makefile excludes this package ...
+func TestMain(m *testing.M) {
+	uri := testURI()
+	if uri == "" {
+		fmt.Fprintln(os.Stderr, "DWF_TEST_POSTGRES_URI must be set to run the Postgres store tests")
+		os.Exit(1)
+	}
+	...
+}
+```
+
+The error message and the `os.Exit(1)` already say all of this; the comment
+only restates the code.
+
+</bad>
+
+<good>
+
+```go
+func TestMain(m *testing.M) {
+	uri := testURI()
+	if uri == "" {
+		fmt.Fprintln(os.Stderr, "DWF_TEST_POSTGRES_URI must be set to run the Postgres store tests")
+		os.Exit(1)
+	}
+	...
+}
+```
+
+</good>

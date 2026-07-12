@@ -1,0 +1,46 @@
+---
+description: Keep dynamic values out of log messages; use structured tags instead
+globs: server/**/*.go
+alwaysApply: false
+---
+
+# Log Messages Must Be Static — Use Tags for Dynamic Values
+
+Log messages (the first argument to `logger.Info`, `logger.Warn`, `logger.Error`) must be **static strings** that describe what happened. All dynamic/variable values (run IDs, tasklist names, shard IDs, addresses, counts, etc.) must go in **tags**, not concatenated or interpolated into the message.
+
+This makes log exploring, filtering, and aggregation dramatically easier in production.
+
+## Exception
+
+`logger.Debug` / `logger.DebugF` are exempt — debug logs are typically only enabled locally and readability there outweighs structure.
+
+## Rules
+
+- **No string concatenation** in log messages: never `"some event " + someVar`.
+- **No fmt.Sprintf** for log messages: never `fmt.Sprintf("processed %s", id)`.
+- The message should read like a template/event name: `"Run sync matched"`, `"Matcher stopped"`, `"Server listening"`.
+- All context goes in tags: `tag.RunID(id)`, `tag.Namespace(ns)`, `tag.Address(addr)`, `tag.String("key", val)`, etc.
+
+## Examples
+
+```go
+// BAD: dynamic values in message
+m.logger.Info("Sync matched run " + req.RunId + " on tasklist " + tlName,
+    tag.RunID(req.RunId))
+
+// GOOD: static message, dynamic values in tags
+m.logger.Info("Run sync matched",
+    tag.RunID(req.RunId), tag.TaskListName(tlName))
+
+// BAD: address in message
+app.Logger.Info("Metrics HTTP server listening on " + listener.Addr().String())
+
+// GOOD: address in tag
+app.Logger.Info("Metrics HTTP server listening", tag.Address(listener.Addr().String()))
+
+// BAD: concatenating identifiers
+mgr.logger.Info("Tasklist claimed: " + namespace + "/" + taskListName)
+
+// GOOD: each identifier in its own tag
+mgr.logger.Info("Tasklist claimed", tag.Namespace(namespace), tag.TaskListName(taskListName))
+```

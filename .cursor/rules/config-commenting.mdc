@@ -1,0 +1,49 @@
+---
+description: All config fields must have doc comments with defaults, meaning, constraints, and examples
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Config Field Commenting
+
+Every config struct field **must** have a Go doc comment. Include progressively more detail based on how obvious the field is:
+
+1. **Always**: state the default value.
+2. **If not obvious**: explain what the field means / controls.
+3. **If constrained**: state immutability rules, relationships with other fields, valid ranges.
+4. **If tricky**: add a concrete example.
+
+For address fields with bind-vs-advertise semantics, always explain:
+- What protocol it serves (gRPC, gossip, etc.)
+- Who connects to it (external clients, other cluster members, etc.)
+- The relationship between the bind and advertise variants.
+
+## Examples
+
+```go
+// ❌ BAD — no comment, no default, no constraints
+type ShardConfig struct {
+    MaxShards     int
+    LeaseDuration time.Duration
+    ShardKeyExpr  string
+}
+
+// ✅ GOOD — defaults + meaning + constraints + example
+type ShardConfig struct {
+    // MaxShards is the maximum number of logical shards the cluster manages.
+    // CAN BE INCREASED but NEVER DECREASED.
+    // Default: 2. A good starting point is 10x the expected max number of members.
+    MaxShards int
+
+    // LeaseDuration is how long a shard lease is valid before it must be renewed.
+    // Default: 30s. Must be > LeaseRenewInterval + LeaseRenewJitter + LeaseExpiryBuffer.
+    LeaseDuration time.Duration
+
+    // ShardKeyExpr is a Go-template expression evaluated against
+    // the run's metadata to determine its shard assignment.
+    // Default: "{{ .ProjectID }}".
+    // Example: "{{ .ProjectID }}/{{ .Environment }}" routes runs
+    // to project+env-specific shards.
+    ShardKeyExpr string
+}
+```

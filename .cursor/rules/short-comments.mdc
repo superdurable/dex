@@ -1,0 +1,45 @@
+---
+description: Keep code comments short — each comment block must be under 20 words.
+alwaysApply: true
+---
+
+# Short Code Comments
+
+Every code comment block MUST be **fewer than 20 words**.
+
+## Rules
+
+- A single `//` line or a contiguous group of `//` lines counts as one block.
+- If you need to say more, split into multiple short blocks separated by code (or just don't — brevity is the goal).
+- Prefer naming things well over explaining them with a comment.
+- Doc-comments on exported types/functions follow the same rule per sentence.
+- If you believe a longer comment is genuinely necessary, **ask the user** before writing it.
+
+## Examples
+
+<bad>
+
+```go
+// The just-fired durable timer has already been consumed by the task processor
+// and removed from the queue, so the run's reference to it is now dangling.
+// Clear it unconditionally regardless of what we do next — whether we dispatch
+// (a step is Satisfied) or stay in AllStepsWaiting with no timer condition left
+// to re-arm (e.g. only channel waits remain).
+update.ActiveDurableTimerID = ptr.Any("")
+```
+
+</bad>
+
+<good>
+
+```go
+// Clear dangling timer ref — task processor already consumed it.
+update.ActiveDurableTimerID = ptr.Any("")
+```
+
+</good>
+
+## Review checklist
+
+- Reject any comment block that is 20 words or more. Rewrite it shorter.
+- If you cannot shorten below 20 words without losing critical info, ask the user to confirm before committing it.

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/check-plan-sections.sh",
+        "matcher": "CreatePlan",
+        "timeout": 5
+      }
+    ]
+  }
+}

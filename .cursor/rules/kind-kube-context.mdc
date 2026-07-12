@@ -1,0 +1,13 @@
+# Always Use Explicit Kube Context for Kind
+
+When running kubectl, helm, or any k8s command targeting the local kind cluster,
+ALWAYS use `--context kind-dex-e2e` (or the `KUBE_CONTEXT` env var).
+NEVER rely on the default kube context — the user may have it set to a GKE
+or other production cluster.
+
+## Rules
+
+- `kubectl --context kind-dex-e2e ...`
+- `helm --kube-context kind-dex-e2e ...`
+- Scripts: use `KUBE_CONTEXT="${KUBE_CONTEXT:-kind-dex-e2e}"` and pass it.
+- NEVER run bare `kubectl` or `helm` without an explicit context.

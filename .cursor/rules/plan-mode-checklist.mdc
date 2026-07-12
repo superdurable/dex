@@ -1,0 +1,20 @@
+---
+description: Master checklist of required sections for every plan-mode plan
+alwaysApply: true
+---
+
+# Plan Mode Checklist
+
+Every plan produced by the CreatePlan tool MUST include the following top-level sections, in this exact wording so tooling can verify them. Use "N/A: <one-line reason>" if a section truly doesn't apply.
+
+- `## Tests` — see [.cursor/rules/plan-requires-tests.mdc](.cursor/rules/plan-requires-tests.mdc)
+- `## Metrics` — see [.cursor/rules/plan-requires-metrics-logging.mdc](.cursor/rules/plan-requires-metrics-logging.mdc)
+- `## Logging` — see [.cursor/rules/plan-requires-metrics-logging.mdc](.cursor/rules/plan-requires-metrics-logging.mdc)
+- `## Documentation` — see [.cursor/rules/update-docs-on-design.mdc](.cursor/rules/update-docs-on-design.mdc)
+- `## UI/UX` — see [.cursor/rules/plan-requires-ui-ux.mdc](.cursor/rules/plan-requires-ui-ux.mdc)
+
+## Workflow
+
+1. **Before drafting**: read every `alwaysApply: true` rule under `.cursor/rules/` even if not yet attached as inline content. Use Glob + Read.
+2. **While drafting**: include the five sections above; defer none of them to follow-ups.
+3. **After CreatePlan**: a hook checks the plan body for the required headers and emits a warning if any are missing. Treat the warning as a hard error — fix the plan immediately.

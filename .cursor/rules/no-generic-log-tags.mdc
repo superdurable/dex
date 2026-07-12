@@ -1,0 +1,40 @@
+---
+description: Log tags must be explicit named functions, never generic key-value constructors
+globs: server/common/log/tag/**
+alwaysApply: false
+---
+
+# No Generic Log Tag Constructors
+
+The `server/common/log/tag` package must **only** contain explicit, named tag functions. Never add generic constructors that accept an arbitrary key string.
+
+## Rules
+
+- **No generic constructors**: Do not add functions like `NewIntTag(key, value)`, `NewStringTag(key, value)`, `NewBoolTag(key, value)`, or any helper that takes a `key string` parameter.
+- **No unexported generic helpers**: Do not add internal helpers like `newStringTag(key, value)`, `newInt(key, value)`, etc. Each tag function must inline its `Tag{attr: slog.XXX(...)}` construction directly.
+- **Every tag must have a fixed key**: The slog attribute key is hardcoded inside the function, not passed as a parameter.
+- **Need a new key?** Add a new explicit function to `tags.go` with a descriptive name.
+
+## Examples
+
+```go
+// BAD: generic constructor — allows arbitrary keys
+func NewIntTag(key string, value int) Tag {
+    return Tag{attr: slog.Int(key, value)}
+}
+
+// BAD: unexported generic helper
+func newStringTag(key string, value string) Tag {
+    return Tag{attr: slog.String(key, value)}
+}
+
+// GOOD: explicit named tag with hardcoded key
+func OwnedCount[T Integer](n T) Tag {
+    return Tag{attr: slog.Int64("owned", int64(n))}
+}
+
+// GOOD: explicit named tag
+func Namespace(ns string) Tag {
+    return Tag{attr: slog.String("namespace", ns)}
+}
+```

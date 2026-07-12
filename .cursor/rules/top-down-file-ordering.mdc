@@ -1,0 +1,158 @@
+---
+description: Order functions / methods within a file top-down — the entry point and high-level orchestration go first, leaf helpers and tiny accessors go last. A reader opening the file should be able to scroll downward through progressively lower-level details.
+globs: server/**/*.go,sdk-go/**/*.go,protocol-grpc/**/*.go,benchmark/**/*.go,examples-go/**/*.go
+alwaysApply: true
+---
+
+# Top-Down File Ordering
+
+Within a single file, organize functions / methods so that the high-
+level orchestration appears at the top and the small leaf helpers at
+the bottom. A reader scrolling top-to-bottom should travel from
+"what does this file do" → "how does it do it" → "what tiny
+primitives does it use" without ever needing to scroll back up.
+
+This is the inverse of the C-family convention (which puts helpers
+above their callers because of forward-declaration constraints). Go
+has no such constraint, so we follow the more readable ordering.
+
+## The Order
+
+For a file built around a struct, prefer:
+
+1. **The type declaration** (the data — anchor of the file).
+2. **Constructor** (`new<Type>`) — entry point for the type.
+3. **Constructor's own helpers** (called only from the constructor).
+4. **Main entry method** — the one a caller actually invokes after
+   construction (e.g. `run`, `Serve`, `Handle`, `Process`).
+5. **Per-event / per-step handlers** that the main entry dispatches
+   to, in the order they're invoked.
+6. **Sub-handlers** called from those handlers (one level deeper).
+7. **Mutators / state-changing helpers** that handlers compose.
+8. **Encoders / converters / pure transforms** below those.
+9. **Tiny accessors** (`numFoo()`, `currentBar()`) at the very
+   bottom — they're leaves and don't help the reader understand
+   the design.
+
+Same caller-before-callee rule applies for free functions in a
+file without a primary type: top-level `Run` / `Main` / `Process`
+first, then the helpers it calls, then their helpers, …, then leaf
+utilities last.
+
+**Hard rule:** in the same file, every callee MUST appear **below**
+every caller. Never place a leaf helper above the function that
+calls it — even if the helper is "small" or "pure".
+
+## Free-function helper files
+
+Helper-only files (e.g. `channel_reservation.go`, `channel_promotion.go`)
+have no struct entry point. Order by call depth from external callers:
+
+1. Types the file exports or owns.
+2. Functions called from **other packages/files** (the public surface).
+3. Each next depth of in-file helpers, one level at a time.
+4. Leaf pure transforms and one-liners at the **bottom**.
+
+<bad>
+
+```go
+// channel_reservation.go — leaf at line 17, orchestrator at line 188.
+func channelReserveCounts(...) map[string]int32 { ... }
+func collectChannelReservations(...) { ... }    // calls channelReserveCounts
+func spliceReservedMessages(...) { ... }        // calls collectChannelReservations
+func reservationRemovalStepExeIDs(...) { ... }
+```
+
+</bad>
+
+<good>
+
+```go
+// channel_reservation.go — high → low as you scroll down.
+func reservationRemovalStepExeIDs(...) { ... }
+func spliceReservedMessages(...) { ... }
+func collectChannelReservations(...) { ... }
+func channelReserveCounts(...) map[string]int32 { ... } // leaf, bottom
+```
+
+</good>
+
+## Why
+
+- A new reader can stop reading at any level once they've grasped
+  enough; they don't have to reach line 800 to find the entry point.
+- Code review naturally flows from "what changed at the top level"
+  (the operation) downward to "what changed in helpers" (the
+  details), matching how reviewers think about diffs.
+- Refactors are localized: removing a helper that's only used at
+  level N appears in a tight cluster of nearby methods rather than
+  scattered across the file.
+
+## Counter-examples
+
+<bad>
+
+```go
+// File starts with a leaf utility, then the main loop is line 600.
+func filterUnblocksByCancel(...) []*pb.StepUnblocked { ... }
+func buildUnblocks(...) []*pb.StepUnblocked { ... }
+func (e *runExecutor) numInflight() int { ... }
+func (e *runExecutor) serverNowMs() int64 { ... }
+func (e *runExecutor) addTimers(...) { ... }
+// 400 more lines of helpers ...
+func (e *runExecutor) run(ctx context.Context) error { ... } // ← buried
+```
+
+</bad>
+
+<good>
+
+```go
+type runExecutor struct { ... }
+
+func newRunExecutor(...) *runExecutor { ... }
+func (e *runExecutor) seedFromPollResponse() { ... } // constructor helper
+
+func (e *runExecutor) run(ctx context.Context) error { ... } // main loop
+
+func (e *runExecutor) handleTimerFired(...) error { ... }    // handlers
+func (e *runExecutor) handleExternalEvent(...) error { ... }
+func (e *runExecutor) handleStepCompletion(...) error { ... }
+func (e *runExecutor) handleWaitForCompletion(...) error { ... } // sub-handlers
+func (e *runExecutor) handleExecuteCompletion(...) error { ... }
+
+func (e *runExecutor) kickOff(...) { ... }              // mutators
+func (e *runExecutor) reEvaluateSiblings() ...
+func (e *runExecutor) checkpointAndPromote(...) error
+func (e *runExecutor) applyExternalEvent(...) ...
+// ... more mutators ...
+
+func (e *runExecutor) decisionToProto(...) ...          // encoders
+func buildUnblocks(...) ...                              // pure helpers
+func filterUnblocksByCancel(...) ...
+
+func (e *runExecutor) serverNowMs() int64 { ... }       // tiny accessors
+func (e *runExecutor) numInflight() int { ... }
+```
+
+</good>
+
+## When you can break it
+
+Two acceptable exceptions:
+
+1. **Generated code**: leave the order as the generator emits it.
+2. **Strictly grouped methods on different sub-systems** in one
+   file (e.g. a config struct's `Validate` + `Default` block
+   sitting together): keep the cluster intact rather than scatter
+   methods purely to satisfy depth ordering.
+
+Outside those two cases, prefer the top-down rule.
+
+## Review checklist
+
+- The function a caller would invoke first appears near the top
+  (under the type + constructor). It is NOT below its helpers.
+- In the same file, callees are always **below** callers — never above.
+- Leaf helpers and one-line pure transforms cluster at the bottom,
+  not at the top of the file.

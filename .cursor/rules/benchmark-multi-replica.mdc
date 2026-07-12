@@ -1,0 +1,14 @@
+# Always Benchmark with Multi-Replica Cluster
+
+When running benchmarks on kind or any k8s deployment, ALWAYS use at least
+3 replicas (the default in `deploy/kind/dex-values-kind.yaml`).
+
+## Rules
+
+- **NEVER** reduce to 1 replica to "simplify" debugging — single-replica hides
+  critical cluster routing bugs (tasklist partition forwarding, shard
+  cross-node dispatch, heartbeat forwarding, etc.).
+- When debugging cluster issues, check logs on **ALL** nodes, not just one.
+- Use `deploy/scripts/benchmark-escalation.sh` to run benchmarks — it triggers
+  with fire-and-forget (`wait=false`) and polls the DB directly for completion.
+  Never use `wait=true` on the benchmark trigger API.

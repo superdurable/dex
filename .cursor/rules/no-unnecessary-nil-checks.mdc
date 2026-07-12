@@ -1,0 +1,41 @@
+---
+description: Avoid unnecessary nil checks — let required dependencies panic early at startup instead of silently propagating nils
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# No Unnecessary Nil Checks
+
+Do not add defensive nil checks for dependencies that **must** be non-nil for the program to function. If something is nil that shouldn't be, it's a bug — let it panic so it's caught immediately.
+
+## Rules
+
+- **Startup / construction time**: required dependencies (stores, engines, configs) should panic or `log.Fatal` if nil. Fail fast, fail loud.
+- **Runtime hot paths**: do not add `if x == nil { return nil }` guards that silently swallow bugs. A panic with a stack trace is far more debuggable than a silent nil propagation.
+- **Nil checks are appropriate** only when nil is a **valid, expected value** (e.g. optional fields, cache misses, user-supplied callbacks).
+
+## Examples
+
+```go
+// ❌ BAD — hides a wiring bug, caller gets a mysterious nil error later
+func NewRunEngine(store RunStore) *RunEngine {
+    if store == nil {
+        return nil
+    }
+    return &RunEngine{store: store}
+}
+
+// ✅ GOOD — crashes immediately with a clear message during startup
+func NewRunEngine(store RunStore) *RunEngine {
+    if store == nil {
+        panic("NewRunEngine: RunStore must not be nil")
+    }
+    return &RunEngine{store: store}
+}
+
+// ✅ ALSO GOOD — just don't check at all; the first call to store
+// will panic with a nil pointer dereference and a stack trace
+func NewRunEngine(store RunStore) *RunEngine {
+    return &RunEngine{store: store}
+}
+```

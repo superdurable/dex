@@ -1,0 +1,32 @@
+---
+description: Avoid unnecessary package aliases in Go imports
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go Package Aliases
+
+Default to the package's declared name in Go imports. Do not add an alias just
+to make the import "more descriptive".
+
+## Rules
+
+- Prefer `import "path/to/pkg"` over `alias "path/to/pkg"` when the package name is already clear.
+- Only add an alias when it is actually needed:
+  - the file imports two packages with the same package name
+  - the default package name is misleading or too ambiguous in that file
+  - the alias follows an established repository convention that improves consistency
+- Do not invent aliases like `servermetrics`, `mongostore`, or similar if `metrics` / `mongo` already read clearly.
+- Existing repo-wide conventions such as `pb` for generated protobuf packages, and other widely established short aliases already used throughout the codebase, may be kept for consistency.
+
+## Examples
+
+```go
+// Bad
+import servermetrics "github.com/durableworkflow/dex/server/internal/metrics"
+import mongostore "github.com/durableworkflow/dex/server/internal/persistence/mongo"
+
+// Good
+import "github.com/durableworkflow/dex/server/internal/metrics"
+import "github.com/durableworkflow/dex/server/internal/persistence/mongo"
+```

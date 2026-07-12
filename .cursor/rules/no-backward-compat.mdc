@@ -1,0 +1,19 @@
+---
+description: Do not add backward compatibility unless explicitly asked
+alwaysApply: true
+---
+
+# No Backward Compatibility by Default
+
+This project has **not launched yet**. Do not add backward-compatible shims, deprecated fields, or migration code unless the user explicitly asks for it.
+
+## Rules
+
+- **Config fields**: Remove dead/unused config fields immediately. Do not keep them "for backward compat".
+- **API/proto changes**: Breaking changes are fine. Do not add old-name aliases or version negotiation.
+- **Store schema**: Changing field names, removing fields, or altering indexes does not require migration scripts.
+- **Code interfaces**: Rename/remove methods freely. Do not keep old method signatures as wrappers.
+
+## When in Doubt
+
+If you believe backward compatibility is genuinely needed (e.g., data already persisted in production databases), **ask the user first** before adding any compat code. Do not assume it's needed.

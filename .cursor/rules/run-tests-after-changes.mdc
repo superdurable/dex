@@ -1,0 +1,21 @@
+---
+description: Always run tests after making code changes to verify nothing is broken
+alwaysApply: true
+---
+
+# Run Tests After Code Changes
+
+After finishing code changes, **always run tests** before considering the task done.
+
+## Rules
+
+- **Default**: run tests via the Makefile, NOT bare `go test`. The Makefile is the single source of truth for flags (timeout, `-count=1`, parallel strategy) and CI uses the same targets.
+  - `make -C server test` — full suite, ~30s on a 4-core machine. Requires Mongo.
+  - `make -C server test-unit` — units only, no Mongo, <10s. Use for quick PR-style sanity checks.
+  - `make -C server test-integration` — integration sub-packages only.
+- **Subset is OK only when** the change is purely additive (new file, new function) and touches nothing existing. In that case, you can scope `go test ./path/to/pkg/...` to the directly related package(s); still avoid adding ad-hoc flags like `-p 1` (parallelism is intentional — see [test-database-isolation.mdc](.cursor/rules/test-database-isolation.mdc)).
+- **If any test fails**, fix it before moving on — do not leave broken tests behind.
+- **Hard to debug?** Add log statements to narrow down the failure. Prefer our structured logger (`server/common/log.Logger` with `tag.Tag`) over `t.Logf` / `log.Printf`. Use `t.Logf` only in lightweight unit tests that don't have a logger available. **Do NOT remove these logs after the test passes** — they are valuable for future debugging.
+- **Still stuck?** Do **not** skip failing tests and do **not** give up. If you cannot figure out how to proceed after multiple attempts, **pause and ask the user for help**. Include a clear description of: (1) the failure or error you're seeing, (2) what you've tried so far, and (3) where you're blocked. A human can often spot what you're missing.
+- **Redirect test output to `/tmp`**: always tee test output to a file under `/tmp` so the full log is preserved (terminal buffers get truncated). Use a descriptive name, e.g. `make -C server test 2>&1 | tee /tmp/test-<scope>.log`. This makes it easier to search through failures and lets the user follow along in real time.
+- **Integration tests**: if the change touches cross-package wiring (stores, engine, API), run the integration suite too (`make -C server test-integration` or simply `make -C server test`).

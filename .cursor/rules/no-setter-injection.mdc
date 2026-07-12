@@ -1,0 +1,140 @@
+---
+description: Pass dependencies via constructors. Do not introduce SetXyz / public mutable fields to inject what should have been a constructor argument.
+globs: server/**/*.go,sdk-go/**/*.go,protocol-grpc/**/*.go,benchmark/**/*.go,examples-go/**/*.go
+alwaysApply: true
+---
+
+# No Setter Injection for Construction-Time Dependencies
+
+Long-lived dependencies (clients, stores, engines, configs, loggers, …) MUST
+be passed via the constructor of the type that owns them. Do NOT introduce
+`SetXyz(x)` setters or public mutable fields whose only purpose is to
+stitch together components that the bootstrap "couldn't" supply at
+construction time.
+
+## Rules
+
+- **Always prefer constructor injection.** A dependency that is required for
+  correctness should be a constructor parameter, not a field that the
+  bootstrap mutates after `New*()`.
+- **Never add `SetXyz`/`Inject*`/`Wire*` setters** to work around bootstrap
+  ordering. If the dependency truly cannot exist at construction time, fix
+  the ordering instead — see "Fixing bootstrap ordering" below.
+- **Do not export mutable fields** as a substitute setter
+  (`MyStruct{Client *grpc.Client}` then `app.h.Client = c` from the outside
+  is the same anti-pattern).
+- **Internal helpers may be `nil`-tolerant**, but only when nil is a real
+  semantic mode (e.g. "best-effort notify is disabled in this test"), not a
+  workaround for late wiring. Document the nil-mode in godoc.
+- Pre-existing setters in the codebase are technical debt; do NOT add new
+  ones, and do NOT extend an existing one with new injectees. When you
+  touch the surrounding code, prefer migrating off the setter.
+
+## Fixing bootstrap ordering
+
+Most "I had to use a setter" situations come from one of these — none of
+them justify a setter:
+
+1. **gRPC client to an in-process server.** `grpc.NewClient(addr, …)` is
+   non-blocking; the actual TCP dial happens lazily on the first RPC. So
+   you can construct the client BEFORE the server starts, as long as the
+   listener address is already known. Bind listeners early, then dial, then
+   pass the client into the consumer's constructor. (See
+   `cmd/server.go: dialMatchingClient` for the canonical fix.)
+2. **Two components that need each other.** If A and B genuinely have a
+   cyclic runtime dependency, that is a design smell — extract the shared
+   thing into C and inject C into both. Don't paper over it with setters.
+3. **"I don't have the listener address yet."** Bind the listener earlier
+   (it's a cheap operation) so the address is final before the consumer's
+   constructor runs.
+
+## Examples
+
+<bad>
+
+```go
+// Bad: setter to plug in a dependency the constructor "couldn't" take.
+type Handler struct {
+    matchingClient pb.MatchingServiceClient // nil at construction
+    matchingMu     sync.RWMutex
+}
+
+func NewHandler() *Handler { return &Handler{} }
+
+func (h *Handler) SetMatchingClient(c pb.MatchingServiceClient) {
+    h.matchingMu.Lock()
+    defer h.matchingMu.Unlock()
+    h.matchingClient = c
+}
+
+// Bootstrap:
+h := NewHandler()
+// ... a hundred lines later ...
+h.SetMatchingClient(buildMatchingClient())
+```
+
+</bad>
+
+<bad>
+
+```go
+// Equally bad: public mutable field used as a smuggled setter.
+type TaskHandler struct {
+    MatchingClient pb.MatchingServiceClient // assigned from outside, after New
+}
+
+th := &TaskHandler{}
+// ... later ...
+th.MatchingClient = client
+```
+
+</bad>
+
+<good>
+
+```go
+// Good: constructor takes the dependency. Bootstrap dials it eagerly.
+type Handler struct {
+    matchingClient pb.MatchingServiceClient
+}
+
+func NewHandler(mc pb.MatchingServiceClient) *Handler {
+    return &Handler{matchingClient: mc}
+}
+
+// Bootstrap (cmd/server.go):
+mc, err := dialMatchingClient(cfg, mode) // grpc.NewClient is non-blocking
+if err != nil { return err }
+h := NewHandler(mc)
+```
+
+</good>
+
+<good>
+
+```go
+// Good: nil is a documented semantic mode (best-effort), not late wiring.
+type Handler struct {
+    // matchingClient may be nil; when nil the best-effort worker
+    // notification is skipped and the worker discovers the stop on its
+    // next ProcessStep* call.
+    matchingClient pb.MatchingServiceClient
+}
+
+func NewHandler(mc pb.MatchingServiceClient) *Handler {
+    return &Handler{matchingClient: mc}
+}
+```
+
+</good>
+
+## Review checklist
+
+Before approving a PR, reject any of:
+
+- A new method named `Set*`, `Inject*`, `Wire*`, `Attach*` on a struct,
+  whose argument is a long-lived dependency.
+- A new exported field on a struct that is assigned by the bootstrap after
+  `New*()` returned.
+- A constructor that takes `nil` for a dependency with the comment "set
+  later via X" — fix the ordering and pass it for real.

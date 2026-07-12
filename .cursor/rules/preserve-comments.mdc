@@ -1,0 +1,15 @@
+---
+description: Refactoring must preserve all existing comments — never silently drop them
+alwaysApply: true
+---
+
+# Preserve Comments During Refactoring
+
+When refactoring code, **never delete or omit existing comments**. Comments are documentation — losing them makes the code harder to read.
+
+## Rules
+
+- **Move comments** with the code they describe. If a block moves to a new file/function, its comments go with it.
+- **Update comments** if the refactor changes behavior, but never just drop them.
+- **Section separators** (e.g. `// ====`, `// ---`) must also be preserved if the surrounding structure still exists.
+- If a comment becomes stale after refactoring, **rewrite it** to reflect the new reality — do not delete it.

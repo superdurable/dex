@@ -1,0 +1,25 @@
+---
+description: Plans must consider WebUI experience when changes have user-visible effects
+alwaysApply: true
+---
+
+# Plan Mode Must Consider WebUI Experience
+
+Every plan MUST include a `## UI/UX` section.
+
+## When user-visible
+
+- Identify which `web/app/...` routes / components / mappers are affected.
+- Specify how new state, events, or condition trees render — concrete component names, where they slot into the existing pages, what the badge/colors/icons communicate.
+- Call out new BFF mapper types in [`web/app/api/_grpc/mappers.ts`](web/app/api/_grpc/mappers.ts) needed to surface backend additions.
+- Don't defer UI to a follow-up plan when the backend change exists primarily to be observed (e.g., new history events, new run state).
+
+## When not user-visible
+
+Write `N/A: <one-line reason>` and explain why the change has zero user-observable surface (e.g., "internal task-processor refactor; no proto/history/state changes").
+
+## Anti-patterns
+
+- Adding a new history event without describing how it renders in `EventCard` and the timeline.
+- Adding new live run state to `GetRun` without threading it into `web/app/flow/show/`.
+- Splitting "backend ships, UI later" into two PRs without a concrete UI plan attached to the backend PR.

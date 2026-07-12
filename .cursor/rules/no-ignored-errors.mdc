@@ -1,0 +1,113 @@
+---
+description: Never silently ignore errors; if you must, leave a code comment explaining why and call it out for review
+globs: **/*.go
+alwaysApply: false
+---
+
+# Never Silently Ignore Errors
+
+Every returned `error` / `CategorizedError` must be handled — returned,
+logged, or explicitly acted on. Do not drop errors on the floor.
+
+See also [server-error-handling.mdc](server-error-handling.mdc) for which
+error *category* to return.
+
+## Forbidden
+
+- `_ = doThing()` or `x, _ := doThing()` — discarding the error.
+- `if err == nil { use(x) }` with no `else` — the failure path silently
+  vanishes: the value is consumed on success but a real error is lost.
+- Swallowing with no rationale (empty block, bare `//nolint`).
+
+```go
+// Bad — error silently dropped.
+timerID, _ := ids.ParseTaskID(s)
+
+// Bad — failure path vanishes; a corrupt s is silently skipped.
+if id, err := ids.ParseTaskID(s); err == nil {
+    md.TimerTaskCommittedID = id
+}
+```
+
+## If you genuinely must ignore an error
+
+1. Leave a code comment explaining WHY it is safe to ignore.
+2. Call it out in the PR description / review so a human signs off.
+
+```go
+// OK — explicit, with rationale.
+// Close is best-effort on shutdown; a failure changes nothing here.
+_ = conn.Close()
+```
+
+## Prefer fail-fast over silent ignore for "impossible" errors
+
+If an error is effectively unreachable because the value comes from a
+TRUSTED source (our own store rows, server-generated ids), use a `Must*`
+helper that panics instead of silently ignoring it. A violated invariant
+is a bug to surface, not swallow.
+
+```go
+// Trusted DB value: a non-UUID here means data corruption → fail fast.
+md.TimerTaskCommittedID = ids.MustParseTaskID(s)
+```
+
+Even better: thread the typed value end-to-end so there is no parse (and
+no error branch) at all — that is why `ids.TaskID` flows through the
+task pipeline instead of `string`.
+
+## Never panic on UNTRUSTED input
+
+Client/wire-supplied values must be handled defensively (drop, default,
+or return `InvalidInputError`) — never `Must*`/panic. A malicious client
+must not be able to crash the server.
+
+```go
+// Untrusted inbound RPC: a client that maliciously sends the server-internal
+// EncodedObjectBlobIdInternalOnly variant is neutralized to Null here — never
+// trusted, never parsed-and-panicked-on.
+func pbValueToPersistence(pbVal *pb.Value, blobID ids.BlobID) p.Value {
+    switch v := pbVal.Kind.(type) {
+    case *pb.Value_EncodedObjectBlobIdInternalOnly:
+        return p.Value{Type: p.ValueTypeNull} // drop, don't trust
+    ...
+    }
+}
+```
+
+### Validating a client-supplied id
+
+If a future RPC accepts an id string FROM a client, validate it with the
+error-returning `ids.Validate*` helper (e.g. `ids.ValidateBlobID`) and wrap
+the failure as `InvalidInputError` — do NOT reach for `ids.MustParse*`
+(panic). `ids` exposes `MustParse*` for trusted store reads and `Validate*`
+for untrusted input; pick by the value's source.
+
+```go
+// Good — untrusted client id: validate, return InvalidInputError, never panic.
+blobID, err := ids.ValidateBlobID(req.BlobId)
+if err != nil {
+    return nil, errors.NewInvalidInputError("invalid blob_id", err)
+}
+```
+
+## Trusted vs untrusted — the deciding question
+
+Ask where the value came from, not what type it is. The SAME field can be
+both: an `EncodedObjectBlobIdInternalOnly` is **untrusted** on an inbound RPC
+(dropped by `pbValueToPersistence`) but **trusted** when later read back from
+our own history store (hydrated with `MustParseBlobID`).
+
+- **Trusted** → `Must*` / panic acceptable: our own DB rows, ids we minted
+  server-side, invariants we control.
+- **Untrusted** → must handle gracefully: gRPC request fields, SDK/worker
+  payloads, anything a client can set — including proto fields named
+  "internal only".
+
+## Review checklist
+
+Reject:
+
+- A discarded error (`_ =` / `, _ :=`) with no explaining comment.
+- An `if err == nil { ... }` that has no `else` handling the error.
+- A `Must*`/panic reached from client- or wire-supplied input.

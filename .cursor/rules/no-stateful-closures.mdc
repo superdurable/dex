@@ -1,0 +1,259 @@
+---
+description: Prefer methods on a struct over function-scoped closures that capture mutable state. Closures are fine for short, single-use callbacks; not for stateful operations. Avoid 1-2 letter identifiers (variables only — receivers exempt) — use descriptive names. Comment any struct field whose role isn't obvious from name + type.
+globs: server/**/*.go,sdk-go/**/*.go,protocol-grpc/**/*.go,benchmark/**/*.go,examples-go/**/*.go
+alwaysApply: true
+---
+
+# Struct &#x2F; Method &#x2F; Naming Conventions
+
+A function-scoped closure that captures non-trivial state from its
+enclosing function is, effectively, a method with an implicit receiver
+and a hidden signature. Hidden because the captures don't appear in the
+declaration — the reader has to scan the whole enclosing function to
+know what state the "method" reads or mutates. This kills greppability,
+makes refactors brittle, and lets state spread silently as the function
+grows.
+
+## Rules
+
+When you find yourself writing a closure that does any of the
+following, lift it into a method on a struct (or a top-level function
+with explicit parameters):
+
+- **Captures 3+ outer variables.** That's a struct's worth of state
+  travelling under the radar.
+- **Mutates outer state.** Reads of outer values are fine in a
+  one-liner; mutating an outer map / slice / counter through a closure
+  is a method's job — make the receiver explicit.
+- **Is called from more than one site.** Multi-call closures are
+  methods that lost their declaration.
+- **Lives long enough to outlast a single statement.** If the closure
+  outlives a `sort.Slice` / `defer` / `errgroup.Go` call, it's load-
+  bearing logic and deserves a real signature.
+- **Wants a name to document its contract.** If you're writing a doc-
+  comment on the closure assignment line, write it on a method instead.
+
+## Closures that are still fine
+
+- One-shot callbacks: `sort.Slice(s, func(i,j int) bool {...})`,
+  `errgroup.Go(func() error {...})`, `defer func() {...}()`.
+- Tiny pure transforms passed to a higher-order helper.
+- IIFEs used purely for scoping a `defer` or short `select`.
+
+If in doubt: count the captures. Three or more → struct.
+
+## The Fix
+
+Wrap the captured state in a struct. The captures become fields, the
+closures become methods, the enclosing function becomes a thin
+constructor + driver.
+
+<bad>
+
+```go
+func (w *Worker) processRun(ctx context.Context, pr *pb.PollForRunResponse, ...) error {
+    completionCh := make(chan stepCompletion, 1)
+    timerMgr := newTimerManager(pr.ServerTimestampMs)
+    waitingSteps := map[string]*pb.ActiveStepExecution{}
+    inflightTasks := map[string]inflightTaskInfo{}
+    cancelledExeIDs := map[string]bool{}
+    unconsumedChannels := map[string][]*pb.Value{}
+
+    armTimers := func(stepExe *pb.ActiveStepExecution) {
+        // captures timerMgr — touched in 2 call sites
+    }
+    reEvaluateSiblings := func() []promotedSibling {
+        // captures waitingSteps, unconsumedChannels — called 4×
+    }
+    kickOff := func(task stepTask) {
+        // captures completionCh, inflightTasks, w, ctx, ... — called 2×
+    }
+    applyCancellations := func(ids []string) {
+        // mutates inflightTasks, cancelledExeIDs, waitingSteps
+    }
+
+    for { /* main loop calls all the closures above */ }
+}
+```
+
+</bad>
+
+<good>
+
+```go
+type runExecutor struct {
+    w     *Worker
+    pr    *pb.PollForRunResponse
+    rs    *runState
+    inbox chan *pb.ExternalEvent
+
+    completionCh       chan stepCompletion
+    timerMgr           *timerManager
+    waitingSteps       map[string]*pb.ActiveStepExecution
+    inflightTasks      map[string]inflightTaskInfo
+    cancelledExeIDs    map[string]bool
+    unconsumedChannels map[string][]*pb.Value
+}
+
+func newRunExecutor(w *Worker, pr *pb.PollForRunResponse, ...) *runExecutor { ... }
+
+func (e *runExecutor) armTimers(stepExe *pb.ActiveStepExecution)            { ... }
+func (e *runExecutor) reEvaluateSiblings() []promotedSibling                { ... }
+func (e *runExecutor) kickOff(ctx context.Context, task stepTask)           { ... }
+func (e *runExecutor) applyCancellations(ids []string)                      { ... }
+func (e *runExecutor) Run(ctx context.Context) error                         { ... }
+
+func (w *Worker) processRun(ctx context.Context, pr *pb.PollForRunResponse, ...) error {
+    return newRunExecutor(w, pr, ...).Run(ctx)
+}
+```
+
+</good>
+
+## Naming: no 1-2 letter abbreviations (variables only)
+
+Variables — struct fields, function parameters, and local variables —
+MUST use descriptive names. 1-2 letter abbreviations hide intent and
+force the reader to scroll back to the declaration to recover meaning.
+Default to the full noun (`worker`, `pollResponse`, `runState`,
+`executor`), even at the cost of a few extra characters.
+
+**Method receivers are exempt.** Go's standard convention is short
+1-2 char receiver names (`func (w *Worker) ...`) and we follow it.
+The receiver is implicit context — like `this` in OOP — and `w` /
+`e` / `s` keep method bodies clean without sacrificing meaning. So:
+
+- `func (w *Worker) processRun(...)` — good (receiver)
+- `func newRunExecutor(worker *Worker, ...)` — good (parameter is descriptive)
+- `worker := someFn()` ... 50 lines using `worker.X` — good (descriptive local)
+
+### Allowed short names (non-receiver)
+
+These are universally idiomatic in Go and stay short even outside
+receivers:
+
+- Loop / index variables: `i`, `j`, `k`, `n`
+- Standard error: `err`
+- Standard context: `ctx`
+- Map-lookup / type-assert / channel-receive boolean: `ok`
+- Time / testing handle: `t` (for `time.Time` / `*testing.T`)
+- Synchronization primitives: `mu`, `wg`
+- Identifier strings: `id`
+- `io.Reader` / `io.Writer` parameters in stream code: `r`, `w`
+- Channel local in tiny scopes: `ch`
+
+If the name doesn't appear in the list above (and isn't a receiver)
+and is 1-2 chars long, expand it.
+
+### Examples
+
+<bad>
+
+```go
+type runExecutor struct {
+    w     *Worker              // what's w?
+    pr    *pb.PollForRunResponse  // pr? PullRequest? PollResponse?
+    rs    *runState            // rs?
+}
+
+func (e *runExecutor) seedFromPollResponse() {
+    for _, sc := range e.pr.ActiveStepExecutions[id].WaitForCondition.Conditions {
+        t := sc.GetTimer()
+        // ... is t a time.Time? a TimerCondition? a *testing.T?
+    }
+}
+```
+
+</bad>
+
+<good>
+
+```go
+type runExecutor struct {
+    worker       *Worker
+    pollResponse *pb.PollForRunResponse
+    runState     *runState
+}
+
+// Receiver `e` is fine — Go convention. Field accesses below read as
+// "this executor's pollResponse", "this executor's worker", etc.
+func (e *runExecutor) seedFromPollResponse() {
+    for _, condition := range e.pollResponse.ActiveStepExecutions[id].WaitForCondition.Conditions {
+        timer := condition.GetTimer()
+        // immediately clear: timer is a TimerCondition.
+    }
+}
+```
+
+</good>
+
+## Comment non-obvious struct fields
+
+Every key field on a struct that does NOT explain itself from its
+name + type alone MUST carry a doc-comment. The comment should answer:
+
+1. **What is it?** — the role this field plays in the type.
+2. **Who writes it?** — when does it change, and through which method?
+3. **Who reads it?** — what other code depends on the value being
+   correct.
+4. **Why is it needed?** — what alternative would NOT work.
+
+A new reader should be able to understand a struct from the field
+declarations + comments alone, without having to grep for usages.
+
+Fields that ARE self-explanatory (e.g. `id string`, `count int`,
+`enabled bool` on a config) need no comment.
+
+<bad>
+
+```go
+type runExecutor struct {
+    pollReceivedAt time.Time   // what does this remember? for what?
+    timerMgr       *timerManager
+    waitingSteps   map[string]*pb.ActiveStepExecution
+}
+```
+
+</bad>
+
+<good>
+
+```go
+type runExecutor struct {
+    // pollReceivedAt is the local wall-clock at which we received
+    // pollResponse. Combined with pollResponse.ServerTimestampMs
+    // (the server's wall-clock at dispatch), serverNowMs()
+    // reconstructs a server-aligned wall clock as we run, without
+    // round-tripping for time. EvaluateCondition uses the result for
+    // TimerCondition fire-at comparisons.
+    pollReceivedAt time.Time
+
+    // timerMgr multiplexes per-(step, condition) AfterFuncs onto a
+    // single channel for run's select. See worker_timer_manager.go.
+    // Stop()'d on processRun exit to bulk-cancel pending fires.
+    timerMgr *timerManager
+
+    // waitingSteps holds every step currently in WAITING_FOR_CONDITION
+    // on the worker side, keyed by step_exe_id. Populated by WaitFor
+    // completions; drained by reEvaluateSiblings (sibling promotion)
+    // and applyCancellations.
+    waitingSteps map[string]*pb.ActiveStepExecution
+}
+```
+
+</good>
+
+## Review checklist
+
+Reject in PR review:
+
+- A function whose body declares 3+ named closures that share captured
+  state.
+- A closure that mutates an outer map / slice / counter and is invoked
+  from more than one place in the enclosing function.
+- A closure with a multi-line doc-comment on the assignment line —
+  promote it to a method.
+- A 1-2 letter identifier (other than a method receiver) that is not
+  on the allowlist above (`i j k n err ctx ok t mu wg id r w ch`).
+- A struct field whose role / writers / readers cannot be deduced
+  from its name + type alone, missing a doc-comment.

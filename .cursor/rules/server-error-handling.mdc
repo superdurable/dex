@@ -1,0 +1,148 @@
+---
+description: Server-side Go code must use CategorizedError for all error returns
+globs: server/**/*.go
+alwaysApply: false
+---
+
+# Server Error Handling: Always Use CategorizedError
+
+All server-side Go code (`server/`) must use `errors.CategorizedError` from
+`github.com/durableworkflow/dex/server/common/errors` — never plain `error`.
+
+## Rules
+
+- Every exported function/method that can fail must return `errors.CategorizedError`, not `error`.
+- Internal helpers should also return `errors.CategorizedError` when their callers need categorized errors.
+- Use the appropriate constructor for the error category:
+  - `errors.NewInternalError(msg, fromErr)` — unexpected server-side failures
+  - `errors.NewInvalidInputError(msg, fromErr)` — bad SDK/client input (protocol violations)
+  - `errors.NewNotFoundError(msg, fromErr)` — resource not found
+  - `errors.NewConflictError(msg, fromErr)` — CAS / optimistic lock failures
+  - `errors.NewTimeoutError(msg, fromErr)` — deadline exceeded
+  - `errors.NewUnavailableError(msg, fromErr)` — transient infrastructure issues
+- Never wrap a `CategorizedError` inside another `CategorizedError` — propagate it directly.
+- Store interfaces (`RunStore`, `BlobStore`, `ShardStore`, `TasklistStore`, `VisibilityStore`, `HistoryStore`) all return `CategorizedError`.
+- The `RunEngine` and task processors already rely on `IsRetriable()` for retry decisions — incorrect error categories will break retry logic.
+
+## Error Wrapping
+
+- If the callee already returns `CategorizedError`, **propagate it directly** — do not re-wrap.
+- Only wrap a plain `error` into `CategorizedError`, and always pick the **correct category**
+  (not blindly `NewInternalError`).
+- CAS / optimistic lock failures are `ConflictError` (retriable), not `InternalError`.
+- Protocol violations from SDK/worker (e.g., wrong counter) are `InvalidInputError`, not `InternalError`.
+
+```go
+// Bad: re-wrapping a CategorizedError
+catErr := store.GetRun(ctx, ...)
+if catErr != nil {
+    return errors.NewInternalError("get run failed", catErr) // WRONG: loses original category
+}
+
+// Good: propagate directly
+catErr := store.GetRun(ctx, ...)
+if catErr != nil {
+    return catErr
+}
+
+// Bad: wrong category for CAS failure
+if !ok {
+    return errors.NewInternalError("CAS failed", nil) // WRONG: not retriable
+}
+
+// Good: correct category
+if !ok {
+    return errors.NewConflictError("CAS failed: concurrent modification", nil) // retriable
+}
+```
+
+## Example
+
+```go
+// Bad: plain error
+func doWork() error {
+    return fmt.Errorf("something broke")
+}
+
+// Good: categorized error
+func doWork() errors.CategorizedError {
+    return errors.NewInternalError("something broke", nil)
+}
+```
+
+## gRPC Handler Boundary: Use `errors.ToProtoError`
+
+When a CategorizedError surfaces at a gRPC server handler boundary
+(`*ServiceHandler` methods that satisfy `pb.XxxServiceServer`), convert
+it via `errors.ToProtoError(err)`. Do NOT manually pick a `codes.X` and
+write `status.Errorf(...)` — that loses the error category, breaks the
+caller's retry logic (which keys off `codes.Unavailable` / `codes.Aborted`
+etc.), and is inconsistent across handlers.
+
+`errors.ToProtoError` is the single source of truth for the
+`CategorizedError → grpc/codes` mapping (see
+`server/common/errors/errors.go::ToProtoError`).
+
+```go
+// Bad: hand-picking a code and dropping the category.
+func (h *Handler) DoStuff(ctx context.Context, req *pb.Req) (*pb.Resp, error) {
+    if err := h.engine.DoStuff(ctx, req); err != nil {
+        // err is a CategorizedError but we just stamped it FailedPrecondition.
+        // Caller can't tell Conflict from Unavailable from Internal anymore.
+        return nil, status.Errorf(codes.FailedPrecondition, "do stuff: %v", err)
+    }
+    return &pb.Resp{}, nil
+}
+
+// Good: trust the mapping.
+func (h *Handler) DoStuff(ctx context.Context, req *pb.Req) (*pb.Resp, error) {
+    if err := h.engine.DoStuff(ctx, req); err != nil {
+        return nil, errors.ToProtoError(err)
+    }
+    return &pb.Resp{}, nil
+}
+```
+
+### When manual `status.Errorf` IS appropriate
+
+Manual `status.Errorf(codes.X, ...)` is correct ONLY when the source
+error is NOT a CategorizedError. Common cases:
+
+- Request-level validation (missing required fields):
+  `status.Error(codes.InvalidArgument, "namespace is required")`
+- gRPC stream send/recv plumbing failures (`stream.Send` returned an
+  error from the wire): `status.Errorf(codes.Unavailable, "send: %v", err)`
+- Direct dial / network failures from a gRPC client:
+  `status.Errorf(codes.Unavailable, "dial owner: %v", err)`
+- Protocol violations on a stream (caller sent the wrong message type):
+  `status.Error(codes.InvalidArgument, "expected X, got Y")`
+
+### Mixed case: function may return either type
+
+If a downstream call may return either CategorizedError or a plain
+error (e.g. `ctx.Err()` from a select), type-assert and fall through:
+
+```go
+task, pollErr := mgr.PollForTask(ctx)
+if pollErr != nil {
+    if ctx.Err() != nil {
+        return &pb.Resp{}, nil // long-poll timeout → empty
+    }
+    if catErr, ok := pollErr.(errors.CategorizedError); ok {
+        return nil, errors.ToProtoError(catErr)
+    }
+    return nil, status.Errorf(codes.Internal, "poll failed: %v", pollErr)
+}
+```
+
+## Review Checklist
+
+Before approving any server-side PR, reject:
+
+- A new method that returns plain `error` when its callers need to
+  distinguish error categories (retry vs not, idempotent vs CAS, etc).
+- A `status.Errorf(codes.X, ...)` at a handler boundary where the
+  source `err` came from a function returning `CategorizedError` — use
+  `errors.ToProtoError(err)` instead.
+- A `NewInternalError` wrapping a CategorizedError — propagate the
+  inner one directly.
