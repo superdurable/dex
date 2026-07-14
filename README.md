@@ -32,7 +32,9 @@ This repository includes:
 - [x] WaitForHistoryEvent API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
 - [x] WaitForRunComplete API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
 - [x] Time travel API &mdash; see [time-travel-api-design](docs/time-travel-api-design.md)
+- [ ] Add history event for external channel publishes
 - [ ] State snapshot for step execution
+- [ ] GetHistory API with blob reuse to save the data transportation
 - [ ] State keys locking
 - [ ] DeleteRun API
 - [ ] PruneRunHistory API
@@ -44,12 +46,14 @@ This repository includes:
 - [ ] API ratelimit and task rate limit
 - [ ] External DB integration with state Keys & vector store
 - [ ] RPC
-- [ ] Rust SDK core and Java SDK
+- [ ] Rust SDK core and Python SDK
 - [ ] Visibility: search by retrying steps filters
 - [ ] Visibility: search by waitingFor steps filters(versioning helper)
 - [ ] Visibility: search on state values
 
 ## 1.0+ features
+- [ ] TypeScript SDK
+- [ ] Java SDK
 - [ ] Auto Delete & Prune after run closed(per closed status)
 - [ ] Channel draining
 - [ ] SkipTimer API
@@ -67,7 +71,6 @@ This repository includes:
 ## Future internal optimization 
 - [ ] Pickup improvement - PollForRun with runID and graceful handoff
 - [ ] Review and simplify metrics & docs
-
 
 
 ## Contribution Guide

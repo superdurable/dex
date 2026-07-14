@@ -142,26 +142,7 @@ func (h *RunsServiceHandler) StopRun(ctx context.Context, req *pb.StopRunRequest
 	}
 
 	if wasActive && workerID != "" {
-		mc := h.localMatchingClient
-		timeout := h.cfg.MatchingServiceAPITimeout
-		go func() {
-			notifyCtx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			if _, err := mc.DeliverExternalEvents(notifyCtx, &pb.DeliverExternalEventsRequest{
-				Namespace: req.Namespace,
-				WorkerId:  workerID,
-				Events: []*pb.ExternalEvent{{
-					RunId: req.RunId,
-					Event: &pb.ExternalEvent_StopRequested{
-						StopRequested: &pb.StopRequested{},
-					},
-				}},
-			}); err != nil && h.logger != nil {
-				h.logger.Debug("StopRun notify worker failed (best-effort)",
-					tag.RunID(req.RunId), tag.Namespace(req.Namespace),
-					tag.Error(err))
-			}
-		}()
+		h.bestEffortNotifyWorkerToStopRun(req.Namespace, workerID, req.RunId)
 	}
 
 	return &pb.StopRunResponse{}, nil
@@ -184,26 +165,7 @@ func (h *RunsServiceHandler) ForkRun(ctx context.Context, req *pb.ForkRunRequest
 	}
 
 	if previousWorkerID != "" {
-		mc := h.localMatchingClient
-		timeout := h.cfg.MatchingServiceAPITimeout
-		go func() {
-			notifyCtx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			if _, err := mc.DeliverExternalEvents(notifyCtx, &pb.DeliverExternalEventsRequest{
-				Namespace: req.Namespace,
-				WorkerId:  previousWorkerID,
-				Events: []*pb.ExternalEvent{{
-					RunId: req.RunId,
-					Event: &pb.ExternalEvent_StopRequested{
-						StopRequested: &pb.StopRequested{},
-					},
-				}},
-			}); err != nil && h.logger != nil {
-				h.logger.Debug("ForkRun notify worker failed (best-effort)",
-					tag.RunID(req.RunId), tag.Namespace(req.Namespace),
-					tag.Error(err))
-			}
-		}()
+		h.bestEffortNotifyWorkerToStopRun(req.Namespace, previousWorkerID, req.RunId)
 	}
 
 	return &pb.ForkRunResponse{}, nil
@@ -450,4 +412,27 @@ func (h *RunsServiceHandler) tryForward(_ context.Context, shardID int32) (pb.Ru
 		return nil, status.Error(codes.Unavailable, "failed to connect to shard owner for forwarding")
 	}
 	return client, nil
+}
+
+func (h *RunsServiceHandler) bestEffortNotifyWorkerToStopRun(namespace, workerId, runId string) {
+	mc := h.localMatchingClient
+	timeout := h.cfg.MatchingServiceAPITimeout
+	go func() {
+		notifyCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if _, err := mc.DeliverExternalEvents(notifyCtx, &pb.DeliverExternalEventsRequest{
+			Namespace: namespace,
+			WorkerId:  workerId,
+			Events: []*pb.ExternalEvent{{
+				RunId: runId,
+				Event: &pb.ExternalEvent_StopRequested{
+					StopRequested: &pb.StopRequested{},
+				},
+			}},
+		}); err != nil {
+			h.logger.Info("notify worker failed (best-effort)",
+				tag.RunID(runId), tag.Namespace(namespace),
+				tag.Error(err))
+		}
+	}()
 }
