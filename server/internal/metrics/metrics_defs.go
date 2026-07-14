@@ -112,12 +112,6 @@ var (
 	CounterStepExecutionCancelled Counter = internalCounter(MetricTierDebug, "step_execution_cancelled_counter")
 )
 
-// ForkRun metrics — tagged by outcome only.
-var (
-	CounterForkRunRequests Counter = internalCounter(MetricTierInfo, "fork_run_requests_counter")
-	LatencyForkRun           Latency = internalLatency(MetricTierInfo, "fork_run_latency")
-)
-
 // task processing metrics
 // Tagged by task_type (e.g. "immediate_initial_dispatch", "timer_heartbeat")
 var (

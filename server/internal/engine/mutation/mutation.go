@@ -371,19 +371,15 @@ func (mutation *runMutation) AddHistoryStepExecuteCompleted(
 	conditionResults []*pb.ConditionResult,
 	workerID string,
 ) {
-	mutation.ops.AddHistoryStepExecuteCompleted(req, fromStepExeID, conditionResults, workerID, mutation.buildRunStateSnapshot())
+	mutation.ops.AddHistoryStepExecuteCompleted(req, fromStepExeID, conditionResults, workerID)
 }
 
 func (mutation *runMutation) AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string) {
-	mutation.ops.AddHistoryStepWaitForCompleted(req, fromStepExeID, workerID, mutation.buildRunStateSnapshot())
+	mutation.ops.AddHistoryStepWaitForCompleted(req, fromStepExeID, workerID)
 }
 
 func (mutation *runMutation) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string) {
-	mutation.ops.AddHistoryStepsUnblocked(req, workerID, mutation.buildRunStateSnapshot())
-}
-
-func (mutation *runMutation) AddHistoryRunFork(forkToEventID int64, reason string) {
-	mutation.ops.AddHistoryRunFork(forkToEventID, reason)
+	mutation.ops.AddHistoryStepsUnblocked(req, workerID)
 }
 
 func (mutation *runMutation) AddHistoryChannelPublish(req *pb.PublishToChannelRequest) {
@@ -430,13 +426,6 @@ func (mutation *runMutation) ensureStepMethodCounterSeeded() {
 }
 
 func (mutation *runMutation) mergedActiveSteps() map[string]p.ActiveStepExecution {
-	if mutation.update.ReplaceActiveStepExecutions != nil {
-		activeSteps := make(map[string]p.ActiveStepExecution, len(*mutation.update.ReplaceActiveStepExecutions))
-		for key, value := range *mutation.update.ReplaceActiveStepExecutions {
-			activeSteps[key] = value
-		}
-		return activeSteps
-	}
 	activeSteps := make(map[string]p.ActiveStepExecution, len(mutation.run.ActiveStepExecutions))
 	for key, value := range mutation.run.ActiveStepExecutions {
 		activeSteps[key] = value
@@ -454,13 +443,6 @@ func (mutation *runMutation) mergedActiveSteps() map[string]p.ActiveStepExecutio
 }
 
 func (mutation *runMutation) mergedUnconsumedChannels() map[string][]p.ChannelMessage {
-	if mutation.update.ReplaceAllUnconsumedChannels != nil {
-		channels := make(map[string][]p.ChannelMessage, len(*mutation.update.ReplaceAllUnconsumedChannels))
-		for key, value := range *mutation.update.ReplaceAllUnconsumedChannels {
-			channels[key] = value
-		}
-		return channels
-	}
 	channels := make(map[string][]p.ChannelMessage, len(mutation.run.UnconsumedChannelMessages))
 	for key, value := range mutation.run.UnconsumedChannelMessages {
 		channels[key] = value

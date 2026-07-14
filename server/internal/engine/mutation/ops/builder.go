@@ -105,7 +105,6 @@ func (builder *OpsTasksBuilder) AddHistoryStepExecuteCompleted(
 	fromStepExeID string,
 	conditionResults []*pb.ConditionResult,
 	workerID string,
-	snapshot *pb.RunStateSnapshot,
 ) {
 	payload := &pb.HistoryStepExecuteCompletedPayload{
 		StepExeId:              req.StepExeId,
@@ -120,17 +119,11 @@ func (builder *OpsTasksBuilder) AddHistoryStepExecuteCompleted(
 		ChannelPublish:         req.ChannelPublish,
 		StepsUnblocked:         req.StepsUnblocked,
 		ExecuteMethod:          req.ExecuteMethod,
-		Snapshot:               snapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepExecuteCompleted: payload}, workerID)
 }
 
-func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(
-	req *pb.StepWaitForCompletedRequest,
-	fromStepExeID string,
-	workerID string,
-	snapshot *pb.RunStateSnapshot,
-) {
+func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string) {
 	payload := &pb.HistoryStepWaitForCompletedPayload{
 		StepExeId:            req.StepExeId,
 		FromStepExeId:        fromStepExeID,
@@ -141,31 +134,16 @@ func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(
 		StepsUnblocked:       req.StepsUnblocked,
 		WaitForMethod:        req.WaitForMethod,
 		NextSteps:            req.NextSteps,
-		Snapshot:             snapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepWaitForCompleted: payload}, workerID)
 }
 
-func (builder *OpsTasksBuilder) AddHistoryStepsUnblocked(
-	req *pb.StepsUnblockedRequest,
-	workerID string,
-	snapshot *pb.RunStateSnapshot,
-) {
+func (builder *OpsTasksBuilder) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string) {
 	payload := &pb.HistoryStepsUnblockedPayload{
 		WorkerRequestCounter: req.GetContext().GetWorkerRequestCounter(),
 		StepsUnblocked:       req.StepsUnblocked,
-		Snapshot:             snapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepsUnblocked: payload}, workerID)
-}
-
-func (builder *OpsTasksBuilder) AddHistoryRunFork(forkToEventID int64, reason string) {
-	builder.appendHistory(p.HistoryEventPayload{
-		RunFork: &pb.HistoryRunForkPayload{
-			ForkToEventId: forkToEventID,
-			Reason:        reason,
-		},
-	}, "")
 }
 
 func (builder *OpsTasksBuilder) AddHistoryChannelPublish(req *pb.PublishToChannelRequest) {

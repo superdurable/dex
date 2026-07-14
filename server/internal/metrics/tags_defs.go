@@ -145,10 +145,9 @@ func TagImmediateTaskType(tt p.ImmediateTaskType) Tag {
 }
 
 const (
-	tagKeyNamespace      tagKey = "namespace"
-	tagKeyErrorKind      tagKey = "error_kind"
-	tagKeyPartitionRole  tagKey = "partition_role"
-	tagKeyForkRunOutcome tagKey = "fork_run_outcome"
+	tagKeyNamespace     tagKey = "namespace"
+	tagKeyErrorKind     tagKey = "error_kind"
+	tagKeyPartitionRole tagKey = "partition_role"
 )
 
 // TagPartitionRole tags a tasklist metric by partition tree position:

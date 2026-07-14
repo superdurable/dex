@@ -46,9 +46,6 @@ type RunMutation interface {
 	// dispatch tasks
 	EnqueueInitialDispatchTask()
 
-	// fork
-	ApplyForkRestore(stateMap map[string]p.Value, channels map[string][]p.ChannelMessage, counters map[string]int32, activeSteps map[string]p.ActiveStepExecution, externalCounter int64)
-
 	// history
 	AddHistoryRunStart(req *pb.StartRunRequest)
 	AddHistoryRunStop(status p.RunStatus, reason string)
@@ -56,7 +53,6 @@ type RunMutation interface {
 	AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string)
 	AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string)
 	AddHistoryChannelPublish(req *pb.PublishToChannelRequest)
-	AddHistoryRunFork(forkToEventID int64, reason string)
 	AddHistoryRunStopIfTerminal()
 
 	// visibility
@@ -97,5 +93,4 @@ const (
 	TransitionReasonStepWaitForTimerFired     TransitionReason = "step_wait_for_timer_fired"
 	TransitionReasonHeartbeatTimeout          TransitionReason = "heartbeat_timeout"
 	TransitionReasonReleaseRunYield           TransitionReason = "release_run_yield"
-	TransitionReasonForkRun                   TransitionReason = "fork_run"
 )
