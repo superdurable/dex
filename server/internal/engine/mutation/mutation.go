@@ -110,8 +110,8 @@ func (mutation *runMutation) RecordWorkerContext(workerCtx *pb.WorkerCallContext
 	)
 }
 
-func (mutation *runMutation) SetStateMap(stateMap map[string]p.Value) {
-	mutation.update.StateMap = stateMap
+func (mutation *runMutation) UpsertStateMap(stateMapToUpsert map[string]p.Value) {
+	mutation.update.StateMap = stateMapToUpsert
 }
 
 func (mutation *runMutation) SpawnStartingSteps(steps []StartingStep) int64 {
@@ -333,6 +333,11 @@ func (mutation *runMutation) MaybeTransitionToPendingOnDurableTimerFired(effecti
 	return nil
 }
 
+func (mutation *runMutation) ApplyForkRun(event p.HistoryEvent) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (mutation *runMutation) RenewHeartbeatTimer() {
 	newTimerID := ids.NewTaskID()
 	mutation.update.LastHeartbeatTime = &mutation.now
@@ -373,6 +378,10 @@ func (mutation *runMutation) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequ
 
 func (mutation *runMutation) AddHistoryChannelPublish(req *pb.PublishToChannelRequest) {
 	mutation.ops.AddHistoryChannelPublish(req)
+}
+
+func (mutation *runMutation) AddHistoryRunFork(id int64, reason string) {
+	mutation.ops.AddHistoryRunFork(id, reason)
 }
 
 func (mutation *runMutation) UpdateVisibility(status p.RunStatus) {

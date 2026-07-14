@@ -19,7 +19,7 @@ type RunMutation interface {
 	RecordWorkerContext(workerCtx *pb.WorkerCallContext) errors.CategorizedError
 	RecordWorkerCounter(counter int64)
 	RenewHeartbeatTimer()
-	SetStateMap(stateMap map[string]p.Value)
+	UpsertStateMap(stateMap map[string]p.Value)
 
 	// steps
 	SpawnStartingSteps(steps []StartingStep) int64
@@ -43,6 +43,9 @@ type RunMutation interface {
 	MaybeTransitionToPendingIfPromoteWaitingSteps(effectiveNow int64, reason TransitionReason) (bool, errors.CategorizedError)
 	MaybeTransitionToPendingOnDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError
 
+	// special -- fork run
+	ApplyForkRun(event p.HistoryEvent)
+
 	// dispatch tasks
 	EnqueueInitialDispatchTask()
 
@@ -54,6 +57,7 @@ type RunMutation interface {
 	AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string)
 	AddHistoryChannelPublish(req *pb.PublishToChannelRequest)
 	AddHistoryRunStopIfTerminal()
+	AddHistoryRunFork(id int64, reason string)
 
 	// visibility
 	UpdateVisibility(status p.RunStatus)

@@ -9,6 +9,28 @@ import (
 
 const forkWorkerRequestCounterBump = int64(1000)
 
+func forkRestoreFields(payload p.HistoryEventPayload) (
+	stateMap map[string]p.Value,
+	channels map[string][]p.ChannelMessage,
+	counters map[string]int32,
+	activeSteps map[string]p.ActiveStepExecution,
+	externalCounter int64,
+) {
+	if payload.RunStart != nil {
+		return mutation.ForkRestoreFromRunStart(payload.RunStart)
+	}
+	var snapshot *pb.RunStateSnapshot
+	switch {
+	case payload.StepExecuteCompleted != nil:
+		snapshot = payload.StepExecuteCompleted.Snapshot
+	case payload.StepWaitForCompleted != nil:
+		snapshot = payload.StepWaitForCompleted.Snapshot
+	case payload.StepsUnblocked != nil:
+		snapshot = payload.StepsUnblocked.Snapshot
+	}
+	return mutation.SnapshotToPersistence(snapshot)
+}
+
 // ApplyForkRestore replaces run execution state and prepares re-dispatch.
 func (mutation *runMutation) ApplyForkRestore(
 	stateMap map[string]p.Value,
@@ -27,8 +49,7 @@ func (mutation *runMutation) ApplyForkRestore(
 	mutation.update.LastHeartbeatTime = &mutation.now
 	mutation.update.HeartbeatTimerID = ptr.Any(ids.TaskID{})
 	mutation.update.ActiveDurableTimerID = ptr.Any(ids.TaskID{})
-	mutation.update.DurableTimerFireAt = ptr.Any(int64(0))
-	mutation.update.DurableTimerFired = ptr.Any(false)
+	mutation.update.DurableTimerFireAt = ptr.Any(int64(0)) //set from snapshot
 
 	newCounter := mutation.run.WorkerRequestCounter + forkWorkerRequestCounterBump
 	mutation.update.WorkerRequestCounter = &newCounter

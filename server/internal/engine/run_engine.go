@@ -305,7 +305,7 @@ func (e *runEngineImpl) tryProcessStepExecuteCompleted(
 	if err := runMutation.RecordWorkerContext(req.Context); err != nil {
 		return nil, err
 	}
-	runMutation.SetStateMap(stateMap)
+	runMutation.UpsertStateMap(stateMap)
 	runMutation.SpliceChannelsOnExecuteAndPublishInternalChannels(req, channelPubs)
 
 	var fromStepExeID string
@@ -412,7 +412,7 @@ func (e *runEngineImpl) tryProcessStepWaitForCompleted(
 	if err := runMutation.RecordWorkerContext(req.Context); err != nil {
 		return nil, err
 	}
-	runMutation.SetStateMap(stateMap)
+	runMutation.UpsertStateMap(stateMap)
 	runMutation.TransitionStepToWaitingForCondition(req.StepExeId, waitCond)
 	runMutation.PublishInternalChannels(channelPubs)
 	runMutation.PromoteReportedUnblocks(req.StepsUnblocked)
@@ -436,7 +436,7 @@ func (e *runEngineImpl) tryProcessStepWaitForFailed(
 	if err := runMutation.RecordWorkerContext(req.Context); err != nil {
 		return nil, err
 	}
-	runMutation.SetStateMap(stateMap)
+	runMutation.UpsertStateMap(stateMap)
 	fromStepExeID := ""
 	if existing, ok := runMutation.GetRun().ActiveStepExecutions[req.StepExeId]; ok {
 		fromStepExeID = existing.FromStepExeID
@@ -464,7 +464,7 @@ func (e *runEngineImpl) tryProcessStepWaitForFailedAndProceed(
 	if err := runMutation.RecordWorkerContext(req.Context); err != nil {
 		return nil, err
 	}
-	runMutation.SetStateMap(stateMap)
+	runMutation.UpsertStateMap(stateMap)
 	fromStepExeID := ""
 	if existing, ok := runMutation.GetRun().ActiveStepExecutions[req.StepExeId]; ok {
 		fromStepExeID = existing.FromStepExeID
@@ -867,7 +867,7 @@ type AsyncMatchRequest struct {
 	RunID     string
 }
 
-// BatchProcessAsyncMatch transitions multiple runs to Running for async match
+// HandleBatchAsyncMatch transitions multiple runs to Running for async match
 // pickup. Each run is processed independently with an internal CAS retry loop
 // (up to cfg.MaxCASRetries attempts). Returns a map of run_id → success.
 //
@@ -1052,6 +1052,87 @@ func (e *runEngineImpl) processReleaseRunAllStepsWaiting(ctx context.Context, sh
 		return &pb.ProcessReleaseRunResponse{WorkerCallResponse: wcr}, nil
 	}
 	return nil, errors.NewCASError("ProcessReleaseRun: all_steps_waiting retries exhausted", nil)
+}
+
+// ============================================================================
+// ForkRun
+// ============================================================================
+
+func (e *runEngineImpl) ForkRun(ctx context.Context, req *pb.ForkRunRequest) (string, errors.CategorizedError) {
+	e.logger.Debug("RunEngine.ForkRun", tag.RunID(req.RunId), tag.Namespace(req.Namespace), tag.Value(req.ToEventId))
+	shardID := e.shardMapper.GetShardID(req.Namespace, req.RunId)
+
+	for attempt := 0; ; attempt++ {
+		previousWorkerID, err := e.tryForkRun(ctx, shardID, req)
+		if err == nil {
+			return previousWorkerID, nil
+		}
+		if !shouldRetry(err, attempt, e.cfg.MaxTransientErrorRetries) {
+			return "", err
+		}
+	}
+}
+
+func (e *runEngineImpl) tryForkRun(ctx context.Context, shardID int32, req *pb.ForkRunRequest) (string, errors.CategorizedError) {
+	if req.ToEventId <= 0 {
+		return "", errors.NewInvalidInputError("to_event_id must be positive", nil)
+	}
+
+	events, err := e.historyStore.GetHistoryEvents(ctx, req.Namespace, req.RunId, req.ToEventId-1, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(events) == 0 {
+		return "", errors.NewInvalidInputError(
+			fmt.Sprintf("history event %d not found for run", req.ToEventId), nil)
+	}
+	targetEvent := events[0]
+
+	runMutation, err := e.mutations.NewMutationForUpdate(ctx, shardID, req.Namespace, req.RunId)
+	if err != nil {
+		return "", err
+	}
+	previousWorkerID := runMutation.GetRun().WorkerID
+
+	if validateErr := validateForkTargetEvent(targetEvent.Payload); validateErr != nil {
+		return "", validateErr
+	}
+
+	runMutation.ApplyForkRun(targetEvent)
+	runMutation.AddHistoryRunFork(req.ToEventId, req.Reason)
+	runMutation.UpdateVisibilityIfStatusChanged()
+
+	if commitErr := runMutation.Commit(ctx, nil); commitErr != nil {
+		return "", commitErr
+	}
+	return previousWorkerID, nil
+}
+
+func validateForkTargetEvent(payload p.HistoryEventPayload) errors.CategorizedError {
+	switch {
+	case payload.RunStart != nil:
+		return nil
+	case payload.RunFork != nil:
+		return errors.NewInvalidInputError("cannot fork to a run_fork marker event", nil)
+	case payload.RunStop != nil:
+		return errors.NewInvalidInputError("cannot fork to run_stop terminal event", nil)
+	case payload.ChannelPublish != nil:
+		return errors.NewInvalidInputError("cannot fork to channel_publish event", nil)
+	case payload.StepExecuteCompleted != nil:
+		// Fork is inclusive -- the state of the target event is reserved and continued from.
+		// So there is no point of forking to a terminal event.
+		if payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_COMPLETE ||
+			payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_FAIL {
+			return errors.NewInvalidInputError("cannot fork to terminal event(fork is inclusive)", nil)
+		}
+		return nil
+	case payload.StepWaitForCompleted != nil:
+		return nil
+	case payload.StepsUnblocked != nil:
+		return nil
+	default:
+		return errors.NewInvalidInputError("unsupported history event type for fork", nil)
+	}
 }
 
 // ============================================================================

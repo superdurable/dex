@@ -154,6 +154,14 @@ func (builder *OpsTasksBuilder) AddHistoryChannelPublish(req *pb.PublishToChanne
 	builder.appendHistory(p.HistoryEventPayload{ChannelPublish: payload}, "")
 }
 
+func (builder *OpsTasksBuilder) AddHistoryRunFork(toEventId int64, reason string) {
+	payload := &pb.HistoryRunForkPayload{
+		ForkToEventId: toEventId,
+		Reason:        reason,
+	}
+	builder.appendHistory(p.HistoryEventPayload{RunFork: payload}, "")
+}
+
 func (builder *OpsTasksBuilder) appendHistory(payload p.HistoryEventPayload, workerID string) {
 	builder.nextEventID++
 	builder.out = append(builder.out, p.TaskRow{OpsFIFO: &p.OpsFIFOTaskRow{
