@@ -36,6 +36,19 @@ func (mutation *runMutation) ApplyForkRestore(
 	mutation.applyForkStatusAndTimers(activeSteps)
 }
 
+// ForkRestoreFromRunStart builds empty state plus starting active steps.
+func ForkRestoreFromRunStart(payload *pb.HistoryRunStartPayload) (
+	stateMap map[string]p.Value,
+	channels map[string][]p.ChannelMessage,
+	counters map[string]int32,
+	activeSteps map[string]p.ActiveStepExecution,
+	externalCounter int64,
+) {
+	steps := startingStepsFromHistoryRunStart(payload)
+	activeSteps, counters = activeStepsFromStartingSteps(steps)
+	return map[string]p.Value{}, map[string][]p.ChannelMessage{}, counters, activeSteps, 0
+}
+
 func (mutation *runMutation) applyForkStatusAndTimers(activeSteps map[string]p.ActiveStepExecution) {
 	if mutation.hasInvokingSteps(activeSteps) {
 		pending := p.RunStatusPending
@@ -103,8 +116,8 @@ func earliestTimerFireAt(activeSteps map[string]p.ActiveStepExecution) int64 {
 	return minFireAt
 }
 
-// StartingStepsFromHistoryRunStart converts a RunStart history payload to spawn inputs.
-func StartingStepsFromHistoryRunStart(payload *pb.HistoryRunStartPayload) []StartingStep {
+// startingStepsFromHistoryRunStart converts a RunStart history payload to spawn inputs.
+func startingStepsFromHistoryRunStart(payload *pb.HistoryRunStartPayload) []StartingStep {
 	if payload == nil {
 		return nil
 	}
@@ -123,8 +136,8 @@ func StartingStepsFromHistoryRunStart(payload *pb.HistoryRunStartPayload) []Star
 	return steps
 }
 
-// ActiveStepsFromStartingSteps builds replace maps for fork-to-start.
-func ActiveStepsFromStartingSteps(steps []StartingStep) (
+// activeStepsFromStartingSteps builds replace maps for fork-to-start.
+func activeStepsFromStartingSteps(steps []StartingStep) (
 	activeSteps map[string]p.ActiveStepExecution,
 	counters map[string]int32,
 ) {
@@ -150,17 +163,4 @@ func ActiveStepsFromStartingSteps(steps []StartingStep) (
 		activeSteps[stepExeID] = step
 	}
 	return activeSteps, counters
-}
-
-// ForkRestoreFromRunStart builds empty state plus starting active steps.
-func ForkRestoreFromRunStart(payload *pb.HistoryRunStartPayload) (
-	stateMap map[string]p.Value,
-	channels map[string][]p.ChannelMessage,
-	counters map[string]int32,
-	activeSteps map[string]p.ActiveStepExecution,
-	externalCounter int64,
-) {
-	steps := StartingStepsFromHistoryRunStart(payload)
-	activeSteps, counters = ActiveStepsFromStartingSteps(steps)
-	return map[string]p.Value{}, map[string][]p.ChannelMessage{}, counters, activeSteps, 0
 }

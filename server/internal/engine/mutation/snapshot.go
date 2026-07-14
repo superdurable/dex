@@ -7,8 +7,8 @@ import (
 	p "github.com/superdurable/dex/server/internal/persistence"
 )
 
-// BuildRunStateSnapshot captures post-mutation mutable run state for history.
-func (mutation *runMutation) BuildRunStateSnapshot() *pb.RunStateSnapshot {
+// buildRunStateSnapshot captures post-mutation mutable run state for history.
+func (mutation *runMutation) buildRunStateSnapshot() *pb.RunStateSnapshot {
 	stateMap := mutation.mergedStateMap()
 	channels := mutation.mergedUnconsumedChannels()
 	counters := mutation.mergedStepExeIDCounters()

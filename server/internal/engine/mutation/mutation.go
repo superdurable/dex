@@ -371,15 +371,15 @@ func (mutation *runMutation) AddHistoryStepExecuteCompleted(
 	conditionResults []*pb.ConditionResult,
 	workerID string,
 ) {
-	mutation.ops.AddHistoryStepExecuteCompleted(req, fromStepExeID, conditionResults, workerID, mutation.BuildRunStateSnapshot())
+	mutation.ops.AddHistoryStepExecuteCompleted(req, fromStepExeID, conditionResults, workerID, mutation.buildRunStateSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string) {
-	mutation.ops.AddHistoryStepWaitForCompleted(req, fromStepExeID, workerID, mutation.BuildRunStateSnapshot())
+	mutation.ops.AddHistoryStepWaitForCompleted(req, fromStepExeID, workerID, mutation.buildRunStateSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string) {
-	mutation.ops.AddHistoryStepsUnblocked(req, workerID, mutation.BuildRunStateSnapshot())
+	mutation.ops.AddHistoryStepsUnblocked(req, workerID, mutation.buildRunStateSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryRunFork(forkToEventID int64, reason string) {
