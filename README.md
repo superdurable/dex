@@ -32,7 +32,6 @@ This repository includes:
 - [x] WaitForHistoryEvent API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
 - [x] WaitForRunComplete API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
 - [x] Time travel API &mdash; see [time-travel-api-design](docs/time-travel-api-design.md)
-- [ ] Add history event for external channel publishes
 - [ ] State snapshot for step execution
 - [ ] GetHistory API with blob reuse to save the data transportation
 - [ ] State keys locking

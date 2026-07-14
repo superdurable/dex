@@ -36,6 +36,7 @@ service RunsService {
   rpc ProcessReleaseRun(ProcessReleaseRunRequest) returns (ProcessReleaseRunResponse);
 
   // ForkRun restores in-place run state to a past history event and re-dispatches.
+  // Inclusive -- the state of the target event is reserved and continued from.
   rpc ForkRun(ForkRunRequest) returns (ForkRunResponse);
 }
 
@@ -112,6 +113,7 @@ message StopRunResponse {}
 message ForkRunRequest {
   string namespace = 1;
   string run_id = 2;
+  // Inclusive -- the state of the target event is reserved and continued from.
   int64 to_event_id = 3;
   string reason = 4;
 }

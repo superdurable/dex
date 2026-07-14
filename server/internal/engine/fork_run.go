@@ -3,13 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	"time"
 
 	pb "github.com/superdurable/dex/protocol-grpc/gen/dexpb"
 	"github.com/superdurable/dex/server/common/errors"
 	"github.com/superdurable/dex/server/common/log/tag"
 	"github.com/superdurable/dex/server/internal/engine/mutation"
-	"github.com/superdurable/dex/server/internal/metrics"
 	p "github.com/superdurable/dex/server/internal/persistence"
 )
 
@@ -17,32 +15,11 @@ func (e *runEngineImpl) ForkRun(ctx context.Context, req *pb.ForkRunRequest) (st
 	e.logger.Debug("RunEngine.ForkRun", tag.RunID(req.RunId), tag.Namespace(req.Namespace), tag.Value(req.ToEventId))
 	shardID := e.shardMapper.GetShardID(req.Namespace, req.RunId)
 
-	start := time.Now()
-	outcome := metrics.ForkRunOutcomeSuccess
-	defer func() {
-		metrics.CounterForkRunRequests.Inc(metrics.TagForkRunOutcome(outcome))
-		metrics.LatencyForkRun.Record(time.Since(start))
-	}()
-
 	for attempt := 0; ; attempt++ {
 		previousWorkerID, err := e.tryForkRun(ctx, shardID, req)
 		if err == nil {
-			e.logger.Info("Run forked",
-				tag.Namespace(req.Namespace), tag.RunID(req.RunId), tag.Value(req.ToEventId))
 			return previousWorkerID, nil
 		}
-		if err.IsInvalidInputError() {
-			outcome = metrics.ForkRunOutcomeInvalid
-			return "", err
-		}
-		if err.IsConflictError() {
-			if !shouldRetry(err, attempt, e.cfg.MaxTransientErrorRetries) {
-				outcome = metrics.ForkRunOutcomeConflict
-				return "", err
-			}
-			continue
-		}
-		outcome = metrics.ForkRunOutcomeInternal
 		if !shouldRetry(err, attempt, e.cfg.MaxTransientErrorRetries) {
 			return "", err
 		}
@@ -58,7 +35,7 @@ func (e *runEngineImpl) tryForkRun(ctx context.Context, shardID int32, req *pb.F
 	if err != nil {
 		return "", err
 	}
-	if len(events) == 0 || events[0].EventID != req.ToEventId {
+	if len(events) == 0 {
 		return "", errors.NewInvalidInputError(
 			fmt.Sprintf("history event %d not found for run", req.ToEventId), nil)
 	}
@@ -92,27 +69,20 @@ func validateForkTargetEvent(payload p.HistoryEventPayload) errors.CategorizedEr
 	case payload.RunFork != nil:
 		return errors.NewInvalidInputError("cannot fork to a run_fork marker event", nil)
 	case payload.RunStop != nil:
-		return errors.NewInvalidInputError("cannot fork to run_stop event", nil)
+		return errors.NewInvalidInputError("cannot fork to run_stop terminal event", nil)
 	case payload.ChannelPublish != nil:
 		return errors.NewInvalidInputError("cannot fork to channel_publish event", nil)
 	case payload.StepExecuteCompleted != nil:
+		// Fork is inclusive -- the state of the target event is reserved and continued from.
+		// So there is no point of forking to a terminal event.
 		if payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_COMPLETE ||
 			payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_FAIL {
-			return errors.NewInvalidInputError("cannot fork to terminal step_execute_completed event", nil)
-		}
-		if payload.StepExecuteCompleted.Snapshot == nil {
-			return errors.NewInvalidInputError("history event has no snapshot (written before fork support)", nil)
+			return errors.NewInvalidInputError("cannot fork to terminal event(fork is inclusive)", nil)
 		}
 		return nil
 	case payload.StepWaitForCompleted != nil:
-		if payload.StepWaitForCompleted.Snapshot == nil {
-			return errors.NewInvalidInputError("history event has no snapshot (written before fork support)", nil)
-		}
 		return nil
 	case payload.StepsUnblocked != nil:
-		if payload.StepsUnblocked.Snapshot == nil {
-			return errors.NewInvalidInputError("history event has no snapshot (written before fork support)", nil)
-		}
 		return nil
 	default:
 		return errors.NewInvalidInputError("unsupported history event type for fork", nil)
