@@ -17,39 +17,8 @@ func newImmediateTask(shardID int32, taskType p.ImmediateTaskType, info p.Immedi
 	}
 }
 
-func (mutation *runMutation) MarkDurableTimerFired() {
-	durableTimerFired := true
-	mutation.update.DurableTimerFired = &durableTimerFired
-	mutation.update.ActiveDurableTimerID = ptr.Any(ids.TaskID{})
-	mutation.update.DurableTimerFireAt = ptr.Any(int64(0))
-}
-
 func (mutation *runMutation) armDurableTimerIfNeeded() {
-	timerTask, _ := createDurableTimerIfNeeded(mutation.shardID, mutation.run, mutation.update)
-	if timerTask == nil {
-		return
-	}
-	mutation.newTasks = append(mutation.newTasks, p.TaskRow{Timer: timerTask})
-	mutation.update.ActiveDurableTimerID = ptr.Any(timerTask.ID)
-	mutation.update.DurableTimerFireAt = ptr.Any(timerTask.SortKey)
-	mutation.update.DurableTimerFired = ptr.Any(false)
-}
-
-func createDurableTimerIfNeeded(shardID int32, run *p.RunRow, update *p.RunRowUpdate) (*p.TimerTaskRow, int64) {
-	activeSteps := make(map[string]p.ActiveStepExecution)
-	for key, value := range run.ActiveStepExecutions {
-		activeSteps[key] = value
-	}
-	if update.ActiveStepExecutions != nil {
-		for key, value := range update.ActiveStepExecutions {
-			if value == nil {
-				delete(activeSteps, key)
-			} else {
-				activeSteps[key] = *value
-			}
-		}
-	}
-
+	activeSteps := mutation.getCurrentMergedActiveStepsView()
 	var minFireAt int64
 	var minStepExeID string
 	for stepExeID, step := range activeSteps {
@@ -66,22 +35,22 @@ func createDurableTimerIfNeeded(shardID int32, run *p.RunRow, update *p.RunRowUp
 		}
 	}
 	if minFireAt == 0 {
-		return nil, 0
+		return
 	}
-	if !run.ActiveDurableTimerID.IsZero() && run.DurableTimerFireAt > 0 && run.DurableTimerFireAt <= minFireAt {
-		return nil, minFireAt
-	}
-	return &p.TimerTaskRow{
-		ShardID:  shardID,
+	timerTask := &p.TimerTaskRow{
+		ShardID:  mutation.shardID,
 		ID:       ids.NewTaskID(),
 		SortKey:  minFireAt,
 		TaskType: p.TimerTaskStepWaitForTimer,
 		TaskInfo: p.TimerTaskInfo{
-			RunID:              run.ID,
-			Namespace:          run.Namespace,
+			RunID:              mutation.run.ID,
+			Namespace:          mutation.run.Namespace,
 			CreatedByStepExeID: minStepExeID,
 		},
-	}, minFireAt
+	}
+
+	mutation.newTasks = append(mutation.newTasks, p.TaskRow{Timer: timerTask})
+	mutation.update.ActiveDurableTimerID = ptr.Any(timerTask.ID)
 }
 
 func (mutation *runMutation) TransitionToWaitingForWorker(reason TransitionReason) {

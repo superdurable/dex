@@ -30,11 +30,14 @@ func NewFactory(deps Deps) *Factory {
 
 func (factory *Factory) NewMutationForCreate(shardID int32, run *p.RunRow, now time.Time) RunMutation {
 	return &runMutation{
-		deps:             factory.deps,
-		shardID:          shardID,
-		mode:             commitModeCreate,
-		run:              run,
-		update:           &p.RunRowUpdate{},
+		deps:    factory.deps,
+		shardID: shardID,
+		mode:    commitModeCreate,
+		run:     run,
+		update: &p.RunRowUpdate{
+			// prevent nil panic
+			ActiveStepExecutions: make(map[string]*p.ActiveStepExecution),
+		},
 		ops:              ops.NewForCreate(run, shardID, now, factory.deps.Logger),
 		now:              now,
 		transitionReason: TransitionReasonStartRun,

@@ -99,7 +99,6 @@ func (mutation *runMutation) IsChannelCatchUpComplete(lastReceivedExternalMessag
 }
 
 func (mutation *runMutation) RecordWorkerContext(workerCtx *pb.WorkerCallContext) errors.CategorizedError {
-	mutation.ensureUpdateMaps()
 	newCounter := workerCtx.GetWorkerRequestCounter()
 	mutation.update.WorkerRequestCounter = &newCounter
 	return applyWorkerRetryUpdates(
@@ -144,8 +143,6 @@ func (mutation *runMutation) SpawnNextSteps(parentStepExeID string, nextSteps []
 	if len(nextSteps) == 0 {
 		return
 	}
-	mutation.ensureUpdateMaps()
-	mutation.ensureStepMethodCounterSeeded()
 	if mutation.update.StepExeIDCounters == nil {
 		mutation.update.StepExeIDCounters = make(map[string]int32)
 	}
@@ -170,12 +167,12 @@ func (mutation *runMutation) SpawnNextSteps(parentStepExeID string, nextSteps []
 		if nextStep.SkipWaitFor {
 			step.ExecuteMethodExeID = nextStep.ExecuteMethodExeID
 			if nextStep.ExecuteMethodExeID > 0 {
-				mutation.update.SetIfGreater(nextStep.ExecuteMethodExeID)
+				mutation.update.SetStepMethodCounterIfGreater(mutation.run.StepMethodExeCounter, nextStep.ExecuteMethodExeID)
 			}
 		} else {
 			step.WaitForMethodExeID = nextStep.WaitForMethodExeID
 			if nextStep.WaitForMethodExeID > 0 {
-				mutation.update.SetIfGreater(nextStep.WaitForMethodExeID)
+				mutation.update.SetStepMethodCounterIfGreater(mutation.run.StepMethodExeCounter, nextStep.WaitForMethodExeID)
 			}
 		}
 		mutation.update.ActiveStepExecutions[stepExeID] = step
@@ -183,14 +180,12 @@ func (mutation *runMutation) SpawnNextSteps(parentStepExeID string, nextSteps []
 }
 
 func (mutation *runMutation) RemoveSteps(stepExeIDs ...string) {
-	mutation.ensureUpdateMaps()
 	for _, stepExeID := range stepExeIDs {
 		mutation.update.ActiveStepExecutions[stepExeID] = nil
 	}
 }
 
 func (mutation *runMutation) TransitionStepToWaitingForCondition(stepExeID string, waitCond p.WaitForCondition) {
-	mutation.ensureUpdateMaps()
 	existing := mutation.run.ActiveStepExecutions[stepExeID]
 	step := existing
 	step.Status = p.StepExeStatusWaitingForCondition
@@ -200,8 +195,6 @@ func (mutation *runMutation) TransitionStepToWaitingForCondition(stepExeID strin
 }
 
 func (mutation *runMutation) PromoteReportedUnblocks(unblocks []*pb.StepUnblocked) {
-	mutation.ensureUpdateMaps()
-	mutation.ensureStepMethodCounterSeeded()
 	applyWorkerReportedUnblocks(mutation.run, mutation.update, unblocks)
 }
 
@@ -320,27 +313,23 @@ func (mutation *runMutation) MaybeTransitionToPendingIfPromoteWaitingSteps(effec
 	return dispatched, err
 }
 
-func (mutation *runMutation) MaybeTransitionToPendingIfDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError {
-	mutation.ensureUpdateMaps()
-	mutation.MarkDurableTimerFired()
+func (mutation *runMutation) MaybeTransitionToPendingOnDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError {
+	mutation.update.ActiveDurableTimerID = ptr.Any(ids.TaskID{})
+	// increase the DurableTimerFireAt to prevent the time skew issues
+	// no check here cuz timer task queue has guaranteed the firing time increases
+	mutation.update.DurableTimerFireAt = ptr.Any(effectiveNow)
+
 	dispatched, err := mutation.promoteByServerIfAny(effectiveNow)
 	if err != nil {
 		return err
 	}
 	if dispatched {
+		// this means the timer has promoted at least a step to execute
 		mutation.transitionReason = reason
 		return nil
 	}
-	runForRearm := *mutation.run
-	runForRearm.ActiveDurableTimerID = ids.TaskID{}
-	runForRearm.DurableTimerFireAt = 0
-	timerTask, _ := createDurableTimerIfNeeded(mutation.shardID, &runForRearm, mutation.update)
-	if timerTask != nil {
-		mutation.newTasks = append(mutation.newTasks, p.TaskRow{Timer: timerTask})
-		mutation.update.ActiveDurableTimerID = ptr.Any(timerTask.ID)
-		mutation.update.DurableTimerFireAt = ptr.Any(timerTask.SortKey)
-		mutation.update.DurableTimerFired = ptr.Any(false)
-	}
+	// otherwise, check if there is another timer to set up
+	mutation.armDurableTimerIfNeeded()
 	return nil
 }
 
@@ -413,19 +402,7 @@ func (mutation *runMutation) finalizeOpsTasks() {
 	}
 }
 
-func (mutation *runMutation) ensureUpdateMaps() {
-	if mutation.update.ActiveStepExecutions == nil {
-		mutation.update.ActiveStepExecutions = make(map[string]*p.ActiveStepExecution)
-	}
-}
-
-func (mutation *runMutation) ensureStepMethodCounterSeeded() {
-	if mutation.update.StepMethodExeCounter == nil {
-		mutation.update.StepMethodExeCounter = &mutation.run.StepMethodExeCounter
-	}
-}
-
-func (mutation *runMutation) mergedActiveSteps() map[string]p.ActiveStepExecution {
+func (mutation *runMutation) getCurrentMergedActiveStepsView() map[string]p.ActiveStepExecution {
 	activeSteps := make(map[string]p.ActiveStepExecution, len(mutation.run.ActiveStepExecutions))
 	for key, value := range mutation.run.ActiveStepExecutions {
 		activeSteps[key] = value

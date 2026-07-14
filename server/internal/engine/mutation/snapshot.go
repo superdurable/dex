@@ -12,7 +12,7 @@ func (mutation *runMutation) buildRunStateSnapshot() *pb.RunStateSnapshot {
 	stateMap := mutation.mergedStateMap()
 	channels := mutation.mergedUnconsumedChannels()
 	counters := mutation.mergedStepExeIDCounters()
-	activeSteps := mutation.mergedActiveSteps()
+	activeSteps := mutation.getCurrentMergedActiveStepsView()
 
 	snap := &pb.RunStateSnapshot{
 		StateMap:                      persistenceStateMapToHistoryPb(stateMap),

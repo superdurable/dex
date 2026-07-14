@@ -278,7 +278,6 @@ type RunRow struct {
 
 	ActiveDurableTimerID ids.TaskID `bson:"active_durable_timer_id"`
 	DurableTimerFireAt   int64      `bson:"durable_timer_fire_at"`
-	DurableTimerFired    bool       `bson:"durable_timer_fired"`
 
 	// LastHistoryEventID is the highest event_id allocated for this run by
 	// the engine when it enqueues HistoryWrite OpsTasks. Bumped under the
@@ -307,25 +306,30 @@ type RunRowUpdate struct {
 	HeartbeatTimerID              *ids.TaskID
 	ActiveDurableTimerID          *ids.TaskID
 	DurableTimerFireAt            *int64
-	DurableTimerFired             *bool
 	LastHistoryEventID            *int64
 	// Full-map replace fields (used by ForkRun; nil = not modified).
-	ReplaceStateMap               *map[string]Value
-	ReplaceActiveStepExecutions   *map[string]ActiveStepExecution
-	ReplaceStepExeIDCounters      *map[string]int32
-	ReplaceAllUnconsumedChannels    *map[string][]ChannelMessage
+	ReplaceStateMap              *map[string]Value
+	ReplaceActiveStepExecutions  *map[string]ActiveStepExecution
+	ReplaceStepExeIDCounters     *map[string]int32
+	ReplaceAllUnconsumedChannels *map[string][]ChannelMessage
 }
 
-func (ru *RunRowUpdate) SetIfGreater(input int64) bool {
+func (ru *RunRowUpdate) AllocateStepMethodExeCounter(fromRunRow int64) int64 {
+	if ru.StepMethodExeCounter == nil {
+		ru.StepMethodExeCounter = ptr.Any(fromRunRow)
+	}
+	ru.StepMethodExeCounter = ptr.Any(*ru.StepMethodExeCounter + 1)
+	return *ru.StepMethodExeCounter
+}
+func (ru *RunRowUpdate) SetStepMethodCounterIfGreater(fromRunRow, input int64) bool {
+	if ru.StepMethodExeCounter == nil {
+		ru.StepMethodExeCounter = ptr.Any(fromRunRow)
+	}
 	if input > *ru.StepMethodExeCounter {
 		ru.StepMethodExeCounter = ptr.Any(input)
 		return true
 	}
 	return false
-}
-func (ru *RunRowUpdate) AllocateStepMethodExeCounter() int64 {
-	ru.StepMethodExeCounter = ptr.Any(*ru.StepMethodExeCounter + 1)
-	return *ru.StepMethodExeCounter
 }
 
 // ============================================================================

@@ -16,11 +16,9 @@ type serverPromotedStep struct {
 }
 
 func (mutation *runMutation) promoteByServerIfAny(effectiveNow int64) (bool, errors.CategorizedError) {
-	mutation.ensureUpdateMaps()
-	mutation.ensureStepMethodCounterSeeded()
-	activeSteps := mutation.mergedActiveSteps()
+	activeSteps := mutation.getCurrentMergedActiveStepsView()
 	unconsumed := mutation.mergedUnconsumedChannels()
-	_, promoted := promoteAllSatisfiedWaitingSteps(mutation.update, activeSteps, unconsumed, effectiveNow)
+	_, promoted := promoteAllSatisfiedWaitingSteps(mutation.run, mutation.update, activeSteps, unconsumed, effectiveNow)
 	if !promoted {
 		return false, nil
 	}
@@ -31,6 +29,7 @@ func (mutation *runMutation) promoteByServerIfAny(effectiveNow int64) (bool, err
 }
 
 func promoteAllSatisfiedWaitingSteps(
+	run *p.RunRow,
 	update *p.RunRowUpdate,
 	activeSteps map[string]p.ActiveStepExecution,
 	unconsumed map[string][]p.ChannelMessage,
@@ -66,7 +65,7 @@ func promoteAllSatisfiedWaitingSteps(
 		step := activeSteps[stepExeID]
 		step.Status = p.StepExeStatusInvokingExecute
 		step.ConditionResults = append([]p.ConditionResult(nil), result.ConditionResults...)
-		step.ExecuteMethodExeID = update.AllocateStepMethodExeCounter()
+		step.ExecuteMethodExeID = update.AllocateStepMethodExeCounter(run.StepMethodExeCounter)
 		activeSteps[stepExeID] = step
 		update.ActiveStepExecutions[stepExeID] = &step
 
@@ -101,7 +100,7 @@ func applyWorkerReportedUnblocks(
 		step.ExecuteMethodExeID = unblocked.ExecuteMethodExeId
 		update.ActiveStepExecutions[unblocked.StepExeId] = &step
 		if unblocked.ExecuteMethodExeId > 0 {
-			update.SetIfGreater(unblocked.ExecuteMethodExeId)
+			update.SetStepMethodCounterIfGreater(run.StepMethodExeCounter, unblocked.ExecuteMethodExeId)
 		}
 	}
 }

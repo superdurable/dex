@@ -179,7 +179,6 @@ message GetRunResponse {
   int64 worker_request_counter = 11;
   int64 version = 12;
   int64 server_timestamp_ms = 13;
-  bool durable_timer_fired = 14;
   // See PollForRunResponse.external_channel_message_counter — same semantics.
   int64 external_channel_message_counter = 15;
   string worker_id = 16;

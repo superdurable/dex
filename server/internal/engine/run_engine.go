@@ -78,14 +78,14 @@ type (
 )
 
 type runEngineImpl struct {
-	cfg             *config.RunServiceConfig
-	runStore        shardmanager.ShardedRunStore
-	historyStore    p.HistoryStore
-	blobs           *blobs.BlobsFactory
-	shardMapper     shardmanager.ShardMapper
-	shardManager    shardmanager.ShardManager
-	logger          log.Logger
-	mutations       *mutation.Factory
+	cfg          *config.RunServiceConfig
+	runStore     shardmanager.ShardedRunStore
+	historyStore p.HistoryStore
+	blobs        *blobs.BlobsFactory
+	shardMapper  shardmanager.ShardMapper
+	shardManager shardmanager.ShardManager
+	logger       log.Logger
+	mutations    *mutation.Factory
 }
 
 // NewRunEngine constructs the run engine.
@@ -683,7 +683,7 @@ func (e *runEngineImpl) tryProcessStepWaitForTimerFired(ctx context.Context, sha
 		return nil
 	}
 
-	if err := runMutation.MaybeTransitionToPendingIfDurableTimerFired(req.FireAtUnixMs, mutation.TransitionReasonStepWaitForTimerFired); err != nil {
+	if err := runMutation.MaybeTransitionToPendingOnDurableTimerFired(req.FireAtUnixMs, mutation.TransitionReasonStepWaitForTimerFired); err != nil {
 		return err
 	}
 	runMutation.UpdateVisibilityIfStatusChanged()
@@ -739,7 +739,6 @@ func (e *runEngineImpl) GetRun(ctx context.Context, namespace, runID string, sta
 		WorkerRequestCounter:          run.WorkerRequestCounter,
 		Version:                       run.Version,
 		ServerTimestampMs:             time.Now().UnixMilli(),
-		DurableTimerFired:             run.DurableTimerFired,
 		ExternalChannelMessageCounter: run.ExternalChannelMessageCounter,
 	}
 
@@ -827,6 +826,14 @@ func (e *runEngineImpl) buildPollForRunResponse(ctx context.Context, run *p.RunR
 		return nil, blobErr
 	}
 
+	effectiveNow := time.Now().UnixMilli()
+	if run.DurableTimerFireAt > effectiveNow {
+		// this is to prevent timer skew in distributed systems.
+		// in case of durable timer fired, worker needs the time to not go backward
+		// so that it can wake up the steps
+		effectiveNow = run.DurableTimerFireAt
+	}
+
 	resp := &pb.PollForRunResponse{
 		RunId:                         run.ID,
 		Namespace:                     run.Namespace,
@@ -834,8 +841,7 @@ func (e *runEngineImpl) buildPollForRunResponse(ctx context.Context, run *p.RunR
 		WorkerId:                      run.WorkerID,
 		WorkerRequestCounter:          run.WorkerRequestCounter,
 		ExternalChannelMessageCounter: run.ExternalChannelMessageCounter,
-		ServerTimestampMs:             time.Now().UnixMilli(),
-		DurableTimerFired:             run.DurableTimerFired,
+		ServerTimestampMs:             effectiveNow,
 		StepMethodExeCounter:          run.StepMethodExeCounter,
 	}
 	if len(run.StepExeIDCounters) > 0 {

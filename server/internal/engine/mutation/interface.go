@@ -41,7 +41,7 @@ type RunMutation interface {
 	TransitionToWaitingForWorker(reason TransitionReason)
 	TransitionToAllStepsWaitingForConditions(reason TransitionReason)
 	MaybeTransitionToPendingIfPromoteWaitingSteps(effectiveNow int64, reason TransitionReason) (bool, errors.CategorizedError)
-	MaybeTransitionToPendingIfDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError
+	MaybeTransitionToPendingOnDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError
 
 	// dispatch tasks
 	EnqueueInitialDispatchTask()

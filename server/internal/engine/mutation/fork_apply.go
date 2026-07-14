@@ -68,7 +68,7 @@ func (mutation *runMutation) applyForkStatusAndTimers(activeSteps map[string]p.A
 	effectiveNow := mutation.now.UnixMilli()
 	minFireAt := earliestTimerFireAt(activeSteps)
 	if minFireAt > 0 && minFireAt <= effectiveNow {
-		mutation.MarkDurableTimerFired()
+		mutation.markCurrentDurableTimerFired()
 		if dispatched, err := mutation.promoteByServerIfAny(effectiveNow); err == nil && dispatched {
 			mutation.transitionReason = TransitionReasonForkRun
 			return

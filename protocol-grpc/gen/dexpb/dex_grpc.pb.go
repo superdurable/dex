@@ -62,6 +62,7 @@ type RunsServiceClient interface {
 	// Worker releases a run: yield for shutdown or park all-steps-waiting.
 	ProcessReleaseRun(ctx context.Context, in *ProcessReleaseRunRequest, opts ...grpc.CallOption) (*ProcessReleaseRunResponse, error)
 	// ForkRun restores in-place run state to a past history event and re-dispatches.
+	// Inclusive -- the state of the target event is reserved and continued from.
 	ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error)
 }
 
@@ -222,6 +223,7 @@ type RunsServiceServer interface {
 	// Worker releases a run: yield for shutdown or park all-steps-waiting.
 	ProcessReleaseRun(context.Context, *ProcessReleaseRunRequest) (*ProcessReleaseRunResponse, error)
 	// ForkRun restores in-place run state to a past history event and re-dispatches.
+	// Inclusive -- the state of the target event is reserved and continued from.
 	ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error)
 	mustEmbedUnimplementedRunsServiceServer()
 }
