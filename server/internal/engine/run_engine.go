@@ -32,6 +32,7 @@ type RunEngine interface {
 	// when it is in any non-terminal state. reason is optional user text for history.
 	StopRun(ctx context.Context, namespace, runID string, stopDecision pb.StopDecision, reason string) (wasActive bool, taskListName string, workerID string, err errors.CategorizedError)
 	PublishExternalChannelMessages(ctx context.Context, shardID int32, req *pb.PublishToChannelRequest) errors.CategorizedError
+	ForkRun(ctx context.Context, req *pb.ForkRunRequest) (previousWorkerID string, err errors.CategorizedError)
 
 	// worker APIs (ProcessXyz)
 
@@ -77,27 +78,33 @@ type (
 )
 
 type runEngineImpl struct {
-	cfg          *config.RunServiceConfig
-	runStore     shardmanager.ShardedRunStore
-	blobs        *blobs.BlobsFactory
-	shardMapper  shardmanager.ShardMapper
-	shardManager shardmanager.ShardManager
-	logger       log.Logger
-	mutations    *mutation.Factory
+	cfg             *config.RunServiceConfig
+	runStore        shardmanager.ShardedRunStore
+	historyStore    p.HistoryStore
+	blobs           *blobs.BlobsFactory
+	shardMapper     shardmanager.ShardMapper
+	shardManager    shardmanager.ShardManager
+	logger          log.Logger
+	mutations       *mutation.Factory
 }
 
 // NewRunEngine constructs the run engine.
 func NewRunEngine(
 	cfg *config.RunServiceConfig,
 	runStore shardmanager.ShardedRunStore,
+	historyStore p.HistoryStore,
 	blobStore p.BlobStore,
 	shardMapper shardmanager.ShardMapper,
 	shardManager shardmanager.ShardManager,
 	logger log.Logger,
 ) RunEngine {
+	if historyStore == nil {
+		panic("NewRunEngine: historyStore must not be nil")
+	}
 	return &runEngineImpl{
 		cfg:          cfg,
 		runStore:     runStore,
+		historyStore: historyStore,
 		blobs:        blobs.New(blobStore),
 		shardMapper:  shardMapper,
 		shardManager: shardManager,

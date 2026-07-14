@@ -231,6 +231,7 @@ func TestHistoryEventPayload_Validate(t *testing.T) {
 		{"empty", p.HistoryEventPayload{}, false},
 		{"single RunStart", p.HistoryEventPayload{RunStart: &pb.HistoryRunStartPayload{}}, true},
 		{"single RunStop", p.HistoryEventPayload{RunStop: &pb.HistoryRunStopPayload{}}, true},
+		{"single RunFork", p.HistoryEventPayload{RunFork: &pb.HistoryRunForkPayload{}}, true},
 		{"two variants", p.HistoryEventPayload{
 			RunStart: &pb.HistoryRunStartPayload{},
 			RunStop:  &pb.HistoryRunStopPayload{},

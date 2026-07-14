@@ -167,6 +167,48 @@ func (h *RunsServiceHandler) StopRun(ctx context.Context, req *pb.StopRunRequest
 	return &pb.StopRunResponse{}, nil
 }
 
+func (h *RunsServiceHandler) ForkRun(ctx context.Context, req *pb.ForkRunRequest) (*pb.ForkRunResponse, error) {
+	shardID := h.shardMapper.GetShardID(req.Namespace, req.RunId)
+	if fwd, err := h.tryForward(ctx, shardID); fwd != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		fwdCtx, fwdCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer fwdCancel()
+		return fwd.ForkRun(fwdCtx, req)
+	}
+
+	previousWorkerID, eErr := h.engine.ForkRun(ctx, req)
+	if eErr != nil {
+		return nil, errors.ToProtoError(eErr)
+	}
+
+	if previousWorkerID != "" {
+		mc := h.localMatchingClient
+		timeout := h.cfg.MatchingServiceAPITimeout
+		go func() {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if _, err := mc.DeliverExternalEvents(notifyCtx, &pb.DeliverExternalEventsRequest{
+				Namespace: req.Namespace,
+				WorkerId:  previousWorkerID,
+				Events: []*pb.ExternalEvent{{
+					RunId: req.RunId,
+					Event: &pb.ExternalEvent_StopRequested{
+						StopRequested: &pb.StopRequested{},
+					},
+				}},
+			}); err != nil && h.logger != nil {
+				h.logger.Debug("ForkRun notify worker failed (best-effort)",
+					tag.RunID(req.RunId), tag.Namespace(req.Namespace),
+					tag.Error(err))
+			}
+		}()
+	}
+
+	return &pb.ForkRunResponse{}, nil
+}
+
 // WaitForHistoryEvent long-polls until the request's condition is met, the run
 // closes, or the caller's ctx deadline elapses.
 func (h *RunsServiceHandler) WaitForHistoryEvent(ctx context.Context, req *pb.WaitForHistoryEventRequest) (*pb.WaitForHistoryEventResponse, error) {

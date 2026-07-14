@@ -25,7 +25,8 @@ func (mutation *runMutation) MarkDurableTimerFired() {
 }
 
 func (mutation *runMutation) armDurableTimerIfNeeded() {
-	timerTask, _ := createDurableTimerIfNeeded(mutation.shardID, mutation.run, mutation.update)
+	activeSteps := mutation.mergedActiveSteps()
+	timerTask, _ := createDurableTimerFromActiveSteps(mutation.shardID, mutation.run, activeSteps)
 	if timerTask == nil {
 		return
 	}
@@ -40,7 +41,12 @@ func createDurableTimerIfNeeded(shardID int32, run *p.RunRow, update *p.RunRowUp
 	for key, value := range run.ActiveStepExecutions {
 		activeSteps[key] = value
 	}
-	if update.ActiveStepExecutions != nil {
+	if update.ReplaceActiveStepExecutions != nil {
+		activeSteps = make(map[string]p.ActiveStepExecution, len(*update.ReplaceActiveStepExecutions))
+		for key, value := range *update.ReplaceActiveStepExecutions {
+			activeSteps[key] = value
+		}
+	} else if update.ActiveStepExecutions != nil {
 		for key, value := range update.ActiveStepExecutions {
 			if value == nil {
 				delete(activeSteps, key)
@@ -49,7 +55,10 @@ func createDurableTimerIfNeeded(shardID int32, run *p.RunRow, update *p.RunRowUp
 			}
 		}
 	}
+	return createDurableTimerFromActiveSteps(shardID, run, activeSteps)
+}
 
+func createDurableTimerFromActiveSteps(shardID int32, run *p.RunRow, activeSteps map[string]p.ActiveStepExecution) (*p.TimerTaskRow, int64) {
 	var minFireAt int64
 	var minStepExeID string
 	for stepExeID, step := range activeSteps {

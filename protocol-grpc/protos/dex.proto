@@ -34,6 +34,9 @@ service RunsService {
   rpc ProcessRecordHeartbeat(ProcessRecordHeartbeatRequest) returns (ProcessRecordHeartbeatResponse);
   // Worker releases a run: yield for shutdown or park all-steps-waiting.
   rpc ProcessReleaseRun(ProcessReleaseRunRequest) returns (ProcessReleaseRunResponse);
+
+  // ForkRun restores in-place run state to a past history event and re-dispatches.
+  rpc ForkRun(ForkRunRequest) returns (ForkRunResponse);
 }
 
 // ============================================================================
@@ -103,6 +106,17 @@ message StopRunRequest {
 }
 
 message StopRunResponse {}
+
+// --- ForkRun ---
+
+message ForkRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  int64 to_event_id = 3;
+  string reason = 4;
+}
+
+message ForkRunResponse {}
 
 // --- PublishToChannel ---
 
@@ -539,6 +553,7 @@ message HistoryEvent {
     HistoryStepWaitForCompletedPayload step_wait_for_completed = 13;
     HistoryChannelPublishPayload channel_publish = 14;
     HistoryStepsUnblockedPayload steps_unblocked = 15;
+    HistoryRunForkPayload run_fork = 16;
   }
 }
 
@@ -589,6 +604,7 @@ message HistoryStepExecuteCompletedPayload {
   repeated ChannelPublish channel_publish = 10;
   repeated StepUnblocked steps_unblocked = 11;
   StepMethodReport execute_method = 12;
+  RunStateSnapshot snapshot = 13;
 }
 
 message HistoryStepWaitForCompletedPayload {
@@ -602,6 +618,7 @@ message HistoryStepWaitForCompletedPayload {
   StepMethodReport wait_for_method = 8;
   // Set when WaitFor retries exhaust and ProceedToAfterRetryExhausted is configured.
   repeated NextStep next_steps = 9;
+  RunStateSnapshot snapshot = 10;
 }
 
 message HistoryChannelPublishPayload {
@@ -612,6 +629,22 @@ message HistoryChannelPublishPayload {
 message HistoryStepsUnblockedPayload {
   int64 worker_request_counter = 1;
   repeated StepUnblocked steps_unblocked = 2;
+  RunStateSnapshot snapshot = 3;
+}
+
+// RunStateSnapshot captures the mutable execution state at a history commit
+// point. Blob bytes are stored as blob_id refs, not inline EncodedObjects.
+message RunStateSnapshot {
+  map<string, Value> state_map = 1;
+  map<string, ChannelMessages> unconsumed_channel_messages = 2;
+  map<string, int32> step_exe_id_counters = 3;
+  map<string, ActiveStepExecution> active_step_executions = 4;
+  int64 external_channel_message_counter = 5;
+}
+
+message HistoryRunForkPayload {
+  int64 fork_to_event_id = 1;
+  string reason = 2;
 }
 
 enum ListRunsOrderBy {

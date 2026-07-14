@@ -4,6 +4,7 @@ import type {
   HistoryEvent,
   WaitForConditionTree,
 } from '../../api/_grpc/mappers';
+import { graphHistoryEvents } from '../../api/_grpc/mappers';
 import { STOP_DECISION_FAIL } from '../../components/utils';
 
 // One graph node per unique step_exe_id (plus two virtual nodes for the run
@@ -92,6 +93,7 @@ export function buildGraph(
   events: HistoryEvent[],
   activeStepExecutions: Record<string, ActiveStepExecutionLive> = {},
 ): GraphResult {
+  const graphEvents = graphHistoryEvents(events);
   const stepNodes = new Map<string, StepNodeData>();
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
@@ -128,7 +130,7 @@ export function buildGraph(
     return node;
   };
 
-  for (const e of events) {
+  for (const e of graphEvents) {
     switch (e.payload.type) {
       case 'RunStart': {
         const data = e.payload.data as Record<string, unknown>;

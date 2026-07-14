@@ -30,6 +30,7 @@ const (
 	RunsService_ProcessAsyncMatch_FullMethodName           = "/dex.RunsService/ProcessAsyncMatch"
 	RunsService_ProcessRecordHeartbeat_FullMethodName      = "/dex.RunsService/ProcessRecordHeartbeat"
 	RunsService_ProcessReleaseRun_FullMethodName           = "/dex.RunsService/ProcessReleaseRun"
+	RunsService_ForkRun_FullMethodName                     = "/dex.RunsService/ForkRun"
 )
 
 // RunsServiceClient is the client API for RunsService service.
@@ -60,6 +61,8 @@ type RunsServiceClient interface {
 	ProcessRecordHeartbeat(ctx context.Context, in *ProcessRecordHeartbeatRequest, opts ...grpc.CallOption) (*ProcessRecordHeartbeatResponse, error)
 	// Worker releases a run: yield for shutdown or park all-steps-waiting.
 	ProcessReleaseRun(ctx context.Context, in *ProcessReleaseRunRequest, opts ...grpc.CallOption) (*ProcessReleaseRunResponse, error)
+	// ForkRun restores in-place run state to a past history event and re-dispatches.
+	ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error)
 }
 
 type runsServiceClient struct {
@@ -180,6 +183,16 @@ func (c *runsServiceClient) ProcessReleaseRun(ctx context.Context, in *ProcessRe
 	return out, nil
 }
 
+func (c *runsServiceClient) ForkRun(ctx context.Context, in *ForkRunRequest, opts ...grpc.CallOption) (*ForkRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForkRunResponse)
+	err := c.cc.Invoke(ctx, RunsService_ForkRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunsServiceServer is the server API for RunsService service.
 // All implementations must embed UnimplementedRunsServiceServer
 // for forward compatibility.
@@ -208,6 +221,8 @@ type RunsServiceServer interface {
 	ProcessRecordHeartbeat(context.Context, *ProcessRecordHeartbeatRequest) (*ProcessRecordHeartbeatResponse, error)
 	// Worker releases a run: yield for shutdown or park all-steps-waiting.
 	ProcessReleaseRun(context.Context, *ProcessReleaseRunRequest) (*ProcessReleaseRunResponse, error)
+	// ForkRun restores in-place run state to a past history event and re-dispatches.
+	ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error)
 	mustEmbedUnimplementedRunsServiceServer()
 }
 
@@ -250,6 +265,9 @@ func (UnimplementedRunsServiceServer) ProcessRecordHeartbeat(context.Context, *P
 }
 func (UnimplementedRunsServiceServer) ProcessReleaseRun(context.Context, *ProcessReleaseRunRequest) (*ProcessReleaseRunResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProcessReleaseRun not implemented")
+}
+func (UnimplementedRunsServiceServer) ForkRun(context.Context, *ForkRunRequest) (*ForkRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForkRun not implemented")
 }
 func (UnimplementedRunsServiceServer) mustEmbedUnimplementedRunsServiceServer() {}
 func (UnimplementedRunsServiceServer) testEmbeddedByValue()                     {}
@@ -470,6 +488,24 @@ func _RunsService_ProcessReleaseRun_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunsService_ForkRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForkRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunsServiceServer).ForkRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunsService_ForkRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunsServiceServer).ForkRun(ctx, req.(*ForkRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunsService_ServiceDesc is the grpc.ServiceDesc for RunsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -520,6 +556,10 @@ var RunsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProcessReleaseRun",
 			Handler:    _RunsService_ProcessReleaseRun_Handler,
+		},
+		{
+			MethodName: "ForkRun",
+			Handler:    _RunsService_ForkRun_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

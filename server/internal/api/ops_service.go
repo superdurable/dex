@@ -177,6 +177,8 @@ func historyEventToPb(e p.HistoryEvent) *pb.HistoryEvent {
 		out.Payload = &pb.HistoryEvent_ChannelPublish{ChannelPublish: e.Payload.ChannelPublish}
 	case e.Payload.StepsUnblocked != nil:
 		out.Payload = &pb.HistoryEvent_StepsUnblocked{StepsUnblocked: e.Payload.StepsUnblocked}
+	case e.Payload.RunFork != nil:
+		out.Payload = &pb.HistoryEvent_RunFork{RunFork: e.Payload.RunFork}
 	}
 	return out
 }

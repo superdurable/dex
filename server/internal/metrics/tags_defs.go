@@ -148,7 +148,22 @@ const (
 	tagKeyNamespace     tagKey = "namespace"
 	tagKeyErrorKind     tagKey = "error_kind"
 	tagKeyPartitionRole tagKey = "partition_role"
+	tagKeyForkRunOutcome tagKey = "fork_run_outcome"
 )
+
+// ForkRunOutcome labels fork_run_requests_counter.
+type ForkRunOutcome string
+
+const (
+	ForkRunOutcomeSuccess  ForkRunOutcome = "success"
+	ForkRunOutcomeInvalid  ForkRunOutcome = "invalid"
+	ForkRunOutcomeConflict ForkRunOutcome = "conflict"
+	ForkRunOutcomeInternal ForkRunOutcome = "internal"
+)
+
+func TagForkRunOutcome(outcome ForkRunOutcome) Tag {
+	return Tag{Key: tagKeyForkRunOutcome, Value: anyTagValue(string(outcome))}
+}
 
 // TagPartitionRole tags a tasklist metric by partition tree position:
 // "root" (partition 0) or "non_root" (a leaf partition that fans in).

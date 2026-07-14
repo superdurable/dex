@@ -66,14 +66,16 @@ func getTestEngine(t *testing.T) (RunEngine, p.RunStore) {
 	runStore, err := mongo.NewRunStoreWithDatabase(ctx, uri, testDBName, mongo.DefaultOperationTimeouts())
 	require.Nil(t, err)
 	runStore.DeleteAll(ctx)
-	t.Cleanup(func() { runStore.Close() })
+	historyStore, err := mongo.NewHistoryStoreWithDatabase(ctx, uri, testDBName+"_history", mongo.DefaultOperationTimeouts())
+	require.Nil(t, err)
+	t.Cleanup(func() { runStore.Close(); historyStore.Close() })
 
 	mapper := shardmanager.NewShardMapper(config.ShardConfig{DefaultShardsForNewNamespaces: 2})
 	logger := log.NewNoop()
 	sm := &testShardManager{}
 	sharded := shardmanager.NewShardedRunStore(runStore, sm, nil)
 	runCfg := config.DefaultRunServiceConfig()
-	engine := NewRunEngine(&runCfg, sharded, nil, mapper, sm, logger)
+	engine := NewRunEngine(&runCfg, sharded, historyStore, nil, mapper, sm, logger)
 	return engine, runStore
 }
 
@@ -1054,14 +1056,16 @@ func getTestEngineWithBlobs(t *testing.T) (RunEngine, p.RunStore, p.BlobStore) {
 
 	blobStore, bErr := mongo.NewBlobStoreWithDatabase(ctx, uri, testDBName, mongo.DefaultOperationTimeouts())
 	require.Nil(t, bErr)
-	t.Cleanup(func() { blobStore.Close() })
+	historyStore, hErr := mongo.NewHistoryStoreWithDatabase(ctx, uri, testDBName+"_history", mongo.DefaultOperationTimeouts())
+	require.Nil(t, hErr)
+	t.Cleanup(func() { blobStore.Close(); historyStore.Close() })
 
 	mapper := shardmanager.NewShardMapper(config.ShardConfig{DefaultShardsForNewNamespaces: 2})
 	logger := log.NewNoop()
 	sm := &testShardManager{}
 	sharded := shardmanager.NewShardedRunStore(runStore, sm, nil)
 	runCfg := config.DefaultRunServiceConfig()
-	eng := NewRunEngine(&runCfg, sharded, blobStore, mapper, sm, logger)
+	eng := NewRunEngine(&runCfg, sharded, historyStore, blobStore, mapper, sm, logger)
 	return eng, runStore, blobStore
 }
 

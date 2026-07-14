@@ -211,7 +211,7 @@ func (app *ServerApp) wireRunService(cfg config.Config, logger log.Logger) error
 
 	shardedStore := shardmanager.NewShardedRunStore(app.RunStore, sm, localTaskNotifier)
 
-	eng := engine.NewRunEngine(&cfg.RunService, shardedStore, app.BlobStore, mapper, sm, logger)
+	eng := engine.NewRunEngine(&cfg.RunService, shardedStore, app.HistoryStore, app.BlobStore, mapper, sm, logger)
 
 	taskHandler := &taskprocessor.DefaultTaskHandler{
 		RunEngine:           eng,

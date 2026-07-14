@@ -309,6 +309,11 @@ type RunRowUpdate struct {
 	DurableTimerFireAt            *int64
 	DurableTimerFired             *bool
 	LastHistoryEventID            *int64
+	// Full-map replace fields (used by ForkRun; nil = not modified).
+	ReplaceStateMap               *map[string]Value
+	ReplaceActiveStepExecutions   *map[string]ActiveStepExecution
+	ReplaceStepExeIDCounters      *map[string]int32
+	ReplaceAllUnconsumedChannels    *map[string][]ChannelMessage
 }
 
 func (ru *RunRowUpdate) SetIfGreater(input int64) bool {
@@ -717,6 +722,7 @@ type HistoryEventPayload struct {
 	StepWaitForCompleted *pb.HistoryStepWaitForCompletedPayload
 	ChannelPublish       *pb.HistoryChannelPublishPayload
 	StepsUnblocked       *pb.HistoryStepsUnblockedPayload
+	RunFork              *pb.HistoryRunForkPayload
 }
 
 // Validate returns an error if more or fewer than one variant is set.
@@ -732,6 +738,7 @@ func (p HistoryEventPayload) Validate() error {
 		p.StepWaitForCompleted != nil,
 		p.ChannelPublish != nil,
 		p.StepsUnblocked != nil,
+		p.RunFork != nil,
 	} {
 		if set {
 			n++
@@ -778,6 +785,8 @@ func (p HistoryEventPayload) MarshalBSON() ([]byte, error) {
 		msg = p.ChannelPublish
 	case p.StepsUnblocked != nil:
 		msg = p.StepsUnblocked
+	case p.RunFork != nil:
+		msg = p.RunFork
 	}
 	data, err := proto.Marshal(msg)
 	if err != nil {
@@ -835,6 +844,12 @@ func (p *HistoryEventPayload) UnmarshalBSON(raw []byte) error {
 			return fmt.Errorf("HistoryEventPayload.UnmarshalBSON steps_unblocked: %w", err)
 		}
 		p.StepsUnblocked = out
+	case "run_fork":
+		out := &pb.HistoryRunForkPayload{}
+		if err := proto.Unmarshal(doc.Data, out); err != nil {
+			return fmt.Errorf("HistoryEventPayload.UnmarshalBSON run_fork: %w", err)
+		}
+		p.RunFork = out
 	default:
 		return fmt.Errorf("HistoryEventPayload.UnmarshalBSON: unknown type %q", doc.Type)
 	}
@@ -858,6 +873,8 @@ func (p HistoryEventPayload) TypeName() string {
 		return "channel_publish"
 	case p.StepsUnblocked != nil:
 		return "steps_unblocked"
+	case p.RunFork != nil:
+		return "run_fork"
 	default:
 		return ""
 	}

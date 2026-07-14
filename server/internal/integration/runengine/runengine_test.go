@@ -50,11 +50,12 @@ func parkAllStepsWaiting(t *testing.T, h *testHarness, ctx context.Context, runI
 }
 
 type testHarness struct {
-	runStore  p.RunStore
-	blobStore p.BlobStore
-	mapper    shardmanager.ShardMapper
-	eng       engine.RunEngine
-	ns        string // unique namespace per test
+	runStore     p.RunStore
+	blobStore    p.BlobStore
+	historyStore p.HistoryStore
+	mapper       shardmanager.ShardMapper
+	eng          engine.RunEngine
+	ns           string // unique namespace per test
 }
 
 func newTestHarness(t *testing.T) *testHarness {
@@ -67,11 +68,11 @@ func newTestHarness(t *testing.T) *testHarness {
 	sm := &testhelpers.FakeShardManager{}
 	sharded := shardmanager.NewShardedRunStore(set.Run, sm, nil)
 	runCfg := config.DefaultRunServiceConfig()
-	eng := engine.NewRunEngine(&runCfg, sharded, set.Blob, mapper, sm, logger)
+	eng := engine.NewRunEngine(&runCfg, sharded, set.History, set.Blob, mapper, sm, logger)
 
 	ns := "test-" + uuid.NewString()[:8]
 	// Store cleanup is registered by NewStoreSetForTest.
-	return &testHarness{runStore: set.Run, blobStore: set.Blob, mapper: mapper, eng: eng, ns: ns}
+	return &testHarness{runStore: set.Run, blobStore: set.Blob, historyStore: set.History, mapper: mapper, eng: eng, ns: ns}
 }
 
 // ============================================================================

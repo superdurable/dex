@@ -43,6 +43,14 @@ export type HistoryEventPayload =
       data: {
         worker_request_counter: number;
         steps_unblocked: StepUnblockedEntry[];
+        has_snapshot?: boolean;
+      };
+    }
+  | {
+      type: 'RunFork';
+      data: {
+        fork_to_event_id: number;
+        reason?: string;
       };
     }
   | { type: 'Unknown'; data: Record<string, unknown> };
@@ -527,6 +535,7 @@ export function mapHistoryEvent(e: HistoryEventWire): HistoryEvent {
           channel_publish: normalizeChannelPublish(data.channel_publish),
           steps_unblocked: mapStepUnblockedEntries(data.steps_unblocked),
           execute_method: mapStepMethodReport(data.execute_method),
+          has_snapshot: data.snapshot != null,
         },
       },
     };
@@ -552,6 +561,7 @@ export function mapHistoryEvent(e: HistoryEventWire): HistoryEvent {
           steps_unblocked: mapStepUnblockedEntries(data.steps_unblocked),
           wait_for_method: mapStepMethodReport(data.wait_for_method),
           next_steps: normalizeNextSteps(data.next_steps),
+          has_snapshot: data.snapshot != null,
         },
       },
     };
@@ -565,6 +575,20 @@ export function mapHistoryEvent(e: HistoryEventWire): HistoryEvent {
         data: {
           worker_request_counter: toNum(data.worker_request_counter as string | number),
           steps_unblocked: mapStepUnblockedEntries(data.steps_unblocked),
+          has_snapshot: data.snapshot != null,
+        },
+      },
+    };
+  }
+  if (e.run_fork) {
+    const data = e.run_fork as Record<string, unknown>;
+    return {
+      ...base,
+      payload: {
+        type: 'RunFork',
+        data: {
+          fork_to_event_id: toNum(data.fork_to_event_id as string | number),
+          reason: typeof data.reason === 'string' ? data.reason : '',
         },
       },
     };
@@ -583,4 +607,45 @@ export function mapHistoryEvent(e: HistoryEventWire): HistoryEvent {
     };
   }
   return { ...base, payload: { type: 'Unknown', data: {} } };
+}
+
+const STOP_DECISION_COMPLETE = 1;
+const STOP_DECISION_FAIL = 2;
+
+/** True when ForkRun is allowed to restore to this history event. */
+export function isForkableHistoryEvent(event: HistoryEvent): boolean {
+  switch (event.payload.type) {
+    case 'RunStart':
+      return true;
+    case 'RunFork':
+    case 'RunStop':
+    case 'ChannelPublish':
+      return false;
+    case 'StepExecuteCompleted': {
+      const stop = (event.payload.data as { stop_decision?: number }).stop_decision ?? 0;
+      if (stop === STOP_DECISION_COMPLETE || stop === STOP_DECISION_FAIL) return false;
+      return Boolean((event.payload.data as { has_snapshot?: boolean }).has_snapshot);
+    }
+    case 'StepWaitForCompleted':
+    case 'StepsUnblocked':
+      return Boolean((event.payload.data as { has_snapshot?: boolean }).has_snapshot);
+    default:
+      return false;
+  }
+}
+
+/** Events that drive the post-fork graph (excludes pre-fork branch). */
+export function graphHistoryEvents(events: HistoryEvent[]): HistoryEvent[] {
+  let forkMarkerId = 0;
+  let forkToEventId = 0;
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.payload.type === 'RunFork') {
+      forkMarkerId = event.id;
+      forkToEventId = (event.payload.data as { fork_to_event_id: number }).fork_to_event_id;
+      break;
+    }
+  }
+  if (forkMarkerId === 0) return events;
+  return events.filter((event) => event.id === forkToEventId || event.id > forkMarkerId);
 }

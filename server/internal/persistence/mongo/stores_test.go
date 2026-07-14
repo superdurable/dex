@@ -420,3 +420,49 @@ func TestDLQStore_WriteDLQ(t *testing.T) {
 	err2 := store.WriteDLQ(ctx, entry2)
 	require.Nil(t, err2, "WriteDLQ should succeed for timer task")
 }
+
+func TestRunStore_ReplaceMapsClearAbsentKeys(t *testing.T) {
+	ctx := context.Background()
+	store := getRunStoreWithCleanup(t)
+
+	runID := uuid.NewString()
+	v1, v2 := int64(1), int64(2)
+	run := &p.RunRow{
+		ShardID: 0, Namespace: "test-ns", ID: runID,
+		FlowType: "test", TaskListName: "g", Status: p.RunStatusPending,
+		StateMap: map[string]p.Value{
+			"keep": {Type: p.ValueTypeInt, IntVal: &v1},
+			"drop": {Type: p.ValueTypeInt, IntVal: &v2},
+		},
+		ActiveStepExecutions: map[string]p.ActiveStepExecution{
+			"step-1": {Status: p.StepExeStatusInvokingExecute},
+			"step-2": {Status: p.StepExeStatusWaitingForCondition},
+		},
+		StepExeIDCounters:         map[string]int32{"a": 1, "b": 2},
+		UnconsumedChannelMessages: map[string][]p.ChannelMessage{},
+	}
+	require.Nil(t, store.CreateRunWithTasks(ctx, run, []p.TaskRow{{Immediate: &p.ImmediateTaskRow{
+		ShardID: 0, ID: ids.NewTaskID(), TaskType: p.ImmediateTaskRunInitialDispatch,
+		TaskInfo: p.ImmediateTaskInfo{RunID: runID, Namespace: "test-ns", TaskListName: "g"},
+	}}}))
+
+	replacedState := map[string]p.Value{"keep": {Type: p.ValueTypeInt, IntVal: &v1}}
+	replacedSteps := map[string]p.ActiveStepExecution{
+		"step-1": {Status: p.StepExeStatusInvokingExecute},
+	}
+	replacedCounters := map[string]int32{"a": 1}
+	require.Nil(t, store.UpdateRunWithNewTasks(ctx, 0, "test-ns", runID, 1, &p.RunRowUpdate{
+		ReplaceStateMap:             &replacedState,
+		ReplaceActiveStepExecutions: &replacedSteps,
+		ReplaceStepExeIDCounters:    &replacedCounters,
+		ReplaceAllUnconsumedChannels: &map[string][]p.ChannelMessage{},
+	}, nil))
+
+	got, _ := store.GetRun(ctx, 0, "test-ns", runID, p.GetRunOptions{})
+	_, hasDrop := got.StateMap["drop"]
+	assert.False(t, hasDrop)
+	_, hasStep2 := got.ActiveStepExecutions["step-2"]
+	assert.False(t, hasStep2)
+	_, hasB := got.StepExeIDCounters["b"]
+	assert.False(t, hasB)
+}

@@ -76,6 +76,7 @@ export interface HistoryEventWire {
   step_wait_for_completed?: unknown;
   channel_publish?: unknown;
   steps_unblocked?: unknown;
+  run_fork?: unknown;
 }
 
 export interface GetHistoryEventsResponseWire {
@@ -181,10 +182,23 @@ interface OpsServiceClient extends grpc.Client {
   ): void;
 }
 
+export interface ForkRunRequestWire {
+  namespace: string;
+  run_id: string;
+  to_event_id: string | number;
+  reason?: string;
+}
+
+export interface ForkRunResponseWire {}
+
 interface RunsServiceClient extends grpc.Client {
   GetRun(
     req: GetRunRequestWire,
     cb: (err: grpc.ServiceError | null, resp: GetRunResponseWire) => void,
+  ): void;
+  ForkRun(
+    req: ForkRunRequestWire,
+    cb: (err: grpc.ServiceError | null, resp: ForkRunResponseWire) => void,
   ): void;
 }
 
@@ -260,6 +274,15 @@ export function getHistoryEvents(req: GetHistoryEventsRequestWire): Promise<GetH
 export function getRun(req: GetRunRequestWire): Promise<GetRunResponseWire> {
   return new Promise((resolve, reject) => {
     runsClient().GetRun(req, (err, resp) => {
+      if (err) return reject(err);
+      resolve(resp);
+    });
+  });
+}
+
+export function forkRun(req: ForkRunRequestWire): Promise<ForkRunResponseWire> {
+  return new Promise((resolve, reject) => {
+    runsClient().ForkRun(req, (err, resp) => {
       if (err) return reject(err);
       resolve(resp);
     });

@@ -312,6 +312,51 @@ func TestPG_HistoryStore_InsertGetDedup(t *testing.T) {
 	assert.Equal(t, int64(2), after[0].EventID)
 }
 
+func TestPG_RunStore_ReplaceMapsClearAbsentKeys(t *testing.T) {
+	uri := testURI()
+	ctx := context.Background()
+	store, err := NewRunStore(ctx, testPoolConfig(uri))
+	require.Nil(t, err)
+	defer store.Close()
+	require.NoError(t, store.DeleteAll(ctx))
+
+	ns := "ns-" + uuid.NewString()
+	runID := uuid.NewString()
+	v1, v2 := int64(1), int64(2)
+	require.Nil(t, store.CreateRunWithTasks(ctx, &p.RunRow{
+		ShardID: 3, Namespace: ns, ID: runID,
+		StateMap: map[string]p.Value{
+			"keep": {Type: p.ValueTypeInt, IntVal: &v1},
+			"drop": {Type: p.ValueTypeInt, IntVal: &v2},
+		},
+		ActiveStepExecutions: map[string]p.ActiveStepExecution{
+			"step-1": {Status: p.StepExeStatusInvokingExecute},
+			"step-2": {Status: p.StepExeStatusWaitingForCondition},
+		},
+		StepExeIDCounters: map[string]int32{"a": 1, "b": 2},
+	}, nil))
+
+	replacedState := map[string]p.Value{"keep": intVal(1)}
+	replacedSteps := map[string]p.ActiveStepExecution{
+		"step-1": {Status: p.StepExeStatusInvokingExecute},
+	}
+	replacedCounters := map[string]int32{"a": 1}
+	require.Nil(t, store.UpdateRunWithNewTasks(ctx, 3, ns, runID, 1, &p.RunRowUpdate{
+		ReplaceStateMap:             &replacedState,
+		ReplaceActiveStepExecutions: &replacedSteps,
+		ReplaceStepExeIDCounters:    &replacedCounters,
+		ReplaceAllUnconsumedChannels: &map[string][]p.ChannelMessage{},
+	}, nil))
+
+	got, _ := store.GetRun(ctx, 3, ns, runID, p.GetRunOptions{})
+	_, hasDrop := got.StateMap["drop"]
+	assert.False(t, hasDrop)
+	_, hasStep2 := got.ActiveStepExecutions["step-2"]
+	assert.False(t, hasStep2)
+	_, hasB := got.StepExeIDCounters["b"]
+	assert.False(t, hasB)
+}
+
 // ---------------- DLQStore ----------------
 
 func TestPG_DLQStore_WriteIdempotent(t *testing.T) {

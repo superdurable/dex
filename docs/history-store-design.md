@@ -45,6 +45,12 @@ non-nil" both on insert and after read decode.
 | `StepExecuteCompleted`               | `pb.HistoryStepExecuteCompletedPayload`    | `StepExecuteCompletedRequest` minus `namespace` + `run_id`. |
 | `StepWaitForCompleted`               | `pb.HistoryStepWaitForCompletedPayload`    | `StepWaitForCompletedRequest` minus `namespace` + `run_id`. |
 | `ChannelPublish`                     | `pb.HistoryChannelPublishPayload`          | `PublishToChannelRequest` minus `namespace` + `run_id`. |
+| `StepsUnblocked`                     | `pb.HistoryStepsUnblockedPayload`        | `StepsUnblockedRequest` minus `namespace` + `run_id`. |
+| `RunFork`                            | `pb.HistoryRunForkPayload`               | `ForkRun` API marker (`fork_to_event_id`, optional `reason`). |
+
+`StepExecuteCompleted`, `StepWaitForCompleted`, and `StepsUnblocked` may embed an
+optional `RunStateSnapshot` (see [time-travel-api-design.md](time-travel-api-design.md))
+captured at commit time. `ForkRun` restores from these snapshots or from `RunStart`.
 
 `namespace` and `run_id` live on the envelope (and on the storage shard
 key) so they're omitted from the payload schema — there's no need to

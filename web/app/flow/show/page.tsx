@@ -43,6 +43,8 @@ function ShowInner() {
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [runDetailError, setRunDetailError] = useState<string | null>(null);
   const [runDetailFetchedAt, setRunDetailFetchedAt] = useState<number | null>(null);
+  const [forkingEventId, setForkingEventId] = useState<number | null>(null);
+  const [forkError, setForkError] = useState<string | null>(null);
   // Force a re-render every poll tick so the panel's "Updated 3s ago" label
   // ticks up between actual fetches without us coupling to setRunDetail.
   const [, setNowTick] = useState(0);
@@ -182,6 +184,31 @@ function ShowInner() {
     }
   }, [runDetail, fetchHistory]);
 
+  const handleFork = useCallback(
+    async (toEventId: number) => {
+      if (!namespace || !runId) return;
+      setForkingEventId(toEventId);
+      setForkError(null);
+      try {
+        const resp = await fetch('/api/runs/fork', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ namespace, runId, toEventId }),
+        });
+        if (!resp.ok) {
+          const errBody = (await resp.json().catch(() => ({}))) as { error?: string };
+          throw new Error(errBody.error || `HTTP ${resp.status}`);
+        }
+        await Promise.all([fetchHistory(), fetchRunDetail()]);
+      } catch (err) {
+        setForkError(err instanceof Error ? err.message : 'fork failed');
+      } finally {
+        setForkingEventId(null);
+      }
+    },
+    [namespace, runId, fetchHistory, fetchRunDetail],
+  );
+
   // Inferred status from history events — kept as a fallback for the brief
   // window before the first GetRun response lands (or if RunsService is
   // briefly unreachable). RunDetail.status is authoritative when available.
@@ -319,13 +346,26 @@ function ShowInner() {
                 {error}
               </div>
             )}
+            {forkError && (
+              <div
+                data-testid="fork-error"
+                className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3 mb-3"
+              >
+                {forkError}
+              </div>
+            )}
             {events && events.length === 0 && !loading && (
               <div className="text-sm text-gray-500">No history events yet.</div>
             )}
             {events && events.length > 0 && view === 'timeline' && (
               <ol data-testid="timeline" className="relative">
                 {events.map((e) => (
-                  <EventCard key={e.id} event={e} />
+                  <EventCard
+                    key={e.id}
+                    event={e}
+                    onFork={handleFork}
+                    forkingEventId={forkingEventId}
+                  />
                 ))}
               </ol>
             )}

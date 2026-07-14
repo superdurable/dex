@@ -8,6 +8,7 @@ import type {
   StepUnblockedEntry,
   WaitForConditionTree,
 } from '../api/_grpc/mappers';
+import { isForkableHistoryEvent } from '../api/_grpc/mappers';
 import { formatTimestamp, runStatusName, stopDecisionName } from './utils';
 import WaitForConditionPanel from './WaitForConditionPanel';
 import StackTracePre from './StackTracePre';
@@ -19,6 +20,7 @@ const TYPE_COLORS: Record<HistoryEventPayload['type'], string> = {
   StepWaitForCompleted: 'bg-yellow-100 text-yellow-800 ring-yellow-300',
   ChannelPublish: 'bg-pink-100 text-pink-800 ring-pink-300',
   StepsUnblocked: 'bg-indigo-100 text-indigo-800 ring-indigo-300',
+  RunFork: 'bg-orange-100 text-orange-800 ring-orange-300',
   Unknown: 'bg-gray-100 text-gray-800 ring-gray-300',
 };
 
@@ -165,6 +167,15 @@ function PayloadDetails({ payload }: { payload: HistoryEventPayload }) {
         </div>
       );
     }
+    case 'RunFork': {
+      const data = payload.data;
+      return (
+        <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+          <Field label="Fork to event" value={`#${data.fork_to_event_id}`} mono />
+          {data.reason ? <Field label="Reason" value={data.reason} /> : null}
+        </dl>
+      );
+    }
     default:
       return null;
   }
@@ -254,19 +265,45 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
   );
 }
 
-export default function EventCard({ event }: { event: HistoryEvent }) {
+export default function EventCard({
+  event,
+  onFork,
+  forkingEventId,
+}: {
+  event: HistoryEvent;
+  onFork?: (eventId: number) => void;
+  forkingEventId?: number | null;
+}) {
   const cls = TYPE_COLORS[event.payload.type];
+  const isForkMarker = event.payload.type === 'RunFork';
+  const forkable = onFork != null && isForkableHistoryEvent(event);
+  const forking = forkingEventId === event.id;
   return (
     <li
       data-testid="event-card"
       data-event-type={event.payload.type}
       data-event-id={event.id}
-      className="relative pl-8 pb-6"
+      className={`relative pl-8 pb-6 ${isForkMarker ? 'pt-2' : ''}`}
     >
-      <span className="absolute left-2 top-2 w-3 h-3 rounded-full bg-white border-2 border-blue-500" />
+      {isForkMarker && (
+        <div
+          data-testid="fork-divider"
+          className="absolute left-0 right-0 -top-1 border-t-2 border-dashed border-orange-300"
+          aria-hidden
+        />
+      )}
+      <span
+        className={`absolute left-2 top-2 w-3 h-3 rounded-full bg-white border-2 ${
+          isForkMarker ? 'border-orange-500' : 'border-blue-500'
+        }`}
+      />
       <span className="absolute left-3.5 top-5 bottom-0 w-px bg-gray-200" />
-      <div className="bg-white shadow-sm border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-2">
+      <div
+        className={`shadow-sm border rounded-lg p-4 ${
+          isForkMarker ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200'
+        }`}
+      >
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ring-inset ${cls}`}
           >
@@ -274,8 +311,21 @@ export default function EventCard({ event }: { event: HistoryEvent }) {
           </span>
           <span className="text-xs font-mono text-gray-500">#{event.id}</span>
           <span className="text-xs text-gray-500">{formatTimestamp(event.occurredAtMs)}</span>
+          {forkable && (
+            <button
+              type="button"
+              data-testid="fork-to-here"
+              disabled={forking}
+              onClick={() => onFork?.(event.id)}
+              className="ml-auto text-xs px-2 py-0.5 rounded border border-orange-300 text-orange-800 bg-orange-50 hover:bg-orange-100 disabled:opacity-50"
+            >
+              {forking ? 'Forking…' : 'Fork to here'}
+            </button>
+          )}
           {event.workerId && (
-            <span className="text-xs text-gray-400 font-mono ml-auto">worker {event.workerId}</span>
+            <span className={`text-xs text-gray-400 font-mono ${forkable ? '' : 'ml-auto'}`}>
+              worker {event.workerId}
+            </span>
           )}
         </div>
         <PayloadDetails payload={event.payload} />

@@ -611,6 +611,19 @@ func buildRunUpdateDoc(u *p.RunRowUpdate) bson.M {
 		setFields[path] = vals
 	}
 
+	if u.ReplaceStateMap != nil {
+		setFields[fieldStateMap] = escapeMapKeys(*u.ReplaceStateMap)
+	}
+	if u.ReplaceStepExeIDCounters != nil {
+		setFields[fieldStepExeIDCounters] = escapeMapKeys(*u.ReplaceStepExeIDCounters)
+	}
+	if u.ReplaceActiveStepExecutions != nil {
+		setFields[fieldActiveStepExecutions] = escapeMapKeys(*u.ReplaceActiveStepExecutions)
+	}
+	if u.ReplaceAllUnconsumedChannels != nil {
+		setFields[fieldUnconsumedChannelMessages] = escapeMapKeys(*u.ReplaceAllUnconsumedChannels)
+	}
+
 	return updateDoc
 }
 

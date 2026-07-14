@@ -28,6 +28,7 @@ const (
 	histTypeStepWaitForCompleted = "step_wait_for_completed"
 	histTypeChannelPublish       = "channel_publish"
 	histTypeStepsUnblocked       = "steps_unblocked"
+	histTypeRunFork              = "run_fork"
 )
 
 type mongoHistoryStore struct {
@@ -221,6 +222,8 @@ func marshalHistoryPayload(payload p.HistoryEventPayload) (string, []byte, error
 		typeName, msg = histTypeChannelPublish, payload.ChannelPublish
 	case payload.StepsUnblocked != nil:
 		typeName, msg = histTypeStepsUnblocked, payload.StepsUnblocked
+	case payload.RunFork != nil:
+		typeName, msg = histTypeRunFork, payload.RunFork
 	default:
 		return "", nil, fmt.Errorf("no payload variant set")
 	}
@@ -271,6 +274,12 @@ func unmarshalHistoryPayload(typeName string, bytes []byte) (p.HistoryEventPaylo
 			return p.HistoryEventPayload{}, err
 		}
 		return p.HistoryEventPayload{StepsUnblocked: out}, nil
+	case histTypeRunFork:
+		out := &pb.HistoryRunForkPayload{}
+		if err := proto.Unmarshal(bytes, out); err != nil {
+			return p.HistoryEventPayload{}, err
+		}
+		return p.HistoryEventPayload{RunFork: out}, nil
 	default:
 		return p.HistoryEventPayload{}, fmt.Errorf("unknown payload_type %q", typeName)
 	}

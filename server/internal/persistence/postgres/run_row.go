@@ -193,6 +193,35 @@ func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
 		add("last_history_event_id = $%d", *u.LastHistoryEventID)
 	}
 
+	if u.ReplaceStateMap != nil {
+		b, err := json.Marshal(*u.ReplaceStateMap)
+		if err != nil {
+			return "", nil, err
+		}
+		add("state_map = $%d::jsonb", b)
+	}
+	if u.ReplaceStepExeIDCounters != nil {
+		b, err := json.Marshal(*u.ReplaceStepExeIDCounters)
+		if err != nil {
+			return "", nil, err
+		}
+		add("step_exe_id_counters = $%d::jsonb", b)
+	}
+	if u.ReplaceActiveStepExecutions != nil {
+		b, err := json.Marshal(*u.ReplaceActiveStepExecutions)
+		if err != nil {
+			return "", nil, err
+		}
+		add("active_step_executions = $%d::jsonb", b)
+	}
+	if u.ReplaceAllUnconsumedChannels != nil {
+		b, err := json.Marshal(*u.ReplaceAllUnconsumedChannels)
+		if err != nil {
+			return "", nil, err
+		}
+		add("unconsumed_channel_messages = $%d::jsonb", b)
+	}
+
 	if len(u.StateMap) > 0 {
 		b, err := json.Marshal(u.StateMap)
 		if err != nil {

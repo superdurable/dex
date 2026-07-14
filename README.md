@@ -31,6 +31,7 @@ This repository includes:
 - [x] Dynamic state keys
 - [x] WaitForHistoryEvent API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
 - [x] WaitForRunComplete API &mdash; see [wait-for-history-design](docs/wait-for-history-design.md)
+- [x] Time travel API &mdash; see [time-travel-api-design](docs/time-travel-api-design.md)
 - [ ] State snapshot for step execution
 - [ ] State keys locking
 - [ ] DeleteRun API
@@ -38,13 +39,15 @@ This repository includes:
 - [ ] WaitForStepComplete API
 - [ ] Start with state
 - [ ] Start with runID Reuse
-- [ ] Time travel API
 - [ ] BlobStore
 - [ ] FlowGraph view
 - [ ] API ratelimit and task rate limit
-- [ ] external DB integration with state Keys & vector store
+- [ ] External DB integration with state Keys & vector store
 - [ ] RPC
 - [ ] Rust SDK core and Java SDK
+- [ ] Visibility: search by retrying steps filters
+- [ ] Visibility: search by waitingFor steps filters(versioning helper)
+- [ ] Visibility: search on state values
 
 ## 1.0+ features
 - [ ] Auto Delete & Prune after run closed(per closed status)
@@ -53,8 +56,6 @@ This repository includes:
 - [ ] Channel size limit
 - [ ] Channel message uniqueness 
 - [ ] Async step durability
-- [ ] Visibility: search by retrying steps filters
-- [ ] Visibility: search by waitingFor steps filters(versioning helper)
 - [ ] Count API and webUI
 - [ ] ChildRun for fanout
 - [ ] StepOptionsOverride 
@@ -65,9 +66,7 @@ This repository includes:
 
 ## Future internal optimization 
 - [ ] Pickup improvement - PollForRun with runID and graceful handoff
-- [ ] lightweight GetRun(): skip blobs
-- [ ] GetHistory API with blob reuse to save the data transportation
-- [ ] Review and simplify metrics
+- [ ] Review and simplify metrics & docs
 
 
 
