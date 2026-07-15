@@ -178,7 +178,7 @@ func historyEventToPb(e p.HistoryEvent) *pb.HistoryEvent {
 	case e.Payload.StepsUnblocked != nil:
 		out.Payload = &pb.HistoryEvent_StepsUnblocked{StepsUnblocked: e.Payload.StepsUnblocked}
 	case e.Payload.RunFork != nil:
-		out.Payload = &pb.HistoryEvent_RunFork{RunFork: e.Payload.RunFork}
+		// explicitly ignore RunFork because it's only for fork API
 	}
 	return out
 }
