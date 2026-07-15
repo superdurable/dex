@@ -18,7 +18,7 @@ func newImmediateTask(shardID int32, taskType p.ImmediateTaskType, info p.Immedi
 }
 
 func (mutation *runMutation) armDurableTimerIfNeeded() {
-	activeSteps := mutation.getCurrentMergedActiveStepsView()
+	activeSteps := mutation.getCurrentMergedViewOfActiveSteps()
 	var minFireAt int64
 	var minStepExeID string
 	for stepExeID, step := range activeSteps {

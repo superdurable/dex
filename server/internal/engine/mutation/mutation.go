@@ -13,6 +13,7 @@ import (
 	"github.com/superdurable/dex/server/common/utils/ptr"
 	"github.com/superdurable/dex/server/internal/engine/blobs"
 	"github.com/superdurable/dex/server/internal/engine/mutation/ops"
+	"github.com/superdurable/dex/server/internal/engine/pbconv"
 	"github.com/superdurable/dex/server/internal/metrics"
 	p "github.com/superdurable/dex/server/internal/persistence"
 )
@@ -276,10 +277,9 @@ func (mutation *runMutation) EnqueueInitialDispatchTask() {
 }
 
 func (mutation *runMutation) TransitionToRunning(workerID string, heartbeatDuration time.Duration, reason TransitionReason) {
-	running := p.RunStatusRunning
 	nowTime := mutation.now
 	newTimerID := ids.NewTaskID()
-	mutation.update.Status = &running
+	mutation.update.Status = ptr.Any(p.RunStatusRunning)
 	mutation.update.LastHeartbeatTime = &nowTime
 	mutation.update.HeartbeatTimerID = &newTimerID
 	mutation.update.WorkerID = &workerID
@@ -290,18 +290,16 @@ func (mutation *runMutation) TransitionToRunning(workerID string, heartbeatDurat
 		TaskType: p.TimerTaskRunHeartbeat,
 		TaskInfo: p.TimerTaskInfo{RunID: mutation.run.ID, Namespace: mutation.run.Namespace},
 	}})
-	mutation.ops.AddVisibility(running)
+	mutation.ops.AddVisibility(p.RunStatusRunning)
 	mutation.transitionReason = reason
 }
 
 func (mutation *runMutation) TransitionToAllStepsWaitingForConditions(reason TransitionReason) {
-	allWaiting := p.RunStatusAllStepsWaitingForConditions
-	emptyWorker := ""
-	mutation.update.Status = &allWaiting
-	mutation.update.WorkerID = &emptyWorker
+	mutation.update.Status = ptr.Any(p.RunStatusAllStepsWaitingForConditions)
+	mutation.update.WorkerID = ptr.Any("")
 	mutation.update.HeartbeatTimerID = ptr.Any(ids.TaskID{})
 	mutation.armDurableTimerIfNeeded()
-	mutation.ops.AddVisibility(allWaiting)
+	mutation.ops.AddVisibility(p.RunStatusAllStepsWaitingForConditions)
 	mutation.transitionReason = reason
 }
 
@@ -309,6 +307,8 @@ func (mutation *runMutation) MaybeTransitionToPendingIfPromoteWaitingSteps(effec
 	dispatched, err := mutation.promoteByServerIfAny(effectiveNow)
 	if dispatched {
 		mutation.transitionReason = reason
+		mutation.update.Status = ptr.Any(p.RunStatusPending)
+		mutation.appendResumeDispatchTask()
 	}
 	return dispatched, err
 }
@@ -326,6 +326,8 @@ func (mutation *runMutation) MaybeTransitionToPendingOnDurableTimerFired(effecti
 	if dispatched {
 		// this means the timer has promoted at least a step to execute
 		mutation.transitionReason = reason
+		mutation.update.Status = ptr.Any(p.RunStatusPending)
+		mutation.appendResumeDispatchTask()
 		return nil
 	}
 	// otherwise, check if there is another timer to set up
@@ -333,9 +335,120 @@ func (mutation *runMutation) MaybeTransitionToPendingOnDurableTimerFired(effecti
 	return nil
 }
 
-func (mutation *runMutation) ApplyForkRun(event p.HistoryEvent) {
-	//TODO implement me
-	panic("implement me")
+const forkWorkerRequestCounterBump = int64(1000)
+
+func (mutation *runMutation) ApplyForkRun(event p.HistoryEvent) errors.CategorizedError {
+	runStartEvent, snapshot, err := validateForkTargetEvent(event.Payload)
+	if err != nil {
+		return err
+	}
+
+	mutation.update.WorkerID = ptr.Any("")
+	mutation.update.HeartbeatTimerID = ptr.Any(ids.TaskID{})
+	mutation.update.WorkerRequestCounter = ptr.Any(mutation.run.WorkerRequestCounter + forkWorkerRequestCounterBump)
+	mutation.update.ActiveDurableTimerID = ptr.Any(ids.TaskID{})
+	mutation.update.DurableTimerFireAt = ptr.Any(snapshot.DurableTimerFiredAt)
+
+	if runStartEvent != nil {
+		mutation.update.Status = ptr.Any(p.RunStatusPending)
+		mutation.appendResumeDispatchTask()
+		mutation.update.ReplaceStateMap = ptr.Any(map[string]p.Value{})
+		mutation.update.ReplaceAllUnconsumedChannels = ptr.Any(map[string][]p.ChannelMessage{})
+		mutation.update.ExternalChannelMessageCounter = ptr.Any(int64(0))
+
+		activeSteps := make(map[string]p.ActiveStepExecution)
+		counters := make(map[string]int32)
+		for _, startingStep := range runStartEvent.StartingSteps {
+			input := pbconv.PbValueToPersistence(startingStep.Input)
+			counter := counters[startingStep.StepId] + 1
+			counters[startingStep.StepId] = counter
+			stepExeID := stepExeIDFromCounter(startingStep.StepId, counter)
+
+			step := p.ActiveStepExecution{
+				Input:  input,
+				Status: p.StepExeStatusInvokingWaitFor,
+			}
+			if startingStep.SkipWaitFor {
+				step.Status = p.StepExeStatusInvokingExecute
+				step.ExecuteMethodExeID = mutation.update.AllocateStepMethodExeCounter(mutation.run.StepMethodExeCounter)
+			} else {
+				step.WaitForMethodExeID = mutation.update.AllocateStepMethodExeCounter(mutation.run.StepMethodExeCounter)
+			}
+			activeSteps[stepExeID] = step
+		}
+
+		mutation.update.ReplaceStepExeIDCounters = &counters
+		mutation.update.ReplaceActiveStepExecutions = &activeSteps
+		return nil
+	}
+
+	// otherwise reset to a snapshot
+	switch {
+	case event.Payload.StepExecuteCompleted != nil:
+		snapshot = event.Payload.StepExecuteCompleted.Snapshot
+	case event.Payload.StepWaitForCompleted != nil:
+		snapshot = event.Payload.StepWaitForCompleted.Snapshot
+	case event.Payload.StepsUnblocked != nil:
+		snapshot = event.Payload.StepsUnblocked.Snapshot
+	}
+	mutation.update.ReplaceStateMap = ptr.Any(pbconv.PbStateMapToPersistence(snapshot.StateMap))
+	mutation.update.ReplaceAllUnconsumedChannels = ptr.Any(pbconv.PbChannelsToPersistence(snapshot.UnconsumedChannelMessages))
+	mutation.update.ExternalChannelMessageCounter = ptr.Any(snapshot.ExternalChannelMessageCounter)
+	mutation.update.ReplaceStepExeIDCounters = ptr.Any(snapshot.StepExeIdCounters)
+	mutation.update.ReplaceActiveStepExecutions = ptr.Any(pbconv.PbActiveStepsToPersistence(snapshot.ActiveStepExecutions))
+
+	promoted, err := mutation.promoteByServerIfAny(time.Now().UnixMilli())
+	if err != nil {
+		return err
+	}
+	if promoted {
+		// special case, need to merge the promoted step from upsert map into replace map
+		for stepExeId, step := range mutation.update.ActiveStepExecutions {
+			(*mutation.update.ReplaceActiveStepExecutions)[stepExeId] = *step
+		}
+	}
+	hasStepToInvoke := false
+	for _, step := range *mutation.update.ReplaceActiveStepExecutions {
+		if step.Status != p.StepExeStatusWaitingForCondition {
+			hasStepToInvoke = true
+		}
+	}
+	if hasStepToInvoke {
+		mutation.update.Status = ptr.Any(p.RunStatusPending)
+		mutation.appendResumeDispatchTask()
+	} else {
+		mutation.update.Status = ptr.Any(p.RunStatusAllStepsWaitingForConditions)
+		mutation.armDurableTimerIfNeeded()
+	}
+
+	return nil
+}
+
+func validateForkTargetEvent(payload p.HistoryEventPayload) (runStartEvent *pb.HistoryRunStartPayload, snapshot *pb.RunSnapshot, err errors.CategorizedError) {
+	switch {
+	case payload.RunStart != nil:
+		return payload.RunStart, nil, nil
+	case payload.RunFork != nil:
+		return nil, nil, errors.NewInvalidInputError("cannot fork to a run_fork marker event", nil)
+	case payload.RunStop != nil:
+		return nil, nil, errors.NewInvalidInputError("cannot fork to run_stop terminal event", nil)
+	case payload.ChannelPublish != nil:
+		return nil, nil, errors.NewInvalidInputError("cannot fork to channel_publish event", nil)
+	case payload.StepExecuteCompleted != nil:
+		// Fork is inclusive -- the state of the target event is reserved and continued from.
+		// So there is no point of forking to a terminal event.
+		if payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_COMPLETE ||
+			payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_FAIL {
+			return nil, nil, errors.NewInvalidInputError("cannot fork to terminal event(fork is inclusive)", nil)
+		}
+		return nil, payload.StepExecuteCompleted.Snapshot, nil
+	case payload.StepWaitForCompleted != nil:
+		return nil, payload.StepWaitForCompleted.Snapshot, nil
+	case payload.StepsUnblocked != nil:
+		return nil, payload.StepsUnblocked.Snapshot, nil
+	default:
+		return nil, nil, errors.NewInvalidInputError("unsupported history event type for fork", nil)
+	}
 }
 
 func (mutation *runMutation) RenewHeartbeatTimer() {
@@ -365,15 +478,18 @@ func (mutation *runMutation) AddHistoryStepExecuteCompleted(
 	conditionResults []*pb.ConditionResult,
 	workerID string,
 ) {
-	mutation.ops.AddHistoryStepExecuteCompleted(req, fromStepExeID, conditionResults, workerID)
+	mutation.ops.AddHistoryStepExecuteCompleted(
+		req, fromStepExeID, conditionResults, workerID, mutation.buildRunSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string) {
-	mutation.ops.AddHistoryStepWaitForCompleted(req, fromStepExeID, workerID)
+	mutation.ops.AddHistoryStepWaitForCompleted(
+		req, fromStepExeID, workerID, mutation.buildRunSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string) {
-	mutation.ops.AddHistoryStepsUnblocked(req, workerID)
+	mutation.ops.AddHistoryStepsUnblocked(
+		req, workerID, mutation.buildRunSnapshot())
 }
 
 func (mutation *runMutation) AddHistoryChannelPublish(req *pb.PublishToChannelRequest) {
@@ -411,7 +527,29 @@ func (mutation *runMutation) finalizeOpsTasks() {
 	}
 }
 
-func (mutation *runMutation) getCurrentMergedActiveStepsView() map[string]p.ActiveStepExecution {
+func (mutation *runMutation) buildRunSnapshot() *pb.RunSnapshot {
+	stateMap := mutation.getCurrentMergedViewOfStateMap()
+	channels := mutation.getCurrentMergedViewOfUnconsumedChannels()
+	counters := mutation.getCurrentMergedViewOfStepExeIDCounters()
+	activeSteps := mutation.getCurrentMergedViewOfActiveSteps()
+
+	snap := &pb.RunSnapshot{
+		StateMap:                      pbconv.PersistenceStateMapToHistoryPb(stateMap),
+		UnconsumedChannelMessages:     pbconv.PersistenceChannelsToHistoryPb(channels),
+		StepExeIdCounters:             counters,
+		ActiveStepExecutions:          pbconv.PersistenceActiveStepsToHistoryPb(activeSteps),
+		ExternalChannelMessageCounter: mutation.getCurrentMergedExternalChannelMessageCounter(),
+		DurableTimerFiredAt:           mutation.getCurrentMergedDurableTimerFiredAt(),
+	}
+	return snap
+}
+
+func (mutation *runMutation) getCurrentMergedViewOfActiveSteps() map[string]p.ActiveStepExecution {
+	if mutation.update.ReplaceActiveStepExecutions != nil {
+		// for forkRun case, needed by promoteByServerIfAny
+		return *mutation.update.ReplaceActiveStepExecutions
+	}
+
 	activeSteps := make(map[string]p.ActiveStepExecution, len(mutation.run.ActiveStepExecutions))
 	for key, value := range mutation.run.ActiveStepExecutions {
 		activeSteps[key] = value
@@ -428,7 +566,12 @@ func (mutation *runMutation) getCurrentMergedActiveStepsView() map[string]p.Acti
 	return activeSteps
 }
 
-func (mutation *runMutation) mergedUnconsumedChannels() map[string][]p.ChannelMessage {
+func (mutation *runMutation) getCurrentMergedViewOfUnconsumedChannels() map[string][]p.ChannelMessage {
+	if mutation.update.ReplaceAllUnconsumedChannels != nil {
+		// for forkRun case, needed by promoteByServerIfAny
+		return *mutation.update.ReplaceAllUnconsumedChannels
+	}
+
 	channels := make(map[string][]p.ChannelMessage, len(mutation.run.UnconsumedChannelMessages))
 	for key, value := range mutation.run.UnconsumedChannelMessages {
 		channels[key] = value
@@ -439,6 +582,34 @@ func (mutation *runMutation) mergedUnconsumedChannels() map[string][]p.ChannelMe
 		}
 	}
 	return channels
+}
+
+func (mutation *runMutation) getCurrentMergedViewOfStateMap() map[string]p.Value {
+	if len(mutation.update.StateMap) > 0 {
+		return mutation.update.StateMap
+	}
+	return mutation.run.StateMap
+}
+
+func (mutation *runMutation) getCurrentMergedViewOfStepExeIDCounters() map[string]int32 {
+	if len(mutation.update.StepExeIDCounters) > 0 {
+		return mutation.update.StepExeIDCounters
+	}
+	return mutation.run.StepExeIDCounters
+}
+
+func (mutation *runMutation) getCurrentMergedExternalChannelMessageCounter() int64 {
+	if mutation.update.ExternalChannelMessageCounter != nil {
+		return *mutation.update.ExternalChannelMessageCounter
+	}
+	return mutation.run.ExternalChannelMessageCounter
+}
+
+func (mutation *runMutation) getCurrentMergedDurableTimerFiredAt() int64 {
+	if mutation.update.DurableTimerFireAt != nil {
+		return *mutation.update.DurableTimerFireAt
+	}
+	return mutation.run.DurableTimerFireAt
 }
 
 func stepExeIDFromCounter(stepID string, counter int32) string {

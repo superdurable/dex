@@ -5,7 +5,7 @@ import (
 	p "github.com/superdurable/dex/server/internal/persistence"
 )
 
-// persistenceWaitForConditionToPb converts a persistence WaitForCondition to proto.
+// PersistenceWaitForConditionToPb converts a persistence WaitForCondition to proto.
 func PersistenceWaitForConditionToPb(wfc *p.WaitForCondition) *pb.WaitForCondition {
 	if wfc == nil {
 		return nil
@@ -34,7 +34,7 @@ func PersistenceWaitForConditionToPb(wfc *p.WaitForCondition) *pb.WaitForConditi
 	return pbWfc
 }
 
-// persistenceRetryStateToPb converts a persistence RetryState to proto StepRetryState.
+// PersistenceRetryStateToPb converts a persistence RetryState to proto StepRetryState.
 func PersistenceRetryStateToPb(rs *p.RetryState) *pb.StepRetryState {
 	if rs == nil {
 		return nil
@@ -47,7 +47,7 @@ func PersistenceRetryStateToPb(rs *p.RetryState) *pb.StepRetryState {
 	}
 }
 
-// persistenceConditionResultsToPb is the read-path inverse, used to surface
+// PersistenceConditionResultsToPb is the read-path inverse, used to surface
 // the persisted condition_results back to the worker via PollResponse / GetRun.
 func PersistenceConditionResultsToPb(crs []p.ConditionResult) []*pb.ConditionResult {
 	if len(crs) == 0 {
@@ -75,4 +75,83 @@ func PersistenceConditionResultsToPb(crs []p.ConditionResult) []*pb.ConditionRes
 		out = append(out, pcr)
 	}
 	return out
+}
+
+func PersistenceStateMapToHistoryPb(stateMap map[string]p.Value) map[string]*pb.Value {
+	if len(stateMap) == 0 {
+		return nil
+	}
+	out := make(map[string]*pb.Value, len(stateMap))
+	for key, value := range stateMap {
+		out[key] = PersistenceValueToHistoryPb(value)
+	}
+	return out
+}
+
+func PersistenceChannelsToHistoryPb(channels map[string][]p.ChannelMessage) map[string]*pb.ChannelMessages {
+	if len(channels) == 0 {
+		return nil
+	}
+	out := make(map[string]*pb.ChannelMessages, len(channels))
+	for ch, msgs := range channels {
+		pbMsgs := make([]*pb.ChannelMessage, len(msgs))
+		for index, message := range msgs {
+			pbMsgs[index] = &pb.ChannelMessage{
+				Id:    message.ID,
+				Value: PersistenceValueToHistoryPb(message.Value),
+			}
+		}
+		out[ch] = &pb.ChannelMessages{Messages: pbMsgs}
+	}
+	return out
+}
+
+func PersistenceActiveStepsToHistoryPb(activeSteps map[string]p.ActiveStepExecution) map[string]*pb.ActiveStepExecution {
+	if len(activeSteps) == 0 {
+		return nil
+	}
+	out := make(map[string]*pb.ActiveStepExecution, len(activeSteps))
+	for stepExeID, step := range activeSteps {
+		pbStep := &pb.ActiveStepExecution{
+			Input:              PersistenceValueToHistoryPb(step.Input),
+			Status:             pb.StepExecutionStatus(step.Status),
+			FromStepExeId:      step.FromStepExeID,
+			WaitForMethodExeId: step.WaitForMethodExeID,
+			ExecuteMethodExeId: step.ExecuteMethodExeID,
+		}
+		if step.WaitForCondition != nil {
+			pbStep.WaitForCondition = PersistenceWaitForConditionToPb(step.WaitForCondition)
+		}
+		if len(step.ConditionResults) > 0 {
+			pbStep.ConditionResults = PersistenceConditionResultsToPb(step.ConditionResults)
+		}
+		out[stepExeID] = pbStep
+	}
+	return out
+}
+
+// PersistenceValueToHistoryPb stores blob refs as server-internal blob_id strings.
+func PersistenceValueToHistoryPb(val p.Value) *pb.Value {
+	switch val.Type {
+	case p.ValueTypeInt:
+		if val.IntVal != nil {
+			return &pb.Value{Kind: &pb.Value_IntValue{IntValue: *val.IntVal}}
+		}
+	case p.ValueTypeDouble:
+		if val.DoubleVal != nil {
+			return &pb.Value{Kind: &pb.Value_DoubleValue{DoubleValue: *val.DoubleVal}}
+		}
+	case p.ValueTypeBool:
+		if val.BoolVal != nil {
+			return &pb.Value{Kind: &pb.Value_BoolValue{BoolValue: *val.BoolVal}}
+		}
+	case p.ValueTypeBlobRef:
+		if !val.BlobID.IsZero() {
+			return &pb.Value{Kind: &pb.Value_EncodedObjectBlobIdInternalOnly{
+				EncodedObjectBlobIdInternalOnly: val.BlobID.String(),
+			}}
+		}
+	}
+
+	panic("invalid value type")
 }

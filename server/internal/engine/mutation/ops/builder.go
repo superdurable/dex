@@ -105,6 +105,7 @@ func (builder *OpsTasksBuilder) AddHistoryStepExecuteCompleted(
 	fromStepExeID string,
 	conditionResults []*pb.ConditionResult,
 	workerID string,
+	runSnapshot *pb.RunSnapshot,
 ) {
 	payload := &pb.HistoryStepExecuteCompletedPayload{
 		StepExeId:              req.StepExeId,
@@ -119,11 +120,15 @@ func (builder *OpsTasksBuilder) AddHistoryStepExecuteCompleted(
 		ChannelPublish:         req.ChannelPublish,
 		StepsUnblocked:         req.StepsUnblocked,
 		ExecuteMethod:          req.ExecuteMethod,
+		Snapshot:               runSnapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepExecuteCompleted: payload}, workerID)
 }
 
-func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string) {
+func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(
+	req *pb.StepWaitForCompletedRequest, fromStepExeID string, workerID string,
+	runSnapshot *pb.RunSnapshot,
+) {
 	payload := &pb.HistoryStepWaitForCompletedPayload{
 		StepExeId:            req.StepExeId,
 		FromStepExeId:        fromStepExeID,
@@ -134,14 +139,19 @@ func (builder *OpsTasksBuilder) AddHistoryStepWaitForCompleted(req *pb.StepWaitF
 		StepsUnblocked:       req.StepsUnblocked,
 		WaitForMethod:        req.WaitForMethod,
 		NextSteps:            req.NextSteps,
+		Snapshot:             runSnapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepWaitForCompleted: payload}, workerID)
 }
 
-func (builder *OpsTasksBuilder) AddHistoryStepsUnblocked(req *pb.StepsUnblockedRequest, workerID string) {
+func (builder *OpsTasksBuilder) AddHistoryStepsUnblocked(
+	req *pb.StepsUnblockedRequest, workerID string,
+	runSnapshot *pb.RunSnapshot,
+) {
 	payload := &pb.HistoryStepsUnblockedPayload{
 		WorkerRequestCounter: req.GetContext().GetWorkerRequestCounter(),
 		StepsUnblocked:       req.StepsUnblocked,
+		Snapshot:             runSnapshot,
 	}
 	builder.appendHistory(p.HistoryEventPayload{StepsUnblocked: payload}, workerID)
 }

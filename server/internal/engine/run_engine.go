@@ -1094,11 +1094,10 @@ func (e *runEngineImpl) tryForkRun(ctx context.Context, shardID int32, req *pb.F
 	}
 	previousWorkerID := runMutation.GetRun().WorkerID
 
-	if validateErr := validateForkTargetEvent(targetEvent.Payload); validateErr != nil {
-		return "", validateErr
+	err = runMutation.ApplyForkRun(targetEvent)
+	if err != nil {
+		return "", err
 	}
-
-	runMutation.ApplyForkRun(targetEvent)
 	runMutation.AddHistoryRunFork(req.ToEventId, req.Reason)
 	runMutation.UpdateVisibilityIfStatusChanged()
 
@@ -1106,33 +1105,6 @@ func (e *runEngineImpl) tryForkRun(ctx context.Context, shardID int32, req *pb.F
 		return "", commitErr
 	}
 	return previousWorkerID, nil
-}
-
-func validateForkTargetEvent(payload p.HistoryEventPayload) errors.CategorizedError {
-	switch {
-	case payload.RunStart != nil:
-		return nil
-	case payload.RunFork != nil:
-		return errors.NewInvalidInputError("cannot fork to a run_fork marker event", nil)
-	case payload.RunStop != nil:
-		return errors.NewInvalidInputError("cannot fork to run_stop terminal event", nil)
-	case payload.ChannelPublish != nil:
-		return errors.NewInvalidInputError("cannot fork to channel_publish event", nil)
-	case payload.StepExecuteCompleted != nil:
-		// Fork is inclusive -- the state of the target event is reserved and continued from.
-		// So there is no point of forking to a terminal event.
-		if payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_COMPLETE ||
-			payload.StepExecuteCompleted.StopDecision == pb.StopDecision_STOP_DECISION_FAIL {
-			return errors.NewInvalidInputError("cannot fork to terminal event(fork is inclusive)", nil)
-		}
-		return nil
-	case payload.StepWaitForCompleted != nil:
-		return nil
-	case payload.StepsUnblocked != nil:
-		return nil
-	default:
-		return errors.NewInvalidInputError("unsupported history event type for fork", nil)
-	}
 }
 
 // ============================================================================

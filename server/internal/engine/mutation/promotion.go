@@ -16,15 +16,12 @@ type serverPromotedStep struct {
 }
 
 func (mutation *runMutation) promoteByServerIfAny(effectiveNow int64) (bool, errors.CategorizedError) {
-	activeSteps := mutation.getCurrentMergedActiveStepsView()
-	unconsumed := mutation.mergedUnconsumedChannels()
+	activeSteps := mutation.getCurrentMergedViewOfActiveSteps()
+	unconsumed := mutation.getCurrentMergedViewOfUnconsumedChannels()
 	_, promoted := promoteAllSatisfiedWaitingSteps(mutation.run, mutation.update, activeSteps, unconsumed, effectiveNow)
 	if !promoted {
 		return false, nil
 	}
-	pending := p.RunStatusPending
-	mutation.update.Status = &pending
-	mutation.appendResumeDispatchTask()
 	return true, nil
 }
 
@@ -34,7 +31,7 @@ func promoteAllSatisfiedWaitingSteps(
 	activeSteps map[string]p.ActiveStepExecution,
 	unconsumed map[string][]p.ChannelMessage,
 	effectiveNow int64,
-) ([]serverPromotedStep, bool) {
+) ([]serverPromotedStep, bool) { // Note the 1st return param is for testing
 	evaluator := evaluate.NewConditionEvaluator(activeSteps, effectiveNow, unconsumed)
 
 	// Sort so exeID allocation (and thus channel-reservation ordering) is

@@ -44,7 +44,7 @@ type RunMutation interface {
 	MaybeTransitionToPendingOnDurableTimerFired(effectiveNow int64, reason TransitionReason) errors.CategorizedError
 
 	// special -- fork run
-	ApplyForkRun(event p.HistoryEvent)
+	ApplyForkRun(event p.HistoryEvent) errors.CategorizedError
 
 	// dispatch tasks
 	EnqueueInitialDispatchTask()
@@ -97,4 +97,5 @@ const (
 	TransitionReasonStepWaitForTimerFired     TransitionReason = "step_wait_for_timer_fired"
 	TransitionReasonHeartbeatTimeout          TransitionReason = "heartbeat_timeout"
 	TransitionReasonReleaseRunYield           TransitionReason = "release_run_yield"
+	TransitionReasonForkRun                   TransitionReason = "fork_run"
 )
