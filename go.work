@@ -1,0 +1,8 @@
+go 1.26
+
+use (
+	./protos
+	./common-go
+	./sdk-go
+	./server
+)
