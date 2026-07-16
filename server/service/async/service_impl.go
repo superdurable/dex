@@ -25,12 +25,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xcherryio/apis/goapi/xcapi"
 	"github.com/superdurable/dex/server/common/log"
 	"github.com/superdurable/dex/server/common/log/tag"
 	"github.com/superdurable/dex/server/config"
 	engine2 "github.com/superdurable/dex/server/engine"
-	"github.com/superdurable/dex/server/persistence"
+	"github.com/superdurable/dex/server/internal/persistence"
+	"github.com/xcherryio/apis/goapi/xcapi"
 	"go.uber.org/multierr"
 )
 

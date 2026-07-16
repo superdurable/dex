@@ -21,13 +21,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xcherryio/apis/goapi/xcapi"
 	"github.com/superdurable/dex/server/common/log"
 	"github.com/superdurable/dex/server/common/log/tag"
 	"github.com/superdurable/dex/server/common/ptr"
 	"github.com/superdurable/dex/server/config"
-	"github.com/superdurable/dex/server/persistence"
+	"github.com/superdurable/dex/server/internal/persistence"
 	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
+	"github.com/xcherryio/apis/goapi/xcapi"
 )
 
 type timerTaskConcurrentProcessor struct {

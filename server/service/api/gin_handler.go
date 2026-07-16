@@ -21,13 +21,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/xcherryio/apis/goapi/xcapi"
+	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/server/common/log"
 	"github.com/superdurable/dex/server/common/log/tag"
 	"github.com/superdurable/dex/server/config"
-	"github.com/superdurable/dex/server/persistence"
-
-	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/server/internal/persistence"
+	"github.com/xcherryio/apis/goapi/xcapi"
 )
 
 type ginHandler struct {

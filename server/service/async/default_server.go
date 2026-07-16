@@ -26,7 +26,7 @@ import (
 	"github.com/superdurable/dex/server/common/log"
 	"github.com/superdurable/dex/server/common/log/tag"
 	"github.com/superdurable/dex/server/config"
-	"github.com/superdurable/dex/server/persistence"
+	"github.com/superdurable/dex/server/internal/persistence"
 	"go.uber.org/multierr"
 )
 

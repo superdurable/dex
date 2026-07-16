@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xcherryio/apis/goapi/xcapi"
 	"github.com/superdurable/dex/server/common/decision"
 	"github.com/superdurable/dex/server/common/httperror"
 	"github.com/superdurable/dex/server/common/log"
@@ -31,10 +30,11 @@ import (
 	"github.com/superdurable/dex/server/common/urlautofix"
 	"github.com/superdurable/dex/server/config"
 	"github.com/superdurable/dex/server/engine"
-	"github.com/superdurable/dex/server/persistence"
+	"github.com/superdurable/dex/server/internal/persistence"
 	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 	async2 "github.com/superdurable/dex/server/service/async"
 	"github.com/superdurable/dex/server/utils"
+	"github.com/xcherryio/apis/goapi/xcapi"
 )
 
 type serviceImpl struct {

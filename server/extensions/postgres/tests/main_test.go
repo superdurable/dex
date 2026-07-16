@@ -25,7 +25,7 @@ import (
 	"github.com/superdurable/dex/server/extensions"
 	"github.com/superdurable/dex/server/extensions/postgres"
 	"github.com/superdurable/dex/server/extensions/postgres/postgrestool"
-	"github.com/superdurable/dex/server/persistence"
+	"github.com/superdurable/dex/server/internal/persistence"
 	"github.com/superdurable/dex/server/persistence/process"
 
 	"os"
