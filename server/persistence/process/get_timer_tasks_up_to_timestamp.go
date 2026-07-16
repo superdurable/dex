@@ -1,0 +1,26 @@
+// Copyright (c) 2023 xCherryIO Organization
+// SPDX-License-Identifier: Apache-2.0
+
+package process
+
+import (
+	"context"
+
+	"github.com/xcherryio/xcherry/server/extensions"
+	"github.com/xcherryio/xcherry/server/persistence/data_models"
+)
+
+func (p sqlProcessStoreImpl) GetTimerTasksUpToTimestamp(
+	ctx context.Context, request data_models.GetTimerTasksRequest,
+) (*data_models.GetTimerTasksResponse, error) {
+	dbTimerTasks, err := p.session.BatchSelectTimerTasks(
+		ctx, extensions.TimerTaskRangeSelectFilter{
+			ShardId:                         request.ShardId,
+			MaxFireTimeUnixSecondsInclusive: request.MaxFireTimestampSecondsInclusive,
+			PageSize:                        request.PageSize,
+		})
+	if err != nil {
+		return nil, err
+	}
+	return createGetTimerTaskResponse(request.ShardId, dbTimerTasks, &request.PageSize)
+}

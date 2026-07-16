@@ -5,5 +5,5 @@ test.log
 coverage.out
 .idea/
 gen/
-docker-compose/dev/data/
+server/docker-compose/dev/data/
 *__debug*

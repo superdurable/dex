@@ -1,0 +1,26 @@
+// Copyright 2023 xCherryIO organization
+
+// Copyright (c) 2023 xCherryIO Organization
+// SPDX-License-Identifier: Apache-2.0
+
+package httperror
+
+import (
+	"github.com/xcherryio/xcherry/server/common/log"
+	"github.com/xcherryio/xcherry/server/common/log/tag"
+
+	"net/http"
+)
+
+func CheckHttpResponseAndError(err error, httpResp *http.Response, logger log.Logger) bool {
+	status := 0
+	if httpResp != nil {
+		status = httpResp.StatusCode
+	}
+	logger.Debug("check http response and error", tag.Error(err), tag.StatusCode(status))
+
+	if err != nil || (httpResp != nil && httpResp.StatusCode != http.StatusOK) {
+		return true
+	}
+	return false
+}

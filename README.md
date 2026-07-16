@@ -29,12 +29,12 @@ The xCherry SDKs/Samples require to run with the server by one of the below opti
 In this case you don't want to connect to your existing database:
 
 * `wget https://raw.githubusercontent.com/xcherryio/xcherry/main/docker-compose/docker-compose-postgres14-example.yaml && docker compose -f docker-compose-postgres14-example.yaml up -d`
-  * Will include a PostgresSQL database and some [sample tables](./extensions/postgres/schema/sample_tables.sql)
+  * Will include a PostgresSQL database and some [sample tables](server/extensions/postgres/schema/sample_tables.sql)
 
 
 ### Option 2: use docker-compose of xCherry to connect with your own database
 * Install the database schema to your database
-  * [Postgres schema](./extensions/postgres/schema)
+  * [Postgres schema](server/extensions/postgres/schema)
 * Run docker-compose file from this project:
   * `docker-compose -f ./docker-compose/docker-compose.yaml up`
 
