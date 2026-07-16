@@ -175,6 +175,13 @@ type ActiveStepExecution struct {
 	ExecuteMethodExeID int64 `bson:"execute_method_exe_id,omitempty"`
 }
 
+// TaskRow is a union type for CreateRunWithTasks / UpdateRunWithNewTasks.
+// Exactly one of Immediate / Timer is non-nil.
+type TaskRow struct {
+	Immediate *ImmediateTaskRow
+	Timer     *TimerTaskRow
+}
+
 // ============================================================================
 // Immediate Task Row
 // ============================================================================
