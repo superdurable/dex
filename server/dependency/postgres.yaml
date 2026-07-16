@@ -1,0 +1,35 @@
+# PostgreSQL dependency for server integration tests (the default backend).
+services:
+  postgres:
+    image: postgres:18
+    command: ["postgres", "-c", "max_connections=400"]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dex
+      POSTGRES_PASSWORD: dex
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dex -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  postgres-init:
+    image: postgres:18
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: dex
+      PGPASSWORD: dex
+    volumes:
+      - ./internal/persistence/postgres/schema:/schema:ro
+    entrypoint: ["bash", "/schema/init.sh"]
+
+volumes:
+  postgres_data:
