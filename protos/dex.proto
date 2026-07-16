@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package dex;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/superdurable/dex/protos/gengo/dexpb";
+
+// ============================================================================
+// RunsService
+// ============================================================================
+
+service RunsService {
+  rpc StartRun(StartRunRequest) returns (google.protobuf.Empty);
+}
+
+message StartRunRequest {
+  string namespace = 1;
+  string run_id = 2;
+  string flow_type = 3;
+  string task_list_name = 4;
+  StartRunOptions options = 5;
+  repeated StepMovement starting_steps = 6;
+}
+
+message StartRunOptions {
+  int32 heartbeat_timeout_seconds = 1;
+}
+
+message StepMovement{
+  string step_type = 1;
+  Value input = 2;
+  bool skip_wait_for = 3;
+  // A snapshot at the beginning for the step for debugging only
+  // worker always use the latest as source of truth
+  StepOptionsSnapshot initial_step_options = 4;
+  // When skip_wait_for, this is for execute method, otherwise for wait_for method
+  int64 step_method_exe_id = 5;
+}
+
+message Value {
+  oneof kind {
+    // when present, the actual Value will have to be hydrate from blob storage
+    // and then replace the string_value
+    string internal_blob_id_for_string_value = 1;
+    // when present, the actual Value will have to be hydrate from blob storage
+    // and then replace the obj_value
+    string internal_blob_id_for_obj_value = 2;
+
+    string string_value = 3;
+    EncodedObject obj_value = 4;
+
+    int64 int_value = 5;
+    double double_value = 6;
+    bool bool_value = 7;
+    // for data attribute, null will be used as deletion internally to optimize the storage
+    google.protobuf.NullValue null_value = 8;
+  }
+}
+
+message EncodedObject{
+  string encoding = 1;
+  bytes payload = 2;
+}
+
+message StepOptionsSnapshot {
+  int64 wait_for_method_timeout_ms = 1;
+  int64 execute_method_timeout_ms = 2;
+  StepMethodRetryPolicy wait_for_method_retry_policy = 3;
+  StepMethodRetryPolicy execute_method_retry_policy = 4;
+}
+
+message StepMethodRetryPolicy {
+  int32 max_attempts = 1;
+  int64 initial_interval_ms = 2;
+  double backoff_coefficient = 3;
+  int64 maximum_interval_ms = 4;
+  int64 total_timeout_ms = 5;
+}
+
