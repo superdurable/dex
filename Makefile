@@ -141,6 +141,9 @@ xcherry-tools-postgres:
 xcherry-tools-copyright:
 	@go build -o $@ cmd/tools/copyright/main.go
 
+copyright: ## Replace license headers from server/script/licenseheader.txt
+	$Q cd server && go run ./cmd/tools/copyright -rootDir . -replace
+
 .PHONY: bins release clean help tests lint xcherry-server xcherry-tools-postgres install-schema-postgres integTests copyright
 
 bins: xcherry-server xcherry-tools-postgres xcherry-tools-copyright

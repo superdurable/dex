@@ -48,4 +48,5 @@ TODO: brew install xCherry binaries
 See [development plan](https://github.com/xcherryio/sdk-go/wiki/DevelopmentPlan)
 
 # License
-Apache 2.0. See [license file](./LICENSE)
+
+GNU Affero General Public License v3.0 (AGPL-3.0). See [LICENSE](./LICENSE).
