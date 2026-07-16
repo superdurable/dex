@@ -21,10 +21,10 @@ import (
 	"context"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/common/ptr"
-	"github.com/xcherryio/xcherry/server/extensions"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/common/ptr"
+	"github.com/superdurable/dex/server/extensions"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 
 	"time"
 )
@@ -76,7 +76,7 @@ func (p sqlProcessStoreImpl) doStopProcessTx(
 		return nil, err
 	}
 
-	// handle xcherry_sys_process_executions
+	// handle dex_sys_process_executions
 	procExecRow, err := tx.SelectProcessExecutionForUpdate(ctx, curProcExecRow.ProcessExecutionId)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (p sqlProcessStoreImpl) doStopProcessTx(
 	}
 
 	if len(pendingExecutionMap) > 0 {
-		// handle xcherry_sys_async_state_executions
+		// handle dex_sys_async_state_executions
 		// find all related rows with the processExecutionId, and
 		// modify the wait_until/execute status from running to aborted
 		err = tx.BatchUpdateAsyncStateExecutionsToAbortRunning(ctx, curProcExecRow.ProcessExecutionId)

@@ -23,24 +23,24 @@ import (
 	"os"
 
 	"github.com/urfave/cli/v2"
-	"github.com/xcherryio/xcherry/server/cmd/server/bootstrap"
+	"github.com/superdurable/dex/server/cmd/server/bootstrap"
 
-	_ "github.com/xcherryio/xcherry/extensions/postgres" // import postgres extension
+	_ "github.com/superdurable/dex/server/extensions/postgres" // import postgres extension
 )
 
 func main() {
 	app := &cli.App{
-		Name:  "xCherry server",
-		Usage: "start the xCherry server",
+		Name:  "Dex server",
+		Usage: "start the Dex server",
 		Action: func(c *cli.Context) error {
-			bootstrap.StartXCherryServerCli(c)
+			bootstrap.StartDexServerCli(c)
 			return nil
 		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  bootstrap.FlagConfig,
 				Value: "./config/development-postgres.yaml",
-				Usage: "the config to start xCherry server",
+				Usage: "the config to start Dex server",
 			},
 			&cli.StringFlag{
 				Name:  bootstrap.FlagService,

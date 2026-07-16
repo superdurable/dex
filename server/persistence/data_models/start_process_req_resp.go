@@ -19,7 +19,7 @@ package data_models
 
 import (
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/uuid"
+	"github.com/superdurable/dex/server/common/uuid"
 )
 
 type (

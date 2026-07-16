@@ -23,16 +23,16 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/config"
-	"github.com/xcherryio/xcherry/server/persistence"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/config"
+	"github.com/superdurable/dex/server/persistence"
 	"go.uber.org/multierr"
 )
 
-const PathNotifyImmediateTasks = "/internal/api/v1/xcherry/notify-immediate-tasks"
-const PathNotifyTimerTasks = "/internal/api/v1/xcherry/notify-timer-tasks"
-const PathWaitForProcessCompletion = "/internal/api/v1/xcherry/wait-for-process-completion"
+const PathNotifyImmediateTasks = "/internal/api/v1/dex/notify-immediate-tasks"
+const PathNotifyTimerTasks = "/internal/api/v1/dex/notify-timer-tasks"
+const PathWaitForProcessCompletion = "/internal/api/v1/dex/wait-for-process-completion"
 
 type defaultSever struct {
 	rootCtx context.Context

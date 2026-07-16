@@ -23,7 +23,7 @@ import (
 
 	"github.com/hashicorp/memberlist"
 	"github.com/serialx/hashring"
-	"github.com/xcherryio/xcherry/server/common/log"
+	"github.com/superdurable/dex/server/common/log"
 )
 
 type ClusterEventDelegate struct {

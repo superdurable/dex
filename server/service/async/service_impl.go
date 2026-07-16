@@ -26,11 +26,11 @@ import (
 	"time"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/config"
-	engine2 "github.com/xcherryio/xcherry/server/engine"
-	"github.com/xcherryio/xcherry/server/persistence"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/config"
+	engine2 "github.com/superdurable/dex/server/engine"
+	"github.com/superdurable/dex/server/persistence"
 	"go.uber.org/multierr"
 )
 

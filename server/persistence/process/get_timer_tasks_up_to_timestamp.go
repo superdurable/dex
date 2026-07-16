@@ -20,8 +20,8 @@ package process
 import (
 	"context"
 
-	"github.com/xcherryio/xcherry/server/extensions"
-	"github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/extensions"
+	"github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func (p sqlProcessStoreImpl) GetTimerTasksUpToTimestamp(

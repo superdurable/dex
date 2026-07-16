@@ -1,11 +1,11 @@
-CREATE TABLE xcherry_sys_latest_process_executions(
+CREATE TABLE dex_sys_latest_process_executions(
     namespace VARCHAR(31) NOT NULL,
     process_id VARCHAR(255) NOT NULL,
     process_execution_id uuid NOT NULL,
     PRIMARY KEY (namespace, process_id)
 );
 
-CREATE TABLE xcherry_sys_process_executions(
+CREATE TABLE dex_sys_process_executions(
     namespace VARCHAR(31) NOT NULL, -- for quick debugging
     id uuid NOT NULL,
     process_id VARCHAR(255) NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE xcherry_sys_process_executions(
     PRIMARY KEY (id)
 );
 
-CREATE TABLE xcherry_sys_async_state_executions(
+CREATE TABLE dex_sys_async_state_executions(
    process_execution_id uuid NOT NULL,
    state_id VARCHAR(255) NOT NULL,
    state_id_sequence INTEGER NOT NULL,
@@ -37,16 +37,16 @@ CREATE TABLE xcherry_sys_async_state_executions(
    PRIMARY KEY (process_execution_id, state_id, state_id_sequence)
 );
 
-CREATE TABLE xcherry_sys_immediate_tasks(
+CREATE TABLE dex_sys_immediate_tasks(
     shard_id INTEGER NOT NULL, -- for virtual sharding
     task_sequence bigserial,   
     --
     task_type SMALLINT NOT NULL, -- 1: waitUntil 2: execute 3: localQueueMessage
     process_execution_id uuid,
     -- if the `task_type` is localQueueMessage, the value of state_id is "".
-    state_id VARCHAR(255), -- for looking up xcherry_sys_async_state_executions
+    state_id VARCHAR(255), -- for looking up dex_sys_async_state_executions
     -- if the `task_type` is localQueueMessage, the value of state_id_sequence is 0.
-    state_id_sequence INTEGER, -- for looking up xcherry_sys_async_state_executions
+    state_id_sequence INTEGER, -- for looking up dex_sys_async_state_executions
     -- the info represents various information depending on the `task_type`:
     -- if the `task_type` is waitUntil or execute, the value corresponds to the state execution information.
     -- if the `task_type` is localQueueMessage, the value corresponds to the message information.
@@ -54,20 +54,20 @@ CREATE TABLE xcherry_sys_immediate_tasks(
     PRIMARY KEY (shard_id, task_sequence)
 );
 
-CREATE TABLE xcherry_sys_timer_tasks(
+CREATE TABLE dex_sys_timer_tasks(
     shard_id INTEGER NOT NULL, -- for virtual sharding
     fire_time_unix_seconds BIGINT NOT NULL, 
     task_sequence bigserial, -- to help ensure the PK uniqueness 
     --
     task_type SMALLINT, -- 1: process timeout 2: user timer command, 3: worker_task_backoff
-    process_execution_id uuid, -- for looking up xcherry_sys_async_state_executions
-    state_id VARCHAR(255), -- for looking up xcherry_sys_async_state_executions
-    state_id_sequence INTEGER, -- for looking up xcherry_sys_async_state_executions
+    process_execution_id uuid, -- for looking up dex_sys_async_state_executions
+    state_id VARCHAR(255), -- for looking up dex_sys_async_state_executions
+    state_id_sequence INTEGER, -- for looking up dex_sys_async_state_executions
     info jsonb ,
     PRIMARY KEY (shard_id, fire_time_unix_seconds, task_sequence)    
 );
 
-CREATE TABLE xcherry_sys_local_queue_messages(
+CREATE TABLE dex_sys_local_queue_messages(
     process_execution_id uuid,
     dedup_id uuid,
     queue_name VARCHAR(31),
@@ -75,14 +75,14 @@ CREATE TABLE xcherry_sys_local_queue_messages(
     PRIMARY KEY (process_execution_id, dedup_id)
 );
 
-CREATE TABLE xcherry_sys_local_attributes(
+CREATE TABLE dex_sys_local_attributes(
     process_execution_id uuid NOT NULL,
     key VARCHAR(31) NOT NULL,
     value jsonb,
     PRIMARY KEY (process_execution_id, key)
 );
 
-CREATE TABLE xcherry_sys_executions_visibility (
+CREATE TABLE dex_sys_executions_visibility (
     namespace VARCHAR(31) NOT NULL,
     process_id VARCHAR(255) NOT NULL,
     process_execution_id uuid NOT NULL,
@@ -93,12 +93,12 @@ CREATE TABLE xcherry_sys_executions_visibility (
     PRIMARY KEY (namespace, process_execution_id)
 );
 
-CREATE INDEX by_start_time ON xcherry_sys_executions_visibility (namespace, start_time DESC, process_execution_id);
+CREATE INDEX by_start_time ON dex_sys_executions_visibility (namespace, start_time DESC, process_execution_id);
 
-CREATE INDEX by_type_start_time ON xcherry_sys_executions_visibility (namespace, process_type_name, start_time DESC, process_execution_id);
+CREATE INDEX by_type_start_time ON dex_sys_executions_visibility (namespace, process_type_name, start_time DESC, process_execution_id);
 
-CREATE INDEX by_process_id_start_time ON xcherry_sys_executions_visibility (namespace, process_id, start_time DESC, process_execution_id);
+CREATE INDEX by_process_id_start_time ON dex_sys_executions_visibility (namespace, process_id, start_time DESC, process_execution_id);
 
-CREATE INDEX by_status_start_time ON xcherry_sys_executions_visibility (namespace, status, start_time DESC, process_execution_id);
+CREATE INDEX by_status_start_time ON dex_sys_executions_visibility (namespace, status, start_time DESC, process_execution_id);
 
-CREATE INDEX by_status_type_start_time ON xcherry_sys_executions_visibility (namespace, status, process_type_name, start_time DESC, process_execution_id);
+CREATE INDEX by_status_type_start_time ON dex_sys_executions_visibility (namespace, status, process_type_name, start_time DESC, process_execution_id);

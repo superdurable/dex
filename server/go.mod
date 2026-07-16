@@ -1,4 +1,4 @@
-module github.com/xcherryio/xcherry
+module github.com/superdurable/dex/server
 
 go 1.26
 

@@ -19,7 +19,7 @@ package engine
 
 import (
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/ptr"
+	"github.com/superdurable/dex/server/common/ptr"
 )
 
 // Default: infinite retry with 1 second initial interval, 120 seconds max interval, and 2 backoff factor,

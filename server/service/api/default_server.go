@@ -23,19 +23,19 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/config"
-	"github.com/xcherryio/xcherry/server/persistence"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/config"
+	"github.com/superdurable/dex/server/persistence"
 )
 
-const PathStartProcessExecution = "/api/v1/xcherry/service/process-execution/start"
-const PathDescribeProcessExecution = "/api/v1/xcherry/service/process-execution/describe"
-const PathStopProcessExecution = "/api/v1/xcherry/service/process-execution/stop"
-const PathPublishToLocalQueue = "/api/v1/xcherry/service/process-execution/publish-to-local-queue"
-const PathProcessExecutionRpc = "/api/v1/xcherry/service/process-execution/rpc"
-const PathListProcessExecutions = "/api/v1/xcherry/service/process-execution/list"
-const PathWaitForProcessCompletion = "/api/v1/xcherry/service/process-execution/wait-for-process-completion"
+const PathStartProcessExecution = "/api/v1/dex/service/process-execution/start"
+const PathDescribeProcessExecution = "/api/v1/dex/service/process-execution/describe"
+const PathStopProcessExecution = "/api/v1/dex/service/process-execution/stop"
+const PathPublishToLocalQueue = "/api/v1/dex/service/process-execution/publish-to-local-queue"
+const PathProcessExecutionRpc = "/api/v1/dex/service/process-execution/rpc"
+const PathListProcessExecutions = "/api/v1/dex/service/process-execution/list"
+const PathWaitForProcessCompletion = "/api/v1/dex/service/process-execution/wait-for-process-completion"
 
 type defaultSever struct {
 	rootCtx context.Context
@@ -58,7 +58,7 @@ func NewDefaultAPIServerWithGin(
 	handler := newGinHandler(cfg, processStore, visibilityStore, logger)
 
 	engine.GET("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "Hello from xCherry server!")
+		c.String(http.StatusOK, "Hello from Dex server!")
 	})
 	engine.POST(PathStartProcessExecution, handler.StartProcess)
 	engine.POST(PathDescribeProcessExecution, handler.DescribeProcess)

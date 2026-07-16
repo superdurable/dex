@@ -7,10 +7,10 @@ services:
     ports:
       - "3306:3306"
     environment:
-      - "MYSQL_ROOT_PASSWORD=xcherryio"
+      - "MYSQL_ROOT_PASSWORD=superdurable"
     networks:
-      - xcherry
+      - dex
       
 networks:
-  xcherry:
+  dex:
     driver: bridge

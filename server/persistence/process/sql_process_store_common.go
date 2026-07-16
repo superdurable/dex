@@ -22,9 +22,9 @@ import (
 	"fmt"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/uuid"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/uuid"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func insertAsyncStateExecution(
@@ -42,7 +42,7 @@ func insertAsyncStateExecution(
 		return err
 	}
 
-	// set this as default value for https://github.com/xcherryio/xcherry/issues/100
+	// set this as default value for https://github.com/superdurable/dex/issues/100
 	emptyCmdReq := xcapi.NewCommandRequest(xcapi.EMPTY_COMMAND)
 	commandRequestBytes, err := data_models2.FromCommandRequestToBytes(*emptyCmdReq)
 	if err != nil {
@@ -97,8 +97,8 @@ func insertImmediateTask(
 	return tx.InsertImmediateTask(ctx, immediateTaskRow)
 }
 
-// publishToLocalQueue inserts len(valid_messages) rows into xcherry_sys_local_queue_messages,
-// and inserts only one row into xcherry_sys_immediate_tasks with all the dedupIds for these messages.
+// publishToLocalQueue inserts len(valid_messages) rows into dex_sys_local_queue_messages,
+// and inserts only one row into dex_sys_immediate_tasks with all the dedupIds for these messages.
 // publishToLocalQueue returns (HasNewImmediateTask, error).
 func (p sqlProcessStoreImpl) publishToLocalQueue(
 	ctx context.Context, tx extensions2.SQLTransaction, processExecutionId uuid.UUID, shardId int32,
@@ -119,7 +119,7 @@ func (p sqlProcessStoreImpl) publishToLocalQueue(
 			dedupId = dedupId2
 		}
 
-		// insert a row into xcherry_sys_local_queue_messages
+		// insert a row into dex_sys_local_queue_messages
 
 		payloadBytes, err := data_models2.FromEncodedObjectIntoBytes(message.Payload)
 		if err != nil {
@@ -145,7 +145,7 @@ func (p sqlProcessStoreImpl) publishToLocalQueue(
 		})
 	}
 
-	// insert a row into xcherry_sys_immediate_tasks
+	// insert a row into dex_sys_immediate_tasks
 
 	if len(localQueueMessageInfo) == 0 {
 		return false, nil

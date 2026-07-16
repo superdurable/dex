@@ -6,15 +6,15 @@ database:
   shards: 30
   processStore:
     dbExtensionName: postgres
-    user: xcherry
-    password: xcherryio
-    databaseName: xcherry
+    user: dex
+    password: superdurable
+    databaseName: dex
     connectAddr: 127.0.0.1:5432
   visibilityStore:
     dbExtensionName: postgres
-    user: xcherry
-    password: xcherryio
-    databaseName: xcherry
+    user: dex
+    password: superdurable
+    databaseName: dex
     connectAddr: 127.0.0.1:5432
 apiService:
   httpServer: # see more config fields in config.go

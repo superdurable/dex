@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	sqltest2 "github.com/xcherryio/xcherry/server/persistence/process/sqltest"
+	sqltest2 "github.com/superdurable/dex/server/persistence/process/sqltest"
 )
 
 func TestBasic(t *testing.T) {

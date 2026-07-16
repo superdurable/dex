@@ -22,10 +22,10 @@ import (
 	"net/http"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/config"
-	"github.com/xcherryio/xcherry/server/persistence"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/config"
+	"github.com/superdurable/dex/server/persistence"
 
 	"github.com/gin-gonic/gin"
 )

@@ -22,9 +22,9 @@ import (
 	"fmt"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/uuid"
-	"github.com/xcherryio/xcherry/server/extensions"
-	"github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/uuid"
+	"github.com/superdurable/dex/server/extensions"
+	"github.com/superdurable/dex/server/persistence/data_models"
 
 	"strings"
 	"time"
@@ -34,8 +34,8 @@ import (
 
 const selectLatestExecutionQuery = `SELECT
 	le.process_execution_id, e.shard_id, e.status, e.start_time, e.timeout_seconds, e.history_event_id_sequence, e.state_execution_sequence_maps, e.info
-	FROM xcherry_sys_latest_process_executions le
-	INNER JOIN xcherry_sys_process_executions e ON e.process_id = le.process_id AND e.id = le.process_execution_id
+	FROM dex_sys_latest_process_executions le
+	INNER JOIN dex_sys_process_executions e ON e.process_id = le.process_id AND e.id = le.process_execution_id
 	WHERE le.namespace = $1 AND le.process_id = $2`
 
 func (d dbSession) SelectLatestProcessExecution(
@@ -51,7 +51,7 @@ func (d dbSession) SelectLatestProcessExecution(
 
 const selectAsyncStateExecutionQuery = `SELECT 
     status, wait_until_commands, wait_until_command_results, version as previous_version, info, input, last_failure
-	FROM xcherry_sys_async_state_executions WHERE process_execution_id=$1 AND state_id=$2 AND state_id_sequence=$3`
+	FROM dex_sys_async_state_executions WHERE process_execution_id=$1 AND state_id=$2 AND state_id_sequence=$3`
 
 func (d dbSession) SelectAsyncStateExecution(
 	ctx context.Context, filter extensions.AsyncStateExecutionSelectFilter,
@@ -67,7 +67,7 @@ func (d dbSession) SelectAsyncStateExecution(
 
 const batchSelectImmediateTasksQuery = `SELECT 
     shard_id, task_sequence, process_execution_id, state_id, state_id_sequence, task_type, info
-	FROM xcherry_sys_immediate_tasks WHERE shard_id = $1 AND task_sequence>= $2 ORDER BY task_sequence ASC LIMIT $3`
+	FROM dex_sys_immediate_tasks WHERE shard_id = $1 AND task_sequence>= $2 ORDER BY task_sequence ASC LIMIT $3`
 
 func (d dbSession) BatchSelectImmediateTasks(
 	ctx context.Context, shardId int32, startSequenceInclusive int64, pageSize int32,
@@ -78,7 +78,7 @@ func (d dbSession) BatchSelectImmediateTasks(
 }
 
 const batchDeleteImmediateTaskQuery = `DELETE 
-	FROM xcherry_sys_immediate_tasks WHERE shard_id = $1 AND task_sequence>= $2 AND task_sequence <= $3`
+	FROM dex_sys_immediate_tasks WHERE shard_id = $1 AND task_sequence>= $2 AND task_sequence <= $3`
 
 func (d dbSession) BatchDeleteImmediateTask(
 	ctx context.Context, filter extensions.ImmediateTaskRangeDeleteFilter,
@@ -89,7 +89,7 @@ func (d dbSession) BatchDeleteImmediateTask(
 
 const batchSelectTimerTasksOfFirstPageQuery = `SELECT 
     shard_id, fire_time_unix_seconds, task_sequence, process_execution_id, state_id, state_id_sequence, task_type, info
-	FROM xcherry_sys_timer_tasks WHERE shard_id = $1 AND fire_time_unix_seconds <= $2 
+	FROM dex_sys_timer_tasks WHERE shard_id = $1 AND fire_time_unix_seconds <= $2 
 	ORDER BY fire_time_unix_seconds, task_sequence ASC LIMIT $3`
 
 func (d dbSession) BatchSelectTimerTasks(
@@ -103,7 +103,7 @@ func (d dbSession) BatchSelectTimerTasks(
 
 const selectTimerTasksForTimestampsQuery = `SELECT 
     shard_id, fire_time_unix_seconds, task_sequence, process_execution_id, state_id, state_id_sequence, task_type, info
-	FROM xcherry_sys_timer_tasks WHERE shard_id = ? AND fire_time_unix_seconds IN (?) AND task_sequence >= ? 
+	FROM dex_sys_timer_tasks WHERE shard_id = ? AND fire_time_unix_seconds IN (?) AND task_sequence >= ? 
 	ORDER BY fire_time_unix_seconds, task_sequence ASC`
 
 func (d dbSession) SelectTimerTasksForTimestamps(
@@ -120,17 +120,17 @@ func (d dbSession) SelectTimerTasksForTimestamps(
 }
 
 func (d dbSession) CleanUpTasksForTest(ctx context.Context, shardId int32) error {
-	_, err := d.db.ExecContext(ctx, `DELETE FROM xcherry_sys_immediate_tasks WHERE shard_id = $1`, shardId)
+	_, err := d.db.ExecContext(ctx, `DELETE FROM dex_sys_immediate_tasks WHERE shard_id = $1`, shardId)
 	if err != nil {
 		return err
 	}
-	_, err = d.db.ExecContext(ctx, `DELETE FROM xcherry_sys_timer_tasks WHERE shard_id = $1`, shardId)
+	_, err = d.db.ExecContext(ctx, `DELETE FROM dex_sys_timer_tasks WHERE shard_id = $1`, shardId)
 	return err
 }
 
 const selectLocalQueueMessagesQuery = `SELECT
 	process_execution_id, queue_name, dedup_id, payload
-	FROM xcherry_sys_local_queue_messages WHERE process_execution_id = ? AND dedup_id IN (?)
+	FROM dex_sys_local_queue_messages WHERE process_execution_id = ? AND dedup_id IN (?)
 `
 
 func (d dbSession) SelectLocalQueueMessages(
@@ -205,7 +205,7 @@ func (d dbSession) SelectAppDatabaseTableByPK(
 
 const selectLocalAttributesQuery = `SELECT
 process_execution_id, key, value
-FROM xcherry_sys_local_attributes WHERE process_execution_id = ? AND key IN (?)
+FROM dex_sys_local_attributes WHERE process_execution_id = ? AND key IN (?)
 `
 
 func (d dbSession) SelectLocalAttributes(
@@ -221,7 +221,7 @@ func (d dbSession) SelectLocalAttributes(
 	return rows, err
 }
 
-const insertProcessExecutionStartQuery = `INSERT INTO xcherry_sys_executions_visibility
+const insertProcessExecutionStartQuery = `INSERT INTO dex_sys_executions_visibility
 	(namespace, process_id, process_execution_id, process_type_name, status, start_time)
 	VALUES (:namespace, :process_id, :process_execution_id_string, :process_type_name, :status, :start_time)`
 
@@ -234,7 +234,7 @@ func (d dbSession) InsertProcessExecutionStartForVisibility(
 	return err
 }
 
-const updateProcessExecutionStatusQuery = `UPDATE xcherry_sys_executions_visibility
+const updateProcessExecutionStatusQuery = `UPDATE dex_sys_executions_visibility
 	SET status = :status, close_time = :close_time
 	WHERE namespace = :namespace AND process_execution_id = :process_execution_id_string
 `
@@ -249,7 +249,7 @@ func (d dbSession) UpdateProcessExecutionStatusForVisibility(
 }
 
 const selectProcessExecutionsQuery = `SELECT * 
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND start_time >= $2 AND start_time <= $3 
 AND (process_execution_id > $4 OR start_time < $5)
@@ -281,7 +281,7 @@ func (d dbSession) SelectProcessExecutions(
 }
 
 const selectProcessExecutionsByStatusQuery = `SELECT * 
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND status = $2 
 AND start_time >= $3 AND start_time <= $4 
@@ -316,7 +316,7 @@ func (d dbSession) SelectProcessExecutionsByStatus(
 }
 
 const selectProcessExecutionsByTypeQuery = `SELECT * 
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND process_type_name = $2 
 AND start_time >= $3 AND start_time <= $4 
@@ -351,7 +351,7 @@ func (d dbSession) SelectProcessExecutionsByTypeQuery(
 }
 
 const selectProcessExecutionsByIdQuery = `SELECT *
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND process_id = $2 
 AND start_time >= $3 AND start_time <= $4 
@@ -385,7 +385,7 @@ func (d dbSession) SelectProcessExecutionsById(
 }
 
 const selectProcessExecutionsByStatusAndType = `SELECT *
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND status = $2 
 AND process_type_name = $3 
@@ -423,7 +423,7 @@ func (d dbSession) SelectProcessExecutionsByStatusAndType(
 }
 
 const selectProcessExecutionsByStatusAndIdQuery = `SELECT *
-FROM xcherry_sys_executions_visibility
+FROM dex_sys_executions_visibility
 WHERE namespace = $1 
 AND status = $2 
 AND process_id = $3 

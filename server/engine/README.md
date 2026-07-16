@@ -1,6 +1,6 @@
-# xCherry Engine layer
+# Dex Engine layer
 
-Engine layer is the engine components' implementation of xCherry.
+Engine layer is the engine components' implementation of Dex.
 
 It's being used by service layer(API + Async services). 
 It contains different engine components on top of persistence layer.

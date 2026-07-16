@@ -20,7 +20,7 @@ package extensions
 import (
 	"fmt"
 
-	"github.com/xcherryio/xcherry/server/config"
+	"github.com/superdurable/dex/server/config"
 )
 
 var sqlRegistry = map[string]SQLDBExtension{}

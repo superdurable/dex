@@ -18,8 +18,8 @@
 package httperror
 
 import (
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
 
 	"net/http"
 )

@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func (p sqlProcessStoreImpl) ReadAppDatabase(

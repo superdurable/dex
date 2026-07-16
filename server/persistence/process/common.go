@@ -22,10 +22,10 @@ import (
 	"math"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/ptr"
-	"github.com/xcherryio/xcherry/server/common/uuid"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/ptr"
+	"github.com/superdurable/dex/server/common/uuid"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func createGetTimerTaskResponse(
@@ -189,7 +189,7 @@ func (p sqlProcessStoreImpl) handleStateDecision(
 	}
 
 	if toAbortRunningAsyncStates {
-		// handle xcherry_sys_async_state_executions
+		// handle dex_sys_async_state_executions
 		// find all related rows with the processExecutionId, and
 		// modify the wait_until/execute status from running to aborted
 		err := tx.BatchUpdateAsyncStateExecutionsToAbortRunning(ctx, request.ProcessExecutionId)

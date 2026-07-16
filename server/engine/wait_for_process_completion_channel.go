@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xcherryio/xcherry/server/common/log"
+	"github.com/superdurable/dex/server/common/log"
 )
 
 type WaitForProcessCompletionChannelsPerShardImpl struct {

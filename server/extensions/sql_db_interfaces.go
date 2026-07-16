@@ -22,9 +22,9 @@ import (
 	"database/sql"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/uuid"
-	"github.com/xcherryio/xcherry/server/config"
-	"github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/uuid"
+	"github.com/superdurable/dex/server/config"
+	"github.com/superdurable/dex/server/persistence/data_models"
 )
 
 type SQLDBExtension interface {

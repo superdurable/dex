@@ -22,8 +22,8 @@ import (
 	"fmt"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	"github.com/xcherryio/xcherry/server/persistence/data_models"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	"github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func (p sqlProcessStoreImpl) writeToAppDatabase(

@@ -20,10 +20,10 @@ package process
 import (
 	"database/sql"
 
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/config"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	"github.com/xcherryio/xcherry/server/persistence"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/config"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	"github.com/superdurable/dex/server/persistence"
 )
 
 type sqlProcessStoreImpl struct {

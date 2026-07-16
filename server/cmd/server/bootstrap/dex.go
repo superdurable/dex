@@ -21,13 +21,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/config"
-	"github.com/xcherryio/xcherry/server/persistence/process"
-	"github.com/xcherryio/xcherry/server/persistence/visibility"
-	api2 "github.com/xcherryio/xcherry/server/service/api"
-	async2 "github.com/xcherryio/xcherry/server/service/async"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/config"
+	"github.com/superdurable/dex/server/persistence/process"
+	"github.com/superdurable/dex/server/persistence/visibility"
+	api2 "github.com/superdurable/dex/server/service/api"
+	async2 "github.com/superdurable/dex/server/service/async"
 
 	rawLog "log"
 	"os"
@@ -45,7 +45,7 @@ const AsyncServiceName = "async"
 const FlagConfig = "config"
 const FlagService = "service"
 
-func StartXCherryServerCli(c *cli.Context) {
+func StartDexServerCli(c *cli.Context) {
 	// register interrupt signal for graceful shutdown
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -57,7 +57,7 @@ func StartXCherryServerCli(c *cli.Context) {
 	if err != nil {
 		rawLog.Fatalf("Unable to load config for path %v because of error %v", configPath, err)
 	}
-	shutdownFunc := StartXCherryServer(rootCtx, cfg, services)
+	shutdownFunc := StartDexServer(rootCtx, cfg, services)
 	// wait for os signals
 	<-rootCtx.Done()
 
@@ -71,7 +71,7 @@ func StartXCherryServerCli(c *cli.Context) {
 
 type GracefulShutdown func(ctx context.Context) error
 
-func StartXCherryServer(rootCtx context.Context, cfg *config.Config, services map[string]bool) GracefulShutdown {
+func StartDexServer(rootCtx context.Context, cfg *config.Config, services map[string]bool) GracefulShutdown {
 	if len(services) == 0 {
 		services = map[string]bool{ApiServiceName: true, AsyncServiceName: true}
 	}

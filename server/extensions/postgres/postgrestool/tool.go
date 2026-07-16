@@ -19,16 +19,16 @@ package postgrestool
 
 import (
 	"github.com/urfave/cli/v2"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	"github.com/xcherryio/xcherry/server/extensions/postgres"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	"github.com/superdurable/dex/server/extensions/postgres"
 )
 
 const DefaultEndpoint = "127.0.0.1"
 const DefaultPort = 5432
-const DefaultUserName = "xcherry"
-const DefaultPassword = "xcherryio"
-const DefaultDatabaseName = "xcherry"
-const DefaultSchemaFilePath = "./extensions/postgres/schema/xcherry_sys_schema.sql"
+const DefaultUserName = "dex"
+const DefaultPassword = "superdurable"
+const DefaultDatabaseName = "dex"
+const DefaultSchemaFilePath = "./extensions/postgres/schema/dex_sys_schema.sql"
 const SampleTablesSchemaFilePath = "./extensions/postgres/schema/sample_tables.sql"
 
 // BuildCLIOptions builds the options for cli
@@ -36,8 +36,8 @@ func BuildCLIOptions() *cli.App {
 
 	app := cli.NewApp()
 
-	app.Name = "xcherry postgres tool"
-	app.Usage = "tool for xCherry operation on postgres"
+	app.Name = "dex postgres tool"
+	app.Usage = "tool for Dex operation on postgres"
 
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{

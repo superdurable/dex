@@ -23,8 +23,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/log"
-	"github.com/xcherryio/xcherry/server/config"
+	"github.com/superdurable/dex/server/common/log"
+	"github.com/superdurable/dex/server/config"
 )
 
 type ginHandler struct {

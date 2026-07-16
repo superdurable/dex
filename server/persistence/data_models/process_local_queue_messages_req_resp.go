@@ -18,7 +18,7 @@
 package data_models
 
 import (
-	"github.com/xcherryio/xcherry/server/common/uuid"
+	"github.com/superdurable/dex/server/common/uuid"
 )
 
 type (

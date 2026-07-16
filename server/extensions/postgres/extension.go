@@ -22,8 +22,8 @@ import (
 	"net"
 	"net/url"
 
-	"github.com/xcherryio/xcherry/server/config"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
+	"github.com/superdurable/dex/server/config"
+	extensions2 "github.com/superdurable/dex/server/extensions"
 
 	"github.com/iancoleman/strcase"
 	"github.com/jmoiron/sqlx"

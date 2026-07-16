@@ -1,39 +1,39 @@
 version: '3.8'
 
 services:
-  xcherry-server:
-    image: xcherryio/xcherry-server:latest
+  dex-server:
+    image: superdurable/dex-server:latest
     environment:
-      CONFIG_PATH: /xcherry/config/development-postgres-docker-compose.yaml
-      AUTO_FIX_LOCALHOST_WORKER_URL: host.docker.internal # this will let xcherry-server automatically replace all workerURL of "localhost" or "127.0.0.1" with "host.docker.internal"
+      CONFIG_PATH: /dex/config/development-postgres-docker-compose.yaml
+      AUTO_FIX_LOCALHOST_WORKER_URL: host.docker.internal # this will let dex-server automatically replace all workerURL of "localhost" or "127.0.0.1" with "host.docker.internal"
 #    volumes: # uncomment this to mount the local config/script for override 
-#      - ../config:/xcherry/config
-#      - ../script:/xcherry/script
+#      - ../config:/dex/config
+#      - ../script:/dex/script
     ports:
       - "8801:8801"
       - "8701:8701"
     depends_on:
       postgres:
         condition: service_healthy
-    entrypoint: "/xcherry/script/install-schema-and-start-server-docker-compose.sh"
+    entrypoint: "/dex/script/install-schema-and-start-server-docker-compose.sh"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - xcherry
+      - dex
   postgres:
     image: postgres:14
     environment:
-      POSTGRES_USER: xcherry
-      POSTGRES_PASSWORD: xcherryio
+      POSTGRES_USER: dex
+      POSTGRES_PASSWORD: superdurable
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d xcherry -U xcherry"]
+      test: ["CMD-SHELL", "pg_isready -d dex -U dex"]
       interval: 3s
       timeout: 5s
       retries: 10
     networks:
-      - xcherry
+      - dex
 networks:
-  xcherry:
+  dex:
     driver: bridge

@@ -20,8 +20,8 @@ package extensions
 import (
 	"time"
 
-	"github.com/xcherryio/xcherry/server/common/uuid"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/uuid"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 
 	"github.com/jmoiron/sqlx/types"
 )

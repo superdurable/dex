@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/xcherryio/xcherry/server/common/log/tag"
+	"github.com/superdurable/dex/server/common/log/tag"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

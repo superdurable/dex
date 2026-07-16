@@ -24,7 +24,7 @@ import (
 	"net"
 
 	"github.com/urfave/cli/v2"
-	"github.com/xcherryio/xcherry/server/config"
+	"github.com/superdurable/dex/server/config"
 )
 
 // SetupSchemaByCli setup schema for a new database

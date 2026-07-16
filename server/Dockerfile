@@ -3,17 +3,17 @@ FROM golang:latest
 ENV CONFIG_PATH=''
 ENV SRC_ROOT=''
 
-COPY .. /xcherry/
-WORKDIR /xcherry/
+COPY .. /dex/
+WORKDIR /dex/
 
-RUN rm -rf xcherry-server  \
+RUN rm -rf dex-server  \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     make bins && \
-    chmod +x /xcherry/script/start-server.sh
+    chmod +x /dex/script/start-server.sh
 
 EXPOSE  8801
-ENTRYPOINT ["/xcherry/script/start-server.sh"]
+ENTRYPOINT ["/dex/script/start-server.sh"]

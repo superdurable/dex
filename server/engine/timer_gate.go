@@ -20,8 +20,8 @@ package engine
 import (
 	"time"
 
-	"github.com/xcherryio/xcherry/server/common/clock"
-	"github.com/xcherryio/xcherry/server/common/log"
+	"github.com/superdurable/dex/server/common/clock"
+	"github.com/superdurable/dex/server/common/log"
 )
 
 type (

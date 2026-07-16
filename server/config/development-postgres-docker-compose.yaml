@@ -11,15 +11,15 @@ apiService:
 database:
   processStore:
     dbExtensionName: postgres
-    user: xcherry
-    password: xcherryio
-    databaseName: xcherry
+    user: dex
+    password: superdurable
+    databaseName: dex
     connectAddr: postgres:5432
   visibilityStore:
     dbExtensionName: postgres
-    user: xcherry
-    password: xcherryio
-    databaseName: xcherry
+    user: dex
+    password: superdurable
+    databaseName: dex
     connectAddr: postgres:5432
 asyncService:
   mode: standalone

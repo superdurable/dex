@@ -34,7 +34,7 @@ type (
 		// Log is the logging config
 		Log Logger `yaml:"log"`
 
-		// Database is the database that xCherry server will be extending on
+		// Database is the database that Dex server will be extending on
 		// either sql or nosql is needed
 		Database *DatabaseConfig `yaml:"database"`
 

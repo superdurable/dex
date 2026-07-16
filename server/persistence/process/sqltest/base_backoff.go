@@ -21,9 +21,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xcherryio/xcherry/server/common/ptr"
-	"github.com/xcherryio/xcherry/server/persistence"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/ptr"
+	"github.com/superdurable/dex/server/persistence"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 
 	"testing"
 	"time"

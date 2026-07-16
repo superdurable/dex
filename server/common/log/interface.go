@@ -18,7 +18,7 @@
 package log
 
 import (
-	"github.com/xcherryio/xcherry/server/common/log/tag"
+	"github.com/superdurable/dex/server/common/log/tag"
 )
 
 // Logger is our abstraction for logging

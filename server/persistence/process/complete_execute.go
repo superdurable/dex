@@ -21,10 +21,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xcherryio/xcherry/server/common/log/tag"
-	"github.com/xcherryio/xcherry/server/common/ptr"
-	extensions2 "github.com/xcherryio/xcherry/server/extensions"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/common/ptr"
+	extensions2 "github.com/superdurable/dex/server/extensions"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 
 	"time"
 )

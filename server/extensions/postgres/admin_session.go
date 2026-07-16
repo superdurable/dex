@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/xcherryio/xcherry/server/extensions"
+	"github.com/superdurable/dex/server/extensions"
 )
 
 // NOTE we have to use %v because somehow postgres doesn't work with ? here

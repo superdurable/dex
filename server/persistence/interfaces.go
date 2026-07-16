@@ -21,7 +21,7 @@ import (
 	"context"
 
 	"github.com/xcherryio/apis/goapi/xcapi"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 )
 
 // ProcessStore is for operating on the database for process execution

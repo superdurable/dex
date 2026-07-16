@@ -23,9 +23,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xcherryio/apis/goapi/xcapi"
-	"github.com/xcherryio/xcherry/server/common/ptr"
-	"github.com/xcherryio/xcherry/server/persistence"
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	"github.com/superdurable/dex/server/common/ptr"
+	"github.com/superdurable/dex/server/persistence"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 
 	"testing"
 	"time"
@@ -106,7 +106,7 @@ func SQLAppDatabaseTest(t *testing.T, ass *assert.Assertions, store persistence.
 						InitialWrite: []xcapi.AppDatabaseColumnValue{
 							{
 								Column:     "item_name",
-								QueryValue: "xcherry",
+								QueryValue: "dex",
 							},
 						},
 						ConflictMode: xcapi.IGNORE_CONFLICT.Ptr(),
@@ -195,7 +195,7 @@ func SQLAppDatabaseTest(t *testing.T, ass *assert.Assertions, store persistence.
 						Columns: []xcapi.AppDatabaseColumnValue{
 							{
 								Column:     "item_name",
-								QueryValue: "xcherry",
+								QueryValue: "dex",
 							},
 							{
 								Column:     "sequence",
@@ -295,7 +295,7 @@ func SQLAppDatabaseTest(t *testing.T, ass *assert.Assertions, store persistence.
 						WriteColumns: []xcapi.AppDatabaseColumnValue{
 							{
 								Column:     "item_name",
-								QueryValue: "xcherryxcherry",
+								QueryValue: "dexdex",
 							},
 						},
 					},
@@ -362,7 +362,7 @@ func SQLAppDatabaseTest(t *testing.T, ass *assert.Assertions, store persistence.
 						Columns: []xcapi.AppDatabaseColumnValue{
 							{
 								Column:     "item_name",
-								QueryValue: "xcherryxcherry",
+								QueryValue: "dexdex",
 							},
 							{
 								Column:     "sequence",

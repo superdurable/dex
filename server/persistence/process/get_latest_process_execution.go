@@ -20,7 +20,7 @@ package process
 import (
 	"context"
 
-	data_models2 "github.com/xcherryio/xcherry/server/persistence/data_models"
+	data_models2 "github.com/superdurable/dex/server/persistence/data_models"
 )
 
 func (p sqlProcessStoreImpl) GetLatestProcessExecution(

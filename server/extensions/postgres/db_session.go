@@ -22,7 +22,7 @@ import (
 	"database/sql"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/xcherryio/xcherry/server/extensions"
+	"github.com/superdurable/dex/server/extensions"
 )
 
 type dbSession struct {
