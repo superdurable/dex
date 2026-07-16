@@ -1,4 +1,4 @@
-package uids
+package ids
 
 import (
 	"bytes"
