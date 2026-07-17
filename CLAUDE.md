@@ -34,6 +34,16 @@ DEX is a durable workflow framework with a gRPC server (`server/`), Go SDK
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 
+## License Headers
+
+- Every new or edited `.go` / `.proto` file must start with the AGPL header from
+  `script/licenseheader.txt` (each line as `// ...`), before `package` /
+  `syntax`.
+- Skip generated files: `*.pb.go`, `*_pb.go`, `*.gen.*`.
+- When creating or modifying such a file, check the top; if the header is
+  missing, add it. Or run `make copyright` from the repo root.
+- Use `make copyright-check` to verify; `make copyright-replace` to refresh all.
+
 # Server Go Conventions (`server/**/*.go`)
 
 ## File Ordering

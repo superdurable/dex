@@ -54,6 +54,16 @@ When changes have user-visible effects:
 
 ## Code Quality Rules
 
+### License Headers
+
+Every new or edited `.go` / `.proto` file (except generated `*.pb.go` / `*_pb.go` / `*.gen.*`) must start with the AGPL header from [`script/licenseheader.txt`](script/licenseheader.txt) — each line as `// ...` — before `package` / `syntax`.
+
+When creating or modifying such a file, check the top of the file; if the header is missing, add it. From the repo root you can also run:
+
+- `make copyright` — add missing headers
+- `make copyright-check` — verify (fails if any are missing)
+- `make copyright-replace` — replace existing headers with the current template
+
 ### No Backward Compatibility
 
 The project has **not launched**. Remove dead config fields immediately. Break APIs freely. Change store schemas without migrations. Ask before adding any compat shim.
