@@ -1,0 +1,28 @@
+---
+description: Logging levels, static messages, and structured tags for server code
+globs: server/**/*.go
+alwaysApply: false
+---
+
+# Server Logging
+
+## Levels
+
+- INFO: shard-level or low-frequency events operators need in production.
+- ERROR: infrastructure failures requiring operator attention.
+- WARN: degraded but recoverable infrastructure conditions.
+- DEBUG: per-task or high-frequency events and every user/tenant-caused
+  condition. Tenant behavior must not flood WARN or ERROR logs.
+
+## Messages and Tags
+
+- The first argument to `logger.Info`, `logger.Warn`, and `logger.Error` must be
+  a static string.
+- Put every dynamic value in structured tags such as `tag.RunID(id)`,
+  `tag.Namespace(namespace)`, and `tag.Address(address)`.
+- Never concatenate strings or use `fmt.Sprintf` in those messages.
+- `logger.Debug` and `logger.DebugF` are exempt from the static-message rule.
+- In `server/common/log/tag/`, provide only explicit named tag functions with a
+  hardcoded slog key.
+- Never add a generic tag constructor accepting an arbitrary key. Add a named
+  function to `tags.go` for each new key.

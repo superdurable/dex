@@ -3,9 +3,54 @@ package persistence
 import (
 	"common-go/ids"
 	"context"
+	"time"
 
 	"github.com/superdurable/dex/server/internal/errors"
 )
+
+// ShardReleaseEntry identifies a shard to release with its expected version.
+type ShardReleaseEntry struct {
+	ShardID         int32
+	ExpectedVersion int64
+}
+
+type Shard struct {
+	ShardID        int32
+	Version        int64
+	MemberID       string
+	ClaimedAt      time.Time
+	LeaseExpiresAt time.Time
+	ReleasedAt     *time.Time
+	Metadata       ShardMetadata
+}
+
+type ShardMetadata struct {
+	// RangeID is incremented on each ClaimShard.
+	RangeID int32 `bson:"range_id" json:"range_id"`
+
+	// ImmediateTaskCommittedSeq is the watermark up to which immediate tasks
+	// have been committed (processed and safe to delete).
+	ImmediateTaskCommittedSeq int64 `bson:"immediate_task_committed_seq" json:"immediate_task_committed_seq"`
+
+	// TimerTaskCommittedSortKey + TimerTaskCommittedID form the compound
+	// watermark for timer tasks. Timer tasks use (SortKey, ID) as their
+	// ordering key since multiple timers can share the same SortKey.
+	TimerTaskCommittedSortKey int64   `bson:"timer_task_committed_sort_key" json:"timer_task_committed_sort_key"`
+	TimerTaskCommittedID      ids.UID `bson:"timer_task_committed_id" json:"timer_task_committed_id"`
+}
+
+// ShardStore manages shard ownership.
+type ShardStore interface {
+	// ClaimShard claims a shard, incrementing RangeID in metadata. Returns the
+	// shard with updated RangeID so the caller can initialize TaskSeq generation.
+	ClaimShard(ctx context.Context, shardID int32, memberID string, leaseDuration time.Duration) (*Shard, errors.CategorizedError)
+	// RenewShardLease renews the lease and atomically persists committed task
+	// offsets from metadata.
+	RenewShardLease(ctx context.Context, shardID int32, memberID string, expectedVersion int64, leaseDuration time.Duration, metadata *ShardMetadata) (leaseExpiresAt time.Time, _ errors.CategorizedError)
+	ReleaseShard(ctx context.Context, shardID int32, memberID string, expectedVersion int64) errors.CategorizedError
+	BatchReleaseShards(ctx context.Context, memberID string, entries []ShardReleaseEntry) errors.CategorizedError
+	Close() error
+}
 
 // RunStore manages run rows, immediate tasks, and timer tasks (all in the runs collection).
 type RunStore interface {

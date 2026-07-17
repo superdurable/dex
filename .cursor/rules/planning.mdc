@@ -1,0 +1,48 @@
+---
+description: Required sections and standards for implementation plans
+alwaysApply: true
+---
+
+# Plan Requirements
+
+Every plan must include all five sections below. Use
+`N/A: <one-line reason>` only when a section genuinely does not apply.
+
+## Tests
+
+- List specific integration and E2E scenarios and why each is needed.
+- Default to integration tests in `server/internal/integration/runengine/` and
+  E2E tests in `server/internal/integration/sdke2e/`.
+- Do not propose unit tests unless explicitly requested or the edge case cannot
+  be reached through integration/E2E paths.
+- Cluster features require a multi-instance E2E scenario.
+
+## Metrics
+
+- By default, add no metrics. Only propose them when explicitly requested.
+- When requested, provide a table with tier, type, and name.
+- Define metrics in `server/internal/metrics/metrics_defs.go` and tags in
+  `server/internal/metrics/tags_defs.go`.
+- Tiers: `MetricTierCritical` (business invariants), `MetricTierInfo`
+  (production operations), `MetricTierDebug` (troubleshooting), and
+  `MetricTierDeepDebug` (deep investigation).
+
+## Logging
+
+- Provide a table mapping operations to levels and example messages.
+- Server: INFO for low-frequency operational events; ERROR for infrastructure
+  failures; WARN for recoverable degradation; DEBUG for high-frequency events
+  and every tenant-caused condition.
+- SDK/worker: ERROR for unexpected failures; WARN for recoverable degradation;
+  INFO for lifecycle milestones; DEBUG for high-frequency tracing.
+
+## Documentation
+
+- Name docs under `docs/` to create or update.
+
+## UI/UX
+
+- Name affected `web/app/...` routes, components, and mappers.
+- Specify state/event placement and badge, color, and icon semantics.
+- Call out new BFF mapper types in `web/app/api/_grpc/mappers.ts`.
+- Do not defer UI for a user-visible backend change without a concrete UI plan.

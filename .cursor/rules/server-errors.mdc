@@ -1,0 +1,36 @@
+---
+description: Categorized error handling and trust-boundary rules for server code
+globs: server/**/*.go
+alwaysApply: false
+---
+
+# Server Error Handling
+
+- Every fallible server operation returns `errors.CategorizedError` from
+  `github.com/superdurable/dex/server/common/errors`, not plain `error`.
+- Propagate categorized errors directly; never wrap one inside another.
+- At gRPC handler boundaries, use `errors.ToProtoError(err)`.
+- Categories: CAS/optimistic lock → `ConflictError`; invalid SDK/client input →
+  `InvalidInputError`; infrastructure failure → `InternalError`; transient
+  failure → `UnavailableError`; deadline → `TimeoutError`.
+- Manual `status.Errorf` is only for non-categorized sources: request validation,
+  wire-level stream errors, direct dial failures, and protocol violations.
+
+## Never Ignore Errors
+
+- Every returned error must be returned, logged, or explicitly acted on.
+- Never use `_ = f()`, `value, _ := f()`, or an `err == nil` branch without an
+  error path.
+- If an error genuinely must be ignored, explain why in a short comment and call
+  it out in review.
+
+## Trusted and Untrusted Values
+
+- Values from store rows, server-minted IDs, and controlled invariants are
+  trusted. Violations are bugs: fail fast with a `Must*` helper such as
+  `ids.MustParseTaskID`, or preserve the typed value end-to-end.
+- Values from requests, SDK/worker payloads, and any client-settable proto field
+  are untrusted, even if marked internal.
+- Validate untrusted values with an error-returning helper such as
+  `ids.ValidateBlobID`, then return `InvalidInputError`.
+- Never allow untrusted input to reach a `Must*` helper or panic path.

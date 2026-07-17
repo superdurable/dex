@@ -1,0 +1,40 @@
+---
+description: Core DEX architecture and code-quality constraints
+alwaysApply: true
+---
+
+# DEX Project Rules
+
+DEX is a durable workflow framework with a gRPC server (`server/`), Go SDK
+(`sdk-go/`), WebUI (`web/`), benchmarks (`benchmark/`), and deployment tooling
+(`deploy/`). See `README.md` for the module map.
+
+## Compatibility
+
+- The project has not launched. Remove dead config fields immediately.
+- Break APIs and change store schemas without migrations when appropriate.
+- Ask before adding any backward-compatibility shim.
+
+## Dependency Injection
+
+- Use constructor injection. Never add `SetXyz`, `Inject*`, `Wire*`, or exported
+  mutable fields to wire dependencies after construction.
+- Fix bootstrap ordering instead: dial non-blocking gRPC clients before startup,
+  bind listeners earlier when their address is needed, or extract cyclic shared
+  dependencies into a third component.
+- Inject a pointer to the component's config section, not individual tunables or
+  the whole `config.Config`.
+- Store it as `cfg *config.XyzConfig`, panic on nil in the constructor, and read
+  fields where used.
+
+## Maintainability
+
+- Lift stateful closures into struct methods when they capture 3+ values, mutate
+  outer state, have multiple call sites, or outlive one statement.
+- One-shot callbacks, tiny pure transforms, and IIFEs are acceptable.
+- Comments explain only non-obvious reasons, trade-offs, invariants, or external
+  constraints. Prefer clearer names over obvious comments.
+- Keep every contiguous comment block under 20 words. Ask before exceeding this.
+- Preserve comments during refactors; move them or update stale wording.
+- Before producing a binary, add its exact path to both `.gitignore` and
+  `.dockerignore`, then remove any stray uncommitted binaries.

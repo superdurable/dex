@@ -1,0 +1,43 @@
+---
+description: Server test execution, database isolation, and async test conventions
+globs: server/**/*
+alwaysApply: false
+---
+
+# Server Testing
+
+## Execution
+
+- After every code change, run tests through the Makefile, never bare `go test`.
+- Always tee output: `make -C server <target> 2>&1 | tee /tmp/test-<scope>.log`.
+- Targets: `test` for the full suite, `test-unit` for no-DB unit tests, and
+  `test-integration` for integration subpackages.
+- Fix all failures. After multiple unsuccessful attempts, report the failure,
+  attempted fixes, and exact blocker.
+
+## Isolation
+
+- Tests run in parallel across packages; never force `-p 1`.
+- Each DB-using package gets a unique `dex_test_<pkg>_*` prefix through
+  `testhelpers.ApplyPersistence` or `testhelpers.NewStoreSetForTest`.
+- Select backends with `DEX_TEST_PERSISTENCE_BACKEND` (default `postgres`) and
+  use backend-agnostic helpers. Never hardcode `mongo.New*`.
+- Generate a unique namespace per test, for example
+  `"mytest-" + uuid.NewString()`, and scope every read/write to it.
+- Never perform full-collection cleanup per test.
+
+## Async and Expensive Setup
+
+- Use `require.Eventually` or polling for convergence. Do not use `time.Sleep`
+  except inside the behavior under test.
+- Put multi-node clusters, memberlist, and Docker processes in `TestMain`, shared
+  by the package. Expose setup failures as `var <name>StartErr error`.
+- Reserve memberlist ports in
+  `server/internal/integration/testhelpers/testports/testports.go`; never
+  hardcode ports in tests.
+- Existing ranges: `InternalCluster` 37946–37999 and `IntegrationCluster`
+  17946–17999. New packages need a disjoint range.
+- Split test packages exceeding roughly 30 seconds. Each subpackage gets its own
+  DB prefix, `TestMain`, and port range.
+- Move helpers to `internal/integration/testhelpers/` only when at least two
+  subpackages use them.

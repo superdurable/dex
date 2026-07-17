@@ -1,0 +1,23 @@
+---
+description: Kubernetes safety and multi-replica benchmark requirements
+globs: "{deploy,benchmark,server}/**/*"
+alwaysApply: false
+---
+
+# Deployment and Benchmark Rules
+
+## Kubernetes Safety
+
+- Every `kubectl`, `helm`, or Kubernetes command targeting local Kind must pass
+  `--context kind-dex-e2e` or set
+  `KUBE_CONTEXT="${KUBE_CONTEXT:-kind-dex-e2e}"`.
+- Never rely on the default Kubernetes context; it may target production.
+
+## Benchmarks
+
+- Run benchmarks with at least three replicas. Do not reduce to one for
+  debugging because that hides cluster-routing defects.
+- Use the defaults in `deploy/kind/dex-values-kind.yaml`.
+- Inspect logs on every node.
+- Run `deploy/scripts/benchmark-escalation.sh` with `wait=false`.
+- Poll the database directly for completion.

@@ -1,0 +1,45 @@
+---
+description: Go implementation conventions for the DEX server
+globs: server/**/*.go
+alwaysApply: false
+---
+
+# Server Go Conventions
+
+## File Ordering
+
+A callee appears below its caller. Prefer:
+
+1. Type declaration
+2. Constructor and its helpers
+3. Main entry method
+4. Event or step handlers in dispatch order
+5. Sub-handlers
+6. State-changing helpers
+7. Encoders, converters, and pure transforms
+8. Tiny accessors
+
+Leave generated code unchanged and keep tightly coupled subsystem clusters intact.
+
+## Pointers and Naming
+
+- Use `ptr.Any(value)` for pointer literals. Import
+  `github.com/superdurable/dex/server/common/utils/ptr`.
+- Give numeric literals explicit types, such as `ptr.Any(int64(0))`.
+- Do not use `ptr.Any` when the pointer must alias a named variable used elsewhere.
+- Use each package's declared name. Alias only for collisions, misleading names,
+  or established conventions such as `pb`. Do not invent aliases such as
+  `servermetrics` or `mongostore`.
+- Use descriptive variable names. Receivers and `i j k n err ctx ok t mu wg id r
+  w ch` are the only accepted one- or two-letter names.
+
+## Nil and Config Fields
+
+- Required dependencies must panic or `log.Fatal` when nil. Do not silently
+  return for impossible nil values.
+- Check nil only when it is a valid state, such as an optional field, cache miss,
+  or user-supplied callback.
+- Every config struct field needs a Go doc comment stating its default and
+  meaning. Include immutability, relationships, ranges, or an example as needed.
+- Address fields must document the protocol, connecting party, and
+  bind-versus-advertise relationship.
