@@ -38,6 +38,34 @@ type PostgresStoreConfig struct {
 	Database string `yaml:"database"`
 }
 
+type ResolvedStoreConfig struct {
+	URI                   string
+	Database              string
+	MaxConns              int32
+	ShortOperationTimeout time.Duration
+	LongOperationTimeout  time.Duration
+}
+
+func (c *PostgresPersistenceConfig) ResolvedShardsStoreConfig() ResolvedStoreConfig {
+	return ResolvedStoreConfig{
+		URI:                   c.URI,
+		Database:              c.Shards.Database,
+		MaxConns:              c.MaxConns,
+		ShortOperationTimeout: c.ShortOperationTimeout,
+		LongOperationTimeout:  c.LongOperationTimeout,
+	}
+}
+
+func (c *PostgresPersistenceConfig) ResolvedRunsStoreConfig() ResolvedStoreConfig {
+	return ResolvedStoreConfig{
+		URI:                   c.URI,
+		Database:              c.Runs.Database,
+		MaxConns:              c.MaxConns,
+		ShortOperationTimeout: c.ShortOperationTimeout,
+		LongOperationTimeout:  c.LongOperationTimeout,
+	}
+}
+
 // DefaultPostgresPersistenceConfig returns the default Postgres configuration:
 // the local single-server URI shared by every store, a distinct per-store
 // database for each of the six logical stores, and the default pool/timeouts.
