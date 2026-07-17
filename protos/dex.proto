@@ -7,12 +7,12 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/superdurable/dex/protos/gengo/dexpb";
 
-// ============================================================================
-// RunsService
-// ============================================================================
-
 service RunsService {
   rpc StartRun(StartRunRequest) returns (google.protobuf.Empty);
+}
+
+service TaskQueueService{
+  rpc PollForRun(PollForRunRequest) returns (PollForRunResponse);
 }
 
 message StartRunRequest {
@@ -21,7 +21,7 @@ message StartRunRequest {
   string flow_type = 3;
   string task_list_name = 4;
   StartRunOptions options = 5;
-  repeated StepMovement starting_steps = 6;
+  StepMovement starting_step = 6;
 }
 
 message StartRunOptions {
@@ -79,3 +79,14 @@ message StepMethodRetryPolicy {
   int64 total_timeout_ms = 5;
 }
 
+
+message PollForRunRequest{
+  string namespace = 1;
+  string task_queue_name = 2;
+  string worker_id = 3;
+  int32 forwarded_from_partition = 4;
+}
+
+message PollForRunResponse{
+
+}
