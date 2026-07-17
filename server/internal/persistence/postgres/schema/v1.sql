@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS runs (
 	namespace                         TEXT NOT NULL,
 	id                                TEXT NOT NULL,
 	flow_type                         TEXT NOT NULL DEFAULT '',
-	task_list_name                    TEXT NOT NULL DEFAULT '',
+	task_queue_name                   TEXT NOT NULL DEFAULT '',
 	status                            INTEGER NOT NULL DEFAULT 0,
 	heartbeat_timeout_seconds         INTEGER NOT NULL DEFAULT 0,
 	version                           BIGINT NOT NULL,

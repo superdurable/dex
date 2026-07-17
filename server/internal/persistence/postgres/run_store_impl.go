@@ -35,7 +35,7 @@ func (s *pgRunStore) Close() error { s.pool.Close(); return nil }
 
 // runColumns lists every run column in a fixed order, shared by SELECT + scan.
 // durable_timer_fired is a schema leftover with no Go field; always written as false.
-const runColumns = `shard_id, namespace, id, flow_type, task_list_name, status, heartbeat_timeout_seconds, version, worker_id,
+const runColumns = `shard_id, namespace, id, flow_type, task_queue_name, status, heartbeat_timeout_seconds, version, worker_id,
 	attributes, unconsumed_channel_messages, step_exe_id_counters, active_step_executions,
 	step_method_exe_counter, worker_request_counter, external_channel_message_counter, last_heartbeat_time, heartbeat_timer_id,
 	active_durable_timer_id, durable_timer_fired_at, durable_timer_fired,
@@ -248,7 +248,7 @@ func scanRunRow(row pgx.Row) (*p.RunRow, error) {
 		fired     bool // schema leftover; discarded
 	)
 	if err := row.Scan(
-		&r.ShardID, &r.Namespace, &r.ID, &r.FlowType, &r.TaskListName, &status, &r.HeartbeatTimeoutSeconds, &r.Version, &r.WorkerID,
+		&r.ShardID, &r.Namespace, &r.ID, &r.FlowType, &r.TaskQueueName, &status, &r.HeartbeatTimeoutSeconds, &r.Version, &r.WorkerID,
 		&stateJSON, &ucmJSON, &cntsJSON, &aseJSON,
 		&r.StepMethodExeCounter, &r.WorkerRequestCounter, &r.ExternalChannelMessageCounter, &lastHB, &r.HeartbeatTimerID,
 		&r.ActiveDurableTimerID, &r.DurableTimerFiredAt, &fired,
@@ -294,7 +294,7 @@ func runRowArgs(r *p.RunRow) ([]any, error) {
 		return nil, err
 	}
 	return []any{
-		r.ShardID, r.Namespace, r.ID, r.FlowType, r.TaskListName, int32(r.Status), r.HeartbeatTimeoutSeconds, r.Version, r.WorkerID,
+		r.ShardID, r.Namespace, r.ID, r.FlowType, r.TaskQueueName, int32(r.Status), r.HeartbeatTimeoutSeconds, r.Version, r.WorkerID,
 		stateJSON, ucmJSON, cntsJSON, aseJSON,
 		r.StepMethodExeCounter, r.WorkerRequestCounter, r.ExternalChannelMessageCounter, nilIfZeroTime(r.LastHeartbeatTime), r.HeartbeatTimerID,
 		r.ActiveDurableTimerID, r.DurableTimerFiredAt, false,

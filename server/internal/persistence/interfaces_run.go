@@ -89,7 +89,7 @@ type RunRow struct {
 	ID        string  `bson:"id"`
 
 	FlowType                string    `bson:"flow_type"`
-	TaskListName            string    `bson:"task_list_name"`
+	TaskQueueName           string    `bson:"task_queue_name"`
 	HeartbeatTimeoutSeconds int32     `bson:"heartbeat_timeout_seconds"`
 	Status                  RunStatus `bson:"status"`
 	Version                 int64     `bson:"version"`
@@ -190,7 +190,7 @@ type TaskRow struct {
 type ImmediateTaskInfo struct {
 	RunID              string `bson:"run_id"`
 	Namespace          string `bson:"namespace"`
-	TaskListName       string `bson:"task_list_name"`
+	TaskQueueName      string `bson:"task_queue_name"`
 	DurableTimerFireAt int64  `bson:"durable_timer_fire_at,omitempty"`
 }
 

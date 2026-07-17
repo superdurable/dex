@@ -28,7 +28,7 @@ message StartRunRequest {
   string namespace = 1;
   string run_id = 2;
   string flow_type = 3;
-  string task_list_name = 4;
+  string task_queue_name = 4;
   StartRunOptions options = 5;
   StepMovement starting_step = 6;
 }
@@ -214,7 +214,7 @@ message RecordStepExecuteCompletedRequest{
   string run_id = 2;
   string step_exe_id = 3;
   StopDecision stop_decision = 5;
-  map<string, Value> upsert_data_attributes = 6;
+  map<string, Value> upsert_attributes = 6;
   repeated StepMovement next_steps = 7;
   repeated string canceled_step_executions = 8;
   repeated ChannelPublish channel_publish = 9;
@@ -301,7 +301,7 @@ message DispatchRunMessageFromEngine{
 
 message RunDispatch {
   string namespace = 1;
-  string task_list_name = 2;
+  string task_queue_name = 2;
   string run_id = 3;
   int32 shard_id = 4;
   // The immediate task ID which triggered this dispatch

@@ -195,7 +195,7 @@ All `kubectl`, `helm`, or k8s commands targeting the local Kind cluster must use
 
 ### Benchmarks Require Multi-Replica
 
-Always benchmark with ≥3 replicas (default in `deploy/kind/dex-values-kind.yaml`). Never reduce to 1 to "simplify" debugging — single-replica hides cluster routing bugs (tasklist partition forwarding, shard cross-node dispatch, heartbeat forwarding). Check logs on **all** nodes. Use `deploy/scripts/benchmark-escalation.sh` with `wait=false`; poll the DB directly for completion.
+Always benchmark with ≥3 replicas (default in `deploy/kind/dex-values-kind.yaml`). Never reduce to 1 to "simplify" debugging — single-replica hides cluster routing bugs (task queue partition forwarding, shard cross-node dispatch, heartbeat forwarding). Check logs on **all** nodes. Use `deploy/scripts/benchmark-escalation.sh` with `wait=false`; poll the DB directly for completion.
 
 ## Test Isolation Rules
 
