@@ -68,11 +68,11 @@ Constructor injection only. Never add `SetXyz`, `Inject*`, `Wire*`, or exported 
 
 ### Inject Config Sections by Pointer, Not Individual Fields
 
-When a component needs tunables from a config section, pass a pointer to that whole section (`*config.RunServiceConfig`, `*config.TaskProcessorConfig`, `*config.MatchingEngineConfig`, …) into its constructor and read fields off it — do NOT thread individual fields as separate constructor params. Adding a new knob then touches only the use site, not every signature and call site.
+When a component needs tunables from a config section, pass a pointer to that whole section (`*config.EngineServiceConfig`, `*config.TaskProcessorConfig`, `*config.MatchingEngineConfig`, …) into its constructor and read fields off it — do NOT thread individual fields as separate constructor params. Adding a new knob then touches only the use site, not every signature and call site.
 
 - Store an unexported `cfg *config.XyzConfig`; read `h.cfg.SomeKnob` where used. Panic in the constructor if nil.
 - Pass the **section**, not the whole `config.Config` (a component depends only on its own section, e.g. `&cfg.RunEngine`), and by **pointer**, not value.
-- Standard for `RunsService` + `RunEngine` (`*config.RunServiceConfig`); apply to the other components (task processor, matching, …) as they're touched.
+- Standard for `EngineService` + `RunEngine` (`*config.EngineServiceConfig`); apply to the other components (task processor, matching, …) as they're touched.
 
 ### No Stateful Closures — Use Methods on Structs
 

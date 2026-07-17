@@ -7,7 +7,7 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/superdurable/dex/protos/gengo/dexpb";
 
-service RunsService {
+service EngineService {
   rpc StartRun(StartRunRequest) returns (google.protobuf.Empty);
 
   // record APIs are called from workers

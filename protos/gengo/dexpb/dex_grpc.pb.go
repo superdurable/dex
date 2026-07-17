@@ -20,15 +20,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RunsService_StartRun_FullMethodName                   = "/dex.RunsService/StartRun"
-	RunsService_RecordStepExecuteCompleted_FullMethodName = "/dex.RunsService/RecordStepExecuteCompleted"
-	RunsService_HandleAsyncMatch_FullMethodName           = "/dex.RunsService/HandleAsyncMatch"
+	EngineService_StartRun_FullMethodName                   = "/dex.EngineService/StartRun"
+	EngineService_RecordStepExecuteCompleted_FullMethodName = "/dex.EngineService/RecordStepExecuteCompleted"
+	EngineService_HandleAsyncMatch_FullMethodName           = "/dex.EngineService/HandleAsyncMatch"
 )
 
-// RunsServiceClient is the client API for RunsService service.
+// EngineServiceClient is the client API for EngineService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type RunsServiceClient interface {
+type EngineServiceClient interface {
 	StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// record APIs are called from workers
 	RecordStepExecuteCompleted(ctx context.Context, in *RecordStepExecuteCompletedRequest, opts ...grpc.CallOption) (*RecordStepExecuteCompletedResponse, error)
@@ -36,165 +36,165 @@ type RunsServiceClient interface {
 	HandleAsyncMatch(ctx context.Context, in *HandleAsyncMatchRequest, opts ...grpc.CallOption) (*HandleAsyncMatchResponse, error)
 }
 
-type runsServiceClient struct {
+type engineServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewRunsServiceClient(cc grpc.ClientConnInterface) RunsServiceClient {
-	return &runsServiceClient{cc}
+func NewEngineServiceClient(cc grpc.ClientConnInterface) EngineServiceClient {
+	return &engineServiceClient{cc}
 }
 
-func (c *runsServiceClient) StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *engineServiceClient) StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, RunsService_StartRun_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, EngineService_StartRun_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *runsServiceClient) RecordStepExecuteCompleted(ctx context.Context, in *RecordStepExecuteCompletedRequest, opts ...grpc.CallOption) (*RecordStepExecuteCompletedResponse, error) {
+func (c *engineServiceClient) RecordStepExecuteCompleted(ctx context.Context, in *RecordStepExecuteCompletedRequest, opts ...grpc.CallOption) (*RecordStepExecuteCompletedResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RecordStepExecuteCompletedResponse)
-	err := c.cc.Invoke(ctx, RunsService_RecordStepExecuteCompleted_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, EngineService_RecordStepExecuteCompleted_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *runsServiceClient) HandleAsyncMatch(ctx context.Context, in *HandleAsyncMatchRequest, opts ...grpc.CallOption) (*HandleAsyncMatchResponse, error) {
+func (c *engineServiceClient) HandleAsyncMatch(ctx context.Context, in *HandleAsyncMatchRequest, opts ...grpc.CallOption) (*HandleAsyncMatchResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HandleAsyncMatchResponse)
-	err := c.cc.Invoke(ctx, RunsService_HandleAsyncMatch_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, EngineService_HandleAsyncMatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// RunsServiceServer is the server API for RunsService service.
-// All implementations must embed UnimplementedRunsServiceServer
+// EngineServiceServer is the server API for EngineService service.
+// All implementations must embed UnimplementedEngineServiceServer
 // for forward compatibility.
-type RunsServiceServer interface {
+type EngineServiceServer interface {
 	StartRun(context.Context, *StartRunRequest) (*emptypb.Empty, error)
 	// record APIs are called from workers
 	RecordStepExecuteCompleted(context.Context, *RecordStepExecuteCompletedRequest) (*RecordStepExecuteCompletedResponse, error)
 	// handle APIs are called from TaskQueue service
 	HandleAsyncMatch(context.Context, *HandleAsyncMatchRequest) (*HandleAsyncMatchResponse, error)
-	mustEmbedUnimplementedRunsServiceServer()
+	mustEmbedUnimplementedEngineServiceServer()
 }
 
-// UnimplementedRunsServiceServer must be embedded to have
+// UnimplementedEngineServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedRunsServiceServer struct{}
+type UnimplementedEngineServiceServer struct{}
 
-func (UnimplementedRunsServiceServer) StartRun(context.Context, *StartRunRequest) (*emptypb.Empty, error) {
+func (UnimplementedEngineServiceServer) StartRun(context.Context, *StartRunRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartRun not implemented")
 }
-func (UnimplementedRunsServiceServer) RecordStepExecuteCompleted(context.Context, *RecordStepExecuteCompletedRequest) (*RecordStepExecuteCompletedResponse, error) {
+func (UnimplementedEngineServiceServer) RecordStepExecuteCompleted(context.Context, *RecordStepExecuteCompletedRequest) (*RecordStepExecuteCompletedResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordStepExecuteCompleted not implemented")
 }
-func (UnimplementedRunsServiceServer) HandleAsyncMatch(context.Context, *HandleAsyncMatchRequest) (*HandleAsyncMatchResponse, error) {
+func (UnimplementedEngineServiceServer) HandleAsyncMatch(context.Context, *HandleAsyncMatchRequest) (*HandleAsyncMatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HandleAsyncMatch not implemented")
 }
-func (UnimplementedRunsServiceServer) mustEmbedUnimplementedRunsServiceServer() {}
-func (UnimplementedRunsServiceServer) testEmbeddedByValue()                     {}
+func (UnimplementedEngineServiceServer) mustEmbedUnimplementedEngineServiceServer() {}
+func (UnimplementedEngineServiceServer) testEmbeddedByValue()                       {}
 
-// UnsafeRunsServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to RunsServiceServer will
+// UnsafeEngineServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EngineServiceServer will
 // result in compilation errors.
-type UnsafeRunsServiceServer interface {
-	mustEmbedUnimplementedRunsServiceServer()
+type UnsafeEngineServiceServer interface {
+	mustEmbedUnimplementedEngineServiceServer()
 }
 
-func RegisterRunsServiceServer(s grpc.ServiceRegistrar, srv RunsServiceServer) {
-	// If the following call pancis, it indicates UnimplementedRunsServiceServer was
+func RegisterEngineServiceServer(s grpc.ServiceRegistrar, srv EngineServiceServer) {
+	// If the following call pancis, it indicates UnimplementedEngineServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&RunsService_ServiceDesc, srv)
+	s.RegisterService(&EngineService_ServiceDesc, srv)
 }
 
-func _RunsService_StartRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _EngineService_StartRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StartRunRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RunsServiceServer).StartRun(ctx, in)
+		return srv.(EngineServiceServer).StartRun(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RunsService_StartRun_FullMethodName,
+		FullMethod: EngineService_StartRun_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RunsServiceServer).StartRun(ctx, req.(*StartRunRequest))
+		return srv.(EngineServiceServer).StartRun(ctx, req.(*StartRunRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RunsService_RecordStepExecuteCompleted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _EngineService_RecordStepExecuteCompleted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RecordStepExecuteCompletedRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RunsServiceServer).RecordStepExecuteCompleted(ctx, in)
+		return srv.(EngineServiceServer).RecordStepExecuteCompleted(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RunsService_RecordStepExecuteCompleted_FullMethodName,
+		FullMethod: EngineService_RecordStepExecuteCompleted_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RunsServiceServer).RecordStepExecuteCompleted(ctx, req.(*RecordStepExecuteCompletedRequest))
+		return srv.(EngineServiceServer).RecordStepExecuteCompleted(ctx, req.(*RecordStepExecuteCompletedRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RunsService_HandleAsyncMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _EngineService_HandleAsyncMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HandleAsyncMatchRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RunsServiceServer).HandleAsyncMatch(ctx, in)
+		return srv.(EngineServiceServer).HandleAsyncMatch(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RunsService_HandleAsyncMatch_FullMethodName,
+		FullMethod: EngineService_HandleAsyncMatch_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RunsServiceServer).HandleAsyncMatch(ctx, req.(*HandleAsyncMatchRequest))
+		return srv.(EngineServiceServer).HandleAsyncMatch(ctx, req.(*HandleAsyncMatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// RunsService_ServiceDesc is the grpc.ServiceDesc for RunsService service.
+// EngineService_ServiceDesc is the grpc.ServiceDesc for EngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var RunsService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "dex.RunsService",
-	HandlerType: (*RunsServiceServer)(nil),
+var EngineService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dex.EngineService",
+	HandlerType: (*EngineServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "StartRun",
-			Handler:    _RunsService_StartRun_Handler,
+			Handler:    _EngineService_StartRun_Handler,
 		},
 		{
 			MethodName: "RecordStepExecuteCompleted",
-			Handler:    _RunsService_RecordStepExecuteCompleted_Handler,
+			Handler:    _EngineService_RecordStepExecuteCompleted_Handler,
 		},
 		{
 			MethodName: "HandleAsyncMatch",
-			Handler:    _RunsService_HandleAsyncMatch_Handler,
+			Handler:    _EngineService_HandleAsyncMatch_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
