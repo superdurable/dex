@@ -39,14 +39,14 @@ func SetEnablePreviousPathForLoggingCaller(enable bool) {
 	enablePreviousPathForLoggingCaller.Store(enable)
 }
 
-// pathToCaller returns the go code path of calling this function.
+// PathToCaller returns the go code path of calling this function.
 // It's built on Golang's runtime.Caller which requires a skip parameter.
 // skip is the "magic" number that for runtime.Caller -- (this is copied from its comment)
 //
 //	The argument skip is the number of stack frames
 //	to ascend, with 0 identifying the caller of Caller. (For historical reasons the
 //	meaning of skip differs between Caller and [Callers].)
-func pathToCaller(skip int) string {
+func PathToCaller(skip int) string {
 	_, path, lineno, lineOk := runtime.Caller(skip)
 	path = shortenPathIfPossible(path)
 	if !enablePreviousPathForLoggingCaller.Load() {

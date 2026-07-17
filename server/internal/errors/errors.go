@@ -103,8 +103,17 @@ func NewConflictError(msg string, fromErr error) CategorizedError {
 	return &categorizedErrorImpl{
 		from:     fromErr,
 		message:  msg,
-		category: ErrorCategoryConflict,
-		errorAt:  pathToCaller(skipForCallAt),
+		category: ErrorCategoryInternal,
+		errorAt:  PathToCaller(skipForCallAt + 1),
+	}
+}
+
+func NewInternalError(msg string, fromErr error) CategorizedError {
+	return &categorizedErrorImpl{
+		from:     fromErr,
+		message:  msg,
+		category: ErrorCategoryInternal,
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -112,8 +121,8 @@ func NewCASError(msg string, fromErr error) CategorizedError {
 	return &categorizedErrorImpl{
 		from:     fromErr,
 		message:  msg,
-		category: ErrorCategoryCAS,
-		errorAt:  pathToCaller(skipForCallAt),
+		category: ErrorCategoryInternal,
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -121,7 +130,7 @@ func NewResourceExhaustedError(msg string) CategorizedError {
 	return &categorizedErrorImpl{
 		message:  msg,
 		category: ErrorCategoryResourceExhausted,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -130,7 +139,7 @@ func NewNotFoundError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryNotFound,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -139,7 +148,7 @@ func NewInvalidInputError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryInvalidInput,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -148,7 +157,7 @@ func NewTimeoutError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryTimeout,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -157,7 +166,7 @@ func NewUnavailableError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryUnavailable,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -166,7 +175,7 @@ func NewUnimplementedError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryUnimplemented,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
@@ -175,7 +184,7 @@ func NewCancelError(msg string, fromErr error) CategorizedError {
 		from:     fromErr,
 		message:  msg,
 		category: ErrorCategoryCanceled,
-		errorAt:  pathToCaller(skipForCallAt),
+		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
 
