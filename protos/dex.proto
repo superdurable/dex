@@ -9,10 +9,19 @@ option go_package = "github.com/superdurable/dex/protos/gengo/dexpb";
 
 service RunsService {
   rpc StartRun(StartRunRequest) returns (google.protobuf.Empty);
+
+  // record APIs are called from workers
+  rpc RecordStepExecuteCompleted(RecordStepExecuteCompletedRequest) returns (RecordStepExecuteCompletedResponse);
+
+  // handle APIs are called from TaskQueue service
+  rpc HandleAsyncMatch(HandleAsyncMatchRequest) returns (HandleAsyncMatchResponse);
 }
 
 service TaskQueueService{
   rpc PollForRun(PollForRunRequest) returns (PollForRunResponse);
+
+  // a short streaming RPC invoked by Engine to dispatch run to worker via taskQueue matching
+  rpc DispatchRun(stream DispatchRunMessageFromEngine) returns (stream DispatchMessageToEngine);
 }
 
 message StartRunRequest {
@@ -88,5 +97,223 @@ message PollForRunRequest{
 }
 
 message PollForRunResponse{
+  string flow_type = 1;
+  string run_id = 2;
+  string namespace = 3;
+  map<string, int32> step_execution_id_counters = 4;
+  map<string, Value> attributes = 5;
+  map<string, ChannelMessages> unconsumed_channel_messages = 6;
+  map<string, ActiveStepExecution> active_step_executions = 7;
+  int64 start_time_ms = 8;
+  int64 server_timestamp_ms = 9;
+  int64 worker_request_counter = 10;
+  // Highest external-channel-message id to dedupe message pushes that
+  // re-deliver a message already present in unconsumed_channel_messages
+  int64 external_channel_message_counter = 11;
+  // for allocation of step method exe id
+  int64 step_method_exe_counter = 13; 
+}
 
+
+message ChannelMessage {
+  int64 id = 1;
+  Value value = 2;
+}
+
+message ChannelMessages {
+  repeated ChannelMessage messages = 1;
+}
+
+enum StepExecutionStatus {
+  STEP_EXECUTION_STATUS_INVOKING_WAIT_FOR = 0;
+  STEP_EXECUTION_STATUS_WAITING_FOR_CONDITION = 1;
+  STEP_EXECUTION_STATUS_INVOKING_EXECUTE = 2;
+}
+
+message StepRetryState {
+  int64 first_attempt_time_ms = 1;
+  int32 current_attempts = 2;
+  string last_error = 3;
+  string last_error_stack_trace = 4;
+}
+
+message ActiveStepExecution {
+  Value input = 1;
+  StepExecutionStatus status = 2;
+  WaitForCondition wait_for_condition = 3;
+  // Only when promoted from waiting -> invokingExecute
+  repeated ConditionResult condition_results = 4;
+  StepRetryState wait_for_retry_state = 5;
+  StepRetryState execute_retry_state = 6;
+  string from_step_exe_id = 7;
+  // Monotonic per-phase ID allocated when this step enters WaitFor.
+  // Used for locking ordering.
+  int64 wait_for_method_exe_id = 8;
+  // Monotonic per-phase ID allocated on transitioning to INVOKING_EXECUTE
+  // Used to determine channel reservation & locking ordering.
+  int64 execute_method_exe_id = 9;
+}
+
+message WaitForCondition {
+  WaitType type = 1;
+  repeated SingleCondition conditions = 2;
+}
+
+enum WaitType {
+  WAIT_TYPE_ANY_OF = 0;
+  WAIT_TYPE_ALL_OF = 1;
+}
+
+message SingleCondition {
+  oneof condition {
+    TimerCondition timer = 1;
+    ChannelCondition channel = 2;
+  }
+}
+
+message TimerCondition {
+  int64 fire_at_unix_ms = 1;
+}
+
+message ChannelCondition {
+  string channel_name = 1;
+  int32 min = 2;
+  int32 max = 3;
+}
+
+message ConditionResult {
+  oneof result {
+    TimerConditionResult timer = 1;
+    ChannelConditionResult channel = 2;
+  }
+}
+
+message TimerConditionResult {
+  bool fired = 1;
+  int64 fire_at_unix_ms = 2;
+}
+
+message ChannelConditionResult {
+  string channel_name = 1;
+  bool satisfied = 2;
+  // Number of messages RESERVED for this step on this channel when the step
+  // was promoted WAITING_FOR_CONDITION -> INVOKING_EXECUTE.
+  // Messages will not be removed until the execute is completed.
+  int32 consumed_count = 3;
+}
+
+enum StopDecision {
+  STOP_DECISION_NONE = 0;
+  STOP_DECISION_COMPLETE = 1;
+  STOP_DECISION_FAIL = 2;
+  STOP_DECISION_DEAD_END = 3;
+}
+
+message RecordStepExecuteCompletedRequest{
+  string namespace = 1;
+  string run_id = 2;
+  string step_exe_id = 3;
+  StopDecision stop_decision = 5;
+  map<string, Value> upsert_data_attributes = 6;
+  repeated StepMovement next_steps = 7;
+  repeated string canceled_step_executions = 8;
+  repeated ChannelPublish channel_publish = 9;
+  repeated StepUnblocked steps_unblocked = 10;
+  WorkerRecordContext context = 11;
+  StepMethodCompletion execute_method = 12;
+}
+
+message RecordStepExecuteCompletedResponse{
+  WorkerRecordResponse worker_record_response = 1;
+}
+
+message WorkerRecordContext{
+  string worker_id = 1;
+  // for re-delivery of channel messages
+  int64 last_received_external_channel_message_id = 2;
+  int64 worker_request_counter = 3;
+  map<string, StepRetryStateUpdate> active_step_retry_updates = 4;
+}
+message WorkerRecordResponse{
+  repeated ChannelMessageRedelivery unreceived_external_channel_messages = 1;
+  bool stop_requested = 2;
+}
+
+message ChannelMessageRedelivery {
+  string channel_name = 1;
+  int64 id = 2;
+  Value value = 3;
+}
+
+message ChannelPublish {
+  string channel_name = 1;
+  repeated Value values = 2;
+}
+
+message StepUnblocked {
+  string step_exe_id = 1;
+  repeated ConditionResult condition_results = 2;
+  int64 execute_method_exe_id = 3;
+}
+
+message StepMethodCompletion {
+  MethodCompletionType type = 1;
+  string error = 2;
+  string error_stack_trace = 3;
+  int32 attempt_count = 4;
+}
+
+enum MethodCompletionType{
+  STEP_METHOD_SUCCEEDED = 0;
+  STEP_METHOD_FAILED = 1;
+}
+
+message StepRetryStateUpdate {
+  StepRetryState wait_for_retry_state = 1;
+  StepRetryState execute_retry_state = 2;
+}
+
+message HandleAsyncMatchRequest{
+  string namespace = 1;
+  string run_id = 2;
+  // for idempontency check
+  string worker_id = 3;
+}
+
+message HandleAsyncMatchResponse {
+  PollForRunResponse poll_for_run_response = 1;
+  AsyncMatchOutcome outcome = 2;
+}
+
+enum AsyncMatchOutcome{
+  ASYNC_MATCH_SUCCESS = 0;
+  // to tell task queue service that the run has been picked
+  // up by other worker
+  ASYNC_MATCH_STALE = 1;
+}
+
+message DispatchRunMessageFromEngine{
+  oneof message {
+    RunDispatch run_dispatch = 1;
+    PollForRunResponse poll_for_run_response = 2;
+  }
+}
+
+message RunDispatch {
+  string namespace = 1;
+  string task_list_name = 2;
+  string run_id = 3;
+  int32 shard_id = 4;
+  // The immediate task ID which triggered this dispatch
+  string task_id = 5;
+  int32 forwarded_from_partition = 6;
+}
+
+message DispatchMessageToEngine{
+  // return true when sync match succeeded to engine
+  // with worker_id, so that engine will record run started,
+  // and return PollForRunResponse.
+  // Return false then engine will mark the run as "WaitingForWorker"
+  bool sync_matched = 1;
+  string worker_id = 2;
 }
