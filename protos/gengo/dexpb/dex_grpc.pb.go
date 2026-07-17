@@ -20,7 +20,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RunsService_StartRun_FullMethodName = "/dex.RunsService/StartRun"
+	RunsService_StartRun_FullMethodName                   = "/dex.RunsService/StartRun"
+	RunsService_RecordStepExecuteCompleted_FullMethodName = "/dex.RunsService/RecordStepExecuteCompleted"
+	RunsService_HandleAsyncMatch_FullMethodName           = "/dex.RunsService/HandleAsyncMatch"
 )
 
 // RunsServiceClient is the client API for RunsService service.
@@ -28,6 +30,10 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RunsServiceClient interface {
 	StartRun(ctx context.Context, in *StartRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// record APIs are called from workers
+	RecordStepExecuteCompleted(ctx context.Context, in *RecordStepExecuteCompletedRequest, opts ...grpc.CallOption) (*RecordStepExecuteCompletedResponse, error)
+	// handle APIs are called from TaskQueue service
+	HandleAsyncMatch(ctx context.Context, in *HandleAsyncMatchRequest, opts ...grpc.CallOption) (*HandleAsyncMatchResponse, error)
 }
 
 type runsServiceClient struct {
@@ -48,11 +54,35 @@ func (c *runsServiceClient) StartRun(ctx context.Context, in *StartRunRequest, o
 	return out, nil
 }
 
+func (c *runsServiceClient) RecordStepExecuteCompleted(ctx context.Context, in *RecordStepExecuteCompletedRequest, opts ...grpc.CallOption) (*RecordStepExecuteCompletedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordStepExecuteCompletedResponse)
+	err := c.cc.Invoke(ctx, RunsService_RecordStepExecuteCompleted_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runsServiceClient) HandleAsyncMatch(ctx context.Context, in *HandleAsyncMatchRequest, opts ...grpc.CallOption) (*HandleAsyncMatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HandleAsyncMatchResponse)
+	err := c.cc.Invoke(ctx, RunsService_HandleAsyncMatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunsServiceServer is the server API for RunsService service.
 // All implementations must embed UnimplementedRunsServiceServer
 // for forward compatibility.
 type RunsServiceServer interface {
 	StartRun(context.Context, *StartRunRequest) (*emptypb.Empty, error)
+	// record APIs are called from workers
+	RecordStepExecuteCompleted(context.Context, *RecordStepExecuteCompletedRequest) (*RecordStepExecuteCompletedResponse, error)
+	// handle APIs are called from TaskQueue service
+	HandleAsyncMatch(context.Context, *HandleAsyncMatchRequest) (*HandleAsyncMatchResponse, error)
 	mustEmbedUnimplementedRunsServiceServer()
 }
 
@@ -65,6 +95,12 @@ type UnimplementedRunsServiceServer struct{}
 
 func (UnimplementedRunsServiceServer) StartRun(context.Context, *StartRunRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartRun not implemented")
+}
+func (UnimplementedRunsServiceServer) RecordStepExecuteCompleted(context.Context, *RecordStepExecuteCompletedRequest) (*RecordStepExecuteCompletedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordStepExecuteCompleted not implemented")
+}
+func (UnimplementedRunsServiceServer) HandleAsyncMatch(context.Context, *HandleAsyncMatchRequest) (*HandleAsyncMatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HandleAsyncMatch not implemented")
 }
 func (UnimplementedRunsServiceServer) mustEmbedUnimplementedRunsServiceServer() {}
 func (UnimplementedRunsServiceServer) testEmbeddedByValue()                     {}
@@ -105,6 +141,42 @@ func _RunsService_StartRun_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RunsService_RecordStepExecuteCompleted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordStepExecuteCompletedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunsServiceServer).RecordStepExecuteCompleted(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunsService_RecordStepExecuteCompleted_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunsServiceServer).RecordStepExecuteCompleted(ctx, req.(*RecordStepExecuteCompletedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RunsService_HandleAsyncMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HandleAsyncMatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunsServiceServer).HandleAsyncMatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RunsService_HandleAsyncMatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunsServiceServer).HandleAsyncMatch(ctx, req.(*HandleAsyncMatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RunsService_ServiceDesc is the grpc.ServiceDesc for RunsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -116,7 +188,152 @@ var RunsService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "StartRun",
 			Handler:    _RunsService_StartRun_Handler,
 		},
+		{
+			MethodName: "RecordStepExecuteCompleted",
+			Handler:    _RunsService_RecordStepExecuteCompleted_Handler,
+		},
+		{
+			MethodName: "HandleAsyncMatch",
+			Handler:    _RunsService_HandleAsyncMatch_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
+	Metadata: "dex.proto",
+}
+
+const (
+	TaskQueueService_PollForRun_FullMethodName  = "/dex.TaskQueueService/PollForRun"
+	TaskQueueService_DispatchRun_FullMethodName = "/dex.TaskQueueService/DispatchRun"
+)
+
+// TaskQueueServiceClient is the client API for TaskQueueService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type TaskQueueServiceClient interface {
+	PollForRun(ctx context.Context, in *PollForRunRequest, opts ...grpc.CallOption) (*PollForRunResponse, error)
+	// a short streaming RPC invoked by Engine to dispatch run to worker via taskQueue matching
+	DispatchRun(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[DispatchRunMessageFromEngine, DispatchMessageToEngine], error)
+}
+
+type taskQueueServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewTaskQueueServiceClient(cc grpc.ClientConnInterface) TaskQueueServiceClient {
+	return &taskQueueServiceClient{cc}
+}
+
+func (c *taskQueueServiceClient) PollForRun(ctx context.Context, in *PollForRunRequest, opts ...grpc.CallOption) (*PollForRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PollForRunResponse)
+	err := c.cc.Invoke(ctx, TaskQueueService_PollForRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskQueueServiceClient) DispatchRun(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[DispatchRunMessageFromEngine, DispatchMessageToEngine], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &TaskQueueService_ServiceDesc.Streams[0], TaskQueueService_DispatchRun_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DispatchRunMessageFromEngine, DispatchMessageToEngine]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TaskQueueService_DispatchRunClient = grpc.BidiStreamingClient[DispatchRunMessageFromEngine, DispatchMessageToEngine]
+
+// TaskQueueServiceServer is the server API for TaskQueueService service.
+// All implementations must embed UnimplementedTaskQueueServiceServer
+// for forward compatibility.
+type TaskQueueServiceServer interface {
+	PollForRun(context.Context, *PollForRunRequest) (*PollForRunResponse, error)
+	// a short streaming RPC invoked by Engine to dispatch run to worker via taskQueue matching
+	DispatchRun(grpc.BidiStreamingServer[DispatchRunMessageFromEngine, DispatchMessageToEngine]) error
+	mustEmbedUnimplementedTaskQueueServiceServer()
+}
+
+// UnimplementedTaskQueueServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedTaskQueueServiceServer struct{}
+
+func (UnimplementedTaskQueueServiceServer) PollForRun(context.Context, *PollForRunRequest) (*PollForRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PollForRun not implemented")
+}
+func (UnimplementedTaskQueueServiceServer) DispatchRun(grpc.BidiStreamingServer[DispatchRunMessageFromEngine, DispatchMessageToEngine]) error {
+	return status.Errorf(codes.Unimplemented, "method DispatchRun not implemented")
+}
+func (UnimplementedTaskQueueServiceServer) mustEmbedUnimplementedTaskQueueServiceServer() {}
+func (UnimplementedTaskQueueServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeTaskQueueServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to TaskQueueServiceServer will
+// result in compilation errors.
+type UnsafeTaskQueueServiceServer interface {
+	mustEmbedUnimplementedTaskQueueServiceServer()
+}
+
+func RegisterTaskQueueServiceServer(s grpc.ServiceRegistrar, srv TaskQueueServiceServer) {
+	// If the following call pancis, it indicates UnimplementedTaskQueueServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&TaskQueueService_ServiceDesc, srv)
+}
+
+func _TaskQueueService_PollForRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PollForRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskQueueServiceServer).PollForRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskQueueService_PollForRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskQueueServiceServer).PollForRun(ctx, req.(*PollForRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskQueueService_DispatchRun_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TaskQueueServiceServer).DispatchRun(&grpc.GenericServerStream[DispatchRunMessageFromEngine, DispatchMessageToEngine]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TaskQueueService_DispatchRunServer = grpc.BidiStreamingServer[DispatchRunMessageFromEngine, DispatchMessageToEngine]
+
+// TaskQueueService_ServiceDesc is the grpc.ServiceDesc for TaskQueueService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var TaskQueueService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dex.TaskQueueService",
+	HandlerType: (*TaskQueueServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PollForRun",
+			Handler:    _TaskQueueService_PollForRun_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "DispatchRun",
+			Handler:       _TaskQueueService_DispatchRun_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "dex.proto",
 }
