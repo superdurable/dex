@@ -18,7 +18,9 @@
 package log
 
 import (
-	"github.com/superdurable/dex/server/internal/common/log/tag"
+	"log/slog"
+
+	"github.com/superdurable/dex/server/internal/log/tag"
 )
 
 // Logger is our abstraction for logging
@@ -44,4 +46,5 @@ type Logger interface {
 	Error(msg string, tags ...tag.Tag)
 	Fatal(msg string, tags ...tag.Tag)
 	WithTags(tags ...tag.Tag) Logger
+	GetSlogger() *slog.Logger
 }

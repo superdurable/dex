@@ -32,7 +32,7 @@ import (
 type (
 	Config struct {
 		// Log is the logging config
-		Log Logger `yaml:"log"`
+		Log LogConfig `yaml:"log"`
 
 		// Database is the database that Dex server will be extending on
 		// either sql or nosql is needed

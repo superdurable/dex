@@ -18,8 +18,8 @@
 package httperror
 
 import (
-	"github.com/superdurable/dex/server/internal/common/log"
-	"github.com/superdurable/dex/server/internal/common/log/tag"
+	"github.com/superdurable/dex/server/internal/log"
+	"github.com/superdurable/dex/server/internal/log/tag"
 
 	"net/http"
 )
