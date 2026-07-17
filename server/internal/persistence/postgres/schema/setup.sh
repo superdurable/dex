@@ -1,7 +1,7 @@
 set -euo pipefail
 
 SCHEMA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATABASES=(dex_shards dex_runs)
+DATABASES=(dex_shards dex_runs dex_blobs)
 
 echo ">> Waiting for Postgres..."
 for _ in $(seq 1 60); do

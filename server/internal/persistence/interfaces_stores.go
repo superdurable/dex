@@ -90,3 +90,15 @@ type RunStore interface {
 
 	Close() error
 }
+
+type BlobEntry struct {
+	BlobID   ids.UID
+	Encoding string
+	Payload  []byte
+}
+
+type BlobStore interface {
+	BatchInsert(ctx context.Context, shardID int32, namespace, runID string, blobs []BlobEntry) errors.CategorizedError
+	BatchGet(ctx context.Context, shardID int32, namespace, runID string, blobIDs []ids.UID) ([]BlobEntry, errors.CategorizedError)
+	Close() error
+}

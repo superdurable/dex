@@ -13,7 +13,7 @@ import (
 	"github.com/superdurable/dex/server/internal/errors"
 )
 
-func newPgxPool(ctx context.Context, cfg *config.ResolvedStoreConfig) (*pgxpool.Pool, errors.CategorizedError) {
+func newPgxPool(ctx context.Context, cfg *config.ResolvedPGStoreConfig) (*pgxpool.Pool, errors.CategorizedError) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.URI)
 	if err != nil {
 		return nil, errors.NewInternalError("postgres: parse URI", err)

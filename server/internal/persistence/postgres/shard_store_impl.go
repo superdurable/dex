@@ -17,10 +17,11 @@ import (
 
 type pgShardStore struct {
 	pool *pgxpool.Pool
-	cfg  *config.ResolvedStoreConfig
+	cfg  *config.ResolvedPGStoreConfig
 }
 
-func NewShardStore(ctx context.Context, cfg *config.ResolvedStoreConfig) (p.ShardStore, errors.CategorizedError) {
+// NewShardStore opens a pool to the shards database and returns a ShardStore.
+func NewShardStore(ctx context.Context, cfg *config.ResolvedPGStoreConfig) (p.ShardStore, errors.CategorizedError) {
 	pool, err := newPgxPool(ctx, cfg)
 	if err != nil {
 		return nil, err

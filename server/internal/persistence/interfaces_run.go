@@ -88,11 +88,12 @@ type RunRow struct {
 	SortKey   int64   `bson:"sort_key"`
 	ID        string  `bson:"id"`
 
-	FlowType     string    `bson:"flow_type"`
-	TaskListName string    `bson:"task_list_name"`
-	Status       RunStatus `bson:"status"`
-	Version      int64     `bson:"version"`
-	WorkerID     string    `bson:"worker_id"`
+	FlowType                string    `bson:"flow_type"`
+	TaskListName            string    `bson:"task_list_name"`
+	HeartbeatTimeoutSeconds int32     `bson:"heartbeat_timeout_seconds"`
+	Status                  RunStatus `bson:"status"`
+	Version                 int64     `bson:"version"`
+	WorkerID                string    `bson:"worker_id"`
 
 	StateMap                  map[string]Value               `bson:"state_map"`
 	UnconsumedChannelMessages map[string][]ChannelMessage    `bson:"unconsumed_channel_messages"`

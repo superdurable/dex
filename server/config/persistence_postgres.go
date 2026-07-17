@@ -30,6 +30,7 @@ type PostgresPersistenceConfig struct {
 
 	Shards PostgresStoreConfig `yaml:"shards"`
 	Runs   PostgresStoreConfig `yaml:"runs"`
+	Blobs  PostgresStoreConfig `yaml:"blobs"`
 }
 
 // PostgresStoreConfig is the per-store config
@@ -38,7 +39,7 @@ type PostgresStoreConfig struct {
 	Database string `yaml:"database"`
 }
 
-type ResolvedStoreConfig struct {
+type ResolvedPGStoreConfig struct {
 	URI                   string
 	Database              string
 	MaxConns              int32
@@ -46,8 +47,8 @@ type ResolvedStoreConfig struct {
 	LongOperationTimeout  time.Duration
 }
 
-func (c *PostgresPersistenceConfig) ResolvedShardsStoreConfig() ResolvedStoreConfig {
-	return ResolvedStoreConfig{
+func (c *PostgresPersistenceConfig) ResolvedShardsStoreConfig() ResolvedPGStoreConfig {
+	return ResolvedPGStoreConfig{
 		URI:                   c.URI,
 		Database:              c.Shards.Database,
 		MaxConns:              c.MaxConns,
@@ -56,8 +57,8 @@ func (c *PostgresPersistenceConfig) ResolvedShardsStoreConfig() ResolvedStoreCon
 	}
 }
 
-func (c *PostgresPersistenceConfig) ResolvedRunsStoreConfig() ResolvedStoreConfig {
-	return ResolvedStoreConfig{
+func (c *PostgresPersistenceConfig) ResolvedRunsStoreConfig() ResolvedPGStoreConfig {
+	return ResolvedPGStoreConfig{
 		URI:                   c.URI,
 		Database:              c.Runs.Database,
 		MaxConns:              c.MaxConns,
@@ -66,9 +67,19 @@ func (c *PostgresPersistenceConfig) ResolvedRunsStoreConfig() ResolvedStoreConfi
 	}
 }
 
+func (c *PostgresPersistenceConfig) ResolvedBlobsStoreConfig() ResolvedPGStoreConfig {
+	return ResolvedPGStoreConfig{
+		URI:                   c.URI,
+		Database:              c.Blobs.Database,
+		MaxConns:              c.MaxConns,
+		ShortOperationTimeout: c.ShortOperationTimeout,
+		LongOperationTimeout:  c.LongOperationTimeout,
+	}
+}
+
 // DefaultPostgresPersistenceConfig returns the default Postgres configuration:
 // the local single-server URI shared by every store, a distinct per-store
-// database for each of the six logical stores, and the default pool/timeouts.
+// database for each logical store, and the default pool/timeouts.
 func DefaultPostgresPersistenceConfig() PostgresPersistenceConfig {
 	return PostgresPersistenceConfig{
 		URI:                   "postgres://dex:dex@localhost:5432/?sslmode=disable",
@@ -77,6 +88,7 @@ func DefaultPostgresPersistenceConfig() PostgresPersistenceConfig {
 		LongOperationTimeout:  30 * time.Second,
 		Shards:                PostgresStoreConfig{Database: "dex_shards"},
 		Runs:                  PostgresStoreConfig{Database: "dex_runs"},
+		Blobs:                 PostgresStoreConfig{Database: "dex_blobs"},
 	}
 }
 

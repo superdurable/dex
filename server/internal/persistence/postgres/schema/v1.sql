@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
 	flow_type                         TEXT NOT NULL DEFAULT '',
 	task_list_name                    TEXT NOT NULL DEFAULT '',
 	status                            INTEGER NOT NULL DEFAULT 0,
+	heartbeat_timeout_seconds         INTEGER NOT NULL DEFAULT 0,
 	version                           BIGINT NOT NULL,
 	worker_id                         TEXT NOT NULL DEFAULT '',
 	state_map                         JSONB NOT NULL DEFAULT '{}',
@@ -59,4 +60,18 @@ CREATE TABLE IF NOT EXISTS timer_tasks (
 	task_info   JSONB NOT NULL,
 	created_at  TIMESTAMPTZ NOT NULL,
 	PRIMARY KEY (shard_id, sort_key, id)
+);
+
+-- ============================================================================
+-- dex_blobs database
+-- ============================================================================
+\connect dex_blobs
+CREATE TABLE IF NOT EXISTS blobs (
+	shard_id   INTEGER NOT NULL,
+	namespace  TEXT NOT NULL,
+	run_id     TEXT NOT NULL,
+	id         UUID NOT NULL,
+	encoding   TEXT NOT NULL,
+	payload    BYTEA,
+	PRIMARY KEY (shard_id, namespace, run_id, id)
 );
