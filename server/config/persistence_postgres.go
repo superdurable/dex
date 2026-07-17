@@ -31,6 +31,7 @@ type PostgresPersistenceConfig struct {
 	Shards PostgresStoreConfig `yaml:"shards"`
 	Runs   PostgresStoreConfig `yaml:"runs"`
 	Blobs  PostgresStoreConfig `yaml:"blobs"`
+	TaskQueues PostgresStoreConfig `yaml:"taskQueues"`
 }
 
 // PostgresStoreConfig is the per-store config
@@ -71,6 +72,16 @@ func (c *PostgresPersistenceConfig) ResolvedBlobsStoreConfig() ResolvedPGStoreCo
 	return ResolvedPGStoreConfig{
 		URI:                   c.URI,
 		Database:              c.Blobs.Database,
+		MaxConns:              c.MaxConns,
+		ShortOperationTimeout: c.ShortOperationTimeout,
+		LongOperationTimeout:  c.LongOperationTimeout,
+	}
+}
+
+func (c *PostgresPersistenceConfig) ResolvedTaskQueuesStoreConfig() ResolvedPGStoreConfig {
+	return ResolvedPGStoreConfig{
+		URI:                   c.URI,
+		Database:              c.TaskQueues.Database,
 		MaxConns:              c.MaxConns,
 		ShortOperationTimeout: c.ShortOperationTimeout,
 		LongOperationTimeout:  c.LongOperationTimeout,

@@ -75,3 +75,29 @@ CREATE TABLE IF NOT EXISTS blobs (
 	payload    BYTEA,
 	PRIMARY KEY (shard_id, namespace, run_id, id)
 );
+-- ============================================================================
+-- dex_taskqueues
+-- ============================================================================
+\connect dex_taskqueues
+CREATE TABLE IF NOT EXISTS taskqueue (
+	namespace        TEXT NOT NULL,
+	queue_name       TEXT NOT NULL,
+	partition_id     INTEGER NOT NULL,
+	range_id         INTEGER NOT NULL,
+	ack_level        BIGINT NOT NULL,
+	owner_member_id  TEXT NOT NULL,
+	owner_address    TEXT NOT NULL,
+	claimed_at       TIMESTAMPTZ NOT NULL,
+	updated_at       TIMESTAMPTZ,
+	PRIMARY KEY (namespace, queue_name, partition_id)
+);
+CREATE TABLE IF NOT EXISTS taskqueue_tasks (
+	namespace      TEXT NOT NULL,
+	queue_name     TEXT NOT NULL,
+	partition_id   INTEGER NOT NULL,
+	task_id        BIGINT NOT NULL,
+	run_id         TEXT NOT NULL,
+	shard_id       INTEGER NOT NULL,
+	created_at     TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (namespace, queue_name, partition_id, task_id)
+);
