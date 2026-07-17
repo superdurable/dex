@@ -15,12 +15,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-package utils
+package httperror
 
 import (
-	"math/rand"
+	"github.com/superdurable/dex/server/internal/common/log"
+	"github.com/superdurable/dex/server/internal/common/log/tag"
+
+	"net/http"
 )
 
-func GetRandomShardId(shardCount int) int {
-	return rand.Intn(shardCount)
+func CheckHttpResponseAndError(err error, httpResp *http.Response, logger log.Logger) bool {
+	status := 0
+	if httpResp != nil {
+		status = httpResp.StatusCode
+	}
+	logger.Debug("check http response and error", tag.Error(err), tag.StatusCode(status))
+
+	if err != nil || (httpResp != nil && httpResp.StatusCode != http.StatusOK) {
+		return true
+	}
+	return false
 }

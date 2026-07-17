@@ -18,7 +18,7 @@
 package log
 
 import (
-	"github.com/superdurable/dex/server/common/log/tag"
+	"github.com/superdurable/dex/server/internal/common/log/tag"
 )
 
 // Logger is our abstraction for logging
