@@ -83,6 +83,10 @@ func newLoggerFromSlogger(slogger *slog.Logger) *loggerImpl {
 	}
 }
 
+func (lg *loggerImpl) GetSlogger() *slog.Logger {
+	return lg.slogger
+}
+
 func (lg *loggerImpl) buildAttrsWithCallAt(tags []tag.Tag) []slog.Attr {
 	attrs := lg.buildAttrs(tags)
 	attrs = append(attrs, slog.String(tag.LoggingCallAtKey, errors.PathToCaller(lg.skip)))
@@ -167,9 +171,7 @@ func (lg *loggerImpl) WithTags(tags ...tag.Tag) Logger {
 	}
 }
 
-func (lg *loggerImpl) GetSlogger() *slog.Logger {
-	return lg.slogger
-}
+
 
 // newSLoggerFromConfig creates a new slog.Logger based on the provided configuration
 func newSLoggerFromConfig(cfg *config.LogConfig) (*slog.Logger, error) {

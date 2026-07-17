@@ -89,3 +89,7 @@ func ShardId[T Integer](id T) Tag {
 func TaskQueue(name string) Tag {
 	return Tag{attr: slog.String("task_queue", name)}
 }
+
+func Address(address string) Tag {
+	return Tag{attr: slog.String("address", address)}
+}
