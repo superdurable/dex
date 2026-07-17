@@ -36,7 +36,7 @@ func (s *pgRunStore) Close() error { s.pool.Close(); return nil }
 // runColumns lists every run column in a fixed order, shared by SELECT + scan.
 // durable_timer_fired is a schema leftover with no Go field; always written as false.
 const runColumns = `shard_id, namespace, id, flow_type, task_list_name, status, heartbeat_timeout_seconds, version, worker_id,
-	data_attributes, unconsumed_channel_messages, step_exe_id_counters, active_step_executions,
+	attributes, unconsumed_channel_messages, step_exe_id_counters, active_step_executions,
 	step_method_exe_counter, worker_request_counter, external_channel_message_counter, last_heartbeat_time, heartbeat_timer_id,
 	active_durable_timer_id, durable_timer_fired_at, durable_timer_fired,
 	last_history_event_id, created_at, updated_at`
@@ -261,7 +261,7 @@ func scanRunRow(row pgx.Row) (*p.RunRow, error) {
 	if lastHB != nil {
 		r.LastHeartbeatTime = *lastHB
 	}
-	if err := unmarshalJSON(stateJSON, &r.DataAttributes); err != nil {
+	if err := unmarshalJSON(stateJSON, &r.Attributes); err != nil {
 		return nil, err
 	}
 	if err := unmarshalJSON(ucmJSON, &r.UnconsumedChannelMessages); err != nil {
@@ -277,7 +277,7 @@ func scanRunRow(row pgx.Row) (*p.RunRow, error) {
 }
 
 func runRowArgs(r *p.RunRow) ([]any, error) {
-	stateJSON, err := jsonbObj(r.DataAttributes)
+	stateJSON, err := jsonbObj(r.Attributes)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +324,7 @@ func insertRunRow(ctx context.Context, tx pgx.Tx, r *p.RunRow) errors.Categorize
 // buildRunUpdateSet renders the SET clause that applies a RunRowUpdate's
 // partial-update deltas directly in SQL — no prior read needed:
 //   - scalar fields: set only when the pointer is non-nil
-//   - data_attributes / step_exe_id_counters: `col || $delta` (top-level key upsert)
+//   - attributes / step_exe_id_counters: `col || $delta` (top-level key upsert)
 //   - active_step_executions: `(col || $upserts) - $deleteKeys` (upsert + delete)
 //   - unconsumed_channel_messages: chained jsonb_set per channel (full replace)
 func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
@@ -371,12 +371,12 @@ func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
 		add("last_history_event_id = $%d", *u.LastHistoryEventID)
 	}
 
-	if u.ReplaceDataAttributes != nil {
-		b, err := json.Marshal(*u.ReplaceDataAttributes)
+	if u.ReplaceAttributes != nil {
+		b, err := json.Marshal(*u.ReplaceAttributes)
 		if err != nil {
 			return "", nil, err
 		}
-		add("data_attributes = $%d::jsonb", b)
+		add("attributes = $%d::jsonb", b)
 	}
 	if u.ReplaceStepExeIDCounters != nil {
 		b, err := json.Marshal(*u.ReplaceStepExeIDCounters)
@@ -400,12 +400,12 @@ func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
 		add("unconsumed_channel_messages = $%d::jsonb", b)
 	}
 
-	if len(u.DataAttributes) > 0 {
-		b, err := json.Marshal(u.DataAttributes)
+	if len(u.Attributes) > 0 {
+		b, err := json.Marshal(u.Attributes)
 		if err != nil {
 			return "", nil, err
 		}
-		add("data_attributes = data_attributes || $%d::jsonb", b)
+		add("attributes = attributes || $%d::jsonb", b)
 	}
 	if len(u.StepExeIDCounters) > 0 {
 		b, err := json.Marshal(u.StepExeIDCounters)

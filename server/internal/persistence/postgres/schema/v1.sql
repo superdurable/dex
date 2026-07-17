@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS runs (
 	heartbeat_timeout_seconds         INTEGER NOT NULL DEFAULT 0,
 	version                           BIGINT NOT NULL,
 	worker_id                         TEXT NOT NULL DEFAULT '',
-	data_attributes                   JSONB NOT NULL DEFAULT '{}',
+	attributes                        JSONB NOT NULL DEFAULT '{}',
 	unconsumed_channel_messages       JSONB NOT NULL DEFAULT '{}',
 	step_exe_id_counters              JSONB NOT NULL DEFAULT '{}',
 	active_step_executions            JSONB NOT NULL DEFAULT '{}',

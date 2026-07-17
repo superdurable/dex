@@ -95,7 +95,7 @@ type RunRow struct {
 	Version                 int64     `bson:"version"`
 	WorkerID                string    `bson:"worker_id"`
 
-	DataAttributes            map[string]Value               `bson:"data_attributes"`
+	Attributes                map[string]Value               `bson:"attributes"`
 	UnconsumedChannelMessages map[string][]ChannelMessage    `bson:"unconsumed_channel_messages"`
 	StepExeIDCounters         map[string]int32               `bson:"step_exe_id_counters"`
 	ActiveStepExecutions      map[string]ActiveStepExecution `bson:"active_step_executions"`
@@ -125,7 +125,7 @@ type RunRow struct {
 type RunRowUpdate struct {
 	Status                        *RunStatus
 	WorkerID                      *string
-	DataAttributes                map[string]Value                // fields to upsert (delta)
+	Attributes                    map[string]Value                // fields to upsert (delta)
 	ReplaceUnconsumedChannels     map[string][]ChannelMessage     // channels to replace entirely ($set)
 	StepExeIDCounters             map[string]int32                // counters to set
 	ActiveStepExecutions          map[string]*ActiveStepExecution // nil value = delete key
@@ -138,7 +138,7 @@ type RunRowUpdate struct {
 	DurableTimerFiredAt           *int64
 	LastHistoryEventID            *int64
 	// Full-map replace fields (used by ForkRun; nil = not modified).
-	ReplaceDataAttributes        *map[string]Value
+	ReplaceAttributes            *map[string]Value
 	ReplaceActiveStepExecutions  *map[string]ActiveStepExecution
 	ReplaceStepExeIDCounters     *map[string]int32
 	ReplaceAllUnconsumedChannels *map[string][]ChannelMessage
