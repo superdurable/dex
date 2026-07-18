@@ -107,15 +107,6 @@ type (
 		MaxHeaderBytes    int           `yaml:"maxHeaderBytes"`
 	}
 
-	MembershipConfig struct {
-		// the bind address for internal use
-		BindAddress string `yaml:"bindAddress"`
-		// the advertise address for external use
-		AdvertiseAddress string `yaml:"advertiseAddress"`
-		// the advertise address to join
-		AdvertiseAddressToJoin string `yaml:"advertiseAddressToJoin"`
-	}
-
 	ImmediateTaskQueueConfig struct {
 		// MaxPollInterval is the maximum interval that the poller will wait between
 		// polls. The poller will always poll immediately when receives a notification that there are new tasks.

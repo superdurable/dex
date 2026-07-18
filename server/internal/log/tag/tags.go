@@ -93,3 +93,19 @@ func TaskQueue(name string) Tag {
 func Address(address string) Tag {
 	return Tag{attr: slog.String("address", address)}
 }
+
+func Source(source string) Tag {
+	return Tag{attr: slog.String("source", source)}
+}
+
+func NodeName(name string) Tag {
+	return Tag{attr: slog.String("node_name", name)}
+}
+
+func NumMembers[T Integer](n T) Tag {
+	return Tag{attr: slog.Int64("num_members", int64(n))}
+}
+
+func MinMembers[T Integer](n T) Tag {
+	return Tag{attr: slog.Int64("min_members", int64(n))}
+}
