@@ -64,7 +64,7 @@ type shardManagerImpl struct {
 	store                p.ShardStore
 	logger               log.Logger
 	memberID             string
-	taskProcessorManager ShardTaskProcessorManager
+	taskProcessorManager TaskProcessorsManager
 	membership           membership.Membership
 
 	mu          sync.RWMutex
@@ -106,7 +106,7 @@ func NewShardManager(
 	store p.ShardStore,
 	logger log.Logger,
 	memberID string,
-	processorManager ShardTaskProcessorManager,
+	processorManager TaskProcessorsManager,
 	internalAddress string,
 	onAddressRemoved func(addr string),
 ) ShardManager {
@@ -678,7 +678,7 @@ func (m *shardManagerImpl) isShuttingDown() bool {
 	}
 }
 
-func (s *shardState) startComponents(factory ShardTaskProcessorManager) {
+func (s *shardState) startComponents(factory TaskProcessorsManager) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	if s.stopped || s.componentsStarted {
@@ -689,7 +689,7 @@ func (s *shardState) startComponents(factory ShardTaskProcessorManager) {
 	s.markReady()
 }
 
-func (s *shardState) stopComponents(factory ShardTaskProcessorManager) {
+func (s *shardState) stopComponents(factory TaskProcessorsManager) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	s.stopped = true

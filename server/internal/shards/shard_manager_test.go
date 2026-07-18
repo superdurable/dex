@@ -35,9 +35,9 @@ import (
 
 // These fakes let us drive shardManagerImpl without a DB or a real memberlist.
 var (
-	_ membership.Membership     = (*fakeMembership)(nil)
-	_ p.ShardStore              = (*fakeShardStore)(nil)
-	_ ShardTaskProcessorManager = (*fakeFactory)(nil)
+	_ membership.Membership = (*fakeMembership)(nil)
+	_ p.ShardStore          = (*fakeShardStore)(nil)
+	_ TaskProcessorsManager = (*fakeFactory)(nil)
 )
 
 func TestShardManager_ClaimsDesiredThenStopReleases(t *testing.T) {
@@ -120,7 +120,7 @@ func newTestManager(t *testing.T, desired []int32) (*shardManagerImpl, *fakeShar
 	mem := &fakeMembership{desired: desired}
 
 	sm := NewShardManager(cfg, store, log.NewDefaultLogger(), "member-1", factory,
-		nil /* MetadataCallback */, "127.0.0.1:7233", func(string) {}).(*shardManagerImpl)
+		"127.0.0.1:7233", func(string) {}).(*shardManagerImpl)
 	sm.membership = mem // replace the real (unstarted) membership with the fake
 	return sm, store, factory, mem
 }
@@ -254,6 +254,10 @@ func (f *fakeFactory) StopAll(shardID int32) {
 	f.stopped[shardID]++
 	delete(f.started, shardID)
 }
+
+func (f *fakeFactory) GetShardMetadata(int32) *p.ShardMetadata { return &p.ShardMetadata{} }
+func (f *fakeFactory) NotifyNewImmediateTask(int32)            {}
+func (f *fakeFactory) NotifyNewTimerTask(int32, int64)         {}
 
 func (f *fakeFactory) startedShards() []int32 {
 	f.mu.Lock()

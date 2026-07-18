@@ -21,10 +21,13 @@ import (
 	p "github.com/superdurable/dex/server/internal/persistence"
 )
 
-// ShardTaskProcessorManager is the interface to manage all the taskProcessors for a shard.
+// TaskProcessorsManager is the interface to manage all the taskProcessors for a shard.
 // Using a separate interface to avoid circular dependencies.
-type ShardTaskProcessorManager interface {
+type TaskProcessorsManager interface {
 	StartAll(shardID int32, rangeID int32)
 	StopAll(shardID int32)
 	GetShardMetadata(shardID int32) *p.ShardMetadata
+
+	NotifyNewImmediateTask(shardID int32)
+	NotifyNewTimerTask(shardID int32, fireAtUnixMs int64)
 }
