@@ -36,7 +36,7 @@ import (
 // routing.
 type CachedPeerConnection interface {
 	ForEngineService(address string) (dexpb.EngineServiceClient, errors.CategorizedError)
-	ForTaskQueueService(address string) (dexpb.TaskQueueServiceClient, errors.CategorizedError)
+	ForMatchingService(address string) (dexpb.MatchingServiceClient, errors.CategorizedError)
 	// EvictCachedConn is for when a remote instance is shutdown, we need to evict the cached connection to it
 	EvictCachedConn(address string)
 	// Close closes every cached connection. Call during server shutdown.
@@ -67,12 +67,12 @@ func (r *cachedPeerConnImpl) ForEngineService(address string) (dexpb.EngineServi
 	return dexpb.NewEngineServiceClient(conn), nil
 }
 
-func (r *cachedPeerConnImpl) ForTaskQueueService(address string) (dexpb.TaskQueueServiceClient, errors.CategorizedError) {
+func (r *cachedPeerConnImpl) ForMatchingService(address string) (dexpb.MatchingServiceClient, errors.CategorizedError) {
 	conn, err := r.getOrCreateConn(address)
 	if err != nil {
 		return nil, err
 	}
-	return dexpb.NewTaskQueueServiceClient(conn), nil
+	return dexpb.NewMatchingServiceClient(conn), nil
 }
 
 func (r *cachedPeerConnImpl) EvictCachedConn(address string) {

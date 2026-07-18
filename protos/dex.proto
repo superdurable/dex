@@ -31,15 +31,15 @@ service EngineService {
   // record APIs are called from workers
   rpc RecordStepExecuteCompleted(RecordStepExecuteCompletedRequest) returns (RecordStepExecuteCompletedResponse);
 
-  // handle APIs are called from TaskQueue service
+  // handle APIs are called from Matching service
   rpc HandleAsyncMatch(HandleAsyncMatchRequest) returns (HandleAsyncMatchResponse);
 }
 
 // sub system for dispatching to worker, and persisting tasks if worker not available
-service TaskQueueService{
+service MatchingService{
   rpc PollForRun(PollForRunRequest) returns (PollForRunResponse);
 
-  // a short streaming RPC invoked by Engine to dispatch run to worker via taskQueue matching
+  // a short streaming RPC invoked by Engine to dispatch run to worker via matching
   rpc DispatchRun(stream DispatchRunMessageFromEngine) returns (stream DispatchMessageToEngine);
 }
 
@@ -311,7 +311,7 @@ message HandleAsyncMatchResponse {
 
 enum AsyncMatchOutcome{
   ASYNC_MATCH_SUCCESS = 0;
-  // to tell task queue service that the run has been picked
+  // to tell matching service that the run has been picked
   // up by other worker
   ASYNC_MATCH_STALE = 1;
 }
