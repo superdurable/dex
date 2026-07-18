@@ -40,8 +40,7 @@ type ShardRunStore interface {
 		expectedVersion int64, update *p.RunRowUpdate, tasks []p.TaskRow) errors.CategorizedError
 }
 
-// NewShardedRunStore constructs a ShardRunStore over the given dependencies.
-func NewShardedRunStore(runStore p.RunStore, sm ShardManager, processorMgr TaskProcessorsManager) ShardRunStore {
+func NewShardRunStore(runStore p.RunStore, sm ShardManager, processorMgr TaskProcessorsManager) ShardRunStore {
 	if runStore == nil {
 		panic("runStore must not be nil")
 	}
