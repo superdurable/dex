@@ -24,6 +24,7 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/superdurable/dex/protos/gengo/dexpb";
 
+// core service for durable execution runs
 service EngineService {
   rpc StartRun(StartRunRequest) returns (google.protobuf.Empty);
 
@@ -34,11 +35,17 @@ service EngineService {
   rpc HandleAsyncMatch(HandleAsyncMatchRequest) returns (HandleAsyncMatchResponse);
 }
 
+// sub system for dispatching to worker, and persisting tasks if worker not available
 service TaskQueueService{
   rpc PollForRun(PollForRunRequest) returns (PollForRunResponse);
 
   // a short streaming RPC invoked by Engine to dispatch run to worker via taskQueue matching
   rpc DispatchRun(stream DispatchRunMessageFromEngine) returns (stream DispatchMessageToEngine);
+}
+
+// sub/side system for non-critical operations
+service OperationService{
+
 }
 
 message StartRunRequest {
