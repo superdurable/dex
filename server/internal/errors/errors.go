@@ -120,7 +120,7 @@ func NewConflictError(msg string, fromErr error) CategorizedError {
 	return &categorizedErrorImpl{
 		from:     fromErr,
 		message:  msg,
-		category: ErrorCategoryInternal,
+		category: ErrorCategoryConflict,
 		errorAt:  PathToCaller(skipForCallAt + 1),
 	}
 }
@@ -138,7 +138,7 @@ func NewCASError(msg string, fromErr error) CategorizedError {
 	return &categorizedErrorImpl{
 		from:     fromErr,
 		message:  msg,
-		category: ErrorCategoryInternal,
+		category: ErrorCategoryCAS,
 		errorAt:  PathToCaller(skipForCallAt),
 	}
 }
