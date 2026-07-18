@@ -3,9 +3,12 @@ module github.com/superdurable/dex/server
 go 1.26
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/hashicorp/memberlist v0.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/serialx/hashring v0.0.0-20200727003509-22c0c7ab6b1b
+	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex/protos v0.0.0-20260717140244-e195dd13a2f5
 	github.com/uber-go/tally/v4 v4.1.17
 	google.golang.org/grpc v1.82.1
@@ -14,7 +17,7 @@ require (
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -30,6 +33,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
