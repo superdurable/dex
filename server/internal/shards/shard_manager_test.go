@@ -242,13 +242,13 @@ func newFakeFactory() *fakeFactory {
 	return &fakeFactory{started: make(map[int32]int32), stopped: make(map[int32]int)}
 }
 
-func (f *fakeFactory) StartAll(shardID int32, rangeID int32) {
+func (f *fakeFactory) StartShard(shardID int32, metadata p.ShardMetadata) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.started[shardID] = rangeID
+	f.started[shardID] = metadata.RangeID
 }
 
-func (f *fakeFactory) StopAll(shardID int32) {
+func (f *fakeFactory) StopShard(shardID int32) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stopped[shardID]++

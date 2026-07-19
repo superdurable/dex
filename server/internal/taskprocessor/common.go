@@ -15,19 +15,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-package shards
+package taskprocessor
 
 import (
-	p "github.com/superdurable/dex/server/internal/persistence"
+	"common-go/ids"
+	"math/rand/v2"
+	"time"
 )
 
-// TaskProcessorsManager is the interface to manage all the taskProcessors for a shard.
-// Using a separate interface to avoid circular dependencies.
-type TaskProcessorsManager interface {
-	StartShard(shardID int32, initMetadata p.ShardMetadata)
-	StopShard(shardID int32)
-	GetShardMetadata(shardID int32) *p.ShardMetadata
+// TaskCompletion signals a task finished execution (immediate or timer).
+type TaskCompletion struct {
+	SortKey int64
+	ID      ids.UID
+}
 
-	NotifyNewImmediateTask(shardID int32)
-	NotifyNewTimerTask(shardID int32, fireAtUnixMs int64)
+// withJitter returns base plus a random amount in [0, jitter].
+func withJitter(base, jitter time.Duration) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	if jitter <= 0 {
+		return base
+	}
+	return base + time.Duration(rand.Int64N(int64(jitter)+1))
 }

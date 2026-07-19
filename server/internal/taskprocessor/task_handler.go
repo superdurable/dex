@@ -14,6 +14,10 @@ type TaskHandler interface {
 
 type taskHandlerImpl struct{}
 
+func NewTaskHandlerImpl() TaskHandler {
+	return &taskHandlerImpl{}
+}
+
 func (t taskHandlerImpl) HandleImmediateTask(ctx context.Context, shardID int32, task *p.ImmediateTaskRow) errors.CategorizedError {
 	//TODO implement me
 	panic("implement me")
@@ -22,8 +26,4 @@ func (t taskHandlerImpl) HandleImmediateTask(ctx context.Context, shardID int32,
 func (t taskHandlerImpl) HandleTimerTask(ctx context.Context, shardID int32, task *p.TimerTaskRow) errors.CategorizedError {
 	//TODO implement me
 	panic("implement me")
-}
-
-func NewTaskHandlerImpl() TaskHandler {
-	return &taskHandlerImpl{}
 }

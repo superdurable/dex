@@ -83,10 +83,11 @@ type shardManagerImpl struct {
 }
 
 type shardState struct {
-	shardID        int32
-	version        int64
-	rangeID        int32
-	leaseExpiresAt time.Time
+	shardID         int32
+	version         int64
+	rangeID         int32
+	initialMetadata p.ShardMetadata
+	leaseExpiresAt  time.Time
 
 	immediateLocalSeq int32
 	immediateMu       sync.Mutex
@@ -96,9 +97,9 @@ type shardState struct {
 
 	renewCancel context.CancelFunc
 
-	startMu           sync.Mutex
-	componentsStarted bool
-	stopped           bool
+	startMu               sync.Mutex
+	taskProcessorsStarted bool
+	stopped               bool
 }
 
 func NewShardManager(
@@ -123,7 +124,7 @@ func NewShardManager(
 		panic("memberID must not be empty")
 	}
 	if processorManager == nil {
-		panic("ComponentFactory must not be nil")
+		panic("processorManager must not be nil")
 	}
 	if cfg.TotalShards <= 0 {
 		panic("TotalShards must be > 0")
@@ -314,10 +315,11 @@ func (m *shardManagerImpl) InformShardLost(shardID int32) {
 	}
 
 	state.renewCancel()
-	state.stopComponents(m.taskProcessorManager)
+	state.stopTaskProcessors(m.taskProcessorManager)
 
-	m.gracefulPause()
-
+	// No graceful pause here: the lease is already lost, so in-flight work is
+	// running with an expired capped context and has nothing to drain. Release
+	// and rebalance immediately to minimize the re-claim gap.
 	if err := m.store.ReleaseShard(context.Background(), shardID, m.memberID, state.version); err != nil {
 		m.logger.Warn("best-effort release after shard lost failed",
 			tag.ShardId(shardID), tag.Error(err))
@@ -431,7 +433,7 @@ func (m *shardManagerImpl) releaseShards(states []*shardState) {
 	entries := make([]p.ShardReleaseEntry, 0, len(states))
 	for _, state := range states {
 		state.renewCancel()
-		state.stopComponents(m.taskProcessorManager)
+		state.stopTaskProcessors(m.taskProcessorManager)
 		entries = append(entries, p.ShardReleaseEntry{
 			ShardID:         state.shardID,
 			ExpectedVersion: state.version,
@@ -471,12 +473,13 @@ func (m *shardManagerImpl) claimShard(shardID int32) errors.CategorizedError {
 
 	renewCtx, renewCancel := context.WithCancel(m.ctx)
 	state := &shardState{
-		shardID:        shardID,
-		version:        shard.Version,
-		rangeID:        shard.Metadata.RangeID,
-		leaseExpiresAt: shard.LeaseExpiresAt,
-		readyCh:        make(chan struct{}),
-		renewCancel:    renewCancel,
+		shardID:         shardID,
+		version:         shard.Version,
+		rangeID:         shard.Metadata.RangeID,
+		initialMetadata: shard.Metadata,
+		leaseExpiresAt:  shard.LeaseExpiresAt,
+		readyCh:         make(chan struct{}),
+		renewCancel:     renewCancel,
 	}
 
 	m.mu.Lock()
@@ -488,12 +491,12 @@ func (m *shardManagerImpl) claimShard(shardID int32) errors.CategorizedError {
 
 	readyAt := time.Unix(0, shard.Metadata.TimerTaskCommittedSortKey)
 	if readyAt.After(time.Now()) {
-		m.logger.Info("delaying shard components for clock-skew gate",
+		m.logger.Info("delaying shard taskProcessors for clock-skew gate",
 			tag.ShardId(shardID))
 		m.loopWG.Add(1)
-		go m.startComponentsAfterSkewGate(renewCtx, state, readyAt)
+		go m.startTaskProcessorsAfterSkewGate(renewCtx, state, readyAt)
 	} else {
-		state.startComponents(m.taskProcessorManager)
+		state.startTaskProcessors(m.taskProcessorManager)
 	}
 
 	m.logger.Info("claimed shard",
@@ -543,7 +546,7 @@ func (m *shardManagerImpl) claimShardWithRetry(shardID int32) (*p.Shard, errors.
 	return nil, lastErr
 }
 
-func (m *shardManagerImpl) startComponentsAfterSkewGate(ctx context.Context, state *shardState, readyAt time.Time) {
+func (m *shardManagerImpl) startTaskProcessorsAfterSkewGate(ctx context.Context, state *shardState, readyAt time.Time) {
 	defer m.loopWG.Done()
 
 	timer := time.NewTimer(time.Until(readyAt))
@@ -563,7 +566,7 @@ func (m *shardManagerImpl) startComponentsAfterSkewGate(ctx context.Context, sta
 	if !ok || current != state {
 		return
 	}
-	state.startComponents(m.taskProcessorManager)
+	state.startTaskProcessors(m.taskProcessorManager)
 }
 
 func (m *shardManagerImpl) leaseRenewalLoop(ctx context.Context, state *shardState) {
@@ -639,7 +642,7 @@ func (m *shardManagerImpl) stopAllOwned() []p.ShardReleaseEntry {
 	entries := make([]p.ShardReleaseEntry, 0, len(states))
 	for _, state := range states {
 		state.renewCancel()
-		state.stopComponents(m.taskProcessorManager)
+		state.stopTaskProcessors(m.taskProcessorManager)
 		entries = append(entries, p.ShardReleaseEntry{
 			ShardID:         state.shardID,
 			ExpectedVersion: state.version,
@@ -678,24 +681,24 @@ func (m *shardManagerImpl) isShuttingDown() bool {
 	}
 }
 
-func (s *shardState) startComponents(factory TaskProcessorsManager) {
+func (s *shardState) startTaskProcessors(processorsManager TaskProcessorsManager) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
-	if s.stopped || s.componentsStarted {
+	if s.stopped || s.taskProcessorsStarted {
 		return
 	}
-	factory.StartAll(s.shardID, s.rangeID)
-	s.componentsStarted = true
+	processorsManager.StartShard(s.shardID, s.initialMetadata)
+	s.taskProcessorsStarted = true
 	s.markReady()
 }
 
-func (s *shardState) stopComponents(factory TaskProcessorsManager) {
+func (s *shardState) stopTaskProcessors(processorsManager TaskProcessorsManager) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	s.stopped = true
-	if s.componentsStarted {
-		factory.StopAll(s.shardID)
-		s.componentsStarted = false
+	if s.taskProcessorsStarted {
+		processorsManager.StopShard(s.shardID)
+		s.taskProcessorsStarted = false
 	}
 	// Unblock AwaitShardReady; callers re-check ownership after wake.
 	s.markReady()

@@ -30,6 +30,7 @@ import (
 )
 
 // TaskExecutor runs tasks through a worker pool.
+// TODO: add DLQ support
 type TaskExecutor interface {
 	Start(ctx context.Context)
 	Stop()
@@ -57,6 +58,8 @@ type taskItem struct {
 	shardID   int32
 	immediate *p.ImmediateTaskRow
 	timer     *p.TimerTaskRow
+	// doneCh reports completion to the task deleter. Optional.
+	doneCh chan<- TaskCompletion
 }
 
 func NewTaskExecutor(
@@ -91,12 +94,12 @@ func NewTaskExecutor(
 	}
 }
 
-func newImmediateTaskItem(shardID int32, task *p.ImmediateTaskRow) *taskItem {
-	return &taskItem{shardID: shardID, immediate: task}
+func newImmediateTaskItem(shardID int32, task *p.ImmediateTaskRow, doneCh chan<- TaskCompletion) *taskItem {
+	return &taskItem{shardID: shardID, immediate: task, doneCh: doneCh}
 }
 
-func newTimerTaskItem(shardID int32, task *p.TimerTaskRow) *taskItem {
-	return &taskItem{shardID: shardID, timer: task}
+func newTimerTaskItem(shardID int32, task *p.TimerTaskRow, doneCh chan<- TaskCompletion) *taskItem {
+	return &taskItem{shardID: shardID, timer: task, doneCh: doneCh}
 }
 
 func (e *taskExecutorImpl) Start(ctx context.Context) {
@@ -144,6 +147,7 @@ func (e *taskExecutorImpl) execute(parent context.Context, item *taskItem) {
 		)
 		return
 	}
+	defer e.notifyDone(item)
 
 	// Retry only retriable (infra/transient) errors; DoCategorized inspects
 	// IsRetriable, so business errors fail after one attempt. Each attempt gets
@@ -164,6 +168,19 @@ func (e *taskExecutorImpl) execute(parent context.Context, item *taskItem) {
 		e.logger.Error("task handle failed after retries", tags...)
 	default:
 		e.logger.Debug("task handle failed", tags...)
+	}
+}
+
+// notifyDone advances the deleter even when handling failed.
+func (e *taskExecutorImpl) notifyDone(item *taskItem) {
+	if item.doneCh == nil {
+		return
+	}
+	switch {
+	case item.timer != nil:
+		item.doneCh <- TaskCompletion{SortKey: item.timer.SortKey, ID: item.timer.ID}
+	case item.immediate != nil:
+		item.doneCh <- TaskCompletion{SortKey: item.immediate.SortKey, ID: item.immediate.ID}
 	}
 }
 
