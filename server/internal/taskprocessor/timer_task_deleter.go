@@ -20,6 +20,7 @@ package taskprocessor
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"common-go/ids"
@@ -56,11 +57,22 @@ type timerTaskDeleterImpl struct {
 	wmID           ids.UID
 	completedAbove map[ids.UID]timerTaskKey
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	shuttingDown atomic.Bool
 }
 
 var _ TimerTaskDeleter = (*timerTaskDeleterImpl)(nil)
+
+// opCtx returns the context for a store op. During normal operation it caps at
+// the shard lease. During shutdown the shard is already detached (GetCappedContext
+// would fail fast), so it uses the caller's already-bounded context directly.
+func (d *timerTaskDeleterImpl) opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if d.shuttingDown.Load() {
+		return context.WithCancel(ctx)
+	}
+	return d.sm.GetCappedContext(ctx, d.shardID)
+}
 
 // NewTimerTaskDeleter starts from the shard's committed exclusive watermark.
 func NewTimerTaskDeleter(
@@ -124,9 +136,10 @@ func (d *timerTaskDeleterImpl) Stop() {
 	d.cancel()
 	d.wg.Wait()
 	d.cancel = nil
+	d.shuttingDown.Store(true)
 
 	// Bound the final drain + flush so a hung store call cannot block shutdown
-	// forever. The timeout propagates through GetCappedContext to each DB op.
+	// forever. The shard is already detached, so opCtx uses this bounded ctx directly.
 	ctx, cancel := context.WithTimeout(context.Background(), d.cfg.ShutdownGracePeriod)
 	defer cancel()
 	d.drainDone(ctx)
@@ -198,8 +211,8 @@ func (d *timerTaskDeleterImpl) tryAdvance(ctx context.Context) {
 		}
 		d.mu.Unlock()
 
-		// Cap at the shard lease so a delete cannot outlive ownership.
-		capped, cancel := d.sm.GetCappedContext(ctx, d.shardID)
+		// opCtx caps at the shard lease during normal run (bounded ctx on shutdown).
+		capped, cancel := d.opCtx(ctx)
 		err := d.store.RangeDeleteTimerTasks(capped, d.shardID, candidate.sortKey, candidate.id)
 		cancel()
 		if err != nil {
@@ -259,8 +272,8 @@ func (d *timerTaskDeleterImpl) flushCompletedAbove(ctx context.Context) {
 		}
 		page := uids[start:end]
 
-		// Cap at the shard lease so the cleanup cannot outlive ownership.
-		capped, cancel := d.sm.GetCappedContext(ctx, d.shardID)
+		// opCtx caps at the shard lease during normal run (bounded ctx on shutdown).
+		capped, cancel := d.opCtx(ctx)
 		err := d.store.DeleteTimerTasksByIDBatch(capped, d.shardID, page)
 		cancel()
 		if err != nil {

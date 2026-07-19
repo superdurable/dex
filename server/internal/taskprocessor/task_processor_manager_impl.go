@@ -172,6 +172,6 @@ func (t *taskProcessorManagerImpl) NotifyNewImmediateTask(shardID int32) {
 	t.notifier.NotifyNewImmediateTask(shardID)
 }
 
-func (t *taskProcessorManagerImpl) NotifyNewTimerTask(shardID int32, fireAtUnixMs int64) {
-	t.notifier.NotifyNewTimerTask(shardID, fireAtUnixMs)
+func (t *taskProcessorManagerImpl) NotifyNewTimerTask(shardID int32, fireAtUnixNano int64) {
+	t.notifier.NotifyNewTimerTask(shardID, fireAtUnixNano)
 }

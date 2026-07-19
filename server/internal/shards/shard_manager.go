@@ -50,13 +50,36 @@ type ShardManager interface {
 	GetCappedContext(parentCtx context.Context, shardID int32) (context.Context, context.CancelFunc)
 	// GetShardOwnerAddress returns the owner's gRPC address, or "" if local.
 	GetShardOwnerAddress(shardID int32) string
-	// AcquireImmediateTaskSeqLock serializes immediate-task seq alloc + DB write.
-	// Unlock MUST be called after the write completes, but before GetNextImmediateTaskSeq.
-	AcquireImmediateTaskSeqLock(shardID int32) (func(), errors.CategorizedError)
-	// GetNextImmediateTaskSeq returns TaskSeq = (RangeID << 32) | LocalSeq.
-	// Panics on LocalSeq overflow.
-	GetNextImmediateTaskSeq(shardID int32) (int64, error)
+	// AcquireImmediateTaskSeqLock locks the shard's immediate-seq mutex and
+	// returns a handle bound to that shard state. Hold it across Next() AND the
+	// DB write, then Unlock, so commits land in seq-allocation order. Binding to
+	// the captured state avoids a re-lookup racing a concurrent re-claim.
+	AcquireImmediateTaskSeqLock(shardID int32) (ImmediateTaskSeqLock, errors.CategorizedError)
+	// AdvanceTimerReadLevel raises the shard's timer read watermark to readLevel
+	// (monotonic). Timer writes floor fire times to this watermark, so no timer is
+	// ever committed below where the reader has already read. Call before each read.
+	AdvanceTimerReadLevel(shardID int32, readLevel int64) errors.CategorizedError
+	// AcquireTimerTaskWriteLock locks the shard's timer-write mutex and returns a
+	// handle. Hold it across FloorFireTime AND the DB write, then Unlock, so a timer
+	// cannot be committed below the read watermark after the reader passed it.
+	AcquireTimerTaskWriteLock(shardID int32) (TimerTaskWriteLock, errors.CategorizedError)
 	GetShardVersion(shardID int32) int64
+}
+
+// ImmediateTaskSeqLock is a held seq lock bound to one shard state. Next
+// allocates seqs under the lock; Unlock releases it after the DB write.
+type ImmediateTaskSeqLock interface {
+	// Next returns TaskSeq = (RangeID << 32) | LocalSeq. Panics on LocalSeq overflow.
+	Next() int64
+	Unlock()
+}
+
+// TimerTaskWriteLock is a held timer-write lock bound to one shard state.
+type TimerTaskWriteLock interface {
+	// FloorFireTime returns sortKey, or readWatermark+1 if sortKey is at or below
+	// the watermark, so the timer lands strictly above what the reader has read.
+	FloorFireTime(sortKey int64) int64
+	Unlock()
 }
 
 type shardManagerImpl struct {
@@ -91,6 +114,12 @@ type shardState struct {
 
 	immediateLocalSeq int32
 	immediateMu       sync.Mutex
+
+	// timerMu guards timerMaxReadSortKey and serializes timer writes against the
+	// reader advancing the watermark, so no timer is committed below where the
+	// reader has already read (the fire-time skip guard).
+	timerMu             sync.Mutex
+	timerMaxReadSortKey int64
 
 	readyCh   chan struct{}
 	readyOnce sync.Once
@@ -189,9 +218,11 @@ func (m *shardManagerImpl) Stop() {
 			time.Sleep(m.cfg.ShutdownGracefulPeriod)
 		}
 		if len(entries) > 0 {
-			if err := m.store.BatchReleaseShards(context.Background(), m.memberID, entries); err != nil {
+			relCtx, relCancel := m.releaseContext()
+			if err := m.store.BatchReleaseShards(relCtx, m.memberID, entries); err != nil {
 				m.logger.Warn("batch release shards on shutdown failed", tag.Error(err))
 			}
+			relCancel()
 		}
 
 		m.membership.Stop()
@@ -247,8 +278,13 @@ func (m *shardManagerImpl) GetCappedContext(parentCtx context.Context, shardID i
 	}
 	m.mu.RUnlock()
 
+	// Not owned (or lease not yet set): fail fast so an operation cannot run
+	// against a shard we do not own. Shutdown cleanup that must run post-detach
+	// uses its own bounded context instead of this.
 	if !ok || leaseExpiresAt.IsZero() {
-		return context.WithCancel(parentCtx)
+		ctx, cancel := context.WithCancel(parentCtx)
+		cancel()
+		return ctx, cancel
 	}
 
 	deadline := leaseExpiresAt.Add(-m.cfg.LeaseExpiryBuffer)
@@ -278,9 +314,12 @@ func (m *shardManagerImpl) AwaitShardReady(ctx context.Context, shardID int32) e
 			return errors.NewUnavailableError("shard manager is shutting down", nil)
 		}
 		m.mu.RLock()
-		_, stillOwned := m.ownedShards[shardID]
+		current, ok := m.ownedShards[shardID]
 		m.mu.RUnlock()
-		if !stillOwned {
+		// readyCh also closes on stop; require the SAME state instance so a
+		// released-and-re-claimed shard (new state, skew gate not yet open) is
+		// not reported ready. The caller retries and awaits the new state.
+		if !ok || current != state {
 			return errors.NewUnavailableError("shard is not owned locally", nil)
 		}
 		return nil
@@ -291,21 +330,66 @@ func (m *shardManagerImpl) AwaitShardReady(ctx context.Context, shardID int32) e
 	}
 }
 
-func (m *shardManagerImpl) AcquireImmediateTaskSeqLock(shardID int32) (func(), errors.CategorizedError) {
+func (m *shardManagerImpl) AcquireImmediateTaskSeqLock(shardID int32) (ImmediateTaskSeqLock, errors.CategorizedError) {
 	state, err := m.requireOwnedShard(shardID)
 	if err != nil {
 		return nil, err
 	}
 	state.immediateMu.Lock()
-	return state.immediateMu.Unlock, nil
+	return &immediateTaskSeqLock{state: state}, nil
 }
 
-func (m *shardManagerImpl) GetNextImmediateTaskSeq(shardID int32) (int64, error) {
+// immediateTaskSeqLock binds the held mutex and the seq counter to one state
+// instance, so allocation cannot land on a different (re-claimed) state.
+type immediateTaskSeqLock struct {
+	state *shardState
+}
+
+func (l *immediateTaskSeqLock) Next() int64 {
+	return nextTaskSeq(&l.state.immediateLocalSeq, l.state.rangeID, "immediate")
+}
+
+func (l *immediateTaskSeqLock) Unlock() {
+	l.state.immediateMu.Unlock()
+}
+
+func (m *shardManagerImpl) AdvanceTimerReadLevel(shardID int32, readLevel int64) errors.CategorizedError {
 	state, err := m.requireOwnedShard(shardID)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	return nextTaskSeq(&state.immediateLocalSeq, state.rangeID, "immediate"), nil
+	state.timerMu.Lock()
+	if readLevel > state.timerMaxReadSortKey {
+		state.timerMaxReadSortKey = readLevel
+	}
+	state.timerMu.Unlock()
+	return nil
+}
+
+func (m *shardManagerImpl) AcquireTimerTaskWriteLock(shardID int32) (TimerTaskWriteLock, errors.CategorizedError) {
+	state, err := m.requireOwnedShard(shardID)
+	if err != nil {
+		return nil, err
+	}
+	state.timerMu.Lock()
+	return &timerTaskWriteLock{state: state}, nil
+}
+
+// timerTaskWriteLock binds the held timer mutex and the read watermark to one
+// state instance, so flooring reads a consistent, non-racy watermark.
+type timerTaskWriteLock struct {
+	state *shardState
+}
+
+func (l *timerTaskWriteLock) FloorFireTime(sortKey int64) int64 {
+	if sortKey <= l.state.timerMaxReadSortKey {
+		return l.state.timerMaxReadSortKey + 1
+	}
+	return sortKey
+}
+
+func (l *timerTaskWriteLock) Unlock() {
+	l.state.timerMu.Unlock()
 }
 
 func (m *shardManagerImpl) InformShardLost(shardID int32) {
@@ -320,10 +404,12 @@ func (m *shardManagerImpl) InformShardLost(shardID int32) {
 	// No graceful pause here: the lease is already lost, so in-flight work is
 	// running with an expired capped context and has nothing to drain. Release
 	// and rebalance immediately to minimize the re-claim gap.
-	if err := m.store.ReleaseShard(context.Background(), shardID, m.memberID, state.version); err != nil {
+	relCtx, relCancel := m.releaseContext()
+	if err := m.store.ReleaseShard(relCtx, shardID, m.memberID, state.version); err != nil {
 		m.logger.Warn("best-effort release after shard lost failed",
 			tag.ShardId(shardID), tag.Error(err))
 	}
+	relCancel()
 
 	m.logger.Warn("shard ownership lost", tag.ShardId(shardID), tag.NodeName(m.memberID))
 	m.triggerRebalance()
@@ -443,9 +529,22 @@ func (m *shardManagerImpl) releaseShards(states []*shardState) {
 
 	m.gracefulPause()
 
-	if err := m.store.BatchReleaseShards(context.Background(), m.memberID, entries); err != nil {
+	relCtx, relCancel := m.releaseContext()
+	if err := m.store.BatchReleaseShards(relCtx, m.memberID, entries); err != nil {
 		m.logger.Warn("batch release shards failed", tag.Error(err))
 	}
+	relCancel()
+}
+
+// releaseContext bounds a best-effort shard-release DB call so shutdown cannot
+// block on a hung store. The store also caps internally; this is the outer
+// budget in case a store impl does not. Background (store-capped only) when
+// ShutdownGracefulPeriod is disabled, so the release is never instantly cancelled.
+func (m *shardManagerImpl) releaseContext() (context.Context, context.CancelFunc) {
+	if m.cfg.ShutdownGracefulPeriod <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), m.cfg.ShutdownGracefulPeriod)
 }
 
 // gracefulPause waits ShutdownGracefulPeriod for in-flight work to drain, but
@@ -475,9 +574,10 @@ func (m *shardManagerImpl) claimShard(shardID int32) errors.CategorizedError {
 	state := &shardState{
 		shardID:         shardID,
 		version:         shard.Version,
-		rangeID:         shard.Metadata.RangeID,
-		initialMetadata: shard.Metadata,
-		leaseExpiresAt:  shard.LeaseExpiresAt,
+		rangeID:             shard.Metadata.RangeID,
+		initialMetadata:     shard.Metadata,
+		leaseExpiresAt:      shard.LeaseExpiresAt,
+		timerMaxReadSortKey: shard.Metadata.TimerTaskCommittedSortKey,
 		readyCh:         make(chan struct{}),
 		renewCancel:     renewCancel,
 	}

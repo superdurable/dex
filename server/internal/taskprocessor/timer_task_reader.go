@@ -193,6 +193,13 @@ func (r *timerTaskReaderImpl) pollAndSubmit(ctx context.Context) time.Time {
 	nowSortKey := now.UnixNano()
 	sortKeyUpTo := nowSortKey + r.cfg.TimerMinLookAheadDuration.Nanoseconds()
 
+	// Publish the read watermark (this poll's due threshold) BEFORE reading, so a
+	// concurrent timer write floors any fire time at or below it above it. Then a
+	// timer can never be committed below where this cursor is about to advance.
+	if err := r.sm.AdvanceTimerReadLevel(r.shardID, nowSortKey); err != nil {
+		return now.Add(r.cfg.TimerMaxLookAheadDuration)
+	}
+
 	readCtx, cancel := r.sm.GetCappedContext(ctx, r.shardID)
 	tasks, err := r.store.RangeReadTimerTasks(
 		readCtx,

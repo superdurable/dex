@@ -34,8 +34,9 @@ import (
 type TaskExecutor interface {
 	Start(ctx context.Context)
 	Stop()
-	// Submit enqueues a task. Blocks when the queue is full.
-	// Callers must stop submitting before or when Stop runs.
+	// Submit enqueues a task, blocking while the queue is full. Returns without
+	// enqueuing once Stop has run, so a producer is never blocked forever on a
+	// stopped pool; the task stays in the DB and is re-read after failover.
 	Submit(item *taskItem)
 	TaskChan() chan<- *taskItem
 }
@@ -49,6 +50,7 @@ type taskExecutorImpl struct {
 	retryPolicy *backoff.RetryPolicy
 	wg          sync.WaitGroup
 	cancel      context.CancelFunc
+	done        chan struct{} // closed by Stop to release a blocked Submit
 }
 
 var _ TaskExecutor = (*taskExecutorImpl)(nil)
@@ -108,6 +110,7 @@ func (e *taskExecutorImpl) Start(ctx context.Context) {
 	}
 
 	ctx, e.cancel = context.WithCancel(ctx)
+	e.done = make(chan struct{})
 	for i := 0; i < e.cfg.NumWorkers; i++ {
 		e.wg.Add(1)
 		go e.worker(ctx)
@@ -118,13 +121,17 @@ func (e *taskExecutorImpl) Stop() {
 	if e.cancel == nil {
 		return
 	}
+	close(e.done) // release any producer blocked in Submit before workers exit
 	e.cancel()
 	e.wg.Wait()
 	e.cancel = nil
 }
 
 func (e *taskExecutorImpl) Submit(item *taskItem) {
-	e.taskChan <- item
+	select {
+	case e.taskChan <- item:
+	case <-e.done:
+	}
 }
 
 func (e *taskExecutorImpl) worker(ctx context.Context) {

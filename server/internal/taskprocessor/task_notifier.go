@@ -29,7 +29,7 @@ type TaskNotifier interface {
 	AddShard(shardID int32) *perShardNotifier
 	RemoveShard(shardID int32)
 	NotifyNewImmediateTask(shardID int32)
-	NotifyNewTimerTask(shardID int32, fireAtUnixMs int64)
+	NotifyNewTimerTask(shardID int32, fireAtUnixNano int64)
 }
 
 type taskNotifierImpl struct {
@@ -74,15 +74,15 @@ func (n *taskNotifierImpl) NotifyNewImmediateTask(shardID int32) {
 }
 
 // NotifyNewTimerTask wakes the timer reader and may advance its next wakeup.
-func (n *taskNotifierImpl) NotifyNewTimerTask(shardID int32, fireAtUnixMs int64) {
-	if fireAtUnixMs <= 0 {
+func (n *taskNotifierImpl) NotifyNewTimerTask(shardID int32, fireAtUnixNano int64) {
+	if fireAtUnixNano <= 0 {
 		return
 	}
 	notifier := n.get(shardID)
 	if notifier == nil {
 		return
 	}
-	notifier.notifyTimer(fireAtUnixMs)
+	notifier.notifyTimer(fireAtUnixNano)
 }
 
 func (n *taskNotifierImpl) get(shardID int32) *perShardNotifier {
@@ -109,13 +109,13 @@ func newPerShardNotifier() *perShardNotifier {
 }
 
 // notifyTimer CAS-mins pendingEarliestFireAt, then rings newTimerCh.
-func (c *perShardNotifier) notifyTimer(fireAtUnixMs int64) {
+func (c *perShardNotifier) notifyTimer(fireAtUnixNano int64) {
 	for {
 		cur := c.pendingEarliestFireAt.Load()
-		if cur != 0 && cur <= fireAtUnixMs {
+		if cur != 0 && cur <= fireAtUnixNano {
 			return
 		}
-		if c.pendingEarliestFireAt.CompareAndSwap(cur, fireAtUnixMs) {
+		if c.pendingEarliestFireAt.CompareAndSwap(cur, fireAtUnixNano) {
 			break
 		}
 	}

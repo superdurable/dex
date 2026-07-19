@@ -29,5 +29,5 @@ type TaskProcessorsManager interface {
 	GetShardMetadata(shardID int32) *p.ShardMetadata
 
 	NotifyNewImmediateTask(shardID int32)
-	NotifyNewTimerTask(shardID int32, fireAtUnixMs int64)
+	NotifyNewTimerTask(shardID int32, fireAtUnixNano int64)
 }

@@ -19,7 +19,6 @@ package shards
 
 import (
 	"context"
-	stderrors "errors"
 
 	"github.com/superdurable/dex/server/internal/errors"
 	p "github.com/superdurable/dex/server/internal/persistence"
@@ -103,11 +102,7 @@ func (s *shardRunStoreImpl) writeWithShard(
 	writeCtx, cancel := s.sm.GetCappedContext(ctx, shardID)
 	defer cancel()
 
-	if hasImmediateTask(tasks) {
-		if err := s.writeImmediateLocked(shardID, tasks, writeCtx, write); err != nil {
-			return err
-		}
-	} else if err := write(writeCtx); err != nil {
+	if err := s.lockedWrite(shardID, tasks, writeCtx, write); err != nil {
 		return err
 	}
 
@@ -115,47 +110,58 @@ func (s *shardRunStoreImpl) writeWithShard(
 	return nil
 }
 
-// writeImmediateLocked holds the seq lock across allocation AND the DB write.
+// lockedWrite assigns immediate seqs and floors timer fire times under their
+// per-shard locks, held across the DB write, then releases before returning so
+// notify never runs under a lock. Locks are taken in a fixed order (immediate,
+// then timer) so a mixed batch cannot deadlock.
 //
-// The batch reader treats a visible seq=k as proof every seq<=k is committed.
-//
-// Commits must therefore land in seq-allocation order.
-//
-// Unlocking before the write would let a later seq commit first, so the reader
-// would skip the earlier, still-uncommitted one.
-//
-// Unlock is deferred, running before notify so wake-ups never fire under lock.
-func (s *shardRunStoreImpl) writeImmediateLocked(
+// Both queues share the same invariant: the reader advances a monotonic cursor
+// and never re-reads below it, so a task must never be committed below that
+// cursor. Holding the lock across the write forces commit order to respect the
+// cursor — immediate via seq allocation, timer via the read-watermark floor.
+func (s *shardRunStoreImpl) lockedWrite(
 	shardID int32,
 	tasks []p.TaskRow,
 	writeCtx context.Context,
 	write func(context.Context) errors.CategorizedError,
 ) errors.CategorizedError {
-	unlock, err := s.sm.AcquireImmediateTaskSeqLock(shardID)
-	if err != nil {
-		return err
+	if hasImmediateTask(tasks) {
+		seqLock, err := s.sm.AcquireImmediateTaskSeqLock(shardID)
+		if err != nil {
+			return err
+		}
+		defer seqLock.Unlock()
+		allocateImmediateSortKeys(seqLock, tasks)
 	}
-	defer unlock()
 
-	if err := s.allocateImmediateSortKeys(shardID, tasks); err != nil {
-		return err
+	if hasTimerTask(tasks) {
+		timerLock, err := s.sm.AcquireTimerTaskWriteLock(shardID)
+		if err != nil {
+			return err
+		}
+		defer timerLock.Unlock()
+		floorTimerFireTimes(timerLock, tasks)
 	}
+
 	return write(writeCtx)
 }
 
-func (s *shardRunStoreImpl) allocateImmediateSortKeys(shardID int32, tasks []p.TaskRow) errors.CategorizedError {
+func allocateImmediateSortKeys(seqLock ImmediateTaskSeqLock, tasks []p.TaskRow) {
 	for i := range tasks {
 		imm := tasks[i].Immediate
 		if imm == nil || imm.SortKey != 0 {
 			continue
 		}
-		seq, err := s.sm.GetNextImmediateTaskSeq(shardID)
-		if err != nil {
-			return asCategorized(err, "allocate immediate task seq")
-		}
-		imm.SortKey = seq
+		imm.SortKey = seqLock.Next()
 	}
-	return nil
+}
+
+func floorTimerFireTimes(timerLock TimerTaskWriteLock, tasks []p.TaskRow) {
+	for i := range tasks {
+		if timer := tasks[i].Timer; timer != nil {
+			timer.SortKey = timerLock.FloorFireTime(timer.SortKey)
+		}
+	}
 }
 
 func (s *shardRunStoreImpl) notifyNewTasks(shardID int32, tasks []p.TaskRow) {
@@ -182,9 +188,11 @@ func hasImmediateTask(tasks []p.TaskRow) bool {
 	return false
 }
 
-func asCategorized(err error, msg string) errors.CategorizedError {
-	if catErr, ok := stderrors.AsType[errors.CategorizedError](err); ok {
-		return catErr
+func hasTimerTask(tasks []p.TaskRow) bool {
+	for i := range tasks {
+		if tasks[i].Timer != nil {
+			return true
+		}
 	}
-	return errors.NewInternalError(msg, err)
+	return false
 }
