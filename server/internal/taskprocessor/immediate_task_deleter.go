@@ -35,18 +35,20 @@ import (
 // watermark is inclusive RangeDelete upper bound.
 type ImmediateTaskDeleter interface {
 	Start(ctx context.Context)
-	Stop()
+	Stop(forced bool)
 	DoneCh() chan<- TaskCompletion
 	InsertPending(seq int64)
+	RemovePending(seq int64)
 	GetWatermark() int64
 }
 
 type immediateTaskDeleterImpl struct {
-	cfg     *config.TaskProcessorConfig
-	store   p.RunStore
-	sm      shards.ShardManager
-	shardID int32
-	logger  log.Logger
+	cfg      *config.TaskProcessorConfig
+	shardCfg *config.ShardConfig
+	store    p.RunStore
+	sm       shards.ShardManager
+	shardID  int32
+	logger   log.Logger
 
 	doneCh chan TaskCompletion
 
@@ -62,9 +64,6 @@ type immediateTaskDeleterImpl struct {
 
 var _ ImmediateTaskDeleter = (*immediateTaskDeleterImpl)(nil)
 
-// opCtx returns the context for a store op. During normal operation it caps at
-// the shard lease. During shutdown the shard is already detached (GetCappedContext
-// would fail fast), so it uses the caller's already-bounded context directly.
 func (d *immediateTaskDeleterImpl) opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if d.shuttingDown.Load() {
 		return context.WithCancel(ctx)
@@ -75,6 +74,7 @@ func (d *immediateTaskDeleterImpl) opCtx(ctx context.Context) (context.Context, 
 // NewImmediateTaskDeleter starts from the shard's committed inclusive watermark.
 func NewImmediateTaskDeleter(
 	cfg *config.TaskProcessorConfig,
+	shardCfg *config.ShardConfig,
 	store p.RunStore,
 	sm shards.ShardManager,
 	shardID int32,
@@ -83,6 +83,9 @@ func NewImmediateTaskDeleter(
 ) ImmediateTaskDeleter {
 	if cfg == nil {
 		panic("TaskProcessorConfig must not be nil")
+	}
+	if shardCfg == nil {
+		panic("ShardConfig must not be nil")
 	}
 	if store == nil {
 		panic("RunStore must not be nil")
@@ -99,12 +102,10 @@ func NewImmediateTaskDeleter(
 	if cfg.ImmediateDeleteInterval <= 0 {
 		panic("TaskProcessorConfig.ImmediateDeleteInterval must be > 0")
 	}
-	if cfg.ShutdownGracePeriod <= 0 {
-		panic("TaskProcessorConfig.ShutdownGracePeriod must be > 0")
-	}
 
 	return &immediateTaskDeleterImpl{
 		cfg:          cfg,
+		shardCfg:     shardCfg,
 		store:        store,
 		sm:           sm,
 		shardID:      shardID,
@@ -125,20 +126,34 @@ func (d *immediateTaskDeleterImpl) Start(ctx context.Context) {
 	go d.run(ctx)
 }
 
-func (d *immediateTaskDeleterImpl) Stop() {
+// Stop halts the deleter. forced=true (ownership lost) skips store cleanup: the
+// generation is already fenced, so any delete here would be unfenced and could
+// remove the new owner's tasks; the new owner re-reads instead. forced=false
+// (voluntary release, lease still held) flushes committed deletions.
+func (d *immediateTaskDeleterImpl) Stop(forced bool) {
 	if d.cancel == nil {
 		return
 	}
+	d.shuttingDown.Store(true)
 	d.cancel()
 	d.wg.Wait()
 	d.cancel = nil
-	d.shuttingDown.Store(true)
 
-	// Bound the final drain so a hung store call cannot block shutdown forever.
-	// The shard is already detached, so opCtx uses this bounded ctx directly.
-	ctx, cancel := context.WithTimeout(context.Background(), d.cfg.ShutdownGracePeriod)
+	if forced {
+		return
+	}
+
+	ctx, cancel := d.shutdownCtx()
 	defer cancel()
 	d.drainDone(ctx)
+	d.tryAdvance(ctx)
+}
+
+func (d *immediateTaskDeleterImpl) shutdownCtx() (context.Context, context.CancelFunc) {
+	if d.shardCfg.ShutdownGracefulPeriod <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), d.shardCfg.ShutdownGracefulPeriod)
 }
 
 func (d *immediateTaskDeleterImpl) run(ctx context.Context) {
@@ -154,7 +169,6 @@ func (d *immediateTaskDeleterImpl) run(ctx context.Context) {
 		case completion := <-d.doneCh:
 			d.onComplete(completion)
 		case <-timer.C:
-			// Periodic RangeDelete; jitter desynchronizes shards.
 			d.tryAdvance(ctx)
 			timer.Reset(withJitter(d.cfg.ImmediateDeleteInterval, d.cfg.ImmediateDeleteIntervalJitter))
 		}
@@ -164,11 +178,18 @@ func (d *immediateTaskDeleterImpl) run(ctx context.Context) {
 func (d *immediateTaskDeleterImpl) drainDone(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case completion := <-d.doneCh:
 			d.onComplete(completion)
 		default:
 			d.tryAdvance(ctx)
-			return
+			select {
+			case completion := <-d.doneCh:
+				d.onComplete(completion)
+			default:
+				return
+			}
 		}
 	}
 }
@@ -198,7 +219,6 @@ func (d *immediateTaskDeleterImpl) tryAdvance(ctx context.Context) {
 		}
 		d.mu.Unlock()
 
-		// opCtx caps at the shard lease during normal run (bounded ctx on shutdown).
 		capped, cancel := d.opCtx(ctx)
 		err := d.store.RangeDeleteImmediateTasks(capped, d.shardID, candidate)
 		cancel()
@@ -230,8 +250,6 @@ func (d *immediateTaskDeleterImpl) tryAdvance(ctx context.Context) {
 	}
 }
 
-// computeWatermarkLocked returns the inclusive delete upper bound.
-// Pending non-empty: min(pending)-1. Empty: max completed seq.
 func (d *immediateTaskDeleterImpl) computeWatermarkLocked() int64 {
 	if minSeq, ok := d.pending.Min(); ok {
 		return minSeq - 1
@@ -243,7 +261,6 @@ func (d *immediateTaskDeleterImpl) DoneCh() chan<- TaskCompletion {
 	return d.doneCh
 }
 
-// InsertPending records a task before the reader hands it to the executor.
 func (d *immediateTaskDeleterImpl) InsertPending(seq int64) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -256,8 +273,15 @@ func (d *immediateTaskDeleterImpl) InsertPending(seq int64) {
 	}
 }
 
+func (d *immediateTaskDeleterImpl) RemovePending(seq int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pending.Delete(seq)
+}
+
 func (d *immediateTaskDeleterImpl) GetWatermark() int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.watermark
+	// Logical committed cursor: never at/above an in-flight seq.
+	return d.computeWatermarkLocked()
 }

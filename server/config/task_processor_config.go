@@ -52,14 +52,9 @@ type TaskProcessorConfig struct {
 	// TimerDeleteIntervalJitter spreads deletes across shards. Default: 2s.
 	TimerDeleteIntervalJitter time.Duration `yaml:"timerDeleteIntervalJitter"`
 
-	// ShutdownGracePeriod control how long to wait for processors to
-	// 1. commit the watermarks
-	// 2. delete tasks above the watermark
-	// Default: 10s
-	ShutdownGracePeriod time.Duration `yaml:"shutdownGracePeriod"`
 	// ShutdownDeleteBatchSize is the page size for the shutdown-path
 	// DeleteByIDBatch calls. Tasks completed above the watermark are deleted
-	// in pages of this size to avoid overloading MongoDB.
+	// in pages of this size to avoid overloading the store. Default: 1000.
 	ShutdownDeleteBatchSize int `yaml:"shutdownDeleteBatchSize"`
 }
 
@@ -85,7 +80,6 @@ func DefaultTaskProcessorConfig() TaskProcessorConfig {
 		TimerDeleteInterval:       5 * time.Second,
 		TimerDeleteIntervalJitter: 2 * time.Second,
 
-		ShutdownGracePeriod:     10 * time.Second,
 		ShutdownDeleteBatchSize: 1000,
 	}
 }

@@ -33,28 +33,32 @@ import (
 	"github.com/superdurable/dex/server/internal/shards"
 )
 
-// TimerTaskDeleter tracks in-flight timer tasks; watermark is exclusive RangeDelete upper bound.
+// TimerTaskDeleter tracks in-flight timer tasks.
+// GetWatermark is the reclaim cursor (reads strictly after it) and never equals
+// an in-flight key. RangeDelete uses min(pending) or nextAfter(maxCompleted).
 type TimerTaskDeleter interface {
 	Start(ctx context.Context)
-	Stop()
+	Stop(forced bool)
 	DoneCh() chan<- TaskCompletion
 	InsertPending(sortKey int64, id ids.UID)
+	RemovePending(sortKey int64, id ids.UID)
 	GetWatermark() (sortKey int64, id ids.UID)
 }
 
 type timerTaskDeleterImpl struct {
-	cfg     *config.TaskProcessorConfig
-	store   p.RunStore
-	sm      shards.ShardManager
-	shardID int32
-	logger  log.Logger
+	cfg      *config.TaskProcessorConfig
+	shardCfg *config.ShardConfig
+	store    p.RunStore
+	sm       shards.ShardManager
+	shardID  int32
+	logger   log.Logger
 
 	doneCh chan TaskCompletion
 
 	mu             sync.Mutex
 	pending        *btree.BTreeG[timerTaskKey]
-	wmSortKey      int64
-	wmID           ids.UID
+	maxCompleted   timerTaskKey // inclusive; published via GetWatermark
+	deleteUpTo     timerTaskKey // exclusive high-water of successful RangeDelete
 	completedAbove map[ids.UID]timerTaskKey
 
 	cancel       context.CancelFunc
@@ -64,9 +68,6 @@ type timerTaskDeleterImpl struct {
 
 var _ TimerTaskDeleter = (*timerTaskDeleterImpl)(nil)
 
-// opCtx returns the context for a store op. During normal operation it caps at
-// the shard lease. During shutdown the shard is already detached (GetCappedContext
-// would fail fast), so it uses the caller's already-bounded context directly.
 func (d *timerTaskDeleterImpl) opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if d.shuttingDown.Load() {
 		return context.WithCancel(ctx)
@@ -74,9 +75,10 @@ func (d *timerTaskDeleterImpl) opCtx(ctx context.Context) (context.Context, cont
 	return d.sm.GetCappedContext(ctx, d.shardID)
 }
 
-// NewTimerTaskDeleter starts from the shard's committed exclusive watermark.
+// NewTimerTaskDeleter starts from the shard's committed watermark.
 func NewTimerTaskDeleter(
 	cfg *config.TaskProcessorConfig,
+	shardCfg *config.ShardConfig,
 	store p.RunStore,
 	sm shards.ShardManager,
 	shardID int32,
@@ -86,6 +88,9 @@ func NewTimerTaskDeleter(
 ) TimerTaskDeleter {
 	if cfg == nil {
 		panic("TaskProcessorConfig must not be nil")
+	}
+	if shardCfg == nil {
+		panic("ShardConfig must not be nil")
 	}
 	if store == nil {
 		panic("RunStore must not be nil")
@@ -102,20 +107,19 @@ func NewTimerTaskDeleter(
 	if cfg.TimerDeleteInterval <= 0 {
 		panic("TaskProcessorConfig.TimerDeleteInterval must be > 0")
 	}
-	if cfg.ShutdownGracePeriod <= 0 {
-		panic("TaskProcessorConfig.ShutdownGracePeriod must be > 0")
-	}
 
+	initial := timerTaskKey{sortKey: initialSortKey, id: initialID}
 	return &timerTaskDeleterImpl{
 		cfg:            cfg,
+		shardCfg:       shardCfg,
 		store:          store,
 		sm:             sm,
 		shardID:        shardID,
 		logger:         logger,
 		doneCh:         make(chan TaskCompletion, cfg.NumWorkers*2),
 		pending:        btree.NewG(32, timerTaskKeyLess),
-		wmSortKey:      initialSortKey,
-		wmID:           initialID,
+		maxCompleted:   initial,
+		deleteUpTo:     initial,
 		completedAbove: make(map[ids.UID]timerTaskKey),
 	}
 }
@@ -129,21 +133,35 @@ func (d *timerTaskDeleterImpl) Start(ctx context.Context) {
 	go d.run(ctx)
 }
 
-func (d *timerTaskDeleterImpl) Stop() {
+// Stop halts the deleter. forced=true (ownership lost) skips store cleanup: the
+// generation is already fenced, so any delete here would be unfenced and could
+// remove the new owner's tasks; the new owner re-reads instead. forced=false
+// (voluntary release, lease still held) flushes committed deletions.
+func (d *timerTaskDeleterImpl) Stop(forced bool) {
 	if d.cancel == nil {
 		return
 	}
+	d.shuttingDown.Store(true)
 	d.cancel()
 	d.wg.Wait()
 	d.cancel = nil
-	d.shuttingDown.Store(true)
 
-	// Bound the final drain + flush so a hung store call cannot block shutdown
-	// forever. The shard is already detached, so opCtx uses this bounded ctx directly.
-	ctx, cancel := context.WithTimeout(context.Background(), d.cfg.ShutdownGracePeriod)
+	if forced {
+		return
+	}
+
+	ctx, cancel := d.shutdownCtx()
 	defer cancel()
 	d.drainDone(ctx)
+	d.tryAdvance(ctx)
 	d.flushCompletedAbove(ctx)
+}
+
+func (d *timerTaskDeleterImpl) shutdownCtx() (context.Context, context.CancelFunc) {
+	if d.shardCfg.ShutdownGracefulPeriod <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), d.shardCfg.ShutdownGracefulPeriod)
 }
 
 func (d *timerTaskDeleterImpl) run(ctx context.Context) {
@@ -159,7 +177,6 @@ func (d *timerTaskDeleterImpl) run(ctx context.Context) {
 		case completion := <-d.doneCh:
 			d.onComplete(completion)
 		case <-timer.C:
-			// Periodic RangeDelete; jitter desynchronizes shards.
 			d.tryAdvance(ctx)
 			timer.Reset(withJitter(d.cfg.TimerDeleteInterval, d.cfg.TimerDeleteIntervalJitter))
 		}
@@ -169,11 +186,19 @@ func (d *timerTaskDeleterImpl) run(ctx context.Context) {
 func (d *timerTaskDeleterImpl) drainDone(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case completion := <-d.doneCh:
 			d.onComplete(completion)
 		default:
+			// Re-check after tryAdvance: completions may have arrived during it.
 			d.tryAdvance(ctx)
-			return
+			select {
+			case completion := <-d.doneCh:
+				d.onComplete(completion)
+			default:
+				return
+			}
 		}
 	}
 }
@@ -189,9 +214,11 @@ func (d *timerTaskDeleterImpl) onComplete(completion TaskCompletion) {
 		)
 		return
 	}
-	// Exclusive RangeDelete misses keys >= watermark; keep them for by-ID delete.
-	wm := timerTaskKey{sortKey: d.wmSortKey, id: d.wmID}
-	if !timerTaskKeyLess(key, wm) {
+	if timerTaskKeyLess(d.maxCompleted, key) {
+		d.maxCompleted = key
+	}
+	// Exclusive RangeDelete misses keys >= deleteUpTo; keep for by-ID delete.
+	if !timerTaskKeyLess(key, d.deleteUpTo) {
 		d.completedAbove[key.id] = key
 	}
 }
@@ -199,21 +226,15 @@ func (d *timerTaskDeleterImpl) onComplete(completion TaskCompletion) {
 func (d *timerTaskDeleterImpl) tryAdvance(ctx context.Context) {
 	for {
 		d.mu.Lock()
-		candidate, ok := d.pending.Min()
-		if !ok {
-			d.mu.Unlock()
-			return
-		}
-		current := timerTaskKey{sortKey: d.wmSortKey, id: d.wmID}
-		if !timerTaskKeyLess(current, candidate) {
+		bound := d.deleteBoundLocked()
+		if !timerTaskKeyLess(d.deleteUpTo, bound) {
 			d.mu.Unlock()
 			return
 		}
 		d.mu.Unlock()
 
-		// opCtx caps at the shard lease during normal run (bounded ctx on shutdown).
 		capped, cancel := d.opCtx(ctx)
-		err := d.store.RangeDeleteTimerTasks(capped, d.shardID, candidate.sortKey, candidate.id)
+		err := d.store.RangeDeleteTimerTasks(capped, d.shardID, bound.sortKey, bound.id)
 		cancel()
 		if err != nil {
 			d.logger.Error("range delete timer tasks failed",
@@ -224,20 +245,19 @@ func (d *timerTaskDeleterImpl) tryAdvance(ctx context.Context) {
 		}
 
 		d.mu.Lock()
-		if minKey, ok := d.pending.Min(); ok && timerTaskKeyLess(minKey, candidate) {
+		if minKey, ok := d.pending.Min(); ok && timerTaskKeyLess(minKey, bound) {
 			d.mu.Unlock()
 			d.logger.Error("pending timer task below delete watermark",
 				tag.ShardId(d.shardID),
 			)
 			return
 		}
-		if timerTaskKeyLess(timerTaskKey{sortKey: d.wmSortKey, id: d.wmID}, candidate) {
-			d.wmSortKey = candidate.sortKey
-			d.wmID = candidate.id
-			d.pruneCompletedAboveLocked(candidate)
+		if timerTaskKeyLess(d.deleteUpTo, bound) {
+			d.deleteUpTo = bound
+			d.pruneCompletedAboveLocked(bound)
 		}
-		again, againOK := d.pending.Min()
-		more := againOK && timerTaskKeyLess(candidate, again)
+		again := d.deleteBoundLocked()
+		more := timerTaskKeyLess(bound, again)
 		d.mu.Unlock()
 		if !more {
 			return
@@ -245,7 +265,15 @@ func (d *timerTaskDeleterImpl) tryAdvance(ctx context.Context) {
 	}
 }
 
-// flushCompletedAbove deletes tasks RangeDelete could not cover (>= watermark).
+// deleteBoundLocked is the exclusive RangeDelete upper bound.
+// Pending non-empty: min(pending). Empty: nextAfter(maxCompleted).
+func (d *timerTaskDeleterImpl) deleteBoundLocked() timerTaskKey {
+	if minKey, ok := d.pending.Min(); ok {
+		return minKey
+	}
+	return nextTimerTaskKey(d.maxCompleted)
+}
+
 func (d *timerTaskDeleterImpl) flushCompletedAbove(ctx context.Context) {
 	d.mu.Lock()
 	if len(d.completedAbove) == 0 {
@@ -263,8 +291,6 @@ func (d *timerTaskDeleterImpl) flushCompletedAbove(ctx context.Context) {
 		batchSize = 1000
 	}
 
-	// Page the by-ID deletes so a large completed-above set does not overload
-	// the store in a single call.
 	for start := 0; start < len(uids); start += batchSize {
 		end := start + batchSize
 		if end > len(uids) {
@@ -272,7 +298,6 @@ func (d *timerTaskDeleterImpl) flushCompletedAbove(ctx context.Context) {
 		}
 		page := uids[start:end]
 
-		// opCtx caps at the shard lease during normal run (bounded ctx on shutdown).
 		capped, cancel := d.opCtx(ctx)
 		err := d.store.DeleteTimerTasksByIDBatch(capped, d.shardID, page)
 		cancel()
@@ -304,25 +329,35 @@ func (d *timerTaskDeleterImpl) DoneCh() chan<- TaskCompletion {
 	return d.doneCh
 }
 
-// InsertPending records a task before the reader hands it to the executor.
-// In-memory only: the watermark advances and deletes happen on the deleter
-// goroutine (onComplete / ticker), never on the reader's goroutine.
 func (d *timerTaskDeleterImpl) InsertPending(sortKey int64, id ids.UID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
 	key := timerTaskKey{sortKey: sortKey, id: id}
-	if !timerTaskKeyLess(timerTaskKey{sortKey: d.wmSortKey, id: d.wmID}, key) {
-		panic("InsertPending key must be above delete watermark")
+	if !timerTaskKeyLess(d.deleteUpTo, key) {
+		panic("InsertPending key must be above delete high-water")
 	}
 	if _, existed := d.pending.ReplaceOrInsert(key); existed {
 		panic("InsertPending duplicate timer task key")
 	}
 }
 
+func (d *timerTaskDeleterImpl) RemovePending(sortKey int64, id ids.UID) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pending.Delete(timerTaskKey{sortKey: sortKey, id: id})
+}
+
 func (d *timerTaskDeleterImpl) GetWatermark() (sortKey int64, id ids.UID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.wmSortKey, d.wmID
+	// Reclaim reads strictly after this key. Never publish an in-flight key:
+	// when pending is non-empty, publish predecessor(min) so min is re-readable.
+	if minKey, ok := d.pending.Min(); ok {
+		prev := prevTimerTaskKey(minKey)
+		return prev.sortKey, prev.id
+	}
+	return d.maxCompleted.sortKey, d.maxCompleted.id
 }
 
 type timerTaskKey struct {
@@ -335,4 +370,33 @@ func timerTaskKeyLess(a, b timerTaskKey) bool {
 		return a.sortKey < b.sortKey
 	}
 	return a.id.Compare(b.id) < 0
+}
+
+func nextTimerTaskKey(key timerTaskKey) timerTaskKey {
+	u := key.id.UUID()
+	for i := 15; i >= 0; i-- {
+		u[i]++
+		if u[i] != 0 {
+			return timerTaskKey{sortKey: key.sortKey, id: ids.UID(u)}
+		}
+	}
+	return timerTaskKey{sortKey: key.sortKey + 1, id: ids.EmptyUId()}
+}
+
+func prevTimerTaskKey(key timerTaskKey) timerTaskKey {
+	u := key.id.UUID()
+	for i := 15; i >= 0; i-- {
+		if u[i] > 0 {
+			u[i]--
+			for j := i + 1; j < 16; j++ {
+				u[j] = 0xff
+			}
+			return timerTaskKey{sortKey: key.sortKey, id: ids.UID(u)}
+		}
+	}
+	var maxID ids.UID
+	for i := range maxID {
+		maxID[i] = 0xff
+	}
+	return timerTaskKey{sortKey: key.sortKey - 1, id: maxID}
 }

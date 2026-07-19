@@ -34,10 +34,9 @@ import (
 type TaskExecutor interface {
 	Start(ctx context.Context)
 	Stop()
-	// Submit enqueues a task, blocking while the queue is full. Returns without
-	// enqueuing once Stop has run, so a producer is never blocked forever on a
-	// stopped pool; the task stays in the DB and is re-read after failover.
-	Submit(item *taskItem)
+	// Submit enqueues a task, blocking while the queue is full. Returns false
+	// without enqueuing once Stop has run so producers are never stuck forever.
+	Submit(item *taskItem) bool
 	TaskChan() chan<- *taskItem
 }
 
@@ -62,6 +61,9 @@ type taskItem struct {
 	timer     *p.TimerTaskRow
 	// doneCh reports completion to the task deleter. Optional.
 	doneCh chan<- TaskCompletion
+	// genCtx is the shard-generation context at submit time. The handler runs
+	// under it, so ownership loss fences execution and the task is not completed.
+	genCtx context.Context
 }
 
 func NewTaskExecutor(
@@ -81,8 +83,6 @@ func NewTaskExecutor(
 	if cfg.NumWorkers <= 0 {
 		panic("TaskProcessorConfig.NumWorkers must be > 0")
 	}
-	// A zero/negative per-attempt timeout makes every attempt context expire
-	// immediately, so every task would fail instantly.
 	if cfg.HandleAttemptTimeout <= 0 {
 		panic("TaskProcessorConfig.HandleAttemptTimeout must be > 0")
 	}
@@ -96,12 +96,12 @@ func NewTaskExecutor(
 	}
 }
 
-func newImmediateTaskItem(shardID int32, task *p.ImmediateTaskRow, doneCh chan<- TaskCompletion) *taskItem {
-	return &taskItem{shardID: shardID, immediate: task, doneCh: doneCh}
+func newImmediateTaskItem(shardID int32, task *p.ImmediateTaskRow, doneCh chan<- TaskCompletion, genCtx context.Context) *taskItem {
+	return &taskItem{shardID: shardID, immediate: task, doneCh: doneCh, genCtx: genCtx}
 }
 
-func newTimerTaskItem(shardID int32, task *p.TimerTaskRow, doneCh chan<- TaskCompletion) *taskItem {
-	return &taskItem{shardID: shardID, timer: task, doneCh: doneCh}
+func newTimerTaskItem(shardID int32, task *p.TimerTaskRow, doneCh chan<- TaskCompletion, genCtx context.Context) *taskItem {
+	return &taskItem{shardID: shardID, timer: task, doneCh: doneCh, genCtx: genCtx}
 }
 
 func (e *taskExecutorImpl) Start(ctx context.Context) {
@@ -121,16 +121,25 @@ func (e *taskExecutorImpl) Stop() {
 	if e.cancel == nil {
 		return
 	}
-	close(e.done) // release any producer blocked in Submit before workers exit
+	close(e.done)
 	e.cancel()
 	e.wg.Wait()
 	e.cancel = nil
+
+	// Queued-but-unexecuted items are dropped, NOT completed: completing them
+	// would delete un-run tasks. They stay in the deleter's pending (watermark
+	// blocked) and in the DB, and are re-read after failover / restart.
 }
 
-func (e *taskExecutorImpl) Submit(item *taskItem) {
+func (e *taskExecutorImpl) Submit(item *taskItem) bool {
+	if e.done == nil {
+		return false
+	}
 	select {
 	case e.taskChan <- item:
+		return true
 	case <-e.done:
+		return false
 	}
 }
 
@@ -154,45 +163,72 @@ func (e *taskExecutorImpl) execute(parent context.Context, item *taskItem) {
 		)
 		return
 	}
-	defer e.notifyDone(item)
 
-	// Retry only retriable (infra/transient) errors; DoCategorized inspects
-	// IsRetriable, so business errors fail after one attempt. Each attempt gets
-	// its own HandleAttemptTimeout. parent cancellation aborts the retry loop.
+	// Fence to the shard generation: the handler aborts the moment this claim is
+	// detached, so a stale owner cannot keep executing after reclaim.
+	handlerCtx := parent
+	if item.genCtx != nil {
+		var cancel context.CancelFunc
+		handlerCtx, cancel = context.WithCancel(parent)
+		stop := context.AfterFunc(item.genCtx, cancel)
+		defer stop()
+		defer cancel()
+	}
+
 	retry := backoff.NewRetry(backoff.WithRetryPolicy(e.retryPolicy))
-	err := retry.DoCategorized(parent, func(ctx context.Context) errors.CategorizedError {
+	err := retry.DoCategorized(handlerCtx, func(ctx context.Context) errors.CategorizedError {
 		attemptCtx, cancel := context.WithTimeout(ctx, e.cfg.HandleAttemptTimeout)
 		defer cancel()
 		return e.handleOnce(attemptCtx, item)
 	})
+
+	// Success: commit for deletion.
 	if err == nil {
+		e.notifyDone(item)
+		return
+	}
+
+	// Ownership fenced: never complete — the new owner re-processes.
+	if item.genCtx != nil && item.genCtx.Err() != nil {
 		return
 	}
 
 	tags := []tag.Tag{tag.ShardId(item.shardID), tag.Error(err)}
-	switch err.GetCategory() {
-	case errors.ErrorCategoryInternal, errors.ErrorCategoryUnavailable:
-		e.logger.Error("task handle failed after retries", tags...)
-	default:
-		e.logger.Debug("task handle failed", tags...)
+	// Retriable exhausted: retain (no DLQ yet). Do NOT complete; the watermark
+	// blocks on this task until it succeeds or is sidelined.
+	if err.IsRetriable() {
+		e.logger.Error("task handle failed after retries; retained, watermark blocked", tags...)
+		return
 	}
+
+	// Non-retriable (business) outcome: definitive, commit for deletion.
+	e.logger.Debug("task handle failed (non-retriable)", tags...)
+	e.notifyDone(item)
 }
 
-// notifyDone advances the deleter even when handling failed.
+// notifyDone is non-blocking so a stopped deleter cannot stall the shared pool.
 func (e *taskExecutorImpl) notifyDone(item *taskItem) {
 	if item.doneCh == nil {
 		return
 	}
+	var completion TaskCompletion
 	switch {
 	case item.timer != nil:
-		item.doneCh <- TaskCompletion{SortKey: item.timer.SortKey, ID: item.timer.ID}
+		completion = TaskCompletion{SortKey: item.timer.SortKey, ID: item.timer.ID}
 	case item.immediate != nil:
-		item.doneCh <- TaskCompletion{SortKey: item.immediate.SortKey, ID: item.immediate.ID}
+		completion = TaskCompletion{SortKey: item.immediate.SortKey, ID: item.immediate.ID}
+	default:
+		return
+	}
+	select {
+	case item.doneCh <- completion:
+	default:
+		e.logger.Error("task completion dropped; DoneCh full or consumer stopped",
+			tag.ShardId(item.shardID),
+		)
 	}
 }
 
-// handleOnce dispatches one attempt. execute guarantees exactly one of
-// immediate / timer is set before this runs.
 func (e *taskExecutorImpl) handleOnce(ctx context.Context, item *taskItem) errors.CategorizedError {
 	if item.immediate != nil {
 		return e.handler.HandleImmediateTask(ctx, item.shardID, item.immediate)

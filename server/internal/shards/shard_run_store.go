@@ -126,40 +126,40 @@ func (s *shardRunStoreImpl) lockedWrite(
 	write func(context.Context) errors.CategorizedError,
 ) errors.CategorizedError {
 	if hasImmediateTask(tasks) {
-		seqLock, err := s.sm.AcquireImmediateTaskSeqLock(shardID)
+		state, err := s.sm.AcquireImmediateTaskSeqLock(shardID)
 		if err != nil {
 			return err
 		}
-		defer seqLock.Unlock()
-		allocateImmediateSortKeys(seqLock, tasks)
+		defer state.UnlockImmediate()
+		allocateImmediateSortKeys(state, tasks)
 	}
 
 	if hasTimerTask(tasks) {
-		timerLock, err := s.sm.AcquireTimerTaskWriteLock(shardID)
+		state, err := s.sm.AcquireTimerTaskWriteLock(shardID)
 		if err != nil {
 			return err
 		}
-		defer timerLock.Unlock()
-		floorTimerFireTimes(timerLock, tasks)
+		defer state.UnlockTimer()
+		floorTimerFireTimes(state, tasks)
 	}
 
 	return write(writeCtx)
 }
 
-func allocateImmediateSortKeys(seqLock ImmediateTaskSeqLock, tasks []p.TaskRow) {
+func allocateImmediateSortKeys(state *shardState, tasks []p.TaskRow) {
 	for i := range tasks {
 		imm := tasks[i].Immediate
 		if imm == nil || imm.SortKey != 0 {
 			continue
 		}
-		imm.SortKey = seqLock.Next()
+		imm.SortKey = state.NextImmediateSeq()
 	}
 }
 
-func floorTimerFireTimes(timerLock TimerTaskWriteLock, tasks []p.TaskRow) {
+func floorTimerFireTimes(state *shardState, tasks []p.TaskRow) {
 	for i := range tasks {
 		if timer := tasks[i].Timer; timer != nil {
-			timer.SortKey = timerLock.FloorFireTime(timer.SortKey)
+			timer.SortKey = state.FloorFireTime(timer.SortKey)
 		}
 	}
 }

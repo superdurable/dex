@@ -33,6 +33,7 @@ import (
 // and injected; their lifecycle is managed by the caller, not per shard.
 type taskProcessorManagerImpl struct {
 	cfg      *config.TaskProcessorConfig
+	shardCfg *config.ShardConfig
 	store    p.RunStore
 	sm       shards.ShardManager
 	executor TaskExecutor
@@ -55,6 +56,7 @@ var _ shards.TaskProcessorsManager = (*taskProcessorManagerImpl)(nil)
 
 func NewTaskProcessorManagerImpl(
 	cfg *config.TaskProcessorConfig,
+	shardCfg *config.ShardConfig,
 	store p.RunStore,
 	sm shards.ShardManager,
 	executor TaskExecutor,
@@ -63,6 +65,9 @@ func NewTaskProcessorManagerImpl(
 ) shards.TaskProcessorsManager {
 	if cfg == nil {
 		panic("TaskProcessorConfig must not be nil")
+	}
+	if shardCfg == nil {
+		panic("ShardConfig must not be nil")
 	}
 	if store == nil {
 		panic("RunStore must not be nil")
@@ -81,6 +86,7 @@ func NewTaskProcessorManagerImpl(
 	}
 	return &taskProcessorManagerImpl{
 		cfg:      cfg,
+		shardCfg: shardCfg,
 		store:    store,
 		sm:       sm,
 		executor: executor,
@@ -96,9 +102,9 @@ func (t *taskProcessorManagerImpl) StartShard(shardID int32, initMetadata p.Shar
 	perShard := t.notifier.AddShard(shardID)
 
 	immediateDeleter := NewImmediateTaskDeleter(
-		t.cfg, t.store, t.sm, shardID, initMetadata.ImmediateTaskCommittedSeq, t.logger)
+		t.cfg, t.shardCfg, t.store, t.sm, shardID, initMetadata.ImmediateTaskCommittedSeq, t.logger)
 	timerDeleter := NewTimerTaskDeleter(
-		t.cfg, t.store, t.sm, shardID,
+		t.cfg, t.shardCfg, t.store, t.sm, shardID,
 		initMetadata.TimerTaskCommittedSortKey, initMetadata.TimerTaskCommittedID, t.logger)
 
 	immediateReader := NewImmediateTaskReader(
@@ -128,9 +134,10 @@ func (t *taskProcessorManagerImpl) StartShard(shardID int32, initMetadata p.Shar
 }
 
 // StopShard stops the shard's components and drops its notifier. Readers stop
-// first so no new task is submitted or pending inserted, then the deleters
-// drain their DoneCh and flush before returning.
-func (t *taskProcessorManagerImpl) StopShard(shardID int32) {
+// first so no new task is submitted or pending inserted, then the deleters.
+// forced=true (ownership lost) skips the deleters' unfenced store cleanup so a
+// stale owner cannot delete the new owner's tasks; forced=false flushes.
+func (t *taskProcessorManagerImpl) StopShard(shardID int32, forced bool) {
 	t.mu.Lock()
 	procs, ok := t.shards[shardID]
 	if ok {
@@ -143,8 +150,8 @@ func (t *taskProcessorManagerImpl) StopShard(shardID int32) {
 
 	procs.immediateReader.Stop()
 	procs.timerReader.Stop()
-	procs.immediateDeleter.Stop()
-	procs.timerDeleter.Stop()
+	procs.immediateDeleter.Stop(forced)
+	procs.timerDeleter.Stop(forced)
 
 	t.notifier.RemoveShard(shardID)
 	t.logger.Info("stopped task processors for shard", tag.ShardId(shardID))

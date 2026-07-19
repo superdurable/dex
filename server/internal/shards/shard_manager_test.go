@@ -248,7 +248,7 @@ func (f *fakeFactory) StartShard(shardID int32, metadata p.ShardMetadata) {
 	f.started[shardID] = metadata.RangeID
 }
 
-func (f *fakeFactory) StopShard(shardID int32) {
+func (f *fakeFactory) StopShard(shardID int32, _ bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stopped[shardID]++

@@ -200,6 +200,13 @@ func (r *timerTaskReaderImpl) pollAndSubmit(ctx context.Context) time.Time {
 		return now.Add(r.cfg.TimerMaxLookAheadDuration)
 	}
 
+	// Generation context for the tasks we submit this poll; fences the handler on
+	// ownership loss.
+	genCtx, err := r.sm.ShardContext(r.shardID)
+	if err != nil {
+		return now.Add(r.cfg.TimerMaxLookAheadDuration)
+	}
+
 	readCtx, cancel := r.sm.GetCappedContext(ctx, r.shardID)
 	tasks, err := r.store.RangeReadTimerTasks(
 		readCtx,
@@ -240,7 +247,10 @@ func (r *timerTaskReaderImpl) pollAndSubmit(ctx context.Context) time.Time {
 			return time.Now()
 		}
 		r.deleter.InsertPending(task.SortKey, task.ID)
-		r.executor.Submit(newTimerTaskItem(r.shardID, task, r.deleter.DoneCh()))
+		if !r.executor.Submit(newTimerTaskItem(r.shardID, task, r.deleter.DoneCh(), genCtx)) {
+			r.deleter.RemovePending(task.SortKey, task.ID)
+			return time.Now()
+		}
 		r.lastSortKey = task.SortKey
 		r.lastID = task.ID
 	}

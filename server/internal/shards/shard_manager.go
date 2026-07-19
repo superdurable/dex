@@ -46,40 +46,27 @@ type ShardManager interface {
 	GetOwnedShards() []int32
 	IsLocalShard(shardID int32) bool
 	InformShardLost(shardID int32)
-	// GetCappedContext caps parentCtx at leaseExpiresAt - LeaseExpiryBuffer.
+	// GetCappedContext caps parentCtx at leaseExpiresAt - LeaseExpiryBuffer, and
+	// also cancels when the shard's claim is detached (generation fence).
 	GetCappedContext(parentCtx context.Context, shardID int32) (context.Context, context.CancelFunc)
+	// ShardContext returns the shard-generation context (cancelled on detach), for
+	// task items to carry so a handler is fenced on ownership loss.
+	ShardContext(shardID int32) (context.Context, errors.CategorizedError)
 	// GetShardOwnerAddress returns the owner's gRPC address, or "" if local.
 	GetShardOwnerAddress(shardID int32) string
 	// AcquireImmediateTaskSeqLock locks the shard's immediate-seq mutex and
-	// returns a handle bound to that shard state. Hold it across Next() AND the
-	// DB write, then Unlock, so commits land in seq-allocation order. Binding to
+	// returns that shard state. Hold it across NextImmediateSeq AND the DB write,
+	// then UnlockImmediate, so commits land in seq-allocation order. Binding to
 	// the captured state avoids a re-lookup racing a concurrent re-claim.
-	AcquireImmediateTaskSeqLock(shardID int32) (ImmediateTaskSeqLock, errors.CategorizedError)
+	AcquireImmediateTaskSeqLock(shardID int32) (*shardState, errors.CategorizedError)
 	// AdvanceTimerReadLevel raises the shard's timer read watermark to readLevel
 	// (monotonic). Timer writes floor fire times to this watermark, so no timer is
 	// ever committed below where the reader has already read. Call before each read.
 	AdvanceTimerReadLevel(shardID int32, readLevel int64) errors.CategorizedError
-	// AcquireTimerTaskWriteLock locks the shard's timer-write mutex and returns a
-	// handle. Hold it across FloorFireTime AND the DB write, then Unlock, so a timer
-	// cannot be committed below the read watermark after the reader passed it.
-	AcquireTimerTaskWriteLock(shardID int32) (TimerTaskWriteLock, errors.CategorizedError)
-	GetShardVersion(shardID int32) int64
-}
-
-// ImmediateTaskSeqLock is a held seq lock bound to one shard state. Next
-// allocates seqs under the lock; Unlock releases it after the DB write.
-type ImmediateTaskSeqLock interface {
-	// Next returns TaskSeq = (RangeID << 32) | LocalSeq. Panics on LocalSeq overflow.
-	Next() int64
-	Unlock()
-}
-
-// TimerTaskWriteLock is a held timer-write lock bound to one shard state.
-type TimerTaskWriteLock interface {
-	// FloorFireTime returns sortKey, or readWatermark+1 if sortKey is at or below
-	// the watermark, so the timer lands strictly above what the reader has read.
-	FloorFireTime(sortKey int64) int64
-	Unlock()
+	// AcquireTimerTaskWriteLock locks the shard's timer-write mutex and returns
+	// that shard state. Hold it across FloorFireTime AND the DB write, then
+	// UnlockTimer, so a timer cannot be committed below the read watermark.
+	AcquireTimerTaskWriteLock(shardID int32) (*shardState, errors.CategorizedError)
 }
 
 type shardManagerImpl struct {
@@ -124,6 +111,10 @@ type shardState struct {
 	readyCh   chan struct{}
 	readyOnce sync.Once
 
+	// genCtx is the shard-generation context, cancelled by renewCancel on any
+	// detach (lost/released). Capped contexts and in-flight handlers derive from
+	// it, so ownership loss fences all work for this claim immediately.
+	genCtx      context.Context
 	renewCancel context.CancelFunc
 
 	startMu               sync.Mutex
@@ -248,16 +239,6 @@ func (m *shardManagerImpl) IsLocalShard(shardID int32) bool {
 	return ok
 }
 
-func (m *shardManagerImpl) GetShardVersion(shardID int32) int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	state, ok := m.ownedShards[shardID]
-	if !ok {
-		return 0
-	}
-	return state.version
-}
-
 func (m *shardManagerImpl) GetShardOwnerAddress(shardID int32) string {
 	if m.IsLocalShard(shardID) {
 		return ""
@@ -272,9 +253,13 @@ func (m *shardManagerImpl) GetShardOwnerAddress(shardID int32) string {
 func (m *shardManagerImpl) GetCappedContext(parentCtx context.Context, shardID int32) (context.Context, context.CancelFunc) {
 	m.mu.RLock()
 	state, ok := m.ownedShards[shardID]
-	var leaseExpiresAt time.Time
+	var (
+		leaseExpiresAt time.Time
+		genCtx         context.Context
+	)
 	if ok {
 		leaseExpiresAt = state.leaseExpiresAt
+		genCtx = state.genCtx
 	}
 	m.mu.RUnlock()
 
@@ -293,7 +278,24 @@ func (m *shardManagerImpl) GetCappedContext(parentCtx context.Context, shardID i
 		cancel()
 		return ctx, cancel
 	}
-	return context.WithDeadline(parentCtx, deadline)
+
+	ctx, cancel := context.WithDeadline(parentCtx, deadline)
+	// Fence to the shard generation: cancel the moment this claim is detached
+	// (lost/released), not merely at the lease deadline.
+	stop := context.AfterFunc(genCtx, cancel)
+	return ctx, func() { stop(); cancel() }
+}
+
+// ShardContext returns the shard's generation context, cancelled when this claim
+// is detached. Task items carry it so a handler is fenced on ownership loss.
+func (m *shardManagerImpl) ShardContext(shardID int32) (context.Context, errors.CategorizedError) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	state, ok := m.ownedShards[shardID]
+	if !ok {
+		return nil, errors.NewUnavailableError("shard is not owned locally", nil)
+	}
+	return state.genCtx, nil
 }
 
 func (m *shardManagerImpl) AwaitShardReady(ctx context.Context, shardID int32) errors.CategorizedError {
@@ -330,27 +332,23 @@ func (m *shardManagerImpl) AwaitShardReady(ctx context.Context, shardID int32) e
 	}
 }
 
-func (m *shardManagerImpl) AcquireImmediateTaskSeqLock(shardID int32) (ImmediateTaskSeqLock, errors.CategorizedError) {
+func (m *shardManagerImpl) AcquireImmediateTaskSeqLock(shardID int32) (*shardState, errors.CategorizedError) {
 	state, err := m.requireOwnedShard(shardID)
 	if err != nil {
 		return nil, err
 	}
 	state.immediateMu.Lock()
-	return &immediateTaskSeqLock{state: state}, nil
+	return state, nil
 }
 
-// immediateTaskSeqLock binds the held mutex and the seq counter to one state
-// instance, so allocation cannot land on a different (re-claimed) state.
-type immediateTaskSeqLock struct {
-	state *shardState
+// NextImmediateSeq returns TaskSeq = (RangeID << 32) | LocalSeq. Call under
+// immediateMu (via AcquireImmediateTaskSeqLock). Panics on LocalSeq overflow.
+func (s *shardState) NextImmediateSeq() int64 {
+	return nextTaskSeq(&s.immediateLocalSeq, s.rangeID, "immediate")
 }
 
-func (l *immediateTaskSeqLock) Next() int64 {
-	return nextTaskSeq(&l.state.immediateLocalSeq, l.state.rangeID, "immediate")
-}
-
-func (l *immediateTaskSeqLock) Unlock() {
-	l.state.immediateMu.Unlock()
+func (s *shardState) UnlockImmediate() {
+	s.immediateMu.Unlock()
 }
 
 func (m *shardManagerImpl) AdvanceTimerReadLevel(shardID int32, readLevel int64) errors.CategorizedError {
@@ -366,30 +364,26 @@ func (m *shardManagerImpl) AdvanceTimerReadLevel(shardID int32, readLevel int64)
 	return nil
 }
 
-func (m *shardManagerImpl) AcquireTimerTaskWriteLock(shardID int32) (TimerTaskWriteLock, errors.CategorizedError) {
+func (m *shardManagerImpl) AcquireTimerTaskWriteLock(shardID int32) (*shardState, errors.CategorizedError) {
 	state, err := m.requireOwnedShard(shardID)
 	if err != nil {
 		return nil, err
 	}
 	state.timerMu.Lock()
-	return &timerTaskWriteLock{state: state}, nil
+	return state, nil
 }
 
-// timerTaskWriteLock binds the held timer mutex and the read watermark to one
-// state instance, so flooring reads a consistent, non-racy watermark.
-type timerTaskWriteLock struct {
-	state *shardState
-}
-
-func (l *timerTaskWriteLock) FloorFireTime(sortKey int64) int64 {
-	if sortKey <= l.state.timerMaxReadSortKey {
-		return l.state.timerMaxReadSortKey + 1
+// FloorFireTime returns sortKey, or readWatermark+1 if sortKey is at or below
+// the watermark. Call under timerMu (via AcquireTimerTaskWriteLock).
+func (s *shardState) FloorFireTime(sortKey int64) int64 {
+	if sortKey <= s.timerMaxReadSortKey {
+		return s.timerMaxReadSortKey + 1
 	}
 	return sortKey
 }
 
-func (l *timerTaskWriteLock) Unlock() {
-	l.state.timerMu.Unlock()
+func (s *shardState) UnlockTimer() {
+	s.timerMu.Unlock()
 }
 
 func (m *shardManagerImpl) InformShardLost(shardID int32) {
@@ -399,11 +393,11 @@ func (m *shardManagerImpl) InformShardLost(shardID int32) {
 	}
 
 	state.renewCancel()
-	state.stopTaskProcessors(m.taskProcessorManager)
+	// StopShard waits (bounded) for in-flight completions before returning.
+	state.stopTaskProcessors(m.taskProcessorManager, true)
 
-	// No graceful pause here: the lease is already lost, so in-flight work is
-	// running with an expired capped context and has nothing to drain. Release
-	// and rebalance immediately to minimize the re-claim gap.
+	// No extra graceful pause: lease is already lost. StopShard's drain is the
+	// bound; release promptly so another member can reclaim.
 	relCtx, relCancel := m.releaseContext()
 	if err := m.store.ReleaseShard(relCtx, shardID, m.memberID, state.version); err != nil {
 		m.logger.Warn("best-effort release after shard lost failed",
@@ -519,7 +513,8 @@ func (m *shardManagerImpl) releaseShards(states []*shardState) {
 	entries := make([]p.ShardReleaseEntry, 0, len(states))
 	for _, state := range states {
 		state.renewCancel()
-		state.stopTaskProcessors(m.taskProcessorManager)
+		// StopShard waits for in-flight completions (bounded) before returning.
+		state.stopTaskProcessors(m.taskProcessorManager, false)
 		entries = append(entries, p.ShardReleaseEntry{
 			ShardID:         state.shardID,
 			ExpectedVersion: state.version,
@@ -527,6 +522,8 @@ func (m *shardManagerImpl) releaseShards(states []*shardState) {
 		m.logger.Info("releasing shard", tag.ShardId(state.shardID))
 	}
 
+	// Extra pause after drain so any lease-capped store op started before detach
+	// can finish before the shard becomes claimable.
 	m.gracefulPause()
 
 	relCtx, relCancel := m.releaseContext()
@@ -572,14 +569,15 @@ func (m *shardManagerImpl) claimShard(shardID int32) errors.CategorizedError {
 
 	renewCtx, renewCancel := context.WithCancel(m.ctx)
 	state := &shardState{
-		shardID:         shardID,
-		version:         shard.Version,
+		shardID:             shardID,
+		version:             shard.Version,
 		rangeID:             shard.Metadata.RangeID,
 		initialMetadata:     shard.Metadata,
 		leaseExpiresAt:      shard.LeaseExpiresAt,
 		timerMaxReadSortKey: shard.Metadata.TimerTaskCommittedSortKey,
-		readyCh:         make(chan struct{}),
-		renewCancel:     renewCancel,
+		readyCh:             make(chan struct{}),
+		genCtx:              renewCtx,
+		renewCancel:         renewCancel,
 	}
 
 	m.mu.Lock()
@@ -694,15 +692,18 @@ func (m *shardManagerImpl) leaseRenewalLoop(ctx context.Context, state *shardSta
 	}
 }
 
+// renewLease retries a transient renewal failure with jittered backoff until the
+// local lease is about to expire, instead of burning a small attempt budget in
+// milliseconds. Only a CAS/version mismatch is treated as a definitive fence.
 func (m *shardManagerImpl) renewLease(ctx context.Context, state *shardState) errors.CategorizedError {
 	metadata := m.taskProcessorManager.GetShardMetadata(state.shardID)
-	maxAttempts := m.cfg.Membership.OwnershipOpsMaxAttempts
-	if maxAttempts <= 0 {
-		maxAttempts = 3
-	}
+
+	m.mu.RLock()
+	leaseDeadline := state.leaseExpiresAt.Add(-m.cfg.LeaseExpiryBuffer)
+	m.mu.RUnlock()
 
 	var lastErr errors.CategorizedError
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for {
 		if ctx.Err() != nil {
 			return errors.NewUnavailableError("renew canceled", ctx.Err())
 		}
@@ -718,14 +719,26 @@ func (m *shardManagerImpl) renewLease(ctx context.Context, state *shardState) er
 			return nil
 		}
 		lastErr = err
-		if err.IsCASError() || err.IsConflictError() {
+		// CAS/version mismatch: another owner fenced us — give up immediately.
+		if err.IsCASError() || err.IsConflictError() || !err.IsRetriableExcludingCASError() {
 			return err
 		}
-		if !err.IsRetriableExcludingCASError() || attempt == maxAttempts {
-			return err
+		// Transient: keep retrying with backoff while the lease still has room.
+		backoff := withJitter(m.cfg.LeaseRenewInterval, m.cfg.LeaseRenewJitter)
+		if time.Now().Add(backoff).After(leaseDeadline) {
+			return lastErr
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return errors.NewUnavailableError("renew canceled", ctx.Err())
+		case <-m.shutdownCh:
+			timer.Stop()
+			return errors.NewUnavailableError("shard manager is shutting down", nil)
+		case <-timer.C:
 		}
 	}
-	return lastErr
 }
 
 // stopAllOwned detaches and stops every owned shard, returning release entries.
@@ -742,7 +755,7 @@ func (m *shardManagerImpl) stopAllOwned() []p.ShardReleaseEntry {
 	entries := make([]p.ShardReleaseEntry, 0, len(states))
 	for _, state := range states {
 		state.renewCancel()
-		state.stopTaskProcessors(m.taskProcessorManager)
+		state.stopTaskProcessors(m.taskProcessorManager, false)
 		entries = append(entries, p.ShardReleaseEntry{
 			ShardID:         state.shardID,
 			ExpectedVersion: state.version,
@@ -792,12 +805,15 @@ func (s *shardState) startTaskProcessors(processorsManager TaskProcessorsManager
 	s.markReady()
 }
 
-func (s *shardState) stopTaskProcessors(processorsManager TaskProcessorsManager) {
+// stopTaskProcessors stops the shard's processors. forced=true (ownership lost)
+// skips unfenced store cleanup; forced=false (voluntary release, lease still
+// held) lets the deleters flush.
+func (s *shardState) stopTaskProcessors(processorsManager TaskProcessorsManager, forced bool) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	s.stopped = true
 	if s.taskProcessorsStarted {
-		processorsManager.StopShard(s.shardID)
+		processorsManager.StopShard(s.shardID, forced)
 		s.taskProcessorsStarted = false
 	}
 	// Unblock AwaitShardReady; callers re-check ownership after wake.

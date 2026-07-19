@@ -25,7 +25,7 @@ import (
 // Using a separate interface to avoid circular dependencies.
 type TaskProcessorsManager interface {
 	StartShard(shardID int32, initMetadata p.ShardMetadata)
-	StopShard(shardID int32)
+	StopShard(shardID int32, forced bool)
 	GetShardMetadata(shardID int32) *p.ShardMetadata
 
 	NotifyNewImmediateTask(shardID int32)

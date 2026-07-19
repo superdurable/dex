@@ -159,6 +159,13 @@ func (r *immediateTaskReaderImpl) awaitNotifyOrInterval(ctx context.Context) err
 }
 
 func (r *immediateTaskReaderImpl) pollAndSubmit(ctx context.Context) int {
+	// Generation context for the tasks we submit this poll; fences the handler on
+	// ownership loss.
+	genCtx, gerr := r.sm.ShardContext(r.shardID)
+	if gerr != nil {
+		return 0
+	}
+
 	readCtx, cancel := r.sm.GetCappedContext(ctx, r.shardID)
 	tasks, err := r.store.RangeReadImmediateTasks(
 		readCtx,
@@ -180,7 +187,10 @@ func (r *immediateTaskReaderImpl) pollAndSubmit(ctx context.Context) int {
 			return len(tasks)
 		}
 		r.deleter.InsertPending(task.SortKey)
-		r.executor.Submit(newImmediateTaskItem(r.shardID, task, r.deleter.DoneCh()))
+		if !r.executor.Submit(newImmediateTaskItem(r.shardID, task, r.deleter.DoneCh(), genCtx)) {
+			r.deleter.RemovePending(task.SortKey)
+			return len(tasks)
+		}
 		r.lastSeq = task.SortKey
 	}
 	return len(tasks)
