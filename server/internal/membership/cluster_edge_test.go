@@ -174,7 +174,7 @@ func TestMembership_MinMembersBeforeReadyInterruptedByStop(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- mem.Start() }()
 
-	require.Eventually(t, func() bool { return impl.mlist != nil }, 5*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool { return impl.getMlist() != nil }, 5*time.Second, 20*time.Millisecond)
 	mem.Stop()
 
 	select {
@@ -277,8 +277,8 @@ func TestMembership_GrpcMetaUpdateWithoutRename(t *testing.T) {
 	leavesBefore := probeA.leaveCount()
 	rebBefore := probeA.rebalances()
 	newGrpc := "127.0.0.1:59998"
-	b.impl.grpcAddress = newGrpc
-	require.NoError(t, b.impl.mlist.UpdateNode(2*time.Second))
+	b.impl.grpcAddress.Store(newGrpc)
+	require.NoError(t, b.impl.getMlist().UpdateNode(2*time.Second))
 
 	require.Eventually(t, func() bool {
 		return a.mem.GetGrpcAddressForMember(b.id) == newGrpc
@@ -307,7 +307,7 @@ func TestMembership_IsolateThenMerge(t *testing.T) {
 		return a.mem.GetGrpcAddressForMember(c.id) != "" || c.mem.GetGrpcAddressForMember(a.id) != ""
 	}, 400*time.Millisecond, 50*time.Millisecond)
 
-	_, err := a.impl.mlist.Join([]string{c.gossip})
+	_, err := a.impl.getMlist().Join([]string{c.gossip})
 	require.NoError(t, err)
 
 	requireSeesEventually(t, a, b, c, d)

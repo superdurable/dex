@@ -101,7 +101,7 @@ type nodeMetadata struct {
 
 func (d *metaDelegate) NodeMeta(limit int) []byte {
 	metadata := nodeMetadata{
-		GrpcAddress: d.m.grpcAddress,
+		GrpcAddress: d.m.grpcAddress.Load().(string),
 	}
 
 	meta, err := json.Marshal(metadata)

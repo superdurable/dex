@@ -23,6 +23,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/memberlist"
@@ -52,8 +53,8 @@ type membershipImpl struct {
 	cfg      *config.MembershipConfig
 	logger   log.Logger
 	memberID string
-	// for peer to forward grpc requests
-	grpcAddress string
+	// Peer dial target in NodeMeta. Atomic so gossip need not take memberMu.
+	grpcAddress atomic.Value // string
 
 	memberGrpcAddresses map[string]string // memberID -> gRPC address
 	memberMu            sync.RWMutex
@@ -68,6 +69,7 @@ type membershipImpl struct {
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	stopped  bool // for Start/Stop coordination
 
 	dnsLookupForTest lookupDNSHosts // nil for production
 	// used as port for dns discovered address
@@ -112,13 +114,12 @@ func newMembershipWithLookup(
 		panic("membership grpcAddressForPeer is empty")
 	}
 
-	return &membershipImpl{
+	m := &membershipImpl{
 		hring: hashring.NewWithWeights(map[string]int{memberID: cfg.NumberOfVNodes}),
 
-		cfg:         cfg,
-		logger:      logger,
-		memberID:    memberID,
-		grpcAddress: grpcAddress,
+		cfg:      cfg,
+		logger:   logger,
+		memberID: memberID,
 
 		memberGrpcAddresses: make(map[string]string),
 		onRebalance:         onRebalance,
@@ -127,6 +128,8 @@ func newMembershipWithLookup(
 		stopCh:           make(chan struct{}),
 		dnsLookupForTest: dnsLookup,
 	}
+	m.grpcAddress.Store(grpcAddress)
+	return m
 }
 
 func (m *membershipImpl) Start() errors.CategorizedError {
@@ -166,7 +169,15 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 	if rerr != nil {
 		return errors.NewInternalError("failed to create memberlist", rerr)
 	}
+
+	m.memberMu.Lock()
+	if m.stopped {
+		m.memberMu.Unlock()
+		m.shutdownMemberlist(list)
+		return nil
+	}
 	m.mlist = list
+	m.memberMu.Unlock()
 
 	return m.bootstrap()
 }
@@ -174,16 +185,24 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 func (m *membershipImpl) Stop() {
 	m.stopOnce.Do(func() {
 		close(m.stopCh)
-		if m.mlist == nil {
-			return
-		}
-		if err := m.mlist.Leave(5 * time.Second); err != nil {
-			m.logger.Warn("failed to leave memberlist", tag.Error(err))
-		}
-		if err := m.mlist.Shutdown(); err != nil {
-			m.logger.Warn("failed to shutdown memberlist", tag.Error(err))
+		m.memberMu.Lock()
+		m.stopped = true
+		list := m.mlist
+		m.memberMu.Unlock()
+		// Leave/Shutdown outside the lock — callbacks may take memberMu.
+		if list != nil {
+			m.shutdownMemberlist(list)
 		}
 	})
+}
+
+func (m *membershipImpl) shutdownMemberlist(list *memberlist.Memberlist) {
+	if err := list.Leave(5 * time.Second); err != nil {
+		m.logger.Warn("failed to leave memberlist", tag.Error(err))
+	}
+	if err := list.Shutdown(); err != nil {
+		m.logger.Warn("failed to shutdown memberlist", tag.Error(err))
+	}
 }
 
 // MyMemberID returns this node's cluster identity (memberlist Name).
@@ -203,7 +222,7 @@ func (m *membershipImpl) GetMemberIDForKey(key string) string {
 // GetGrpcAddressForMember returns the gRPC address for a member.
 func (m *membershipImpl) GetGrpcAddressForMember(memberID string) string {
 	if memberID == m.memberID {
-		return m.grpcAddress
+		return m.grpcAddress.Load().(string)
 	}
 	m.memberMu.RLock()
 	defer m.memberMu.RUnlock()
@@ -228,8 +247,12 @@ func (m *membershipImpl) GetShardsForMember(memberID string, totalShards int) []
 }
 
 func (m *membershipImpl) bootstrap() errors.CategorizedError {
+	list := m.getMlist()
+	if list == nil {
+		return nil
+	}
 	if m.cfg.Discovery.Mode == "static" && len(m.cfg.Discovery.StaticAddresses) > 0 {
-		_, err := m.mlist.Join(m.cfg.Discovery.StaticAddresses)
+		_, err := list.Join(m.cfg.Discovery.StaticAddresses)
 		if err != nil {
 			return errors.NewInternalError("failed to join static address at bootstrap", err)
 		}
@@ -243,7 +266,7 @@ func (m *membershipImpl) bootstrap() errors.CategorizedError {
 			return errors.NewInternalError("failed to lookup dns address at bootstrap", err)
 		}
 		if len(addrs) > 0 {
-			if _, rerr := m.mlist.Join(addrs); rerr != nil {
+			if _, rerr := list.Join(addrs); rerr != nil {
 				return errors.NewInternalError("failed to join dns address at bootstrap", rerr)
 			}
 		}
@@ -270,11 +293,14 @@ func (m *membershipImpl) startDNSRefreshLoop() {
 				addrs, err := m.lookupNewDNSAddress()
 				if err != nil {
 					m.logger.Error("failed to lookup dns address", tag.Error(err))
-				} else {
-					_, rerr := m.mlist.Join(addrs)
-					if rerr != nil {
-						m.logger.Error("failed to join dns address", tag.Error(rerr))
-					}
+					continue
+				}
+				list := m.getMlist()
+				if list == nil {
+					return
+				}
+				if _, rerr := list.Join(addrs); rerr != nil {
+					m.logger.Error("failed to join dns address", tag.Error(rerr))
 				}
 			}
 		}
@@ -294,11 +320,15 @@ func (m *membershipImpl) lookupNewDNSAddress() ([]string, errors.CategorizedErro
 		return nil, errors.NewInternalError("failed to resolve discovery DNS", err)
 	}
 
+	list := m.getMlist()
+	if list == nil {
+		return nil, errors.NewUnavailableError("memberlist not started", nil)
+	}
 	connected := make(map[string]bool)
-	for _, node := range m.mlist.Members() {
+	for _, node := range list.Members() {
 		connected[node.Address()] = true
 	}
-	connected[m.mlist.LocalNode().Address()] = true
+	connected[list.LocalNode().Address()] = true
 
 	var addrs []string
 	for _, rawAddr := range hosts {
@@ -339,4 +369,10 @@ func (m *membershipImpl) waitForMinMembers() {
 				tag.MinMembers(m.cfg.MinMembersBeforeReady))
 		}
 	}
+}
+
+func (m *membershipImpl) getMlist() *memberlist.Memberlist {
+	m.memberMu.RLock()
+	defer m.memberMu.RUnlock()
+	return m.mlist
 }
