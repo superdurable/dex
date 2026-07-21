@@ -18,6 +18,8 @@
 package membership
 
 import (
+	"encoding/json"
+
 	"github.com/hashicorp/memberlist"
 	"github.com/superdurable/dex/server/internal/log/tag"
 )
@@ -26,40 +28,38 @@ type eventDelegate struct {
 	m *membershipImpl
 }
 
+func newEventDelegate(m *membershipImpl) *eventDelegate {
+	return &eventDelegate{m: m}
+}
+
 func (d *eventDelegate) NotifyJoin(node *memberlist.Node) {
 	d.m.logger.Info("member joined", tag.NodeName(node.Name))
 
-	d.m.mu.Lock()
-	d.m.members[node.Name] = struct{}{}
+	d.m.memberMu.Lock()
 	if len(node.Meta) > 0 {
+		var metadata nodeMetadata
+		err := json.Unmarshal(node.Meta, &metadata)
+		if err != nil {
+			panic("failed to unmarshal node metadata")
+		}
 		d.m.memberAddresses[node.Name] = string(node.Meta)
 	}
-	if d.m.hashRing != nil {
-		d.m.hashRing = d.m.hashRing.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
-	}
-	d.m.mu.Unlock()
-
-	if d.m.onRebalance != nil {
-		d.m.onRebalance()
-	}
+	d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
+	d.m.memberMu.Unlock()
+	d.m.onRebalance()
 }
 
 func (d *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	d.m.logger.Info("member left", tag.NodeName(node.Name))
 
-	d.m.mu.Lock()
+	d.m.memberMu.Lock()
 	departedAddr := d.m.memberAddresses[node.Name]
-	delete(d.m.members, node.Name)
 	delete(d.m.memberAddresses, node.Name)
-	if d.m.hashRing != nil {
-		d.m.hashRing = d.m.hashRing.RemoveNode(node.Name)
-	}
-	d.m.mu.Unlock()
+	d.m.hring = d.m.hring.RemoveNode(node.Name)
+	d.m.memberMu.Unlock()
 
-	d.m.notifyAddressRemoved(departedAddr)
-	if d.m.onRebalance != nil {
-		d.m.onRebalance()
-	}
+	d.m.onAddressRemoved(departedAddr)
+	d.m.onRebalance()
 }
 
 // NotifyUpdate refreshes a same-name node's address after IP change.
@@ -69,35 +69,47 @@ func (d *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 		return
 	}
 
-	d.m.mu.Lock()
+	d.m.memberMu.Lock()
 	changed := d.m.memberAddresses[node.Name] != newAddr
 	if changed {
-		d.m.members[node.Name] = struct{}{}
 		d.m.memberAddresses[node.Name] = newAddr
-		if d.m.hashRing != nil {
+		if d.m.hring != nil {
 			// AddWeightedNode is a no-op when the node is already present.
-			d.m.hashRing = d.m.hashRing.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
+			d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
 		}
 	}
-	d.m.mu.Unlock()
+	d.m.memberMu.Unlock()
 
 	if !changed {
 		return
 	}
 	d.m.logger.Info("member address updated", tag.NodeName(node.Name))
-	if d.m.onRebalance != nil {
-		d.m.onRebalance()
-	}
+	d.m.onRebalance()
 }
 
 type metaDelegate struct {
 	m *membershipImpl
 }
 
+func newMetaDelegate(m *membershipImpl) *metaDelegate {
+	return &metaDelegate{m: m}
+}
+
+type nodeMetadata struct {
+	GrpcAddress string
+}
+
 func (d *metaDelegate) NodeMeta(limit int) []byte {
-	meta := []byte(d.m.internalAddress)
+	metadata := nodeMetadata{
+		GrpcAddress: d.m.grpcAddress,
+	}
+
+	meta, err := json.Marshal(metadata)
+	if err != nil {
+		panic("failed to marshal node metadata")
+	}
 	if len(meta) > limit {
-		return meta[:limit]
+		panic("node metadata exceeds limit, please user shorter grpcAddress for instance")
 	}
 	return meta
 }

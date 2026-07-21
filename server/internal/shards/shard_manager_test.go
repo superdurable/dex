@@ -160,11 +160,11 @@ func (f *fakeMembership) setDesired(shards []int32) {
 	f.desired = shards
 }
 
-func (f *fakeMembership) Start() errors.CategorizedError { return nil }
-func (f *fakeMembership) Stop()                          {}
-func (f *fakeMembership) MemberID() string               { return "member-1" }
-func (f *fakeMembership) GetNodeForKey(string) string    { return "member-1" }
-func (f *fakeMembership) GetAddress(string) string       { return "" }
+func (f *fakeMembership) Start() errors.CategorizedError        { return nil }
+func (f *fakeMembership) Stop()                                 {}
+func (f *fakeMembership) MyMemberID() string                    { return "member-1" }
+func (f *fakeMembership) GetMemberIDForKey(string) string       { return "member-1" }
+func (f *fakeMembership) GetGrpcAddressForMember(string) string { return "" }
 
 func (f *fakeMembership) GetShardsForMember(string, int) []int32 {
 	f.mu.Lock()

@@ -30,7 +30,7 @@ func TestBuildDiscoveryTargets_UsesBindPortAndFiltersSelf(t *testing.T) {
 		AdvertiseAddress: "10.0.0.1:7946",
 		Discovery: config.DiscoveryConfig{
 			Mode:       "dns",
-			ServiceDNS: "dex-headless.default.svc.cluster.local",
+			DNSAddress: "dex-headless.default.svc.cluster.local",
 		},
 	}
 
@@ -43,8 +43,8 @@ func TestBuildDiscoveryTargets_UsesOverridePort(t *testing.T) {
 		BindAddress: "0.0.0.0:7946",
 		Discovery: config.DiscoveryConfig{
 			Mode:       "dns",
-			ServiceDNS: "dex-headless.default.svc.cluster.local",
-			Port:       9000,
+			DNSAddress: "dex-headless.default.svc.cluster.local",
+			DNSPort:    9000,
 		},
 	}
 

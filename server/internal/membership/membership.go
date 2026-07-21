@@ -37,43 +37,49 @@ type Membership interface {
 	Start() errors.CategorizedError
 	Stop()
 
-	MemberID() string
-	GetNodeForKey(key string) string
-	GetAddress(memberID string) string
+	MyMemberID() string
+	GetMemberIDForKey(key string) string
+	GetGrpcAddressForMember(memberID string) string
 	GetShardsForMember(memberID string, maxShards int) []int32
 }
 
 // membershipImpl manages gossip membership and consistent-hash key routing.
 // ShardManager and Matching each run a separate instance.
 type membershipImpl struct {
-	list     *memberlist.Memberlist
-	hashRing *hashring.HashRing
+	mlist *memberlist.Memberlist
+	hring *hashring.HashRing
 
-	cfg             *config.MembershipConfig
-	logger          log.Logger
-	memberID        string
-	internalAddress string
+	cfg      *config.MembershipConfig
+	logger   log.Logger
+	memberID string
+	// for peer to forward grpc requests
+	grpcAddress string
 
-	mu              sync.RWMutex
 	memberAddresses map[string]string // memberID -> gRPC address
-	members         map[string]struct{}
+	// for memberAddresses
+	memberMu sync.RWMutex
 
-	// onRebalance is called (outside the lock) on every membership change. May be nil.
+	// onRebalance is called (outside the lock) on every membership change.
+	// Used by cluster(shardManager/matching) to handle rebalance
 	onRebalance func()
 
 	// onAddressRemoved is called (outside the lock) with each gRPC address that
-	// leaves the ring, so a retired pod IP's pooled connection is evicted. May be nil.
+	// leaves the ring.
+	// Used by CachedPeerConnection to evict the retired pod IP
 	onAddressRemoved func(addr string)
 
-	discoveryCancel context.CancelFunc
-	discoveryWG     sync.WaitGroup
+	stopCh chan struct{}
+
+	// used as port for dns discovered address
+	// NOTE: not for grpc
+	dnsAdvertisePort int
 }
 
 func NewMembership(
 	cfg *config.MembershipConfig,
 	logger log.Logger,
 	memberID string,
-	internalAddress string,
+	grpcAddress string,
 	onRebalance func(),
 	onAddressRemoved func(addr string),
 ) Membership {
@@ -86,36 +92,46 @@ func NewMembership(
 	if memberID == "" {
 		panic("membership memberID is empty")
 	}
+	if grpcAddress == "" {
+		panic("membership grpcAddressForPeer is empty")
+	}
 
 	return &membershipImpl{
-		cfg:              cfg,
-		logger:           logger,
-		memberID:         memberID,
-		internalAddress:  resolveInternalAddress(cfg.AdvertiseAddress, internalAddress),
+		hring: hashring.NewWithWeights(map[string]int{memberID: cfg.NumberOfVNodes}),
+
+		cfg:         cfg,
+		logger:      logger,
+		memberID:    memberID,
+		grpcAddress: grpcAddress,
+
 		memberAddresses:  make(map[string]string),
-		members:          map[string]struct{}{memberID: {}},
 		onRebalance:      onRebalance,
 		onAddressRemoved: onAddressRemoved,
-	}
-}
 
-func resolveInternalAddress(advertiseAddress, internalAddress string) string {
-	if advertiseAddress == "" {
-		return internalAddress
+		stopCh: make(chan struct{}),
 	}
-	advertiseHost, _ := ParseHostPort(advertiseAddress)
-	_, internalPort := ParseHostPort(internalAddress)
-	return fmt.Sprintf("%s:%d", advertiseHost, internalPort)
 }
 
 func (m *membershipImpl) Start() errors.CategorizedError {
-	m.hashRing = hashring.NewWithWeights(map[string]int{m.memberID: m.cfg.NumberOfVNodes})
-
 	mlConfig := memberlist.DefaultLANConfig()
 	mlConfig.Name = m.memberID
-	mlConfig.BindAddr, mlConfig.BindPort = ParseHostPort(m.cfg.BindAddress)
-	if m.cfg.AdvertiseAddress != "" {
-		mlConfig.AdvertiseAddr, mlConfig.AdvertisePort = ParseHostPort(m.cfg.AdvertiseAddress)
+	var err errors.CategorizedError
+	mlConfig.BindAddr, mlConfig.BindPort, err = splitHostPort(m.cfg.BindAddress)
+	if err != nil {
+		return err
+	}
+	advertiseAddress := m.cfg.AdvertiseAddress
+	if advertiseAddress == "" {
+		advertiseAddress = mlConfig.BindAddr
+	}
+
+	mlConfig.AdvertiseAddr, mlConfig.AdvertisePort, err = splitHostPort(m.cfg.AdvertiseAddress)
+	if err != nil {
+		return err
+	}
+	m.dnsAdvertisePort = m.cfg.Discovery.DNSPort
+	if m.dnsAdvertisePort == 0 {
+		m.dnsAdvertisePort = mlConfig.AdvertisePort
 	}
 
 	// Same-name pod restart can reclaim identity immediately.
@@ -126,139 +142,135 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 	mlConfig.ProbeTimeout = 3 * time.Second
 	mlConfig.SuspicionMaxTimeoutMult = 6
 
-	mlConfig.Events = &eventDelegate{m: m}
-	mlConfig.Delegate = &metaDelegate{m: m}
+	mlConfig.Events = newEventDelegate(m)
+	mlConfig.Delegate = newMetaDelegate(m)
 
-	list, err := memberlist.Create(mlConfig)
-	if err != nil {
-		return errors.NewInternalError("failed to create memberlist", err)
+	list, rerr := memberlist.Create(mlConfig)
+	if rerr != nil {
+		return errors.NewInternalError("failed to create memberlist", rerr)
 	}
-	m.list = list
+	m.mlist = list
 
-	m.joinAddresses(m.cfg.StaticAddresses, "static addresses")
-	m.startDiscoveryLoop()
+	return m.bootstrap()
+}
+
+func (m *membershipImpl) Stop() {
+	close(m.stopCh)
+	if err := m.mlist.Leave(5 * time.Second); err != nil {
+		m.logger.Error("failed to leave memberlist", tag.Error(err))
+	}
+	if err := m.mlist.Shutdown(); err != nil {
+		m.logger.Error("failed to shutdown memberlist", tag.Error(err))
+	}
+}
+
+// MyMemberID returns this node's cluster identity (memberlist Name).
+func (m *membershipImpl) MyMemberID() string { return m.memberID }
+
+// GetMemberIDForKey returns the memberID that should own the given key.
+func (m *membershipImpl) GetMemberIDForKey(key string) string {
+	m.memberMu.RLock()
+	defer m.memberMu.RUnlock()
+	owner, ok := m.hring.GetNode(key)
+	if !ok {
+		panic("failed to get node for key, something wrong with hash ring")
+	}
+	return owner
+}
+
+// GetGrpcAddressForMember returns the gRPC address for a member.
+func (m *membershipImpl) GetGrpcAddressForMember(memberID string) string {
+	if memberID == m.memberID {
+		return m.grpcAddress
+	}
+	m.memberMu.RLock()
+	defer m.memberMu.RUnlock()
+	return m.memberAddresses[memberID]
+}
+
+// GetShardsForMember returns shard IDs in [0, maxShards) owned by memberID.
+func (m *membershipImpl) GetShardsForMember(memberID string, totalShards int) []int32 {
+	m.memberMu.RLock()
+	defer m.memberMu.RUnlock()
+	var shardIDs []int32
+	for i := int32(0); i < int32(totalShards); i++ {
+		owner, ok := m.hring.GetNode(strconv.Itoa(int(i)))
+		if !ok {
+			panic("failed to get node for key, something wrong with hash ring")
+		}
+		if owner == memberID {
+			shardIDs = append(shardIDs, i)
+		}
+	}
+	return shardIDs
+}
+
+func (m *membershipImpl) bootstrap() errors.CategorizedError {
+	if m.cfg.Discovery.Mode == "static" && len(m.cfg.Discovery.StaticAddresses) > 0 {
+		_, err := m.mlist.Join(m.cfg.Discovery.StaticAddresses)
+		if err != nil {
+			return errors.NewInternalError("failed to join static address at bootstrap", err)
+		}
+	}
+	if m.cfg.Discovery.Mode == "dns" && m.cfg.Discovery.DNSAddress != "" {
+		addrs, err := m.lookupDNSAddress()
+		if err != nil {
+			return errors.NewInternalError("failed to lookup dns address at bootstrap", err)
+		}
+
+		_, rerr := m.mlist.Join(addrs)
+		if rerr != nil {
+			return errors.NewInternalError("failed to join dns address at bootstrap", rerr)
+		}
+	}
 
 	if m.cfg.MinMembersBeforeReady > 1 {
 		m.waitForMinMembers()
 	}
 
+	m.startDNSRefreshLoop()
+
 	return nil
 }
 
-func (m *membershipImpl) Stop() {
-	if m.discoveryCancel != nil {
-		m.discoveryCancel()
-		m.discoveryWG.Wait()
-	}
-	if m.list != nil {
-		if err := m.list.Leave(5 * time.Second); err != nil {
-			m.logger.Warn("failed to leave memberlist", tag.Error(err))
-		}
-		if err := m.list.Shutdown(); err != nil {
-			m.logger.Warn("failed to shutdown memberlist", tag.Error(err))
-		}
-	}
-}
-
-// MemberID returns this node's cluster identity (memberlist Name).
-func (m *membershipImpl) MemberID() string { return m.memberID }
-
-// GetNodeForKey returns the member that should own the given key.
-func (m *membershipImpl) GetNodeForKey(key string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.hashRing == nil {
-		return m.memberID
-	}
-	owner, _ := m.hashRing.GetNode(key)
-	return owner
-}
-
-// GetAddress returns the gRPC address for a member.
-func (m *membershipImpl) GetAddress(memberID string) string {
-	if memberID == m.memberID {
-		return m.internalAddress
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.memberAddresses[memberID]
-}
-
-// GetShardsForMember returns shard IDs in [0, maxShards) owned by memberID.
-func (m *membershipImpl) GetShardsForMember(memberID string, maxShards int) []int32 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.hashRing == nil {
-		return nil
-	}
-	var shards []int32
-	for i := int32(0); i < int32(maxShards); i++ {
-		owner, _ := m.hashRing.GetNode(strconv.Itoa(int(i)))
-		if owner == memberID {
-			shards = append(shards, i)
-		}
-	}
-	return shards
-}
-
-func (m *membershipImpl) startDiscoveryLoop() {
-	if !m.usesDNSDiscovery() {
-		return
-	}
-
-	m.joinDNSDiscoveredAddresses()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	m.discoveryCancel = cancel
-	m.discoveryWG.Add(1)
+func (m *membershipImpl) startDNSRefreshLoop() {
 	go func() {
-		defer m.discoveryWG.Done()
-
-		ticker := time.NewTicker(m.discoveryRefreshInterval())
+		ticker := time.NewTicker(m.cfg.Discovery.DNSRefreshInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-m.stopCh:
 				return
 			case <-ticker.C:
-				m.joinDNSDiscoveredAddresses()
+				addrs, err := m.lookupDNSAddress()
+				if err != nil {
+					m.logger.Error("failed to lookup dns address", tag.Error(err))
+				} else {
+					_, rerr := m.mlist.Join(addrs)
+					if rerr != nil {
+						m.logger.Error("failed to join dns address", tag.Error(rerr))
+					}
+				}
 			}
 		}
 	}()
 }
 
-func (m *membershipImpl) usesDNSDiscovery() bool {
-	return m.cfg.Discovery.Mode == "dns" && m.cfg.Discovery.ServiceDNS != ""
-}
-
-func (m *membershipImpl) discoveryRefreshInterval() time.Duration {
-	if m.cfg.Discovery.RefreshInterval > 0 {
-		return m.cfg.Discovery.RefreshInterval
-	}
-	return config.DefaultDiscoveryConfig().RefreshInterval
-}
-
-func (m *membershipImpl) joinDNSDiscoveredAddresses() {
+func (m *membershipImpl) lookupDNSAddress() ([]string, errors.CategorizedError) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hosts, err := net.DefaultResolver.LookupHost(ctx, m.cfg.Discovery.ServiceDNS)
+	hosts, err := net.DefaultResolver.LookupHost(ctx, m.cfg.Discovery.DNSAddress)
 	if err != nil {
-		m.logger.Warn("failed to resolve discovery DNS", tag.Error(err))
-		return
+		return nil, errors.NewInternalError("failed to resolve discovery DNS", err)
 	}
 
-	m.joinAddresses(buildDiscoveryTargets(m.cfg, hosts), "dns discovery")
-}
-
-func (m *membershipImpl) joinAddresses(addresses []string, source string) {
-	if m.list == nil || len(addresses) == 0 {
-		return
+	addrs := make([]string, len(hosts))
+	for i, addr := range hosts {
+		addrs[i] = fmt.Sprintf("%s:%d", addr, m.dnsAdvertisePort)
 	}
-	if _, err := m.list.Join(addresses); err != nil {
-		m.logger.Warn("failed to join cluster", tag.Source(source), tag.Error(err))
-	}
+	return addrs, nil
 }
 
 func (m *membershipImpl) waitForMinMembers() {
@@ -266,59 +278,22 @@ func (m *membershipImpl) waitForMinMembers() {
 	defer ticker.Stop()
 
 	for {
-		m.mu.RLock()
-		current := len(m.members)
-		m.mu.RUnlock()
-		if current >= m.cfg.MinMembersBeforeReady {
-			m.logger.Info("minimum members reached",
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.memberMu.RLock()
+			current := len(m.memberAddresses)
+			m.memberMu.RUnlock()
+			if current >= m.cfg.MinMembersBeforeReady {
+				m.logger.Info("minimum members reached",
+					tag.NumMembers(current),
+					tag.MinMembers(m.cfg.MinMembersBeforeReady))
+				return
+			}
+			m.logger.Info("waiting for minimum members",
 				tag.NumMembers(current),
 				tag.MinMembers(m.cfg.MinMembersBeforeReady))
-			return
-		}
-		m.logger.Info("waiting for minimum members",
-			tag.NumMembers(current),
-			tag.MinMembers(m.cfg.MinMembersBeforeReady))
-		<-ticker.C
-	}
-}
-
-func (m *membershipImpl) notifyAddressRemoved(addr string) {
-	if addr == "" || m.onAddressRemoved == nil {
-		return
-	}
-	m.onAddressRemoved(addr)
-}
-
-func buildDiscoveryTargets(cfg *config.MembershipConfig, hosts []string) []string {
-	if len(hosts) == 0 {
-		return nil
-	}
-
-	port := cfg.Discovery.Port
-	if port == 0 {
-		_, port = ParseHostPort(cfg.BindAddress)
-	}
-
-	selfHosts := map[string]bool{}
-	for _, addr := range []string{cfg.BindAddress, cfg.AdvertiseAddress} {
-		host, _ := ParseHostPort(addr)
-		if host != "" && host != "0.0.0.0" {
-			selfHosts[host] = true
 		}
 	}
-
-	unique := make(map[string]bool, len(hosts))
-	var targets []string
-	for _, host := range hosts {
-		if host == "" || selfHosts[host] {
-			continue
-		}
-		target := fmt.Sprintf("%s:%d", host, port)
-		if unique[target] {
-			continue
-		}
-		unique[target] = true
-		targets = append(targets, target)
-	}
-	return targets
 }

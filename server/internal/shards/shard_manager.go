@@ -243,11 +243,11 @@ func (m *shardManagerImpl) GetShardOwnerAddress(shardID int32) string {
 	if m.IsLocalShard(shardID) {
 		return ""
 	}
-	ownerID := m.membership.GetNodeForKey(strconv.Itoa(int(shardID)))
+	ownerID := m.membership.GetMemberIDForKey(strconv.Itoa(int(shardID)))
 	if ownerID == "" || ownerID == m.memberID {
 		return ""
 	}
-	return m.membership.GetAddress(ownerID)
+	return m.membership.GetGrpcAddressForMember(ownerID)
 }
 
 func (m *shardManagerImpl) GetCappedContext(parentCtx context.Context, shardID int32) (context.Context, context.CancelFunc) {

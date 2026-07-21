@@ -25,12 +25,6 @@ type MembershipConfig struct {
 	// AdvertiseAddress is the gossip address peers dial. Required in containers (pod IP).
 	// Example: "10.0.1.5:7946". If empty, BindAddress is used.
 	AdvertiseAddress string `yaml:"advertiseAddress"`
-	// AdvertiseGRPCAddress is the gRPC dial target peers use for forwarding.
-	// Broadcast in memberlist Meta. Default: derived from GRPCListenAddress.
-	// Example: "10.0.1.5:7233".
-	AdvertiseGRPCAddress string `yaml:"advertiseGrpcAddress"`
-	// StaticAddresses are gossip seed peers to Join on startup. Default: empty (first node).
-	StaticAddresses []string `yaml:"staticAddresses"`
 	// NumberOfVNodes is virtual nodes per member on the hash ring. Default: 128.
 	// Higher is more even ownership; immutable after cluster creation.
 	NumberOfVNodes int `yaml:"numberOfVNodes"`
@@ -51,23 +45,28 @@ type MembershipConfig struct {
 
 // DiscoveryConfig controls how a memberlist cluster discovers seed nodes.
 type DiscoveryConfig struct {
-	// Mode is "static" (StaticAddresses only) or "dns". Default: "static".
+	// Mode is "static" or "dns". Default: "static".
 	Mode string `yaml:"mode"`
 
-	// ServiceDNS is the headless DNS name to resolve when Mode is "dns".
-	ServiceDNS string `yaml:"serviceDns"`
+	// StaticAddresses are seed peers to Join on startup for static mode
+	// Default: empty (single node cluster).
+	StaticAddresses []string `yaml:"staticAddresses"`
 
-	// Port is the gossip port for DNS targets. Default: 0 (use BindAddress port).
-	Port int `yaml:"port"`
+	// DNSAddress is the DNS name to resolve when Mode is "dns".
+	DNSAddress string `yaml:"dnsAddress"`
 
-	// RefreshInterval is how often DNS discovery re-resolves. Default: 30s.
-	RefreshInterval time.Duration `yaml:"refreshInterval"`
+	// DNSPort is the gossip port for DNS targets.
+	// Default to the same port of AdvertiseAddress
+	DNSPort int `yaml:"dnsPort"`
+
+	// DNSRefreshInterval is how often DNS discovery re-resolves. Default: 30s.
+	DNSRefreshInterval time.Duration `yaml:"dnsRefreshInterval"`
 }
 
 // DefaultDiscoveryConfig returns discovery defaults (static mode, 30s refresh).
 func DefaultDiscoveryConfig() DiscoveryConfig {
 	return DiscoveryConfig{
-		Mode:            "static",
-		RefreshInterval: 30 * time.Second,
+		Mode:               "static",
+		DNSRefreshInterval: 30 * time.Second,
 	}
 }
