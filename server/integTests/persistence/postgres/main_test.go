@@ -38,11 +38,12 @@ import (
 var (
 	dbSuffix   string
 	shardStore p.ShardStore
+	blobStore  p.BlobStore
 )
 
 func TestMain(m *testing.M) {
 	if err := setup(); err != nil {
-		fmt.Fprintf(os.Stderr, "shard store test setup failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "postgres persistence integ setup failed: %v\n", err)
 		teardown()
 		os.Exit(1)
 	}
@@ -72,18 +73,28 @@ func setup() error {
 	pg.Blobs.Database = "dex_blobs_" + suffix
 	pg.TaskQueues = config.PostgresStoreConfig{Database: "dex_taskqueues_" + suffix}
 
-	cfg := pg.ResolvedShardsStoreConfig()
-	store, catErr := postgres.NewShardStore(ctx, &cfg)
+	shardCfg := pg.ResolvedShardsStoreConfig()
+	store, catErr := postgres.NewShardStore(ctx, &shardCfg)
 	if catErr != nil {
 		return fmt.Errorf("NewShardStore: %w", catErr)
 	}
 	shardStore = store
+
+	blobCfg := pg.ResolvedBlobsStoreConfig()
+	blobs, catErr := postgres.NewBlobStore(ctx, &blobCfg)
+	if catErr != nil {
+		return fmt.Errorf("NewBlobStore: %w", catErr)
+	}
+	blobStore = blobs
 	return nil
 }
 
 func teardown() {
 	if shardStore != nil {
 		_ = shardStore.Close() // test teardown; close errors are not actionable
+	}
+	if blobStore != nil {
+		_ = blobStore.Close() // test teardown; close errors are not actionable
 	}
 	if dbSuffix == "" {
 		return
