@@ -69,6 +69,7 @@ type membershipImpl struct {
 
 	stopCh chan struct{}
 
+	dnsLookup lookupDNSHosts
 	// used as port for dns discovered address
 	// NOTE: not for grpc
 	dnsAdvertisePort int
@@ -81,6 +82,22 @@ func NewMembership(
 	grpcAddress string,
 	onRebalance func(),
 	onAddressRemoved func(addr string),
+) Membership {
+	return nwMembershipWithLookup(
+		cfg, logger, memberID, grpcAddress, onRebalance, onAddressRemoved,
+		net.DefaultResolver.LookupAddr)
+}
+
+type lookupDNSHosts func(ctx context.Context, host string) (addrs []string, err error)
+
+func nwMembershipWithLookup(
+	cfg *config.MembershipConfig,
+	logger log.Logger,
+	memberID string,
+	grpcAddress string,
+	onRebalance func(),
+	onAddressRemoved func(addr string),
+	dnsLookup lookupDNSHosts,
 ) Membership {
 	if cfg == nil {
 		panic("membership cfg is nil")
@@ -107,7 +124,8 @@ func NewMembership(
 		onRebalance:      onRebalance,
 		onAddressRemoved: onAddressRemoved,
 
-		stopCh: make(chan struct{}),
+		stopCh:    make(chan struct{}),
+		dnsLookup: dnsLookup,
 	}
 }
 
@@ -262,7 +280,7 @@ func (m *membershipImpl) lookupNewDNSAddress() ([]string, errors.CategorizedErro
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hosts, err := net.DefaultResolver.LookupHost(ctx, m.cfg.Discovery.DNSAddress)
+	hosts, err := m.dnsLookup(ctx, m.cfg.Discovery.DNSAddress)
 	if err != nil {
 		return nil, errors.NewInternalError("failed to resolve discovery DNS", err)
 	}
