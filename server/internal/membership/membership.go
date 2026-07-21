@@ -82,14 +82,14 @@ func NewMembership(
 	onRebalance func(),
 	onAddressRemoved func(addr string),
 ) Membership {
-	return nwMembershipWithLookup(
+	return newMembershipWithLookup(
 		cfg, logger, memberID, grpcAddress, onRebalance, onAddressRemoved,
-		net.DefaultResolver.LookupAddr)
+		net.DefaultResolver.LookupHost)
 }
 
 type lookupDNSHosts func(ctx context.Context, host string) (addrs []string, err error)
 
-func nwMembershipWithLookup(
+func newMembershipWithLookup(
 	cfg *config.MembershipConfig,
 	logger log.Logger,
 	memberID string,
@@ -138,7 +138,7 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 	}
 	advertiseAddress := m.cfg.AdvertiseAddress
 	if advertiseAddress == "" {
-		advertiseAddress = mlConfig.BindAddr
+		advertiseAddress = fmt.Sprintf("%s:%d", mlConfig.BindAddr, mlConfig.BindPort)
 	}
 
 	mlConfig.AdvertiseAddr, mlConfig.AdvertisePort, err = splitHostPort(advertiseAddress)
