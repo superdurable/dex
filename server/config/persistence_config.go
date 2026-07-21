@@ -117,6 +117,7 @@ func DefaultPostgresPersistenceConfig() PostgresPersistenceConfig {
 		Shards:                PostgresStoreConfig{Database: "dex_shards"},
 		Runs:                  PostgresStoreConfig{Database: "dex_runs"},
 		Blobs:                 PostgresStoreConfig{Database: "dex_blobs"},
+		TaskQueues:            PostgresStoreConfig{Database: "dex_taskqueues"},
 	}
 }
 

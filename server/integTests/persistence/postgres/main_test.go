@@ -36,9 +36,10 @@ import (
 )
 
 var (
-	dbSuffix   string
-	shardStore p.ShardStore
-	blobStore  p.BlobStore
+	dbSuffix       string
+	shardStore     p.ShardStore
+	blobStore      p.BlobStore
+	taskQueueStore p.TaskQueueStore
 )
 
 func TestMain(m *testing.M) {
@@ -86,6 +87,13 @@ func setup() error {
 		return fmt.Errorf("NewBlobStore: %w", catErr)
 	}
 	blobStore = blobs
+
+	tqCfg := pg.ResolvedTaskQueuesStoreConfig()
+	tqStore, catErr := postgres.NewTaskQueueStore(ctx, &tqCfg)
+	if catErr != nil {
+		return fmt.Errorf("NewTaskQueueStore: %w", catErr)
+	}
+	taskQueueStore = tqStore
 	return nil
 }
 
@@ -95,6 +103,9 @@ func teardown() {
 	}
 	if blobStore != nil {
 		_ = blobStore.Close() // test teardown; close errors are not actionable
+	}
+	if taskQueueStore != nil {
+		_ = taskQueueStore.Close() // test teardown; close errors are not actionable
 	}
 	if dbSuffix == "" {
 		return

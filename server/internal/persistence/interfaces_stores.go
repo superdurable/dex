@@ -128,8 +128,8 @@ type TaskQueueStore interface {
 	// Any feature write operations will use the rangeId to fence
 	ClaimTaskQueue(ctx context.Context, namespace, taskQueueName string, partitionID int32, memberID, matchingAddress string) (*TaskQueueInfo, errors.CategorizedError)
 
-	// UpdateTaskQueueInfo performs a update
-	// Returns OwnerVersionMismatchError if range_id doesn't match.
+	// UpdateTaskQueueInfo updates ack_level when range_id matches.
+	// Returns ConflictError if range_id doesn't match (or the row is missing).
 	UpdateTaskQueueInfo(ctx context.Context, namespace, taskQueueName string, partitionID int32, rangeID int32, ackLevel int64) errors.CategorizedError
 
 	CreateTasks(ctx context.Context, namespace, taskQueueName string, partitionID int32, rangeID int32, tasks []*TaskQueueTaskRow) errors.CategorizedError
