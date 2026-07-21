@@ -66,9 +66,10 @@ type membershipImpl struct {
 	// Used by CachedPeerConnection to evict the retired pod IP
 	onMemberLeave func(grpcAddr string)
 
-	stopCh chan struct{}
+	stopCh   chan struct{}
+	stopOnce sync.Once
 
-	dnsLookup lookupDNSHosts
+	dnsLookupForTest lookupDNSHosts // nil for production
 	// used as port for dns discovered address
 	// NOTE: not for grpc
 	dnsAdvertisePort int
@@ -84,7 +85,7 @@ func NewMembership(
 ) Membership {
 	return newMembershipWithLookup(
 		cfg, logger, memberID, grpcAddress, onRebalance, onAddressRemoved,
-		net.DefaultResolver.LookupHost)
+		nil)
 }
 
 type lookupDNSHosts func(ctx context.Context, host string) (addrs []string, err error)
@@ -123,8 +124,8 @@ func newMembershipWithLookup(
 		onRebalance:         onRebalance,
 		onMemberLeave:       onAddressRemoved,
 
-		stopCh:    make(chan struct{}),
-		dnsLookup: dnsLookup,
+		stopCh:           make(chan struct{}),
+		dnsLookupForTest: dnsLookup,
 	}
 }
 
@@ -138,7 +139,7 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 	}
 	advertiseAddress := m.cfg.AdvertiseAddress
 	if advertiseAddress == "" {
-		advertiseAddress = fmt.Sprintf("%s:%d", mlConfig.BindAddr, mlConfig.BindPort)
+		advertiseAddress = m.cfg.BindAddress
 	}
 
 	mlConfig.AdvertiseAddr, mlConfig.AdvertisePort, err = splitHostPort(advertiseAddress)
@@ -171,13 +172,18 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 }
 
 func (m *membershipImpl) Stop() {
-	close(m.stopCh)
-	if err := m.mlist.Leave(5 * time.Second); err != nil {
-		m.logger.Error("failed to leave memberlist", tag.Error(err))
-	}
-	if err := m.mlist.Shutdown(); err != nil {
-		m.logger.Error("failed to shutdown memberlist", tag.Error(err))
-	}
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+		if m.mlist == nil {
+			return
+		}
+		if err := m.mlist.Leave(5 * time.Second); err != nil {
+			m.logger.Warn("failed to leave memberlist", tag.Error(err))
+		}
+		if err := m.mlist.Shutdown(); err != nil {
+			m.logger.Warn("failed to shutdown memberlist", tag.Error(err))
+		}
+	})
 }
 
 // MyMemberID returns this node's cluster identity (memberlist Name).
@@ -229,17 +235,17 @@ func (m *membershipImpl) bootstrap() errors.CategorizedError {
 		}
 	}
 	if m.cfg.Discovery.Mode == "dns" && m.cfg.Discovery.DNSAddress != "" {
+		if m.cfg.Discovery.DNSRefreshInterval == 0 {
+			return errors.NewInvalidInputError("DNS refresh interval cannot be zero", nil)
+		}
 		addrs, err := m.lookupNewDNSAddress()
 		if err != nil {
 			return errors.NewInternalError("failed to lookup dns address at bootstrap", err)
 		}
-
-		_, rerr := m.mlist.Join(addrs)
-		if rerr != nil {
-			return errors.NewInternalError("failed to join dns address at bootstrap", rerr)
-		}
-		if m.cfg.Discovery.DNSRefreshInterval == 0 {
-			return errors.NewInvalidInputError("DNS refresh interval cannot be zero", nil)
+		if len(addrs) > 0 {
+			if _, rerr := m.mlist.Join(addrs); rerr != nil {
+				return errors.NewInternalError("failed to join dns address at bootstrap", rerr)
+			}
 		}
 		m.startDNSRefreshLoop()
 	}
@@ -279,7 +285,11 @@ func (m *membershipImpl) lookupNewDNSAddress() ([]string, errors.CategorizedErro
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hosts, err := m.dnsLookup(ctx, m.cfg.Discovery.DNSAddress)
+	dnsLookup := net.DefaultResolver.LookupHost
+	if m.dnsLookupForTest != nil {
+		dnsLookup = m.dnsLookupForTest
+	}
+	hosts, err := dnsLookup(ctx, m.cfg.Discovery.DNSAddress)
 	if err != nil {
 		return nil, errors.NewInternalError("failed to resolve discovery DNS", err)
 	}
@@ -292,7 +302,12 @@ func (m *membershipImpl) lookupNewDNSAddress() ([]string, errors.CategorizedErro
 
 	var addrs []string
 	for _, rawAddr := range hosts {
-		addr := fmt.Sprintf("%s:%d", rawAddr, m.dnsAdvertisePort)
+		addr := rawAddr
+		if m.dnsLookupForTest == nil {
+			// Production LookupHost returns bare IPs; tests return host:port.
+			addr = fmt.Sprintf("%s:%d", rawAddr, m.dnsAdvertisePort)
+		}
+
 		if connected[addr] {
 			continue
 		}
