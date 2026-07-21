@@ -40,6 +40,7 @@ var (
 	shardStore     p.ShardStore
 	blobStore      p.BlobStore
 	taskQueueStore p.TaskQueueStore
+	runStore       p.RunStore
 )
 
 func TestMain(m *testing.M) {
@@ -94,6 +95,13 @@ func setup() error {
 		return fmt.Errorf("NewTaskQueueStore: %w", catErr)
 	}
 	taskQueueStore = tqStore
+
+	runCfg := pg.ResolvedRunsStoreConfig()
+	runs, catErr := postgres.NewRunStore(ctx, &runCfg)
+	if catErr != nil {
+		return fmt.Errorf("NewRunStore: %w", catErr)
+	}
+	runStore = runs
 	return nil
 }
 
@@ -106,6 +114,9 @@ func teardown() {
 	}
 	if taskQueueStore != nil {
 		_ = taskQueueStore.Close() // test teardown; close errors are not actionable
+	}
+	if runStore != nil {
+		_ = runStore.Close() // test teardown; close errors are not actionable
 	}
 	if dbSuffix == "" {
 		return

@@ -77,7 +77,9 @@ type RunStore interface {
 	RangeReadImmediateTasks(ctx context.Context, shardID int32, afterSeq int64, limit int) ([]*ImmediateTaskRow, errors.CategorizedError)
 	RangeReadTimerTasks(ctx context.Context, shardID int32, sortKeyUpTo int64, afterSortKey int64, afterID ids.UID, limit int) ([]*TimerTaskRow, errors.CategorizedError)
 
+	// Deletes sort_key <= upToSeq (inclusive); seq is monotonic with no ties.
 	RangeDeleteImmediateTasks(ctx context.Context, shardID int32, upToSeq int64) errors.CategorizedError
+	// Deletes (sort_key, id) < (upToSortKey, upToID), exclusive: sort_key (firing time) is non-unique; callers delete boundary keys by ID.
 	RangeDeleteTimerTasks(ctx context.Context, shardID int32, upToSortKey int64, upToID ids.UID) errors.CategorizedError
 
 	DeleteImmediateTasksByIDBatch(ctx context.Context, shardID int32, UIDs []ids.UID) errors.CategorizedError

@@ -51,11 +51,10 @@ func NewRunStore(ctx context.Context, cfg *config.ResolvedPGStoreConfig) (p.RunS
 func (s *pgRunStore) Close() error { s.pool.Close(); return nil }
 
 // runColumns lists every run column in a fixed order, shared by SELECT + scan.
-// durable_timer_fired is a schema leftover with no Go field; always written as false.
 const runColumns = `shard_id, namespace, id, flow_type, task_queue_name, status, heartbeat_timeout_seconds, version, worker_id,
 	attributes, unconsumed_channel_messages, step_exe_id_counters, active_step_executions,
 	step_method_exe_counter, worker_request_counter, external_channel_message_counter, last_heartbeat_time, heartbeat_timer_id,
-	active_durable_timer_id, durable_timer_fired_at, durable_timer_fired,
+	active_durable_timer_id, durable_timer_fired_at,
 	last_history_event_id, created_at, updated_at`
 
 func (s *pgRunStore) CreateRunWithTasks(ctx context.Context, run *p.RunRow, tasks []p.TaskRow) errors.CategorizedError {
@@ -101,9 +100,12 @@ func (s *pgRunStore) UpdateRunWithNewTasks(ctx context.Context, shardID int32, n
 	defer cancel()
 
 	return s.inTx(ctx, func(tx pgx.Tx) errors.CategorizedError {
-		setSQL, args, encErr := buildRunUpdateSet(update)
-		if encErr != nil {
-			return errors.NewInternalError("encode run update", encErr)
+		setSQL, args, buildErr := buildRunUpdateSet(update)
+		if buildErr != nil {
+			if catErr, ok := buildErr.(errors.CategorizedError); ok {
+				return catErr
+			}
+			return errors.NewInternalError("encode run update", buildErr)
 		}
 		args = append(args, shardID, namespace, runID, expectedVersion)
 		n := len(args)
@@ -262,13 +264,12 @@ func scanRunRow(row pgx.Row) (*p.RunRow, error) {
 		cntsJSON  []byte
 		aseJSON   []byte
 		lastHB    *time.Time
-		fired     bool // schema leftover; discarded
 	)
 	if err := row.Scan(
 		&r.ShardID, &r.Namespace, &r.ID, &r.FlowType, &r.TaskQueueName, &status, &r.HeartbeatTimeoutSeconds, &r.Version, &r.WorkerID,
 		&stateJSON, &ucmJSON, &cntsJSON, &aseJSON,
 		&r.StepMethodExeCounter, &r.WorkerRequestCounter, &r.ExternalChannelMessageCounter, &lastHB, &r.HeartbeatTimerID,
-		&r.ActiveDurableTimerID, &r.DurableTimerFiredAt, &fired,
+		&r.ActiveDurableTimerID, &r.DurableTimerFiredAt,
 		&r.LastHistoryEventID, &r.CreatedAt, &r.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -314,7 +315,7 @@ func runRowArgs(r *p.RunRow) ([]any, error) {
 		r.ShardID, r.Namespace, r.ID, r.FlowType, r.TaskQueueName, int32(r.Status), r.HeartbeatTimeoutSeconds, r.Version, r.WorkerID,
 		stateJSON, ucmJSON, cntsJSON, aseJSON,
 		r.StepMethodExeCounter, r.WorkerRequestCounter, r.ExternalChannelMessageCounter, nilIfZeroTime(r.LastHeartbeatTime), r.HeartbeatTimerID,
-		r.ActiveDurableTimerID, r.DurableTimerFiredAt, false,
+		r.ActiveDurableTimerID, r.DurableTimerFiredAt,
 		r.LastHistoryEventID, r.CreatedAt, r.UpdatedAt,
 	}, nil
 }
@@ -326,7 +327,7 @@ func insertRunRow(ctx context.Context, tx pgx.Tx, r *p.RunRow) errors.Categorize
 	}
 	_, execErr := tx.Exec(ctx,
 		`INSERT INTO runs (`+runColumns+`) VALUES
-		 ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+		 ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
 		args...)
 	if execErr != nil {
 		catErr := categorizeError(execErr, "insert run")
@@ -345,6 +346,9 @@ func insertRunRow(ctx context.Context, tx pgx.Tx, r *p.RunRow) errors.Categorize
 //   - active_step_executions: `(col || $upserts) - $deleteKeys` (upsert + delete)
 //   - unconsumed_channel_messages: chained jsonb_set per channel (full replace)
 func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
+	if err := checkReplaceDeltaExclusive(u); err != nil {
+		return "", nil, err
+	}
 	var (
 		sets []string
 		args []any
@@ -463,6 +467,23 @@ func buildRunUpdateSet(u *p.RunRowUpdate) (string, []any, error) {
 	return strings.Join(sets, ", "), args, nil
 }
 
+// checkReplaceDeltaExclusive rejects an update that both replaces a column
+// wholesale and applies a delta to it. That would emit two SET clauses for one
+// column, which Postgres rejects with an opaque "multiple assignments" error.
+func checkReplaceDeltaExclusive(u *p.RunRowUpdate) errors.CategorizedError {
+	switch {
+	case u.ReplaceAttributes != nil && len(u.Attributes) > 0:
+		return errors.NewInvalidInputError("run update sets both ReplaceAttributes and Attributes", nil)
+	case u.ReplaceStepExeIDCounters != nil && len(u.StepExeIDCounters) > 0:
+		return errors.NewInvalidInputError("run update sets both ReplaceStepExeIDCounters and StepExeIDCounters", nil)
+	case u.ReplaceActiveStepExecutions != nil && len(u.ActiveStepExecutions) > 0:
+		return errors.NewInvalidInputError("run update sets both ReplaceActiveStepExecutions and ActiveStepExecutions", nil)
+	case u.ReplaceAllUnconsumedChannels != nil && len(u.ReplaceUnconsumedChannels) > 0:
+		return errors.NewInvalidInputError("run update sets both ReplaceAllUnconsumedChannels and ReplaceUnconsumedChannels", nil)
+	}
+	return nil
+}
+
 func buildUCMExpr(u *p.RunRowUpdate, args *[]any) (string, bool, error) {
 	if len(u.ReplaceUnconsumedChannels) == 0 {
 		return "", false, nil
@@ -494,6 +515,8 @@ func insertTasks(ctx context.Context, tx pgx.Tx, tasks []p.TaskRow) errors.Categ
 			if catErr := insertTimerTask(ctx, tx, t.Timer, now); catErr != nil {
 				return catErr
 			}
+		default:
+			return errors.NewInvalidInputError("TaskRow must set exactly one of Immediate/Timer", nil)
 		}
 	}
 	return nil

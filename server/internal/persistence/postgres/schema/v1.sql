@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS runs (
 	heartbeat_timer_id                UUID,
 	active_durable_timer_id           UUID,
 	durable_timer_fired_at             BIGINT NOT NULL DEFAULT 0,
-	durable_timer_fired               BOOLEAN NOT NULL DEFAULT FALSE,
 	last_history_event_id             BIGINT NOT NULL DEFAULT 0,
 	created_at                        TIMESTAMPTZ NOT NULL,
 	updated_at                        TIMESTAMPTZ NOT NULL,
