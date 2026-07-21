@@ -55,17 +55,16 @@ type membershipImpl struct {
 	// for peer to forward grpc requests
 	grpcAddress string
 
-	memberAddresses map[string]string // memberID -> gRPC address
-	memberMu        sync.RWMutex
+	memberGrpcAddresses map[string]string // memberID -> gRPC address
+	memberMu            sync.RWMutex
 
 	// onRebalance is called (outside the lock) on every membership change.
 	// Used by cluster(shardManager/matching) to handle rebalance
 	onRebalance func()
 
-	// onAddressRemoved is called (outside the lock) with each gRPC address that
-	// leaves the ring.
+	// onMemberLeave is called when member leaves
 	// Used by CachedPeerConnection to evict the retired pod IP
-	onAddressRemoved func(addr string)
+	onMemberLeave func(grpcAddr string)
 
 	stopCh chan struct{}
 
@@ -120,9 +119,9 @@ func nwMembershipWithLookup(
 		memberID:    memberID,
 		grpcAddress: grpcAddress,
 
-		memberAddresses:  make(map[string]string),
-		onRebalance:      onRebalance,
-		onAddressRemoved: onAddressRemoved,
+		memberGrpcAddresses: make(map[string]string),
+		onRebalance:         onRebalance,
+		onMemberLeave:       onAddressRemoved,
 
 		stopCh:    make(chan struct{}),
 		dnsLookup: dnsLookup,
@@ -202,7 +201,7 @@ func (m *membershipImpl) GetGrpcAddressForMember(memberID string) string {
 	}
 	m.memberMu.RLock()
 	defer m.memberMu.RUnlock()
-	return m.memberAddresses[memberID]
+	return m.memberGrpcAddresses[memberID]
 }
 
 // GetShardsForMember returns shard IDs in [0, maxShards) owned by memberID.
@@ -312,7 +311,7 @@ func (m *membershipImpl) waitForMinMembers() {
 			return
 		case <-ticker.C:
 			m.memberMu.RLock()
-			current := len(m.memberAddresses)
+			current := len(m.memberGrpcAddresses)
 			m.memberMu.RUnlock()
 			if current >= m.cfg.MinMembersBeforeReady {
 				m.logger.Info("minimum members reached",

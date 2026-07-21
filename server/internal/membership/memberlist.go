@@ -42,7 +42,7 @@ func (d *eventDelegate) NotifyJoin(node *memberlist.Node) {
 	}
 
 	d.m.memberMu.Lock()
-	d.m.memberAddresses[node.Name] = metadata.GrpcAddress
+	d.m.memberGrpcAddresses[node.Name] = metadata.GrpcAddress
 	d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
 	d.m.memberMu.Unlock()
 
@@ -53,12 +53,12 @@ func (d *eventDelegate) NotifyLeave(node *memberlist.Node) {
 	d.m.logger.Info("member left", tag.NodeName(node.Name))
 
 	d.m.memberMu.Lock()
-	departedAddr := d.m.memberAddresses[node.Name]
-	delete(d.m.memberAddresses, node.Name)
+	departedAddr := d.m.memberGrpcAddresses[node.Name]
+	delete(d.m.memberGrpcAddresses, node.Name)
 	d.m.hring = d.m.hring.RemoveNode(node.Name)
 	d.m.memberMu.Unlock()
 
-	d.m.onAddressRemoved(departedAddr)
+	d.m.onMemberLeave(departedAddr)
 	d.m.onRebalance()
 }
 
@@ -72,9 +72,9 @@ func (d *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 	newAddr := metadata.GrpcAddress
 
 	d.m.memberMu.Lock()
-	changed := d.m.memberAddresses[node.Name] != newAddr
+	changed := d.m.memberGrpcAddresses[node.Name] != newAddr
 	if changed {
-		d.m.memberAddresses[node.Name] = newAddr
+		d.m.memberGrpcAddresses[node.Name] = newAddr
 		// AddWeightedNode is a no-op when the node is already present.
 		d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
 	}
