@@ -10,11 +10,11 @@ import (
 func splitHostPort(addr string) (string, int, errors.CategorizedError) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "", 0, errors.NewInternalError("failed to parse bind address", err)
+		return "", 0, errors.NewInternalError("failed to parse address", err)
 	}
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
-		return "", 0, errors.NewInternalError("failed to parse bind port", err)
+		return "", 0, errors.NewInternalError("failed to parse port", err)
 	}
 
 	return host, portInt, nil

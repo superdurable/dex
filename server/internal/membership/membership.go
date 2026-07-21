@@ -56,8 +56,7 @@ type membershipImpl struct {
 	grpcAddress string
 
 	memberAddresses map[string]string // memberID -> gRPC address
-	// for memberAddresses
-	memberMu sync.RWMutex
+	memberMu        sync.RWMutex
 
 	// onRebalance is called (outside the lock) on every membership change.
 	// Used by cluster(shardManager/matching) to handle rebalance
@@ -125,7 +124,7 @@ func (m *membershipImpl) Start() errors.CategorizedError {
 		advertiseAddress = mlConfig.BindAddr
 	}
 
-	mlConfig.AdvertiseAddr, mlConfig.AdvertisePort, err = splitHostPort(m.cfg.AdvertiseAddress)
+	mlConfig.AdvertiseAddr, mlConfig.AdvertisePort, err = splitHostPort(advertiseAddress)
 	if err != nil {
 		return err
 	}
@@ -213,7 +212,7 @@ func (m *membershipImpl) bootstrap() errors.CategorizedError {
 		}
 	}
 	if m.cfg.Discovery.Mode == "dns" && m.cfg.Discovery.DNSAddress != "" {
-		addrs, err := m.lookupDNSAddress()
+		addrs, err := m.lookupNewDNSAddress()
 		if err != nil {
 			return errors.NewInternalError("failed to lookup dns address at bootstrap", err)
 		}
@@ -222,13 +221,15 @@ func (m *membershipImpl) bootstrap() errors.CategorizedError {
 		if rerr != nil {
 			return errors.NewInternalError("failed to join dns address at bootstrap", rerr)
 		}
+		if m.cfg.Discovery.DNSRefreshInterval == 0 {
+			return errors.NewInvalidInputError("DNS refresh interval cannot be zero", nil)
+		}
+		m.startDNSRefreshLoop()
 	}
 
 	if m.cfg.MinMembersBeforeReady > 1 {
 		m.waitForMinMembers()
 	}
-
-	m.startDNSRefreshLoop()
 
 	return nil
 }
@@ -243,7 +244,7 @@ func (m *membershipImpl) startDNSRefreshLoop() {
 			case <-m.stopCh:
 				return
 			case <-ticker.C:
-				addrs, err := m.lookupDNSAddress()
+				addrs, err := m.lookupNewDNSAddress()
 				if err != nil {
 					m.logger.Error("failed to lookup dns address", tag.Error(err))
 				} else {
@@ -257,7 +258,7 @@ func (m *membershipImpl) startDNSRefreshLoop() {
 	}()
 }
 
-func (m *membershipImpl) lookupDNSAddress() ([]string, errors.CategorizedError) {
+func (m *membershipImpl) lookupNewDNSAddress() ([]string, errors.CategorizedError) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -266,9 +267,19 @@ func (m *membershipImpl) lookupDNSAddress() ([]string, errors.CategorizedError) 
 		return nil, errors.NewInternalError("failed to resolve discovery DNS", err)
 	}
 
-	addrs := make([]string, len(hosts))
-	for i, addr := range hosts {
-		addrs[i] = fmt.Sprintf("%s:%d", addr, m.dnsAdvertisePort)
+	connected := make(map[string]bool)
+	for _, node := range m.mlist.Members() {
+		connected[node.Address()] = true
+	}
+	connected[m.mlist.LocalNode().Address()] = true
+
+	var addrs []string
+	for _, rawAddr := range hosts {
+		addr := fmt.Sprintf("%s:%d", rawAddr, m.dnsAdvertisePort)
+		if connected[addr] {
+			continue
+		}
+		addrs = append(addrs, addr)
 	}
 	return addrs, nil
 }

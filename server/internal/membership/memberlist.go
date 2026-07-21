@@ -35,17 +35,17 @@ func newEventDelegate(m *membershipImpl) *eventDelegate {
 func (d *eventDelegate) NotifyJoin(node *memberlist.Node) {
 	d.m.logger.Info("member joined", tag.NodeName(node.Name))
 
-	d.m.memberMu.Lock()
-	if len(node.Meta) > 0 {
-		var metadata nodeMetadata
-		err := json.Unmarshal(node.Meta, &metadata)
-		if err != nil {
-			panic("failed to unmarshal node metadata")
-		}
-		d.m.memberAddresses[node.Name] = string(node.Meta)
+	var metadata nodeMetadata
+	err := json.Unmarshal(node.Meta, &metadata)
+	if err != nil {
+		panic("failed to unmarshal node metadata")
 	}
+
+	d.m.memberMu.Lock()
+	d.m.memberAddresses[node.Name] = metadata.GrpcAddress
 	d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
 	d.m.memberMu.Unlock()
+
 	d.m.onRebalance()
 }
 
@@ -64,19 +64,19 @@ func (d *eventDelegate) NotifyLeave(node *memberlist.Node) {
 
 // NotifyUpdate refreshes a same-name node's address after IP change.
 func (d *eventDelegate) NotifyUpdate(node *memberlist.Node) {
-	newAddr := string(node.Meta)
-	if newAddr == "" {
-		return
+	var metadata nodeMetadata
+	err := json.Unmarshal(node.Meta, &metadata)
+	if err != nil {
+		panic("failed to unmarshal node metadata")
 	}
+	newAddr := metadata.GrpcAddress
 
 	d.m.memberMu.Lock()
 	changed := d.m.memberAddresses[node.Name] != newAddr
 	if changed {
 		d.m.memberAddresses[node.Name] = newAddr
-		if d.m.hring != nil {
-			// AddWeightedNode is a no-op when the node is already present.
-			d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
-		}
+		// AddWeightedNode is a no-op when the node is already present.
+		d.m.hring = d.m.hring.AddWeightedNode(node.Name, d.m.cfg.NumberOfVNodes)
 	}
 	d.m.memberMu.Unlock()
 
