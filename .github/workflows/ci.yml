@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      - name: Copyright check
+        run: make copyright-check
+
+      - name: Unit tests
+        run: make unit-test
+
+  integ:
+    name: Integ tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      # Daemon only; TestMain runs setup.sh with a per-package DB suffix.
+      - name: Start Postgres
+        run: make postgres-up
+
+      - name: Integ tests
+        env:
+          DEX_TEST_PERSISTENCE_BACKEND: postgres
+          DEX_TEST_POSTGRES_HOST: 127.0.0.1
+          DEX_TEST_POSTGRES_PORT: "5432"
+          DEX_TEST_POSTGRES_USER: dex
+          DEX_TEST_POSTGRES_PASSWORD: dex
+        run: make integ-test
+
+      - name: Dump Postgres logs
+        if: failure()
+        run: make postgres-logs
+
+      - name: Stop Postgres
+        if: always()
+        run: make postgres-down

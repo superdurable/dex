@@ -3,8 +3,10 @@ MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
 ROOT_DIR := $(abspath .)
+SERVER_DIR := $(ROOT_DIR)/server
 
-.PHONY: help copyright copyright-check copyright-replace
+.PHONY: help copyright copyright-check copyright-replace \
+	unit-test integ-test postgres-up postgres-down postgres-logs
 
 default: help
 
@@ -20,3 +22,23 @@ copyright-check: ## Verify AGPL license headers (fails if any are missing)
 
 copyright-replace: ## Replace existing license headers from script/licenseheader.txt
 	cd server && go run ./cmd/tools/copyright -rootDir "$(ROOT_DIR)" -replace
+
+unit-test: ## Go tests without external deps (includes membership)
+	cd "$(ROOT_DIR)/common-go" && go test ./... -count=1 -timeout 5m
+	cd "$(ROOT_DIR)/protos" && go test ./... -count=1 -timeout 5m
+	cd "$(SERVER_DIR)" && go test $$(go list ./... | grep -vE '/integTests(/|$$)') -count=1 -timeout 10m
+
+integ-test: ## server/integTests (expects Postgres via postgres-up)
+	@pkgs="$$(cd "$(SERVER_DIR)" && go list ./integTests/... 2>/dev/null || true)"; \
+	if [ -z "$${pkgs}" ]; then echo ">> no integTests packages yet"; exit 0; fi; \
+	cd "$(SERVER_DIR)" && go test ./integTests/... -count=1 -timeout 15m
+
+# Postgres daemon (+ default DBs). Integ TestMain then runs setup.sh with a suffix.
+postgres-up: ## Start Postgres for integ-test
+	cd "$(SERVER_DIR)" && docker compose -f dependency-postgres.yaml up -d --wait
+
+postgres-down: ## Stop Postgres and remove volumes
+	cd "$(SERVER_DIR)" && docker compose -f dependency-postgres.yaml down -v
+
+postgres-logs: ## Dump Postgres compose logs
+	cd "$(SERVER_DIR)" && docker compose -f dependency-postgres.yaml logs

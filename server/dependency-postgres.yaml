@@ -10,7 +10,8 @@ services:
       POSTGRES_PASSWORD: dex
       POSTGRES_DB: postgres
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Postgres 18+ expects the mount at /var/lib/postgresql (versioned data dir inside).
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dex -d postgres"]
       interval: 3s
@@ -29,7 +30,7 @@ services:
       PGPASSWORD: dex
     volumes:
       - ./internal/persistence/postgres/schema:/schema:ro
-    entrypoint: ["bash", "/schema/init.sh"]
+    entrypoint: ["bash", "/schema/setup.sh"]
 
 volumes:
   postgres_data:
