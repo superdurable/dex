@@ -36,13 +36,16 @@ import (
 )
 
 var (
-	startErr   error
 	dbSuffix   string
 	shardStore p.ShardStore
 )
 
 func TestMain(m *testing.M) {
-	startErr = setup()
+	if err := setup(); err != nil {
+		fmt.Fprintf(os.Stderr, "shard store test setup failed: %v\n", err)
+		teardown()
+		os.Exit(1)
+	}
 	code := m.Run()
 	teardown()
 	os.Exit(code)
