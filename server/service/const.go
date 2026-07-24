@@ -36,7 +36,6 @@ const (
 
 	GetAttributesWorkflowQueryType        = "GetAttributes"
 	GetCurrentTimerInfosQueryType         = "GetCurrentTimerInfos"
-	GetScheduledGreedyTimerTimesQueryType = "GetScheduledGreedyTimerTimes"
 	ContinueAsNewDumpByPageQueryType      = "ContinueAsNewDumpByPage"
 	DebugDumpQueryType                    = "DebugNewDump"
 	PrepareRpcQueryType                   = "PrepareRpcQueryType"
@@ -44,6 +43,11 @@ const (
 	ExecuteOptimisticLockingRpcUpdateType = "ExecuteOptimisticLockingRpcUpdate"
 	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"
 	WaitForAttributeUpdateType            = "WaitForAttribute"
+	IWFContinueAsNewPreemptedErrorType    = "IWF_CAN_PREEMPTED"
+	IWFInvalidArgumentErrorType           = "IWF_INVALID_ARGUMENT"
+	IWFFailedPreconditionErrorType        = "IWF_FAILED_PRECONDITION"
+	IWFDeadlineExceededErrorType          = "IWF_DEADLINE_EXCEEDED"
+	IWFRPCAcquireLockFailureErrorType     = "IWF_RPC_ACQUIRE_LOCK_FAILURE"
 
 	SearchAttributeGlobalVersion     = "IwfGlobalWorkflowVersion"
 	SearchAttributeExecutingStateIds = "IwfExecutingStateIds"
@@ -65,14 +69,6 @@ const (
 	WorkflowRequestId   = IwfSystemConstPrefix + "WorkflowRequestId"
 )
 
-var ValidIwfSystemSignalNames = map[string]bool{
-	SkipTimerSignalChannelName:    true,
-	FailWorkflowSignalChannelName: true,
-	CompleteFlowSignalChannelName: true,
-	UpdateConfigSignalChannelName: true,
-	ExecuteRpcSignalChannelName:   true,
-}
-
 const (
 	GracefulCompletingFlowStepType = "_SYS_GRACEFUL_COMPLETING_FLOW"
 	ForceCompletingFlowStepType    = "_SYS_FORCE_COMPLETING_FLOW"
@@ -80,15 +76,7 @@ const (
 	DeadEndFlowStepType            = "_SYS_DEAD_END"
 )
 
-// Legacy closing IDs kept until Phase 4 renames interpreter call sites.
-const (
-	GracefulCompletingWorkflowStateId = GracefulCompletingFlowStepType
-	ForceCompletingWorkflowStateId    = ForceCompletingFlowStepType
-	ForceFailingWorkflowStateId       = ForceFailingFlowStepType
-	DeadEndWorkflowStateId            = DeadEndFlowStepType
-)
-
-var ValidClosingWorkflowStateId = map[string]bool{
+var ValidClosingFlowStepType = map[string]bool{
 	GracefulCompletingFlowStepType: true,
 	ForceCompletingFlowStepType:    true,
 	ForceFailingFlowStepType:       true,

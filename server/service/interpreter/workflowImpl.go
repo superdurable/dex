@@ -21,1074 +21,1254 @@
 package interpreter
 
 import (
-	"context"
 	"fmt"
 	"time"
 
+	"github.com/superdurable/iwf/config"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/common/utils"
-	"github.com/superdurable/iwf/service/interpreter/config"
+	"github.com/superdurable/iwf/service/interpreter/channel"
+	interpreterconfig "github.com/superdurable/iwf/service/interpreter/config"
 	"github.com/superdurable/iwf/service/interpreter/cont"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"github.com/superdurable/iwf/service/interpreter/timers"
-
-	"github.com/superdurable/iwf/service/common/compatibility"
-	"golang.org/x/exp/slices"
-
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/service"
 )
 
 func InterpreterImpl(
-	ctx interfaces.UnifiedContext, provider interfaces.WorkflowProvider, input service.InterpreterWorkflowInput,
-) (output *service.InterpreterWorkflowOutput, retErr error) {
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	input *iwfpb.InterpreterWorkflowInput,
+	apiCfg *config.ApiConfig,
+	activityCfg *config.InterpreterActivityConfig,
+) (output *iwfpb.InterpreterWorkflowOutput, retErr error) {
+	if provider == nil || input == nil || apiCfg == nil || activityCfg == nil {
+		panic("Interpreter requires non-nil dependencies")
+	}
+
 	var persistenceManager *PersistenceManager
-
 	defer func() {
-		if !provider.IsReplaying(ctx) {
-			var sas []iwfidl.SearchAttribute
-			if persistenceManager != nil {
-				sas = persistenceManager.GetAllSearchAttributes()
-			}
-			// send metrics for the workflow result
-			if retErr == nil {
-				event.Handle(iwfidl.IwfEvent{
-					EventType:          iwfidl.WORKFLOW_COMPLETE_EVENT,
-					WorkflowType:       input.IwfWorkflowType,
-					WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-					WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-					StartTimestampInMs: ptr.Any(provider.GetWorkflowInfo(ctx).WorkflowStartTime.UnixMilli()),
-					EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-					SearchAttributes:   sas,
-				})
-			} else if provider.IsApplicationError(retErr) {
-				errType, errDetails := provider.GetApplicationErrorTypeAndDetails(retErr)
-
-				event.Handle(iwfidl.IwfEvent{
-					EventType:          iwfidl.WORKFLOW_FAIL_EVENT,
-					WorkflowType:       input.IwfWorkflowType,
-					WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-					WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-					SearchAttributes:   sas,
-					StartTimestampInMs: ptr.Any(provider.GetWorkflowInfo(ctx).WorkflowStartTime.UnixMilli()),
-					EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-					Error: &iwfidl.IwfEventError{
-						Type:    &errType,
-						Details: &errDetails,
-					},
-				})
-			}
+		if provider.IsReplaying(ctx) {
+			return
 		}
+		eventType := ""
+		if retErr == nil {
+			eventType = "FLOW_COMPLETE"
+		} else if provider.IsApplicationError(retErr) {
+			eventType = "FLOW_FAIL"
+		}
+		if eventType == "" {
+			return
+		}
+		info := provider.GetWorkflowInfo(ctx)
+		var attributes []*iwfpb.KV
+		if persistenceManager != nil {
+			attributes = persistenceManager.GetAllAttributes()
+		}
+		// send metrics for the workflow result
+		event.Handle(event.Event{
+			FlowId:             info.WorkflowExecution.ID,
+			RunId:              info.WorkflowExecution.RunID,
+			FlowType:           input.GetFlowType(),
+			EventType:          eventType,
+			StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
+			Attributes:         attributes,
+		})
 	}()
 
-	var err error
-
-	globalVersioner, err := NewGlobalVersioner(provider, ctx)
-	if err != nil {
-		retErr = err
-		return
-	}
-
-	err = globalVersioner.UpsertGlobalVersionSearchAttribute()
-	if err != nil {
-		retErr = err
-		return
-	}
-
-	if !input.Config.GetDisableSystemSearchAttribute() {
-		if !globalVersioner.IsAfterVersionOfOptimizedUpsertSearchAttribute() {
-			// we have stopped upsert here in new versions, because it's done in start workflow request
-			err = provider.UpsertSearchAttributes(ctx, map[string]interface{}{
-				service.SearchAttributeIwfWorkflowType: input.IwfWorkflowType,
-			})
-			if err != nil {
-				retErr = err
-				return
-			}
-		}
-	}
-
-	workflowConfiger := config.NewWorkflowConfiger(input.Config)
+	NewGlobalVersioner(provider, ctx)
+	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
 	basicInfo := service.BasicInfo{
-		IwfWorkflowType: input.IwfWorkflowType,
-		IwfWorkerUrl:    input.IwfWorkerUrl,
+		FlowType:     input.GetFlowType(),
+		WorkerTarget: input.GetWorkerTarget(),
 	}
 
-	var internalChannel *InternalChannel
-	var stateRequestQueue *StateRequestQueue
+	var channelStore *ChannelStore
+	var stepRequestQueue *StepRequestQueue
 	var timerProcessor interfaces.TimerProcessor
 	var continueAsNewCounter *cont.ContinueAsNewCounter
 	var signalReceiver *SignalReceiver
-	var stateExecutionCounter *StateExecutionCounter
+	var stepExecutionCounter *StepExecutionCounter
 	var outputCollector *OutputCollector
 	var continueAsNewer *ContinueAsNewer
-	if input.IsResumeFromContinueAsNew {
-		canInput := input.ContinueAsNewInput
-		config := workflowConfiger.Get()
-		previous, err := LoadInternalsFromPreviousRun(ctx, provider, canInput.PreviousInternalRunId, config.GetContinueAsNewPageSizeInBytes())
+	if input.GetIsResumeFromContinueAsNew() {
+		previous, err := LoadInternalsFromPreviousRun(
+			ctx,
+			provider,
+			activityCfg,
+			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
+			flowConfiger.EffectiveContinueAsNewPageSizeInBytes(),
+		)
 		if err != nil {
-			retErr = err
-			return
+			return nil, err
 		}
 
 		// The below initialization order should be the same as for non-continueAsNew
 
-		internalChannel = RebuildInternalChannel(previous.InterStateChannelReceived)
-		stateRequestQueue = NewStateRequestQueueWithResumeRequests(previous.StatesToStartFromBeginning, previous.StateExecutionsToResume)
+		channelStore = RebuildChannelStore(previous.GetChannelReceived())
+		stepRequestQueue = NewStepRequestQueueWithResumeRequests(
+			previous.GetStepsToStartFromBeginning(),
+			previous.GetStepExecutionsToResume(),
+		)
 		persistenceManager, err = NewPersistenceManager(provider, previous.GetAttributes())
 		if err != nil {
-			retErr = fmt.Errorf("restore persistence manager: %w", err)
-			return
+			return nil, fmt.Errorf("restore attributes: %w", err)
 		}
-		continueAsNewCounter = cont.NewContinueAsCounter(workflowConfiger, ctx, provider)
-		if input.Config.GetOptimizeTimer() {
-			timerProcessor = timers.NewGreedyTimerProcessor(ctx, provider, continueAsNewCounter, previous.StaleSkipTimerSignals)
-		} else {
-			timerProcessor = timers.NewSimpleTimerProcessor(ctx, provider, previous.StaleSkipTimerSignals)
-		}
-		signalReceiver = NewSignalReceiver(ctx, provider, internalChannel, stateRequestQueue, persistenceManager, timerProcessor, continueAsNewCounter, workflowConfiger, previous.SignalsReceived)
-		counterInfo := previous.StateExecutionCounterInfo
-		stateExecutionCounter = RebuildStateExecutionCounter(ctx, provider, globalVersioner,
-			counterInfo.StateIdStartedCount, counterInfo.StateIdCurrentlyExecutingCount, counterInfo.TotalCurrentlyExecutingCount,
-			workflowConfiger, continueAsNewCounter)
-		outputCollector = NewOutputCollector(previous.StateOutputs)
-		continueAsNewer = NewContinueAsNewer(provider, internalChannel, signalReceiver, stateExecutionCounter, persistenceManager, stateRequestQueue, outputCollector, timerProcessor)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		timerProcessor = timers.NewGreedyTimerProcessor(
+			ctx,
+			provider,
+			continueAsNewCounter,
+			previous.GetStaleSkipTimers(),
+		)
+		signalReceiver = NewSignalReceiver(
+			ctx,
+			provider,
+			channelStore,
+			stepRequestQueue,
+			persistenceManager,
+			timerProcessor,
+			continueAsNewCounter,
+			flowConfiger,
+		)
+		stepExecutionCounter = RebuildStepExecutionCounter(
+			ctx,
+			provider,
+			flowConfiger,
+			continueAsNewCounter,
+			previous.GetCounterInfo(),
+		)
+		outputCollector = RebuildOutputCollector(
+			input.GetWaitForCompletionStepTypes(),
+			input.GetWaitForCompletionStepExecutionIds(),
+			previous.GetStepOutputs(),
+			previous.GetStepExecutionsToResume(),
+		)
+		continueAsNewer = NewContinueAsNewer(
+			provider,
+			channelStore,
+			stepExecutionCounter,
+			persistenceManager,
+			stepRequestQueue,
+			outputCollector,
+			timerProcessor,
+			apiCfg,
+		)
 	} else {
-		internalChannel = NewInternalChannel()
-		stateRequestQueue = NewStateRequestQueue()
+		channelStore = NewChannelStore()
+		stepRequestQueue = NewStepRequestQueue()
+		var err error
 		persistenceManager, err = NewPersistenceManager(provider, input.GetInitAttributes())
 		if err != nil {
-			retErr = fmt.Errorf("initialize persistence manager: %w", err)
-			return
+			return nil, fmt.Errorf("initialize attributes: %w", err)
 		}
-		continueAsNewCounter = cont.NewContinueAsCounter(workflowConfiger, ctx, provider)
-		if input.Config.GetOptimizeTimer() {
-			timerProcessor = timers.NewGreedyTimerProcessor(ctx, provider, continueAsNewCounter, nil)
-		} else {
-			timerProcessor = timers.NewSimpleTimerProcessor(ctx, provider, nil)
-		}
-		signalReceiver = NewSignalReceiver(ctx, provider, internalChannel, stateRequestQueue, persistenceManager, timerProcessor, continueAsNewCounter, workflowConfiger, nil)
-		stateExecutionCounter = NewStateExecutionCounter(ctx, provider, globalVersioner, workflowConfiger, continueAsNewCounter)
-		outputCollector = NewOutputCollector(nil)
-		continueAsNewer = NewContinueAsNewer(provider, internalChannel, signalReceiver, stateExecutionCounter, persistenceManager, stateRequestQueue, outputCollector, timerProcessor)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		timerProcessor = timers.NewGreedyTimerProcessor(
+			ctx,
+			provider,
+			continueAsNewCounter,
+			nil,
+		)
+		signalReceiver = NewSignalReceiver(
+			ctx,
+			provider,
+			channelStore,
+			stepRequestQueue,
+			persistenceManager,
+			timerProcessor,
+			continueAsNewCounter,
+			flowConfiger,
+		)
+		stepExecutionCounter = NewStepExecutionCounter(
+			ctx,
+			provider,
+			flowConfiger,
+			continueAsNewCounter,
+		)
+		outputCollector = NewOutputCollector(
+			input.GetWaitForCompletionStepTypes(),
+			input.GetWaitForCompletionStepExecutionIds(),
+		)
+		continueAsNewer = NewContinueAsNewer(
+			provider,
+			channelStore,
+			stepExecutionCounter,
+			persistenceManager,
+			stepRequestQueue,
+			outputCollector,
+			timerProcessor,
+			apiCfg,
+		)
 	}
 
-	_, err = NewWorkflowUpdater(ctx, provider, persistenceManager, stateRequestQueue, continueAsNewer, continueAsNewCounter, internalChannel, signalReceiver, basicInfo, globalVersioner)
+	_, err := NewWorkflowUpdater(
+		ctx,
+		provider,
+		persistenceManager,
+		stepRequestQueue,
+		continueAsNewer,
+		continueAsNewCounter,
+		channelStore,
+		signalReceiver,
+		outputCollector,
+		basicInfo,
+		apiCfg,
+	)
 	if err != nil {
-		retErr = err
-		return
+		return nil, err
 	}
 	// We intentionally set the query handler after the continueAsNew/dumpInternal activity.
 	// This is to ensure the correctness. If we set the query handler before that,
 	// the query handler could return empty data (since the loading hasn't completed), which will be incorrect response.
 	// We would rather return server errors and let the client retry later.
-	err = SetQueryHandlers(ctx, provider, timerProcessor, persistenceManager, internalChannel, signalReceiver, continueAsNewer, workflowConfiger, basicInfo)
-	if err != nil {
-		retErr = err
-		return
+	if err := SetQueryHandlers(
+		ctx,
+		provider,
+		timerProcessor,
+		persistenceManager,
+		channelStore,
+		continueAsNewer,
+		flowConfiger,
+		basicInfo,
+	); err != nil {
+		return nil, err
 	}
 
-	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
-	var forceCompleteWf bool
+	var errToFailFlow error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
+	var forceCompleteFlow bool
 	var shouldGracefulComplete bool
 
-	// this is for an optimization for StateId Search attribute, see refreshIwfExecutingStateIdSearchAttribute in stateExecutionCounter
-	// Because it will check totalCurrentlyExecutingCount == 0, so it will also work for continueAsNew case
-	defer stateExecutionCounter.ClearExecutingStateIdsSearchAttributeFinally()
-
-	if !input.IsResumeFromContinueAsNew {
+	if !input.GetIsResumeFromContinueAsNew() {
 		if !provider.IsReplaying(ctx) {
-			event.Handle(iwfidl.IwfEvent{
-				EventType:          iwfidl.WORKFLOW_START_EVENT,
-				WorkflowType:       input.IwfWorkflowType,
-				WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-				WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-				SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-				StartTimestampInMs: ptr.Any(provider.GetWorkflowInfo(ctx).WorkflowStartTime.UnixMilli()),
+			info := provider.GetWorkflowInfo(ctx)
+			event.Handle(event.Event{
+				FlowId:             info.WorkflowExecution.ID,
+				RunId:              info.WorkflowExecution.RunID,
+				FlowType:           basicInfo.FlowType,
+				EventType:          "FLOW_START",
+				StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
+				Attributes:         persistenceManager.GetAllAttributes(),
 			})
 		}
-		// it's possible that a workflow is started without any starting state
-		// it will wait for a new state coming in (by RPC results)
-		if input.StartStateId != nil {
-			startingState := iwfidl.StateMovement{
-				StateId:      *input.StartStateId,
-				StateOptions: input.StateOptions,
-				StateInput:   input.StateInput,
-			}
-			stateRequestQueue.AddStateStartRequests([]iwfidl.StateMovement{startingState})
+		// it's possible that a flow is started without any starting step
+		// it will wait for a new step coming in (by RPC results)
+		if input.GetStartStepType() != "" {
+			stepRequestQueue.AddSingleStepStartRequest(
+				input.GetStartStepType(),
+				input.GetStepInput(),
+				input.GetStepOptions(),
+			)
 		}
 	}
 
 	for {
-		err = provider.Await(ctx, func() bool {
-			failWorkflowByClient, _ := signalReceiver.IsFailWorkflowRequested()
-			if globalVersioner.IsAfterVersionOfContinueAsNewOnNoStates() {
-				return !stateRequestQueue.IsEmpty() || failWorkflowByClient || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
+		if err := provider.Await(ctx, func() bool {
+			failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
+			if failFlowByClient {
+				errToFailFlow = failErr
 			}
-			// below was a bug in the older version that workflow didn't continue as new
-			// but have to keep workflow deterministic
-			return !stateRequestQueue.IsEmpty() || failWorkflowByClient || shouldGracefulComplete
-		})
-		if err != nil {
-			retErr = err
-			return
+			if signalReceiver.IsCompleteFlowRequested() {
+				forceCompleteFlow = true
+			}
+			return !stepRequestQueue.IsEmpty() && !persistenceManager.HasAnyLock() ||
+				errToFailFlow != nil ||
+				forceCompleteFlow ||
+				shouldGracefulComplete ||
+				continueAsNewCounter.IsThresholdMet()
+		}); err != nil {
+			return nil, err
 		}
-		failWorkflowByClient, failErr := signalReceiver.IsFailWorkflowRequested()
-		if failWorkflowByClient {
-			retErr = failErr
-			return
+		if errToFailFlow != nil || forceCompleteFlow {
+			return &iwfpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, errToFailFlow
 		}
-		if shouldGracefulComplete && stateRequestQueue.IsEmpty() {
-			break
+		// gracefully complete flow when all steps are executed to dead ends
+		if shouldGracefulComplete && stepRequestQueue.IsEmpty() {
+			return &iwfpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, nil
 		}
 
-		for !stateRequestQueue.IsEmpty() {
-
-			var statesToExecute []StateRequest
-			if !continueAsNewCounter.IsThresholdMet() {
-				statesToExecute = stateRequestQueue.TakeAll()
-				err = stateExecutionCounter.MarkStateIdExecutingIfNotYet(statesToExecute)
-				if err != nil {
-					retErr = err
-					return
+		for !stepRequestQueue.IsEmpty() {
+			var stepsToExecute []StepRequest
+			if !continueAsNewCounter.IsThresholdMet() &&
+				!persistenceManager.HasAnyLock() {
+				stepsToExecute = stepRequestQueue.TakeAll()
+				if err := stepExecutionCounter.MarkStepTypeExecutingIfNotYet(
+					stepsToExecute,
+				); err != nil {
+					errToFailFlow = provider.NewApplicationError(
+						iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+						err.Error(),
+					)
+					break
 				}
 			}
 
-			for _, stateReqForLoopingOnly := range statesToExecute {
+			for _, stepReqForLoopingOnly := range stepsToExecute {
 				// execute in another thread for parallelism
-				// state must be passed via parameter https://stackoverflow.com/questions/67263092
-				stateCtx := provider.ExtendContextWithValue(ctx, "stateReq", stateReqForLoopingOnly)
-				provider.GoNamed(stateCtx, "state-execution-thread:"+stateReqForLoopingOnly.GetStateId(), func(ctx interfaces.UnifiedContext) {
-					stateReq, ok := provider.GetContextValue(ctx, "stateReq").(StateRequest)
-					if !ok {
-						errToFailWf = provider.NewApplicationError(
-							string(iwfidl.SERVER_INTERNAL_ERROR_TYPE),
-							"critical code bug when passing state request via context",
-						)
-						return
-					}
-
-					var state iwfidl.StateMovement
-					var stateExeId string
-					if stateReq.IsResumeRequest() {
-						resumeReq := stateReq.GetStateResumeRequest()
-						state = resumeReq.State
-						stateExeId = resumeReq.StateExecutionId
-					} else {
-						state = stateReq.GetStateStartRequest()
-						stateExeId = stateExecutionCounter.CreateNextExecutionId(state.GetStateId())
-					}
-
-					shouldSendSignalOnCompletion :=
-						slices.Contains(input.WaitForCompletionStateExecutionIds, stateExeId) ||
-							slices.Contains(input.WaitForCompletionStateIds, state.GetStateId())
-
-					decision, stateExecStatus, err := processStateExecution(
-						ctx, provider, globalVersioner, basicInfo, stateReq, stateExeId, persistenceManager, internalChannel,
-						signalReceiver, timerProcessor, continueAsNewer, continueAsNewCounter, workflowConfiger, shouldSendSignalOnCompletion)
-					if err != nil {
-						// this is the case where stateExecStatus == FailureStateExecutionStatus
-						errToFailWf = err
-						// state execution fail should fail the workflow, no more processing
-						return
-					}
-
-					if stateExecStatus == service.CompletedStateExecutionStatus {
-						// NOTE: decision is only available on this CompletedStateExecutionStatus
-
-						canGoNext, gracefulComplete, forceComplete, forceFail, output, err :=
-							checkClosingWorkflow(ctx, provider, globalVersioner, decision, state.GetStateId(), stateExeId, internalChannel, signalReceiver)
-						if err != nil {
-							errToFailWf = err
-							// no return so that it can fall through to call MarkStateExecutionCompleted
+				// step must be passed via parameter https://stackoverflow.com/questions/67263092
+				stepCtx := provider.ExtendContextWithValue(
+					ctx,
+					"stepRequest",
+					stepReqForLoopingOnly,
+				)
+				provider.GoNamed(
+					stepCtx,
+					"step-execution-thread:"+stepReqForLoopingOnly.GetStepType(),
+					func(ctx interfaces.UnifiedContext) {
+						stepRequest, ok := provider.GetContextValue(
+							ctx,
+							"stepRequest",
+						).(StepRequest)
+						if !ok {
+							errToFailFlow = provider.NewApplicationError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+								"cannot read step request from workflow context",
+							)
+							return
 						}
+
+						step := stepRequest.GetStepMovement()
+						var stepExecutionId string
+						if stepRequest.IsResumeRequest() {
+							stepExecutionId = stepRequest.GetStepResumeRequest().
+								GetStepExecutionId()
+						} else {
+							stepExecutionId = stepExecutionCounter.
+								CreateNextExecutionId(step.GetStepType())
+						}
+						outputCollector.RegisterStepStarted(
+							step.GetStepType(),
+							stepExecutionId,
+						)
+
+						decision, stepExecutionStatus, err := processStepExecution(
+							ctx,
+							provider,
+							basicInfo,
+							stepRequest,
+							stepExecutionId,
+							persistenceManager,
+							channelStore,
+							signalReceiver,
+							timerProcessor,
+							continueAsNewer,
+							continueAsNewCounter,
+							flowConfiger,
+						)
+						if err != nil {
+							// this is the case where stepExecutionStatus == FailureStepExecutionStatus
+							errToFailFlow = convertStepApiActivityError(provider, err)
+							// step execution fail should fail the flow, no more processing
+							return
+						}
+						if stepExecutionStatus != service.CompletedStepExecutionStatus {
+							// noop for WaitingConditionsStepExecutionStatus, because it means continueAsNew
+							return
+						}
+
+						// NOTE: decision is only available on this CompletedStepExecutionStatus
+						canGoNext, gracefulComplete, forceComplete, forceFail,
+							completeOutput, err := checkClosingFlow(
+							ctx,
+							provider,
+							decision,
+							channelStore,
+							signalReceiver,
+						)
+						if err != nil {
+							errToFailFlow = provider.NewApplicationError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE.String(),
+								err.Error(),
+							)
+						}
+						if canGoNext {
+							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+						}
+						// finally, mark step completed and may also update system search attribute
+						if err := stepExecutionCounter.MarkStepExecutionCompleted(
+							step,
+							decision.GetNextSteps(),
+						); err != nil {
+							errToFailFlow = provider.NewApplicationError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+								err.Error(),
+							)
+							return
+						}
+						outputCollector.RecordCompletion(
+							step.GetStepType(),
+							stepExecutionId,
+							completeOutput,
+						)
+
 						if gracefulComplete {
 							shouldGracefulComplete = true
 						}
-						if (gracefulComplete || forceComplete || forceFail) && output != nil {
-							outputCollector.Add(*output)
-						}
 						if forceComplete {
-							forceCompleteWf = true
+							forceCompleteFlow = true
 						}
 						if forceFail {
-							errToFailWf = provider.NewApplicationError(
-								string(iwfidl.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE),
-								outputCollector.GetAll(),
+							errToFailFlow = provider.NewApplicationError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW.String(),
+								"step decision requested flow failure",
 							)
-							// no return so that it can fall through to call MarkStateExecutionCompleted
 						}
-						if canGoNext && decision.HasNextStates() {
-							stateRequestQueue.AddStateStartRequests(decision.GetNextStates())
-						}
-
-						// finally, mark state completed and may also update system search attribute(IwfExecutingStateIds)
-						err = stateExecutionCounter.MarkStateExecutionCompleted(state, decision.GetNextStates())
-						if err != nil {
-							errToFailWf = err
-						}
-					} else if stateExecStatus == service.ExecuteApiFailedAndProceed {
-						options := state.GetStateOptions()
-						stateRequestQueue.AddSingleStateStartRequest(options.GetExecuteApiFailureProceedStateId(), state.StateInput, options.ExecuteApiFailureProceedStateOptions)
-						// finally, mark state completed and may also update system search attribute(IwfExecutingStateIds)
-						err = stateExecutionCounter.MarkStateExecutionCompleted(state, decision.GetNextStates())
-						if err != nil {
-							errToFailWf = err
-						}
-					}
-					// noop for WaitingCommandsStateExecutionStatus, because it means continueAsNew
-				}) // end of executing one state
-			} // end loop of executing all states from the queue for one iteration
+					},
+				)
+			}
 
 			// The conditions here are quite tricky:
-			// For !stateRequestQueue.IsEmpty(): We need some condition to wait here because all the state execution are running in different thread.
-			//    Right after the queue are popped it becomes empty. When it's not empty, it means there are new states to execute pushed into the queue,
+			// For !stepRequestQueue.IsEmpty(): We need some condition to wait here because all the step executions are running in different threads.
+			//    Right after the queue is popped it becomes empty. When it's not empty, it means there are new steps to execute pushed into the queue,
 			//    and it's time to wake up the outer loop to go to next iteration. Alternatively, waiting for all current started in this iteration to complete will also work,
 			//    but not as efficient as this one because it will take much longer time.
-			// For errToFailWf != nil || forceCompleteWf: this means we need to close workflow immediately
-			// For stateExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the state executions have reach "Dead Ends" so the workflow can complete gracefully without output
-			// For continueAsNewCounter.IsThresholdMet(): this means workflow need to continueAsNew
+			// For errToFailFlow != nil || forceCompleteFlow: this means we need to close flow immediately
+			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
+			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
-				failByApi, failErr := signalReceiver.IsFailWorkflowRequested()
-				if failByApi {
-					errToFailWf = failErr
-					return true
+				failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
+				if failFlowByClient {
+					errToFailFlow = failErr
 				}
-				return !stateRequestQueue.IsEmpty() || errToFailWf != nil || forceCompleteWf || stateExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 || continueAsNewCounter.IsThresholdMet()
+				if signalReceiver.IsCompleteFlowRequested() {
+					forceCompleteFlow = true
+				}
+				return !stepRequestQueue.IsEmpty() && !persistenceManager.HasAnyLock() ||
+					errToFailFlow != nil ||
+					forceCompleteFlow ||
+					stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 ||
+					continueAsNewCounter.IsThresholdMet()
 			})
 			if continueAsNewCounter.IsThresholdMet() {
-				// NOTE: drain thread before checking errToFailWf/forceCompleteWf so that we can close the workflow if possible
-				err := continueAsNewer.DrainThreads(ctx)
-				if err != nil {
+				// NOTE: drain thread before checking errToFailFlow/forceCompleteFlow so that we can close the flow if possible
+				if err := continueAsNewer.DrainThreads(ctx); err != nil {
 					awaitError = err
 				}
 			}
-
-			if errToFailWf != nil || forceCompleteWf {
-				output = &service.InterpreterWorkflowOutput{
-					StateCompletionOutputs: outputCollector.GetAll(),
-				}
-				retErr = errToFailWf
-				return
+			if errToFailFlow != nil || forceCompleteFlow {
+				return &iwfpb.InterpreterWorkflowOutput{
+					StepCompletionOutputs: outputCollector.GetAll(),
+				}, errToFailFlow
 			}
-
 			if awaitError != nil {
 				// this could happen for cancellation
-				errToFailWf = awaitError
-				break
+				return nil, awaitError
 			}
 			if continueAsNewCounter.IsThresholdMet() {
 				// the outer logic will do the actual continue as new
 				break
 			}
-		} // end loop until no more state can be executed (dead end)
-
-		if continueAsNewCounter.IsThresholdMet() {
-			// we have to drain this again because this can be from non-state cases
-			err := continueAsNewer.DrainThreads(ctx)
-			if err != nil {
-				errToFailWf = err
+			if stepRequestQueue.IsEmpty() &&
+				stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 {
+				shouldGracefulComplete = true
 				break
 			}
-			// NOTE: This must be the last thing before continueAsNew!!!
-			// Otherwise, there could be signals unhandled
-			signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
-
-			// after draining signals, there could be some changes
-			// last fail workflow signal, return the workflow so that we don't carry over the fail request
-			failByApi, failErr := signalReceiver.IsFailWorkflowRequested()
-			if failByApi {
-				output = &service.InterpreterWorkflowOutput{
-					StateCompletionOutputs: outputCollector.GetAll(),
-				}
-				retErr = failErr
-				return
-			}
-			if stateRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStateExecutionToResume() && shouldGracefulComplete {
-				// if it is empty and no stateExecutionsToResume and request a graceful complete just complete the loop
-				// so that we don't carry over shouldGracefulComplete
-				break
-			}
-			// last update config, do it here because we use input to carry over config, not continueAsNewer query
-			input.Config = workflowConfiger.Get() // update config to the latest before continueAsNew to carry over
-			input.IsResumeFromContinueAsNew = true
-			input.ContinueAsNewInput = &service.ContinueAsNewInput{
-				PreviousInternalRunId: provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-			}
-			// nix the unused data
-			input.StateInput = nil
-			input.StateOptions = nil
-			input.StartStateId = nil
-			input.InitDataAttributes = nil
-			input.InitSearchAttributes = nil
-			retErr = provider.NewInterpreterContinueAsNewError(ctx, input)
-			return
 		}
-	} // end main loop
 
-	// gracefully complete workflow when all states are executed to dead ends
-	output = &service.InterpreterWorkflowOutput{
-		StateCompletionOutputs: outputCollector.GetAll(),
+		if !continueAsNewCounter.IsThresholdMet() {
+			continue
+		}
+		// we have to drain this again because this can be from non-step cases
+		if err := continueAsNewer.DrainThreads(ctx); err != nil {
+			return nil, err
+		}
+		// NOTE: This must be the last thing before continueAsNew!!!
+		// Otherwise, there could be signals unhandled
+		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
+
+		// after draining signals, there could be some changes
+		// last fail flow signal, return the flow so that we don't carry over the fail request
+		failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
+		if failFlowByClient {
+			return &iwfpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, failErr
+		}
+		if signalReceiver.IsCompleteFlowRequested() || forceCompleteFlow {
+			return &iwfpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, nil
+		}
+		if stepRequestQueue.IsEmpty() &&
+			!continueAsNewer.HasAnyStepExecutionToResume() &&
+			shouldGracefulComplete {
+			// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
+			// so that we don't carry over shouldGracefulComplete
+			return &iwfpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, nil
+		}
+		// last update config, do it here because we use input to carry over config, not continueAsNewer query
+		input.Config = flowConfiger.Get()
+		input.IsResumeFromContinueAsNew = true
+		input.ContinueAsNewInput = &iwfpb.ContinueAsNewInput{
+			PreviousInternalRunId: provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
+		}
+		// nix the unused data
+		input.StartStepType = ""
+		input.StepInput = nil
+		input.StepOptions = nil
+		input.InitAttributes = nil
+		// NOTE: This must be the last thing before continueAsNew!!!
+		return nil, provider.NewInterpreterContinueAsNewError(ctx, input)
 	}
-	retErr = errToFailWf
-	return
 }
 
-func checkClosingWorkflow(
-	ctx interfaces.UnifiedContext, provider interfaces.WorkflowProvider, versioner *GlobalVersioner, decision *iwfidl.StateDecision,
-	currentStateId, currentStateExeId string,
-	internalChannel *InternalChannel, signalReceiver *SignalReceiver,
-) (canGoNext, gracefulComplete, forceComplete, forceFail bool, completeOutput *iwfidl.StateCompletionOutput, err error) {
-	if decision.HasConditionalClose() {
-		conditionClose := decision.ConditionalClose
-		if conditionClose.GetConditionalCloseType() == iwfidl.FORCE_COMPLETE_ON_INTERNAL_CHANNEL_EMPTY ||
-			conditionClose.GetConditionalCloseType() == iwfidl.FORCE_COMPLETE_ON_SIGNAL_CHANNEL_EMPTY {
-			// trigger a signal draining so that all the signal/internal channel messages are processed
-			signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
-			// Messages of internal channels could be published via State executions, within the same workflow task.
-			// If we don't do any draining and process them, the conditional completion could lose the messages
-			err = DrainReceivedButUnprocessedInternalChannelsFromStateApis(ctx, provider, versioner)
-			if err != nil {
-				return
-			}
-
-			conditionMet := false
-			if conditionClose.GetConditionalCloseType() == iwfidl.FORCE_COMPLETE_ON_INTERNAL_CHANNEL_EMPTY &&
-				!internalChannel.HasData(conditionClose.GetChannelName()) {
-				conditionMet = true
-			}
-			if conditionClose.GetConditionalCloseType() == iwfidl.FORCE_COMPLETE_ON_SIGNAL_CHANNEL_EMPTY &&
-				!signalReceiver.HasSignal(conditionClose.GetChannelName()) {
-				conditionMet = true
-			}
-
-			if conditionMet {
-				// condition is met, force complete the workflow
-				forceComplete = true
-				completeOutput = &iwfidl.StateCompletionOutput{
-					CompletedStateId:          currentStateId,
-					CompletedStateExecutionId: currentStateExeId,
-					CompletedStateOutput:      conditionClose.CloseInput,
-				}
-				return
-			} else {
-				for _, st := range decision.GetNextStates() {
-					if service.ValidClosingWorkflowStateId[st.GetStateId()] {
-						err = createUserWorkflowError(provider, "invalid ConditionUnmetDecision with stateId: "+st.GetStateId())
-						return
-					}
-				}
-
+func checkClosingFlow(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	decision *iwfpb.StepDecision,
+	channelStore *ChannelStore,
+	signalReceiver *SignalReceiver,
+) (
+	canGoNext bool,
+	gracefulComplete bool,
+	forceComplete bool,
+	forceFail bool,
+	completeOutput *iwfpb.Value,
+	err error,
+) {
+	if decision == nil {
+		err = fmt.Errorf("step decision is nil")
+		return
+	}
+	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
+		// trigger a signal draining so that all the channel messages are processed
+		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
+		// Messages of channels could be published via step executions, within the same workflow task.
+		// If we don't do any draining and process them, the conditional completion could lose the messages
+		// Just yield, by waiting on an empty lambda, nothing else.
+		// It will let other workflow threads/coroutines run.
+		// This will drain the messages published from step APIs.
+		// NOTE that this is extremely tricky in Cadence/Temporal programming model.
+		// Read more: https://stackoverflow.com/questions/71356668/how-does-multi-threading-works-in-cadence-temporal-workflow
+		// https://docs.temporal.io/encyclopedia/go-sdk-multithreading
+		if err = provider.Await(ctx, func() bool { return true }); err != nil {
+			return
+		}
+		for _, channelName := range conditionalClose.GetChannelNames() {
+			if channelStore.HasData(channelName) {
 				canGoNext = true
 				return
 			}
-		} else {
-			msg := "invalid state decisions. Unsupported ConditionalCloseType " + string(conditionClose.GetConditionalCloseType())
-			err = createUserWorkflowError(provider, msg)
-			return
 		}
+		// condition is met, complete the flow
+		completeOutput = conditionalClose.GetCloseInput()
+		switch conditionalClose.GetConditionalCloseType() {
+		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY:
+			gracefulComplete = true
+		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
+			forceComplete = true
+		default:
+			err = fmt.Errorf("unsupported conditional close type")
+		}
+		return
 	}
 
 	canGoNext = true
-	systemStateId := false
-	for _, movement := range decision.GetNextStates() {
-		stateId := movement.GetStateId()
-		if stateId == service.GracefulCompletingWorkflowStateId {
+	for _, movement := range decision.GetNextSteps() {
+		switch movement.GetStepType() {
+		case service.GracefulCompletingFlowStepType:
 			canGoNext = false
 			gracefulComplete = true
-			systemStateId = true
-			completeOutput = &iwfidl.StateCompletionOutput{
-				CompletedStateId:          currentStateId,
-				CompletedStateExecutionId: currentStateExeId,
-				CompletedStateOutput:      movement.StateInput,
-			}
-		}
-		if stateId == service.ForceCompletingWorkflowStateId {
+			completeOutput = movement.GetStepInput()
+		case service.ForceCompletingFlowStepType:
 			canGoNext = false
 			forceComplete = true
-			systemStateId = true
-			completeOutput = &iwfidl.StateCompletionOutput{
-				CompletedStateId:          currentStateId,
-				CompletedStateExecutionId: currentStateExeId,
-				CompletedStateOutput:      movement.StateInput,
-			}
-		}
-		if stateId == service.ForceFailingWorkflowStateId {
+			completeOutput = movement.GetStepInput()
+		case service.ForceFailingFlowStepType:
 			canGoNext = false
 			forceFail = true
-			systemStateId = true
-			completeOutput = &iwfidl.StateCompletionOutput{
-				CompletedStateId:          currentStateId,
-				CompletedStateExecutionId: currentStateExeId,
-				CompletedStateOutput:      movement.StateInput,
-			}
-		}
-		if stateId == service.DeadEndWorkflowStateId {
+			completeOutput = movement.GetStepInput()
+		case service.DeadEndFlowStepType:
 			canGoNext = false
-			systemStateId = true
 		}
-	}
-	if len(decision.GetNextStates()) == 0 {
-		// legacy to keep compatibility for old code that use empty decision as graceful complete
-		gracefulComplete = true
-		canGoNext = false
-	}
-	if systemStateId && len(decision.NextStates) > 1 {
-		// Illegal decision
-		err = createUserWorkflowError(provider, "invalid state decisions. Closing workflow decision cannot be combined with other state decisions")
-		return
 	}
 	return
 }
 
-func DrainReceivedButUnprocessedInternalChannelsFromStateApis(
-	ctx interfaces.UnifiedContext, provider interfaces.WorkflowProvider, versioner *GlobalVersioner,
-) error {
-	if versioner.IsAfterVersionOfYieldOnConditionalComplete() {
-		// Just yield, by waiting on an empty lambda, nothing else.
-		// It will let other workflow threads/coroutines to run.
-		// This will drain the messages published from state APIs.
-		// NOTE that this is extremely tricky in Cadence/Temporal programming model.
-		// Read more: https://stackoverflow.com/questions/71356668/how-does-multi-threading-works-in-cadence-temporal-workflow
-		//https://docs.temporal.io/encyclopedia/go-sdk-multithreading
-		return provider.Await(ctx, func() bool {
-			return true
-		})
-	}
-	return nil
-}
-
-func processStateExecution(
+func processStepExecution(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	globalVersioner *GlobalVersioner,
 	basicInfo service.BasicInfo,
-	stateReq StateRequest,
-	stateExeId string,
+	stepRequest StepRequest,
+	stepExecutionId string,
 	persistenceManager *PersistenceManager,
-	interStateChannel *InternalChannel,
+	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
-	configer *config.WorkflowConfiger,
-	shouldSendSignalOnCompletion bool,
-) (*iwfidl.StateDecision, service.StateExecutionStatus, error) {
-	waitUntilApi := StateStart
-	executeApi := StateDecide
-	if globalVersioner.IsAfterVersionOfRenamedStateApi() {
-		waitUntilApi = StateApiWaitUntil
-		executeApi = StateApiExecute
-	}
+	flowConfiger *interpreterconfig.FlowConfiger,
+) (*iwfpb.StepDecision, service.StepExecutionStatus, error) {
+	step := stepRequest.GetStepMovement()
+	var stepExeLocals []*iwfpb.KV
+	var waitingCondition *iwfpb.WaitingCondition
+	completedTimerConditions := map[int32]iwfpb.InternalTimerStatus{}
+	waitForFailed := false
 
-	info := provider.GetWorkflowInfo(ctx)
-	executionContext := iwfidl.Context{
-		WorkflowId:               info.WorkflowExecution.ID,
-		WorkflowRunId:            info.FirstRunID,
-		WorkflowStartedTimestamp: info.WorkflowStartTime.Unix(),
-		StateExecutionId:         &stateExeId,
-	}
-	activityOptions := interfaces.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-	}
-
-	var errWaitUntilApi error
-	var startResponse *iwfidl.WorkflowStateStartResponse
-	var stateExecutionLocal []iwfidl.KeyValue
-	var commandReq iwfidl.CommandRequest
-	commandReqDoneOrCanceled := false
-	completedTimerCmds := map[int]service.InternalTimerStatus{}
-	completedSignalCmds := map[int]*iwfidl.EncodedObject{}
-	completedInterStateChannelCmds := map[int]*iwfidl.EncodedObject{}
-
-	state := stateReq.GetStateMovement()
-	isResumeFromContinueAsNew := stateReq.IsResumeRequest()
-
-	options := state.GetStateOptions()
-	skipWaitUntil := compatibility.GetSkipWaitUntilApi(&options)
-	if skipWaitUntil {
-		return invokeStateExecute(ctx, provider, basicInfo, state, stateExeId, persistenceManager, interStateChannel, executionContext,
-			nil, continueAsNewer, configer, executeApi, stateExecutionLocal, shouldSendSignalOnCompletion)
-	}
-
-	if isResumeFromContinueAsNew {
-		resumeStateRequest := stateReq.GetStateResumeRequest()
-		stateExecutionLocal = resumeStateRequest.StateExecutionLocals
-		commandReq = resumeStateRequest.CommandRequest
-		completedCmds := resumeStateRequest.StateExecutionCompletedCommands
-		completedTimerCmds, completedSignalCmds, completedInterStateChannelCmds = completedCmds.CompletedTimerCommands, completedCmds.CompletedSignalCommands, completedCmds.CompletedInterStateChannelCommands
-	} else {
-		if state.StateOptions != nil {
-			startApiTimeout := compatibility.GetStartApiTimeoutSeconds(state.StateOptions)
-			if startApiTimeout > 0 {
-				activityOptions.StartToCloseTimeout = time.Duration(startApiTimeout) * time.Second
-			}
-			activityOptions.RetryPolicy = compatibility.GetStartApiRetryPolicy(state.StateOptions)
+	if stepRequest.IsResumeRequest() {
+		resumeRequest := stepRequest.GetStepResumeRequest()
+		stepExeLocals = resumeRequest.GetStepExeLocals()
+		waitingCondition = resumeRequest.GetWaitingCondition()
+		if completed := resumeRequest.GetCompletedConditions(); completed != nil {
+			completedTimerConditions = completed.GetCompletedTimerConditions()
 		}
-
-		ctx = provider.WithActivityOptions(ctx, activityOptions)
-
-		saLoadingPolicy := compatibility.GetWaitUntilApiSearchAttributesLoadingPolicy(state.StateOptions)
-		doLoadingPolicy := compatibility.GetWaitUntilApiDataAttributesLoadingPolicy(state.StateOptions)
-
-		stateWaitUntilApiStartTime := provider.Now(ctx).UnixMilli()
-		if !provider.IsReplaying(ctx) {
-			event.Handle(iwfidl.IwfEvent{
-				EventType:          iwfidl.STATE_WAIT_UNTIL_EE_START_EVENT,
-				WorkflowType:       basicInfo.IwfWorkflowType,
-				WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-				WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-				StateId:            ptr.Any(state.StateId),
-				StateExecutionId:   ptr.Any(stateExeId),
-				StartTimestampInMs: ptr.Any(stateWaitUntilApiStartTime),
-				SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-			})
-		}
-		errWaitUntilApi = provider.ExecuteActivity(&startResponse, configer.ShouldOptimizeActivity(), ctx,
-			waitUntilApi, provider.GetBackendType(), service.StateStartActivityInput{
-				IwfWorkerUrl: basicInfo.IwfWorkerUrl,
-				Request: iwfidl.WorkflowStateStartRequest{
-					Context:          executionContext,
-					WorkflowType:     basicInfo.IwfWorkflowType,
-					WorkflowStateId:  state.StateId,
-					StateInput:       state.StateInput,
-					SearchAttributes: persistenceManager.LoadSearchAttributes(ctx, saLoadingPolicy),
-					DataObjects:      persistenceManager.LoadDataAttributes(ctx, doLoadingPolicy),
-				},
-			},
-			persistenceManager.GetAllSearchAttributes())
-		if !provider.IsReplaying(ctx) {
-			if errWaitUntilApi == nil {
-				event.Handle(iwfidl.IwfEvent{
-					EventType:          iwfidl.STATE_WAIT_UNTIL_EE_COMPLETE_EVENT,
-					WorkflowType:       basicInfo.IwfWorkflowType,
-					WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-					WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-					StateId:            ptr.Any(state.StateId),
-					StateExecutionId:   ptr.Any(stateExeId),
-					StartTimestampInMs: ptr.Any(stateWaitUntilApiStartTime),
-					EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-					SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-				})
-			} else {
-				errType, errDetails := provider.GetApplicationErrorTypeAndDetails(errWaitUntilApi)
-
-				event.Handle(iwfidl.IwfEvent{
-					EventType:          iwfidl.STATE_WAIT_UNTIL_EE_FAIL_EVENT,
-					WorkflowType:       basicInfo.IwfWorkflowType,
-					WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-					WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-					StateId:            ptr.Any(state.StateId),
-					StateExecutionId:   ptr.Any(stateExeId),
-					StartTimestampInMs: ptr.Any(stateWaitUntilApiStartTime),
-					EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-					SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-					Error: &iwfidl.IwfEventError{
-						Type:    &errType,
-						Details: &errDetails,
-					},
-				})
-			}
-		}
-
-		persistenceManager.UnlockPersistence(saLoadingPolicy, doLoadingPolicy)
-		if errWaitUntilApi != nil && !shouldProceedOnStartApiError(state) {
-			return nil, service.FailureStateExecutionStatus, convertStateApiActivityError(provider, errWaitUntilApi)
-		}
-
-		err := persistenceManager.ProcessUpsertSearchAttribute(ctx, startResponse.GetUpsertSearchAttributes())
+	} else if !step.GetStepOptions().GetSkipWaitFor() {
+		waitForResponse, proceed, failed, err := invokeWaitForMethod(
+			ctx,
+			provider,
+			basicInfo,
+			step,
+			stepExecutionId,
+			persistenceManager,
+			signalReceiver,
+			continueAsNewCounter,
+			flowConfiger,
+		)
 		if err != nil {
-			return nil, service.FailureStateExecutionStatus, err
+			return nil, service.FailureStepExecutionStatus, err
 		}
-		persistenceManager.ProcessUpsertDataAttribute(startResponse.GetUpsertDataObjects())
-		interStateChannel.ProcessPublishing(startResponse.GetPublishToInterStateChannel())
-
-		commandReq = timers.FixTimerCommandFromActivityOutput(provider.Now(ctx), startResponse.GetCommandRequest())
-		stateExecutionLocal = startResponse.GetUpsertStateLocals()
+		if !proceed {
+			return nil, service.FailureStepExecutionStatus, nil
+		}
+		waitForFailed = failed
+		if waitForResponse.GetWaitingCondition() != nil {
+			waitForResponse.WaitingCondition = timers.FixTimerConditionFromActivityOutput(
+				provider.Now(ctx),
+				waitForResponse.GetWaitingCondition(),
+			)
+		}
+		applied, err := applyResultAndWait(
+			ctx,
+			provider,
+			persistenceManager,
+			channelStore,
+			waitForResponse.GetUpsertAttributes(),
+			waitForResponse.GetPublishToChannel(),
+			signalReceiver,
+		)
+		if err != nil {
+			return nil, service.FailureStepExecutionStatus, err
+		}
+		if !applied {
+			return nil, service.WaitingConditionsStepExecutionStatus, nil
+		}
+		stepExeLocals = waitForResponse.GetUpsertStepExeLocals()
+		waitingCondition = waitForResponse.GetWaitingCondition()
 	}
 
-	waitForThreads := map[string]bool{}
-
-	if len(commandReq.GetTimerCommands()) > 0 {
-		timerProcessor.AddTimers(stateExeId, commandReq.GetTimerCommands(), completedTimerCmds)
-		for idx, cmd := range commandReq.GetTimerCommands() {
-			if _, ok := completedTimerCmds[idx]; ok {
-				// skip the completed timers(from continueAsNew)
-				continue
-			}
-			cmdCtx := provider.ExtendContextWithValue(ctx, "idx", idx)
-			//Start timer in a new thread
-			threadName := getCommandThreadName("timer", stateExeId, cmd.GetCommandId(), idx)
-			waitForThreads[threadName] = false
-			provider.GoNamed(cmdCtx, threadName, func(ctx interfaces.UnifiedContext) {
-				idx, ok := provider.GetContextValue(ctx, "idx").(int)
-				if !ok {
-					panic("critical code bug")
-				}
-
-				// Note that commandReqDoneOrCanceled is needed for two cases:
-				// 1. will be true when trigger type of the commandReq is completed(e.g. AnyCommandCompleted) so we don't need to wait for all commands. Returning the thread to avoid thread leakage.
-				// 2. will be true to cancel the wait for unblocking continueAsNew(continueAsNew will wait for all threads to complete)
-				status := timerProcessor.WaitForTimerFiredOrSkipped(ctx, stateExeId, idx, &commandReqDoneOrCanceled)
-				if status == service.TimerSkipped || status == service.TimerFired {
-					completedTimerCmds[idx] = status
-				}
-				waitForThreads[threadName] = true
-			})
+	conditionResults := &iwfpb.ConditionResults{WaitForFailed: waitForFailed}
+	if waitingCondition != nil &&
+		len(waitingCondition.GetTimerConditions())+
+			len(waitingCondition.GetChannelConditions()) > 0 {
+		results, matched, err := waitForConditions(
+			ctx,
+			provider,
+			stepExecutionId,
+			step,
+			stepExeLocals,
+			waitingCondition,
+			completedTimerConditions,
+			channelStore,
+			signalReceiver,
+			timerProcessor,
+			continueAsNewer,
+			continueAsNewCounter,
+		)
+		if err != nil {
+			return nil, service.FailureStepExecutionStatus, err
 		}
+		if !matched {
+			return nil, service.WaitingConditionsStepExecutionStatus, nil
+		}
+		conditionResults = results
+		conditionResults.WaitForFailed = waitForFailed
 	}
 
-	if len(commandReq.GetSignalCommands()) > 0 {
-		for idx, cmd := range commandReq.GetSignalCommands() {
-			if _, ok := completedSignalCmds[idx]; ok {
-				// skip completed signal(from continueAsNew)
-				continue
-			}
-			cmdCtx := provider.ExtendContextWithValue(ctx, "cmd", cmd)
-			cmdCtx = provider.ExtendContextWithValue(cmdCtx, "idx", idx)
-			//Process signal in new thread
-			threadName := getCommandThreadName("signal", stateExeId, cmd.GetCommandId(), idx)
-			waitForThreads[threadName] = false
-			provider.GoNamed(cmdCtx, threadName, func(ctx interfaces.UnifiedContext) {
-				cmd, ok := provider.GetContextValue(ctx, "cmd").(iwfidl.SignalCommand)
-				if !ok {
-					panic("critical code bug")
-				}
-				idx, ok := provider.GetContextValue(ctx, "idx").(int)
-				if !ok {
-					panic("critical code bug")
-				}
-				received := false
-				_ = provider.Await(ctx, func() bool {
-					received = signalReceiver.HasSignal(cmd.SignalChannelName)
-					// Note that commandReqDoneOrCanceled is needed for two cases:
-					// 1. will be true when trigger type of the commandReq is completed(e.g. AnyCommandCompleted) so we don't need to wait for all commands. Returning the thread to avoid thread leakage.
-					// 2. will be true to cancel the wait for unblocking continueAsNew(continueAsNew will wait for all threads to complete)
-					return received || commandReqDoneOrCanceled
-				})
-				if received {
-					completedSignalCmds[idx] = signalReceiver.Retrieve(cmd.SignalChannelName)
-				}
-				waitForThreads[threadName] = true
-			})
-		}
-	}
-
-	if len(commandReq.GetInterStateChannelCommands()) > 0 {
-		for idx, cmd := range commandReq.GetInterStateChannelCommands() {
-			if _, ok := completedInterStateChannelCmds[idx]; ok {
-				// skip completed interStateChannelCommand(from continueAsNew)
-				continue
-			}
-			cmdCtx := provider.ExtendContextWithValue(ctx, "cmd", cmd)
-			cmdCtx = provider.ExtendContextWithValue(cmdCtx, "idx", idx)
-			//Process interstate channel command in a new thread.
-			threadName := getCommandThreadName("interstate", stateExeId, cmd.GetCommandId(), idx)
-			waitForThreads[threadName] = false
-			provider.GoNamed(cmdCtx, getCommandThreadName("interstate", stateExeId, cmd.GetCommandId(), idx), func(ctx interfaces.UnifiedContext) {
-				cmd, ok := provider.GetContextValue(ctx, "cmd").(iwfidl.InterStateChannelCommand)
-				if !ok {
-					panic("critical code bug")
-				}
-				idx, ok := provider.GetContextValue(ctx, "idx").(int)
-				if !ok {
-					panic("critical code bug")
-				}
-
-				received := false
-				_ = provider.Await(ctx, func() bool {
-					received = interStateChannel.HasData(cmd.ChannelName)
-					// Note that commandReqDoneOrCanceled is needed for two cases:
-					// 1. will be true when trigger type of the commandReq is completed(e.g. AnyCommandCompleted) so we don't need to wait for all commands. Returning the thread to avoid thread leakage.
-					// 2. will be true to cancel the wait for unblocking continueAsNew(continueAsNew will wait for all threads to complete)
-					return received || commandReqDoneOrCanceled
-				})
-
-				if received {
-					completedInterStateChannelCmds[idx] = interStateChannel.Retrieve(cmd.ChannelName)
-				}
-				waitForThreads[threadName] = true
-			})
-		}
-	}
-
-	//Passing a map of references of completed or soon to be completed commands (once the above threads are complete) and the state execution variables to the continueAsNewer.
-	//After this method completes and if continueAsNewCounter.IsThresholdMet() is true, this snapshot will be used to start a new continueAsNew workflow while preserving the state of the workflow at the end of this method.
-	//This snapshot is also used to query the workflow state, which can be done at anytime.
-	continueAsNewer.AddPotentialStateExecutionToResume(
-		stateExeId, state, stateExecutionLocal, commandReq,
-		completedTimerCmds, completedSignalCmds, completedInterStateChannelCmds,
+	executeResponse, executeFailureDecision, err := invokeExecuteMethod(
+		ctx,
+		provider,
+		basicInfo,
+		step,
+		stepExecutionId,
+		stepExeLocals,
+		conditionResults,
+		persistenceManager,
+		signalReceiver,
+		continueAsNewCounter,
+		flowConfiger,
 	)
-
-	// Wait for decider trigger (ANY/ALL command completed) OR continue-as-new threshold
-	_ = provider.Await(ctx, func() bool {
-		return IsDeciderTriggerConditionMet(commandReq, completedTimerCmds, completedSignalCmds, completedInterStateChannelCmds) || continueAsNewCounter.IsThresholdMet()
-	})
-
-	//This variable tells all command threads to stop waiting and exit, even if their specific command has not been completed.
-	//In both cases, the trigger condition has been met or the continue-as-new threshold has been reached we want the above command threads to stop waiting.
-	commandReqDoneOrCanceled = true
-
-	// Wait for command threads to drain. After the command request await completes, command threads
-	// may still be in the process of storing retrieved data into completedXXXCmds maps.
-	// We must wait for these threads to finish before assembling command results, otherwise
-	// retrieved data will be lost (the thread retrieved it but never stored it before we return the maps).
-	// We only wait for threads of commands that currently have data or has been canceled or fired.
-	// A thread that doesn't have data can be canceled when commandReqDoneOrCanceled is set to true. This preserves ANY_COMMAND_COMPLETED semantics.
-	if globalVersioner.IsAfterVersionOfWaitingCommandThreads() {
-		if err := provider.Await(ctx, func() bool {
-			for _, isCompleted := range waitForThreads {
-				if !isCompleted {
-					return false
-				}
-			}
-			return true
-		}); err != nil {
-			return nil, service.WaitingCommandsStateExecutionStatus, err
-		}
+	if err != nil {
+		return nil, service.FailureStepExecutionStatus, err
 	}
-
-	if !IsDeciderTriggerConditionMet(commandReq, completedTimerCmds, completedSignalCmds, completedInterStateChannelCmds) {
-		// this means continueAsNewCounter.IsThresholdMet == true
-		// not using continueAsNewCounter.IsThresholdMet because deciderTrigger is higher prioritized
-		// it won't continueAsNew in those cases 1. start Api fail with proceed policy, 2. empty commands, 3. both commands and continueAsNew are met
-		return nil, service.WaitingCommandsStateExecutionStatus, nil
+	if executeFailureDecision != nil {
+		continueAsNewer.RemoveStepExecutionToResume(stepExecutionId)
+		return executeFailureDecision, service.CompletedStepExecutionStatus, nil
 	}
-
-	commandRes := &iwfidl.CommandResults{}
-	if errWaitUntilApi != nil {
-		commandRes.StateWaitUntilFailed = iwfidl.PtrBool(true)
+	if executeResponse == nil {
+		return nil, service.FailureStepExecutionStatus, nil
 	}
-
-	if len(commandReq.GetTimerCommands()) > 0 {
-		timerProcessor.RemovePendingTimersOfState(stateExeId)
-
-		var timerResults []iwfidl.TimerResult
-		for idx, cmd := range commandReq.GetTimerCommands() {
-			status := iwfidl.SCHEDULED
-			if _, ok := completedTimerCmds[idx]; ok {
-				status = iwfidl.FIRED
-			}
-			timerResults = append(timerResults, iwfidl.TimerResult{
-				CommandId:   cmd.GetCommandId(),
-				TimerStatus: status,
-			})
-		}
-		commandRes.SetTimerResults(timerResults)
+	applied, err := applyResultAndWait(
+		ctx,
+		provider,
+		persistenceManager,
+		channelStore,
+		executeResponse.GetUpsertAttributes(),
+		executeResponse.GetPublishToChannel(),
+		signalReceiver,
+	)
+	if err != nil {
+		return nil, service.FailureStepExecutionStatus, err
 	}
-
-	if len(commandReq.GetSignalCommands()) > 0 {
-		var signalResults []iwfidl.SignalResult
-		for idx, cmd := range commandReq.GetSignalCommands() {
-			status := iwfidl.RECEIVED
-			result, completed := completedSignalCmds[idx]
-			if !completed {
-				status = iwfidl.WAITING
-			}
-
-			signalResults = append(signalResults, iwfidl.SignalResult{
-				CommandId:           cmd.GetCommandId(),
-				SignalChannelName:   cmd.GetSignalChannelName(),
-				SignalValue:         result,
-				SignalRequestStatus: status,
-			})
-		}
-		commandRes.SetSignalResults(signalResults)
+	if !applied {
+		return nil, service.WaitingConditionsStepExecutionStatus, nil
 	}
-
-	if len(commandReq.GetInterStateChannelCommands()) > 0 {
-		var interStateChannelResults []iwfidl.InterStateChannelResult
-		for idx, cmd := range commandReq.GetInterStateChannelCommands() {
-			status := iwfidl.RECEIVED
-			result, completed := completedInterStateChannelCmds[idx]
-			if !completed {
-				status = iwfidl.WAITING
-			}
-
-			interStateChannelResults = append(interStateChannelResults, iwfidl.InterStateChannelResult{
-				CommandId:     cmd.GetCommandId(),
-				ChannelName:   cmd.ChannelName,
-				RequestStatus: status,
-				Value:         result,
-			})
-		}
-		commandRes.SetInterStateChannelResults(interStateChannelResults)
-	}
-
-	return invokeStateExecute(ctx, provider, basicInfo, state, stateExeId, persistenceManager, interStateChannel, executionContext,
-		commandRes, continueAsNewer, configer, executeApi, stateExecutionLocal, shouldSendSignalOnCompletion)
+	continueAsNewer.RemoveStepExecutionToResume(stepExecutionId)
+	return executeResponse.GetStepDecision(), service.CompletedStepExecutionStatus, nil
 }
 
-func invokeStateExecute(
+func invokeWaitForMethod(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	basicInfo service.BasicInfo,
-	state iwfidl.StateMovement,
-	stateExeId string,
+	step *iwfpb.StepMovement,
+	stepExecutionId string,
 	persistenceManager *PersistenceManager,
-	interStateChannel *InternalChannel,
-	executionContext iwfidl.Context,
-	commandRes *iwfidl.CommandResults,
-	continueAsNewer *ContinueAsNewer,
-	configer *config.WorkflowConfiger,
-	executeApi interface{},
-	stateExecutionLocal []iwfidl.KeyValue,
-	shouldSendSignalOnCompletion bool,
-) (*iwfidl.StateDecision, service.StateExecutionStatus, error) {
-	var err error
-	activityOptions := interfaces.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+	signalReceiver *SignalReceiver,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
+	flowConfiger *interpreterconfig.FlowConfiger,
+) (*iwfpb.InvokeWaitForMethodResponse, bool, bool, error) {
+	allowed, err := awaitWorkerRequestAllowed(
+		ctx,
+		provider,
+		persistenceManager,
+		signalReceiver,
+		continueAsNewCounter,
+	)
+	if err != nil {
+		return nil, false, false, err
 	}
-	if state.StateOptions != nil {
-		decideApiTimeout := compatibility.GetDecideApiTimeoutSeconds(state.StateOptions)
-		if decideApiTimeout > 0 {
-			activityOptions.StartToCloseTimeout = time.Duration(decideApiTimeout) * time.Second
-		}
-		activityOptions.RetryPolicy = compatibility.GetDecideApiRetryPolicy(state.StateOptions)
+	if !allowed {
+		return nil, false, false, nil
 	}
-
-	saLoadingPolicy := compatibility.GetExecuteApiSearchAttributesLoadingPolicy(state.StateOptions)
-	doLoadingPolicy := compatibility.GetExecuteApiDataAttributesLoadingPolicy(state.StateOptions)
-
-	ctx = provider.WithActivityOptions(ctx, activityOptions)
-	var decideResponse *iwfidl.WorkflowStateDecideResponse
-
-	stateExecuteApiStartTime := provider.Now(ctx).UnixMilli()
-	if !provider.IsReplaying(ctx) {
-		event.Handle(iwfidl.IwfEvent{
-			EventType:          iwfidl.STATE_EXECUTE_EE_START_EVENT,
-			WorkflowType:       basicInfo.IwfWorkflowType,
-			WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-			WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-			StateId:            ptr.Any(state.StateId),
-			StateExecutionId:   ptr.Any(stateExeId),
-			StartTimestampInMs: ptr.Any(stateExecuteApiStartTime),
-			SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-		})
-	}
-	err = provider.ExecuteActivity(&decideResponse, configer.ShouldOptimizeActivity(), ctx,
-		executeApi, provider.GetBackendType(), service.StateDecideActivityInput{
-			IwfWorkerUrl: basicInfo.IwfWorkerUrl,
-			Request: iwfidl.WorkflowStateDecideRequest{
-				Context:          executionContext,
-				WorkflowType:     basicInfo.IwfWorkflowType,
-				WorkflowStateId:  state.StateId,
-				CommandResults:   commandRes,
-				StateLocals:      stateExecutionLocal,
-				SearchAttributes: persistenceManager.LoadSearchAttributes(ctx, saLoadingPolicy),
-				DataObjects:      persistenceManager.LoadDataAttributes(ctx, doLoadingPolicy),
-				StateInput:       state.StateInput,
+	var output iwfpb.InvokeWaitForMethodActivityOutput
+	err = provider.ExecuteActivity(
+		&output,
+		flowConfiger.ResolveWaitForDurability(step.GetStepOptions()),
+		stepActivityContext(ctx, provider, step.GetStepOptions(), true),
+		InvokeWaitForMethodActivityName,
+		&iwfpb.InvokeWaitForMethodActivityInput{
+			BackendType:  backendTypeToProto(provider.GetBackendType()),
+			WorkerTarget: basicInfo.WorkerTarget,
+			Request: &iwfpb.InvokeWaitForMethodRequest{
+				Context: newStepContext(
+					provider.GetWorkflowInfo(ctx),
+					stepExecutionId,
+				),
+				FlowType:   basicInfo.FlowType,
+				StepType:   step.GetStepType(),
+				StepInput:  step.GetStepInput(),
+				Attributes: persistenceManager.GetAllAttributes(),
 			},
-		})
-	if !provider.IsReplaying(ctx) {
-		if err == nil {
-			event.Handle(iwfidl.IwfEvent{
-				EventType:          iwfidl.STATE_EXECUTE_EE_COMPLETE_EVENT,
-				WorkflowType:       basicInfo.IwfWorkflowType,
-				WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-				WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-				StateId:            ptr.Any(state.StateId),
-				StateExecutionId:   ptr.Any(stateExeId),
-				StartTimestampInMs: ptr.Any(stateExecuteApiStartTime),
-				EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-				SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-			})
-		} else {
-			errType, errDetails := provider.GetApplicationErrorTypeAndDetails(err)
-
-			event.Handle(iwfidl.IwfEvent{
-				EventType:          iwfidl.STATE_EXECUTE_EE_FAIL_EVENT,
-				WorkflowType:       basicInfo.IwfWorkflowType,
-				WorkflowId:         provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
-				WorkflowRunId:      provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-				StateId:            ptr.Any(state.StateId),
-				StartTimestampInMs: ptr.Any(stateExecuteApiStartTime),
-				EndTimestampInMs:   ptr.Any(provider.Now(ctx).UnixMilli()),
-				StateExecutionId:   ptr.Any(stateExeId),
-				SearchAttributes:   persistenceManager.GetAllSearchAttributes(),
-				Error: &iwfidl.IwfEventError{
-					Type:    &errType,
-					Details: &errDetails,
-				},
-			})
-		}
+		},
+	)
+	if signalReceiver.isTerminalRequested() {
+		return nil, false, false, nil
 	}
-
-	persistenceManager.UnlockPersistence(saLoadingPolicy, doLoadingPolicy)
-
 	if err != nil {
-		if shouldProceedOnExecuteApiError(state) {
-			return nil, service.ExecuteApiFailedAndProceed, nil
-		}
-		return nil, service.FailureStateExecutionStatus, convertStateApiActivityError(provider, err)
+		return waitForFailureResult(provider, step.GetStepOptions(), err.Error())
 	}
-
-	err = persistenceManager.ProcessUpsertSearchAttribute(ctx, decideResponse.GetUpsertSearchAttributes())
-	if err != nil {
-		return nil, service.FailureStateExecutionStatus, err
+	response, responseErr := waitForActivityResponse(&output)
+	if responseErr != nil {
+		return waitForFailureResult(
+			provider,
+			step.GetStepOptions(),
+			responseErr.Error(),
+		)
 	}
-	persistenceManager.ProcessUpsertDataAttribute(decideResponse.GetUpsertDataObjects())
-	interStateChannel.ProcessPublishing(decideResponse.GetPublishToInterStateChannel())
-
-	continueAsNewer.RemoveStateExecutionToResume(stateExeId)
-
-	decision := decideResponse.GetStateDecision()
-	return &decision, service.CompletedStateExecutionStatus, nil
+	return response, true, false, nil
 }
 
-func shouldProceedOnStartApiError(state iwfidl.StateMovement) bool {
-	if state.StateOptions == nil {
-		return false
+func waitForFailureResult(
+	provider interfaces.WorkflowProvider,
+	options *iwfpb.StepOptions,
+	reason string,
+) (*iwfpb.InvokeWaitForMethodResponse, bool, bool, error) {
+	if options.GetWaitForFailurePolicy() ==
+		iwfpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE {
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{},
+		}, true, true, nil
 	}
-
-	policy := compatibility.GetStartApiFailurePolicy(state.StateOptions)
-	if policy == nil {
-		return false
-	}
-
-	return *policy == iwfidl.PROCEED_TO_DECIDE_ON_START_API_FAILURE
-}
-
-func shouldProceedOnExecuteApiError(state iwfidl.StateMovement) bool {
-	if state.StateOptions == nil {
-		return false
-	}
-
-	options := state.GetStateOptions()
-	return options.GetExecuteApiFailureProceedStateId() != "" &&
-		options.GetExecuteApiFailurePolicy() == iwfidl.PROCEED_TO_CONFIGURED_STATE
-}
-
-func convertStateApiActivityError(provider interfaces.WorkflowProvider, err error) error {
-	if provider.IsApplicationError(err) {
-		return err
-	}
-	return provider.NewApplicationError(string(iwfidl.STATE_API_FAIL_ERROR_TYPE), err.Error())
-}
-
-func getCommandThreadName(prefix string, stateExecId, cmdId string, idx int) string {
-	return fmt.Sprintf("%v-%v-%v-%v", prefix, stateExecId, cmdId, idx)
-}
-
-func createUserWorkflowError(provider interfaces.WorkflowProvider, message string) error {
-	return provider.NewApplicationError(
-		string(iwfidl.INVALID_USER_WORKFLOW_CODE_ERROR_TYPE),
-		message,
+	return nil, false, false, provider.NewApplicationError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+		reason,
 	)
 }
 
-func BlobStoreCleanup(
-	ctx interfaces.UnifiedContext, provider interfaces.WorkflowProvider, storeId string,
-) (int, error) {
-	activityOptions := interfaces.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-		RetryPolicy: &iwfidl.RetryPolicy{
-			MaximumAttempts: iwfidl.PtrInt32(10),
+func waitForConditions(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	stepExecutionId string,
+	step *iwfpb.StepMovement,
+	stepExeLocals []*iwfpb.KV,
+	waitingCondition *iwfpb.WaitingCondition,
+	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
+	channelStore *ChannelStore,
+	signalReceiver *SignalReceiver,
+	timerProcessor interfaces.TimerProcessor,
+	continueAsNewer *ContinueAsNewer,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
+) (*iwfpb.ConditionResults, bool, error) {
+	timerProcessor.AddTimers(
+		stepExecutionId,
+		waitingCondition.GetTimerConditions(),
+		completedTimerConditions,
+	)
+	// Passing a map of references of completed or soon to be completed conditions (once the condition threads complete) and the step execution variables to the continueAsNewer.
+	// After this method completes and if continueAsNewCounter.IsThresholdMet() is true, this snapshot will be used to start a new continueAsNew flow while preserving the state of the flow at the end of this method.
+	// This snapshot is also used to query the flow state, which can be done at anytime.
+	continueAsNewer.AddPotentialStepExecutionToResume(
+		&iwfpb.StepExecutionResumeInfo{
+			StepExecutionId: stepExecutionId,
+			Step:            step,
+			CompletedConditions: &iwfpb.StepExecutionCompletedConditions{
+				CompletedTimerConditions:   completedTimerConditions,
+				CompletedChannelConditions: map[int32]*iwfpb.ChannelValues{},
+			},
+			WaitingCondition: waitingCondition,
+			StepExeLocals:    stepExeLocals,
 		},
+	)
+
+	waitingConditionDoneOrCanceled := false
+	waitForThreads := startTimerWaiters(
+		ctx,
+		provider,
+		timerProcessor,
+		stepExecutionId,
+		waitingCondition,
+		completedTimerConditions,
+		&waitingConditionDoneOrCanceled,
+	)
+
+	var matchPlan *channel.MatchPlan
+	// Wait for condition trigger (ANY/ALL condition completed) OR continue-as-new threshold
+	err := provider.Await(ctx, func() bool {
+		plan, matched := channel.Plan(
+			waitingCondition,
+			channelStore.Availability(),
+			completedTimerIndexes(completedTimerConditions),
+		)
+		if matched {
+			matchPlan = plan
+		}
+		return matched ||
+			signalReceiver.isTerminalRequested() ||
+			continueAsNewCounter.IsThresholdMet()
+	})
+	// This variable tells all condition threads to stop waiting and exit, even if their specific condition has not been completed.
+	// In both cases, the trigger condition has been met or the continue-as-new threshold has been reached, so we want the above condition threads to stop waiting.
+	waitingConditionDoneOrCanceled = true
+	if err != nil {
+		return nil, false, err
 	}
-	ctx = provider.WithActivityOptions(ctx, activityOptions)
-	var totalDeleted int
-	err := provider.ExecuteActivity(&totalDeleted, false, ctx, CleanupBlobStore, provider.GetBackendType(), storeId)
-	return totalDeleted, err
+	// Wait for condition threads to drain. After the waiting condition await completes, condition threads
+	// may still be in the process of storing retrieved data into completed condition maps.
+	// We must wait for these threads to finish before assembling condition results, otherwise
+	// retrieved data will be lost (the thread retrieved it but never stored it before we return the maps).
+	// We only wait for threads of conditions that currently have data or have been canceled or fired.
+	// A thread that doesn't have data can be canceled when waitingConditionDoneOrCanceled is set to true. This preserves ANY_COMPLETED semantics.
+	if err := provider.Await(ctx, func() bool {
+		for _, completed := range waitForThreads {
+			if !completed {
+				return false
+			}
+		}
+		return true
+	}); err != nil {
+		return nil, false, err
+	}
+
+	// This recheck means continueAsNewCounter.IsThresholdMet == true when no condition matches.
+	// We don't use only continueAsNewCounter.IsThresholdMet because a condition trigger has higher priority.
+	// It won't continueAsNew when a condition and continueAsNew are both met.
+	if plan, matched := channel.Plan(
+		waitingCondition,
+		channelStore.Availability(),
+		completedTimerIndexes(completedTimerConditions),
+	); matched {
+		matchPlan = plan
+	}
+	if matchPlan == nil ||
+		signalReceiver.isTerminalRequested() {
+		return nil, false, nil
+	}
+
+	consumed := channelStore.CommitMatch(matchPlan)
+	timerProcessor.RemovePendingTimersOfStep(stepExecutionId)
+	continueAsNewer.RemoveStepExecutionToResume(stepExecutionId)
+	return channel.BuildConditionResults(
+		waitingCondition,
+		completedTimerIndexes(completedTimerConditions),
+		consumed,
+	), true, nil
+}
+
+func startTimerWaiters(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	timerProcessor interfaces.TimerProcessor,
+	stepExecutionId string,
+	waitingCondition *iwfpb.WaitingCondition,
+	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
+	waitingConditionDoneOrCanceled *bool,
+) map[string]bool {
+	waitForThreads := map[string]bool{}
+	for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
+		if isCompletedTimerStatus(completedTimerConditions[int32(timerIndex)]) {
+			continue
+		}
+		timerCtx := provider.ExtendContextWithValue(ctx, "timerIndex", timerIndex)
+		// Start timer in a new thread
+		threadName := fmt.Sprintf(
+			"%s-timer-%d-%s",
+			stepExecutionId,
+			timerIndex,
+			timerCondition.GetConditionId(),
+		)
+		waitForThreads[threadName] = false
+		provider.GoNamed(timerCtx, threadName, func(ctx interfaces.UnifiedContext) {
+			index, ok := provider.GetContextValue(ctx, "timerIndex").(int)
+			if !ok {
+				panic("cannot read timer index from workflow context")
+			}
+			// Note that waitingConditionDoneOrCanceled is needed for two cases:
+			// 1. It becomes true when the waiting condition is completed so we don't need to wait for all conditions. Returning the thread avoids thread leakage.
+			// 2. It becomes true to cancel the wait for unblocking continueAsNew, which waits for all threads to complete.
+			status := timerProcessor.WaitForTimerFiredOrSkipped(
+				ctx,
+				stepExecutionId,
+				index,
+				waitingConditionDoneOrCanceled,
+			)
+			if isCompletedTimerStatus(status) {
+				completedTimerConditions[int32(index)] = status
+			}
+			waitForThreads[threadName] = true
+		})
+	}
+	return waitForThreads
+}
+
+func completedTimerIndexes(
+	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
+) map[int]bool {
+	completed := make(map[int]bool, len(completedTimerConditions))
+	for timerIndex, status := range completedTimerConditions {
+		if isCompletedTimerStatus(status) {
+			completed[int(timerIndex)] = true
+		}
+	}
+	return completed
+}
+
+func isCompletedTimerStatus(status iwfpb.InternalTimerStatus) bool {
+	return status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
+		status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+}
+
+func invokeExecuteMethod(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	basicInfo service.BasicInfo,
+	step *iwfpb.StepMovement,
+	stepExecutionId string,
+	stepExeLocals []*iwfpb.KV,
+	conditionResults *iwfpb.ConditionResults,
+	persistenceManager *PersistenceManager,
+	signalReceiver *SignalReceiver,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
+	flowConfiger *interpreterconfig.FlowConfiger,
+) (
+	*iwfpb.InvokeExecuteMethodResponse,
+	*iwfpb.StepDecision,
+	error,
+) {
+	allowed, err := awaitWorkerRequestAllowed(
+		ctx,
+		provider,
+		persistenceManager,
+		signalReceiver,
+		continueAsNewCounter,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !allowed {
+		return nil, nil, nil
+	}
+	var output iwfpb.InvokeExecuteMethodActivityOutput
+	err = provider.ExecuteActivity(
+		&output,
+		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
+		stepActivityContext(ctx, provider, step.GetStepOptions(), false),
+		InvokeExecuteMethodActivityName,
+		&iwfpb.InvokeExecuteMethodActivityInput{
+			BackendType:  backendTypeToProto(provider.GetBackendType()),
+			WorkerTarget: basicInfo.WorkerTarget,
+			Request: &iwfpb.InvokeExecuteMethodRequest{
+				Context: newStepContext(
+					provider.GetWorkflowInfo(ctx),
+					stepExecutionId,
+				),
+				FlowType:         basicInfo.FlowType,
+				StepType:         step.GetStepType(),
+				StepInput:        step.GetStepInput(),
+				Attributes:       persistenceManager.GetAllAttributes(),
+				StepExeLocals:    stepExeLocals,
+				ConditionResults: conditionResults,
+			},
+		},
+	)
+	if signalReceiver.isTerminalRequested() {
+		return nil, nil, nil
+	}
+	if err == nil {
+		response, responseErr := executeActivityResponse(&output)
+		if responseErr == nil {
+			return response, nil, nil
+		}
+		err = responseErr
+	}
+
+	options := step.GetStepOptions()
+	if options.GetExecuteFailurePolicy() ==
+		iwfpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP &&
+		options.GetExecuteFailureProceedStepType() != "" {
+		return nil, &iwfpb.StepDecision{
+			NextSteps: []*iwfpb.StepMovement{{
+				StepType:    options.GetExecuteFailureProceedStepType(),
+				StepInput:   step.GetStepInput(),
+				StepOptions: options.GetExecuteFailureProceedStepOptions(),
+			}},
+		}, nil
+	}
+	return nil, nil, provider.NewApplicationError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+		err.Error(),
+	)
+}
+
+func stepActivityContext(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	options *iwfpb.StepOptions,
+	waitFor bool,
+) interfaces.UnifiedContext {
+	timeoutSeconds := options.GetExecuteTimeoutSeconds()
+	retryPolicy := options.GetExecuteRetryPolicy()
+	if waitFor {
+		timeoutSeconds = options.GetWaitForTimeoutSeconds()
+		retryPolicy = options.GetWaitForRetryPolicy()
+	}
+	timeout := 30 * time.Second
+	if timeoutSeconds > 0 {
+		timeout = time.Duration(timeoutSeconds) * time.Second
+	}
+	return provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
+		StartToCloseTimeout: timeout,
+		RetryPolicy:         retryPolicy,
+	})
+}
+
+func waitForActivityResponse(
+	output *iwfpb.InvokeWaitForMethodActivityOutput,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	if (output.GetResponse() == nil) == (output.GetError() == nil) {
+		return nil, fmt.Errorf("WaitFor activity returned an invalid result envelope")
+	}
+	if interpreterErr := output.GetError(); interpreterErr != nil {
+		return nil, interpreterError(interpreterErr)
+	}
+	return output.GetResponse(), nil
+}
+
+func executeActivityResponse(
+	output *iwfpb.InvokeExecuteMethodActivityOutput,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	if (output.GetResponse() == nil) == (output.GetError() == nil) {
+		return nil, fmt.Errorf("Execute activity returned an invalid result envelope")
+	}
+	if interpreterErr := output.GetError(); interpreterErr != nil {
+		return nil, interpreterError(interpreterErr)
+	}
+	return output.GetResponse(), nil
+}
+
+func interpreterError(interpreterErr *iwfpb.InterpreterError) error {
+	if interpreterErr.GetError() == nil {
+		return fmt.Errorf("worker error with gRPC code %d", interpreterErr.GetGrpcCode())
+	}
+	return fmt.Errorf(
+		"worker error with gRPC code %d: %s",
+		interpreterErr.GetGrpcCode(),
+		interpreterErr.GetError().GetDetail(),
+	)
+}
+
+func applyResultAndWait(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	persistenceManager *PersistenceManager,
+	channelStore *ChannelStore,
+	writes []*iwfpb.AttributeWrite,
+	publishedMessages []*iwfpb.ChannelMessage,
+	signalReceiver *SignalReceiver,
+) (bool, error) {
+	allowed, err := awaitResultApplication(
+		ctx,
+		provider,
+		persistenceManager,
+		signalReceiver,
+	)
+	if err != nil {
+		return false, err
+	}
+	if !allowed {
+		return false, nil
+	}
+	if err := applyResult(
+		ctx,
+		persistenceManager,
+		channelStore,
+		nil,
+		writes,
+		publishedMessages,
+		nil,
+	); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func awaitResultApplication(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	persistenceManager *PersistenceManager,
+	signalReceiver *SignalReceiver,
+) (bool, error) {
+	if signalReceiver.isTerminalRequested() {
+		return false, nil
+	}
+	if persistenceManager.HasAnyLock() {
+		if err := provider.Await(ctx, func() bool {
+			return !persistenceManager.HasAnyLock() ||
+				signalReceiver.isTerminalRequested()
+		}); err != nil {
+			return false, err
+		}
+	}
+	return !signalReceiver.isTerminalRequested(), nil
+}
+
+func applyResult(
+	ctx interfaces.UnifiedContext,
+	persistenceManager *PersistenceManager,
+	channelStore *ChannelStore,
+	stepRequestQueue *StepRequestQueue,
+	writes []*iwfpb.AttributeWrite,
+	publishedMessages []*iwfpb.ChannelMessage,
+	nextSteps []*iwfpb.StepMovement,
+) error {
+	applied, err := persistenceManager.ApplyAttributeWrites(ctx, writes)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		panic("result application attempted while attributes are locked")
+	}
+	channelStore.ProcessPublishing(publishedMessages)
+	if stepRequestQueue != nil {
+		stepRequestQueue.AddStepStartRequests(nextSteps)
+	}
+	return nil
+}
+
+func awaitWorkerRequestAllowed(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	persistenceManager *PersistenceManager,
+	signalReceiver *SignalReceiver,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
+) (bool, error) {
+	if !persistenceManager.HasAnyLock() {
+		return !signalReceiver.isTerminalRequested(), nil
+	}
+	if err := provider.Await(ctx, func() bool {
+		return !persistenceManager.HasAnyLock() ||
+			signalReceiver.isTerminalRequested() ||
+			continueAsNewCounter.IsThresholdMet()
+	}); err != nil {
+		return false, err
+	}
+	return !signalReceiver.isTerminalRequested() &&
+		!continueAsNewCounter.IsThresholdMet(), nil
+}
+
+func convertStepApiActivityError(
+	provider interfaces.WorkflowProvider,
+	err error,
+) error {
+	if provider.IsApplicationError(err) {
+		return err
+	}
+	return provider.NewApplicationError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+		err.Error(),
+	)
+}
+
+func newStepContext(
+	info interfaces.WorkflowInfo,
+	stepExecutionId string,
+) *iwfpb.Context {
+	return &iwfpb.Context{
+		FlowId:               info.WorkflowExecution.ID,
+		RunId:                info.FirstRunID,
+		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
+		StepExecutionId:      stepExecutionId,
+	}
+}
+
+func BlobStoreCleanup(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	storeId string,
+) (int, error) {
+	activityCtx := provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
+		StartToCloseTimeout: 24 * time.Hour,
+		RetryPolicy:         &iwfpb.RetryPolicy{MaximumAttempts: 10},
+	})
+	var output iwfpb.CleanupBlobStoreActivityOutput
+	if err := provider.ExecuteActivity(
+		&output,
+		iwfpb.StepDurability_STEP_DURABILITY_SYNC,
+		activityCtx,
+		CleanupBlobStoreActivityName,
+		&iwfpb.CleanupBlobStoreActivityInput{
+			BackendType: backendTypeToProto(provider.GetBackendType()),
+			StoreId:     storeId,
+		},
+	); err != nil {
+		return 0, err
+	}
+	if output.GetError() != nil {
+		return 0, interpreterError(output.GetError())
+	}
+	return int(output.GetTotalDeleted()), nil
 }

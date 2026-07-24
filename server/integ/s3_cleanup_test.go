@@ -32,9 +32,9 @@ import (
 	"github.com/superdurable/iwf/service/common/blobstore"
 	"github.com/superdurable/iwf/service/common/ptr"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/superdurable/iwf/gen/iwfidl"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestS3CleanupTemporal(t *testing.T) {
@@ -201,7 +201,8 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 
 	// 4. Wait for the cleanup workflow to complete
 	t.Logf("Waiting for cleanup workflow to complete")
-	_ = uclient.GetWorkflowResult(ctx, nil, cleanupWorkflowId, "")
+	_, _, err = uclient.GetWorkflowResult(ctx, nil, cleanupWorkflowId, "")
+	assert.NoError(t, err)
 
 	// 5. verify all the objects are deleted for the last 12 workflows, but not for the first 12 workflows
 	t.Logf("Verifying cleanup results - objects should be deleted for non-existing workflows only")

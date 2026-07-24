@@ -20,14 +20,19 @@
 
 package event
 
+import "github.com/superdurable/iwf/gen/iwfpb"
+
 // Event is a lightweight server-side observability hook payload (not an IDL type).
 type Event struct {
-	FlowId          string
-	RunId           string
-	FlowType        string
-	StepType        string
-	StepExecutionId string
-	EventType       string
+	FlowId             string
+	RunId              string
+	FlowType           string
+	StepType           string
+	StepExecutionId    string
+	RpcName            string
+	EventType          string
+	StartTimestampInMs int64
+	Attributes         []*iwfpb.KV
 }
 
 // HandleEventFunc must be lightweight, reliable, and fast (<1s).

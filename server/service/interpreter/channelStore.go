@@ -47,56 +47,50 @@ func RebuildChannelStore(refill map[string]*iwfpb.ChannelValues) *ChannelStore {
 	return &ChannelStore{receivedData: data}
 }
 
-// Publish appends messages.
-func (s *ChannelStore) Publish(messages []*iwfpb.ChannelMessage) {
+// ProcessPublishing appends messages.
+func (i *ChannelStore) ProcessPublishing(messages []*iwfpb.ChannelMessage) {
 	for _, message := range messages {
-		channelName := message.GetChannelName()
-		s.receivedData[channelName] = append(s.receivedData[channelName], message.GetValue())
+		i.receive(message.GetChannelName(), message.GetValue())
 	}
 }
 
 // Availability returns an isolated count snapshot.
-func (s *ChannelStore) Availability() channel.ChannelAvailability {
-	availability := make(channel.ChannelAvailability, len(s.receivedData))
-	for name, values := range s.receivedData {
+func (i *ChannelStore) Availability() channel.ChannelAvailability {
+	availability := make(channel.ChannelAvailability, len(i.receivedData))
+	for name, values := range i.receivedData {
 		availability[name] = int32(len(values))
 	}
 	return availability
 }
 
-// HasAtLeast tests a channel size.
-func (s *ChannelStore) HasAtLeast(channelName string, n int32) bool {
-	return int32(len(s.receivedData[channelName])) >= n
-}
-
 // HasData reports whether a channel has messages.
-func (s *ChannelStore) HasData(channelName string) bool {
-	return len(s.receivedData[channelName]) > 0
+func (i *ChannelStore) HasData(channelName string) bool {
+	return len(i.receivedData[channelName]) > 0
 }
 
 // GetInfos returns channel sizes.
-func (s *ChannelStore) GetInfos() map[string]*iwfpb.ChannelInfo {
-	infos := make(map[string]*iwfpb.ChannelInfo, len(s.receivedData))
-	for name, values := range s.receivedData {
+func (i *ChannelStore) GetInfos() map[string]*iwfpb.ChannelInfo {
+	infos := make(map[string]*iwfpb.ChannelInfo, len(i.receivedData))
+	for name, values := range i.receivedData {
 		infos[name] = &iwfpb.ChannelInfo{Size: int32(len(values))}
 	}
 	return infos
 }
 
-// Dump returns a snapshot.
-func (s *ChannelStore) Dump() map[string]*iwfpb.ChannelValues {
-	snapshot := make(map[string]*iwfpb.ChannelValues, len(s.receivedData))
-	for name, values := range s.receivedData {
+// GetAllReceived returns the current messages.
+func (i *ChannelStore) GetAllReceived() map[string]*iwfpb.ChannelValues {
+	snapshot := make(map[string]*iwfpb.ChannelValues, len(i.receivedData))
+	for name, values := range i.receivedData {
 		snapshot[name] = &iwfpb.ChannelValues{Values: values}
 	}
 	return snapshot
 }
 
 // CommitMatch consumes a plan and returns the consumed messages.
-func (s *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*iwfpb.Value {
+func (i *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*iwfpb.Value {
 	consumed := make(map[int][]*iwfpb.Value, len(plan.Consumes))
 	for _, consumption := range plan.Consumes {
-		values := s.receivedData[consumption.ChannelName]
+		values := i.receivedData[consumption.ChannelName]
 		if int32(len(values)) < consumption.Count {
 			panic(fmt.Sprintf(
 				"channel %q holds %d messages but the match plan consumes %d; no yield may occur between plan and commit",
@@ -112,10 +106,16 @@ func (s *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*iwfpb.Val
 			consumed[consumption.ChannelConditionIndex] = nil
 		}
 		if len(values) == 0 {
-			delete(s.receivedData, consumption.ChannelName)
+			delete(i.receivedData, consumption.ChannelName)
 		} else {
-			s.receivedData[consumption.ChannelName] = values
+			i.receivedData[consumption.ChannelName] = values
 		}
 	}
 	return consumed
+}
+
+func (i *ChannelStore) receive(channelName string, data *iwfpb.Value) {
+	values := i.receivedData[channelName]
+	values = append(values, data)
+	i.receivedData[channelName] = values
 }

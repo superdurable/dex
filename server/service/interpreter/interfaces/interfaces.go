@@ -22,8 +22,6 @@ package interfaces
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
@@ -67,9 +65,10 @@ type WorkflowInfo struct {
 }
 
 type ActivityOptions struct {
-	StartToCloseTimeout time.Duration
-	HeartbeatTimeout    time.Duration
-	RetryPolicy         *iwfpb.RetryPolicy
+	StartToCloseTimeout                 time.Duration
+	LocalActivityScheduleToCloseTimeout time.Duration
+	HeartbeatTimeout                    time.Duration
+	RetryPolicy                         *iwfpb.RetryPolicy
 }
 
 type UnifiedContext interface {
@@ -99,7 +98,7 @@ type TimerProcessor interface {
 		stepExeId string,
 		timerIdx int,
 		cancelWaiting *bool,
-	) (iwfpb.InternalTimerStatus, error)
+	) iwfpb.InternalTimerStatus
 	RemovePendingTimersOfStep(stepExeId string)
 	AddTimers(
 		stepExeId string,
@@ -107,15 +106,12 @@ type TimerProcessor interface {
 		completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
 	)
 	GetTimerInfos() map[string][]*iwfpb.TimerInfo
-	GetPendingScheduledTimers() []*iwfpb.TimerInfo
 	GetTimerStartedUnixTimestamps() []int64
 }
 
-// WorkflowProvider contains shared Temporal and Cadence workflow operations.
 type WorkflowProvider interface {
 	NewApplicationError(errType string, details interface{}) error
 	IsApplicationError(err error) bool
-	GetApplicationErrorTypeAndDetails(err error) (errType string, details string)
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error
 	SetQueryHandler(ctx UnifiedContext, queryType string, handler interface{}) error
@@ -125,7 +121,6 @@ type WorkflowProvider interface {
 	GetPendingThreadNames() map[string]int
 	Await(ctx UnifiedContext, condition func() bool) error
 	WithActivityOptions(ctx UnifiedContext, options ActivityOptions) UnifiedContext
-	// ExecuteActivity dispatches using resolved durability.
 	ExecuteActivity(
 		valuePtr interface{}, durability iwfpb.StepDurability, ctx UnifiedContext, activity interface{},
 		args ...interface{},
@@ -140,19 +135,12 @@ type WorkflowProvider interface {
 	GetSignalChannel(ctx UnifiedContext, signalName string) (receiveChannel ReceiveChannel)
 	GetContextValue(ctx UnifiedContext, key string) interface{}
 	GetVersion(ctx UnifiedContext, changeID string, minSupported, maxSupported int) int
-	GetUnhandledSignalNames(ctx UnifiedContext) []string
 	GetBackendType() service.BackendType
 	GetLogger(ctx UnifiedContext) UnifiedLogger
 	NewInterpreterContinueAsNewError(ctx UnifiedContext, input *iwfpb.InterpreterWorkflowInput) error
-}
-
-// UpdateProvider contains Temporal-only synchronous update operations.
-type UpdateProvider interface {
 	SetInvokeRPCUpdateHandler(ctx UnifiedContext, validator InvokeRPCUpdateValidator, handler InvokeRPCUpdateHandler) error
 	SetWaitForStepCompletionUpdateHandler(ctx UnifiedContext, validator WaitForStepCompletionUpdateValidator, handler WaitForStepCompletionUpdateHandler) error
 	SetWaitForAttributeUpdateHandler(ctx UnifiedContext, validator WaitForAttributeUpdateValidator, handler WaitForAttributeUpdateHandler) error
-	// AwaitWithTimeout reports whether the predicate matched before timeout.
-	AwaitWithTimeout(ctx UnifiedContext, timeout time.Duration, cond func() bool) (matched bool, err error)
 }
 
 type (
@@ -174,15 +162,4 @@ type ReceiveChannel interface {
 type Future interface {
 	Get(ctx UnifiedContext, valuePtr interface{}) error
 	IsReady() bool
-}
-
-func FormatApplicationErrorDetails(details interface{}) string {
-	if detailsString, ok := details.(string); ok {
-		return detailsString
-	}
-	jsonBytes, err := json.Marshal(details)
-	if err != nil {
-		return fmt.Sprintf("marshal application error details: %v", err)
-	}
-	return string(jsonBytes)
 }

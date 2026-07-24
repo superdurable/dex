@@ -215,6 +215,9 @@ phase4S3Tests: ## Compile isolated providers and run Phase 4 timer tests
 	$Q cd service/interpreter/cadence && go test workflowProvider.go loggerImpl.go
 	$Q go test -v ./service/interpreter/timers/...
 
+phase4S5Tests: ## Run focused Phase 4 update and continue-as-new tests
+	$Q go test -v ./service/interpreter -run 'Test(ContinueAsNew|WaitForAttribute|WaitForStepCompletionOutcome|LockedRPC|LockingRPC)'
+
 help:
 	@# print help first, so it's visible
 	@printf "\033[36m%-20s\033[0m %s\n" 'help' 'Prints a help message showing any specially-commented targets'

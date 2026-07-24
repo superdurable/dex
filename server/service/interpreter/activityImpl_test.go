@@ -74,8 +74,8 @@ func TestValidateWaitingConditionChannelBounds(t *testing.T) {
 }
 
 func TestValidateWaitingConditionRejections(t *testing.T) {
-	duplicateID := newValidWaitingCondition()
-	duplicateID.TimerConditions = []*iwfpb.TimerCondition{{ConditionId: "condition"}}
+	duplicateId := newValidWaitingCondition()
+	duplicateId.TimerConditions = []*iwfpb.TimerCondition{{ConditionId: "condition"}}
 
 	negativeTimer := newValidWaitingCondition()
 	negativeTimer.TimerConditions = []*iwfpb.TimerCondition{{
@@ -104,10 +104,10 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 	unknownType.WaitingConditionType =
 		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_UNSPECIFIED
 
-	emptyConditionID := waitingConditionWithChannel(newChannelCondition("", "channel", nil, nil))
-	emptyConditionID.WaitingConditionType =
+	emptyConditionId := waitingConditionWithChannel(newChannelCondition("", "channel", nil, nil))
+	emptyConditionId.WaitingConditionType =
 		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
-	emptyConditionID.ConditionCombinations = []*iwfpb.ConditionCombination{{
+	emptyConditionId.ConditionCombinations = []*iwfpb.ConditionCombination{{
 		ConditionIds: []string{"condition"},
 	}}
 
@@ -118,8 +118,8 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 	}{
 		{"nil_timer_entry", waitingConditionWithTimer(nil), "timer condition at index 0 is nil"},
 		{"nil_channel_entry", waitingConditionWithChannel(nil), "channel condition at index 0 is nil"},
-		{"empty_condition_id_for_combination", emptyConditionID, "empty condition_id"},
-		{"duplicate_condition_id", duplicateID, `duplicate condition_id "condition"`},
+		{"empty_condition_id_for_combination", emptyConditionId, "empty condition_id"},
+		{"duplicate_condition_id", duplicateId, `duplicate condition_id "condition"`},
 		{"empty_channel_name", waitingConditionWithChannel(newChannelCondition("condition", "", nil, nil)), "empty channel_name"},
 		{
 			"negative_at_least",
@@ -247,13 +247,13 @@ func waitingConditionWithChannel(channelCondition *iwfpb.ChannelCondition) *iwfp
 }
 
 func newChannelCondition(
-	conditionID string,
+	conditionId string,
 	channelName string,
 	atLeast *int32,
 	atMost *int32,
 ) *iwfpb.ChannelCondition {
 	return &iwfpb.ChannelCondition{
-		ConditionId: conditionID,
+		ConditionId: conditionId,
 		ChannelName: channelName,
 		AtLeast:     atLeast,
 		AtMost:      atMost,

@@ -20,11 +20,7 @@
 
 package interpreter
 
-import (
-	"sort"
-
-	"github.com/superdurable/iwf/gen/iwfpb"
-)
+import "github.com/superdurable/iwf/gen/iwfpb"
 
 type StepRequestQueue struct {
 	queue []StepRequest
@@ -34,23 +30,18 @@ func NewStepRequestQueue() *StepRequestQueue {
 	return &StepRequestQueue{}
 }
 
-func RebuildStepRequestQueue(
-	startRequests []*iwfpb.StepMovement,
-	resumeRequests map[string]*iwfpb.StepExecutionResumeInfo,
+func NewStepRequestQueueWithResumeRequests(
+	startReqs []*iwfpb.StepMovement,
+	resumeReqs map[string]*iwfpb.StepExecutionResumeInfo,
 ) *StepRequestQueue {
-	queue := make([]StepRequest, 0, len(startRequests)+len(resumeRequests))
-	for _, request := range startRequests {
+	var queue []StepRequest
+	for _, request := range startReqs {
 		queue = append(queue, NewStepStartRequest(request))
 	}
 
-	executionIDs := make([]string, 0, len(resumeRequests))
-	for executionID := range resumeRequests {
-		executionIDs = append(executionIDs, executionID)
-	}
-	sort.Strings(executionIDs)
-	for _, executionID := range executionIDs {
-		request := resumeRequests[executionID]
-		if request.GetStepExecutionId() != executionID {
+	for _, stepExecutionId := range DeterministicKeys(resumeReqs) {
+		request := resumeReqs[stepExecutionId]
+		if request.GetStepExecutionId() != stepExecutionId {
 			panic("resume map key does not match step execution ID")
 		}
 		queue = append(queue, NewStepResumeRequest(request))
@@ -58,53 +49,51 @@ func RebuildStepRequestQueue(
 	return &StepRequestQueue{queue: queue}
 }
 
-func (q *StepRequestQueue) IsEmpty() bool {
-	return len(q.queue) == 0
+func (srq *StepRequestQueue) IsEmpty() bool {
+	return len(srq.queue) == 0
 }
 
-func (q *StepRequestQueue) TakeAll() []StepRequest {
-	requests := q.queue
-	q.queue = nil
-	return requests
+func (srq *StepRequestQueue) TakeAll() []StepRequest {
+	// Copy the whole slice pointer.
+	res := srq.queue
+	// Reset because each iteration processes the current queue.
+	srq.queue = nil
+	return res
 }
 
-func (q *StepRequestQueue) GetAllStepStartRequests() []*iwfpb.StepMovement {
-	requests := make([]*iwfpb.StepMovement, 0, len(q.queue))
-	for _, request := range q.queue {
+func (srq *StepRequestQueue) GetAllStepStartRequests() []*iwfpb.StepMovement {
+	var res []*iwfpb.StepMovement
+	for _, request := range srq.queue {
 		if !request.IsResumeRequest() {
-			requests = append(requests, request.GetStepStartRequest())
+			res = append(res, request.GetStepStartRequest())
 		}
 	}
-	return requests
+	return res
 }
 
-func (q *StepRequestQueue) GetAllStepResumeRequests() map[string]*iwfpb.StepExecutionResumeInfo {
-	requests := make(map[string]*iwfpb.StepExecutionResumeInfo)
-	for _, request := range q.queue {
+func (srq *StepRequestQueue) GetAllStepResumeRequests() map[string]*iwfpb.StepExecutionResumeInfo {
+	res := make(map[string]*iwfpb.StepExecutionResumeInfo)
+	for _, request := range srq.queue {
 		if request.IsResumeRequest() {
 			resumeRequest := request.GetStepResumeRequest()
-			requests[resumeRequest.GetStepExecutionId()] = resumeRequest
+			res[resumeRequest.GetStepExecutionId()] = resumeRequest
 		}
 	}
-	return requests
+	return res
 }
 
-func (q *StepRequestQueue) AddStepStartRequests(requests []*iwfpb.StepMovement) {
-	for _, request := range requests {
-		q.queue = append(q.queue, NewStepStartRequest(request))
+func (srq *StepRequestQueue) AddStepStartRequests(reqs []*iwfpb.StepMovement) {
+	for _, request := range reqs {
+		srq.queue = append(srq.queue, NewStepStartRequest(request))
 	}
 }
 
-func (q *StepRequestQueue) AddStepResumeRequest(request *iwfpb.StepExecutionResumeInfo) {
-	q.queue = append(q.queue, NewStepResumeRequest(request))
-}
-
-func (q *StepRequestQueue) AddSingleStepStartRequest(
+func (srq *StepRequestQueue) AddSingleStepStartRequest(
 	stepType string,
 	input *iwfpb.Value,
 	options *iwfpb.StepOptions,
 ) {
-	q.queue = append(q.queue, NewStepStartRequest(&iwfpb.StepMovement{
+	srq.queue = append(srq.queue, NewStepStartRequest(&iwfpb.StepMovement{
 		StepType:    stepType,
 		StepInput:   input,
 		StepOptions: options,

@@ -24,7 +24,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/ptr"
 	"github.com/superdurable/iwf/service/common/timeparser"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -193,16 +192,31 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			//TODO: Add check for local activity. (IWF-403)
 			if e.GetEventType() == shared.EventTypeActivityTaskScheduled {
 				typeName := e.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
-				if strings.Contains(typeName, "InvokeExecuteMethod") || strings.Contains(typeName, "InvokeWaitForMethod") {
-					var backendType service.BackendType
-					var input service.InvokeExecuteMethodActivityInput
-					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &backendType, &input)
+				if strings.Contains(typeName, "InvokeExecuteMethod") {
+					var input iwfpb.InvokeExecuteMethodActivityInput
+					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 					}
 					if input.Request.GetStepType() == stepType || input.Request.GetContext().GetStepExecutionId() == stepExecutionId {
 						if decisionFinishID == 0 {
 							return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", fmt.Errorf("invalid history or something goes very wrong"))
+						}
+						return
+					}
+				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
+					var input iwfpb.InvokeWaitForMethodActivityInput
+					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
+					if err != nil {
+						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
+					}
+					if input.Request.GetStepType() == stepType ||
+						input.Request.GetContext().GetStepExecutionId() == stepExecutionId {
+						if decisionFinishID == 0 {
+							return 0, composeErrorWithMessage(
+								"GetWorkflowExecutionHistory failed",
+								fmt.Errorf("activity was scheduled before a decision task completed"),
+							)
 						}
 						return
 					}

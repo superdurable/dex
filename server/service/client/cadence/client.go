@@ -186,7 +186,7 @@ func (t *cadenceClient) StartInterpreterWorkflow(
 		workflowOptions.DelayStart = *options.WorkflowStartDelay
 	}
 
-	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, cadence.Interpreter, args...)
+	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, service.InterpreterWorkflowName, args...)
 	if err != nil {
 		return "", err
 	}
@@ -419,9 +419,23 @@ func mapToIwfWorkflowStatus(status *shared.WorkflowExecutionCloseStatus) (iwfpb.
 
 func (t *cadenceClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-) error {
-	run := t.cClient.GetWorkflow(ctx, workflowID, runID)
-	return run.Get(ctx, valuePtr)
+) (resolvedRunID string, status iwfpb.FlowStatus, err error) {
+	workflowRun := t.cClient.GetWorkflow(ctx, workflowID, runID)
+	err = workflowRun.Get(ctx, valuePtr)
+	resolvedRunID = workflowRun.GetRunID()
+	switch {
+	case err == nil:
+		status = iwfpb.FlowStatus_FLOW_STATUS_COMPLETED
+	case realcadence.IsCanceledError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_CANCELED
+	case realcadence.IsTimeoutError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT
+	case realcadence.IsTerminatedError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_TERMINATED
+	case client.IsWorkflowError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_FAILED
+	}
+	return
 }
 
 func (t *cadenceClient) SynchronousUpdateWorkflow(

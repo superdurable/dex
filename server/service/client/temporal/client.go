@@ -206,7 +206,7 @@ func (t *temporalClient) StartInterpreterWorkflow(
 			Action: &client.ScheduleWorkflowAction{
 				ID:                       workflowOptions.ID,
 				TaskQueue:                workflowOptions.TaskQueue,
-				Workflow:                 temporal.Interpreter,
+				Workflow:                 service.InterpreterWorkflowName,
 				Args:                     args,
 				WorkflowExecutionTimeout: workflowOptions.WorkflowExecutionTimeout,
 				RetryPolicy:              workflowOptions.RetryPolicy,
@@ -222,7 +222,7 @@ func (t *temporalClient) StartInterpreterWorkflow(
 		workflowOptions.StartDelay = *options.WorkflowStartDelay
 	}
 
-	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, temporal.Interpreter, args...)
+	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, service.InterpreterWorkflowName, args...)
 	if err != nil {
 		return "", err
 	}
@@ -459,7 +459,7 @@ func mapToTemporalRetryPolicy(policy *iwfpb.FlowRetryPolicy) *realtemporal.Retry
 		InitialInterval:    time.Second * time.Duration(initialIntervalSeconds),
 		MaximumInterval:    time.Second * time.Duration(maximumIntervalSeconds),
 		MaximumAttempts:    policy.GetMaximumAttempts(),
-		BackoffCoefficient: backoffCoefficient,
+		BackoffCoefficient: float64(backoffCoefficient),
 	}
 }
 
@@ -486,9 +486,26 @@ func mapToIwfWorkflowStatus(status enums.WorkflowExecutionStatus) (iwfpb.FlowSta
 
 func (t *temporalClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-) error {
-	run := t.tClient.GetWorkflow(ctx, workflowID, runID)
-	return run.Get(ctx, valuePtr)
+) (resolvedRunID string, status iwfpb.FlowStatus, err error) {
+	workflowRun := t.tClient.GetWorkflow(ctx, workflowID, runID)
+	err = workflowRun.Get(ctx, valuePtr)
+	resolvedRunID = workflowRun.GetRunID()
+	switch {
+	case err == nil:
+		status = iwfpb.FlowStatus_FLOW_STATUS_COMPLETED
+	case realtemporal.IsCanceledError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_CANCELED
+	case realtemporal.IsTimeoutError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT
+	case realtemporal.IsTerminatedError(err):
+		status = iwfpb.FlowStatus_FLOW_STATUS_TERMINATED
+	default:
+		var workflowExecutionError *realtemporal.WorkflowExecutionError
+		if errors.As(err, &workflowExecutionError) {
+			status = iwfpb.FlowStatus_FLOW_STATUS_FAILED
+		}
+	}
+	return
 }
 
 func (t *temporalClient) SynchronousUpdateWorkflow(

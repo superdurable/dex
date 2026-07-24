@@ -204,10 +204,10 @@ enum StepDurability {
 }
 
 message FlowConfig {
-  ActiveStepSearchMode active_step_search_mode = 1;
-  int32 continue_as_new_threshold = 2;
-  int32 continue_as_new_page_size_in_bytes = 3;
-  StepDurability step_durability = 4;
+  optional ActiveStepSearchMode active_step_search_mode = 1;
+  optional int32 continue_as_new_threshold = 2;
+  optional int32 continue_as_new_page_size_in_bytes = 3;
+  optional StepDurability step_durability = 4;
 }
 
 message StartFlowRequest {
@@ -284,7 +284,7 @@ message WaitForFlowRequest {
   string flow_id = 1;
   string run_id = 2;
   bool needs_results = 3;
-  // Zero/omit returns current status immediately.
+  // Zero/omit uses the configured API maximum wait.
   int32 wait_time_seconds = 4;
 }
 
@@ -385,7 +385,7 @@ message SkipTimerRequest {
   string run_id = 2;
   string step_execution_id = 3;
   string timer_condition_id = 4;
-  int32 timer_condition_index = 5;
+  optional int32 timer_condition_index = 5;
 }
 
 message UpdateFlowConfigRequest {

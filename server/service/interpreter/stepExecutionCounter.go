@@ -27,36 +27,40 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/interpreter/config"
+	"github.com/superdurable/iwf/service/interpreter/cont"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 )
 
 type StepExecutionCounter struct {
-	ctx      interfaces.UnifiedContext
-	provider interfaces.WorkflowProvider
-	configer *config.FlowConfiger
+	ctx                  interfaces.UnifiedContext
+	provider             interfaces.WorkflowProvider
+	configer             *config.FlowConfiger
+	continueAsNewCounter *cont.ContinueAsNewCounter
 
-	stepTypeStartedCount            map[string]int32
-	stepTypeCurrentlyExecutingCount map[string]int32
-	totalCurrentlyExecutingCount    int32
+	stepTypeStartedCounts            map[string]int32
+	stepTypeCurrentlyExecutingCounts map[string]int32
+	totalCurrentlyExecutingCount     int32
 }
 
 func NewStepExecutionCounter(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
 ) *StepExecutionCounter {
 	if provider == nil {
 		panic("StepExecutionCounter requires a WorkflowProvider")
 	}
-	if configer == nil {
-		panic("StepExecutionCounter requires a FlowConfiger")
+	if configer == nil || continueAsNewCounter == nil {
+		panic("StepExecutionCounter requires config and continue-as-new counter")
 	}
 	return &StepExecutionCounter{
-		ctx:                             ctx,
-		provider:                        provider,
-		configer:                        configer,
-		stepTypeStartedCount:            map[string]int32{},
-		stepTypeCurrentlyExecutingCount: map[string]int32{},
+		ctx:                              ctx,
+		provider:                         provider,
+		configer:                         configer,
+		continueAsNewCounter:             continueAsNewCounter,
+		stepTypeStartedCounts:            map[string]int32{},
+		stepTypeCurrentlyExecutingCounts: map[string]int32{},
 	}
 }
 
@@ -64,14 +68,15 @@ func RebuildStepExecutionCounter(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
 	counterInfo *iwfpb.StepExecutionCounterInfo,
 ) *StepExecutionCounter {
 	if counterInfo == nil {
 		panic("StepExecutionCounter restore requires counter info")
 	}
-	counter := NewStepExecutionCounter(ctx, provider, configer)
-	counter.stepTypeStartedCount = counterInfo.GetStepTypeStartedCount()
-	counter.stepTypeCurrentlyExecutingCount = counterInfo.GetStepTypeCurrentlyExecutingCount()
+	counter := NewStepExecutionCounter(ctx, provider, configer, continueAsNewCounter)
+	counter.stepTypeStartedCounts = counterInfo.GetStepTypeStartedCount()
+	counter.stepTypeCurrentlyExecutingCounts = counterInfo.GetStepTypeCurrentlyExecutingCount()
 	counter.totalCurrentlyExecutingCount = counterInfo.GetTotalCurrentlyExecutingCount()
 	counter.validateCounts()
 	return counter
@@ -81,13 +86,13 @@ func (e *StepExecutionCounter) validateCounts() {
 	if e.totalCurrentlyExecutingCount < 0 {
 		panic("negative total currently executing count")
 	}
-	for stepType, count := range e.stepTypeStartedCount {
+	for stepType, count := range e.stepTypeStartedCounts {
 		if stepType == "" || count < 0 {
 			panic("invalid restored step started count")
 		}
 	}
 	var trackedCount int32
-	for stepType, count := range e.stepTypeCurrentlyExecutingCount {
+	for stepType, count := range e.stepTypeCurrentlyExecutingCounts {
 		if stepType == "" || count <= 0 {
 			panic("invalid restored active step count")
 		}
@@ -100,21 +105,23 @@ func (e *StepExecutionCounter) validateCounts() {
 
 func (e *StepExecutionCounter) Dump() *iwfpb.StepExecutionCounterInfo {
 	return &iwfpb.StepExecutionCounterInfo{
-		StepTypeStartedCount:            e.stepTypeStartedCount,
-		StepTypeCurrentlyExecutingCount: e.stepTypeCurrentlyExecutingCount,
+		StepTypeStartedCount:            e.stepTypeStartedCounts,
+		StepTypeCurrentlyExecutingCount: e.stepTypeCurrentlyExecutingCounts,
 		TotalCurrentlyExecutingCount:    e.totalCurrentlyExecutingCount,
 	}
 }
 
-func (e *StepExecutionCounter) CreateNextExecutionID(stepType string) string {
+func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
 	if stepType == "" {
 		panic("step execution ID requires a step type")
 	}
-	e.stepTypeStartedCount[stepType]++
-	return fmt.Sprintf("%s-%d", stepType, e.stepTypeStartedCount[stepType])
+	e.stepTypeStartedCounts[stepType]++
+	return fmt.Sprintf("%s-%d", stepType, e.stepTypeStartedCounts[stepType])
 }
 
-func (e *StepExecutionCounter) MarkStepsExecuting(requests []StepRequest) error {
+func (e *StepExecutionCounter) MarkStepTypeExecutingIfNotYet(
+	requests []StepRequest,
+) error {
 	additions := make(map[string]int32)
 	var newExecutions int32
 	for _, request := range requests {
@@ -131,14 +138,14 @@ func (e *StepExecutionCounter) MarkStepsExecuting(requests []StepRequest) error 
 		return nil
 	}
 
-	if activeStepSetChangesOnAdd(e.stepTypeCurrentlyExecutingCount, additions) {
-		activeStepTypes := activeStepTypesAfterAdd(e.stepTypeCurrentlyExecutingCount, additions)
+	if activeStepSetChangesOnAdd(e.stepTypeCurrentlyExecutingCounts, additions) {
+		activeStepTypes := activeStepTypesAfterAdd(e.stepTypeCurrentlyExecutingCounts, additions)
 		if err := e.upsertActiveStepTypes(activeStepTypes); err != nil {
 			return err
 		}
 	}
 	for stepType, count := range additions {
-		e.stepTypeCurrentlyExecutingCount[stepType] += count
+		e.stepTypeCurrentlyExecutingCounts[stepType] += count
 	}
 	e.totalCurrentlyExecutingCount += newExecutions
 	return nil
@@ -180,7 +187,10 @@ func activeStepTypesAfterAdd(current, additions map[string]int32) []string {
 	return stepTypes
 }
 
-func (e *StepExecutionCounter) MarkStepExecutionCompleted(step *iwfpb.StepMovement) error {
+func (e *StepExecutionCounter) MarkStepExecutionCompleted(
+	step *iwfpb.StepMovement,
+	nextSteps []*iwfpb.StepMovement,
+) error {
 	if step == nil || step.GetStepType() == "" {
 		panic("step completion requires a movement")
 	}
@@ -191,25 +201,48 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(step *iwfpb.StepMoveme
 	stepType := step.GetStepType()
 	var trackedCount int32
 	if e.shouldTrackActiveStep(step) {
-		trackedCount = e.stepTypeCurrentlyExecutingCount[stepType]
+		trackedCount = e.stepTypeCurrentlyExecutingCounts[stepType]
 		if trackedCount == 0 {
 			panic("active step execution count underflow")
 		}
 	}
-	if trackedCount == 1 {
-		activeStepTypes := activeStepTypesWithout(e.stepTypeCurrentlyExecutingCount, stepType)
+	if trackedCount == 1 &&
+		!determineIfShouldSkipRefreshOnCompleted(
+			nextSteps,
+			e.configer.EffectiveActiveStepSearchMode() ==
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+		) {
+		activeStepTypes := activeStepTypesWithout(e.stepTypeCurrentlyExecutingCounts, stepType)
 		if err := e.upsertActiveStepTypes(activeStepTypes); err != nil {
 			return err
 		}
 	}
 
 	e.totalCurrentlyExecutingCount--
+	e.continueAsNewCounter.IncExecutedStepExecution(
+		step.GetStepOptions().GetSkipWaitFor(),
+	)
 	if trackedCount > 1 {
-		e.stepTypeCurrentlyExecutingCount[stepType]--
+		e.stepTypeCurrentlyExecutingCounts[stepType]--
 	} else if trackedCount == 1 {
-		delete(e.stepTypeCurrentlyExecutingCount, stepType)
+		delete(e.stepTypeCurrentlyExecutingCounts, stepType)
 	}
 	return nil
+}
+
+func determineIfShouldSkipRefreshOnCompleted(
+	nextSteps []*iwfpb.StepMovement,
+	enabledForAll bool,
+) bool {
+	for _, step := range nextSteps {
+		if service.ValidClosingFlowStepType[step.GetStepType()] {
+			continue
+		}
+		if enabledForAll || !step.GetStepOptions().GetSkipWaitFor() {
+			return true
+		}
+	}
+	return false
 }
 
 func activeStepTypesWithout(current map[string]int32, removedStepType string) []string {

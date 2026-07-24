@@ -43,7 +43,7 @@ func NewFlowConfiger(config *iwfpb.FlowConfig) *FlowConfiger {
 	return &FlowConfiger{config: config}
 }
 
-// UpdateByAPI replaces the whole config with the validated request.
+// UpdateByAPI applies fields present in the validated request.
 func (fc *FlowConfiger) UpdateByAPI(config *iwfpb.FlowConfig) error {
 	if config == nil {
 		return fmt.Errorf("UpdateFlowConfig requires a non-nil FlowConfig")
@@ -51,7 +51,18 @@ func (fc *FlowConfiger) UpdateByAPI(config *iwfpb.FlowConfig) error {
 	if err := ValidateFlowConfig(config); err != nil {
 		return err
 	}
-	fc.config = config
+	if config.ActiveStepSearchMode != nil {
+		fc.config.ActiveStepSearchMode = config.ActiveStepSearchMode
+	}
+	if config.ContinueAsNewPageSizeInBytes != nil {
+		fc.config.ContinueAsNewPageSizeInBytes = config.ContinueAsNewPageSizeInBytes
+	}
+	if config.ContinueAsNewThreshold != nil {
+		fc.config.ContinueAsNewThreshold = config.ContinueAsNewThreshold
+	}
+	if config.StepDurability != nil {
+		fc.config.StepDurability = config.StepDurability
+	}
 	return nil
 }
 

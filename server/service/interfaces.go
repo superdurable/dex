@@ -39,20 +39,15 @@ const WaitingConditionsStepExecutionStatus StepExecutionStatus = "WaitingConditi
 const CompletedStepExecutionStatus StepExecutionStatus = "Completed"
 const ExecuteApiFailedAndProceed StepExecutionStatus = "ExecuteApiFailedAndProceed"
 
-// ValidateTimerSkipRequest resolves a pending timer by condition ID or index.
+// ValidateTimerSkipRequest validates a pending timer by condition ID or index.
 func ValidateTimerSkipRequest(
-	timerInfosByStepExecutionID map[string][]*iwfpb.TimerInfo,
-	stepExecutionID string,
-	timerConditionID string,
+	timerInfos []*iwfpb.TimerInfo,
+	timerConditionId string,
 	timerConditionIndex int,
 ) (*iwfpb.TimerInfo, bool) {
-	timerInfos := timerInfosByStepExecutionID[stepExecutionID]
-	if len(timerInfos) == 0 {
-		return nil, false
-	}
-	if timerConditionID != "" {
+	if timerConditionId != "" {
 		for _, timerInfo := range timerInfos {
-			if timerInfo.GetConditionId() == timerConditionID &&
+			if timerInfo.GetConditionId() == timerConditionId &&
 				timerInfo.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
 				return timerInfo, true
 			}

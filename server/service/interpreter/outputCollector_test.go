@@ -54,7 +54,7 @@ func TestOutputCollectorExplicitExecutionIDIsIndependent(t *testing.T) {
 	require.True(t, collector.RecordCompletion("step", "step-2", nil))
 	_, typeCompleted := collector.GetByStepType("step")
 	require.False(t, typeCompleted)
-	explicitOutput, explicitCompleted := collector.GetByExecutionID("step-2")
+	explicitOutput, explicitCompleted := collector.GetByStepExecutionId("step-2")
 	require.True(t, explicitCompleted)
 	require.Nil(t, explicitOutput.GetCompletedStepOutput())
 
@@ -96,7 +96,7 @@ func TestRebuildOutputCollectorRestoresIndexesAndFirstStartedType(t *testing.T) 
 
 	_, completed := collector.GetByStepType("step")
 	require.False(t, completed)
-	explicitOutput, completed := collector.GetByExecutionID("explicit-4")
+	explicitOutput, completed := collector.GetByStepExecutionId("explicit-4")
 	require.True(t, completed)
 	require.Same(t, retained[1], explicitOutput)
 

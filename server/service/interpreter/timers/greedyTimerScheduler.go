@@ -21,163 +21,139 @@
 package timers
 
 import (
-	"sort"
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service/interpreter/cont"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 )
 
-type continueAsNewChecker interface {
-	IsThresholdMet() bool
-}
-
-type scheduledTimer struct {
-	timerInfo       *iwfpb.TimerInfo
-	stepExecutionID string
-	conditionIndex  int
-}
-
 type timerScheduler struct {
-	ctx                                  interfaces.UnifiedContext
-	provider                             interfaces.WorkflowProvider
-	continueAsNewChecker                 continueAsNewChecker
-	pendingScheduling                    []*scheduledTimer
-	providerScheduledTimerUnixTimestamps []int64
+	// Timers requested by the workflow in desc order
+	pendingScheduling []*iwfpb.TimerInfo
+	// timers created through the workflow provider that are going to fire in desc order
+	providerScheduledTimerUnixTs []int64
+}
+
+func (t *timerScheduler) addTimer(toAdd *iwfpb.TimerInfo) {
+	if toAdd == nil ||
+		toAdd.GetStatus() != iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+		panic("invalid timer added")
+	}
+
+	insertIndex := 0
+	for i, timer := range t.pendingScheduling {
+		if toAdd.GetFiringUnixTimestampSeconds() >= timer.GetFiringUnixTimestampSeconds() {
+			// don't want dupes. Makes remove simpler
+			if toAdd == timer {
+				return
+			}
+			insertIndex = i
+			break
+		}
+		insertIndex = i + 1
+	}
+
+	front := t.pendingScheduling[:insertIndex]
+	var back []*iwfpb.TimerInfo
+	if insertIndex >= len(t.pendingScheduling) {
+		back = []*iwfpb.TimerInfo{toAdd}
+	} else {
+		back = append([]*iwfpb.TimerInfo{toAdd}, t.pendingScheduling[insertIndex:]...)
+	}
+	t.pendingScheduling = append(front, back...)
+}
+
+func (t *timerScheduler) removeTimer(toRemove *iwfpb.TimerInfo) {
+	for i, timer := range t.pendingScheduling {
+		if toRemove == timer {
+			t.pendingScheduling = append(t.pendingScheduling[:i], t.pendingScheduling[i+1:]...)
+			return
+		}
+	}
+}
+
+func (t *timerScheduler) pruneToNextTimer(pruneTo int64) *iwfpb.TimerInfo {
+	index := len(t.providerScheduledTimerUnixTs)
+	for i := len(t.providerScheduledTimerUnixTs) - 1; i >= 0; i-- {
+		timerTime := t.providerScheduledTimerUnixTs[i]
+		if timerTime > pruneTo {
+			break
+		}
+		index = i
+	}
+	// If index is 0, it means all times are in the past
+	if index == 0 {
+		t.providerScheduledTimerUnixTs = nil
+	} else {
+		t.providerScheduledTimerUnixTs = t.providerScheduledTimerUnixTs[:index]
+	}
+
+	if len(t.pendingScheduling) == 0 {
+		return nil
+	}
+
+	index = len(t.pendingScheduling)
+
+	for i := len(t.pendingScheduling) - 1; i >= 0; i-- {
+		timer := t.pendingScheduling[i]
+		if timer.GetFiringUnixTimestampSeconds() > pruneTo &&
+			timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+			break
+		}
+		index = i
+	}
+
+	// If index is 0, it means all timers are pruned
+	if index == 0 {
+		t.pendingScheduling = nil
+		return nil
+	}
+
+	prunedTimer := t.pendingScheduling[index-1]
+	t.pendingScheduling = t.pendingScheduling[:index]
+	return prunedTimer
 }
 
 func startGreedyTimerScheduler(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	continueAsNewChecker continueAsNewChecker,
+	continueAsNewCounter *cont.ContinueAsNewCounter,
 ) *timerScheduler {
-	scheduler := &timerScheduler{
-		ctx:                  ctx,
-		provider:             provider,
-		continueAsNewChecker: continueAsNewChecker,
-	}
-	provider.GoNamed(ctx, "greedy-timer-scheduler", scheduler.run)
-	return scheduler
-}
+	t := timerScheduler{}
+	provider.GoNamed(ctx, "greedy-timer-scheduler", func(ctx interfaces.UnifiedContext) {
+		for {
+			err := provider.Await(ctx, func() bool {
+				now := provider.Now(ctx).Unix()
+				next := t.pruneToNextTimer(now)
+				return next != nil &&
+					(len(t.providerScheduledTimerUnixTs) == 0 ||
+						next.GetFiringUnixTimestampSeconds() <
+							t.providerScheduledTimerUnixTs[len(t.providerScheduledTimerUnixTs)-1]) ||
+					continueAsNewCounter.IsThresholdMet()
+			})
 
-func (t *timerScheduler) run(ctx interfaces.UnifiedContext) {
-	for {
-		if err := t.provider.Await(ctx, t.shouldSchedule); err != nil {
-			return
-		}
-		if t.continueAsNewChecker.IsThresholdMet() {
-			return
-		}
-		nextTimer := t.pruneToNextTimer(t.provider.Now(ctx).Unix())
-		if nextTimer == nil {
-			continue
-		}
-		fireAt := nextTimer.timerInfo.GetFiringUnixTimestampSeconds()
-		duration := time.Duration(fireAt-t.provider.Now(ctx).Unix()) * time.Second
-		t.provider.NewTimer(ctx, duration)
-		t.providerScheduledTimerUnixTimestamps = append(
-			t.providerScheduledTimerUnixTimestamps,
-			fireAt,
-		)
-		sort.Slice(t.providerScheduledTimerUnixTimestamps, func(left, right int) bool {
-			return t.providerScheduledTimerUnixTimestamps[left] <
-				t.providerScheduledTimerUnixTimestamps[right]
-		})
-	}
-}
+			// Expecting CanceledError if the ctx is canceled
+			if err != nil {
+				break
+			}
 
-func (t *timerScheduler) shouldSchedule() bool {
-	if t.continueAsNewChecker.IsThresholdMet() {
-		return true
-	}
-	nextTimer := t.pruneToNextTimer(t.provider.Now(t.ctx).Unix())
-	if nextTimer == nil {
-		return false
-	}
-	if len(t.providerScheduledTimerUnixTimestamps) == 0 {
-		return true
-	}
-	return nextTimer.timerInfo.GetFiringUnixTimestampSeconds() <
-		t.providerScheduledTimerUnixTimestamps[0]
-}
+			if continueAsNewCounter.IsThresholdMet() {
+				break
+			}
 
-func (t *timerScheduler) addTimer(
-	timerInfo *iwfpb.TimerInfo,
-	stepExecutionID string,
-	conditionIndex int,
-) {
-	if timerInfo == nil ||
-		timerInfo.GetStatus() != iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
-		panic("invalid timer added")
-	}
-	for _, pendingTimer := range t.pendingScheduling {
-		if pendingTimer.timerInfo == timerInfo {
-			return
+			now := provider.Now(ctx).Unix()
+			next := t.pruneToNextTimer(now)
+			fireAt := next.GetFiringUnixTimestampSeconds()
+			duration := time.Duration(fireAt-now) * time.Second
+			// This will create a new timer but not yield the goroutines awaiting the timer firing.
+			// This works since when a timer fires, a new workflow task is created with the expectation that
+			//   there is a goroutines awaiting some condition(some time has past) to continue,
+			//   see WaitForTimerFiredOrSkipped.
+			provider.NewTimer(ctx, duration)
+			t.providerScheduledTimerUnixTs = append(t.providerScheduledTimerUnixTs, fireAt)
 		}
-	}
-	t.pendingScheduling = append(t.pendingScheduling, &scheduledTimer{
-		timerInfo:       timerInfo,
-		stepExecutionID: stepExecutionID,
-		conditionIndex:  conditionIndex,
 	})
-	sort.Slice(t.pendingScheduling, func(left, right int) bool {
-		return scheduledTimerLess(t.pendingScheduling[left], t.pendingScheduling[right])
-	})
-}
 
-func (t *timerScheduler) removeTimer(timerInfo *iwfpb.TimerInfo) {
-	for index, pendingTimer := range t.pendingScheduling {
-		if pendingTimer.timerInfo != timerInfo {
-			continue
-		}
-		t.pendingScheduling = append(
-			t.pendingScheduling[:index],
-			t.pendingScheduling[index+1:]...,
-		)
-		return
-	}
-}
-
-func (t *timerScheduler) pruneToNextTimer(nowUnixSeconds int64) *scheduledTimer {
-	activeTimestamps := t.providerScheduledTimerUnixTimestamps[:0]
-	for _, timestamp := range t.providerScheduledTimerUnixTimestamps {
-		if timestamp > nowUnixSeconds {
-			activeTimestamps = append(activeTimestamps, timestamp)
-		}
-	}
-	t.providerScheduledTimerUnixTimestamps = activeTimestamps
-
-	activeTimers := t.pendingScheduling[:0]
-	for _, pendingTimer := range t.pendingScheduling {
-		if pendingTimer.timerInfo.GetStatus() ==
-			iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
-			pendingTimer.timerInfo.GetFiringUnixTimestampSeconds() > nowUnixSeconds {
-			activeTimers = append(activeTimers, pendingTimer)
-		}
-	}
-	t.pendingScheduling = activeTimers
-	if len(t.pendingScheduling) == 0 {
-		return nil
-	}
-	return t.pendingScheduling[0]
-}
-
-func (t *timerScheduler) pendingTimerInfos() []*iwfpb.TimerInfo {
-	timerInfos := make([]*iwfpb.TimerInfo, len(t.pendingScheduling))
-	for index, pendingTimer := range t.pendingScheduling {
-		timerInfos[index] = pendingTimer.timerInfo
-	}
-	return timerInfos
-}
-
-func scheduledTimerLess(left, right *scheduledTimer) bool {
-	if left.timerInfo.GetFiringUnixTimestampSeconds() !=
-		right.timerInfo.GetFiringUnixTimestampSeconds() {
-		return left.timerInfo.GetFiringUnixTimestampSeconds() <
-			right.timerInfo.GetFiringUnixTimestampSeconds()
-	}
-	if left.stepExecutionID != right.stepExecutionID {
-		return left.stepExecutionID < right.stepExecutionID
-	}
-	return left.conditionIndex < right.conditionIndex
+	return &t
 }

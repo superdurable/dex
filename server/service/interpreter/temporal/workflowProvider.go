@@ -39,7 +39,6 @@ type workflowProvider struct {
 }
 
 var _ interfaces.WorkflowProvider = (*workflowProvider)(nil)
-var _ interfaces.UpdateProvider = (*workflowProvider)(nil)
 
 func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 	return &workflowProvider{
@@ -58,22 +57,6 @@ func (w *workflowProvider) NewApplicationError(errType string, details interface
 func (w *workflowProvider) IsApplicationError(err error) bool {
 	var applicationError *temporal.ApplicationError
 	return errors.As(err, &applicationError)
-}
-
-func (w *workflowProvider) GetApplicationErrorTypeAndDetails(err error) (string, string) {
-	var applicationError *temporal.ApplicationError
-	if !errors.As(err, &applicationError) {
-		return "", "not a Temporal application error"
-	}
-	if !applicationError.HasDetails() {
-		return applicationError.Type(), "Temporal application error has no details"
-	}
-
-	var details interface{}
-	if detailsErr := applicationError.Details(&details); detailsErr != nil {
-		return applicationError.Type(), fmt.Sprintf("decode Temporal application error details: %v", detailsErr)
-	}
-	return applicationError.Type(), interfaces.FormatApplicationErrorDetails(details)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
@@ -206,16 +189,6 @@ func (w *workflowProvider) Await(ctx interfaces.UnifiedContext, condition func()
 	return workflow.Await(wfCtx, condition)
 }
 
-func (w *workflowProvider) AwaitWithTimeout(
-	ctx interfaces.UnifiedContext, timeout time.Duration, condition func() bool,
-) (bool, error) {
-	wfCtx, ok := ctx.GetContext().(workflow.Context)
-	if !ok {
-		panic("cannot convert to temporal workflow context")
-	}
-	return workflow.AwaitWithTimeout(wfCtx, timeout, condition)
-}
-
 func (w *workflowProvider) WithActivityOptions(
 	ctx interfaces.UnifiedContext, options interfaces.ActivityOptions,
 ) interfaces.UnifiedContext {
@@ -237,10 +210,13 @@ func (w *workflowProvider) WithActivityOptions(
 		HeartbeatTimeout:       options.HeartbeatTimeout,
 	})
 
-	// support local activity optimization
+	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
+	localActivityTimeout := 7 * time.Second
+	if options.LocalActivityScheduleToCloseTimeout > 0 {
+		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
+	}
 	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
-		// set the LA timeout to 7s to make sure the workflow will not need a heartbeat
-		ScheduleToCloseTimeout: time.Second * 7,
+		ScheduleToCloseTimeout: localActivityTimeout,
 		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),
 	})
 	return interfaces.NewUnifiedContext(wfCtx3)
@@ -375,14 +351,6 @@ func (w *workflowProvider) GetLogger(ctx interfaces.UnifiedContext) interfaces.U
 		panic("cannot convert to temporal workflow context")
 	}
 	return workflow.GetLogger(wfCtx)
-}
-
-func (w *workflowProvider) GetUnhandledSignalNames(ctx interfaces.UnifiedContext) []string {
-	wfCtx, ok := ctx.GetContext().(workflow.Context)
-	if !ok {
-		panic("cannot convert to temporal workflow context")
-	}
-	return workflow.GetUnhandledSignalNames(wfCtx)
 }
 
 func setUpdateHandler[Request any, Response any](

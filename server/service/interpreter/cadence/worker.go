@@ -46,9 +46,10 @@ type InterpreterWorker struct {
 	worker         worker.Worker
 	tasklist       string
 	workerPool     *workerclient.Pool
-	internalClient *workerclient.Internal
+	internalClient *workerclient.InternalService
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
+	apiCfg         *config.ApiConfig
 	cadenceCfg     *config.CadenceConfig
 	interpreterCfg *config.Interpreter
 	externalCfg    *config.ExternalStorageConfig
@@ -78,6 +79,7 @@ func NewInterpreterWorker(
 		panic("Cadence InterpreterWorker requires domain and task list")
 	}
 	pool, internal := interpreter.NewWorkerClients(apiCfg, &interpreterCfg.InterpreterActivityConfig)
+	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
 		service.BackendTypeCadence,
@@ -85,7 +87,7 @@ func NewInterpreterWorker(
 		internal,
 		unifiedClient,
 		store,
-		event.Handle,
+		eventHandler,
 		apiCfg,
 		externalCfg,
 		&interpreterCfg.InterpreterActivityConfig,
@@ -99,6 +101,7 @@ func NewInterpreterWorker(
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
+		apiCfg:         apiCfg,
 		cadenceCfg:     cadenceCfg,
 		interpreterCfg: interpreterCfg,
 		externalCfg:    externalCfg,
@@ -151,7 +154,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	worker.EnableVerboseLogging(iw.interpreterCfg.VerboseDebug)
 
 	iw.worker.RegisterWorkflowWithOptions(
-		Interpreter,
+		iw.Interpreter,
 		workflow.RegisterOptions{Name: service.InterpreterWorkflowName},
 	)
 	iw.worker.RegisterWorkflowWithOptions(

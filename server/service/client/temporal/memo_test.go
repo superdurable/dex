@@ -23,14 +23,17 @@ package temporal
 import (
 	"testing"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 )
 
-const testEncryptedEncoding = "binary/encrypted"
+const (
+	testEncryptedEncoding        = "binary/encrypted"
+	testOriginalEncodingMetadata = "test/original-encoding"
+)
 
 type testEncryptionCodec struct{}
 
@@ -38,9 +41,11 @@ func (c *testEncryptionCodec) Encode(payloads []*commonpb.Payload) ([]*commonpb.
 	out := make([]*commonpb.Payload, len(payloads))
 	for i, p := range payloads {
 		cloned := protoClonePayload(p)
-		cloned.Metadata = map[string][]byte{
-			"encoding": []byte(testEncryptedEncoding),
-		}
+		cloned.Metadata[testOriginalEncodingMetadata] = append(
+			[]byte(nil),
+			p.GetMetadata()["encoding"]...,
+		)
+		cloned.Metadata["encoding"] = []byte(testEncryptedEncoding)
 		out[i] = cloned
 	}
 	return out, nil
@@ -54,6 +59,11 @@ func (c *testEncryptionCodec) Decode(payloads []*commonpb.Payload) ([]*commonpb.
 			continue
 		}
 		out[i] = protoClonePayload(p)
+		out[i].Metadata["encoding"] = append(
+			[]byte(nil),
+			p.GetMetadata()[testOriginalEncodingMetadata]...,
+		)
+		delete(out[i].Metadata, testOriginalEncodingMetadata)
 	}
 	return out, nil
 }

@@ -22,51 +22,62 @@ package interpreter
 
 import (
 	"crypto/md5"
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
-	"math"
-	"strings"
 	"time"
 
 	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"google.golang.org/protobuf/proto"
 )
+
+const continueAsNewPageEnvelopeHeadroomBytes = 1024
 
 type ContinueAsNewer struct {
 	provider interfaces.WorkflowProvider
 
-	StateExecutionToResumeMap map[string]service.StateExecutionResumeInfo // stateExeId to StateExecutionResumeInfo
-	inflightUpdateOperations  int
+	StepExecutionToResumeMap map[string]*iwfpb.StepExecutionResumeInfo // stepExeId to StepExecutionResumeInfo
+	inflightUpdateOperations int
 
-	stateRequestQueue     *StateRequestQueue
-	interStateChannel     *InternalChannel
-	stateExecutionCounter *StateExecutionCounter
-	persistenceManager    *PersistenceManager
-	signalReceiver        *SignalReceiver
-	outputCollector       *OutputCollector
-	timerProcessor        interfaces.TimerProcessor
+	stepRequestQueue     *StepRequestQueue
+	channelStore         *ChannelStore
+	stepExecutionCounter *StepExecutionCounter
+	persistenceManager   *PersistenceManager
+	outputCollector      *OutputCollector
+	timerProcessor       interfaces.TimerProcessor
+	apiCfg               *config.ApiConfig
 }
 
 func NewContinueAsNewer(
 	provider interfaces.WorkflowProvider,
-	interStateChannel *InternalChannel, signalReceiver *SignalReceiver, stateExecutionCounter *StateExecutionCounter,
-	persistenceManager *PersistenceManager, stateRequestQueue *StateRequestQueue, collector *OutputCollector,
+	channelStore *ChannelStore, stepExecutionCounter *StepExecutionCounter,
+	persistenceManager *PersistenceManager, stepRequestQueue *StepRequestQueue, collector *OutputCollector,
 	timerProcessor interfaces.TimerProcessor,
+	apiCfg *config.ApiConfig,
 ) *ContinueAsNewer {
+	if provider == nil || stepRequestQueue == nil || channelStore == nil ||
+		stepExecutionCounter == nil || persistenceManager == nil || collector == nil ||
+		timerProcessor == nil || apiCfg == nil {
+		panic("ContinueAsNewer requires non-nil dependencies")
+	}
+	grpcMaxMessageLen := apiCfg.EffectiveGrpcMaxMessageBytes()
+	if grpcMaxMessageLen <= continueAsNewPageEnvelopeHeadroomBytes {
+		panic("ContinueAsNewer requires a usable gRPC message limit")
+	}
 	return &ContinueAsNewer{
 		provider: provider,
 
-		StateExecutionToResumeMap: map[string]service.StateExecutionResumeInfo{},
+		StepExecutionToResumeMap: map[string]*iwfpb.StepExecutionResumeInfo{},
 
-		stateRequestQueue:     stateRequestQueue,
-		interStateChannel:     interStateChannel,
-		signalReceiver:        signalReceiver,
-		stateExecutionCounter: stateExecutionCounter,
-		persistenceManager:    persistenceManager,
-		outputCollector:       collector,
-		timerProcessor:        timerProcessor,
+		stepRequestQueue:     stepRequestQueue,
+		channelStore:         channelStore,
+		stepExecutionCounter: stepExecutionCounter,
+		persistenceManager:   persistenceManager,
+		outputCollector:      collector,
+		timerProcessor:       timerProcessor,
+		apiCfg:               apiCfg,
 	}
 }
 
@@ -76,148 +87,166 @@ func LoadInternalsFromPreviousRun(
 	activityCfg *config.InterpreterActivityConfig,
 	previousRunId string,
 	continueAsNewPageSizeInBytes int32,
-) (*service.ContinueAsNewDumpResponse, error) {
+) (*iwfpb.ContinueAsNewDump, error) {
 	if activityCfg == nil {
 		panic("LoadInternalsFromPreviousRun requires activity config")
 	}
+
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Second,
-		RetryPolicy: &iwfidl.RetryPolicy{
-			MaximumIntervalSeconds: iwfidl.PtrInt32(5),
-		},
+		RetryPolicy:         &iwfpb.RetryPolicy{MaximumIntervalSeconds: 5},
 	}
-	if activityCfg.DumpWorkflowInternalActivityConfig != nil {
-		activityConfig := activityCfg.DumpWorkflowInternalActivityConfig
+	if activityConfig := activityCfg.DumpWorkflowInternalActivityConfig; activityConfig != nil {
 		activityOptions.StartToCloseTimeout = activityConfig.StartToCloseTimeout
 		if activityConfig.RetryPolicy != nil {
 			activityOptions.RetryPolicy = activityConfig.RetryPolicy
 		}
 	}
-
 	ctx = provider.WithActivityOptions(ctx, activityOptions)
 	workflowId := provider.GetWorkflowInfo(ctx).WorkflowExecution.ID
 	pageSize := continueAsNewPageSizeInBytes
 	if pageSize == 0 {
 		pageSize = service.DefaultContinueAsNewPageSizeInBytes
 	}
-	var sb strings.Builder
+	var wholeData []byte
 	lastChecksum := ""
 	pageNum := int32(0)
 	for {
-		var resp iwfidl.WorkflowDumpResponse
-		err := provider.ExecuteActivity(&resp, false, ctx, DumpWorkflowInternal, provider.GetBackendType(),
-			iwfidl.WorkflowDumpRequest{
-				WorkflowId:      workflowId,
-				WorkflowRunId:   previousRunId,
-				PageNum:         pageNum,
-				PageSizeInBytes: pageSize,
-			})
+		var activityOutput iwfpb.DumpFlowForContinueAsNewActivityOutput
+		err := provider.ExecuteLocalActivity(
+			&activityOutput,
+			ctx,
+			DumpFlowForContinueAsNewActivityName,
+			&iwfpb.DumpFlowForContinueAsNewActivityInput{
+				BackendType: backendTypeToProto(provider.GetBackendType()),
+				Request: &iwfpb.ContinueAsNewDumpRequest{
+					FlowId:          workflowId,
+					RunId:           previousRunId,
+					PageNum:         pageNum,
+					PageSizeInBytes: pageSize,
+				},
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
-		if lastChecksum != "" && lastChecksum != resp.Checksum {
+		resp, respErr := continueAsNewActivityResponse(&activityOutput)
+		if respErr != nil {
+			return nil, respErr
+		}
+		if lastChecksum != "" && lastChecksum != resp.GetChecksum() {
 			// reset to start from beginning
 			pageNum = 0
-			sb.Reset()
-			provider.GetLogger(ctx).Error("checksum has changed during the loading", lastChecksum, resp.Checksum)
+			wholeData = nil
+			provider.GetLogger(ctx).Error(
+				"checksum has changed during the loading",
+				lastChecksum,
+				resp.GetChecksum(),
+			)
 			lastChecksum = ""
 			continue
-		} else {
-			lastChecksum = resp.Checksum
-			sb.WriteString(resp.JsonData)
-			pageNum++
-			if pageNum >= resp.TotalPages {
-				break
-			}
+		}
+		lastChecksum = resp.GetChecksum()
+		wholeData = append(wholeData, resp.GetPageContent()...)
+		pageNum++
+		if pageNum >= resp.GetTotalPages() {
+			break
 		}
 	}
 
-	var resp service.ContinueAsNewDumpResponse
-	err := json.Unmarshal([]byte(sb.String()), &resp)
-	if err != nil {
-		return nil, err
+	var resp iwfpb.ContinueAsNewDump
+	if err := proto.Unmarshal(wholeData, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal continue-as-new dump: %w", err)
 	}
-
 	return &resp, nil
 }
 
-func (c *ContinueAsNewer) GetSnapshot() service.ContinueAsNewDumpResponse {
-	localStateExecutionToResumeMap := map[string]service.StateExecutionResumeInfo{}
-	for _, key := range DeterministicKeys(c.StateExecutionToResumeMap) {
-		localStateExecutionToResumeMap[key] = c.StateExecutionToResumeMap[key]
+func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
+	localStepExecutionToResumeMap := map[string]*iwfpb.StepExecutionResumeInfo{}
+	for _, key := range DeterministicKeys(c.StepExecutionToResumeMap) {
+		localStepExecutionToResumeMap[key] = c.StepExecutionToResumeMap[key]
 	}
-	for _, value := range c.stateRequestQueue.GetAllStateResumeRequests() {
-		localStateExecutionToResumeMap[value.StateExecutionId] = value
+	for key, value := range c.stepRequestQueue.GetAllStepResumeRequests() {
+		localStepExecutionToResumeMap[key] = value
 	}
-	return service.ContinueAsNewDumpResponse{
-		InterStateChannelReceived:  c.interStateChannel.GetAllReceived(),
-		SignalsReceived:            c.signalReceiver.GetAllReceived(),
-		StateExecutionCounterInfo:  c.stateExecutionCounter.Dump(),
-		DataObjects:                c.persistenceManager.GetAllDataAttributes(),
-		SearchAttributes:           c.persistenceManager.GetAllSearchAttributes(),
-		StatesToStartFromBeginning: c.stateRequestQueue.GetAllStateStartRequests(),
-		StateExecutionsToResume:    localStateExecutionToResumeMap,
-		StateOutputs:               c.outputCollector.GetAll(),
-		StaleSkipTimerSignals:      c.timerProcessor.Dump(),
+	return &iwfpb.ContinueAsNewDump{
+		ChannelReceived:           c.channelStore.GetAllReceived(),
+		CounterInfo:               c.stepExecutionCounter.Dump(),
+		Attributes:                c.persistenceManager.GetAllAttributes(),
+		StepsToStartFromBeginning: c.stepRequestQueue.GetAllStepStartRequests(),
+		StepExecutionsToResume:    localStepExecutionToResumeMap,
+		StepOutputs:               c.outputCollector.GetAll(),
+		StaleSkipTimers:           c.timerProcessor.Dump(),
 	}
 }
 
-func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(ctx interfaces.UnifiedContext) error {
-	return c.provider.SetQueryHandler(ctx, service.ContinueAsNewDumpByPageQueryType,
+func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
+	ctx interfaces.UnifiedContext,
+) error {
+	return c.provider.SetQueryHandler(
+		ctx,
+		service.ContinueAsNewDumpByPageQueryType,
 		// return the current page of the whole snapshot
-		func(request iwfidl.WorkflowDumpRequest) (*iwfidl.WorkflowDumpResponse, error) {
+		func(request *iwfpb.ContinueAsNewDumpRequest) (*iwfpb.ContinueAsNewDumpResponse, error) {
+			if request == nil {
+				return nil, fmt.Errorf("continue-as-new dump request is nil")
+			}
+			pageSize := int32(service.DefaultContinueAsNewPageSizeInBytes)
+			if request.GetPageSizeInBytes() > 0 {
+				pageSize = request.GetPageSizeInBytes()
+			}
+			maxPageSize := c.apiCfg.EffectiveGrpcMaxMessageBytes() -
+				continueAsNewPageEnvelopeHeadroomBytes
+			if int(pageSize) > maxPageSize {
+				return nil, fmt.Errorf("page size must be at most %d bytes", maxPageSize)
+			}
+			if request.GetPageNum() < 0 {
+				return nil, fmt.Errorf("page number must be non-negative")
+			}
+
 			wholeSnapshot := c.GetSnapshot()
-			wholeData, err := json.Marshal(wholeSnapshot)
+			wholeData, err := proto.MarshalOptions{Deterministic: true}.Marshal(wholeSnapshot)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("marshal continue-as-new dump: %w", err)
 			}
 			checksum := md5.Sum(wholeData)
-			pageSize := int32(service.DefaultContinueAsNewPageSizeInBytes)
-			if request.PageSizeInBytes > 0 {
-				pageSize = request.PageSizeInBytes
+			totalPages := int32((len(wholeData) + int(pageSize) - 1) / int(pageSize))
+			if totalPages == 0 {
+				totalPages = 1
 			}
-			lenInDouble := float64(len(wholeData))
-			totalPages := int32(math.Ceil(lenInDouble / float64(pageSize)))
-			if request.PageNum >= totalPages {
-				return nil, fmt.Errorf("wrong pageNum, request %v but max is %v , shouldn't happen", request.PageNum, totalPages-1)
+			if request.GetPageNum() >= totalPages {
+				return nil, fmt.Errorf("page number %d is out of range", request.GetPageNum())
 			}
-			start := pageSize * request.PageNum
-			end := start + pageSize
-			if end > int32(len(wholeData)) {
-				end = int32(len(wholeData))
+			start := int(request.GetPageNum() * pageSize)
+			end := start + int(pageSize)
+			if end > len(wholeData) {
+				end = len(wholeData)
 			}
-			return &iwfidl.WorkflowDumpResponse{
-				Checksum:   string(checksum[:]),
-				TotalPages: totalPages,
-				JsonData:   string(wholeData[start:end]),
+			return &iwfpb.ContinueAsNewDumpResponse{
+				PageContent: wholeData[start:end],
+				PageNum:     request.GetPageNum(),
+				TotalPages:  totalPages,
+				Checksum:    hex.EncodeToString(checksum[:]),
 			}, nil
-		})
-}
-
-func (c *ContinueAsNewer) AddPotentialStateExecutionToResume(
-	stateExecutionId string, state iwfidl.StateMovement, stateExecLocals []iwfidl.KeyValue,
-	commandRequest iwfidl.CommandRequest,
-	completedTimerCommands map[int]service.InternalTimerStatus,
-	completedSignalCommands, completedInterStateChannelCommands map[int]*iwfidl.EncodedObject,
-) {
-	c.StateExecutionToResumeMap[stateExecutionId] = service.StateExecutionResumeInfo{
-		StateExecutionId:     stateExecutionId,
-		State:                state,
-		StateExecutionLocals: stateExecLocals,
-		CommandRequest:       commandRequest,
-		StateExecutionCompletedCommands: service.StateExecutionCompletedCommands{
-			CompletedTimerCommands:             completedTimerCommands,
-			CompletedSignalCommands:            completedSignalCommands,
-			CompletedInterStateChannelCommands: completedInterStateChannelCommands,
 		},
-	}
+	)
 }
 
-func (c *ContinueAsNewer) HasAnyStateExecutionToResume() bool {
-	return len(c.StateExecutionToResumeMap) > 0
+func (c *ContinueAsNewer) AddPotentialStepExecutionToResume(
+	resumeInfo *iwfpb.StepExecutionResumeInfo,
+) {
+	if resumeInfo == nil || resumeInfo.GetStepExecutionId() == "" {
+		panic("step resume info requires an execution ID")
+	}
+	c.StepExecutionToResumeMap[resumeInfo.GetStepExecutionId()] = resumeInfo
 }
-func (c *ContinueAsNewer) RemoveStateExecutionToResume(stateExecutionId string) {
-	delete(c.StateExecutionToResumeMap, stateExecutionId)
+
+func (c *ContinueAsNewer) HasAnyStepExecutionToResume() bool {
+	return len(c.StepExecutionToResumeMap) > 0
+}
+
+func (c *ContinueAsNewer) RemoveStepExecutionToResume(executionId string) {
+	delete(c.StepExecutionToResumeMap, executionId)
 }
 
 func (c *ContinueAsNewer) DrainThreads(ctx interfaces.UnifiedContext) error {
@@ -240,8 +269,8 @@ func (c *ContinueAsNewer) DecreaseInflightOperation() {
 	c.inflightUpdateOperations--
 }
 
-// if the DrainAllSignalsAndThreads await is being called more than a few times and cannot get through,
-// there is likely something wrong in the continueAsNew logic (unless state API is stuck)
+// if the DrainThreads await is being called more than a few times and cannot get through,
+// there is likely something wrong in the continueAsNew logic (unless worker API is stuck)
 // the key is runId, the value is how many times it has been called in this worker
 // Using this in memory counter sot hat we don't have to use AwaitWithTimeout which will consume a timer
 // TODO add TTL support because we don't have to keep the value in memory forever(likely a few hours or a day is enough)
@@ -273,14 +302,41 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 
 	if elapsed >= errThreshold {
 		c.provider.GetLogger(ctx).Warn(
-			"continueAsNew is likely stuck (unless state API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
+			"continueAsNew is likely stuck (unless worker API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
 			remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 		return false
 	}
 	if elapsed >= warnThreshold {
 		c.provider.GetLogger(ctx).Warn(
-			"continueAsNew may be stuck (unless state API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
+			"continueAsNew may be stuck (unless worker API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
 			remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 	}
 	return false
+}
+
+func continueAsNewActivityResponse(
+	output *iwfpb.DumpFlowForContinueAsNewActivityOutput,
+) (*iwfpb.ContinueAsNewDumpResponse, error) {
+	if (output.GetResponse() == nil) == (output.GetError() == nil) {
+		return nil, fmt.Errorf("continue-as-new activity returned an invalid result envelope")
+	}
+	if interpreterErr := output.GetError(); interpreterErr != nil {
+		return nil, fmt.Errorf(
+			"continue-as-new dump failed with gRPC code %d: %s",
+			interpreterErr.GetGrpcCode(),
+			interpreterErr.GetError().GetDetail(),
+		)
+	}
+	return output.GetResponse(), nil
+}
+
+func backendTypeToProto(backendType service.BackendType) iwfpb.BackendType {
+	switch backendType {
+	case service.BackendTypeTemporal:
+		return iwfpb.BackendType_BACKEND_TYPE_TEMPORAL
+	case service.BackendTypeCadence:
+		return iwfpb.BackendType_BACKEND_TYPE_CADENCE
+	default:
+		panic(fmt.Sprintf("unsupported backend type %q", backendType))
+	}
 }

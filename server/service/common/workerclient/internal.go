@@ -32,8 +32,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// Internal holds a single reusable InternalService connection (CAN dump activity).
-type Internal struct {
+// InternalService holds a single reusable InternalService connection (CAN dump activity).
+type InternalService struct {
 	mu     sync.Mutex
 	conn   *grpc.ClientConn
 	client iwfpb.InternalServiceClient
@@ -44,8 +44,8 @@ type Internal struct {
 	closed bool
 }
 
-// NewInternal dials InternalService once. target is normalized like worker targets.
-func NewInternal(target string, cfg Config, dial DialFunc) (*Internal, error) {
+// NewInternalService dials InternalService once. target is normalized like worker targets.
+func NewInternalService(target string, cfg Config, dial DialFunc) (*InternalService, error) {
 	if cfg.MaxMessageBytes <= 0 {
 		return nil, fmt.Errorf("workerclient: MaxMessageBytes must be positive, got %d", cfg.MaxMessageBytes)
 	}
@@ -70,7 +70,7 @@ func NewInternal(target string, cfg Config, dial DialFunc) (*Internal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Internal{
+	return &InternalService{
 		conn:   conn,
 		client: iwfpb.NewInternalServiceClient(conn),
 		header: metadata.New(cfg.DefaultHeaders),
@@ -81,7 +81,7 @@ func NewInternal(target string, cfg Config, dial DialFunc) (*Internal, error) {
 }
 
 // Client returns the InternalService client and a context with default headers.
-func (i *Internal) Client(ctx context.Context) (iwfpb.InternalServiceClient, context.Context, error) {
+func (i *InternalService) Client(ctx context.Context) (iwfpb.InternalServiceClient, context.Context, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.closed || i.client == nil {
@@ -95,7 +95,7 @@ func (i *Internal) Client(ctx context.Context) (iwfpb.InternalServiceClient, con
 }
 
 // Close closes the InternalService connection.
-func (i *Internal) Close() {
+func (i *InternalService) Close() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.closed = true

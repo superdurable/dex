@@ -23,15 +23,15 @@ package interpreter
 import "github.com/superdurable/iwf/gen/iwfpb"
 
 type StepRequest struct {
-	startRequest  *iwfpb.StepMovement
-	resumeRequest *iwfpb.StepExecutionResumeInfo
+	stepStartRequest  *iwfpb.StepMovement
+	stepResumeRequest *iwfpb.StepExecutionResumeInfo
 }
 
 func NewStepStartRequest(movement *iwfpb.StepMovement) StepRequest {
 	if movement == nil {
 		panic("step start request requires a movement")
 	}
-	return StepRequest{startRequest: movement}
+	return StepRequest{stepStartRequest: movement}
 }
 
 func NewStepResumeRequest(resumeRequest *iwfpb.StepExecutionResumeInfo) StepRequest {
@@ -41,37 +41,37 @@ func NewStepResumeRequest(resumeRequest *iwfpb.StepExecutionResumeInfo) StepRequ
 	if resumeRequest.GetStepExecutionId() == "" {
 		panic("step resume request requires an execution ID")
 	}
-	return StepRequest{resumeRequest: resumeRequest}
+	return StepRequest{stepResumeRequest: resumeRequest}
 }
 
-func (request StepRequest) GetStepStartRequest() *iwfpb.StepMovement {
-	if request.IsResumeRequest() {
+func (sq StepRequest) GetStepStartRequest() *iwfpb.StepMovement {
+	if sq.IsResumeRequest() {
 		panic("resume request has no start request")
 	}
-	return request.startRequest
+	return sq.stepStartRequest
 }
 
-func (request StepRequest) GetStepResumeRequest() *iwfpb.StepExecutionResumeInfo {
-	if !request.IsResumeRequest() {
+func (sq StepRequest) GetStepResumeRequest() *iwfpb.StepExecutionResumeInfo {
+	if !sq.IsResumeRequest() {
 		panic("start request has no resume request")
 	}
-	return request.resumeRequest
+	return sq.stepResumeRequest
 }
 
-func (request StepRequest) IsResumeRequest() bool {
-	return request.resumeRequest != nil
+func (sq StepRequest) IsResumeRequest() bool {
+	return sq.stepResumeRequest != nil
 }
 
-func (request StepRequest) GetStepMovement() *iwfpb.StepMovement {
-	if request.IsResumeRequest() {
-		return request.resumeRequest.GetStep()
+func (sq StepRequest) GetStepMovement() *iwfpb.StepMovement {
+	if sq.IsResumeRequest() {
+		return sq.stepResumeRequest.GetStep()
 	}
-	if request.startRequest == nil {
+	if sq.stepStartRequest == nil {
 		panic("invalid empty StepRequest")
 	}
-	return request.startRequest
+	return sq.stepStartRequest
 }
 
-func (request StepRequest) GetStepType() string {
-	return request.GetStepMovement().GetStepType()
+func (sq StepRequest) GetStepType() string {
+	return sq.GetStepMovement().GetStepType()
 }

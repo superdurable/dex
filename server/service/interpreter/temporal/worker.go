@@ -44,9 +44,10 @@ type InterpreterWorker struct {
 	worker         worker.Worker
 	taskQueue      string
 	workerPool     *workerclient.Pool
-	internalClient *workerclient.Internal
+	internalClient *workerclient.InternalService
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
+	apiCfg         *config.ApiConfig
 	temporalCfg    *config.TemporalConfig
 	interpreterCfg *config.Interpreter
 	externalCfg    *config.ExternalStorageConfig
@@ -71,6 +72,7 @@ func NewInterpreterWorker(
 		panic("Temporal InterpreterWorker requires non-nil dependencies and task queue")
 	}
 	pool, internal := interpreter.NewWorkerClients(apiCfg, &interpreterCfg.InterpreterActivityConfig)
+	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
 		service.BackendTypeTemporal,
@@ -78,7 +80,7 @@ func NewInterpreterWorker(
 		internal,
 		unifiedClient,
 		store,
-		event.Handle,
+		eventHandler,
 		apiCfg,
 		externalCfg,
 		&interpreterCfg.InterpreterActivityConfig,
@@ -91,6 +93,7 @@ func NewInterpreterWorker(
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
+		apiCfg:         apiCfg,
 		temporalCfg:    temporalCfg,
 		interpreterCfg: interpreterCfg,
 		externalCfg:    externalCfg,
@@ -125,15 +128,19 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	if iw.temporalCfg.WorkerOptions != nil {
 		options = *iw.temporalCfg.WorkerOptions
 	}
-	options.DataConverter = iw.dataConverter
 
+	// override default
 	if options.MaxConcurrentActivityTaskPollers == 0 {
 		options.MaxConcurrentActivityTaskPollers = 10
 	}
+
+	// override default
 	if options.MaxConcurrentWorkflowTaskPollers == 0 {
+		// TODO: Keep this at 10; smaller values break continue-as-new persistence tests, likely due to Temporal SDK parallelism.
 		options.MaxConcurrentWorkflowTaskPollers = 10
 	}
 
+	// When DisableStickyCache is true it can harm performance; should not be used in production environment
 	if disableStickyCache {
 		worker.SetStickyWorkflowCacheSize(0)
 		fmt.Println("Temporal worker: Sticky cache disabled")
@@ -143,7 +150,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	worker.EnableVerboseLogging(iw.interpreterCfg.VerboseDebug)
 
 	iw.worker.RegisterWorkflowWithOptions(
-		Interpreter,
+		iw.Interpreter,
 		workflow.RegisterOptions{Name: service.InterpreterWorkflowName},
 	)
 	iw.worker.RegisterWorkflowWithOptions(

@@ -80,24 +80,31 @@ struct with explicit fields.
 Fine: one-shot callbacks (`sort.Slice`, `errgroup.Go`, `defer`), tiny pure
 transforms, IIFEs for scoping.
 
-### No Obvious Comments
+### No Obvious Comments — New Comments Only
 
-Write the fewest comments needed. Never restate what the code or a well-named
-identifier already says. Write a comment only for a non-obvious *why*. When in
+For comments you add, write the fewest needed. Do not restate what the code or a
+well-named identifier already says. Explain only a non-obvious *why*. When in
 doubt, improve the name instead.
 
-### Short Comments — Under 20 Words
+### Short New Comments — Under 20 Words
 
-Every comment block (a contiguous group of `//` lines) must be fewer than 20
-words. If you believe a longer one is necessary, ask the user first.
+Every new comment block you add (a contiguous group of `//` lines) must be fewer
+than 20 words. If a longer new comment is necessary, ask the user first.
 
-The comment-simplification and 20-word rules do not apply to `server/config/`.
-Configuration comments should favor complete operational semantics.
+These rules do not apply to comments that existed before the current change.
+Never edit an existing comment merely to simplify, shorten, rephrase, fix
+grammar, or satisfy the word limit.
+
+The new-comment simplification and 20-word rules also do not apply to
+`server/config/`. Configuration comments should favor complete operational
+semantics.
 
 ### Preserve Comments During Refactoring
 
-Never delete existing comments during a refactor. Move them with the code they
-describe. Rewrite stale comments to reflect the new reality — do not drop them.
+Existing comments are user-owned text. Preserve them verbatim and move them with
+the code they describe. If a code change makes a comment factually stale, change
+only the outdated references while retaining every original detail and meaning.
+Never delete, shorten, or rewrite an existing comment for style.
 
 ### Top-Down File Ordering (Go files)
 

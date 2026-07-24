@@ -32,12 +32,17 @@ module map.
 - Lift stateful closures into struct methods when they capture 3+ values, mutate
   outer state, have multiple call sites, or outlive one statement.
 - One-shot callbacks, tiny pure transforms, and IIFEs are acceptable.
-- Comments explain only non-obvious reasons, trade-offs, invariants, or external
-  constraints. Prefer clearer names over obvious comments.
-- Keep every contiguous comment block under 20 words. Ask before exceeding this.
-- The two comment-simplification rules above do not apply to `server/config/`;
-  configuration comments should favor complete operational semantics.
-- Preserve comments during refactors; move them or update stale wording.
+- New comments explain only non-obvious reasons, trade-offs, invariants, or
+  external constraints. Prefer clearer names over obvious new comments.
+- Keep each new contiguous comment block under 20 words. Ask before exceeding
+  this for a new comment.
+- These comment rules do not apply to existing comments. Never simplify,
+  shorten, rephrase, grammar-fix, or delete existing comments for style.
+- Preserve existing comments verbatim during refactors and move them with their
+  code. If one becomes stale, update only outdated references while retaining
+  every original detail and meaning.
+- The new-comment rules do not apply to `server/config/`; configuration comments
+  should favor complete operational semantics.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 

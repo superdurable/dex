@@ -313,10 +313,18 @@ always-on, no version gate:
 
 ### 1d. Replace `server/service/api/`
 
-- **Delete** `routers.go` and Gin `handler.go`.
-- `interfaces.go` + `service.go`: `serviceImpl` implements the generated
-  `iwfpb.FlowServiceServer` (embed `iwfpb.UnimplementedFlowServiceServer`). Method
-  mapping (old handler → new RPC):
+- Preserve the pre-rewrite file and dependency structure from
+  `d5f06a2b51a1b878ce1329aa5d4f1d945ea09c27`:
+  - `routers.go` owns gRPC construction, registration, health, and lifecycle;
+  - `handler.go` implements the generated `iwfpb.FlowServiceServer` and
+    `iwfpb.InternalServiceServer`, then delegates each RPC to `ApiService`;
+  - `interfaces.go` defines the transport-independent `ApiService` contract;
+  - `service.go` contains `serviceImpl` business logic and does not embed
+    generated gRPC server types.
+- Keep existing function, struct, field, parameter, and local-variable names
+  unless `idl-renames.md`, protobuf signatures, or a confirmed new feature
+  requires a change. Do not merge these files into a new server implementation.
+- Method mapping (old service method → new RPC):
 
   | Old handler | New RPC | Notes |
   |---|---|---|
@@ -325,11 +333,11 @@ always-on, no version gate:
   | `ApiV1WorkflowStopPost` | `StopFlow` | `COMPLETE` sends the successful force-complete system signal described below |
   | `ApiV1WorkflowGetQueryAttributesPost` + `ApiV1WorkflowGetSearchAttributesPost` | `GetAttributes` | single store; `all_keys` flag; never read attributes from backend Memo |
   | `ApiV1WorkflowSetQueryAttributesPost` + `ApiV1WorkflowSetSearchAttributesPost` | `SetAttributes` | `AttributeWrite` w/ `IndexConfig` |
-  | `ApiV1WorkflowGetPost` + `ApiV1WorkflowGetWithWaitPost` | `WaitForFlow` | Describe-first; zero wait returns status immediately, positive wait may call `GetWorkflowResult` |
+  | `ApiV1WorkflowGetPost` + `ApiV1WorkflowGetWithWaitPost` | `WaitForFlow` | call `GetWorkflowResult` directly; zero wait uses `Api.MaxWaitSeconds` |
   | `ApiV1WorkflowSearchPost` | `SearchFlows` | |
   | `ApiV1WorkflowRpcPost` | `InvokeRPC` | locking via `lock_attribute_keys` (see below) |
   | `ApiV1WorkflowResetPost` | `ResetFlow` | |
-  | `ApiV1WorkflowSkipTimerPost` | `SkipTimer` | |
+  | `ApiV1WorkflowSkipTimerPost` | `SkipTimer` | Require condition ID or optional index; query and confirm a pending timer before signaling |
   | `ApiV1WorkflowConfigUpdate` | `UpdateFlowConfig` | |
   | `ApiV1WorkflowWaitForStateCompletion` | `WaitForStepCompletion` | **sync update, Temporal-only** (see below) |
   | `ApiV1WorkflowTriggerContinueAsNew` | `TriggerContinueAsNew` | |
@@ -340,7 +348,7 @@ always-on, no version gate:
 
 - Construct API and transport components with constructor injection. Pass
   `*config.ApiConfig`, `*config.ExternalStorageConfig`, and
-  `*config.InterpreterActivityConfig` sections only to components that need them;
+  `*config.Interpreter` sections only to components that need them;
   do not pass `config.Config` or individual tunables. Constructors panic on nil
   required sections. Do not add setter injection.
 
@@ -423,11 +431,13 @@ always-on, no version gate:
   a positive value is capped by `Api.MaxWaitSeconds`.
 - Else `SynchronousUpdateWorkflow(..., service.WaitForAttributeUpdateType,
   {condition, deadline})`. The handler awaits until `WaitForAttributeEqual` matches
-  an inline typed `Value` or the deadline timer fires. Missing and `null_value` are
-  equivalent. Compare `obj_value` by exact `encoding` + serialized `payload` bytes;
-  the server does not deserialize objects for semantic equality. A stored internal
-  blob-id arm returns `FailedPrecondition`; the first implementation does not hydrate
-  during this update. Match → `Empty`; timeout → `DeadlineExceeded`.
+  an inline typed `Value` or workflow time passes the captured deadline. It uses
+  common `Await`/`Now` and creates no durable timeout timer, so timeout alone need
+  not wake an idle workflow. Missing and `null_value` are equivalent. Compare
+  `obj_value` by exact `encoding` + serialized `payload` bytes; the server does not
+  deserialize objects for semantic equality. A stored internal blob-id arm returns
+  `FailedPrecondition`; the first implementation does not hydrate during this
+  update. Match → `Empty`; timeout → `DeadlineExceeded`.
 - TODO: design deterministic blob hydration without introducing a lost-update
   window around the activity yield.
 - The client waits on the caller context (`handle.Get(ctx, ...)`), never
@@ -440,14 +450,15 @@ short-circuit these two RPCs — and any `InvokeRPC` with non-empty
 `lock_attribute_keys` — to `Unimplemented` before dialing.
 
 **RPC locking (`InvokeRPC`):** driven by the new `InvokeRPCRequest.lock_attribute_keys`
-(Phase 0). When non-empty, run the synchronous-update locking path and atomically
-`TryLockKeys(sortedUniqueKeys)`; when empty, run the non-locking path. The validator
-returns `RPC_ACQUIRE_LOCK_FAILURE` / `Aborted` when any requested key is locked; the
-handler acquires all keys before its first yield and releases them with `defer` on
+(Phase 0). When non-empty, run the synchronous-update locking path; when empty, run
+the non-locking path. The validator returns `RPC_ACQUIRE_LOCK_FAILURE` / `Aborted`
+when any requested key is locked. The handler calls `LoadAttributes` to lock and
+load after awaiting all keys becoming unlocked, then releases the keys with `defer` on
 failure paths. On success, it unlocks and commits the validated whole result without
 a workflow yield. It never waits while partially holding keys. A locking worker
-response may write only keys in its normalized lock set; queue any step/signal result
-touching those keys and apply its whole side-effect batch after unlock. This replaces the old
+response may write only keys in its normalized lock set. Any step/signal result
+touching those keys waits in its existing coroutine, then applies its whole
+side-effect batch after unlock. This replaces the old
 `PersistenceLoadingPolicy.LockingKeys` surface; partial-loading types are gone (we
 always load all attributes).
 
@@ -607,7 +618,8 @@ Wiring contract (implemented where each Options value is constructed):
 
 - Temporal API `client.Options.DataConverter` (`cmd/server` in Phase 1c and integ
   helpers in Phase 5).
-- Interpreter Temporal `worker.Options.DataConverter` in Phase 4.
+- Interpreter Temporal worker inherits its converter from the configured client in
+  Phase 4; this SDK version has no worker-level DataConverter field.
 - **Memo encode/decode:** WorkerTarget and RequestId memos pass through the backend
   client converter. The matching converter must serve StartFlow's RequestId
   idempotency check and every memo read via `DescribeWorkflowExecution`; neither
@@ -766,16 +778,22 @@ Primary files:
 [`workflowImpl.go`](../../../server/service/interpreter/workflowImpl.go),
 [`persistence.go`](../../../server/service/interpreter/persistence.go),
 [`signalReceiver.go`](../../../server/service/interpreter/signalReceiver.go),
-[`InternalChannel.go`](../../../server/service/interpreter/InternalChannel.go),
-[`deciderTriggerer.go`](../../../server/service/interpreter/deciderTriggerer.go),
+[`channelStore.go`](../../../server/service/interpreter/channelStore.go),
+[`channel/plan.go`](../../../server/service/interpreter/channel/plan.go),
 [`workflowUpdater.go`](../../../server/service/interpreter/workflowUpdater.go),
-[`stateExecutionCounter.go`](../../../server/service/interpreter/stateExecutionCounter.go),
-[`stateRequest.go`](../../../server/service/interpreter/stateRequest.go)/[`stateRequestQueue.go`](../../../server/service/interpreter/stateRequestQueue.go),
+[`stepExecutionCounter.go`](../../../server/service/interpreter/stepExecutionCounter.go),
+[`stepRequest.go`](../../../server/service/interpreter/stepRequest.go)/[`stepRequestQueue.go`](../../../server/service/interpreter/stepRequestQueue.go),
 [`continueAsNewer.go`](../../../server/service/interpreter/continueAsNewer.go),
 [`queryHandler.go`](../../../server/service/interpreter/queryHandler.go),
 [`outputCollector.go`](../../../server/service/interpreter/outputCollector.go),
-`timers/`, `config/workflowConfiger.go`, `interfaces/` (+ regenerate
+`timers/`, `config/flowConfiger.go`, `interfaces/` (+ regenerate
 `interfaces_mock.go`).
+
+Use commit `d5f06a2b51a1b878ce1329aa5d4f1d945ea09c27` as the interpreter
+structural baseline. Retype the existing main loop in place and apply only
+[`idl-renames.md`](../idl-renames.md) concept renames. The exception is
+`channel.Plan` / `channel.MatchPlan`, which replaces `deciderTrigger` to support
+multi-value and shared-channel matching.
 
 **Internal serializable types migration (Phase 2.5 contract):**
 
@@ -784,8 +802,9 @@ Primary files:
   Delete the superseded Go payload structs, including serialized activity/update
   results outside `service/interfaces.go`; retain in-process helpers such as
   `BasicInfo`.
-- Constructor-inject the Phase 2.5 converter into each interpreter worker and assign
-  it to `worker.Options.DataConverter`. Reset/history decode paths receive that same
+- Constructor-inject the Phase 2.5 converter into each interpreter worker. Temporal
+  inherits it from the configured client; Cadence assigns it to
+  `worker.Options.DataConverter`. Reset/history decode paths receive that same
   converter configuration. No interpreter path calls either SDK's default converter.
 - Keep search-attribute mapping backend-native. It does not pass through the
   Internal serializable types DataConverter.
@@ -797,7 +816,7 @@ Behavioral cleanups:
 | Area | Change |
 |------|--------|
 | Naming | Workflow→Flow, State→Step, Command→Condition (`WaitingCondition`, `TimerCondition`, `ChannelCondition`, `ConditionResults`, `ConditionStatus`) |
-| Channels | Unify signal + internal into one channel store; `PublishToChannel` / `channel_infos`; always-on AtLeast/AtMost multi-consume → `ChannelResult.values` (PR #600 algorithm only; delete single-message/version-gated paths) |
+| Channels | Route `PublishToChannel` and worker results into one channel store; do not discover arbitrary signals; always-on AtLeast/AtMost multi-consume → `ChannelResult.values` |
 | Attributes | Single attribute store; indexed subset via `IndexConfig`; drop LoadingPolicy branches and memo-for-DA path |
 | Config | `step_durability` SYNC/ASYNC; always greedy/optimized timers; delete `optimize_timer` |
 | Wait-for-step | Drop `waitForKey`; wait only by `step_execution_id` / `step_type` |
@@ -824,31 +843,32 @@ Behavioral cleanups:
 the Phase 0 two-phase reservation/consume algorithm; a per-condition
 `Consume(name, atLeast, atMost)` alone is insufficient when multiple conditions
 share a channel. `GetInfos()` → `map[string]*iwfpb.ChannelInfo`. Matching lives in
-`deciderTriggerer.go`; results emitted as `ChannelResult.values` in FIFO order.
-Delete the single-message `Retrieve` / version-gated path.
+`channel/plan.go`; results are emitted as `ChannelResult.values` in FIFO order.
+Delete the single-message `Retrieve` / version-gated path. Do not introduce another
+interpreter orchestration component around it.
 
 **Signal vs channel split (important):** `signalReceiver.go` still receives *system*
 signals (RPC exec, config update, fail, skip-timer, trigger-CAN, publish) — this is
 system-signal transport, not the user "Channel" concept. `PublishToChannel`
-payloads route into the unified channel store.
+payloads route into the unified channel store. Arbitrary signal names are ignored.
 
 **Sync-update wait handlers (new — Temporal-only):**
 - The existing `provider.SetRpcUpdateHandler` is hard-coded to the old
-  `WorkflowRpcRequest`. Split a Temporal-only `UpdateProvider` from the common
-  provider and add strongly typed registration methods for InvokeRPC,
-  WaitForStepCompletion, and WaitForAttribute. Cadence does not implement this
-  capability; do not add no-op methods. Regenerate `interfaces_mock.go`.
-- Add `AwaitWithTimeout(ctx, duration, condition)` to the Temporal-only
-  `UpdateProvider` rather than composing an unread `NewTimer` with `Await`. It must
-  report match vs timeout and cancel its timer when the condition wins.
-
-- **WaitForStepCompletion handler:** `AwaitWithTimeout` where `cond` = the
+  `WorkflowRpcRequest`. Add strongly typed registration methods to
+  `WorkflowProvider` for InvokeRPC, WaitForStepCompletion, and WaitForAttribute.
+  Cadence implements them as no-ops because its API paths reject these calls.
+  Regenerate `interfaces_mock.go`.
+- Keep timeout mechanics out of handler registration. Capture workflow start time once
+  and use common `WorkflowProvider.Await` with a predicate checking `Now()` against
+  the deadline. This creates no durable timer; timeout alone need not wake an idle
+  workflow.
+- **WaitForStepCompletion handler:** `Await` where `cond` = the
   target `step_execution_id`/`step_type` present in the completed-output map
   (surfaced from `outputCollector.go`, indexed and retained per the API contract).
   Step-type lookup binds to the first-started monotonic execution id. Returns the
   `StepCompletionOutput` or a timeout marker.
 - **WaitForAttribute handler:** compute the absolute workflow deadline once. Check
-  the current value, then use a pure `AwaitWithTimeout` predicate that directly
+  the current value, then use a pure `Await` predicate that directly
   compares the current inline store value and observes terminal/CAN state. A null
   condition matches a missing key; object equality compares exact `encoding` and
   serialized `payload` bytes. A stored internal blob-id arm returns
@@ -892,9 +912,11 @@ Delete the `IsAfterVersionOf*` gates whose "before" branch is now dead; keep the
 `GlobalVersioner` mechanism + `globalChangeId` as a forward hook; set
 `MaxOfAllVersions = StartingVersionV1`.
 
-**Renames:** move files/types toward Flow/Step where cheap (`stateRequest*` →
-`stepRequest*`, `stateExecutionCounter` → `stepExecutionCounter`, etc.), no old
-aliases. Preserve/move comments per project rules.
+**Renames:** apply only the mappings in
+[`idl-renames.md`](../idl-renames.md) (`stateRequest*` → `stepRequest*`,
+`stateExecutionCounter` → `stepExecutionCounter`, etc.). Preserve every other
+method, field, variable, and comment unless a required protobuf shape makes that
+impossible. Add no compatibility aliases.
 
 ---
 
@@ -951,7 +973,7 @@ aliases. Preserve/move comments per project rules.
   - `rpc_locking_test.go` — overlapping and disjoint key sets, duplicate key
     normalization, out-of-set worker writes, lock release on worker
     error/cancellation, RPC vs SetAttributes, already-inflight/new step activities,
-    and whole-result FIFO commit after unlock.
+    and atomic whole-result application after unlock.
   - `stop_complete_test.go` — successful completion with accumulated outputs on
     Temporal/Cadence, waiting-thread drain, in-flight step behavior, already-closed
     rejection, and CAN race.
@@ -1030,10 +1052,10 @@ determinism-sensitive and must have their own captured histories.
 ## Resolved decisions
 
 1. **RPC locking** — add `repeated string lock_attribute_keys` to `InvokeRPCRequest`.
-   Non-empty → sync-update locking path with atomic, fail-fast
-   `TryLockKeys(sortedUniqueKeys)` (`RPC_ACQUIRE_LOCK_FAILURE` on contention);
-   empty → non-locking. Replaces `PersistenceLoadingPolicy.LockingKeys`; never wait
-   while partially holding keys.
+   Non-empty → sync-update locking path. The validator fails fast with
+   `RPC_ACQUIRE_LOCK_FAILURE` on contention; the handler awaits, locks, and loads
+   all attributes. Empty → non-locking. Replaces
+   `PersistenceLoadingPolicy.LockingKeys`.
 2. **Global versioning** — keep `GlobalVersioner` + `globalChangeId`, reset to v1,
    delete historical branches (`MaxOfAllVersions = StartingVersionV1`).
 3. **Cadence rejection** — `WaitForStepCompletion` / `WaitForAttribute` return

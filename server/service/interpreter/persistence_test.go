@@ -37,6 +37,16 @@ type s2WorkflowProvider struct {
 	upsertErr error
 }
 
+func (p *s2WorkflowProvider) Await(
+	_ interfaces.UnifiedContext,
+	condition func() bool,
+) error {
+	if !condition() {
+		return errors.New("condition is not ready")
+	}
+	return nil
+}
+
 func (p *s2WorkflowProvider) UpsertSearchAttributes(
 	_ interfaces.UnifiedContext,
 	attributes map[string]interface{},
@@ -103,7 +113,7 @@ func TestPersistenceBatchSerializedEqualityAndValidation(t *testing.T) {
 	require.True(t, applied)
 	stored, exists := manager.GetAttribute("object")
 	require.True(t, exists)
-	require.Same(t, object.GetValue(), stored)
+	require.Same(t, equalSerializedObject.GetValue(), stored)
 	require.Empty(t, provider.upserts)
 
 	applied, err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{
@@ -197,7 +207,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 	require.Equal(t, "new", provider.upserts[1]["AnotherIndexKey"])
 	stored, exists := manager.GetAttribute("indexed")
 	require.True(t, exists)
-	require.Same(t, moved.GetValue(), stored)
+	require.Same(t, sameValueWithNewIndex.GetValue(), stored)
 
 	disabled := stringAttribute("indexed", "stored-only", nil)
 	applied, err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{disabled})
@@ -237,11 +247,14 @@ func TestPersistenceLocksRejectWholeBatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.True(t, manager.TryLockKeys([]string{"locked"}))
+	attributes, err := manager.LoadAttributes(nil, []string{"locked"})
+	require.NoError(t, err)
+	require.Len(t, attributes, 2)
 	require.True(t, manager.HasAnyLock())
-	require.False(t, manager.TryLockKeys([]string{"locked"}))
-	require.False(t, manager.TryLockKeys([]string{"free", "locked"}))
-	require.True(t, manager.TryLockKeys([]string{"free"}))
+	require.False(t, manager.CanLockKeys([]string{"locked"}))
+	require.False(t, manager.CanLockKeys([]string{"free", "locked"}))
+	_, err = manager.LoadAttributes(nil, []string{"free"})
+	require.NoError(t, err)
 	manager.UnlockKeys([]string{"free"})
 
 	applied, err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{
@@ -264,12 +277,7 @@ func TestPersistenceLocksRejectWholeBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, applied)
 
-	require.Panics(t, func() {
-		manager.UnlockKeys([]string{"locked"})
-	})
-	require.Panics(t, func() {
-		manager.TryLockKeys([]string{"b", "a"})
-	})
+	manager.UnlockKeys([]string{"locked"})
 }
 
 func TestPersistenceRejectsDuplicateAndInvalidInitialAttributes(t *testing.T) {

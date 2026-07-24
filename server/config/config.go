@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service/common/ptr"
 	"github.com/uber-go/tally/v4/prometheus"
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
@@ -195,7 +196,7 @@ type (
 
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
 var DefaultWorkflowConfig = &iwfpb.FlowConfig{
-	ContinueAsNewThreshold: 100,
+	ContinueAsNewThreshold: ptr.Any(int32(100)),
 }
 
 // NewConfig returns a new decoded Config struct.

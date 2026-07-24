@@ -59,22 +59,6 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
-func (w *workflowProvider) GetApplicationErrorTypeAndDetails(err error) (string, string) {
-	var applicationError *cadence.CustomError
-	if !errors.As(err, &applicationError) {
-		return "", "not a Cadence application error"
-	}
-	if !applicationError.HasDetails() {
-		return applicationError.Reason(), "Cadence application error has no details"
-	}
-
-	var details interface{}
-	if detailsErr := applicationError.Details(&details); detailsErr != nil {
-		return applicationError.Reason(), fmt.Sprintf("decode Cadence application error details: %v", detailsErr)
-	}
-	return applicationError.Reason(), interfaces.FormatApplicationErrorDetails(details)
-}
-
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	ctx interfaces.UnifiedContext, input *iwfpb.InterpreterWorkflowInput,
 ) error {
@@ -132,6 +116,30 @@ func (w *workflowProvider) SetQueryHandler(
 		panic("cannot convert to cadence workflow context")
 	}
 	return workflow.SetQueryHandler(wfCtx, queryType, handler)
+}
+
+func (w *workflowProvider) SetInvokeRPCUpdateHandler(
+	interfaces.UnifiedContext,
+	interfaces.InvokeRPCUpdateValidator,
+	interfaces.InvokeRPCUpdateHandler,
+) error {
+	return nil
+}
+
+func (w *workflowProvider) SetWaitForStepCompletionUpdateHandler(
+	interfaces.UnifiedContext,
+	interfaces.WaitForStepCompletionUpdateValidator,
+	interfaces.WaitForStepCompletionUpdateHandler,
+) error {
+	return nil
+}
+
+func (w *workflowProvider) SetWaitForAttributeUpdateHandler(
+	interfaces.UnifiedContext,
+	interfaces.WaitForAttributeUpdateValidator,
+	interfaces.WaitForAttributeUpdateHandler,
+) error {
+	return nil
 }
 
 func (w *workflowProvider) ExtendContextWithValue(
@@ -203,10 +211,13 @@ func (w *workflowProvider) WithActivityOptions(
 		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
 	})
 
-	// support local activity optimization
+	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
+	localActivityTimeout := 7 * time.Second
+	if options.LocalActivityScheduleToCloseTimeout > 0 {
+		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
+	}
 	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
-		// set the LA timeout to 7s to make sure the workflow will not need a heartbeat
-		ScheduleToCloseTimeout: time.Second * 7,
+		ScheduleToCloseTimeout: localActivityTimeout,
 		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
 	})
 	return interfaces.NewUnifiedContext(wfCtx3)
@@ -345,12 +356,4 @@ func (w *workflowProvider) GetLogger(ctx interfaces.UnifiedContext) interfaces.U
 	return &loggerImpl{
 		zlogger: zLogger,
 	}
-}
-
-func (w *workflowProvider) GetUnhandledSignalNames(ctx interfaces.UnifiedContext) []string {
-	wfCtx, ok := ctx.GetContext().(workflow.Context)
-	if !ok {
-		panic("cannot convert to cadence workflow context")
-	}
-	return workflow.GetUnhandledSignalNames(wfCtx)
 }

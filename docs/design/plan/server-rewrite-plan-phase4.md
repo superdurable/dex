@@ -9,6 +9,19 @@ same Go package, so S1–S4 are stacked review checkpoints, not independently
 mergeable green commits. Do not land them separately or start Phase 5 until S5
 makes the whole interpreter package build and the Phase 4 checkpoint passes.
 
+### Interpreter migration constraint
+
+- Use commit `d5f06a2b51a1b878ce1329aa5d4f1d945ea09c27` as the structural baseline
+  for `server/service/interpreter/`.
+- Preserve the existing main loop, coroutine ownership, type layout, methods,
+  fields, variables, and comments unless protobuf or a listed feature requires a
+  change.
+- Apply only the concept renames in [`idl-renames.md`](../idl-renames.md).
+  Do not introduce an `interpreterRuntime`, orchestration state machine, child
+  workflow contexts, or a deferred result queue.
+- Exception: retain `channel.Plan` / `channel.MatchPlan` as the replacement for
+  `deciderTrigger`; it is required for multi-value and shared-channel matching.
+
 ```mermaid
 flowchart TB
   S1[S1_Interfaces_Config_Version]
@@ -27,15 +40,15 @@ flowchart TB
   Consumption is a **single-threaded central commit** after winner selection —
   condition threads only `Await` peek predicates, they never consume (fixes the
   current per-thread `Retrieve` at `workflowImpl.go:768`/`:806`).
-- User signals + internal channels share one store; **system** signals stay in
-  `signalReceiver.go`.
+- Channel messages enter through declared system signals and worker results.
+  Arbitrary signal names are not discovered or consumed.
 - Attributes are always fully loaded; locks only via `lock_attribute_keys`.
 - Memo is never attribute persistence. No interpreter path reads or upserts
   attributes through Temporal/Cadence Memo.
 - Attribute locking covers the whole RPC read-modify-write window. New worker
   activities that read the full attribute set do not start while a lock is held;
-  concurrent activity/signal results touching locked keys queue their whole side-effect
-  batch and commit after unlock.
+  the originating activity/signal coroutine waits and commits its whole result after
+  unlock.
 - **Sync-update waits yield to continue-as-new.** WaitForStep/WaitForAttribute
   return an internal `CAN_PREEMPTED` outcome when the threshold becomes true. The
   API/UnifiedClient retries against the current run while preserving the original
@@ -52,12 +65,13 @@ flowchart TB
 - Activity calls are single top-level `*iwfpb.*` arg/result (no
   `backendType, req, ...` multi-arg).
 - Any map iteration that feeds workflow decisions uses `DeterministicKeys`
-  (pattern at `deciderTriggerer.go:48/52/56`); winner selection / commit iterate
-  ordered `repeated` condition slices, never the channel map.
-- Interpreter/activities have no mutable package globals: delete `env.SetSharedEnv`,
-  `env.Get*`, and the activity-provider registry; constructor-inject dependencies.
-- Terminal transitions are one-way. Complete/fail/CAN cannot all win; the
-  orchestrator applies the explicit precedence defined in S4/S5.
+  where ordering matters; `channel.Plan` winner selection and commit iterate ordered
+  `repeated` condition slices, never the channel map.
+- Interpreter/activities have no mutable package dependency globals: delete
+  `env.SetSharedEnv`, `env.Get*`, and the activity-provider registry;
+  constructor-inject dependencies.
+- Complete/fail/CAN use the baseline workflow-loop flags and precedence defined
+  in S4/S5.
 
 **Parent-plan alignment:** the parent Phase 4 summary follows this plan: long waits
 are preempted and transparently retried instead of blocking CAN; locking InvokeRPC
@@ -94,39 +108,35 @@ superseded Go payload structs; keep `BasicInfo` / helpers).
 - Delete `WorkflowProvider.UpsertMemo`, both Temporal/Cadence implementations, the
   generated mock method, and timer/provider test stubs. Do not replace it: the only
   caller was memo-as-attribute storage.
-- Split Temporal-only update capabilities from the common `WorkflowProvider`.
-  Define an `UpdateProvider` implemented only by Temporal; the interpreter registers
-  updates only when the provider implements that capability. Do not add Cadence
-  methods that silently no-op. Use three concrete typed methods rather than
+- Put update-handler registration directly on `WorkflowProvider`. Temporal registers
+  handlers; Cadence returns nil because the API rejects its unsupported calls.
+  Use three concrete typed methods rather than
   `interface{}`/`proto.Message` dispatch:
   - InvokeRPC (`InvokeRPCRequest` → `InvokeRpcUpdateResult`)
   - WaitForStepCompletion (`WaitForStepCompletionRequest` → `...Response`)
   - WaitForAttribute (`WaitForAttributeRequest` → `google.protobuf.Empty`)
-- Put `AwaitWithTimeout(ctx, duration, cond) (matched bool, err error)` on
-  `UpdateProvider`, matching Temporal SDK semantics. Build an updater method that
-  translates match/timeout/CAN/terminal state into a private `updateAwaitOutcome`;
-  do not expose combinations of multiple booleans that can represent invalid states.
-  Temporal cancels the deadline timer when the predicate wins. Cadence v0.17.1 has
-  no public `AwaitWithTimeout` and does not implement `UpdateProvider`.
+- Keep timeout mechanics out of handler registration. Long waits capture one workflow
+  start time and use common `WorkflowProvider.Await` with a predicate checking
+  `Now() > start + timeout`, match, terminal, and CAN. This creates no durable
+  timeout timer; timeout alone need not wake an otherwise idle workflow.
 - Replace `ExecuteActivity(..., optimize bool, ...)` with
   `ExecuteActivity(..., StepDurability, ...)`. Reject `UNSPECIFIED` at this boundary.
   Every call still passes one proto input and result (enforced in S4); no variadic
   interpreter activity arguments remain. Step wait/execute calls use resolved
-  durability; CAN dump and blob cleanup are fixed `SYNC` system activities.
+  durability; blob cleanup is fixed `SYNC`, while CAN dump directly uses
+  `ExecuteLocalActivity`.
 - Keep `ExecuteLocalActivity` as a separate forced-local operation. Temporal sync
   update handlers call it directly; they never route through durability dispatch or
   fallback to a regular activity.
 - Keep workflow registration names in `service/const.go`; Temporal and Cadence must
   reference the same `Interpreter` and `BlobStoreCleanup` constants.
-- Keep application-error creation, detection, and type/details extraction on
-  `WorkflowProvider`. Each backend reads its native error; never replace the type
-  with a generic label or replace structured details with `err.Error()`.
+- Keep application-error creation and detection on `WorkflowProvider`.
 - `FlowConfiger`: use `*iwfpb.FlowConfig`; retain the ownership-transferred input
   directly and panic on a nil constructor argument. Never retain the mutable
-  `config.DefaultWorkflowConfig` pointer. Because the proto scalar fields have no
-  presence, a non-nil StartFlow `flow_config_override` and `UpdateFlowConfig` are
-  validated **full replacements**, not field patches. Callers must not mutate a
-  message after transferring ownership. An absent start override uses the configured server default.
+  `config.DefaultWorkflowConfig` pointer. FlowConfig scalar fields retain presence,
+  so StartFlow `flow_config_override` and `UpdateFlowConfig` apply only present
+  fields. Callers must not mutate a message after transferring ownership. An absent
+  start override uses the configured server default.
   Define zero values explicitly: threshold 0 disables automatic CAN, page size 0 uses
   `DefaultContinueAsNewPageSizeInBytes`, durability `UNSPECIFIED` resolves to
   `SYNC`, and active-step mode `UNSPECIFIED` resolves to
@@ -161,7 +171,7 @@ slices share it.
 [`outputCollector.go`](../../../server/service/interpreter/outputCollector.go),
 `stateRequest*.go` → `stepRequest*.go`,
 `stateExecutionCounter.go` → `stepExecutionCounter.go`,
-[`deciderTriggerer.go`](../../../server/service/interpreter/deciderTriggerer.go).
+[`channel/plan.go`](../../../server/service/interpreter/channel/plan.go).
 
 ### Channel store
 
@@ -203,14 +213,14 @@ slices share it.
      exact channel consume counts keyed by channel-condition declaration index.
      A winning zero-consumption channel still has a `Consume` entry. Timer-only
      candidates have an empty plan. Planning does not mutate queues.
-  6. The orchestrator commits that plan once without a workflow yield. A count
+  6. The step coroutine commits that plan once without a workflow yield. A count
      mismatch at commit is a trusted invariant failure because no yield can occur
      between plan and commit. A channel result receives the planned FIFO values.
      Consumed channels are `COMPLETED`; other channels are `WAITING`. Every timer
      reports its observed processor state: fired/skipped maps to `COMPLETED`, while
      pending/canceled maps to `WAITING`.
 - Output: `*iwfpb.ConditionResults` with `ChannelResult.values`.
-- Provide the commit as a single call the orchestrator invokes from one thread
+- Provide the commit as a single call the step coroutine invokes from one thread
   (S4); the per-condition wait threads only peek, never consume.
 
 ### Persistence
@@ -241,18 +251,17 @@ slices share it.
   leaves the persistence map unchanged. Process enabled `IndexConfig` even when the
   stored value is unchanged. Do not track or validate backend index-key ownership;
   repeated writes targeting the same backend key resolve in declaration order.
-- Lock API is atomic `TryLockKeys(sortedUniqueKeys) bool` plus
-  `UnlockKeys(sortedUniqueKeys)`. The locking update fails fast on contention; it
-  never waits while partially holding keys. Empty, unsorted, or duplicate key input
-  is a trusted caller invariant violation. Locks are run-local and never enter the
-  CAN dump.
+- The validator checks `CanLockKeys(keys)`. The handler calls
+  `LoadAttributes(ctx, keys)`, which awaits all keys becoming unlocked, locks them,
+  and returns all attributes. `UnlockKeys(keys)` releases them. Locks are run-local
+  and never enter the CAN dump.
 - The single attribute batch method returns `applied=false` without mutation if any
   written key is locked.
-  The runtime then queues the **entire** originating worker/signal result (attributes,
-  channels, events, and next steps) in workflow-arrival order and retries it after
-  unlock; it must not expose half of that result early. Starting a Wait/Execute
-  worker activity is deferred while any attribute lock exists because those requests
-  carry the full attribute snapshot. Read-only queries remain non-locking.
+  The existing step or signal coroutine waits for all attribute locks to release,
+  then applies the **entire** originating result without another workflow yield.
+  It must not expose half of that result early. Starting a Wait/Execute worker
+  activity is deferred while any attribute lock exists because those requests carry
+  the full attribute snapshot. Read-only queries remain non-locking.
 - **GetAttributes query handler** (`queryHandler.go`) retyped here alongside the store:
   serve `GetAttributesQueryRequest` → proto response (feeds the `GetAttributes` RPC).
   Queries return retained immutable values, perform no hydration/activity/yield, and
@@ -302,10 +311,9 @@ migration compiles.
 [`activityImpl.go`](../../../server/service/interpreter/activityImpl.go), and delete
 [`env/env.go`](../../../server/service/interpreter/env/env.go).
 
-- Temporal implements `UpdateProvider` with the three typed registrations and SDK
-  `workflow.AwaitWithTimeout`. Cadence does not implement that capability; the
-  interpreter skips registration and the API rejects unsupported calls before
-  dialing.
+- Temporal implements the three typed registrations on `WorkflowProvider`.
+  Long waits use common `Await`/`Now` without a durable timeout timer. Cadence
+  registrations are no-ops; the API rejects unsupported calls before dialing.
 - Replace package globals with constructor-owned objects:
   - `Activities` contains the backend `ActivityProvider`, worker pool, internal
     client, blob store, UnifiedClient, captured event handler, and pointers to the
@@ -360,10 +368,9 @@ migration compiles.
   condition; restore has a separate trusted-snapshot validator for absolute fields.
 - Retype **GetCurrentTimerInfos** and **GetScheduledGreedyTimerTimes** query handlers
   to proto here. They are read-only and construct repeated results in stable order.
-- Inject Phase 2.5 DataConverter into Temporal/Cadence `worker.Options` (and
-  ensure API client path already uses the same factory from Phase 1c when
-  touched). Client/worker configuration and codec chain match; search attributes
-  continue through the backend-native mapper.
+- Temporal workers inherit the Phase 2.5 DataConverter from their configured
+  client. Set it explicitly on Cadence worker Options. Client/worker codec chains
+  match; search attributes continue through the backend-native mapper.
 - Confirm WaitForStateCompletion workflow is deleted and unregistered (Temporal
   already dropped registration in Phase 3 — remove remaining defs).
 
@@ -384,13 +391,10 @@ entrypoints
 /
 [`cadence/workflow.go`](../../../server/service/interpreter/cadence/workflow.go).
 
-- Replace the monolithic function state with an `interpreterRuntime` constructed once
-  per execution. It owns provider, configer, stores, counters, terminal state/error,
-  per-step cooperative wait flags, and a captured event handler. Lift orchestration
-  and long-lived system handlers into methods (`Run`, `restore`, `startReadySteps`, `runStep`,
-  `applyStepResult`, `reconcileTerminal`, `continueAsNew`); do not leave closures
-  that capture/mutate three or more outer variables. Runtime methods call the
-  captured handler rather than reading the mutable `event.Handle` package variable.
+- Keep the monolithic `InterpreterImpl` loop and its existing local state from the
+  baseline commit. Retype that structure in place; do not replace it with a runtime
+  object or a new state machine. Extract only callbacks that must become methods
+  under the repository's stateful-closure rule.
 - Interpreter input/output = `*iwfpb.InterpreterWorkflowInput/Output`.
 - Initial and CAN-restore construction of `PersistenceManager` takes no
   `input.UseMemoForDataAttributes` argument; that field has no proto replacement.
@@ -411,44 +415,44 @@ entrypoints
   `timers.NormalizeTimerConditionsFromActivityOutput(provider.Now(ctx), waitingCondition)`
   before any workflow yield, timer registration, result publication, or snapshot
   construction. This is the only relative-to-absolute conversion point.
-- `applyStepResult` commits one worker response atomically. If an attribute key is
-  locked by a locking RPC, retain the complete response in a FIFO
-  `pendingResultCommits` queue; after unlock, commit attributes, record events,
-  channel publications, and next-step enqueueing together. `startReadySteps` does
-  not dispatch a new full-attribute worker request while any lock is held.
-- Each running step retains one cooperative wait flag keyed by execution id; backend
+- Apply each worker response atomically from its existing step coroutine. If an
+  attribute key is locked, that coroutine waits for unlock before applying
+  attributes, channel publications, and next-step enqueueing together. Record
+  events remain in the activity result or system-signal history payload. Do not add
+  a FIFO commit queue. Do not dispatch a new full-attribute worker request while any
+  lock is held.
+- Keep the existing per-step cancellation bool used by condition waiters. Backend
   child contexts are unnecessary. Once its trigger, CompleteFlow, failure, or CAN
-  wins, set the flag and remove pending timers so timer/channel predicates wake. An
-  in-flight activity finishes normally; discard its result after a terminal
-  transition. Await thread-count convergence without `time.Sleep`.
+  wins, set the bool and remove pending timers so predicates wake. An in-flight
+  activity finishes normally; discard its result after a terminal request. CAN
+  awaits thread-count convergence without `time.Sleep`.
 - System signals: keep RPC/config/fail/skip-timer/trigger-CAN; add
-  **CompleteFlow** handler for `STOP_TYPE_COMPLETE`. Signal handlers only record
-  requests and wake the runtime; the central orchestrator performs terminal
-  transitions.
-- Use explicit terminal priority when multiple requests become visible in one
+  **CompleteFlow** handler for `STOP_TYPE_COMPLETE`. Signal handlers update the
+  existing request flags; the main workflow loop performs terminal exits.
+- `SkipTimer` requires `timer_condition_id` or optional
+  `timer_condition_index`. Query current timer infos and require a pending match
+  before sending its system signal; condition ID wins when both are provided.
+- Keep the baseline main-loop priority when multiple requests become visible in one
   workflow task: failure (step/activity/FailFlow) wins over CompleteFlow; CompleteFlow
-  wins over CAN. Once terminal, the state never returns to running.
-- On CompleteFlow: set terminal state before yielding, stop enqueue/start, set every
-  cooperative wait flag, remove pending timers, wake update predicates, ignore
-  results that return after terminal transition, drain workflow threads, and return
-  the stable retained outputs. Do not synthesize an in-flight step output. Log/event
-  the reason only.
-- On failure: perform the same cancellation/drain, return the accumulated outputs as
-  failure details where the API contract requires them, and preserve the first
-  terminal error selected by the priority rule.
-- Route `PublishToChannel` payloads into channel store (not a separate
-  user-signal map). Drain unhandled user signals in sorted signal-name order and
-  preserve FIFO within each signal channel before a CAN/conditional-close snapshot.
+  wins over CAN.
+- On CompleteFlow, set the existing completion flag. Cooperative condition/update
+  waits observe it; in-flight activity results are discarded. Return the stable
+  retained outputs without synthesizing an in-flight step output.
+- On failure, set the existing error variable. Cooperative waits observe it and the
+  main loop returns the accumulated outputs with that error.
+- Send each `PublishToChannel` batch in one `ExecuteRpcSignalRequest`, then
+  publish its ordered messages into channel store. Drain pending RPC signals
+  before a CAN/conditional-close snapshot.
 - Port conditional close completely: validate close type/channel names; drain pending
-  user/PublishToChannel messages before testing emptiness; graceful close waits for
-  step queue/in-flight executions, force close cancels them; apply `close_input`
-  without fabricating a step completion.
+  PublishToChannel messages before testing emptiness; graceful close waits for
+  step queue/in-flight executions, while force close returns immediately. Apply
+  `close_input` without fabricating a new step execution.
 - Drop `compatibility.*` and all remaining LoadingPolicy / dual start-API /
   waitForKey paths.
 - Finish deleting leftover `IsAfterVersionOf*` call sites (always-latest).
 
 **Review gate:** no per-condition `Retrieve`, no stateful orchestration closure, and
-no new step can start after a terminal transition. The root package is expected to
+no new step can start after a terminal request. The root package is expected to
 compile only after S5 migrates updater/query/CAN files.
 
 ---
@@ -466,27 +470,31 @@ compile only after S5 migrates updater/query/CAN files.
 
 - Full attributes; no LoadingPolicy. Empty `lock_attribute_keys` keeps the existing
   non-locking signal+query path on both backends.
-- A non-empty key list requires Temporal `UpdateProvider`. Cadence returns
+- The API owns a WorkerService connection pool built from
+  `InterpreterActivityConfig`. The non-locking path queries `PrepareRpc`, invokes
+  WorkerService directly, signals mutations as one `ExecuteRpcSignalRequest`, and
+  closes the pool during API shutdown.
+- A non-empty key list requires Temporal synchronous updates. Cadence returns
   `codes.Unimplemented` at the API before query/signal/worker calls.
 - Validator: reject empty keys, normalize duplicates, sort keys, and read the lock
   table only. It cannot mutate/yield. Any contended key returns
   `RPC_ACQUIRE_LOCK_FAILURE`/`Aborted`.
-- Handler: increment CAN inflight, atomically `TryLockKeys` before its first yield,
-  and defer conditional unlock plus inflight decrement. If the state changed after
-  validation and locking now fails, return the same contention error. Pass full
-  immutable attributes and channel infos into the worker request only after lock
-  acquisition; do not issue a separate `PrepareRpc` query for the locking path.
+- Handler: increment CAN inflight, call `LoadAttributes` to await, lock, and load,
+  and defer conditional unlock plus inflight decrement. Pass full immutable
+  attributes and channel infos into the worker request only after lock acquisition;
+  do not issue a separate `PrepareRpc` query for the locking path.
 - Invoke the worker with `ExecuteLocalActivity` regardless of
   `FlowConfig.step_durability`. Sync Update must not route through
   `ExecuteActivity` or fallback to a regular activity. After validating the complete
-  worker result, unlock and immediately commit attributes, channels, events, and next
-  steps without a workflow yield. Mark the locks released so deferred cleanup does
-  not unlock twice. Worker/activity error, cancellation, terminal transition, and
-  conversion error all release exactly once.
+  worker result, unlock and immediately commit attributes, channels, and next steps
+  without a workflow yield. Record events remain in the Local Activity marker. Mark
+  the locks released so deferred cleanup does not unlock twice. Worker/activity
+  error, cancellation, terminal request, and conversion error all release exactly
+  once.
 - Validate that every returned `upsert_attributes` key belongs to the normalized
   `lock_attribute_keys` set. An out-of-set write is an invalid worker response and
   applies none of the result. This prevents two disjoint locking RPCs from
-  cross-writing each other's keys while both hold locks. If terminal state becomes
+  cross-writing each other's keys while both hold locks. If a terminal request becomes
   visible while the activity is running, discard all returned side effects, release,
   and return `FailedPrecondition`.
 - Compute one workflow-side RPC budget from positive `timeout_seconds` capped by
@@ -514,7 +522,7 @@ compile only after S5 migrates updater/query/CAN files.
   response.
 - Each handler validates before yielding, increments CAN inflight, and defers
   decrement. It checks the current value once, then waits on
-  `match || terminal != RUNNING || IsThresholdMet()`.
+  `match || hasTerminalRequest(...) || IsThresholdMet()`.
 - Outcome order after Await returns: a real match wins; terminal returns
   `FailedPrecondition`; timeout returns `DeadlineExceeded` +
   `LONG_POLL_TIME_OUT`; CAN threshold returns `IWF_CAN_PREEMPTED`. This order avoids
@@ -522,7 +530,7 @@ compile only after S5 migrates updater/query/CAN files.
   as CAN.
 - Zero timeout performs one immediate check and never installs a timer. Caller
   cancellation is returned as `Canceled`; an already accepted handler still exits
-  through its bounded deadline, terminal state, or CAN predicate.
+  through its bounded deadline, terminal request, or CAN predicate.
 - Cadence implements no handlers. The API returns `codes.Unimplemented` before
   dialing.
 
@@ -546,9 +554,10 @@ compile only after S5 migrates updater/query/CAN files.
   integer, double, bool, null/missing. If the current stored value is an internal
   blob-id arm, return `FailedPrecondition`; do not start a hydration activity.
 - Compute a per-attempt workflow deadline once from the remaining duration. Check the
-  current value before Await, then use a pure `AwaitWithTimeout` predicate that reads
-  the current immutable store value and also checks terminal/CAN state. Compare exact
-  scalar arms; compare objects by exact encoding and serialized payload bytes.
+  current value before `Await`, then use a pure predicate that reads the current
+  store value and checks deadline, terminal, and CAN state. It creates no durable
+  timeout timer and may observe timeout only after another workflow event. Compare
+  exact scalar arms; compare objects by encoding and serialized payload bytes.
 - TODO: design deterministic hydration for blob-backed attributes without losing
   concurrent writes during the activity yield.
 
@@ -564,26 +573,24 @@ compile only after S5 migrates updater/query/CAN files.
 
 1. When the threshold wins after terminal-priority reconciliation, stop starting
    steps. Long wait updates observe the threshold and return `CAN_PREEMPTED`; bounded
-   locking RPCs finish. Drain step/system threads, then drain pending user/system
-   signals and `pendingResultCommits` in deterministic FIFO order. Re-check
-   fail/complete; a terminal request wins and cancels CAN.
+   locking RPCs finish. Drain step/system threads, then drain declared system
+   signals. Re-check fail/complete; a terminal request wins and cancels CAN.
 2. Copy the latest `FlowConfig` into continue-as-new input. Assert no held lock,
    uncommitted `MatchPlan`, inflight update, or live step thread remains.
 3. `GetSnapshot()` builds a fresh `*iwfpb.ContinueAsNewDump`. Sort attribute keys and
    every map-derived repeated field; retain FIFO queue order and monotonic output
-   order. Use `proto.MarshalOptions{Deterministic:true}` and SHA-256 hex over the full
-   canonical bytes.
+   order. Use `proto.MarshalOptions{Deterministic:true}` and a hex checksum over the
+   full canonical bytes.
 4. Page 0 establishes positive `total_pages` (empty bytes still produce one page)
    and checksum. Each later response must echo requested page number, total pages,
-   and checksum. Reject a non-positive page size, negative/out-of-range page number,
-   or a page size above `Api.GrpcMaxMessageBytes -
+   and checksum. Resolve a non-positive page size to the existing default. Reject a
+   negative/out-of-range page number or a page size above `Api.GrpcMaxMessageBytes -
    continueAsNewPageEnvelopeHeadroomBytes`, where the named headroom constant is
    1024 bytes.
-5. `LoadInternalsFromPreviousRun` concatenates pages, verifies final checksum, then
-   `proto.Unmarshal`s once. A cross-page mismatch restarts at page 0 a bounded number
-   of times (`maxContinueAsNewDumpRestarts = 3`); exhaustion returns a typed workflow
-   error rather than looping forever. The per-page activity keeps its configured
-   retry policy for transport failures.
+5. `LoadInternalsFromPreviousRun` concatenates pages and `proto.Unmarshal`s once.
+   A cross-page checksum mismatch resets the accumulated data and restarts at page
+   0, preserving the baseline behavior. Each per-page Local Activity keeps its
+   configured retry policy for transport failures.
 6. Restore channel FIFO data, step queue/resume info, counters, retained completion
    indexes, attribute KVs, timer/stale-skip state, and latest config.
    Reject duplicate keys and invalid `UNSPECIFIED` internal enums as trusted snapshot
@@ -592,9 +599,9 @@ compile only after S5 migrates updater/query/CAN files.
 - Wire `InternalService.DumpFlowForContinueAsNew` to the typed CAN page query if still
   stubbed. Reuse the injected internal client; validate response identity and close
   it through worker shutdown ownership.
-- Delete the process-global `inMemoryContinueAsNewMonitor`. Drain diagnostics use
-  workflow-local runtime state and deterministic workflow time; no host `time.Now`
-  or cross-run mutable map may influence workflow execution.
+- Retain the baseline `inMemoryContinueAsNewMonitor` diagnostics. It may affect logs
+  only and must not influence workflow decisions. Do not replace it with a durable
+  timeout timer.
 
 **Exit (Phase 4 checkpoint):**
 
@@ -619,8 +626,8 @@ if rg -n 'useMemoFor(DataAttributes|DAs)|UseMemoForDataAttributes|UpsertMemo|\bu
   exit 1
 fi
 
-if rg -n 'inMemoryContinueAsNewMonitor|time\.Now\(' \
-  server/service/interpreter/{workflowImpl.go,workflowUpdater.go,continueAsNewer.go,signalReceiver.go}; then
+if rg -n 'time\.Now\(' \
+  server/service/interpreter/{workflowImpl.go,workflowUpdater.go,signalReceiver.go}; then
   exit 1
 fi
 ```
@@ -652,9 +659,9 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
   `IndexConfig`, duplicate logical keys, shared backend index keys, same-value index
   updates, backend-error rollback, ownership/no-clone behavior, sorted KV query/restore output,
   all-or-none lock acquisition, locked batch rejection without partial effects,
-  non-yielding whole-result commit after unlock, FIFO deferred whole-result commit, nil
-  completion marker, explicit-id lookup, first-started type selection, CAN index
-  rebuild, stable queue restore, and active-step counter modes.
+  non-yielding whole-result commit after unlock, nil completion marker, explicit-id
+  lookup, first-started type selection, CAN index rebuild, stable queue restore, and
+  active-step counter modes.
 - **S3:** Temporal and Cadence `ASYNC` execution falls back from a Local Activity Go
   error to one regular activity, while `SYNC` and successful Local Activity results
   execute once. Activity validation covers negative bounds/timer duration, nil
@@ -671,7 +678,7 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
   durability and never falls back; locking-RPC out-of-set write rejection and
   terminal-during-activity; CAN canonical bytes, empty/split pages, invalid page
   bounds, checksum/total-page mismatch, three-restart exhaustion, and corrupt
-  snapshot rejection. These are isolated state-machine/codec edges that integration
+  snapshot rejection. These are isolated workflow/codec edges that integration
   cannot exercise reliably.
 - Keep restored `activityImpl_test.go`. Do not add a broad mocked interpreter suite;
   Phase 5 integration covers Temporal/Cadence lifecycle, Complete/Fail/CAN races,
@@ -685,7 +692,7 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
   introduces new internal names beyond the existing Internal serializable types
   table.
 - Keep the parent plan's Phase 4 summary synchronized with this plan's
-  CAN-preempt/retry behavior, Temporal-only `UpdateProvider`, first-started step-type
+  CAN-preempt/retry behavior, Temporal-only update handling, first-started step-type
   selection, fail-fast locking, and Cadence locking-RPC `Unimplemented` decision.
 - Note in [`server/CONTRIBUTING.md`](../../../server/CONTRIBUTING.md):
   interpreter DataConverter configuration/codec chain must match API client;
@@ -711,8 +718,8 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
 
 | ID | Scope | Status |
 |----|-------|--------|
-| S1 | common contracts + delete UpsertMemo + Temporal UpdateProvider/Await outcome + durability resolution + shared workflow names + FlowConfiger + GlobalVersioner v1; regenerate mocks | implemented and reviewed; legacy call sites migrate in S4/S5 |
+| S1 | common contracts + delete UpsertMemo + typed update registration + durability resolution + shared workflow names + FlowConfiger + GlobalVersioner v1; regenerate mocks | implemented and reviewed; legacy call sites migrate in S4/S5 |
 | S2 | pure MatchPlan/central commit + unified non-Memo persistence/owner locks + step queue/counter/retention indexes + GetAttributes | implemented; isolated matching/store gates green, root call-site migration waits for S4/S5 |
 | S3 | constructor-owned Activities/Workers; delete env/registry and memo-storage wiring; Temporal update adapter; greedy timers + timer queries; matching DataConverter config | implemented; isolated gates green, root integration waits for S4/S5 |
-| S4 | interpreterRuntime methods + remove input memo flag + single-proto/durability activity calls + system/channel signals + terminal priority/CompleteFlow + conditional close | pending |
-| S5 | locking InvokeRPC + Wait updates/CAN retry + all queries + canonical CAN paging/restore + InternalService + full Phase 4 gates | pending |
+| S4 | baseline InterpreterImpl loop + remove input memo flag + single-proto/durability activity calls + system/channel signals + terminal priority/CompleteFlow + conditional close | implemented; service and server entrypoint build |
+| S5 | locking/non-locking InvokeRPC + Wait updates/CAN retry + all queries + canonical CAN paging/restore + InternalService + full Phase 4 gates | implemented; focused gates and full unit suite green |

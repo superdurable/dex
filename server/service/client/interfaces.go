@@ -48,7 +48,9 @@ type UnifiedClient interface {
 	DescribeWorkflowExecution(
 		ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]iwfpb.IndexType,
 	) (*DescribeWorkflowExecutionResponse, error)
-	GetWorkflowResult(ctx context.Context, valuePtr interface{}, workflowID string, runID string) error
+	GetWorkflowResult(
+		ctx context.Context, valuePtr interface{}, workflowID string, runID string,
+	) (resolvedRunID string, status iwfpb.FlowStatus, err error)
 	SynchronousUpdateWorkflow(
 		ctx context.Context, valuePtr interface{}, workflowID, runID, updateType string, input interface{},
 	) error
@@ -76,8 +78,8 @@ type StartWorkflowOptions struct {
 	CronSchedule             *string
 	RetryPolicy              *iwfpb.FlowRetryPolicy
 	// SearchAttributes are Temporal/Cadence indexed fields (already encoded as backend values).
-	SearchAttributes map[string]interface{}
-	Memo             map[string]interface{}
+	SearchAttributes   map[string]interface{}
+	Memo               map[string]interface{}
 	WorkflowStartDelay *time.Duration
 }
 
@@ -93,10 +95,10 @@ type ListWorkflowExecutionsResponse struct {
 }
 
 type DescribeWorkflowExecutionResponse struct {
-	Status                 iwfpb.FlowStatus
-	RunId                  string
-	FirstRunId             string
-	IndexedAttributes      map[string]*iwfpb.Value
-	Memos                  map[string]*iwfpb.Value
-	FlowStartedTimestamp   int64
+	Status               iwfpb.FlowStatus
+	RunId                string
+	FirstRunId           string
+	IndexedAttributes    map[string]*iwfpb.Value
+	Memos                map[string]*iwfpb.Value
+	FlowStartedTimestamp int64
 }

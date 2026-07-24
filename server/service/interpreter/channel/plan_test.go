@@ -184,7 +184,7 @@ func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestPlan_ALL_AllowsMissingConditionIDs(t *testing.T) {
+func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
 	waitingCondition := &iwfpb.WaitingCondition{
 		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		TimerConditions:      []*iwfpb.TimerCondition{timerCond("")},
@@ -202,7 +202,7 @@ func TestPlan_ALL_AllowsMissingConditionIDs(t *testing.T) {
 	require.Equal(t, map[int]int32{0: 1, 1: 1}, consumeByConditionIndex(plan))
 }
 
-func TestPlan_ANY_AllowsMissingConditionIDs(t *testing.T) {
+func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 	waitingCondition := wcAny(
 		chCond("", "unavailable", nil, nil),
 		chCond("", "available", nil, nil),
@@ -282,12 +282,12 @@ func TestBuildConditionResults(t *testing.T) {
 		results.GetTimerResults()[0].GetConditionStatus(),
 	)
 
-	byID := map[string]*iwfpb.ChannelResult{}
+	byId := map[string]*iwfpb.ChannelResult{}
 	for _, channelResult := range results.GetChannelResults() {
-		byID[channelResult.GetConditionId()] = channelResult
+		byId[channelResult.GetConditionId()] = channelResult
 	}
-	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, byID["win"].GetConditionStatus())
-	assert.Len(t, byID["win"].GetValues(), 1)
-	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, byID["lose"].GetConditionStatus())
-	assert.Empty(t, byID["lose"].GetValues())
+	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, byId["win"].GetConditionStatus())
+	assert.Len(t, byId["win"].GetValues(), 1)
+	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, byId["lose"].GetConditionStatus())
+	assert.Empty(t, byId["lose"].GetValues())
 }

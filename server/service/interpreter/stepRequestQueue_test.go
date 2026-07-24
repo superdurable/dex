@@ -27,7 +27,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 )
 
-func TestRebuildStepRequestQueueUsesStableResumeOrder(t *testing.T) {
+func TestNewStepRequestQueueWithResumeRequestsUsesStableResumeOrder(t *testing.T) {
 	start := &iwfpb.StepMovement{StepType: "start"}
 	resumeA := &iwfpb.StepExecutionResumeInfo{
 		StepExecutionId: "resume-a-1",
@@ -38,7 +38,7 @@ func TestRebuildStepRequestQueueUsesStableResumeOrder(t *testing.T) {
 		Step:            &iwfpb.StepMovement{StepType: "resume-b"},
 	}
 
-	queue := RebuildStepRequestQueue(
+	queue := NewStepRequestQueueWithResumeRequests(
 		[]*iwfpb.StepMovement{start},
 		map[string]*iwfpb.StepExecutionResumeInfo{
 			"resume-b-1": resumeB,
@@ -57,15 +57,17 @@ func TestRebuildStepRequestQueueUsesStableResumeOrder(t *testing.T) {
 }
 
 func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
-	queue := NewStepRequestQueue()
 	start := &iwfpb.StepMovement{StepType: "start"}
 	resume := &iwfpb.StepExecutionResumeInfo{
 		StepExecutionId: "resume-1",
 		Step:            &iwfpb.StepMovement{StepType: "resume"},
 	}
+	queue := NewStepRequestQueueWithResumeRequests(
+		nil,
+		map[string]*iwfpb.StepExecutionResumeInfo{"resume-1": resume},
+	)
 
 	queue.AddStepStartRequests([]*iwfpb.StepMovement{start})
-	queue.AddStepResumeRequest(resume)
 	queue.AddSingleStepStartRequest(
 		"single",
 		&iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: "input"}},
@@ -84,7 +86,7 @@ func TestStepRequestRejectsInvalidResumeInfo(t *testing.T) {
 		NewStepResumeRequest(&iwfpb.StepExecutionResumeInfo{})
 	})
 	require.Panics(t, func() {
-		RebuildStepRequestQueue(nil, map[string]*iwfpb.StepExecutionResumeInfo{
+		NewStepRequestQueueWithResumeRequests(nil, map[string]*iwfpb.StepExecutionResumeInfo{
 			"map-id": {
 				StepExecutionId: "different-id",
 				Step:            &iwfpb.StepMovement{StepType: "step"},

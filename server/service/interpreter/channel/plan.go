@@ -119,22 +119,22 @@ func buildTriggerCandidates(
 
 	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
 		// ANY_COMBINATION has one candidate per declared combination.
-		timerIndexByID := make(map[string]int, len(timers))
+		timerIndexById := make(map[string]int, len(timers))
 		for i, timerCondition := range timers {
-			timerIndexByID[timerCondition.GetConditionId()] = i
+			timerIndexById[timerCondition.GetConditionId()] = i
 		}
-		channelIndexByID := make(map[string]int, len(channels))
+		channelIndexById := make(map[string]int, len(channels))
 		for i, channelCondition := range channels {
-			channelIndexByID[channelCondition.GetConditionId()] = i
+			channelIndexById[channelCondition.GetConditionId()] = i
 		}
 		combinations := waitingCondition.GetConditionCombinations()
 		candidates := make([]triggerCandidate, 0, len(combinations))
 		for _, combination := range combinations {
 			var matchCandidate triggerCandidate
-			for _, conditionID := range combination.GetConditionIds() {
-				if timerIndex, ok := timerIndexByID[conditionID]; ok {
+			for _, conditionId := range combination.GetConditionIds() {
+				if timerIndex, ok := timerIndexById[conditionId]; ok {
 					matchCandidate.timerIndexes = append(matchCandidate.timerIndexes, timerIndex)
-				} else if channelIndex, ok := channelIndexByID[conditionID]; ok {
+				} else if channelIndex, ok := channelIndexById[conditionId]; ok {
 					matchCandidate.channelIndexes = append(
 						matchCandidate.channelIndexes,
 						channelIndex,

@@ -152,7 +152,8 @@ func doStartIwfServiceWithClient(config IwfServiceTestConfig) (uclient uclient.U
 		iwfGrpc := api.NewServer(
 			&testCfg.Api,
 			&testCfg.ExternalStorage,
-			api.BackendTypeFunc(func() string { return string(uclient.GetBackendType()) }),
+			&testCfg.Interpreter,
+			uclient,
 			logger,
 			globalBlobStore,
 			func(ctx context.Context) error { return nil },
@@ -213,7 +214,8 @@ func doStartIwfServiceWithClient(config IwfServiceTestConfig) (uclient uclient.U
 		iwfGrpc := api.NewServer(
 			&testCfg.Api,
 			&testCfg.ExternalStorage,
-			api.BackendTypeFunc(func() string { return string(uclient.GetBackendType()) }),
+			&testCfg.Interpreter,
+			uclient,
 			logger,
 			globalBlobStore,
 			func(ctx context.Context) error { return nil },

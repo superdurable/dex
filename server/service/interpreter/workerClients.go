@@ -31,7 +31,7 @@ import (
 func NewWorkerClients(
 	apiCfg *config.ApiConfig,
 	activityCfg *config.InterpreterActivityConfig,
-) (*workerclient.Pool, *workerclient.Internal) {
+) (*workerclient.Pool, *workerclient.InternalService) {
 	if apiCfg == nil || activityCfg == nil {
 		panic("NewWorkerClients requires non-nil config sections")
 	}
@@ -45,12 +45,12 @@ func NewWorkerClients(
 	if err != nil {
 		panic(fmt.Sprintf("create worker client pool: %v", err))
 	}
-	internal, err := workerclient.NewInternal(internalServiceTarget(apiCfg, activityCfg), poolCfg, nil)
+	internalService, err := workerclient.NewInternalService(internalServiceTarget(apiCfg, activityCfg), poolCfg, nil)
 	if err != nil {
 		pool.Close()
 		panic(fmt.Sprintf("create internal service client: %v", err))
 	}
-	return pool, internal
+	return pool, internalService
 }
 
 func internalServiceTarget(

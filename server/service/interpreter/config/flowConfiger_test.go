@@ -28,6 +28,7 @@ import (
 
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 )
 
 func TestNewFlowConfiger_PanicsOnNil(t *testing.T) {
@@ -35,11 +36,13 @@ func TestNewFlowConfiger_PanicsOnNil(t *testing.T) {
 }
 
 func TestNewFlowConfiger_PanicsOnInvalid(t *testing.T) {
-	require.Panics(t, func() { NewFlowConfiger(&iwfpb.FlowConfig{ContinueAsNewThreshold: -1}) })
+	require.Panics(t, func() {
+		NewFlowConfiger(&iwfpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(-1))})
+	})
 }
 
 func TestFlowConfiger_RetainsOwnershipTransferredInput(t *testing.T) {
-	input := &iwfpb.FlowConfig{ContinueAsNewThreshold: 5}
+	input := &iwfpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(5))}
 	flowConfiger := NewFlowConfiger(input)
 
 	assert.Same(t, input, flowConfiger.Get())
@@ -58,7 +61,9 @@ func TestFlowConfiger_ZeroDefaults(t *testing.T) {
 }
 
 func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
-	flowConfiger := NewFlowConfiger(&iwfpb.FlowConfig{StepDurability: iwfpb.StepDurability_STEP_DURABILITY_ASYNC})
+	flowConfiger := NewFlowConfiger(&iwfpb.FlowConfig{
+		StepDurability: ptr.Any(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+	})
 
 	assert.Equal(t, iwfpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(&iwfpb.StepOptions{}))
 	assert.Equal(t, iwfpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(&iwfpb.StepOptions{}))
@@ -68,31 +73,42 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 	assert.Equal(t, iwfpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(waitOverride))
 }
 
-func TestFlowConfiger_UpdateByAPIFullReplacement(t *testing.T) {
+func TestFlowConfiger_UpdateByAPIPartialOverride(t *testing.T) {
 	flowConfiger := NewFlowConfiger(&iwfpb.FlowConfig{
-		ContinueAsNewThreshold: 5,
-		StepDurability:         iwfpb.StepDurability_STEP_DURABILITY_ASYNC,
+		ContinueAsNewThreshold: ptr.Any(int32(5)),
+		StepDurability:         ptr.Any(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
 	})
-	update := &iwfpb.FlowConfig{ContinueAsNewThreshold: 9}
+	update := &iwfpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(9))}
 
 	require.NoError(t, flowConfiger.UpdateByAPI(update))
 
-	assert.Same(t, update, flowConfiger.Get())
 	assert.Equal(t, int32(9), flowConfiger.EffectiveContinueAsNewThreshold())
-	assert.Equal(t, iwfpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(nil))
+	assert.Equal(t, iwfpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(nil))
 }
 
 func TestFlowConfiger_UpdateByAPIRejectsInvalidAndKeepsState(t *testing.T) {
-	flowConfiger := NewFlowConfiger(&iwfpb.FlowConfig{ContinueAsNewThreshold: 7})
-	assert.Error(t, flowConfiger.UpdateByAPI(&iwfpb.FlowConfig{ContinueAsNewThreshold: -5}))
+	flowConfiger := NewFlowConfiger(&iwfpb.FlowConfig{
+		ContinueAsNewThreshold: ptr.Any(int32(7)),
+	})
+	assert.Error(t, flowConfiger.UpdateByAPI(&iwfpb.FlowConfig{
+		ContinueAsNewThreshold: ptr.Any(int32(-5)),
+	}))
 	assert.Error(t, flowConfiger.UpdateByAPI(nil))
 	assert.Equal(t, int32(7), flowConfiger.EffectiveContinueAsNewThreshold())
 }
 
 func TestValidateFlowConfig(t *testing.T) {
 	assert.NoError(t, ValidateFlowConfig(&iwfpb.FlowConfig{}))
-	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{ContinueAsNewThreshold: -1}))
-	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{ContinueAsNewPageSizeInBytes: -1}))
-	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{StepDurability: iwfpb.StepDurability(99)}))
-	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{ActiveStepSearchMode: iwfpb.ActiveStepSearchMode(99)}))
+	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{
+		ContinueAsNewThreshold: ptr.Any(int32(-1)),
+	}))
+	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{
+		ContinueAsNewPageSizeInBytes: ptr.Any(int32(-1)),
+	}))
+	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{
+		StepDurability: ptr.Any(iwfpb.StepDurability(99)),
+	}))
+	assert.Error(t, ValidateFlowConfig(&iwfpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode(99)),
+	}))
 }

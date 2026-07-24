@@ -245,7 +245,8 @@ func launchTemporalService(
 		svc := api.NewServer(
 			&config.Api,
 			&config.ExternalStorage,
-			api.BackendTypeFunc(func() string { return string(unifiedClient.GetBackendType()) }),
+			&config.Interpreter,
+			unifiedClient,
 			logger.WithTags(tag.Service(svcName)),
 			blobStore,
 			func(ctx context.Context) error {
@@ -294,7 +295,8 @@ func launchCadenceService(
 		svc := api.NewServer(
 			&config.Api,
 			&config.ExternalStorage,
-			api.BackendTypeFunc(func() string { return string(unifiedClient.GetBackendType()) }),
+			&config.Interpreter,
+			unifiedClient,
 			logger.WithTags(tag.Service(svcName)),
 			blobStore,
 			func(ctx context.Context) error {

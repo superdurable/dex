@@ -30,40 +30,40 @@ import (
 
 type OutputCollector struct {
 	waitForStepTypes           map[string]struct{}
-	waitForExecutionIDs        map[string]struct{}
-	byExecutionID              map[string]*iwfpb.StepCompletionOutput
-	firstExecutionIDByStepType map[string]string
+	waitForStepExecutionIds    map[string]struct{}
+	byStepExecutionId          map[string]*iwfpb.StepCompletionOutput
+	firstStepExecutionIdByType map[string]string
 	orderedResults             []*iwfpb.StepCompletionOutput
 }
 
 func NewOutputCollector(
 	waitForStepTypes []string,
-	waitForExecutionIDs []string,
+	waitForStepExecutionIds []string,
 ) *OutputCollector {
 	return &OutputCollector{
 		waitForStepTypes:           stringSet(waitForStepTypes),
-		waitForExecutionIDs:        stringSet(waitForExecutionIDs),
-		byExecutionID:              map[string]*iwfpb.StepCompletionOutput{},
-		firstExecutionIDByStepType: map[string]string{},
+		waitForStepExecutionIds:    stringSet(waitForStepExecutionIds),
+		byStepExecutionId:          map[string]*iwfpb.StepCompletionOutput{},
+		firstStepExecutionIdByType: map[string]string{},
 	}
 }
 
 func RebuildOutputCollector(
 	waitForStepTypes []string,
-	waitForExecutionIDs []string,
+	waitForStepExecutionIds []string,
 	retainedOutputs []*iwfpb.StepCompletionOutput,
 	inFlight map[string]*iwfpb.StepExecutionResumeInfo,
 ) *OutputCollector {
-	collector := NewOutputCollector(waitForStepTypes, waitForExecutionIDs)
+	collector := NewOutputCollector(waitForStepTypes, waitForStepExecutionIds)
 	for _, output := range retainedOutputs {
 		if output == nil || output.GetCompletedStepExecutionId() == "" {
 			panic("retained step output requires an execution ID")
 		}
-		executionID := output.GetCompletedStepExecutionId()
-		if _, duplicated := collector.byExecutionID[executionID]; duplicated {
+		stepExecutionId := output.GetCompletedStepExecutionId()
+		if _, duplicated := collector.byStepExecutionId[stepExecutionId]; duplicated {
 			panic("duplicate retained step output execution ID")
 		}
-		collector.byExecutionID[executionID] = output
+		collector.byStepExecutionId[stepExecutionId] = output
 		collector.orderedResults = append(collector.orderedResults, output)
 	}
 	collector.sortResults()
@@ -82,86 +82,96 @@ func (o *OutputCollector) rebuildStepTypeSelections(
 			candidates[stepType] = append(candidates[stepType], output.GetCompletedStepExecutionId())
 		}
 	}
-	for executionID, resumeInfo := range inFlight {
+	for stepExecutionId, resumeInfo := range inFlight {
 		if resumeInfo == nil || resumeInfo.GetStep() == nil {
 			panic("in-flight step output selection requires resume info")
 		}
-		if resumeInfo.GetStepExecutionId() != executionID {
+		if resumeInfo.GetStepExecutionId() != stepExecutionId {
 			panic("in-flight map key does not match step execution ID")
 		}
 		stepType := resumeInfo.GetStep().GetStepType()
 		if _, whitelisted := o.waitForStepTypes[stepType]; whitelisted {
-			candidates[stepType] = append(candidates[stepType], executionID)
+			candidates[stepType] = append(candidates[stepType], stepExecutionId)
 		}
 	}
-	for stepType, executionIDs := range candidates {
-		sort.Slice(executionIDs, func(left, right int) bool {
-			return executionIDLess(executionIDs[left], executionIDs[right])
+	for stepType, stepExecutionIds := range candidates {
+		sort.Slice(stepExecutionIds, func(left, right int) bool {
+			return stepExecutionIdLess(stepExecutionIds[left], stepExecutionIds[right])
 		})
-		o.firstExecutionIDByStepType[stepType] = executionIDs[0]
+		o.firstStepExecutionIdByType[stepType] = stepExecutionIds[0]
 	}
 }
 
-func (o *OutputCollector) RegisterStepStarted(stepType, executionID string) {
-	if stepType == "" || executionID == "" {
+func (o *OutputCollector) RegisterStepStarted(stepType, stepExecutionId string) {
+	if stepType == "" || stepExecutionId == "" {
 		panic("step output registration requires type and execution ID")
 	}
 	if _, whitelisted := o.waitForStepTypes[stepType]; !whitelisted {
 		return
 	}
-	if _, registered := o.firstExecutionIDByStepType[stepType]; !registered {
-		o.firstExecutionIDByStepType[stepType] = executionID
+	if _, registered := o.firstStepExecutionIdByType[stepType]; !registered {
+		o.firstStepExecutionIdByType[stepType] = stepExecutionId
 	}
 }
 
 func (o *OutputCollector) RecordCompletion(
 	stepType string,
-	executionID string,
+	stepExecutionId string,
 	output *iwfpb.Value,
 ) bool {
-	if stepType == "" || executionID == "" {
+	if stepType == "" || stepExecutionId == "" {
 		panic("step completion requires type and execution ID")
 	}
-	if _, completed := o.byExecutionID[executionID]; completed {
+	if _, completed := o.byStepExecutionId[stepExecutionId]; completed {
 		panic("step execution completed more than once")
 	}
-	if !o.isRegistered(stepType, executionID) {
+	if !o.isRegistered(stepType, stepExecutionId) {
 		return false
 	}
 
 	completion := &iwfpb.StepCompletionOutput{
 		CompletedStepType:        stepType,
-		CompletedStepExecutionId: executionID,
+		CompletedStepExecutionId: stepExecutionId,
 		CompletedStepOutput:      output,
 	}
-	o.byExecutionID[executionID] = completion
+	o.byStepExecutionId[stepExecutionId] = completion
 	o.orderedResults = append(o.orderedResults, completion)
 	o.sortResults()
 	return true
 }
 
-func (o *OutputCollector) isRegistered(stepType, executionID string) bool {
-	if _, explicitlyRegistered := o.waitForExecutionIDs[executionID]; explicitlyRegistered {
+func (o *OutputCollector) isRegistered(stepType, stepExecutionId string) bool {
+	if _, explicitlyRegistered := o.waitForStepExecutionIds[stepExecutionId]; explicitlyRegistered {
 		return true
 	}
-	return o.firstExecutionIDByStepType[stepType] == executionID
+	return o.firstStepExecutionIdByType[stepType] == stepExecutionId
 }
 
-func (o *OutputCollector) GetByExecutionID(
-	executionID string,
+func (o *OutputCollector) GetByStepExecutionId(
+	stepExecutionId string,
 ) (*iwfpb.StepCompletionOutput, bool) {
-	output, completed := o.byExecutionID[executionID]
+	output, completed := o.byStepExecutionId[stepExecutionId]
 	return output, completed
+}
+
+func (o *OutputCollector) CanWaitForStepExecutionId(stepExecutionId string) bool {
+	_, retained := o.waitForStepExecutionIds[stepExecutionId]
+	return retained
+}
+
+func (o *OutputCollector) CanWaitForStepType(stepType string) bool {
+	_, retained := o.waitForStepTypes[stepType]
+	return retained
 }
 
 func (o *OutputCollector) GetByStepType(
 	stepType string,
 ) (*iwfpb.StepCompletionOutput, bool) {
-	executionID, registered := o.firstExecutionIDByStepType[stepType]
+	stepExecutionId, registered := o.firstStepExecutionIdByType[stepType]
 	if !registered {
 		return nil, false
 	}
-	return o.GetByExecutionID(executionID)
+	return o.GetByStepExecutionId(stepExecutionId)
 }
 
 func (o *OutputCollector) GetAll() []*iwfpb.StepCompletionOutput {
@@ -170,14 +180,14 @@ func (o *OutputCollector) GetAll() []*iwfpb.StepCompletionOutput {
 
 func (o *OutputCollector) sortResults() {
 	sort.SliceStable(o.orderedResults, func(left, right int) bool {
-		return executionIDLess(
+		return stepExecutionIdLess(
 			o.orderedResults[left].GetCompletedStepExecutionId(),
 			o.orderedResults[right].GetCompletedStepExecutionId(),
 		)
 	})
 }
 
-func executionIDLess(left, right string) bool {
+func stepExecutionIdLess(left, right string) bool {
 	leftNumber, leftHasNumber := executionNumber(left)
 	rightNumber, rightHasNumber := executionNumber(right)
 	if leftHasNumber && rightHasNumber && leftNumber != rightNumber {
@@ -189,12 +199,12 @@ func executionIDLess(left, right string) bool {
 	return left < right
 }
 
-func executionNumber(executionID string) (int64, bool) {
-	separatorIndex := strings.LastIndexByte(executionID, '-')
-	if separatorIndex < 0 || separatorIndex == len(executionID)-1 {
+func executionNumber(stepExecutionId string) (int64, bool) {
+	separatorIndex := strings.LastIndexByte(stepExecutionId, '-')
+	if separatorIndex < 0 || separatorIndex == len(stepExecutionId)-1 {
 		return 0, false
 	}
-	number, err := strconv.ParseInt(executionID[separatorIndex+1:], 10, 64)
+	number, err := strconv.ParseInt(stepExecutionId[separatorIndex+1:], 10, 64)
 	return number, err == nil
 }
 

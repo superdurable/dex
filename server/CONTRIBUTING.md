@@ -47,10 +47,21 @@ Factories live in [`service/common/converter`](service/common/converter):
 * `NewTemporalDataConverter()` — Proto binary before JSON escape hatch
 * `NewCadenceDataConverter()` — `IWFDC` framed wire format (proto/json/raw)
 
-API client Options and interpreter worker Options must use the **same** factory
-(and the same memo-encryption codec wrapper when enabled). Search-attribute values
-still go through the backend SA mapper, not this converter. Temporal Web may show
+API clients and interpreter workers must use the **same** factory and memo codec.
+Temporal workers inherit it from their client; Cadence worker Options set it
+explicitly. Search attributes still use the backend mapper. Temporal Web may show
 opaque binary payloads by design.
+
+## Interpreter runtime constraints
+
+Interpreter workflows and activities use constructor injection. Do not add mutable
+package-global environments or registries.
+
+`WaitForStepCompletion`, `WaitForAttribute`, and locking RPCs are Temporal-only
+synchronous updates. Non-locking RPCs remain available on both backends.
+
+Memo is reserved for worker-target and request-id metadata. Never store attributes
+in Memo.
 
 # How to run server or integration test
 

@@ -140,7 +140,7 @@ func validateWorkerRpcResponse(resp *iwfpb.InvokeWorkerRPCResponse) error {
 		return fmt.Errorf("closing flow in RPC is not supported yet")
 	}
 	for _, step := range decision.GetNextSteps() {
-		if step != nil && service.ValidClosingWorkflowStateId[step.GetStepType()] {
+		if step != nil && service.ValidClosingFlowStepType[step.GetStepType()] {
 			return fmt.Errorf("closing flow in RPC is not supported yet")
 		}
 	}

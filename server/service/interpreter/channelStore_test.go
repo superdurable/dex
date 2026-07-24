@@ -34,7 +34,7 @@ func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
 	second := stringValue("second")
 	third := stringValue("third")
 	store := NewChannelStore()
-	store.Publish([]*iwfpb.ChannelMessage{
+	store.ProcessPublishing([]*iwfpb.ChannelMessage{
 		{ChannelName: "events", Value: first},
 		{ChannelName: "events", Value: second},
 		{ChannelName: "events", Value: third},
@@ -52,12 +52,12 @@ func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
 
 	require.Equal(t, []*iwfpb.Value{first, second}, consumed[1])
 	require.Same(t, first, consumed[1][0])
-	require.Equal(t, []*iwfpb.Value{third}, store.Dump()["events"].GetValues())
+	require.Equal(t, []*iwfpb.Value{third}, store.GetAllReceived()["events"].GetValues())
 }
 
 func TestChannelStoreCommitMatchRejectsStalePlan(t *testing.T) {
 	store := NewChannelStore()
-	store.Publish([]*iwfpb.ChannelMessage{{
+	store.ProcessPublishing([]*iwfpb.ChannelMessage{{
 		ChannelName: "events",
 		Value:       stringValue("only"),
 	}})

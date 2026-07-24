@@ -18,33 +18,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package timers
+package api
 
 import (
-	"time"
+	"fmt"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service/common/workerclient"
 )
 
-func removeElement(s []*iwfpb.StaleSkipTimer, i int) []*iwfpb.StaleSkipTimer {
-	s[i] = s[len(s)-1]
-	return s[:len(s)-1]
-}
-
-// FixTimerConditionFromActivityOutput converts durationSeconds to firingUnixTimestampSeconds.
-// This prevents time drift after continueAsNew.
-func FixTimerConditionFromActivityOutput(
-	now time.Time,
-	waitingCondition *iwfpb.WaitingCondition,
-) *iwfpb.WaitingCondition {
-	var timerConditions []*iwfpb.TimerCondition
-	for _, timerCondition := range waitingCondition.GetTimerConditions() {
-		timerConditions = append(timerConditions, &iwfpb.TimerCondition{
-			ConditionId: timerCondition.ConditionId,
-			FiringUnixTimestampSeconds: now.Unix() +
-				timerCondition.GetDurationSeconds(),
-		})
+func validateAttributeWrites(attributes []*iwfpb.AttributeWrite) error {
+	seenKeys := make(map[string]bool, len(attributes))
+	for index, attribute := range attributes {
+		if attribute == nil || attribute.GetKey() == "" || attribute.GetValue() == nil ||
+			attribute.GetValue().GetKind() == nil {
+			return fmt.Errorf("attribute %d is invalid", index)
+		}
+		if seenKeys[attribute.GetKey()] {
+			return fmt.Errorf("attribute keys must be unique")
+		}
+		seenKeys[attribute.GetKey()] = true
+		if err := workerclient.RejectWorkerBlobIDs(attribute.GetValue()); err != nil {
+			return err
+		}
 	}
-	waitingCondition.TimerConditions = timerConditions
-	return waitingCondition
+	return nil
 }

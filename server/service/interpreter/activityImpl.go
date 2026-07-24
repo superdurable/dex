@@ -51,7 +51,7 @@ type Activities struct {
 	activityProvider interfaces.ActivityProvider
 	backendType      service.BackendType
 	workerPool       *workerclient.Pool
-	internalClient   *workerclient.Internal
+	internalClient   *workerclient.InternalService
 	unifiedClient    uclient.UnifiedClient
 	blobStore        blobstore.BlobStore
 	eventHandler     event.HandleEventFunc
@@ -64,7 +64,7 @@ func NewActivities(
 	activityProvider interfaces.ActivityProvider,
 	backendType service.BackendType,
 	workerPool *workerclient.Pool,
-	internalClient *workerclient.Internal,
+	internalClient *workerclient.InternalService,
 	unifiedClient uclient.UnifiedClient,
 	blobStore blobstore.BlobStore,
 	eventHandler event.HandleEventFunc,
@@ -74,7 +74,7 @@ func NewActivities(
 ) *Activities {
 	if activityProvider == nil || workerPool == nil || internalClient == nil ||
 		unifiedClient == nil || eventHandler == nil {
-		panic("Activities requires non-nil runtime dependencies")
+		panic("Activities requires non-nil dependencies")
 	}
 	if apiCfg == nil || externalCfg == nil || activityCfg == nil {
 		panic("Activities requires non-nil config sections")
@@ -265,6 +265,8 @@ func (a *Activities) DumpFlowForContinueAsNew(
 	return &iwfpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
 }
 
+const maxWorkerRpcActivityAttempts = 3
+
 // InvokeWorkerRPC wraps rpc.InvokeWorkerRpc for the activity worker.
 func (a *Activities) InvokeWorkerRPC(
 	ctx context.Context, input *iwfpb.InvokeWorkerRPCActivityInput,
@@ -287,7 +289,7 @@ func (a *Activities) InvokeWorkerRPC(
 		*a.externalCfg,
 	)
 	if err != nil {
-		if isTransientWorkerError(err) {
+		if isTransientWorkerError(err) && activityInfo.Attempt < maxWorkerRpcActivityAttempts {
 			return nil, err
 		}
 		return &iwfpb.InvokeWorkerRPCActivityOutput{
@@ -399,18 +401,18 @@ func (a *Activities) hydrateWorkerRequestValues(
 }
 
 func (a *Activities) offloadWorkerAttributeWrites(
-	ctx context.Context, writes []*iwfpb.AttributeWrite, flowID string,
+	ctx context.Context, writes []*iwfpb.AttributeWrite, flowId string,
 ) error {
 	if !a.externalCfg.Enabled || a.blobStore == nil {
 		return nil
 	}
 	return blobstore.OffloadLargeAttributeWrites(
-		ctx, writes, flowID, a.externalCfg.ThresholdInBytes, a.blobStore, true,
+		ctx, writes, flowId, a.externalCfg.ThresholdInBytes, a.blobStore, true,
 	)
 }
 
 func (a *Activities) offloadNextStepInputs(
-	ctx context.Context, decision *iwfpb.StepDecision, flowID string,
+	ctx context.Context, decision *iwfpb.StepDecision, flowId string,
 ) error {
 	if decision == nil || !a.externalCfg.Enabled || a.blobStore == nil {
 		return nil
@@ -419,7 +421,12 @@ func (a *Activities) offloadNextStepInputs(
 		if step == nil || step.GetStepInput() == nil {
 			continue
 		}
-		if err := a.offloadStepInput(ctx, step.StepInput, flowID); err != nil {
+		if err := a.offloadStepInput(ctx, step.StepInput, flowId); err != nil {
+			return err
+		}
+	}
+	if closeInput := decision.GetConditionalClose().GetCloseInput(); closeInput != nil {
+		if err := a.offloadStepInput(ctx, closeInput, flowId); err != nil {
 			return err
 		}
 	}
@@ -427,12 +434,12 @@ func (a *Activities) offloadNextStepInputs(
 }
 
 func (a *Activities) offloadStepInput(
-	ctx context.Context, stepInput *iwfpb.Value, flowID string,
+	ctx context.Context, stepInput *iwfpb.Value, flowId string,
 ) error {
 	return blobstore.OffloadLargeValue(
 		ctx,
 		stepInput,
-		flowID,
+		flowId,
 		a.externalCfg.ThresholdInBytes,
 		a.blobStore,
 		true,
@@ -474,13 +481,57 @@ func validateWorkerExecuteResponse(resp *iwfpb.InvokeExecuteMethodResponse) erro
 				return err
 			}
 		}
+		if err := workerclient.RejectWorkerBlobIDs(
+			decision.GetConditionalClose().GetCloseInput(),
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func validateStepDecision(decision *iwfpb.StepDecision) error {
-	if decision == nil || len(decision.GetNextSteps()) == 0 {
+	if decision == nil {
+		return fmt.Errorf("step decision is nil")
+	}
+	if len(decision.GetNextSteps()) == 0 && decision.GetConditionalClose() == nil {
 		return fmt.Errorf("empty step decision is not supported")
+	}
+	systemStepCount := 0
+	for index, movement := range decision.GetNextSteps() {
+		if movement == nil || movement.GetStepType() == "" {
+			return fmt.Errorf("next step at index %d is invalid", index)
+		}
+		if service.ValidClosingFlowStepType[movement.GetStepType()] {
+			systemStepCount++
+		}
+	}
+	if systemStepCount > 0 && len(decision.GetNextSteps()) > 1 {
+		return fmt.Errorf("closing step cannot be combined with another next step")
+	}
+	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
+		if systemStepCount > 0 {
+			return fmt.Errorf("conditional close cannot contain a closing next step")
+		}
+		switch conditionalClose.GetConditionalCloseType() {
+		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+			iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY:
+		default:
+			return fmt.Errorf("conditional close type is unspecified")
+		}
+		if len(conditionalClose.GetChannelNames()) == 0 {
+			return fmt.Errorf("conditional close requires at least one channel")
+		}
+		seenChannelNames := map[string]struct{}{}
+		for _, channelName := range conditionalClose.GetChannelNames() {
+			if channelName == "" {
+				return fmt.Errorf("conditional close channel name is empty")
+			}
+			if _, duplicated := seenChannelNames[channelName]; duplicated {
+				return fmt.Errorf("duplicate conditional close channel %q", channelName)
+			}
+			seenChannelNames[channelName] = struct{}{}
+		}
 	}
 	return nil
 }
@@ -490,18 +541,18 @@ func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
 		return nil
 	}
 
-	declaredIDs := map[string]bool{}
-	conditionIDsRequired := waiting.GetWaitingConditionType() ==
+	declaredIds := map[string]bool{}
+	conditionIdsRequired := waiting.GetWaitingConditionType() ==
 		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
 	for i, timerCondition := range waiting.GetTimerConditions() {
 		if timerCondition == nil {
 			return fmt.Errorf("timer condition at index %d is nil", i)
 		}
-		if err := registerWaitingConditionID(
-			declaredIDs,
+		if err := registerWaitingConditionId(
+			declaredIds,
 			timerCondition.GetConditionId(),
 			"timer",
-			conditionIDsRequired,
+			conditionIdsRequired,
 		); err != nil {
 			return err
 		}
@@ -524,11 +575,11 @@ func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
 		if channelCondition == nil {
 			return fmt.Errorf("channel condition at index %d is nil", i)
 		}
-		if err := registerWaitingConditionID(
-			declaredIDs,
+		if err := registerWaitingConditionId(
+			declaredIds,
 			channelCondition.GetConditionId(),
 			"channel",
-			conditionIDsRequired,
+			conditionIdsRequired,
 		); err != nil {
 			return err
 		}
@@ -570,7 +621,7 @@ func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
 			return fmt.Errorf("condition_combinations are only valid for ANY_COMBINATION_COMPLETED")
 		}
 	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
-		if err := validateWaitingConditionCombinations(waiting, declaredIDs); err != nil {
+		if err := validateWaitingConditionCombinations(waiting, declaredIds); err != nil {
 			return err
 		}
 	default:
@@ -579,28 +630,28 @@ func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
 	return nil
 }
 
-func registerWaitingConditionID(
-	declaredIDs map[string]bool,
-	conditionID string,
+func registerWaitingConditionId(
+	declaredIds map[string]bool,
+	conditionId string,
 	kind string,
 	required bool,
 ) error {
-	if conditionID == "" {
+	if conditionId == "" {
 		if required {
 			return fmt.Errorf("%s condition has an empty condition_id", kind)
 		}
 		return nil
 	}
-	if declaredIDs[conditionID] {
-		return fmt.Errorf("duplicate condition_id %q", conditionID)
+	if declaredIds[conditionId] {
+		return fmt.Errorf("duplicate condition_id %q", conditionId)
 	}
-	declaredIDs[conditionID] = true
+	declaredIds[conditionId] = true
 	return nil
 }
 
 func validateWaitingConditionCombinations(
 	waiting *iwfpb.WaitingCondition,
-	declaredIDs map[string]bool,
+	declaredIds map[string]bool,
 ) error {
 	combinations := waiting.GetConditionCombinations()
 	if len(combinations) == 0 {
@@ -611,22 +662,22 @@ func validateWaitingConditionCombinations(
 			return fmt.Errorf("condition_combination at index %d is empty", i)
 		}
 		seen := map[string]bool{}
-		for _, conditionID := range combination.GetConditionIds() {
-			if !declaredIDs[conditionID] {
+		for _, conditionId := range combination.GetConditionIds() {
+			if !declaredIds[conditionId] {
 				return fmt.Errorf(
 					"condition_combination at index %d references undeclared condition_id %q",
 					i,
-					conditionID,
+					conditionId,
 				)
 			}
-			if seen[conditionID] {
+			if seen[conditionId] {
 				return fmt.Errorf(
 					"condition_combination at index %d has duplicate condition_id %q",
 					i,
-					conditionID,
+					conditionId,
 				)
 			}
-			seen[conditionID] = true
+			seen[conditionId] = true
 		}
 	}
 	return nil

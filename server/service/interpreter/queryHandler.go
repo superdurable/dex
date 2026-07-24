@@ -25,32 +25,74 @@ import (
 
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/interpreter/config"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 )
 
-type queryHandlerRegistrar interface {
-	SetQueryHandler(ctx interfaces.UnifiedContext, queryType string, handler interface{}) error
-}
-
-func SetGetAttributesQueryHandler(
+func SetQueryHandlers(
 	ctx interfaces.UnifiedContext,
-	provider queryHandlerRegistrar,
+	provider interfaces.WorkflowProvider,
+	timerProcessor interfaces.TimerProcessor,
 	persistenceManager *PersistenceManager,
+	channelStore *ChannelStore,
+	continueAsNewer *ContinueAsNewer,
+	flowConfiger *config.FlowConfiger,
+	basicInfo service.BasicInfo,
 ) error {
-	if provider == nil {
-		panic("GetAttributes query requires a provider")
+	err := provider.SetQueryHandler(ctx, service.GetAttributesWorkflowQueryType, func(req *iwfpb.GetAttributesQueryRequest) (*iwfpb.GetAttributesQueryResponse, error) {
+		if req == nil {
+			return nil, fmt.Errorf("GetAttributes query requires a request")
+		}
+		return persistenceManager.GetAttributes(req), nil
+	})
+	if err != nil {
+		return err
 	}
-	if persistenceManager == nil {
-		panic("GetAttributes query requires a PersistenceManager")
+	err = continueAsNewer.SetQueryHandlersForContinueAsNew(ctx)
+	if err != nil {
+		return err
 	}
-	return provider.SetQueryHandler(
-		ctx,
-		service.GetAttributesWorkflowQueryType,
-		func(request *iwfpb.GetAttributesQueryRequest) (*iwfpb.GetAttributesQueryResponse, error) {
-			if request == nil {
-				return nil, fmt.Errorf("GetAttributes query requires a request")
-			}
-			return persistenceManager.GetAttributes(request), nil
-		},
-	)
+	err = provider.SetQueryHandler(ctx, service.DebugDumpQueryType, func() (*iwfpb.DebugDumpResponse, error) {
+		return &iwfpb.DebugDumpResponse{
+			Config:                     flowConfiger.Get(),
+			Snapshot:                   continueAsNewer.GetSnapshot(),
+			FiringTimersUnixTimestamps: timerProcessor.GetTimerStartedUnixTimestamps(),
+		}, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = provider.SetQueryHandler(ctx, service.PrepareRpcQueryType, func(req *iwfpb.PrepareRpcQueryRequest) (*iwfpb.PrepareRpcQueryResponse, error) {
+		if req == nil {
+			return nil, fmt.Errorf("PrepareRpc query requires a request")
+		}
+		if _, err := normalizeLockKeys(req.GetLockAttributeKeys()); err != nil {
+			return nil, err
+		}
+		info := provider.GetWorkflowInfo(ctx)
+		return &iwfpb.PrepareRpcQueryResponse{
+			Attributes:           persistenceManager.GetAllAttributes(),
+			RunId:                info.WorkflowExecution.RunID,
+			FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
+			FlowType:             basicInfo.FlowType,
+			WorkerTarget:         basicInfo.WorkerTarget,
+			ChannelInfos:         channelStore.GetInfos(),
+		}, nil
+	})
+	if err != nil {
+		return err
+	}
+	err = provider.SetQueryHandler(ctx, service.GetCurrentTimerInfosQueryType, func() (*iwfpb.GetCurrentTimerInfosQueryResponse, error) {
+		timerInfos := make(map[string]*iwfpb.TimerInfoList, len(timerProcessor.GetTimerInfos()))
+		for stepExecutionId, infos := range timerProcessor.GetTimerInfos() {
+			timerInfos[stepExecutionId] = &iwfpb.TimerInfoList{Timers: infos}
+		}
+		return &iwfpb.GetCurrentTimerInfosQueryResponse{
+			StepExecutionCurrentTimerInfos: timerInfos,
+		}, nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

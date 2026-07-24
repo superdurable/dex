@@ -26,34 +26,36 @@ import (
 )
 
 type ContinueAsNewCounter struct {
-	executedStateApis  int32
+	executedStepApis   int32
 	signalsReceived    int32
 	syncUpdateReceived int32
 	triggeredByAPI     bool
 
-	configer *config.WorkflowConfiger
+	configer *config.FlowConfiger
 	rootCtx  interfaces.UnifiedContext
 	provider interfaces.WorkflowProvider
 }
 
 func NewContinueAsCounter(
-	configer *config.WorkflowConfiger, rootCtx interfaces.UnifiedContext, provider interfaces.WorkflowProvider,
+	configer *config.FlowConfiger,
+	rootCtx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
 ) *ContinueAsNewCounter {
 	return &ContinueAsNewCounter{
 		configer: configer,
-
 		rootCtx:  rootCtx,
 		provider: provider,
 	}
 }
 
-func (c *ContinueAsNewCounter) IncExecutedStateExecution(skipStart bool) {
-	if skipStart {
-		c.executedStateApis++
+func (c *ContinueAsNewCounter) IncExecutedStepExecution(skipWaitFor bool) {
+	if skipWaitFor {
+		c.executedStepApis++
 	} else {
-		c.executedStateApis += 2
+		c.executedStepApis += 2
 	}
 }
+
 func (c *ContinueAsNewCounter) IncSignalsReceived() {
 	c.signalsReceived++
 }
@@ -66,16 +68,12 @@ func (c *ContinueAsNewCounter) IsThresholdMet() bool {
 	if c.triggeredByAPI {
 		return true
 	}
-
-	// Note: when threshold == 0, it means unlimited
-
-	config := c.configer.Get()
-	if config.GetContinueAsNewThreshold() == 0 {
+	// A zero threshold disables automatic continue-as-new.
+	if c.configer.EffectiveContinueAsNewThreshold() == 0 {
 		return false
 	}
-	totalOperations := c.signalsReceived + c.executedStateApis + c.syncUpdateReceived
-
-	return totalOperations >= config.GetContinueAsNewThreshold()
+	totalOperations := c.signalsReceived + c.executedStepApis + c.syncUpdateReceived
+	return totalOperations >= c.configer.EffectiveContinueAsNewThreshold()
 }
 
 func (c *ContinueAsNewCounter) TriggerByAPI() {

@@ -60,8 +60,8 @@ func NewErrorAndStatusWithWorkerError(
 	}
 }
 
-// ToGRPCStatus converts ErrorAndStatus into a gRPC status with ErrorResponse details.
-func (e *ErrorAndStatus) ToGRPCStatus() error {
+// ToGRPCError converts ErrorAndStatus into a gRPC status with ErrorResponse details.
+func (e *ErrorAndStatus) ToGRPCError() error {
 	if e == nil {
 		return nil
 	}
