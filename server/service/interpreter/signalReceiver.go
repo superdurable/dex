@@ -188,22 +188,16 @@ func (sr *SignalReceiver) processExecuteRPC(
 	request *iwfpb.ExecuteRpcSignalRequest,
 ) {
 	sr.continueAsNewCounter.IncSignalsReceived()
-	if sr.isTerminalRequested() {
-		// ???? do we need this???
-		return
-	}
 	decision := request.GetStepDecision()
-	if err := applyResult(
+	if err := sr.persistenceManager.ApplyAttributeWrites(
 		ctx,
-		sr.persistenceManager,
-		sr.channelStore,
-		sr.stepRequestQueue,
 		request.GetUpsertAttributes(),
-		request.GetPublishToChannel(),
-		decision.GetNextSteps(),
 	); err != nil {
 		sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
+		return
 	}
+	sr.channelStore.ProcessPublishing(request.GetPublishToChannel())
+	sr.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 }
 
 func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(

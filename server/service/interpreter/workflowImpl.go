@@ -270,7 +270,7 @@ func InterpreterImpl(
 			if signalReceiver.IsCompleteFlowRequested() {
 				forceCompleteFlow = true
 			}
-			return !stepRequestQueue.IsEmpty() && !persistenceManager.HasAnyLock() ||
+			return !stepRequestQueue.IsEmpty() ||
 				errToFailFlow != nil ||
 				forceCompleteFlow ||
 				shouldGracefulComplete ||
@@ -292,8 +292,7 @@ func InterpreterImpl(
 
 		for !stepRequestQueue.IsEmpty() {
 			var stepsToExecute []StepRequest
-			if !continueAsNewCounter.IsThresholdMet() &&
-				!persistenceManager.HasAnyLock() {
+			if !continueAsNewCounter.IsThresholdMet() {
 				stepsToExecute = stepRequestQueue.TakeAll()
 				if err := stepExecutionCounter.MarkStepTypeExecutingIfNotYet(
 					stepsToExecute,
@@ -436,7 +435,7 @@ func InterpreterImpl(
 				if signalReceiver.IsCompleteFlowRequested() {
 					forceCompleteFlow = true
 				}
-				return !stepRequestQueue.IsEmpty() && !persistenceManager.HasAnyLock() ||
+				return !stepRequestQueue.IsEmpty() ||
 					errToFailFlow != nil ||
 					forceCompleteFlow ||
 					stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 ||
@@ -625,8 +624,6 @@ func processStepExecution(
 			step,
 			stepExecutionId,
 			persistenceManager,
-			signalReceiver,
-			continueAsNewCounter,
 			flowConfiger,
 		)
 		if err != nil {
@@ -642,21 +639,13 @@ func processStepExecution(
 				waitForResponse.GetWaitingCondition(),
 			)
 		}
-		applied, err := applyResultAndWait(
+		if err := persistenceManager.ApplyAttributeWrites(
 			ctx,
-			provider,
-			persistenceManager,
-			channelStore,
 			waitForResponse.GetUpsertAttributes(),
-			waitForResponse.GetPublishToChannel(),
-			signalReceiver,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, service.FailureStepExecutionStatus, err
 		}
-		if !applied {
-			return nil, service.WaitingConditionsStepExecutionStatus, nil
-		}
+		channelStore.ProcessPublishing(waitForResponse.GetPublishToChannel())
 		stepExeLocals = waitForResponse.GetUpsertStepExeLocals()
 		waitingCondition = waitForResponse.GetWaitingCondition()
 	}
@@ -698,8 +687,6 @@ func processStepExecution(
 		stepExeLocals,
 		conditionResults,
 		persistenceManager,
-		signalReceiver,
-		continueAsNewCounter,
 		flowConfiger,
 	)
 	if err != nil {
@@ -712,21 +699,13 @@ func processStepExecution(
 	if executeResponse == nil {
 		return nil, service.FailureStepExecutionStatus, nil
 	}
-	applied, err := applyResultAndWait(
+	if err := persistenceManager.ApplyAttributeWrites(
 		ctx,
-		provider,
-		persistenceManager,
-		channelStore,
 		executeResponse.GetUpsertAttributes(),
-		executeResponse.GetPublishToChannel(),
-		signalReceiver,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, service.FailureStepExecutionStatus, err
 	}
-	if !applied {
-		return nil, service.WaitingConditionsStepExecutionStatus, nil
-	}
+	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 	continueAsNewer.RemoveStepExecutionToResume(stepExecutionId)
 	return executeResponse.GetStepDecision(), service.CompletedStepExecutionStatus, nil
 }
@@ -738,33 +717,19 @@ func invokeWaitForMethod(
 	step *iwfpb.StepMovement,
 	stepExecutionId string,
 	persistenceManager *PersistenceManager,
-	signalReceiver *SignalReceiver,
-	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 ) (*iwfpb.InvokeWaitForMethodResponse, bool, bool, error) {
-	allowed, err := awaitWorkerRequestAllowed(
-		ctx,
-		provider,
-		persistenceManager,
-		signalReceiver,
-		continueAsNewCounter,
-	)
-	if err != nil {
-		return nil, false, false, err
-	}
-	if !allowed {
-		return nil, false, false, nil
-	}
 	lockAttributeKeys := step.GetStepOptions().GetWaitForLockAttributeKeys()
 	attributes := persistenceManager.GetAllAttributes()
 	if len(lockAttributeKeys) > 0 {
-		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
+		loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
 			return nil, false, false, err
 		}
+		attributes = loadedAttributes
 	}
 	var output iwfpb.InvokeWaitForMethodActivityOutput
-	err = provider.ExecuteActivity(
+	err := provider.ExecuteActivity(
 		&output,
 		flowConfiger.ResolveWaitForDurability(step.GetStepOptions()),
 		stepActivityContext(ctx, provider, step.GetStepOptions(), true),
@@ -785,9 +750,6 @@ func invokeWaitForMethod(
 		},
 	)
 	persistenceManager.UnlockKeys(lockAttributeKeys)
-	if signalReceiver.isTerminalRequested() {
-		return nil, false, false, nil
-	}
 	if err != nil {
 		return waitForFailureResult(provider, step.GetStepOptions(), err.Error())
 	}
@@ -1000,37 +962,23 @@ func invokeExecuteMethod(
 	stepExeLocals []*iwfpb.KV,
 	conditionResults *iwfpb.ConditionResults,
 	persistenceManager *PersistenceManager,
-	signalReceiver *SignalReceiver,
-	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 ) (
 	*iwfpb.InvokeExecuteMethodResponse,
 	*iwfpb.StepDecision,
 	error,
 ) {
-	allowed, err := awaitWorkerRequestAllowed(
-		ctx,
-		provider,
-		persistenceManager,
-		signalReceiver,
-		continueAsNewCounter,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !allowed {
-		return nil, nil, nil
-	}
 	lockAttributeKeys := step.GetStepOptions().GetExecuteLockAttributeKeys()
 	attributes := persistenceManager.GetAllAttributes()
 	if len(lockAttributeKeys) > 0 {
-		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
+		loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
 			return nil, nil, err
 		}
+		attributes = loadedAttributes
 	}
 	var output iwfpb.InvokeExecuteMethodActivityOutput
-	err = provider.ExecuteActivity(
+	err := provider.ExecuteActivity(
 		&output,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		stepActivityContext(ctx, provider, step.GetStepOptions(), false),
@@ -1053,9 +1001,6 @@ func invokeExecuteMethod(
 		},
 	)
 	persistenceManager.UnlockKeys(lockAttributeKeys)
-	if signalReceiver.isTerminalRequested() {
-		return nil, nil, nil
-	}
 	if err == nil {
 		response, responseErr := executeActivityResponse(&output)
 		if responseErr == nil {
@@ -1137,68 +1082,6 @@ func interpreterError(interpreterErr *iwfpb.InterpreterError) error {
 		interpreterErr.GetGrpcCode(),
 		interpreterErr.GetError().GetDetail(),
 	)
-}
-
-func applyResultAndWait(
-	ctx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
-	persistenceManager *PersistenceManager,
-	channelStore *ChannelStore,
-	writes []*iwfpb.AttributeWrite,
-	publishedMessages []*iwfpb.ChannelMessage,
-	signalReceiver *SignalReceiver,
-) (bool, error) {
-	if err := applyResult(
-		ctx,
-		persistenceManager,
-		channelStore,
-		nil,
-		writes,
-		publishedMessages,
-		nil,
-	); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func applyResult(
-	ctx interfaces.UnifiedContext,
-	persistenceManager *PersistenceManager,
-	channelStore *ChannelStore,
-	stepRequestQueue *StepRequestQueue,
-	writes []*iwfpb.AttributeWrite,
-	publishedMessages []*iwfpb.ChannelMessage,
-	nextSteps []*iwfpb.StepMovement,
-) error {
-	err := persistenceManager.ApplyAttributeWrites(ctx, writes)
-	if err != nil {
-		return err
-	}
-	channelStore.ProcessPublishing(publishedMessages)
-	stepRequestQueue.AddStepStartRequests(nextSteps)
-	return nil
-}
-
-func awaitWorkerRequestAllowed(
-	ctx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
-	persistenceManager *PersistenceManager,
-	signalReceiver *SignalReceiver,
-	continueAsNewCounter *cont.ContinueAsNewCounter,
-) (bool, error) {
-	if !persistenceManager.HasAnyLock() {
-		return !signalReceiver.isTerminalRequested(), nil
-	}
-	if err := provider.Await(ctx, func() bool {
-		return !persistenceManager.HasAnyLock() ||
-			signalReceiver.isTerminalRequested() ||
-			continueAsNewCounter.IsThresholdMet()
-	}); err != nil {
-		return false, err
-	}
-	return !signalReceiver.isTerminalRequested() &&
-		!continueAsNewCounter.IsThresholdMet(), nil
 }
 
 func convertStepApiActivityError(

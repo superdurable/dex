@@ -28,6 +28,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
+	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/cont"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -153,12 +154,6 @@ func (u *WorkflowUpdater) workerRpcHandler(
 	if err != nil {
 		return nil, err
 	}
-	locked := true
-	defer func() {
-		if locked {
-			u.persistenceManager.UnlockKeys(keysToLock)
-		}
-	}()
 
 	rpcPrep := &iwfpb.PrepareRpcQueryResponse{
 		Attributes:           attributes,
@@ -188,6 +183,7 @@ func (u *WorkflowUpdater) workerRpcHandler(
 			Request:     input,
 		},
 	)
+	u.persistenceManager.UnlockKeys(keysToLock)
 	if err != nil {
 		// logging only -- intentionally do not return an error -- error will fail the workflow
 		u.provider.GetLogger(ctx).Error("activity invocation failure", "error", err)
@@ -209,17 +205,10 @@ func (u *WorkflowUpdater) workerRpcHandler(
 		)
 	}
 
-	u.persistenceManager.UnlockKeys(keysToLock)
-	locked = false
 	decision := response.GetStepDecision()
-	err = applyResult(
+	err = u.persistenceManager.ApplyAttributeWrites(
 		ctx,
-		u.persistenceManager,
-		u.channelStore,
-		u.stepRequestQueue,
 		response.GetUpsertAttributes(),
-		response.GetPublishToChannel(),
-		decision.GetNextSteps(),
 	)
 	if err != nil {
 		return nil, u.provider.NewApplicationError(
@@ -227,6 +216,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 			err.Error(),
 		)
 	}
+	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
+	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &iwfpb.InvokeRpcUpdateResult{
 		Response: &iwfpb.InvokeRPCResponse{Output: response.GetOutput()},
@@ -510,8 +501,8 @@ func (u *WorkflowUpdater) attributeMatches(
 ) (bool, error) {
 	equal := request.GetCondition().GetEqual()
 	current, exists := u.persistenceManager.GetAttribute(equal.GetKey())
-	if IsNullValue(equal.GetValue()) {
-		return !exists || IsNullValue(current), nil
+	if utils.IsNullValue(equal.GetValue()) {
+		return !exists || utils.IsNullValue(current), nil
 	}
 	if !exists {
 		return false, nil

@@ -124,10 +124,7 @@ func (s *serviceImpl) StartFlow(
 		return nil, makeInvalidRequestError(err.Error())
 	}
 
-	searchAttributes, err := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
-	if err != nil {
-		return nil, makeInvalidRequestError(err.Error())
-	}
+	searchAttributes := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
 	searchAttributes[service.SearchAttributeIwfWorkflowType] = req.GetFlowType()
 
 	if s.extStore.Enabled {

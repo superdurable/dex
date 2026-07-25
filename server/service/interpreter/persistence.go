@@ -154,10 +154,6 @@ func (am *PersistenceManager) UnlockKeys(keys []string) {
 	}
 }
 
-func (am *PersistenceManager) HasAnyLock() bool {
-	return len(am.lockedKeys) > 0
-}
-
 func (am *PersistenceManager) GetAttribute(key string) (*iwfpb.Value, bool) {
 	value, ok := am.attributes[key]
 	return value, ok
