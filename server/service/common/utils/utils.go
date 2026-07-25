@@ -33,6 +33,14 @@ const (
 	defaultMaxApiTimeoutSeconds = 60
 )
 
+func IsNullValue(value *iwfpb.Value) bool {
+	if value == nil {
+		return true
+	}
+	_, ok := value.GetKind().(*iwfpb.Value_NullValue)
+	return ok
+}
+
 func MergeStringSlice(first, second []string) []string {
 	exists := map[string]bool{}
 	var out []string

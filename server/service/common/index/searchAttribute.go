@@ -18,134 +18,170 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package mapper
+package index
 
 import (
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service/common/timeparser"
+	"github.com/superdurable/iwf/service/common/utils"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/cadence/.gen/go/shared"
 	"go.uber.org/cadence/client"
 )
 
-// InferIndexType returns the IndexType for an AttributeWrite, preferring IndexConfig then Value kind.
-func InferIndexType(write *iwfpb.AttributeWrite) (iwfpb.IndexType, error) {
-	if write == nil {
-		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED, fmt.Errorf("nil AttributeWrite")
-	}
-	if write.GetIndexConfig() != nil && write.GetIndexConfig().GetType() != iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED {
-		return write.GetIndexConfig().GetType(), nil
-	}
-	return InferIndexTypeFromValue(write.GetValue())
-}
-
-// InferIndexTypeFromValue picks KEYWORD for string/object; INT/DOUBLE/BOOL from scalars.
-func InferIndexTypeFromValue(value *iwfpb.Value) (iwfpb.IndexType, error) {
-	if value == nil {
-		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED, fmt.Errorf("nil Value")
-	}
-	switch value.GetKind().(type) {
-	case *iwfpb.Value_StringValue, *iwfpb.Value_ObjValue, *iwfpb.Value_InternalBlobIdForStringValue, *iwfpb.Value_InternalBlobIdForObjValue:
-		return iwfpb.IndexType_INDEX_TYPE_KEYWORD, nil
-	case *iwfpb.Value_IntValue:
-		return iwfpb.IndexType_INDEX_TYPE_INT, nil
-	case *iwfpb.Value_DoubleValue:
-		return iwfpb.IndexType_INDEX_TYPE_DOUBLE, nil
-	case *iwfpb.Value_BoolValue:
-		return iwfpb.IndexType_INDEX_TYPE_BOOL, nil
-	case *iwfpb.Value_NullValue:
-		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED, fmt.Errorf("null Value is not indexable")
-	default:
-		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED, fmt.Errorf("unsupported Value kind for indexing")
-	}
-}
-
-// IndexKey returns IndexConfig.index_key when set, else the attribute key.
-func IndexKey(write *iwfpb.AttributeWrite) string {
-	if write.GetIndexConfig() != nil && write.GetIndexConfig().GetIndexKey() != "" {
-		return write.GetIndexConfig().GetIndexKey()
-	}
-	return write.GetKey()
-}
-
-// MapAttributeWritesToSearchAttributes encodes indexed AttributeWrites for Temporal/Cadence upsert.
+// ConvertAttributeWritesToSearchAttributeUpsertMap encodes indexed AttributeWrites for Temporal/Cadence upsert.
 // Writes without IndexConfig.enable (or with enable=false) are skipped.
-// null_value writes are skipped here; callers delete keys separately.
-func MapAttributeWritesToSearchAttributes(writes []*iwfpb.AttributeWrite) (map[string]interface{}, error) {
+func ConvertAttributeWritesToSearchAttributeUpsertMap(writes []*iwfpb.AttributeWrite) (map[string]interface{}, error) {
 	res := map[string]interface{}{}
 	for _, write := range writes {
-		if write == nil || write.GetValue() == nil {
-			continue
-		}
-		if _, ok := write.GetValue().GetKind().(*iwfpb.Value_NullValue); ok {
+		if write == nil {
 			continue
 		}
 		cfg := write.GetIndexConfig()
 		if cfg == nil || !cfg.GetEnable() {
 			continue
 		}
-		indexType, err := InferIndexType(write)
-		if err != nil {
-			return nil, err
+
+		key := getIndexKeyWithFallback(write)
+		indexType := getIndexTypeWithFallback(write)
+		if utils.IsNullValue(write.GetValue()) {
+			res[key] = nil
+			continue
 		}
-		key := IndexKey(write)
-		backendVal, err := valueToSearchBackend(write.GetValue(), indexType)
-		if err != nil {
-			return nil, err
+		nonNilVal := resolveNonNilIndexValue(write.GetValue(), indexType)
+		if nonNilVal == nil {
+			// nil means invalid
+			continue
 		}
-		res[key] = backendVal
+		res[key] = nonNilVal
 	}
 	return res, nil
 }
 
-func valueToSearchBackend(value *iwfpb.Value, indexType iwfpb.IndexType) (interface{}, error) {
-	switch indexType {
-	case iwfpb.IndexType_INDEX_TYPE_KEYWORD, iwfpb.IndexType_INDEX_TYPE_TEXT:
-		if s, ok := value.GetKind().(*iwfpb.Value_StringValue); ok {
-			return s.StringValue, nil
-		}
-		return nil, fmt.Errorf("KEYWORD/TEXT requires string_value")
-	case iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY:
-		// Stored as string_value JSON array is not in Value; use string for single keyword array entry via string.
-		if s, ok := value.GetKind().(*iwfpb.Value_StringValue); ok {
-			return []string{s.StringValue}, nil
-		}
-		return nil, fmt.Errorf("KEYWORD_ARRAY requires string_value (single element) in this mapper")
-	case iwfpb.IndexType_INDEX_TYPE_INT:
-		if v, ok := value.GetKind().(*iwfpb.Value_IntValue); ok {
-			return v.IntValue, nil
-		}
-		return nil, fmt.Errorf("INT requires int_value")
-	case iwfpb.IndexType_INDEX_TYPE_DOUBLE:
-		if v, ok := value.GetKind().(*iwfpb.Value_DoubleValue); ok {
-			return v.DoubleValue, nil
-		}
-		return nil, fmt.Errorf("DOUBLE requires double_value")
-	case iwfpb.IndexType_INDEX_TYPE_BOOL:
-		if v, ok := value.GetKind().(*iwfpb.Value_BoolValue); ok {
-			return v.BoolValue, nil
-		}
-		return nil, fmt.Errorf("BOOL requires bool_value")
-	case iwfpb.IndexType_INDEX_TYPE_DATETIME:
-		if s, ok := value.GetKind().(*iwfpb.Value_StringValue); ok {
-			t, err := timeparser.ParseTime(s.StringValue)
-			if err != nil {
-				return nil, err
-			}
-			return time.Unix(0, t), nil
-		}
-		return nil, fmt.Errorf("DATETIME requires string_value")
+// getIndexKeyWithFallback returns IndexConfig.index_key when set, else the attribute key.
+func getIndexKeyWithFallback(write *iwfpb.AttributeWrite) string {
+	if write.GetIndexConfig() != nil && write.GetIndexConfig().GetIndexKey() != "" {
+		return write.GetIndexConfig().GetIndexKey()
+	}
+	return write.GetKey()
+}
+
+// getIndexTypeWithFallback returns the IndexType for an AttributeWrite, preferring IndexConfig then Value kind.
+func getIndexTypeWithFallback(write *iwfpb.AttributeWrite) iwfpb.IndexType {
+	if write.GetIndexConfig() != nil && write.GetIndexConfig().GetType() != iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED {
+		return write.GetIndexConfig().GetType()
+	}
+	switch write.GetValue().GetKind().(type) {
+	case *iwfpb.Value_StringValue, *iwfpb.Value_ObjValue, *iwfpb.Value_InternalBlobIdForStringValue, *iwfpb.Value_InternalBlobIdForObjValue:
+		return iwfpb.IndexType_INDEX_TYPE_KEYWORD
+	case *iwfpb.Value_IntValue:
+		return iwfpb.IndexType_INDEX_TYPE_INT
+	case *iwfpb.Value_DoubleValue:
+		return iwfpb.IndexType_INDEX_TYPE_DOUBLE
+	case *iwfpb.Value_BoolValue:
+		return iwfpb.IndexType_INDEX_TYPE_BOOL
+	case *iwfpb.Value_NullValue:
+		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED
 	default:
-		return nil, fmt.Errorf("unsupported index type %v", indexType)
+		return iwfpb.IndexType_INDEX_TYPE_UNSPECIFIED
 	}
 }
 
-// MapCadenceIndexedFieldsToValues decodes requested Cadence indexed fields into Values.
-func MapCadenceIndexedFieldsToValues(
+func resolveNonNilIndexValue(value *iwfpb.Value, indexType iwfpb.IndexType) interface{} {
+
+	switch indexType {
+	case iwfpb.IndexType_INDEX_TYPE_KEYWORD, iwfpb.IndexType_INDEX_TYPE_TEXT:
+		switch value := value.GetKind().(type) {
+		case *iwfpb.Value_StringValue:
+			return value.StringValue
+		case *iwfpb.Value_ObjValue:
+			return string(value.ObjValue.GetPayload())
+		case *iwfpb.Value_IntValue:
+			return strconv.FormatInt(value.IntValue, 10)
+		case *iwfpb.Value_DoubleValue:
+			return strconv.FormatFloat(value.DoubleValue, 'g', -1, 64)
+		case *iwfpb.Value_BoolValue:
+			return strconv.FormatBool(value.BoolValue)
+		default:
+			return nil
+		}
+	case iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY:
+		var serialized []byte
+		switch value := value.GetKind().(type) {
+		case *iwfpb.Value_StringValue:
+			serialized = []byte(value.StringValue)
+		case *iwfpb.Value_ObjValue:
+			serialized = value.ObjValue.GetPayload()
+		default:
+			return nil
+		}
+		var values []string
+		if err := json.Unmarshal(serialized, &values); err != nil {
+			return nil
+		}
+		return values
+	case iwfpb.IndexType_INDEX_TYPE_INT:
+		switch value := value.GetKind().(type) {
+		case *iwfpb.Value_IntValue:
+			return value.IntValue
+		case *iwfpb.Value_StringValue:
+			parsed, err := strconv.ParseInt(value.StringValue, 10, 64)
+			if err != nil {
+				return nil
+			}
+			return parsed
+		default:
+			return nil
+		}
+	case iwfpb.IndexType_INDEX_TYPE_DOUBLE:
+		switch value := value.GetKind().(type) {
+		case *iwfpb.Value_DoubleValue:
+			return value.DoubleValue
+		case *iwfpb.Value_StringValue:
+			parsed, err := strconv.ParseFloat(value.StringValue, 64)
+			if err != nil {
+				return nil
+			}
+			return parsed
+		default:
+			return nil
+		}
+	case iwfpb.IndexType_INDEX_TYPE_BOOL:
+		switch value := value.GetKind().(type) {
+		case *iwfpb.Value_BoolValue:
+			return value.BoolValue
+		case *iwfpb.Value_StringValue:
+			parsed, err := strconv.ParseBool(value.StringValue)
+			if err != nil {
+				return nil
+			}
+			return parsed
+		default:
+			return nil
+		}
+	case iwfpb.IndexType_INDEX_TYPE_DATETIME:
+		value, ok := value.GetKind().(*iwfpb.Value_StringValue)
+		if !ok {
+			return nil
+		}
+		timestamp, err := timeparser.ParseTime(value.StringValue)
+		if err != nil {
+			return nil
+		}
+		return time.Unix(0, timestamp)
+	default:
+		return nil
+	}
+}
+
+// MapCadenceSearchAttributeFieldsToAttrValues decodes requested Cadence indexed fields into Values.
+func MapCadenceSearchAttributeFieldsToAttrValues(
 	searchAttributes *shared.SearchAttributes, indexedAttrTypes map[string]iwfpb.IndexType,
 ) (map[string]*iwfpb.Value, error) {
 	if searchAttributes == nil || len(indexedAttrTypes) == 0 {
@@ -173,8 +209,8 @@ func MapCadenceIndexedFieldsToValues(
 	return result, nil
 }
 
-// MapTemporalIndexedFieldsToValues decodes requested Temporal indexed fields into Values.
-func MapTemporalIndexedFieldsToValues(
+// MapTemporalSearchAttributeFieldsToAttrValues decodes requested Temporal indexed fields into Values.
+func MapTemporalSearchAttributeFieldsToAttrValues(
 	searchAttributes *common.SearchAttributes, indexedAttrTypes map[string]iwfpb.IndexType,
 ) (map[string]*iwfpb.Value, error) {
 	if searchAttributes == nil || len(indexedAttrTypes) == 0 {
