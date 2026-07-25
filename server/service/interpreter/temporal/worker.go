@@ -32,6 +32,7 @@ import (
 	"github.com/superdurable/iwf/service/common/event"
 	"github.com/superdurable/iwf/service/common/workerclient"
 	"github.com/superdurable/iwf/service/interpreter"
+	"github.com/superdurable/iwf/service/interpreter/env"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -47,7 +48,6 @@ type InterpreterWorker struct {
 	internalClient *workerclient.InternalService
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
-	apiCfg         *config.ApiConfig
 	temporalCfg    *config.TemporalConfig
 	interpreterCfg *config.Interpreter
 	externalCfg    *config.ExternalStorageConfig
@@ -71,6 +71,11 @@ func NewInterpreterWorker(
 	if temporalClient == nil || dataConverter == nil || unifiedClient == nil || taskQueue == "" {
 		panic("Temporal InterpreterWorker requires non-nil dependencies and task queue")
 	}
+	env.SetSharedEnv(config.Config{
+		Api:             *apiCfg,
+		Interpreter:     *interpreterCfg,
+		ExternalStorage: *externalCfg,
+	})
 	pool, internal := interpreter.NewWorkerClients(apiCfg, &interpreterCfg.InterpreterActivityConfig)
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
@@ -93,7 +98,6 @@ func NewInterpreterWorker(
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
-		apiCfg:         apiCfg,
 		temporalCfg:    temporalCfg,
 		interpreterCfg: interpreterCfg,
 		externalCfg:    externalCfg,

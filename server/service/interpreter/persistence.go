@@ -27,7 +27,6 @@ import (
 	"github.com/superdurable/iwf/service/common/index"
 	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
-	"google.golang.org/protobuf/proto"
 )
 
 type PersistenceManager struct {
@@ -41,7 +40,7 @@ type PersistenceManager struct {
 func NewPersistenceManager(
 	provider interfaces.WorkflowProvider,
 	initialAttributes []*iwfpb.KV,
-) (*PersistenceManager, error) {
+) *PersistenceManager {
 	if provider == nil {
 		panic("PersistenceManager requires a WorkflowProvider")
 	}
@@ -59,7 +58,7 @@ func NewPersistenceManager(
 		attributes: attributes,
 		// locks will not be carried over during continueAsNew
 		lockedKeys: map[string]bool{},
-	}, nil
+	}
 }
 
 func (am *PersistenceManager) GetAttributes(
@@ -179,8 +178,4 @@ func sortedUniqueStrings(values []string) []string {
 	}
 	sort.Strings(values)
 	return values
-}
-
-func attributeValuesEqual(left, right *iwfpb.Value) bool {
-	return proto.Equal(left, right)
 }

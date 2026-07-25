@@ -24,13 +24,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/iwf/config"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
 	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/cont"
+	"github.com/superdurable/iwf/service/interpreter/env"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -45,7 +46,6 @@ type WorkflowUpdater struct {
 	stepRequestQueue     *StepRequestQueue
 	outputCollector      *OutputCollector
 	basicInfo            service.BasicInfo
-	apiCfg               *config.ApiConfig
 }
 
 type stepCompletionWait struct {
@@ -75,12 +75,11 @@ func NewWorkflowUpdater(
 	signalReceiver *SignalReceiver,
 	outputCollector *OutputCollector,
 	basicInfo service.BasicInfo,
-	apiCfg *config.ApiConfig,
-) (*WorkflowUpdater, error) {
+) error {
 	if provider == nil || persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || outputCollector == nil || apiCfg == nil {
+		signalReceiver == nil || outputCollector == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -94,30 +93,29 @@ func NewWorkflowUpdater(
 		stepRequestQueue:     stepRequestQueue,
 		outputCollector:      outputCollector,
 		basicInfo:            basicInfo,
-		apiCfg:               apiCfg,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
 		updater.workerRpcValidator,
 		updater.workerRpcHandler,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	if err := provider.SetWaitForStepCompletionUpdateHandler(
 		ctx,
 		updater.validateWaitForStepCompletion,
 		updater.waitForStepCompletion,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	if err := provider.SetWaitForAttributeUpdateHandler(
 		ctx,
 		updater.validateWaitForAttribute,
 		updater.waitForAttribute,
 	); err != nil {
-		return nil, err
+		return err
 	}
-	return updater, nil
+	return nil
 }
 
 func (u *WorkflowUpdater) workerRpcHandler(
@@ -263,7 +261,7 @@ func (u *WorkflowUpdater) workerRpcValidator(
 }
 
 func (u *WorkflowUpdater) effectiveRPCBudget(requestedSeconds int32) time.Duration {
-	maximumSeconds := u.apiCfg.EffectiveMaxWaitSeconds()
+	maximumSeconds := env.GetSharedConfig().Api.EffectiveMaxWaitSeconds()
 	if requestedSeconds > 0 && int64(requestedSeconds) < maximumSeconds {
 		maximumSeconds = int64(requestedSeconds)
 	}
@@ -535,4 +533,8 @@ func workflowDeadline(start time.Time, timeoutSeconds int32) time.Time {
 
 func deadlinePassed(now, deadline time.Time) bool {
 	return now.After(deadline)
+}
+
+func attributeValuesEqual(left, right *iwfpb.Value) bool {
+	return proto.Equal(left, right)
 }

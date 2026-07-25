@@ -18,26 +18,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package cadence
+package env
 
-import (
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
-	"go.uber.org/cadence/workflow"
-)
+import "github.com/superdurable/iwf/config"
 
-func (iw *InterpreterWorker) Interpreter(
-	ctx workflow.Context,
-	input *iwfpb.InterpreterWorkflowInput,
-) (*iwfpb.InterpreterWorkflowOutput, error) {
-	return interpreter.InterpreterImpl(
-		interfaces.NewUnifiedContext(ctx),
-		newCadenceWorkflowProvider(),
-		input,
-	)
+var sharedConfig config.Config
+
+func SetSharedEnv(config config.Config) {
+	sharedConfig = config
 }
 
-func BlobStoreCleanup(ctx workflow.Context, storeId string) (int, error) {
-	return interpreter.BlobStoreCleanup(interfaces.NewUnifiedContext(ctx), newCadenceWorkflowProvider(), storeId)
+func GetSharedConfig() config.Config {
+	return sharedConfig
 }

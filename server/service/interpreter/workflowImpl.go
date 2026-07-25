@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/iwf/config"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
@@ -39,10 +38,8 @@ func InterpreterImpl(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	input *iwfpb.InterpreterWorkflowInput,
-	apiCfg *config.ApiConfig,
-	activityCfg *config.InterpreterActivityConfig,
 ) (output *iwfpb.InterpreterWorkflowOutput, retErr error) {
-	if provider == nil || input == nil || apiCfg == nil || activityCfg == nil {
+	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
 
@@ -95,7 +92,6 @@ func InterpreterImpl(
 		previous, err := LoadInternalsFromPreviousRun(
 			ctx,
 			provider,
-			activityCfg,
 			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
 			flowConfiger.EffectiveContinueAsNewPageSizeInBytes(),
 		)
@@ -110,10 +106,7 @@ func InterpreterImpl(
 			previous.GetStepsToStartFromBeginning(),
 			previous.GetStepExecutionsToResume(),
 		)
-		persistenceManager, err = NewPersistenceManager(provider, previous.GetAttributes())
-		if err != nil {
-			return nil, fmt.Errorf("restore attributes: %w", err)
-		}
+		persistenceManager = NewPersistenceManager(provider, previous.GetAttributes())
 		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
 		timerProcessor = timers.NewGreedyTimerProcessor(
 			ctx,
@@ -152,16 +145,11 @@ func InterpreterImpl(
 			stepRequestQueue,
 			outputCollector,
 			timerProcessor,
-			apiCfg,
 		)
 	} else {
 		channelStore = NewChannelStore()
 		stepRequestQueue = NewStepRequestQueue()
-		var err error
-		persistenceManager, err = NewPersistenceManager(provider, input.GetInitAttributes())
-		if err != nil {
-			return nil, fmt.Errorf("initialize attributes: %w", err)
-		}
+		persistenceManager = NewPersistenceManager(provider, input.GetInitAttributes())
 		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
 		timerProcessor = timers.NewGreedyTimerProcessor(
 			ctx,
@@ -197,11 +185,10 @@ func InterpreterImpl(
 			stepRequestQueue,
 			outputCollector,
 			timerProcessor,
-			apiCfg,
 		)
 	}
 
-	_, err := NewWorkflowUpdater(
+	err := NewWorkflowUpdater(
 		ctx,
 		provider,
 		persistenceManager,
@@ -212,7 +199,6 @@ func InterpreterImpl(
 		signalReceiver,
 		outputCollector,
 		basicInfo,
-		apiCfg,
 	)
 	if err != nil {
 		return nil, err
@@ -294,7 +280,7 @@ func InterpreterImpl(
 			var stepsToExecute []StepRequest
 			if !continueAsNewCounter.IsThresholdMet() {
 				stepsToExecute = stepRequestQueue.TakeAll()
-				if err := stepExecutionCounter.MarkStepTypeExecutingIfNotYet(
+				if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
 					stepsToExecute,
 				); err != nil {
 					errToFailFlow = provider.NewApplicationError(

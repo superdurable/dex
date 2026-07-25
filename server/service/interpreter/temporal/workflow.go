@@ -38,8 +38,6 @@ func (iw *InterpreterWorker) Interpreter(
 		interfaces.NewUnifiedContext(ctx),
 		newTemporalWorkflowProvider(),
 		input,
-		iw.apiCfg,
-		&iw.interpreterCfg.InterpreterActivityConfig,
 	)
 }
 

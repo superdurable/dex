@@ -32,6 +32,7 @@ import (
 	"github.com/superdurable/iwf/service/common/event"
 	"github.com/superdurable/iwf/service/common/workerclient"
 	"github.com/superdurable/iwf/service/interpreter"
+	"github.com/superdurable/iwf/service/interpreter/env"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/activity"
 	"go.uber.org/cadence/encoded"
@@ -49,7 +50,6 @@ type InterpreterWorker struct {
 	internalClient *workerclient.InternalService
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
-	apiCfg         *config.ApiConfig
 	cadenceCfg     *config.CadenceConfig
 	interpreterCfg *config.Interpreter
 	externalCfg    *config.ExternalStorageConfig
@@ -78,6 +78,11 @@ func NewInterpreterWorker(
 	if domain == "" || tasklist == "" {
 		panic("Cadence InterpreterWorker requires domain and task list")
 	}
+	env.SetSharedEnv(config.Config{
+		Api:             *apiCfg,
+		Interpreter:     *interpreterCfg,
+		ExternalStorage: *externalCfg,
+	})
 	pool, internal := interpreter.NewWorkerClients(apiCfg, &interpreterCfg.InterpreterActivityConfig)
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
@@ -101,7 +106,6 @@ func NewInterpreterWorker(
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
-		apiCfg:         apiCfg,
 		cadenceCfg:     cadenceCfg,
 		interpreterCfg: interpreterCfg,
 		externalCfg:    externalCfg,

@@ -34,11 +34,11 @@ const (
 	InterpreterWorkflowName      = "Interpreter"
 	BlobStoreCleanupWorkflowName = "BlobStoreCleanup"
 
-	GetAttributesWorkflowQueryType        = "GetAttributes"
-	GetCurrentTimerInfosQueryType         = "GetCurrentTimerInfos"
-	ContinueAsNewDumpByPageQueryType      = "ContinueAsNewDumpByPage"
-	DebugDumpQueryType                    = "DebugNewDump"
-	PrepareRpcQueryType                   = "PrepareRpcQueryType"
+	GetAttributesWorkflowQueryType   = "GetAttributes"
+	GetCurrentTimerInfosQueryType    = "GetCurrentTimerInfos"
+	ContinueAsNewDumpByPageQueryType = "ContinueAsNewDumpByPage"
+	DebugDumpQueryType               = "DebugNewDump"
+	PrepareRpcQueryType              = "PrepareRpcQueryType"
 
 	ExecuteOptimisticLockingRpcUpdateType = "ExecuteOptimisticLockingRpcUpdate"
 	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"
@@ -49,9 +49,8 @@ const (
 	IWFDeadlineExceededErrorType          = "IWF_DEADLINE_EXCEEDED"
 	IWFRPCAcquireLockFailureErrorType     = "IWF_RPC_ACQUIRE_LOCK_FAILURE"
 
-	SearchAttributeGlobalVersion     = "IwfGlobalWorkflowVersion"
-	SearchAttributeExecutingStateIds = "IwfExecutingStateIds"
-	SearchAttributeIwfWorkflowType   = "IwfWorkflowType"
+	SearchAttributeActiveStepIds   = "ActiveStepIds"
+	SearchAttributeIwfWorkflowType = "FlowType"
 
 	BackendTypeCadence  BackendType = "cadence"
 	BackendTypeTemporal BackendType = "temporal"

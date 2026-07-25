@@ -22,6 +22,12 @@ package integ
 
 import (
 	"context"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/superdurable/iwf/integ/helpers"
 	"github.com/superdurable/iwf/integ/workflow/wait_until_search_attributes_optimization"
 	"github.com/superdurable/iwf/service/common/ptr"
@@ -29,15 +35,10 @@ import (
 	"go.temporal.io/api/enums/v1"
 	history "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/workflowservice/v1"
-	"slices"
-	"strconv"
-	"strings"
-	"testing"
-	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/superdurable/iwf/gen/iwfidl"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestWaitUntilSearchAttributesOptimizationWorkflowTemporal(t *testing.T) {
@@ -180,7 +181,7 @@ func doTestWaitUntilHistoryCompleted(
 
 func historyEventSAs(e *history.HistoryEvent) []string {
 	attrs := e.GetAttributes().(*history.HistoryEvent_UpsertWorkflowSearchAttributesEventAttributes)
-	data := string(attrs.UpsertWorkflowSearchAttributesEventAttributes.GetSearchAttributes().GetIndexedFields()[service.SearchAttributeExecutingStateIds].GetData())
+	data := string(attrs.UpsertWorkflowSearchAttributesEventAttributes.GetSearchAttributes().GetIndexedFields()[service.SearchAttributeActiveStepIds].GetData())
 	data = strings.ReplaceAll(data, "[", "")
 	data = strings.ReplaceAll(data, "]", "")
 	data = strings.ReplaceAll(data, "\"", "")

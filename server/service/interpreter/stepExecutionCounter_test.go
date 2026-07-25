@@ -47,12 +47,12 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 		StepOptions: &iwfpb.StepOptions{SkipWaitFor: true},
 	}
 
-	require.NoError(t, counter.MarkStepTypeExecutingIfNotYet([]StepRequest{
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(waitStep),
 		NewStepStartRequest(skipStep),
 	}))
 	require.Equal(t, int32(2), counter.GetTotalCurrentlyExecutingCount())
-	require.Equal(t, []string{"wait"}, provider.upserts[0][service.SearchAttributeExecutingStateIds])
+	require.Equal(t, []string{"wait"}, provider.upserts[0][service.SearchAttributeActiveStepIds])
 
 	require.Equal(t, "wait-1", counter.CreateNextExecutionId("wait"))
 	require.Equal(t, "wait-2", counter.CreateNextExecutionId("wait"))
@@ -62,7 +62,7 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 	require.Len(t, provider.upserts, 1)
 	require.NoError(t, counter.MarkStepExecutionCompleted(waitStep, nil))
 	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
-	require.Equal(t, []string{}, provider.upserts[1][service.SearchAttributeExecutingStateIds])
+	require.Equal(t, []string{}, provider.upserts[1][service.SearchAttributeActiveStepIds])
 }
 
 func TestStepExecutionCounterBackendFailureIsAtomic(t *testing.T) {
@@ -77,7 +77,7 @@ func TestStepExecutionCounterBackendFailureIsAtomic(t *testing.T) {
 		cont.NewContinueAsCounter(configer, nil, provider),
 	)
 
-	err := counter.MarkStepTypeExecutingIfNotYet([]StepRequest{
+	err := counter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(&iwfpb.StepMovement{StepType: "step"}),
 	})
 	require.ErrorContains(t, err, "backend unavailable")
@@ -97,7 +97,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		cont.NewContinueAsCounter(disabledConfiger, nil, disabledProvider),
 	)
 	disabledStep := &iwfpb.StepMovement{StepType: "disabled"}
-	require.NoError(t, disabledCounter.MarkStepTypeExecutingIfNotYet([]StepRequest{
+	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(disabledStep),
 	}))
 	require.NoError(t, disabledCounter.MarkStepExecutionCompleted(disabledStep, nil))
@@ -115,7 +115,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	)
 	first := &iwfpb.StepMovement{StepType: "shared"}
 	second := &iwfpb.StepMovement{StepType: "shared"}
-	require.NoError(t, sharedCounter.MarkStepTypeExecutingIfNotYet([]StepRequest{
+	require.NoError(t, sharedCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(first),
 		NewStepStartRequest(second),
 	}))

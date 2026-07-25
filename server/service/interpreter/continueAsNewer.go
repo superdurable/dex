@@ -26,9 +26,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/iwf/config"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/interpreter/env"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"google.golang.org/protobuf/proto"
 )
@@ -47,7 +47,6 @@ type ContinueAsNewer struct {
 	persistenceManager   *PersistenceManager
 	outputCollector      *OutputCollector
 	timerProcessor       interfaces.TimerProcessor
-	apiCfg               *config.ApiConfig
 }
 
 func NewContinueAsNewer(
@@ -55,14 +54,13 @@ func NewContinueAsNewer(
 	channelStore *ChannelStore, stepExecutionCounter *StepExecutionCounter,
 	persistenceManager *PersistenceManager, stepRequestQueue *StepRequestQueue, collector *OutputCollector,
 	timerProcessor interfaces.TimerProcessor,
-	apiCfg *config.ApiConfig,
 ) *ContinueAsNewer {
 	if provider == nil || stepRequestQueue == nil || channelStore == nil ||
 		stepExecutionCounter == nil || persistenceManager == nil || collector == nil ||
-		timerProcessor == nil || apiCfg == nil {
+		timerProcessor == nil {
 		panic("ContinueAsNewer requires non-nil dependencies")
 	}
-	grpcMaxMessageLen := apiCfg.EffectiveGrpcMaxMessageBytes()
+	grpcMaxMessageLen := env.GetSharedConfig().Api.EffectiveGrpcMaxMessageBytes()
 	if grpcMaxMessageLen <= continueAsNewPageEnvelopeHeadroomBytes {
 		panic("ContinueAsNewer requires a usable gRPC message limit")
 	}
@@ -77,25 +75,20 @@ func NewContinueAsNewer(
 		persistenceManager:   persistenceManager,
 		outputCollector:      collector,
 		timerProcessor:       timerProcessor,
-		apiCfg:               apiCfg,
 	}
 }
 
 func LoadInternalsFromPreviousRun(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	activityCfg *config.InterpreterActivityConfig,
 	previousRunId string,
 	continueAsNewPageSizeInBytes int32,
 ) (*iwfpb.ContinueAsNewDump, error) {
-	if activityCfg == nil {
-		panic("LoadInternalsFromPreviousRun requires activity config")
-	}
-
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Second,
 		RetryPolicy:         &iwfpb.RetryPolicy{MaximumIntervalSeconds: 5},
 	}
+	activityCfg := env.GetSharedConfig().Interpreter.InterpreterActivityConfig
 	if activityConfig := activityCfg.DumpWorkflowInternalActivityConfig; activityConfig != nil {
 		activityOptions.StartToCloseTimeout = activityConfig.StartToCloseTimeout
 		if activityConfig.RetryPolicy != nil {
@@ -195,7 +188,7 @@ func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 			if request.GetPageSizeInBytes() > 0 {
 				pageSize = request.GetPageSizeInBytes()
 			}
-			maxPageSize := c.apiCfg.EffectiveGrpcMaxMessageBytes() -
+			maxPageSize := env.GetSharedConfig().Api.EffectiveGrpcMaxMessageBytes() -
 				continueAsNewPageEnvelopeHeadroomBytes
 			if int(pageSize) > maxPageSize {
 				return nil, fmt.Errorf("page size must be at most %d bytes", maxPageSize)
