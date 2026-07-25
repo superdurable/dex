@@ -37,7 +37,7 @@ import (
 
 // ConvertAttributeWritesToSearchAttributeUpsertMap encodes indexed AttributeWrites for Temporal/Cadence upsert.
 // Writes without IndexConfig.enable (or with enable=false) are skipped.
-func ConvertAttributeWritesToSearchAttributeUpsertMap(writes []*iwfpb.AttributeWrite) (map[string]interface{}, error) {
+func ConvertAttributeWritesToSearchAttributeUpsertMap(writes []*iwfpb.AttributeWrite) map[string]interface{} {
 	res := map[string]interface{}{}
 	for _, write := range writes {
 		if write == nil {
@@ -61,7 +61,7 @@ func ConvertAttributeWritesToSearchAttributeUpsertMap(writes []*iwfpb.AttributeW
 		}
 		res[key] = nonNilVal
 	}
-	return res, nil
+	return res
 }
 
 // getIndexKeyWithFallback returns IndexConfig.index_key when set, else the attribute key.

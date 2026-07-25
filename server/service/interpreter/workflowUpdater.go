@@ -142,21 +142,21 @@ func (u *WorkflowUpdater) workerRpcHandler(
 		}
 	}()
 
-	keys, err := normalizeLockKeys(input.GetLockAttributeKeys())
+	keysToLock, err := normalizeLockKeys(input.GetLockAttributeKeys())
 	if err != nil {
 		return nil, u.provider.NewApplicationError(
 			service.IWFInvalidArgumentErrorType,
 			err.Error(),
 		)
 	}
-	attributes, err := u.persistenceManager.LoadAttributes(ctx, keys)
+	attributes, err := u.persistenceManager.LoadAttributes(ctx, keysToLock)
 	if err != nil {
 		return nil, err
 	}
 	locked := true
 	defer func() {
 		if locked {
-			u.persistenceManager.UnlockKeys(keys)
+			u.persistenceManager.UnlockKeys(keysToLock)
 		}
 	}()
 
@@ -202,14 +202,14 @@ func (u *WorkflowUpdater) workerRpcHandler(
 	if interpreterErr != nil {
 		return &iwfpb.InvokeRpcUpdateResult{Error: interpreterErr}, nil
 	}
-	if err := validateLockedRPCWrites(response.GetUpsertAttributes(), keys); err != nil {
+	if err := validateLockedRPCWrites(response.GetUpsertAttributes(), keysToLock); err != nil {
 		return nil, u.provider.NewApplicationError(
 			service.IWFFailedPreconditionErrorType,
 			err.Error(),
 		)
 	}
 
-	u.persistenceManager.UnlockKeys(keys)
+	u.persistenceManager.UnlockKeys(keysToLock)
 	locked = false
 	decision := response.GetStepDecision()
 	err = applyResult(
@@ -510,8 +510,8 @@ func (u *WorkflowUpdater) attributeMatches(
 ) (bool, error) {
 	equal := request.GetCondition().GetEqual()
 	current, exists := u.persistenceManager.GetAttribute(equal.GetKey())
-	if isNullValue(equal.GetValue()) {
-		return !exists || isNullValue(current), nil
+	if IsNullValue(equal.GetValue()) {
+		return !exists || IsNullValue(current), nil
 	}
 	if !exists {
 		return false, nil

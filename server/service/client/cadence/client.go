@@ -25,8 +25,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/superdurable/iwf/config"
 	"time"
+
+	"github.com/superdurable/iwf/config"
 
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/ptr"
@@ -34,7 +35,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/mapper"
+	"github.com/superdurable/iwf/service/common/index"
 	"github.com/superdurable/iwf/service/interpreter/cadence"
 	realcadence "go.uber.org/cadence"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -310,7 +311,7 @@ func (t *cadenceClient) DescribeWorkflowExecution(
 	if err != nil {
 		return nil, err
 	}
-	indexedAttributes, err := mapper.MapCadenceIndexedFieldsToValues(resp.GetWorkflowExecutionInfo().GetSearchAttributes(), indexedAttrTypes)
+	indexedAttributes, err := index.MapCadenceSearchAttributeFieldsToAttrValues(resp.GetWorkflowExecutionInfo().GetSearchAttributes(), indexedAttrTypes)
 	if err != nil {
 		return nil, err
 	}

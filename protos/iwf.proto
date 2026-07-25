@@ -164,6 +164,8 @@ message StepOptions {
   bool skip_wait_for = 9;
   StepDurability wait_for_durability_override = 10;
   StepDurability execute_durability_override = 11;
+  repeated string wait_for_lock_attribute_keys = 12;
+  repeated string execute_lock_attribute_keys = 13;
 }
 
 enum IdReusePolicy {

@@ -23,7 +23,8 @@ flowchart LR
   Synchronous Update** against the main interpreter workflow (interpreter update
   handlers that `Await` inside the workflow). **Cadence drops support** for both
   RPCs — they return gRPC `codes.Unimplemented`.
-- **RPC locking:** re-add a minimal lock surface — `repeated string
+- **Attribute locking:** retain WaitFor/Execute lock keys on `StepOptions`. For
+  RPC, add a minimal lock surface — `repeated string
   lock_attribute_keys` on `InvokeRPCRequest`. Non-empty → sync-update locking path
   over those keys; empty → non-locking. Keeps the retained
   `RPC_ACQUIRE_LOCK_FAILURE` + `skip_locking_rpc_reapply` meaningful. Because the
@@ -822,7 +823,7 @@ Behavioral cleanups:
 | Wait-for-step | Drop `waitForKey`; wait only by `step_execution_id` / `step_type` |
 | Conditional close | `*_ON_CHANNELS_EMPTY` + `channel_names` repeated |
 | Options | Only `wait_for_*` / `execute_*` on `StepOptions` |
-| RPC invoke | Remove loading policies; `lock_attribute_keys` is the only explicit lock surface |
+| RPC invoke | Remove loading policies; retain explicit lock-key fields for RPC and step APIs |
 
 **Delete memo-as-attribute storage completely:**
 

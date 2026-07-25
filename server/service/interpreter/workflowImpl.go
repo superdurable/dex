@@ -755,6 +755,14 @@ func invokeWaitForMethod(
 	if !allowed {
 		return nil, false, false, nil
 	}
+	lockAttributeKeys := step.GetStepOptions().GetWaitForLockAttributeKeys()
+	attributes := persistenceManager.GetAllAttributes()
+	if len(lockAttributeKeys) > 0 {
+		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
+		if err != nil {
+			return nil, false, false, err
+		}
+	}
 	var output iwfpb.InvokeWaitForMethodActivityOutput
 	err = provider.ExecuteActivity(
 		&output,
@@ -772,10 +780,11 @@ func invokeWaitForMethod(
 				FlowType:   basicInfo.FlowType,
 				StepType:   step.GetStepType(),
 				StepInput:  step.GetStepInput(),
-				Attributes: persistenceManager.GetAllAttributes(),
+				Attributes: attributes,
 			},
 		},
 	)
+	persistenceManager.UnlockKeys(lockAttributeKeys)
 	if signalReceiver.isTerminalRequested() {
 		return nil, false, false, nil
 	}
@@ -1012,6 +1021,14 @@ func invokeExecuteMethod(
 	if !allowed {
 		return nil, nil, nil
 	}
+	lockAttributeKeys := step.GetStepOptions().GetExecuteLockAttributeKeys()
+	attributes := persistenceManager.GetAllAttributes()
+	if len(lockAttributeKeys) > 0 {
+		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	var output iwfpb.InvokeExecuteMethodActivityOutput
 	err = provider.ExecuteActivity(
 		&output,
@@ -1029,12 +1046,13 @@ func invokeExecuteMethod(
 				FlowType:         basicInfo.FlowType,
 				StepType:         step.GetStepType(),
 				StepInput:        step.GetStepInput(),
-				Attributes:       persistenceManager.GetAllAttributes(),
+				Attributes:       attributes,
 				StepExeLocals:    stepExeLocals,
 				ConditionResults: conditionResults,
 			},
 		},
 	)
+	persistenceManager.UnlockKeys(lockAttributeKeys)
 	if signalReceiver.isTerminalRequested() {
 		return nil, nil, nil
 	}
@@ -1130,18 +1148,6 @@ func applyResultAndWait(
 	publishedMessages []*iwfpb.ChannelMessage,
 	signalReceiver *SignalReceiver,
 ) (bool, error) {
-	allowed, err := awaitResultApplication(
-		ctx,
-		provider,
-		persistenceManager,
-		signalReceiver,
-	)
-	if err != nil {
-		return false, err
-	}
-	if !allowed {
-		return false, nil
-	}
 	if err := applyResult(
 		ctx,
 		persistenceManager,
@@ -1156,26 +1162,6 @@ func applyResultAndWait(
 	return true, nil
 }
 
-func awaitResultApplication(
-	ctx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
-	persistenceManager *PersistenceManager,
-	signalReceiver *SignalReceiver,
-) (bool, error) {
-	if signalReceiver.isTerminalRequested() {
-		return false, nil
-	}
-	if persistenceManager.HasAnyLock() {
-		if err := provider.Await(ctx, func() bool {
-			return !persistenceManager.HasAnyLock() ||
-				signalReceiver.isTerminalRequested()
-		}); err != nil {
-			return false, err
-		}
-	}
-	return !signalReceiver.isTerminalRequested(), nil
-}
-
 func applyResult(
 	ctx interfaces.UnifiedContext,
 	persistenceManager *PersistenceManager,
@@ -1185,17 +1171,12 @@ func applyResult(
 	publishedMessages []*iwfpb.ChannelMessage,
 	nextSteps []*iwfpb.StepMovement,
 ) error {
-	applied, err := persistenceManager.ApplyAttributeWrites(ctx, writes)
+	err := persistenceManager.ApplyAttributeWrites(ctx, writes)
 	if err != nil {
 		return err
 	}
-	if !applied {
-		panic("result application attempted while attributes are locked")
-	}
 	channelStore.ProcessPublishing(publishedMessages)
-	if stepRequestQueue != nil {
-		stepRequestQueue.AddStepStartRequests(nextSteps)
-	}
+	stepRequestQueue.AddStepStartRequests(nextSteps)
 	return nil
 }
 

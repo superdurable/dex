@@ -88,6 +88,8 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | ChannelCondition.at_least / at_most | `optional int32` (omit vs 0 distinguishable) |
 | worker_url (StartFlow) | **worker_target** (plaintext gRPC `host:port`) |
 | PersistenceLoadingPolicy.LockingKeys (RPC) | `InvokeRPCRequest.lock_attribute_keys` |
+| WaitUntilApi*LoadingPolicy.LockingKeys | `StepOptions.wait_for_lock_attribute_keys` |
+| ExecuteApi*LoadingPolicy.LockingKeys | `StepOptions.execute_lock_attribute_keys` |
 | WorkflowDumpRequest/Response (JSON pages) | ContinueAsNewDumpRequest/Response + ContinueAsNewDump (proto) |
 | InterStateChannelPublishing | ChannelMessage |
 | SearchAttribute* types | deleted (IndexConfig / inferred from Value) |

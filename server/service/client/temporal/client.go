@@ -32,7 +32,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/mapper"
+	"github.com/superdurable/iwf/service/common/index"
 	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/temporal"
 	"go.temporal.io/api/common/v1"
@@ -342,7 +342,7 @@ func (t *temporalClient) DescribeWorkflowExecution(
 		return nil, err
 	}
 
-	indexedAttributes, err := mapper.MapTemporalIndexedFieldsToValues(resp.GetWorkflowExecutionInfo().GetSearchAttributes(), indexedAttrTypes)
+	indexedAttributes, err := index.MapTemporalSearchAttributeFieldsToAttrValues(resp.GetWorkflowExecutionInfo().GetSearchAttributes(), indexedAttrTypes)
 	if err != nil {
 		return nil, err
 	}

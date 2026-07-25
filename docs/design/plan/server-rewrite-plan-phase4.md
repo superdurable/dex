@@ -42,10 +42,10 @@ flowchart TB
   current per-thread `Retrieve` at `workflowImpl.go:768`/`:806`).
 - Channel messages enter through declared system signals and worker results.
   Arbitrary signal names are not discovered or consumed.
-- Attributes are always fully loaded; locks only via `lock_attribute_keys`.
+- Attributes are always fully loaded; locks use explicit RPC or step API lock keys.
 - Memo is never attribute persistence. No interpreter path reads or upserts
   attributes through Temporal/Cadence Memo.
-- Attribute locking covers the whole RPC read-modify-write window. New worker
+- Attribute locking covers each worker API read-modify-write window. New worker
   activities that read the full attribute set do not start while a lock is held;
   the originating activity/signal coroutine waits and commits its whole result after
   unlock.

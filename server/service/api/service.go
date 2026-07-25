@@ -34,9 +34,9 @@ import (
 	"github.com/superdurable/iwf/service/common/blobstore"
 	serviceerrors "github.com/superdurable/iwf/service/common/errors"
 	"github.com/superdurable/iwf/service/common/grpctarget"
+	"github.com/superdurable/iwf/service/common/index"
 	"github.com/superdurable/iwf/service/common/log"
 	"github.com/superdurable/iwf/service/common/log/tag"
-	"github.com/superdurable/iwf/service/common/mapper"
 	"github.com/superdurable/iwf/service/common/ptr"
 	"github.com/superdurable/iwf/service/common/rpc"
 	"github.com/superdurable/iwf/service/common/utils"
@@ -124,7 +124,7 @@ func (s *serviceImpl) StartFlow(
 		return nil, makeInvalidRequestError(err.Error())
 	}
 
-	searchAttributes, err := mapper.MapAttributeWritesToSearchAttributes(attributes)
+	searchAttributes, err := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
 	if err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}

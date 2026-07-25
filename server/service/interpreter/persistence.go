@@ -21,11 +21,11 @@
 package interpreter
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/mapper"
+	"github.com/superdurable/iwf/service/common/index"
+	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,11 +38,6 @@ type PersistenceManager struct {
 	lockedKeys map[string]bool
 }
 
-type attributeMutation struct {
-	key   string
-	value *iwfpb.Value
-}
-
 func NewPersistenceManager(
 	provider interfaces.WorkflowProvider,
 	initialAttributes []*iwfpb.KV,
@@ -52,16 +47,8 @@ func NewPersistenceManager(
 	}
 
 	attributes := make(map[string]*iwfpb.Value, len(initialAttributes))
-	seenKeys := make(map[string]struct{}, len(initialAttributes))
-	for index, attribute := range initialAttributes {
-		if err := validateKV(attribute); err != nil {
-			return nil, fmt.Errorf("initial attribute %d: %w", index, err)
-		}
-		if _, duplicated := seenKeys[attribute.GetKey()]; duplicated {
-			return nil, fmt.Errorf("duplicate attribute key %q", attribute.GetKey())
-		}
-		seenKeys[attribute.GetKey()] = struct{}{}
-		if isNullValue(attribute.GetValue()) {
+	for _, attribute := range initialAttributes {
+		if utils.IsNullValue(attribute.GetValue()) {
 			continue
 		}
 		attributes[attribute.GetKey()] = attribute.GetValue()
@@ -102,14 +89,14 @@ func (am *PersistenceManager) GetAttributes(
 
 func (am *PersistenceManager) LoadAttributes(
 	ctx interfaces.UnifiedContext,
-	keys []string,
+	keysToLock []string,
 ) ([]*iwfpb.KV, error) {
 	if err := am.provider.Await(ctx, func() bool {
-		return am.CanLockKeys(keys)
+		return am.CanLockKeys(keysToLock)
 	}); err != nil {
 		return nil, err
 	}
-	for _, key := range keys {
+	for _, key := range keysToLock {
 		am.lockedKeys[key] = true
 	}
 	return am.GetAllAttributes(), nil
@@ -119,8 +106,6 @@ func (am *PersistenceManager) GetAllAttributes() []*iwfpb.KV {
 	attributes := make([]*iwfpb.KV, 0, len(am.attributes))
 
 	// NOTE: using sortedAttributeKeys so that the protobuf snapshot for continueAsNew is stable for pagination
-	// TODO: we should use deterministic map iteration in interpreter for safety
-	// https://github.com/superdurable/iwf/issues/510
 	for _, key := range sortedAttributeKeys(am.attributes) {
 		attributes = append(attributes, &iwfpb.KV{Key: key, Value: am.attributes[key]})
 	}
@@ -130,35 +115,28 @@ func (am *PersistenceManager) GetAllAttributes() []*iwfpb.KV {
 func (am *PersistenceManager) ApplyAttributeWrites(
 	ctx interfaces.UnifiedContext,
 	writes []*iwfpb.AttributeWrite,
-) (bool, error) {
+) error {
 	if len(writes) == 0 {
-		return true, nil
+		return nil
 	}
 
-	mutations, indexedUpdates, applicable, err := am.planAttributeWrites(writes)
-	if err != nil {
-		return false, err
-	}
-	if !applicable {
-		return false, nil
-	}
-	if len(mutations) == 0 && len(indexedUpdates) == 0 {
-		return true, nil
-	}
-	if len(indexedUpdates) > 0 {
-		if err := am.provider.UpsertSearchAttributes(ctx, indexedUpdates); err != nil {
-			return false, fmt.Errorf("upsert indexed attributes: %w", err)
+	searchAttrUpdates := index.ConvertAttributeWritesToSearchAttributeUpsertMap(writes)
+
+	if len(searchAttrUpdates) > 0 {
+		if err := am.provider.UpsertSearchAttributes(ctx, searchAttrUpdates); err != nil {
+			return err
 		}
 	}
 
-	for _, mutation := range mutations {
-		if mutation.value == nil {
-			delete(am.attributes, mutation.key)
-		} else {
-			am.attributes[mutation.key] = mutation.value
+	for _, write := range writes {
+		if utils.IsNullValue(write.GetValue()) {
+			delete(am.attributes, write.GetKey())
+			continue
 		}
+		am.attributes[write.GetKey()] = write.GetValue()
 	}
-	return true, nil
+
+	return nil
 }
 
 func (am *PersistenceManager) CanLockKeys(keys []string) bool {
@@ -178,95 +156,6 @@ func (am *PersistenceManager) UnlockKeys(keys []string) {
 
 func (am *PersistenceManager) HasAnyLock() bool {
 	return len(am.lockedKeys) > 0
-}
-
-func (am *PersistenceManager) planAttributeWrites(
-	writes []*iwfpb.AttributeWrite,
-) ([]attributeMutation, map[string]interface{}, bool, error) {
-	seenKeys := make(map[string]struct{}, len(writes))
-	for index, write := range writes {
-		if err := validateAttributeWrite(write); err != nil {
-			return nil, nil, false, fmt.Errorf("attribute %d: %w", index, err)
-		}
-		if _, duplicated := seenKeys[write.GetKey()]; duplicated {
-			return nil, nil, false, fmt.Errorf("duplicate attribute key %q", write.GetKey())
-		}
-		seenKeys[write.GetKey()] = struct{}{}
-	}
-	for _, write := range writes {
-		if am.lockedKeys[write.GetKey()] {
-			return nil, nil, false, nil
-		}
-	}
-
-	mutations := make([]attributeMutation, 0, len(writes))
-	indexedUpdates := make(map[string]interface{})
-	for _, write := range writes {
-		if err := addIndexedUpdate(indexedUpdates, write); err != nil {
-			return nil, nil, false, fmt.Errorf("attribute %q: %w", write.GetKey(), err)
-		}
-
-		_, exists := am.attributes[write.GetKey()]
-		if isNullValue(write.GetValue()) {
-			if exists {
-				mutations = append(mutations, attributeMutation{key: write.GetKey()})
-			}
-			continue
-		}
-		mutations = append(mutations, attributeMutation{key: write.GetKey(), value: write.GetValue()})
-	}
-	return mutations, indexedUpdates, true, nil
-}
-
-func validateAttributeWrite(write *iwfpb.AttributeWrite) error {
-	if write == nil {
-		return fmt.Errorf("write is nil")
-	}
-	if write.GetKey() == "" {
-		return fmt.Errorf("key is empty")
-	}
-	if write.GetValue() == nil || write.GetValue().GetKind() == nil {
-		return fmt.Errorf("value is missing")
-	}
-	return nil
-}
-
-func validateKV(attribute *iwfpb.KV) error {
-	if attribute == nil {
-		return fmt.Errorf("attribute is nil")
-	}
-	if attribute.GetKey() == "" {
-		return fmt.Errorf("key is empty")
-	}
-	if attribute.GetValue() == nil || attribute.GetValue().GetKind() == nil {
-		return fmt.Errorf("value is missing")
-	}
-	return nil
-}
-
-func addIndexedUpdate(updates map[string]interface{}, write *iwfpb.AttributeWrite) error {
-	if indexedKey(write) == "" {
-		return nil
-	}
-	if isNullValue(write.GetValue()) {
-		updates[indexedKey(write)] = nil
-		return nil
-	}
-	mapped, err := mapper.MapAttributeWritesToSearchAttributes([]*iwfpb.AttributeWrite{write})
-	if err != nil {
-		return err
-	}
-	for key, value := range mapped {
-		updates[key] = value
-	}
-	return nil
-}
-
-func indexedKey(write *iwfpb.AttributeWrite) string {
-	if write.GetIndexConfig() == nil || !write.GetIndexConfig().GetEnable() {
-		return ""
-	}
-	return mapper.IndexKey(write)
 }
 
 func (am *PersistenceManager) GetAttribute(key string) (*iwfpb.Value, bool) {
@@ -298,12 +187,4 @@ func sortedUniqueStrings(values []string) []string {
 
 func attributeValuesEqual(left, right *iwfpb.Value) bool {
 	return proto.Equal(left, right)
-}
-
-func isNullValue(value *iwfpb.Value) bool {
-	if value == nil {
-		return false
-	}
-	_, ok := value.GetKind().(*iwfpb.Value_NullValue)
-	return ok
 }

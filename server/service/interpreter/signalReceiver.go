@@ -188,15 +188,8 @@ func (sr *SignalReceiver) processExecuteRPC(
 	request *iwfpb.ExecuteRpcSignalRequest,
 ) {
 	sr.continueAsNewCounter.IncSignalsReceived()
-	if sr.persistenceManager.HasAnyLock() {
-		if err := sr.provider.Await(ctx, func() bool {
-			return !sr.persistenceManager.HasAnyLock() || sr.isTerminalRequested()
-		}); err != nil {
-			sr.provider.GetLogger(ctx).Error("wait to apply RPC result failed", "error", err)
-			return
-		}
-	}
 	if sr.isTerminalRequested() {
+		// ???? do we need this???
 		return
 	}
 	decision := request.GetStepDecision()
