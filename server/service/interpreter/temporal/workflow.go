@@ -35,7 +35,7 @@ func (iw *InterpreterWorker) Engine(
 ) (*iwfpb.InterpreterWorkflowOutput, error) {
 	return iw.workflow.StartEngineFlow(
 		interfaces.NewUnifiedContext(ctx),
-		newTemporalWorkflowProvider(iw.Engine),
+		newTemporalWorkflowProvider(),
 		input,
 	)
 }
@@ -43,7 +43,7 @@ func (iw *InterpreterWorker) Engine(
 func (iw *InterpreterWorker) BlobStoreCleanup(ctx workflow.Context, storeId string) (int, error) {
 	return iw.workflow.BlobStoreCleanup(
 		interfaces.NewUnifiedContext(ctx),
-		newTemporalWorkflowProvider(iw.Engine),
+		newTemporalWorkflowProvider(),
 		storeId,
 	)
 }

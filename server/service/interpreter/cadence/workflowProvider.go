@@ -34,20 +34,16 @@ import (
 )
 
 type workflowProvider struct {
-	interpreterWorkflow interface{}
-	threadCount         int
-	pendingThreadNames  map[string]int
+	threadCount        int
+	pendingThreadNames map[string]int
+	it                 InterpreterWorker
 }
 
 var _ interfaces.WorkflowProvider = (*workflowProvider)(nil)
 
-func newCadenceWorkflowProvider(interpreterWorkflow interface{}) interfaces.WorkflowProvider {
-	if interpreterWorkflow == nil {
-		panic("workflowProvider requires an interpreter workflow")
-	}
+func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 	return &workflowProvider{
-		interpreterWorkflow: interpreterWorkflow,
-		pendingThreadNames:  map[string]int{},
+		pendingThreadNames: map[string]int{},
 	}
 }
 
@@ -67,7 +63,7 @@ func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	if !ok {
 		panic("cannot convert to cadence workflow context")
 	}
-	return workflow.NewContinueAsNewError(wfCtx, w.interpreterWorkflow, input)
+	return workflow.NewContinueAsNewError(wfCtx, w.it.Engine, input)
 }
 
 func (w *workflowProvider) UpsertSearchAttributes(

@@ -32,7 +32,7 @@ func (iw *InterpreterWorker) Engine(
 ) (*iwfpb.InterpreterWorkflowOutput, error) {
 	return iw.workflow.StartEngineFlow(
 		interfaces.NewUnifiedContext(ctx),
-		newCadenceWorkflowProvider(iw.Engine),
+		newCadenceWorkflowProvider(),
 		input,
 	)
 }
@@ -40,7 +40,7 @@ func (iw *InterpreterWorker) Engine(
 func (iw *InterpreterWorker) BlobStoreCleanup(ctx workflow.Context, storeId string) (int, error) {
 	return iw.workflow.BlobStoreCleanup(
 		interfaces.NewUnifiedContext(ctx),
-		newCadenceWorkflowProvider(iw.Engine),
+		newCadenceWorkflowProvider(),
 		storeId,
 	)
 }
