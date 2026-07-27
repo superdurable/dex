@@ -229,23 +229,23 @@ func start(c *cli.Context) {
 }
 
 func launchTemporalService(
-	svcName string, config config.Config, unifiedClient uclient.UnifiedClient, temporalClient client.Client,
+	svcName string, cfg config.Config, unifiedClient uclient.UnifiedClient, temporalClient client.Client,
 	dataConverter converter.DataConverter, logger log.Logger, metrics client.MetricsHandler,
 ) {
-	s3Client := CreateS3Client(config, context.Background())
+	s3Client := CreateS3Client(cfg, context.Background())
 	blobStore := blobstore.NewBlobStore(
 		s3Client,
-		config.Interpreter.Temporal.Namespace,
-		config.ExternalStorage,
+		cfg.Interpreter.Temporal.Namespace,
+		cfg.ExternalStorage,
 		logger,
 		metrics,
 	)
 	switch svcName {
 	case serviceAPI:
 		svc := api.NewServer(
-			&config.Api,
-			&config.ExternalStorage,
-			&config.Interpreter,
+			&cfg.Api,
+			&cfg.ExternalStorage,
+			&cfg.Interpreter,
 			unifiedClient,
 			logger.WithTags(tag.Service(svcName)),
 			blobStore,
@@ -256,10 +256,7 @@ func launchTemporalService(
 		rawLog.Fatal(svc.Run())
 	case serviceInterpreter:
 		interpreter := temporal.NewInterpreterWorker(
-			&config.Api,
-			&config.ExternalStorage,
-			&config.Interpreter,
-			config.Interpreter.Temporal,
+			&cfg,
 			temporalClient,
 			isvc.TaskQueue,
 			dataConverter,
@@ -274,7 +271,7 @@ func launchTemporalService(
 
 func launchCadenceService(
 	svcName string,
-	config config.Config,
+	cfg config.Config,
 	unifiedClient uclient.UnifiedClient,
 	service workflowserviceclient.Interface,
 	domain string,
@@ -282,20 +279,20 @@ func launchCadenceService(
 	dataConverter encoded.DataConverter,
 	logger log.Logger,
 ) {
-	s3Client := CreateS3Client(config, context.Background())
+	s3Client := CreateS3Client(cfg, context.Background())
 	blobStore := blobstore.NewBlobStore(
 		s3Client,
-		config.Interpreter.Cadence.Domain,
-		config.ExternalStorage,
+		cfg.Interpreter.Cadence.Domain,
+		cfg.ExternalStorage,
 		logger,
 		client.MetricsNopHandler,
 	)
 	switch svcName {
 	case serviceAPI:
 		svc := api.NewServer(
-			&config.Api,
-			&config.ExternalStorage,
-			&config.Interpreter,
+			&cfg.Api,
+			&cfg.ExternalStorage,
+			&cfg.Interpreter,
 			unifiedClient,
 			logger.WithTags(tag.Service(svcName)),
 			blobStore,
@@ -306,10 +303,7 @@ func launchCadenceService(
 		rawLog.Fatal(svc.Run())
 	case serviceInterpreter:
 		interpreter := cadence.NewInterpreterWorker(
-			&config.Api,
-			&config.ExternalStorage,
-			&config.Interpreter,
-			config.Interpreter.Cadence,
+			&cfg,
 			service,
 			domain,
 			isvc.TaskQueue,

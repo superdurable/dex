@@ -102,6 +102,7 @@ func (iw *InterpreterWorker) Close() {
 	iw.temporalClient.Close()
 }
 
+// StartWithStickyCacheDisabledForTest can harm performance; should not be used in production environment
 func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() {
 	iw.start(true)
 }

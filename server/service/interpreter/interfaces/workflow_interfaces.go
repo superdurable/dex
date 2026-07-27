@@ -92,18 +92,9 @@ type TimerProcessor interface {
 	Dump() []*iwfpb.StaleSkipTimer
 	SkipTimer(stepExeId string, timerConditionId string, timerIdx int) bool
 	RetryStaleSkipTimer() bool
-	WaitForTimerFiredOrSkipped(
-		ctx UnifiedContext,
-		stepExeId string,
-		timerIdx int,
-		cancelWaiting *bool,
-	) iwfpb.InternalTimerStatus
+	WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) iwfpb.InternalTimerStatus
 	RemovePendingTimersOfStep(stepExeId string)
-	AddTimers(
-		stepExeId string,
-		timerConditions []*iwfpb.TimerCondition,
-		completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
-	)
+	AddTimers(stepExeId string, timerConditions []*iwfpb.TimerCondition, completedTimerConditions map[int32]iwfpb.InternalTimerStatus)
 	GetTimerInfos() map[string][]*iwfpb.TimerInfo
 	GetTimerStartedUnixTimestamps() []int64
 }

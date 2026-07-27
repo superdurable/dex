@@ -47,7 +47,7 @@ type InterpreterWorker struct {
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
 	workflow       *interpreter.Interpreter
-	config         *config.Config
+	cfg            *config.Config
 	dataConverter  encoded.DataConverter
 }
 
@@ -79,11 +79,9 @@ func NewInterpreterWorker(
 		unifiedClient,
 		store,
 		eventHandler,
-		apiCfg,
-		externalCfg,
-		&interpreterCfg.InterpreterActivityConfig,
+		cfg,
 	)
-	workflowInterpreter := interpreter.NewInterpreter(sharedConfig, activities)
+	workflowInterpreter := interpreter.NewInterpreter(cfg, activities)
 	return &InterpreterWorker{
 		service:        serviceClient,
 		domain:         domain,
@@ -94,9 +92,7 @@ func NewInterpreterWorker(
 		unifiedClient:  unifiedClient,
 		activities:     activities,
 		workflow:       workflowInterpreter,
-		cadenceCfg:     cadenceCfg,
-		interpreterCfg: interpreterCfg,
-		externalCfg:    externalCfg,
+		cfg:            cfg,
 		dataConverter:  dataConverter,
 	}
 }
@@ -114,19 +110,20 @@ func (iw *InterpreterWorker) Close() {
 	iw.closeFunc()
 }
 
+// StartWithStickyCacheDisabledForTest can harm performance; should not be used in production environment
 func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() {
-	iw.start(true)
+	iw.doStart(true)
 }
 
 func (iw *InterpreterWorker) Start() {
-	iw.start(false)
+	iw.doStart(false)
 }
 
-func (iw *InterpreterWorker) start(disableStickyCache bool) {
+func (iw *InterpreterWorker) doStart(disableStickyCache bool) {
 	var options worker.Options
 
-	if iw.cadenceCfg.WorkerOptions != nil {
-		options = *iw.cadenceCfg.WorkerOptions
+	if iw.cfg.Interpreter.Cadence.WorkerOptions != nil {
+		options = *iw.cfg.Interpreter.Cadence.WorkerOptions
 	}
 	options.DataConverter = iw.dataConverter
 
@@ -143,7 +140,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	}
 
 	iw.worker = worker.New(iw.service, iw.domain, iw.tasklist, options)
-	worker.EnableVerboseLogging(iw.interpreterCfg.VerboseDebug)
+	worker.EnableVerboseLogging(iw.cfg.Interpreter.VerboseDebug)
 
 	iw.worker.RegisterWorkflow(iw.Engine)
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
@@ -158,8 +155,8 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 		log.Fatalln("Unable to start worker", err)
 	}
 
-	if iw.externalCfg.Enabled {
-		for _, storeCfg := range iw.externalCfg.SupportedStorages {
+	if iw.cfg.ExternalStorage.Enabled {
+		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
 			if storeCfg.CleanupCronSchedule != "" {
 				err = iw.unifiedClient.StartBlobStoreCleanupWorkflow(
 					context.Background(), iw.tasklist,
