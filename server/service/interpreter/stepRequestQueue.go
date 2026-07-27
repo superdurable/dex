@@ -32,19 +32,24 @@ func NewStepRequestQueue() *StepRequestQueue {
 
 func NewStepRequestQueueWithResumeRequests(
 	startReqs []*iwfpb.StepMovement,
-	resumeReqs map[string]*iwfpb.StepExecutionResumeInfo,
+	resumeReqs []*iwfpb.StepExecutionResumeInfo,
 ) *StepRequestQueue {
 	var queue []StepRequest
 	for _, request := range startReqs {
 		queue = append(queue, NewStepStartRequest(request))
 	}
 
-	for _, stepExecutionId := range DeterministicKeys(resumeReqs) {
-		request := resumeReqs[stepExecutionId]
-		if request.GetStepExecutionId() != stepExecutionId {
-			panic("resume map key does not match step execution ID")
+	resumeReqsById := make(map[string]StepRequest, len(resumeReqs))
+	for _, request := range resumeReqs {
+		stepRequest := NewStepResumeRequest(request)
+		stepExecutionId := request.GetStepExecutionId()
+		if _, ok := resumeReqsById[stepExecutionId]; ok {
+			panic("duplicate step execution ID in resume requests")
 		}
-		queue = append(queue, NewStepResumeRequest(request))
+		resumeReqsById[stepExecutionId] = stepRequest
+	}
+	for _, stepExecutionId := range DeterministicKeys(resumeReqsById) {
+		queue = append(queue, resumeReqsById[stepExecutionId])
 	}
 	return &StepRequestQueue{queue: queue}
 }

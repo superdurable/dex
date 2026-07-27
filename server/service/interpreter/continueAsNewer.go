@@ -160,12 +160,19 @@ func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
 	for key, value := range c.stepRequestQueue.GetAllStepResumeRequests() {
 		localStepExecutionToResumeMap[key] = value
 	}
+	var stepExecutionsToResume []*iwfpb.StepExecutionResumeInfo
+	for _, key := range DeterministicKeys(localStepExecutionToResumeMap) {
+		stepExecutionsToResume = append(
+			stepExecutionsToResume,
+			localStepExecutionToResumeMap[key],
+		)
+	}
 	return &iwfpb.ContinueAsNewDump{
 		ChannelReceived:           c.channelStore.GetAllReceived(),
 		CounterInfo:               c.stepExecutionCounter.Dump(),
 		Attributes:                c.persistenceManager.GetAllAttributes(),
 		StepsToStartFromBeginning: c.stepRequestQueue.GetAllStepStartRequests(),
-		StepExecutionsToResume:    localStepExecutionToResumeMap,
+		StepExecutionsToResume:    stepExecutionsToResume,
 		StepOutputs:               c.outputCollector.GetAll(),
 		StaleSkipTimers:           c.timerProcessor.Dump(),
 	}

@@ -40,10 +40,7 @@ func TestNewStepRequestQueueWithResumeRequestsUsesStableResumeOrder(t *testing.T
 
 	queue := NewStepRequestQueueWithResumeRequests(
 		[]*iwfpb.StepMovement{start},
-		map[string]*iwfpb.StepExecutionResumeInfo{
-			"resume-b-1": resumeB,
-			"resume-a-1": resumeA,
-		},
+		[]*iwfpb.StepExecutionResumeInfo{resumeB, resumeA},
 	)
 	requests := queue.TakeAll()
 	require.Equal(t, []string{"start", "resume-a", "resume-b"}, []string{
@@ -64,7 +61,7 @@ func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
 	}
 	queue := NewStepRequestQueueWithResumeRequests(
 		nil,
-		map[string]*iwfpb.StepExecutionResumeInfo{"resume-1": resume},
+		[]*iwfpb.StepExecutionResumeInfo{resume},
 	)
 
 	queue.AddStepStartRequests([]*iwfpb.StepMovement{start})
@@ -86,11 +83,13 @@ func TestStepRequestRejectsInvalidResumeInfo(t *testing.T) {
 		NewStepResumeRequest(&iwfpb.StepExecutionResumeInfo{})
 	})
 	require.Panics(t, func() {
-		NewStepRequestQueueWithResumeRequests(nil, map[string]*iwfpb.StepExecutionResumeInfo{
-			"map-id": {
-				StepExecutionId: "different-id",
-				Step:            &iwfpb.StepMovement{StepType: "step"},
-			},
-		})
+		resume := &iwfpb.StepExecutionResumeInfo{
+			StepExecutionId: "duplicate-id",
+			Step:            &iwfpb.StepMovement{StepType: "step"},
+		}
+		NewStepRequestQueueWithResumeRequests(
+			nil,
+			[]*iwfpb.StepExecutionResumeInfo{resume, resume},
+		)
 	})
 }

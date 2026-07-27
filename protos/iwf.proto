@@ -645,7 +645,7 @@ message StaleSkipTimer {
 
 message ContinueAsNewDump {
   repeated StepMovement steps_to_start_from_beginning = 1;
-  map<string, StepExecutionResumeInfo> step_executions_to_resume = 2;
+  repeated StepExecutionResumeInfo step_executions_to_resume = 2;
   map<string, ChannelValues> channel_received = 3;
   StepExecutionCounterInfo counter_info = 4;
   repeated StepCompletionOutput step_outputs = 5;
