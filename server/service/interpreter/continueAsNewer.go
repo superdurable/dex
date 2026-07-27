@@ -33,8 +33,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const continueAsNewPageEnvelopeHeadroomBytes = 1024
-
 type ContinueAsNewer struct {
 	provider interfaces.WorkflowProvider
 	apiCfg   *config.ApiConfig
@@ -62,10 +60,6 @@ func NewContinueAsNewer(
 		timerProcessor == nil {
 		panic("ContinueAsNewer requires non-nil dependencies")
 	}
-	grpcMaxMessageLen := apiCfg.EffectiveGrpcMaxMessageBytes()
-	if grpcMaxMessageLen <= continueAsNewPageEnvelopeHeadroomBytes {
-		panic("ContinueAsNewer requires a usable gRPC message limit")
-	}
 	return &ContinueAsNewer{
 		provider: provider,
 		apiCfg:   apiCfg,
@@ -81,7 +75,7 @@ func NewContinueAsNewer(
 	}
 }
 
-func (i *Interpreter) loadInternalsFromPreviousRun(
+func (i *Interpreter) LoadInternalsFromPreviousRun(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	previousRunId string,
@@ -151,7 +145,9 @@ func (i *Interpreter) loadInternalsFromPreviousRun(
 
 	var resp iwfpb.ContinueAsNewDump
 	if err := proto.Unmarshal(wholeData, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal continue-as-new dump: %w", err)
+		return nil, provider.NewApplicationError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+			fmt.Errorf("unmarshal continue-as-new dump: %w", err))
 	}
 	return &resp, nil
 }
@@ -190,8 +186,7 @@ func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 			if request.GetPageSizeInBytes() > 0 {
 				pageSize = request.GetPageSizeInBytes()
 			}
-			maxPageSize := c.apiCfg.EffectiveGrpcMaxMessageBytes() -
-				continueAsNewPageEnvelopeHeadroomBytes
+			maxPageSize := c.apiCfg.EffectiveGrpcMaxMessageBytes()
 			if int(pageSize) > maxPageSize {
 				return nil, fmt.Errorf("page size must be at most %d bytes", maxPageSize)
 			}

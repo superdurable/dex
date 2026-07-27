@@ -105,7 +105,7 @@ func (i *Interpreter) StartEngineFlow(
 	var outputCollector *OutputCollector
 	var continueAsNewer *ContinueAsNewer
 	if input.GetIsResumeFromContinueAsNew() {
-		previous, err := i.loadInternalsFromPreviousRun(
+		previous, err := i.LoadInternalsFromPreviousRun(
 			ctx,
 			provider,
 			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
