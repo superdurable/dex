@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/superdurable/iwf/config"
+	"github.com/superdurable/iwf/service/interpreter/cadence"
 
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/ptr"
@@ -36,7 +37,6 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	uclient "github.com/superdurable/iwf/service/client"
 	"github.com/superdurable/iwf/service/common/index"
-	"github.com/superdurable/iwf/service/interpreter/cadence"
 	realcadence "go.uber.org/cadence"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/.gen/go/shared"
@@ -52,6 +52,7 @@ type cadenceClient struct {
 	serviceClient                  workflowserviceclient.Interface
 	converter                      encoded.DataConverter
 	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
+	it                             *cadence.InterpreterWorker
 }
 
 func (t *cadenceClient) IsWorkflowAlreadyStartedError(err error) bool {
@@ -187,7 +188,7 @@ func (t *cadenceClient) StartInterpreterWorkflow(
 		workflowOptions.DelayStart = *options.WorkflowStartDelay
 	}
 
-	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, service.InterpreterWorkflowName, args...)
+	run, err := t.cClient.StartWorkflow(ctx, workflowOptions, t.it.Engine, args...)
 	if err != nil {
 		return "", err
 	}
@@ -205,7 +206,7 @@ func (t *cadenceClient) StartBlobStoreCleanupWorkflow(
 		CronSchedule:                 cronSchedule,
 	}
 
-	_, err := t.cClient.StartWorkflow(ctx, workflowOptions, cadence.BlobStoreCleanup, storeId)
+	_, err := t.cClient.StartWorkflow(ctx, workflowOptions, t.it.BlobStoreCleanup, storeId)
 
 	return err
 }

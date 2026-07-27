@@ -26,18 +26,14 @@ import (
 	"log"
 
 	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/service"
 	uclient "github.com/superdurable/iwf/service/client"
 	"github.com/superdurable/iwf/service/common/blobstore"
 	"github.com/superdurable/iwf/service/common/event"
 	"github.com/superdurable/iwf/service/common/workerclient"
 	"github.com/superdurable/iwf/service/interpreter"
-	"github.com/superdurable/iwf/service/interpreter/env"
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
-	"go.temporal.io/sdk/workflow"
 )
 
 type InterpreterWorker struct {
@@ -48,35 +44,26 @@ type InterpreterWorker struct {
 	internalClient *workerclient.InternalService
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
-	temporalCfg    *config.TemporalConfig
-	interpreterCfg *config.Interpreter
-	externalCfg    *config.ExternalStorageConfig
+	workflow       *interpreter.Interpreter
+	cfg            *config.Config
 	dataConverter  converter.DataConverter
 }
 
 func NewInterpreterWorker(
-	apiCfg *config.ApiConfig,
-	externalCfg *config.ExternalStorageConfig,
-	interpreterCfg *config.Interpreter,
-	temporalCfg *config.TemporalConfig,
+	cfg *config.Config,
 	temporalClient client.Client,
 	taskQueue string,
 	dataConverter converter.DataConverter,
 	unifiedClient uclient.UnifiedClient,
 	store blobstore.BlobStore,
 ) *InterpreterWorker {
-	if apiCfg == nil || externalCfg == nil || interpreterCfg == nil || temporalCfg == nil {
+	if cfg == nil {
 		panic("Temporal InterpreterWorker requires non-nil config sections")
 	}
 	if temporalClient == nil || dataConverter == nil || unifiedClient == nil || taskQueue == "" {
 		panic("Temporal InterpreterWorker requires non-nil dependencies and task queue")
 	}
-	env.SetSharedEnv(config.Config{
-		Api:             *apiCfg,
-		Interpreter:     *interpreterCfg,
-		ExternalStorage: *externalCfg,
-	})
-	pool, internal := interpreter.NewWorkerClients(apiCfg, &interpreterCfg.InterpreterActivityConfig)
+	pool, internal := interpreter.NewWorkerClients(cfg)
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
@@ -85,10 +72,9 @@ func NewInterpreterWorker(
 		unifiedClient,
 		store,
 		eventHandler,
-		apiCfg,
-		externalCfg,
-		&interpreterCfg.InterpreterActivityConfig,
+		cfg,
 	)
+	workflowInterpreter := interpreter.NewInterpreter(cfg, activities)
 
 	return &InterpreterWorker{
 		temporalClient: temporalClient,
@@ -97,9 +83,8 @@ func NewInterpreterWorker(
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
-		temporalCfg:    temporalCfg,
-		interpreterCfg: interpreterCfg,
-		externalCfg:    externalCfg,
+		workflow:       workflowInterpreter,
+		cfg:            cfg,
 		dataConverter:  dataConverter,
 	}
 }
@@ -128,8 +113,8 @@ func (iw *InterpreterWorker) Start() {
 func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	var options worker.Options
 
-	if iw.temporalCfg.WorkerOptions != nil {
-		options = *iw.temporalCfg.WorkerOptions
+	if iw.cfg.Interpreter.Temporal.WorkerOptions != nil {
+		options = *iw.cfg.Interpreter.Temporal.WorkerOptions
 	}
 
 	// override default
@@ -150,44 +135,23 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	}
 
 	iw.worker = worker.New(iw.temporalClient, iw.taskQueue, options)
-	worker.EnableVerboseLogging(iw.interpreterCfg.VerboseDebug)
+	worker.EnableVerboseLogging(iw.cfg.Interpreter.VerboseDebug)
 
-	iw.worker.RegisterWorkflowWithOptions(
-		iw.Interpreter,
-		workflow.RegisterOptions{Name: service.InterpreterWorkflowName},
-	)
-	iw.worker.RegisterWorkflowWithOptions(
-		BlobStoreCleanup,
-		workflow.RegisterOptions{Name: service.BlobStoreCleanupWorkflowName},
-	)
-	iw.worker.RegisterActivityWithOptions(
-		iw.activities.InvokeWaitForMethod,
-		activity.RegisterOptions{Name: interpreter.InvokeWaitForMethodActivityName},
-	)
-	iw.worker.RegisterActivityWithOptions(
-		iw.activities.InvokeExecuteMethod,
-		activity.RegisterOptions{Name: interpreter.InvokeExecuteMethodActivityName},
-	)
-	iw.worker.RegisterActivityWithOptions(
-		iw.activities.DumpFlowForContinueAsNew,
-		activity.RegisterOptions{Name: interpreter.DumpFlowForContinueAsNewActivityName},
-	)
-	iw.worker.RegisterActivityWithOptions(
-		iw.activities.InvokeWorkerRPC,
-		activity.RegisterOptions{Name: interpreter.InvokeWorkerRPCActivityName},
-	)
-	iw.worker.RegisterActivityWithOptions(
-		iw.activities.CleanupBlobStore,
-		activity.RegisterOptions{Name: interpreter.CleanupBlobStoreActivityName},
-	)
+	iw.worker.RegisterWorkflow(iw.Engine)
+	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
+	iw.worker.RegisterActivity(iw.activities.InvokeWaitForMethod)
+	iw.worker.RegisterActivity(iw.activities.InvokeExecuteMethod)
+	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
+	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
+	iw.worker.RegisterActivity(iw.activities.CleanupBlobStore)
 
 	err := iw.worker.Start()
 	if err != nil {
 		log.Fatalln("Unable to start worker", err)
 	}
 
-	if iw.externalCfg.Enabled {
-		for _, storeCfg := range iw.externalCfg.SupportedStorages {
+	if iw.cfg.ExternalStorage.Enabled {
+		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
 			if storeCfg.CleanupCronSchedule != "" {
 				err = iw.unifiedClient.StartBlobStoreCleanupWorkflow(
 					context.Background(), iw.taskQueue,

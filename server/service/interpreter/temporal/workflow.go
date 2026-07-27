@@ -22,7 +22,6 @@ package temporal
 
 import (
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"go.temporal.io/sdk/workflow"
 
@@ -30,17 +29,21 @@ import (
 	_ "go.temporal.io/sdk/contrib/tools/workflowcheck/determinism"
 )
 
-func (iw *InterpreterWorker) Interpreter(
+func (iw *InterpreterWorker) Engine(
 	ctx workflow.Context,
 	input *iwfpb.InterpreterWorkflowInput,
 ) (*iwfpb.InterpreterWorkflowOutput, error) {
-	return interpreter.InterpreterImpl(
+	return iw.workflow.StartEngineFlow(
 		interfaces.NewUnifiedContext(ctx),
-		newTemporalWorkflowProvider(),
+		newTemporalWorkflowProvider(iw.Engine),
 		input,
 	)
 }
 
-func BlobStoreCleanup(ctx workflow.Context, storeId string) (int, error) {
-	return interpreter.BlobStoreCleanup(interfaces.NewUnifiedContext(ctx), newTemporalWorkflowProvider(), storeId)
+func (iw *InterpreterWorker) BlobStoreCleanup(ctx workflow.Context, storeId string) (int, error) {
+	return iw.workflow.BlobStoreCleanup(
+		interfaces.NewUnifiedContext(ctx),
+		newTemporalWorkflowProvider(iw.Engine),
+		storeId,
+	)
 }

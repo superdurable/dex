@@ -43,7 +43,7 @@ func InvokeWorkerRpc(
 	req *iwfpb.InvokeRPCRequest,
 	apiMaxSeconds int64,
 	blobStore blobstore.BlobStore,
-	externalStorageConfig config.ExternalStorageConfig,
+	externalStorageConfig *config.ExternalStorageConfig,
 ) (*iwfpb.InvokeWorkerRPCResponse, *errors.ErrorAndStatus, error) {
 	if pool == nil {
 		return nil, nil, fmt.Errorf("worker client pool is nil")

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/superdurable/iwf/config"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
@@ -34,7 +35,22 @@ import (
 	"github.com/superdurable/iwf/service/interpreter/timers"
 )
 
-func InterpreterImpl(
+type Interpreter struct {
+	activities   *Activities
+	sharedConfig *config.Config
+}
+
+func NewInterpreter(sharedConfig *config.Config, activities *Activities) *Interpreter {
+	if sharedConfig == nil || activities == nil {
+		panic("Interpreter requires non-nil dependencies")
+	}
+	return &Interpreter{
+		activities:   activities,
+		sharedConfig: sharedConfig,
+	}
+}
+
+func (i *Interpreter) StartEngineFlow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	input *iwfpb.InterpreterWorkflowInput,
@@ -89,7 +105,7 @@ func InterpreterImpl(
 	var outputCollector *OutputCollector
 	var continueAsNewer *ContinueAsNewer
 	if input.GetIsResumeFromContinueAsNew() {
-		previous, err := LoadInternalsFromPreviousRun(
+		previous, err := i.loadInternalsFromPreviousRun(
 			ctx,
 			provider,
 			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
@@ -133,6 +149,7 @@ func InterpreterImpl(
 		)
 		outputCollector = NewOutputCollector(previous.GetStepOutputs())
 		continueAsNewer = NewContinueAsNewer(
+			&i.sharedConfig.Api,
 			provider,
 			channelStore,
 			stepExecutionCounter,
@@ -170,6 +187,7 @@ func InterpreterImpl(
 		)
 		outputCollector = NewOutputCollector(nil)
 		continueAsNewer = NewContinueAsNewer(
+			&i.sharedConfig.Api,
 			provider,
 			channelStore,
 			stepExecutionCounter,
@@ -181,6 +199,8 @@ func InterpreterImpl(
 	}
 
 	err := NewWorkflowUpdater(
+		&i.sharedConfig.Api,
+		i.activities,
 		ctx,
 		provider,
 		persistenceManager,
@@ -295,7 +315,7 @@ func InterpreterImpl(
 						stepExeId = stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
 					}
 
-					decision, stepExecutionStatus, err := processStepExecution(ctx, provider,
+					decision, stepExecutionStatus, err := i.processStepExecution(ctx, provider,
 						basicInfo,
 						stepRequest,
 						stepExeId,
@@ -546,7 +566,7 @@ func checkClosingFlow(
 	return
 }
 
-func processStepExecution(
+func (i *Interpreter) processStepExecution(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	basicInfo service.BasicInfo,
@@ -574,7 +594,7 @@ func processStepExecution(
 			completedTimerConditions = completed.GetCompletedTimerConditions()
 		}
 	} else if !step.GetStepOptions().GetSkipWaitFor() {
-		waitForResponse, proceed, failed, err := invokeWaitForMethod(
+		waitForResponse, proceed, failed, err := i.invokeWaitForMethod(
 			ctx,
 			provider,
 			basicInfo,
@@ -635,7 +655,7 @@ func processStepExecution(
 		conditionResults.WaitForFailed = waitForFailed
 	}
 
-	executeResponse, executeFailureDecision, err := invokeExecuteMethod(
+	executeResponse, executeFailureDecision, err := i.invokeExecuteMethod(
 		ctx,
 		provider,
 		basicInfo,
@@ -667,7 +687,7 @@ func processStepExecution(
 	return executeResponse.GetStepDecision(), service.CompletedStepExecutionStatus, nil
 }
 
-func invokeWaitForMethod(
+func (i *Interpreter) invokeWaitForMethod(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	basicInfo service.BasicInfo,
@@ -690,7 +710,7 @@ func invokeWaitForMethod(
 		&output,
 		flowConfiger.ResolveWaitForDurability(step.GetStepOptions()),
 		stepActivityContext(ctx, provider, step.GetStepOptions(), true),
-		InvokeWaitForMethodActivityName,
+		i.activities.InvokeWaitForMethod,
 		&iwfpb.InvokeWaitForMethodActivityInput{
 			WorkerTarget: basicInfo.WorkerTarget,
 			Request: &iwfpb.InvokeWaitForMethodRequest{
@@ -909,7 +929,7 @@ func isCompletedTimerStatus(status iwfpb.InternalTimerStatus) bool {
 		status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 }
 
-func invokeExecuteMethod(
+func (i *Interpreter) invokeExecuteMethod(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	basicInfo service.BasicInfo,
@@ -938,7 +958,7 @@ func invokeExecuteMethod(
 		&output,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		stepActivityContext(ctx, provider, step.GetStepOptions(), false),
-		InvokeExecuteMethodActivityName,
+		i.activities.InvokeExecuteMethod,
 		&iwfpb.InvokeExecuteMethodActivityInput{
 			WorkerTarget: basicInfo.WorkerTarget,
 			Request: &iwfpb.InvokeExecuteMethodRequest{
@@ -1064,7 +1084,7 @@ func newStepContext(
 	}
 }
 
-func BlobStoreCleanup(
+func (i *Interpreter) BlobStoreCleanup(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	storeId string,
@@ -1078,7 +1098,7 @@ func BlobStoreCleanup(
 		&output,
 		iwfpb.StepDurability_STEP_DURABILITY_SYNC,
 		activityCtx,
-		CleanupBlobStoreActivityName,
+		i.activities.CleanupBlobStore,
 		&iwfpb.CleanupBlobStoreActivityInput{
 			StoreId: storeId,
 		},

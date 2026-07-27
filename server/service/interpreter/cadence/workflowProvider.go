@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/retry"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"go.uber.org/cadence"
@@ -35,15 +34,20 @@ import (
 )
 
 type workflowProvider struct {
-	threadCount        int
-	pendingThreadNames map[string]int
+	interpreterWorkflow interface{}
+	threadCount         int
+	pendingThreadNames  map[string]int
 }
 
 var _ interfaces.WorkflowProvider = (*workflowProvider)(nil)
 
-func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
+func newCadenceWorkflowProvider(interpreterWorkflow interface{}) interfaces.WorkflowProvider {
+	if interpreterWorkflow == nil {
+		panic("workflowProvider requires an interpreter workflow")
+	}
 	return &workflowProvider{
-		pendingThreadNames: map[string]int{},
+		interpreterWorkflow: interpreterWorkflow,
+		pendingThreadNames:  map[string]int{},
 	}
 }
 
@@ -63,7 +67,7 @@ func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	if !ok {
 		panic("cannot convert to cadence workflow context")
 	}
-	return workflow.NewContinueAsNewError(wfCtx, service.InterpreterWorkflowName, input)
+	return workflow.NewContinueAsNewError(wfCtx, w.interpreterWorkflow, input)
 }
 
 func (w *workflowProvider) UpsertSearchAttributes(

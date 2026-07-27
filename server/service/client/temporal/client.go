@@ -50,6 +50,7 @@ type temporalClient struct {
 	dataConverter                  converter.DataConverter
 	memoEncryption                 bool // this is a workaround for https://github.com/temporalio/sdk-go/issues/1045
 	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
+	it                             *temporal.InterpreterWorker
 }
 
 func NewTemporalClient(
@@ -206,7 +207,7 @@ func (t *temporalClient) StartInterpreterWorkflow(
 			Action: &client.ScheduleWorkflowAction{
 				ID:                       workflowOptions.ID,
 				TaskQueue:                workflowOptions.TaskQueue,
-				Workflow:                 service.InterpreterWorkflowName,
+				Workflow:                 t.it.Engine,
 				Args:                     args,
 				WorkflowExecutionTimeout: workflowOptions.WorkflowExecutionTimeout,
 				RetryPolicy:              workflowOptions.RetryPolicy,
@@ -222,7 +223,7 @@ func (t *temporalClient) StartInterpreterWorkflow(
 		workflowOptions.StartDelay = *options.WorkflowStartDelay
 	}
 
-	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, service.InterpreterWorkflowName, args...)
+	run, err := t.tClient.ExecuteWorkflow(ctx, workflowOptions, t.it.Engine, args...)
 	if err != nil {
 		return "", err
 	}
@@ -237,7 +238,7 @@ func (t *temporalClient) StartBlobStoreCleanupWorkflow(
 		_, err := t.tClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 			ID:        workflowID,
 			TaskQueue: taskQueue,
-		}, temporal.BlobStoreCleanup, storeId)
+		}, t.it.BlobStoreCleanup, storeId)
 		return err
 	}
 
@@ -249,7 +250,7 @@ func (t *temporalClient) StartBlobStoreCleanupWorkflow(
 		Action: &client.ScheduleWorkflowAction{
 			ID:                       workflowID,
 			TaskQueue:                taskQueue,
-			Workflow:                 temporal.BlobStoreCleanup,
+			Workflow:                 t.it.BlobStoreCleanup,
 			Args:                     []interface{}{storeId},
 			WorkflowExecutionTimeout: 0,
 		},

@@ -39,14 +39,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const (
-	InvokeWaitForMethodActivityName      = "InvokeWaitForMethod"
-	InvokeExecuteMethodActivityName      = "InvokeExecuteMethod"
-	DumpFlowForContinueAsNewActivityName = "DumpFlowForContinueAsNew"
-	InvokeWorkerRPCActivityName          = "InvokeWorkerRpcActivity"
-	CleanupBlobStoreActivityName         = "CleanupBlobStore"
-)
-
 type Activities struct {
 	activityProvider interfaces.ActivityProvider
 	workerPool       *workerclient.Pool
@@ -54,9 +46,7 @@ type Activities struct {
 	unifiedClient    uclient.UnifiedClient
 	blobStore        blobstore.BlobStore
 	eventHandler     event.HandleEventFunc
-	apiCfg           *config.ApiConfig
-	externalCfg      *config.ExternalStorageConfig
-	activityCfg      *config.InterpreterActivityConfig
+	cfg              *config.Config
 }
 
 func NewActivities(
@@ -66,19 +56,14 @@ func NewActivities(
 	unifiedClient uclient.UnifiedClient,
 	blobStore blobstore.BlobStore,
 	eventHandler event.HandleEventFunc,
-	apiCfg *config.ApiConfig,
-	externalCfg *config.ExternalStorageConfig,
-	activityCfg *config.InterpreterActivityConfig,
+	cfg *config.Config,
 ) *Activities {
 	if activityProvider == nil || workerPool == nil || internalClient == nil ||
 		unifiedClient == nil || eventHandler == nil {
 		panic("Activities requires non-nil dependencies")
 	}
-	if apiCfg == nil || externalCfg == nil || activityCfg == nil {
+	if cfg == nil {
 		panic("Activities requires non-nil config sections")
-	}
-	if externalCfg.Enabled && blobStore == nil {
-		panic("Activities requires blob storage when external storage is enabled")
 	}
 	return &Activities{
 		activityProvider: activityProvider,
@@ -87,9 +72,7 @@ func NewActivities(
 		unifiedClient:    unifiedClient,
 		blobStore:        blobStore,
 		eventHandler:     eventHandler,
-		apiCfg:           apiCfg,
-		externalCfg:      externalCfg,
-		activityCfg:      activityCfg,
+		cfg:              cfg,
 	}
 }
 
@@ -269,9 +252,9 @@ func (a *Activities) InvokeWorkerRPC(
 		a.workerPool,
 		input.GetRpcPrep(),
 		input.GetRequest(),
-		a.apiCfg.EffectiveMaxWaitSeconds(),
+		a.cfg.Api.EffectiveMaxWaitSeconds(),
 		a.blobStore,
-		*a.externalCfg,
+		&a.cfg.ExternalStorage,
 	)
 	if err != nil {
 		if isTransientWorkerError(err) && activityInfo.Attempt < maxWorkerRpcActivityAttempts {
@@ -292,7 +275,7 @@ func (a *Activities) InvokeWorkerRPC(
 	out := &iwfpb.InvokeWorkerRPCActivityOutput{Response: resp}
 	if activityInfo.IsLocalActivity {
 		payload := log.ToJsonAndTruncateForLogging(out)
-		if threshold := a.activityCfg.LogLocalActivityThresholdBytes; threshold > 0 && len(payload) >= threshold {
+		if threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes; threshold > 0 && len(payload) >= threshold {
 			logger.Warn("InvokeWorkerRpc local activity return",
 				"workflowId", activityInfo.WorkflowExecution.ID,
 				"payloadSize", len(payload))
@@ -363,18 +346,18 @@ func (a *Activities) hydrateWorkerRequestValues(
 func (a *Activities) offloadWorkerAttributeWrites(
 	ctx context.Context, writes []*iwfpb.AttributeWrite, flowId string,
 ) error {
-	if !a.externalCfg.Enabled || a.blobStore == nil {
+	if !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
 	}
 	return blobstore.OffloadLargeAttributeWrites(
-		ctx, writes, flowId, a.externalCfg.ThresholdInBytes, a.blobStore, true,
+		ctx, writes, flowId, a.cfg.ExternalStorage.ThresholdInBytes, a.blobStore, true,
 	)
 }
 
 func (a *Activities) offloadNextStepInputs(
 	ctx context.Context, decision *iwfpb.StepDecision, flowId string,
 ) error {
-	if decision == nil || !a.externalCfg.Enabled || a.blobStore == nil {
+	if decision == nil || !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
 	}
 	for _, step := range decision.GetNextSteps() {
@@ -400,7 +383,7 @@ func (a *Activities) offloadStepInput(
 		ctx,
 		stepInput,
 		flowId,
-		a.externalCfg.ThresholdInBytes,
+		a.cfg.ExternalStorage.ThresholdInBytes,
 		a.blobStore,
 		true,
 	)
@@ -715,7 +698,7 @@ func (a *Activities) logLocalActivityWarn(
 	logger interfaces.UnifiedLogger,
 	activityInfo interfaces.ActivityInfo, name, stepExeId string, err error,
 ) {
-	if !activityInfo.IsLocalActivity || a.activityCfg.LogLocalActivityThresholdBytes <= 0 {
+	if !activityInfo.IsLocalActivity || a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes <= 0 {
 		return
 	}
 	logger.Warn(name+" local activity return on error",

@@ -31,9 +31,6 @@ const (
 
 	TaskQueue = "Interpreter_DEFAULT"
 
-	InterpreterWorkflowName      = "Interpreter"
-	BlobStoreCleanupWorkflowName = "BlobStoreCleanup"
-
 	GetAttributesWorkflowQueryType   = "GetAttributes"
 	GetCurrentTimerInfosQueryType    = "GetCurrentTimerInfos"
 	ContinueAsNewDumpByPageQueryType = "ContinueAsNewDumpByPage"

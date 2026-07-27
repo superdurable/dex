@@ -28,24 +28,23 @@ import (
 )
 
 // NewWorkerClients builds activity clients.
-func NewWorkerClients(
-	apiCfg *config.ApiConfig,
-	activityCfg *config.InterpreterActivityConfig,
-) (*workerclient.Pool, *workerclient.InternalService) {
-	if apiCfg == nil || activityCfg == nil {
+func NewWorkerClients(cfg *config.Config) (*workerclient.Pool, *workerclient.InternalService) {
+	if cfg == nil {
 		panic("NewWorkerClients requires non-nil config sections")
 	}
 	poolCfg := workerclient.Config{
-		IdleTimeout:     activityCfg.EffectiveWorkerConnectionIdleTimeout(),
-		MaxConnections:  activityCfg.EffectiveMaxWorkerConnections(),
-		MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes(),
-		DefaultHeaders:  activityCfg.DefaultHeaders,
+		IdleTimeout:     cfg.Interpreter.InterpreterActivityConfig.EffectiveWorkerConnectionIdleTimeout(),
+		MaxConnections:  cfg.Interpreter.InterpreterActivityConfig.EffectiveMaxWorkerConnections(),
+		MaxMessageBytes: cfg.Api.EffectiveGrpcMaxMessageBytes(),
+		DefaultHeaders:  cfg.Interpreter.InterpreterActivityConfig.DefaultHeaders,
 	}
 	pool, err := workerclient.NewPool(poolCfg, nil)
 	if err != nil {
 		panic(fmt.Sprintf("create worker client pool: %v", err))
 	}
-	internalService, err := workerclient.NewInternalService(internalServiceTarget(apiCfg, activityCfg), poolCfg, nil)
+	internalService, err := workerclient.NewInternalService(
+		internalServiceTarget(&cfg.Api, &cfg.Interpreter.InterpreterActivityConfig),
+		poolCfg, nil)
 	if err != nil {
 		pool.Close()
 		panic(fmt.Sprintf("create internal service client: %v", err))

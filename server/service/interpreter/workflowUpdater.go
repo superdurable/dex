@@ -25,18 +25,20 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/superdurable/iwf/config"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/event"
 	"github.com/superdurable/iwf/service/common/utils"
 	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/env"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type WorkflowUpdater struct {
+	activities           *Activities
+	apiCfg               *config.ApiConfig
 	ctx                  interfaces.UnifiedContext
 	persistenceManager   *PersistenceManager
 	provider             interfaces.WorkflowProvider
@@ -66,6 +68,8 @@ type attributeWait struct {
 }
 
 func NewWorkflowUpdater(
+	apiCfg *config.ApiConfig,
+	activities *Activities,
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	persistenceManager *PersistenceManager,
@@ -77,13 +81,16 @@ func NewWorkflowUpdater(
 	stepExecutionCounter *StepExecutionCounter,
 	basicInfo service.BasicInfo,
 ) error {
-	if provider == nil || persistenceManager == nil || stepRequestQueue == nil ||
+	if apiCfg == nil || activities == nil || provider == nil ||
+		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
 		signalReceiver == nil || stepExecutionCounter == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
+		activities:           activities,
+		apiCfg:               apiCfg,
 		ctx:                  ctx,
 		persistenceManager:   persistenceManager,
 		provider:             provider,
@@ -175,7 +182,7 @@ func (u *WorkflowUpdater) workerRpcHandler(
 	err = u.provider.ExecuteLocalActivity(
 		&activityOutput,
 		ctx,
-		InvokeWorkerRPCActivityName,
+		u.activities.InvokeWorkerRPC,
 		&iwfpb.InvokeWorkerRPCActivityInput{
 			RpcPrep: rpcPrep,
 			Request: input,
@@ -261,7 +268,7 @@ func (u *WorkflowUpdater) workerRpcValidator(
 }
 
 func (u *WorkflowUpdater) effectiveRPCBudget(requestedSeconds int32) time.Duration {
-	maximumSeconds := env.GetSharedConfig().Api.EffectiveMaxWaitSeconds()
+	maximumSeconds := u.apiCfg.EffectiveMaxWaitSeconds()
 	if requestedSeconds > 0 && int64(requestedSeconds) < maximumSeconds {
 		maximumSeconds = int64(requestedSeconds)
 	}
