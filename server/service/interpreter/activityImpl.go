@@ -49,7 +49,6 @@ const (
 
 type Activities struct {
 	activityProvider interfaces.ActivityProvider
-	backendType      service.BackendType
 	workerPool       *workerclient.Pool
 	internalClient   *workerclient.InternalService
 	unifiedClient    uclient.UnifiedClient
@@ -62,7 +61,6 @@ type Activities struct {
 
 func NewActivities(
 	activityProvider interfaces.ActivityProvider,
-	backendType service.BackendType,
 	workerPool *workerclient.Pool,
 	internalClient *workerclient.InternalService,
 	unifiedClient uclient.UnifiedClient,
@@ -84,7 +82,6 @@ func NewActivities(
 	}
 	return &Activities{
 		activityProvider: activityProvider,
-		backendType:      backendType,
 		workerPool:       workerPool,
 		internalClient:   internalClient,
 		unifiedClient:    unifiedClient,
@@ -100,9 +97,6 @@ func NewActivities(
 func (a *Activities) InvokeWaitForMethod(
 	ctx context.Context, input *iwfpb.InvokeWaitForMethodActivityInput,
 ) (*iwfpb.InvokeWaitForMethodActivityOutput, error) {
-	if err := a.validateBackend(input.GetBackendType()); err != nil {
-		return nil, err
-	}
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -168,9 +162,6 @@ func (a *Activities) InvokeWaitForMethod(
 func (a *Activities) InvokeExecuteMethod(
 	ctx context.Context, input *iwfpb.InvokeExecuteMethodActivityInput,
 ) (*iwfpb.InvokeExecuteMethodActivityOutput, error) {
-	if err := a.validateBackend(input.GetBackendType()); err != nil {
-		return nil, err
-	}
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -242,9 +233,6 @@ func (a *Activities) InvokeExecuteMethod(
 func (a *Activities) DumpFlowForContinueAsNew(
 	ctx context.Context, input *iwfpb.DumpFlowForContinueAsNewActivityInput,
 ) (*iwfpb.DumpFlowForContinueAsNewActivityOutput, error) {
-	if err := a.validateBackend(input.GetBackendType()); err != nil {
-		return nil, err
-	}
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("DumpFlowForContinueAsNewActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -271,9 +259,6 @@ const maxWorkerRpcActivityAttempts = 3
 func (a *Activities) InvokeWorkerRPC(
 	ctx context.Context, input *iwfpb.InvokeWorkerRPCActivityInput,
 ) (*iwfpb.InvokeWorkerRPCActivityOutput, error) {
-	if err := a.validateBackend(input.GetBackendType()); err != nil {
-		return nil, err
-	}
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeWorkerRpcActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -320,9 +305,6 @@ func (a *Activities) InvokeWorkerRPC(
 func (a *Activities) CleanupBlobStore(
 	ctx context.Context, input *iwfpb.CleanupBlobStoreActivityInput,
 ) (*iwfpb.CleanupBlobStoreActivityOutput, error) {
-	if err := a.validateBackend(input.GetBackendType()); err != nil {
-		return nil, err
-	}
 	store := a.blobStore
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
@@ -367,28 +349,6 @@ func (a *Activities) CleanupBlobStore(
 	}
 	logger.Info("CleanupBlobStore completed", "totalDeleted", totalDeleted)
 	return &iwfpb.CleanupBlobStoreActivityOutput{TotalDeleted: totalDeleted}, nil
-}
-
-func (a *Activities) validateBackend(protoBackend iwfpb.BackendType) error {
-	backendType, err := backendTypeFromProto(protoBackend)
-	if err != nil {
-		return err
-	}
-	if backendType != a.backendType {
-		return fmt.Errorf("activity backend %q does not match worker backend %q", backendType, a.backendType)
-	}
-	return nil
-}
-
-func backendTypeFromProto(protoBackend iwfpb.BackendType) (service.BackendType, error) {
-	switch protoBackend {
-	case iwfpb.BackendType_BACKEND_TYPE_CADENCE:
-		return service.BackendTypeCadence, nil
-	case iwfpb.BackendType_BACKEND_TYPE_TEMPORAL:
-		return service.BackendTypeTemporal, nil
-	default:
-		return "", fmt.Errorf("unsupported backend type %v", protoBackend)
-	}
 }
 
 func (a *Activities) hydrateWorkerRequestValues(

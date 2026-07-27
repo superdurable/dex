@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 )
 
@@ -47,6 +46,13 @@ func (p *fakeWorkflowProvider) IsApplicationError(error) bool {
 
 func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interfaces.WorkflowInfo {
 	return interfaces.WorkflowInfo{}
+}
+
+func (p *fakeWorkflowProvider) GetSearchAttributeKeywordArray(
+	interfaces.UnifiedContext,
+	string,
+) ([]string, error) {
+	return nil, nil
 }
 
 func (p *fakeWorkflowProvider) UpsertSearchAttributes(
@@ -185,10 +191,6 @@ func (p *fakeWorkflowProvider) GetVersion(
 	int,
 ) int {
 	return 0
-}
-
-func (p *fakeWorkflowProvider) GetBackendType() service.BackendType {
-	return service.BackendTypeTemporal
 }
 
 func (p *fakeWorkflowProvider) GetLogger(

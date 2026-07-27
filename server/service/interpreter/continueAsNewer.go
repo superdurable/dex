@@ -111,7 +111,6 @@ func LoadInternalsFromPreviousRun(
 			ctx,
 			DumpFlowForContinueAsNewActivityName,
 			&iwfpb.DumpFlowForContinueAsNewActivityInput{
-				BackendType: backendTypeToProto(provider.GetBackendType()),
 				Request: &iwfpb.ContinueAsNewDumpRequest{
 					FlowId:          workflowId,
 					RunId:           previousRunId,
@@ -321,15 +320,4 @@ func continueAsNewActivityResponse(
 		)
 	}
 	return output.GetResponse(), nil
-}
-
-func backendTypeToProto(backendType service.BackendType) iwfpb.BackendType {
-	switch backendType {
-	case service.BackendTypeTemporal:
-		return iwfpb.BackendType_BACKEND_TYPE_TEMPORAL
-	case service.BackendTypeCadence:
-		return iwfpb.BackendType_BACKEND_TYPE_CADENCE
-	default:
-		panic(fmt.Sprintf("unsupported backend type %q", backendType))
-	}
 }

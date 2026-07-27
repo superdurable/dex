@@ -80,7 +80,6 @@ func NewInterpreterWorker(
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
-		service.BackendTypeTemporal,
 		pool,
 		internal,
 		unifiedClient,

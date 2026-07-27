@@ -131,12 +131,7 @@ func InterpreterImpl(
 			continueAsNewCounter,
 			previous.GetCounterInfo(),
 		)
-		outputCollector = RebuildOutputCollector(
-			input.GetWaitForCompletionStepTypes(),
-			input.GetWaitForCompletionStepExecutionIds(),
-			previous.GetStepOutputs(),
-			previous.GetStepExecutionsToResume(),
-		)
+		outputCollector = NewOutputCollector(previous.GetStepOutputs())
 		continueAsNewer = NewContinueAsNewer(
 			provider,
 			channelStore,
@@ -173,10 +168,7 @@ func InterpreterImpl(
 			flowConfiger,
 			continueAsNewCounter,
 		)
-		outputCollector = NewOutputCollector(
-			input.GetWaitForCompletionStepTypes(),
-			input.GetWaitForCompletionStepExecutionIds(),
-		)
+		outputCollector = NewOutputCollector(nil)
 		continueAsNewer = NewContinueAsNewer(
 			provider,
 			channelStore,
@@ -197,7 +189,7 @@ func InterpreterImpl(
 		continueAsNewCounter,
 		channelStore,
 		signalReceiver,
-		outputCollector,
+		stepExecutionCounter,
 		basicInfo,
 	)
 	if err != nil {
@@ -225,6 +217,16 @@ func InterpreterImpl(
 	var shouldGracefulComplete bool
 
 	if !input.GetIsResumeFromContinueAsNew() {
+		// it's possible that a flow is started without any starting step
+		// it will wait for a new step coming in (by RPC results)
+		if input.GetStartStepType() != "" {
+			stepRequestQueue.AddSingleStepStartRequest(
+				input.GetStartStepType(),
+				input.GetStepInput(),
+				input.GetStepOptions(),
+			)
+		}
+
 		if !provider.IsReplaying(ctx) {
 			info := provider.GetWorkflowInfo(ctx)
 			event.Handle(event.Event{
@@ -236,44 +238,24 @@ func InterpreterImpl(
 				Attributes:         persistenceManager.GetAllAttributes(),
 			})
 		}
-		// it's possible that a flow is started without any starting step
-		// it will wait for a new step coming in (by RPC results)
-		if input.GetStartStepType() != "" {
-			stepRequestQueue.AddSingleStepStartRequest(
-				input.GetStartStepType(),
-				input.GetStepInput(),
-				input.GetStepOptions(),
-			)
-		}
 	}
 
 	for {
-		if err := provider.Await(ctx, func() bool {
-			failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
-			if failFlowByClient {
-				errToFailFlow = failErr
-			}
-			if signalReceiver.IsCompleteFlowRequested() {
-				forceCompleteFlow = true
-			}
-			return !stepRequestQueue.IsEmpty() ||
-				errToFailFlow != nil ||
-				forceCompleteFlow ||
-				shouldGracefulComplete ||
-				continueAsNewCounter.IsThresholdMet()
+		if err = provider.Await(ctx, func() bool {
+			failFlowByClient, _ := signalReceiver.IsFailFlowRequested()
+			return !stepRequestQueue.IsEmpty() || failFlowByClient || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
-		if errToFailFlow != nil || forceCompleteFlow {
-			return &iwfpb.InterpreterWorkflowOutput{
-				StepCompletionOutputs: outputCollector.GetAll(),
-			}, errToFailFlow
+
+		failWorkflowByClient, failErr := signalReceiver.IsFailFlowRequested()
+		if failWorkflowByClient {
+			return nil, failErr
 		}
+
 		// gracefully complete flow when all steps are executed to dead ends
 		if shouldGracefulComplete && stepRequestQueue.IsEmpty() {
-			return &iwfpb.InterpreterWorkflowOutput{
-				StepCompletionOutputs: outputCollector.GetAll(),
-			}, nil
+			break
 		}
 
 		for !stepRequestQueue.IsEmpty() {
@@ -283,125 +265,108 @@ func InterpreterImpl(
 				if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
 					stepsToExecute,
 				); err != nil {
-					errToFailFlow = provider.NewApplicationError(
-						iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
-						err.Error(),
-					)
-					break
+					return nil, err
 				}
 			}
 
 			for _, stepReqForLoopingOnly := range stepsToExecute {
 				// execute in another thread for parallelism
 				// step must be passed via parameter https://stackoverflow.com/questions/67263092
-				stepCtx := provider.ExtendContextWithValue(
-					ctx,
-					"stepRequest",
-					stepReqForLoopingOnly,
-				)
-				provider.GoNamed(
-					stepCtx,
-					"step-execution-thread:"+stepReqForLoopingOnly.GetStepType(),
-					func(ctx interfaces.UnifiedContext) {
-						stepRequest, ok := provider.GetContextValue(
-							ctx,
-							"stepRequest",
-						).(StepRequest)
-						if !ok {
-							errToFailFlow = provider.NewApplicationError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
-								"cannot read step request from workflow context",
-							)
-							return
-						}
-
-						step := stepRequest.GetStepMovement()
-						var stepExecutionId string
-						if stepRequest.IsResumeRequest() {
-							stepExecutionId = stepRequest.GetStepResumeRequest().
-								GetStepExecutionId()
-						} else {
-							stepExecutionId = stepExecutionCounter.
-								CreateNextExecutionId(step.GetStepType())
-						}
-						outputCollector.RegisterStepStarted(
-							step.GetStepType(),
-							stepExecutionId,
+				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
+				provider.GoNamed(stepCtx, "step-execution-thread:"+stepReqForLoopingOnly.GetStepType(), func(ctx interfaces.UnifiedContext) {
+					stepRequest, ok := provider.GetContextValue(
+						ctx,
+						"stepRequest",
+					).(StepRequest)
+					if !ok {
+						errToFailFlow = provider.NewApplicationError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+							"cannot read step request from workflow context",
 						)
+						return
+					}
 
-						decision, stepExecutionStatus, err := processStepExecution(
-							ctx,
-							provider,
-							basicInfo,
-							stepRequest,
-							stepExecutionId,
-							persistenceManager,
-							channelStore,
-							signalReceiver,
-							timerProcessor,
-							continueAsNewer,
-							continueAsNewCounter,
-							flowConfiger,
-						)
-						if err != nil {
-							// this is the case where stepExecutionStatus == FailureStepExecutionStatus
-							errToFailFlow = convertStepApiActivityError(provider, err)
-							// step execution fail should fail the flow, no more processing
-							return
-						}
-						if stepExecutionStatus != service.CompletedStepExecutionStatus {
-							// noop for WaitingConditionsStepExecutionStatus, because it means continueAsNew
-							return
-						}
+					step := stepRequest.GetStepMovement()
+					var stepExeId string
+					if stepRequest.IsResumeRequest() {
+						stepExeId = stepRequest.GetStepResumeRequest().
+							GetStepExecutionId()
+					} else {
+						stepExeId = stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
+					}
 
-						// NOTE: decision is only available on this CompletedStepExecutionStatus
-						canGoNext, gracefulComplete, forceComplete, forceFail,
-							completeOutput, err := checkClosingFlow(
-							ctx,
-							provider,
-							decision,
-							channelStore,
-							signalReceiver,
-						)
-						if err != nil {
-							errToFailFlow = provider.NewApplicationError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE.String(),
-								err.Error(),
-							)
-						}
-						if canGoNext {
-							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
-						}
-						// finally, mark step completed and may also update system search attribute
-						if err := stepExecutionCounter.MarkStepExecutionCompleted(
-							step,
-							decision.GetNextSteps(),
-						); err != nil {
-							errToFailFlow = provider.NewApplicationError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
-								err.Error(),
-							)
-							return
-						}
-						outputCollector.RecordCompletion(
-							step.GetStepType(),
-							stepExecutionId,
-							completeOutput,
-						)
+					decision, stepExecutionStatus, err := processStepExecution(ctx, provider,
+						basicInfo,
+						stepRequest,
+						stepExeId,
+						persistenceManager,
+						channelStore,
+						signalReceiver,
+						timerProcessor,
+						continueAsNewer,
+						continueAsNewCounter,
+						flowConfiger,
+					)
+					if err != nil {
+						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
+						errToFailFlow = convertStepApiActivityError(provider, err)
+						// step execution fail should fail the flow, no more processing
+						return
+					}
+					if stepExecutionStatus != service.CompletedStepExecutionStatus {
+						// noop for WaitingConditionsStepExecutionStatus, because it means continueAsNew
+						return
+					}
 
-						if gracefulComplete {
-							shouldGracefulComplete = true
-						}
-						if forceComplete {
-							forceCompleteFlow = true
-						}
-						if forceFail {
-							errToFailFlow = provider.NewApplicationError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW.String(),
-								"step decision requested flow failure",
-							)
-						}
-					},
+					// NOTE: decision is only available on this CompletedStepExecutionStatus
+					canGoNext, gracefulComplete, forceComplete, forceFail,
+						completeOutput, err := checkClosingFlow(
+						ctx,
+						provider,
+						decision,
+						channelStore,
+						signalReceiver,
+					)
+					if err != nil {
+						errToFailFlow = provider.NewApplicationError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE.String(),
+							err.Error(),
+						)
+					}
+					if canGoNext {
+						stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+					}
+					// finally, mark step completed and may also update system search attribute
+					if err := stepExecutionCounter.MarkStepExecutionCompleted(
+						step,
+						stepExeId,
+						decision.GetNextSteps(),
+					); err != nil {
+						errToFailFlow = provider.NewApplicationError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+							err.Error(),
+						)
+						return
+					}
+					outputCollector.RecordCompletion(
+						step.GetStepType(),
+						stepExeId,
+						completeOutput,
+					)
+
+					if gracefulComplete {
+						shouldGracefulComplete = true
+					}
+					if forceComplete {
+						forceCompleteFlow = true
+					}
+					if forceFail {
+						errToFailFlow = provider.NewApplicationError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW.String(),
+							"step decision requested flow failure",
+						)
+					}
+				},
 				)
 			}
 
@@ -433,6 +398,7 @@ func InterpreterImpl(
 					awaitError = err
 				}
 			}
+
 			if errToFailFlow != nil || forceCompleteFlow {
 				return &iwfpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
@@ -499,7 +465,12 @@ func InterpreterImpl(
 		input.InitAttributes = nil
 		// NOTE: This must be the last thing before continueAsNew!!!
 		return nil, provider.NewInterpreterContinueAsNewError(ctx, input)
-	}
+	} // end main loop
+
+	// gracefully complete workflow when all states are executed to dead ends
+	return &iwfpb.InterpreterWorkflowOutput{
+		StepCompletionOutputs: outputCollector.GetAll(),
+	}, errToFailFlow
 }
 
 func checkClosingFlow(
@@ -721,7 +692,6 @@ func invokeWaitForMethod(
 		stepActivityContext(ctx, provider, step.GetStepOptions(), true),
 		InvokeWaitForMethodActivityName,
 		&iwfpb.InvokeWaitForMethodActivityInput{
-			BackendType:  backendTypeToProto(provider.GetBackendType()),
 			WorkerTarget: basicInfo.WorkerTarget,
 			Request: &iwfpb.InvokeWaitForMethodRequest{
 				Context: newStepContext(
@@ -970,7 +940,6 @@ func invokeExecuteMethod(
 		stepActivityContext(ctx, provider, step.GetStepOptions(), false),
 		InvokeExecuteMethodActivityName,
 		&iwfpb.InvokeExecuteMethodActivityInput{
-			BackendType:  backendTypeToProto(provider.GetBackendType()),
 			WorkerTarget: basicInfo.WorkerTarget,
 			Request: &iwfpb.InvokeExecuteMethodRequest{
 				Context: newStepContext(
@@ -1111,8 +1080,7 @@ func BlobStoreCleanup(
 		activityCtx,
 		CleanupBlobStoreActivityName,
 		&iwfpb.CleanupBlobStoreActivityInput{
-			BackendType: backendTypeToProto(provider.GetBackendType()),
-			StoreId:     storeId,
+			StoreId: storeId,
 		},
 	); err != nil {
 		return 0, err

@@ -87,7 +87,6 @@ func NewInterpreterWorker(
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
-		service.BackendTypeCadence,
 		pool,
 		internal,
 		unifiedClient,

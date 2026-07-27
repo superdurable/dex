@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/superdurable/iwf/config"
@@ -221,15 +222,13 @@ func (s *serviceImpl) StartFlow(
 	}
 
 	input := &iwfpb.InterpreterWorkflowInput{
-		FlowType:                          req.GetFlowType(),
-		WorkerTarget:                      workerTarget,
-		StartStepType:                     req.GetStartStepType(),
-		WaitForCompletionStepExecutionIds: req.GetWaitForCompletionStepExecutionIds(),
-		WaitForCompletionStepTypes:        req.GetWaitForCompletionStepTypes(),
-		StepInput:                         req.GetStepInput(),
-		StepOptions:                       req.GetStepOptions(),
-		InitAttributes:                    initAttributes,
-		Config:                            &workflowConfig,
+		FlowType:       req.GetFlowType(),
+		WorkerTarget:   workerTarget,
+		StartStepType:  req.GetStartStepType(),
+		StepInput:      req.GetStepInput(),
+		StepOptions:    req.GetStepOptions(),
+		InitAttributes: initAttributes,
+		Config:         &workflowConfig,
 	}
 
 	runId, err := s.client.StartInterpreterWorkflow(ctx, workflowOptions, input)
@@ -286,17 +285,16 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.Wait
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
-	switch target := req.GetTarget().(type) {
-	case *iwfpb.WaitForStepCompletionRequest_StepExecutionId:
-		if target.StepExecutionId == "" {
-			return nil, makeInvalidRequestError("step execution ID is required")
-		}
-	case *iwfpb.WaitForStepCompletionRequest_StepType:
-		if target.StepType == "" {
-			return nil, makeInvalidRequestError("step type is required")
-		}
-	default:
-		return nil, makeInvalidRequestError("step execution ID or step type is required")
+	if req.GetStepType() == "" || req.GetStepExecutionNumber() == "" {
+		return nil, makeInvalidRequestError("step type and step execution number are required")
+	}
+	stepExecutionNumber, err := strconv.ParseInt(
+		req.GetStepExecutionNumber(),
+		10,
+		32,
+	)
+	if err != nil || stepExecutionNumber <= 0 {
+		return nil, makeInvalidRequestError("step execution number must be a positive integer")
 	}
 	waitCtx, cancel, deadline := s.waitContext(ctx, req.GetWaitTimeSeconds())
 	defer cancel()

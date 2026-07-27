@@ -22,6 +22,7 @@ package interpreter
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
@@ -44,16 +45,16 @@ type WorkflowUpdater struct {
 	channelStore         *ChannelStore
 	signalReceiver       *SignalReceiver
 	stepRequestQueue     *StepRequestQueue
-	outputCollector      *OutputCollector
+	stepExecutionCounter *StepExecutionCounter
 	basicInfo            service.BasicInfo
 }
 
 type stepCompletionWait struct {
-	updater  *WorkflowUpdater
-	request  *iwfpb.WaitForStepCompletionRequest
-	deadline time.Time
-	output   *iwfpb.StepCompletionOutput
-	matched  bool
+	updater             *WorkflowUpdater
+	request             *iwfpb.WaitForStepCompletionRequest
+	deadline            time.Time
+	stepExecutionNumber int32
+	matched             bool
 }
 
 type attributeWait struct {
@@ -73,13 +74,13 @@ func NewWorkflowUpdater(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
-	outputCollector *OutputCollector,
+	stepExecutionCounter *StepExecutionCounter,
 	basicInfo service.BasicInfo,
 ) error {
 	if provider == nil || persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || outputCollector == nil {
+		signalReceiver == nil || stepExecutionCounter == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -91,7 +92,7 @@ func NewWorkflowUpdater(
 		channelStore:         channelStore,
 		signalReceiver:       signalReceiver,
 		stepRequestQueue:     stepRequestQueue,
-		outputCollector:      outputCollector,
+		stepExecutionCounter: stepExecutionCounter,
 		basicInfo:            basicInfo,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
@@ -176,9 +177,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 		ctx,
 		InvokeWorkerRPCActivityName,
 		&iwfpb.InvokeWorkerRPCActivityInput{
-			BackendType: backendTypeToProto(u.provider.GetBackendType()),
-			RpcPrep:     rpcPrep,
-			Request:     input,
+			RpcPrep: rpcPrep,
+			Request: input,
 		},
 	)
 	u.persistenceManager.UnlockKeys(keysToLock)
@@ -324,37 +324,19 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 			"wait time must be non-negative",
 		)
 	}
-	switch target := request.GetTarget().(type) {
-	case *iwfpb.WaitForStepCompletionRequest_StepExecutionId:
-		if target.StepExecutionId == "" {
-			return u.provider.NewApplicationError(
-				service.IWFInvalidArgumentErrorType,
-				"step execution ID is empty",
-			)
-		}
-		if !u.outputCollector.CanWaitForStepExecutionId(target.StepExecutionId) {
-			return u.provider.NewApplicationError(
-				service.IWFFailedPreconditionErrorType,
-				"step execution ID is not retained by this flow",
-			)
-		}
-	case *iwfpb.WaitForStepCompletionRequest_StepType:
-		if target.StepType == "" {
-			return u.provider.NewApplicationError(
-				service.IWFInvalidArgumentErrorType,
-				"step type is empty",
-			)
-		}
-		if !u.outputCollector.CanWaitForStepType(target.StepType) {
-			return u.provider.NewApplicationError(
-				service.IWFFailedPreconditionErrorType,
-				"step type is not retained by this flow",
-			)
-		}
-	default:
+	if request.GetStepType() == "" || request.GetStepExecutionNumber() == "" {
 		return u.provider.NewApplicationError(
 			service.IWFInvalidArgumentErrorType,
-			"exactly one wait target is required",
+			"step type and step execution number are required",
+		)
+	}
+	_, err := parseWaitForStepExecutionNumber(
+		request.GetStepExecutionNumber(),
+	)
+	if err != nil {
+		return u.provider.NewApplicationError(
+			service.IWFInvalidArgumentErrorType,
+			err.Error(),
 		)
 	}
 	return nil
@@ -366,10 +348,20 @@ func (u *WorkflowUpdater) waitForStepCompletion(
 ) (*iwfpb.WaitForStepCompletionResponse, error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
+	stepExecutionNumber, err := parseWaitForStepExecutionNumber(
+		request.GetStepExecutionNumber(),
+	)
+	if err != nil {
+		return nil, u.provider.NewApplicationError(
+			service.IWFInvalidArgumentErrorType,
+			err.Error(),
+		)
+	}
 	wait := &stepCompletionWait{
-		updater:  u,
-		request:  request,
-		deadline: workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
+		updater:             u,
+		request:             request,
+		deadline:            workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
+		stepExecutionNumber: stepExecutionNumber,
 	}
 	if !wait.ready() && request.GetWaitTimeSeconds() > 0 {
 		if err := u.provider.Await(ctx, wait.ready); err != nil {
@@ -377,9 +369,7 @@ func (u *WorkflowUpdater) waitForStepCompletion(
 		}
 	}
 	if wait.matched {
-		return &iwfpb.WaitForStepCompletionResponse{
-			StepCompletionOutput: wait.output,
-		}, nil
+		return &iwfpb.WaitForStepCompletionResponse{}, nil
 	}
 	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
 		request.GetWaitTimeSeconds() == 0 {
@@ -395,23 +385,21 @@ func (u *WorkflowUpdater) waitForStepCompletion(
 }
 
 func (w *stepCompletionWait) ready() bool {
-	w.output, w.matched = w.updater.lookupStepCompletion(w.request)
+	w.matched = w.updater.stepExecutionCounter.IsStepExecutionCompleted(
+		w.request.GetStepType(),
+		w.stepExecutionNumber,
+	)
 	return w.matched ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
 		deadlinePassed(w.updater.provider.Now(w.updater.ctx), w.deadline)
 }
 
-func (u *WorkflowUpdater) lookupStepCompletion(
-	request *iwfpb.WaitForStepCompletionRequest,
-) (*iwfpb.StepCompletionOutput, bool) {
-	switch target := request.GetTarget().(type) {
-	case *iwfpb.WaitForStepCompletionRequest_StepExecutionId:
-		return u.outputCollector.GetByStepExecutionId(target.StepExecutionId)
-	case *iwfpb.WaitForStepCompletionRequest_StepType:
-		return u.outputCollector.GetByStepType(target.StepType)
-	default:
-		return nil, false
+func parseWaitForStepExecutionNumber(value string) (int32, error) {
+	number, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || number <= 0 {
+		return 0, fmt.Errorf("step execution number must be a positive integer")
 	}
+	return int32(number), nil
 }
 
 func (u *WorkflowUpdater) validateWaitForAttribute(

@@ -31,7 +31,6 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	iwfpb "github.com/superdurable/iwf/gen/iwfpb"
-	service "github.com/superdurable/iwf/service"
 )
 
 // MockActivityProvider is a mock of ActivityProvider interface.
@@ -450,20 +449,6 @@ func (mr *MockWorkflowProviderMockRecorder) ExtendContextWithValue(parent, key, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtendContextWithValue", reflect.TypeOf((*MockWorkflowProvider)(nil).ExtendContextWithValue), parent, key, val)
 }
 
-// GetBackendType mocks base method.
-func (m *MockWorkflowProvider) GetBackendType() service.BackendType {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBackendType")
-	ret0, _ := ret[0].(service.BackendType)
-	return ret0
-}
-
-// GetBackendType indicates an expected call of GetBackendType.
-func (mr *MockWorkflowProviderMockRecorder) GetBackendType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBackendType", reflect.TypeOf((*MockWorkflowProvider)(nil).GetBackendType))
-}
-
 // GetContextValue mocks base method.
 func (m *MockWorkflowProvider) GetContextValue(ctx UnifiedContext, key string) interface{} {
 	m.ctrl.T.Helper()
@@ -504,6 +489,21 @@ func (m *MockWorkflowProvider) GetPendingThreadNames() map[string]int {
 func (mr *MockWorkflowProviderMockRecorder) GetPendingThreadNames() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingThreadNames", reflect.TypeOf((*MockWorkflowProvider)(nil).GetPendingThreadNames))
+}
+
+// GetSearchAttributeKeywordArray mocks base method.
+func (m *MockWorkflowProvider) GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSearchAttributeKeywordArray", ctx, key)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSearchAttributeKeywordArray indicates an expected call of GetSearchAttributeKeywordArray.
+func (mr *MockWorkflowProviderMockRecorder) GetSearchAttributeKeywordArray(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSearchAttributeKeywordArray", reflect.TypeOf((*MockWorkflowProvider)(nil).GetSearchAttributeKeywordArray), ctx, key)
 }
 
 // GetSignalChannel mocks base method.

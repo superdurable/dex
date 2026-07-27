@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
@@ -42,6 +44,10 @@ type StepExecutionCounter struct {
 	stepTypeStartedCounts map[string]int32
 	// For system search attribute ActiveStepId: keep counting the stateIds that are executing based on the ExecutingStateIdMode
 	stepTypeActiveCounts map[string]int32
+	// For waitForStepExecution features, works together with stepTypeStartedCounts:
+	// 1. if waitForStepExecutionId number > startedCount, it means that the step is not started yet
+	// 2. if <= or not existing in stepTypeStartedCounts, meaning it hasn't started, then check if the number existing in stepActiveExecutionNums
+	stepActiveExecutionNums map[string][]int32
 	// For "dead ends": count the total pending states
 	totalActiveCount int32
 }
@@ -53,12 +59,13 @@ func NewStepExecutionCounter(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 ) *StepExecutionCounter {
 	return &StepExecutionCounter{
-		ctx:                   ctx,
-		provider:              provider,
-		configer:              configer,
-		continueAsNewCounter:  continueAsNewCounter,
-		stepTypeStartedCounts: map[string]int32{},
-		stepTypeActiveCounts:  map[string]int32{},
+		ctx:                     ctx,
+		provider:                provider,
+		configer:                configer,
+		continueAsNewCounter:    continueAsNewCounter,
+		stepTypeStartedCounts:   map[string]int32{},
+		stepTypeActiveCounts:    map[string]int32{},
+		stepActiveExecutionNums: map[string][]int32{},
 	}
 }
 
@@ -76,8 +83,24 @@ func RebuildStepExecutionCounter(
 		continueAsNewCounter:  continueAsNewCounter,
 		stepTypeStartedCounts: counterInfo.GetStepTypeStartedCount(),
 		stepTypeActiveCounts:  counterInfo.GetStepTypeCurrentlyExecutingCount(),
-		totalActiveCount:      counterInfo.GetTotalCurrentlyExecutingCount(),
+		stepActiveExecutionNums: stepActiveExecutionNumsFromProto(
+			counterInfo.GetStepActiveExecutionNums(),
+		),
+		totalActiveCount: counterInfo.GetTotalCurrentlyExecutingCount(),
 	}
+}
+
+func stepActiveExecutionNumsFromProto(
+	values map[string]*iwfpb.StepExecutionNumbers,
+) map[string][]int32 {
+	result := make(map[string][]int32, len(values))
+	for stepType, executionNumbers := range values {
+		if executionNumbers == nil {
+			panic("step active execution numbers are nil")
+		}
+		result[stepType] = executionNumbers.GetNumbers()
+	}
+	return result
 }
 
 func (e *StepExecutionCounter) Dump() *iwfpb.StepExecutionCounterInfo {
@@ -85,13 +108,28 @@ func (e *StepExecutionCounter) Dump() *iwfpb.StepExecutionCounterInfo {
 		StepTypeStartedCount:            e.stepTypeStartedCounts,
 		StepTypeCurrentlyExecutingCount: e.stepTypeActiveCounts,
 		TotalCurrentlyExecutingCount:    e.totalActiveCount,
+		StepActiveExecutionNums:         stepActiveExecutionNumsToProto(e.stepActiveExecutionNums),
 	}
+}
+
+func stepActiveExecutionNumsToProto(
+	values map[string][]int32,
+) map[string]*iwfpb.StepExecutionNumbers {
+	result := make(map[string]*iwfpb.StepExecutionNumbers, len(values))
+	for stepType, executionNumbers := range values {
+		result[stepType] = &iwfpb.StepExecutionNumbers{Numbers: executionNumbers}
+	}
+	return result
 }
 
 func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
 	e.stepTypeStartedCounts[stepType]++
-	id := e.stepTypeStartedCounts[stepType]
-	return fmt.Sprintf("%v-%v", stepType, id)
+	executionNumber := e.stepTypeStartedCounts[stepType]
+	e.stepActiveExecutionNums[stepType] = append(
+		e.stepActiveExecutionNums[stepType],
+		executionNumber,
+	)
+	return formatStepExecutionId(stepType, executionNumber)
 }
 
 func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
@@ -122,9 +160,14 @@ func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 
 func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 	currentStep *iwfpb.StepMovement,
+	stepExecutionId string,
 	nextSteps []*iwfpb.StepMovement,
 ) error {
 	e.totalActiveCount--
+	e.removeStepActiveExecutionNum(
+		currentStep.GetStepType(),
+		parseStepExecutionNumber(currentStep.GetStepType(), stepExecutionId),
+	)
 
 	options := currentStep.GetStepOptions()
 	skipWaitFor := options.GetSkipWaitFor()
@@ -143,6 +186,39 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 		return nil
 	}
 	return e.refreshActiveStepIdSearchAttribute()
+}
+
+func (e *StepExecutionCounter) removeStepActiveExecutionNum(
+	stepType string,
+	stepExecutionNumber int32,
+) {
+	executionNumbers := e.stepActiveExecutionNums[stepType]
+	index := slices.Index(executionNumbers, stepExecutionNumber)
+	if index < 0 {
+		panic("completed step execution is not active")
+	}
+	executionNumbers = append(executionNumbers[:index], executionNumbers[index+1:]...)
+	if len(executionNumbers) == 0 {
+		delete(e.stepActiveExecutionNums, stepType)
+		return
+	}
+	e.stepActiveExecutionNums[stepType] = executionNumbers
+}
+
+func (e *StepExecutionCounter) IsStepExecutionCompleted(
+	stepType string,
+	stepExecutionNumber int32,
+) bool {
+	if stepExecutionNumber <= 0 {
+		panic("step execution number must be positive")
+	}
+	if e.stepTypeStartedCounts[stepType] < stepExecutionNumber {
+		return false
+	}
+	return !slices.Contains(
+		e.stepActiveExecutionNums[stepType],
+		stepExecutionNumber,
+	)
 }
 
 func (e *StepExecutionCounter) increaseStepIdActiveCounts(s *iwfpb.StepMovement) bool {
@@ -224,4 +300,24 @@ func (e *StepExecutionCounter) refreshActiveStepIdSearchAttribute() error {
 	return e.provider.UpsertSearchAttributes(e.ctx, map[string]interface{}{
 		service.SearchAttributeActiveStepIds: activeStepIds,
 	})
+}
+
+func formatStepExecutionId(stepType string, stepExecutionNumber int32) string {
+	return fmt.Sprintf("%v-%v", stepType, stepExecutionNumber)
+}
+
+func parseStepExecutionNumber(stepType, stepExecutionId string) int32 {
+	prefix := stepType + "-"
+	if !strings.HasPrefix(stepExecutionId, prefix) {
+		panic("step execution ID does not match step type")
+	}
+	number, err := strconv.ParseInt(
+		strings.TrimPrefix(stepExecutionId, prefix),
+		10,
+		32,
+	)
+	if err != nil || number <= 0 {
+		panic("step execution ID has an invalid execution number")
+	}
+	return int32(number)
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/retry"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -44,10 +45,6 @@ func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 	return &workflowProvider{
 		pendingThreadNames: map[string]int{},
 	}
-}
-
-func (w *workflowProvider) GetBackendType() service.BackendType {
-	return service.BackendTypeTemporal
 }
 
 func (w *workflowProvider) NewApplicationError(errType string, details interface{}) error {
@@ -106,6 +103,25 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		FirstRunID:               info.FirstRunID,
 		CurrentRunID:             info.WorkflowExecution.RunID,
 	}
+}
+
+func (w *workflowProvider) GetSearchAttributeKeywordArray(
+	ctx interfaces.UnifiedContext,
+	key string,
+) ([]string, error) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	field, ok := workflow.GetInfo(wfCtx).SearchAttributes.GetIndexedFields()[key]
+	if !ok {
+		return nil, nil
+	}
+	var values []string
+	if err := converter.GetDefaultDataConverter().FromPayload(field, &values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 func (w *workflowProvider) SetQueryHandler(

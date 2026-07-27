@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -113,6 +112,7 @@ type WorkflowProvider interface {
 	NewApplicationError(errType string, details interface{}) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
+	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error
 	SetQueryHandler(ctx UnifiedContext, queryType string, handler interface{}) error
 	ExtendContextWithValue(parent UnifiedContext, key string, val interface{}) UnifiedContext
@@ -135,7 +135,6 @@ type WorkflowProvider interface {
 	GetSignalChannel(ctx UnifiedContext, signalName string) (receiveChannel ReceiveChannel)
 	GetContextValue(ctx UnifiedContext, key string) interface{}
 	GetVersion(ctx UnifiedContext, changeID string, minSupported, maxSupported int) int
-	GetBackendType() service.BackendType
 	GetLogger(ctx UnifiedContext) UnifiedLogger
 	NewInterpreterContinueAsNewError(ctx UnifiedContext, input *iwfpb.InterpreterWorkflowInput) error
 	SetInvokeRPCUpdateHandler(ctx UnifiedContext, validator InvokeRPCUpdateValidator, handler InvokeRPCUpdateHandler) error

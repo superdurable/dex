@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/iwf/service/common/retry"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"go.uber.org/cadence"
+	"go.uber.org/cadence/client"
 	"go.uber.org/cadence/workflow"
 )
 
@@ -44,10 +45,6 @@ func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 	return &workflowProvider{
 		pendingThreadNames: map[string]int{},
 	}
-}
-
-func (w *workflowProvider) GetBackendType() service.BackendType {
-	return service.BackendTypeCadence
 }
 
 func (w *workflowProvider) NewApplicationError(errType string, details interface{}) error {
@@ -106,6 +103,25 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		FirstRunID:               info.WorkflowExecution.RunID, // Cadence does not provide FirstRunID TODO https://github.com/uber-go/cadence-client/issues/1371 use firstRunID when available
 		CurrentRunID:             info.WorkflowExecution.RunID,
 	}
+}
+
+func (w *workflowProvider) GetSearchAttributeKeywordArray(
+	ctx interfaces.UnifiedContext,
+	key string,
+) ([]string, error) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to cadence workflow context")
+	}
+	field, ok := workflow.GetInfo(wfCtx).SearchAttributes.GetIndexedFields()[key]
+	if !ok {
+		return nil, nil
+	}
+	var values []string
+	if err := client.NewValue(field).Get(&values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 func (w *workflowProvider) SetQueryHandler(

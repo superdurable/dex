@@ -219,8 +219,6 @@ message StartFlowRequest {
   // Plaintext gRPC dial target (host:port), not an HTTP URL.
   string worker_target = 4;
   string start_step_type = 5;
-  repeated string wait_for_completion_step_types = 6;
-  repeated string wait_for_completion_step_execution_ids = 7;
   Value step_input = 8;
   StepOptions step_options = 9;
   FlowStartOptions flow_start_options = 10;
@@ -398,17 +396,13 @@ message UpdateFlowConfigRequest {
 
 message WaitForStepCompletionRequest {
   string flow_id = 1;
-  // Exactly one target; empty Temporal run id means current run.
-  oneof target {
-    string step_execution_id = 2;
-    string step_type = 3;
-  }
+  // Identifies a step execution by type and its per-type execution number.
+  string step_type = 2;
+  string step_execution_number = 3;
   int32 wait_time_seconds = 5;
 }
 
-message WaitForStepCompletionResponse {
-  StepCompletionOutput step_completion_output = 1;
-}
+message WaitForStepCompletionResponse {}
 
 message WaitForAttributeRequest {
   string flow_id = 1;
@@ -641,6 +635,7 @@ message StepExecutionCounterInfo {
   map<string, int32> step_type_started_count = 1;
   map<string, int32> step_type_currently_executing_count = 2;
   int32 total_currently_executing_count = 3;
+  map<string, StepExecutionNumbers> step_active_execution_nums = 4;
 }
 
 message StaleSkipTimer {
@@ -662,12 +657,6 @@ message ContinueAsNewDump {
 
 // --- Internal serializable types (history / query / activity) ---
 // Serialized by Temporal/Cadence DataConverters as binary protobuf. Not FlowService RPCs.
-
-enum BackendType {
-  BACKEND_TYPE_UNSPECIFIED = 0;
-  BACKEND_TYPE_TEMPORAL = 1;
-  BACKEND_TYPE_CADENCE = 2;
-}
 
 enum InternalTimerStatus {
   INTERNAL_TIMER_STATUS_UNSPECIFIED = 0;
@@ -691,8 +680,6 @@ message InterpreterWorkflowInput {
   string flow_type = 1;
   string worker_target = 2;
   string start_step_type = 3;
-  repeated string wait_for_completion_step_execution_ids = 4;
-  repeated string wait_for_completion_step_types = 5;
   Value step_input = 6;
   StepOptions step_options = 7;
   // IndexConfig is processed before workflow start.
@@ -716,9 +703,8 @@ message BlobStoreCleanupWorkflowOutput {
 }
 
 message InvokeWaitForMethodActivityInput {
-  BackendType backend_type = 1;
-  string worker_target = 2;
-  InvokeWaitForMethodRequest request = 3;
+  string worker_target = 1;
+  InvokeWaitForMethodRequest request = 2;
 }
 
 message InvokeWaitForMethodActivityOutput {
@@ -727,9 +713,8 @@ message InvokeWaitForMethodActivityOutput {
 }
 
 message InvokeExecuteMethodActivityInput {
-  BackendType backend_type = 1;
-  string worker_target = 2;
-  InvokeExecuteMethodRequest request = 3;
+  string worker_target = 1;
+  InvokeExecuteMethodRequest request = 2;
 }
 
 message InvokeExecuteMethodActivityOutput {
@@ -738,8 +723,7 @@ message InvokeExecuteMethodActivityOutput {
 }
 
 message DumpFlowForContinueAsNewActivityInput {
-  BackendType backend_type = 1;
-  ContinueAsNewDumpRequest request = 2;
+  ContinueAsNewDumpRequest request = 1;
 }
 
 message DumpFlowForContinueAsNewActivityOutput {
@@ -748,9 +732,8 @@ message DumpFlowForContinueAsNewActivityOutput {
 }
 
 message InvokeWorkerRPCActivityInput {
-  BackendType backend_type = 1;
-  PrepareRpcQueryResponse rpc_prep = 2;
-  InvokeRPCRequest request = 3;
+  PrepareRpcQueryResponse rpc_prep = 1;
+  InvokeRPCRequest request = 2;
 }
 
 message InvokeWorkerRPCActivityOutput {
@@ -759,8 +742,7 @@ message InvokeWorkerRPCActivityOutput {
 }
 
 message CleanupBlobStoreActivityInput {
-  BackendType backend_type = 1;
-  string store_id = 2;
+  string store_id = 1;
 }
 
 message CleanupBlobStoreActivityOutput {
@@ -843,4 +825,8 @@ message DebugDumpResponse {
 message InvokeRpcUpdateResult {
   InvokeRPCResponse response = 1;
   InterpreterError error = 2;
+}
+
+message StepExecutionNumbers {
+  repeated int32 numbers = 1;
 }

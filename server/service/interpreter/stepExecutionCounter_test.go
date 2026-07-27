@@ -30,10 +30,29 @@ import (
 	"github.com/superdurable/iwf/service/common/ptr"
 	"github.com/superdurable/iwf/service/interpreter/config"
 	"github.com/superdurable/iwf/service/interpreter/cont"
+	"github.com/superdurable/iwf/service/interpreter/interfaces"
 )
 
+type stepExecutionCounterWorkflowProvider struct {
+	s2WorkflowProvider
+}
+
+func (p *stepExecutionCounterWorkflowProvider) GetSearchAttributeKeywordArray(
+	_ interfaces.UnifiedContext,
+	key string,
+) ([]string, error) {
+	for index := len(p.upserts) - 1; index >= 0; index-- {
+		value, ok := p.upserts[index][key]
+		if !ok {
+			continue
+		}
+		return value.([]string), nil
+	}
+	return nil, nil
+}
+
 func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
-	provider := &s2WorkflowProvider{}
+	provider := &stepExecutionCounterWorkflowProvider{}
 	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{})
 	counter := NewStepExecutionCounter(
 		nil,
@@ -55,18 +74,24 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 	require.Equal(t, []string{"wait"}, provider.upserts[0][service.SearchAttributeActiveStepIds])
 
 	require.Equal(t, "wait-1", counter.CreateNextExecutionId("wait"))
-	require.Equal(t, "wait-2", counter.CreateNextExecutionId("wait"))
 	require.Equal(t, "skip-1", counter.CreateNextExecutionId("skip"))
+	require.False(t, counter.IsStepExecutionCompleted("wait", 1))
+	require.False(t, counter.IsStepExecutionCompleted("wait", 2))
 
-	require.NoError(t, counter.MarkStepExecutionCompleted(skipStep, nil))
+	require.NoError(t, counter.MarkStepExecutionCompleted(skipStep, "skip-1", nil))
 	require.Len(t, provider.upserts, 1)
-	require.NoError(t, counter.MarkStepExecutionCompleted(waitStep, nil))
+	require.NoError(t, counter.MarkStepExecutionCompleted(waitStep, "wait-1", nil))
+	require.True(t, counter.IsStepExecutionCompleted("wait", 1))
 	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
-	require.Equal(t, []string{}, provider.upserts[1][service.SearchAttributeActiveStepIds])
+	require.Empty(t, provider.upserts[1][service.SearchAttributeActiveStepIds])
 }
 
-func TestStepExecutionCounterBackendFailureIsAtomic(t *testing.T) {
-	provider := &s2WorkflowProvider{upsertErr: errors.New("backend unavailable")}
+func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
+	provider := &stepExecutionCounterWorkflowProvider{
+		s2WorkflowProvider: s2WorkflowProvider{
+			upsertErr: errors.New("backend unavailable"),
+		},
+	}
 	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
@@ -81,12 +106,12 @@ func TestStepExecutionCounterBackendFailureIsAtomic(t *testing.T) {
 		NewStepStartRequest(&iwfpb.StepMovement{StepType: "step"}),
 	})
 	require.ErrorContains(t, err, "backend unavailable")
-	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
-	require.Empty(t, counter.Dump().GetStepTypeCurrentlyExecutingCount())
+	require.Equal(t, int32(1), counter.GetTotalCurrentlyExecutingCount())
+	require.Equal(t, int32(1), counter.Dump().GetStepTypeCurrentlyExecutingCount()["step"])
 }
 
 func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
-	disabledProvider := &s2WorkflowProvider{}
+	disabledProvider := &stepExecutionCounterWorkflowProvider{}
 	disabledConfiger := config.NewFlowConfiger(&iwfpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
 	})
@@ -100,10 +125,15 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(disabledStep),
 	}))
-	require.NoError(t, disabledCounter.MarkStepExecutionCompleted(disabledStep, nil))
+	disabledStepExecutionId := disabledCounter.CreateNextExecutionId("disabled")
+	require.NoError(t, disabledCounter.MarkStepExecutionCompleted(
+		disabledStep,
+		disabledStepExecutionId,
+		nil,
+	))
 	require.Empty(t, disabledProvider.upserts)
 
-	sharedProvider := &s2WorkflowProvider{}
+	sharedProvider := &stepExecutionCounterWorkflowProvider{}
 	sharedConfiger := config.NewFlowConfiger(&iwfpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
@@ -119,15 +149,25 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		NewStepStartRequest(first),
 		NewStepStartRequest(second),
 	}))
+	firstStepExecutionId := sharedCounter.CreateNextExecutionId("shared")
+	secondStepExecutionId := sharedCounter.CreateNextExecutionId("shared")
 	require.Len(t, sharedProvider.upserts, 1)
-	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(first, nil))
+	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(
+		first,
+		firstStepExecutionId,
+		nil,
+	))
 	require.Len(t, sharedProvider.upserts, 1)
-	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(second, nil))
+	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(
+		second,
+		secondStepExecutionId,
+		nil,
+	))
 	require.Len(t, sharedProvider.upserts, 2)
 }
 
 func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
-	provider := &s2WorkflowProvider{}
+	provider := &stepExecutionCounterWorkflowProvider{}
 	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
@@ -135,6 +175,9 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 		StepTypeStartedCount:            map[string]int32{"step": 2},
 		StepTypeCurrentlyExecutingCount: map[string]int32{"step": 1},
 		TotalCurrentlyExecutingCount:    1,
+		StepActiveExecutionNums: map[string]*iwfpb.StepExecutionNumbers{
+			"step": {Numbers: []int32{2}},
+		},
 	}
 	counter := RebuildStepExecutionCounter(
 		nil,
@@ -146,9 +189,20 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 
 	info.StepTypeStartedCount["owned"] = 4
 	require.Equal(t, int32(4), counter.Dump().StepTypeStartedCount["owned"])
+	require.True(t, counter.IsStepExecutionCompleted("step", 1))
+	require.False(t, counter.IsStepExecutionCompleted("step", 2))
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+		NewStepStartRequest(&iwfpb.StepMovement{StepType: "step"}),
+	}))
 	require.Equal(t, "step-3", counter.CreateNextExecutionId("step"))
 	require.NoError(t, counter.MarkStepExecutionCompleted(
 		&iwfpb.StepMovement{StepType: "step"},
+		"step-2",
+		nil,
+	))
+	require.NoError(t, counter.MarkStepExecutionCompleted(
+		&iwfpb.StepMovement{StepType: "step"},
+		"step-3",
 		nil,
 	))
 	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
