@@ -48,8 +48,18 @@ func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 	}
 }
 
-func (w *workflowProvider) NewApplicationError(errType string, details interface{}) error {
-	return temporal.NewApplicationError("", errType, details)
+func (w *workflowProvider) NewWorkflowError(
+	errType iwfpb.FlowErrorType,
+	details interface{},
+) error {
+	return temporal.NewApplicationError("", errType.String(), details)
+}
+
+func (w *workflowProvider) NewUpdateError(
+	errType iwfpb.UpdateErrorType,
+	details interface{},
+) error {
+	return temporal.NewApplicationError("", errType.String(), details)
 }
 
 func (w *workflowProvider) IsApplicationError(err error) bool {

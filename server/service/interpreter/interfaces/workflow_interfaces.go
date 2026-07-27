@@ -100,7 +100,8 @@ type TimerProcessor interface {
 }
 
 type WorkflowProvider interface {
-	NewApplicationError(errType string, details interface{}) error
+	NewWorkflowError(errType iwfpb.FlowErrorType, details interface{}) error
+	NewUpdateError(errType iwfpb.UpdateErrorType, details interface{}) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

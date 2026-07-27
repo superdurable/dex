@@ -151,8 +151,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 
 	keysToLock, err := normalizeLockKeys(input.GetLockAttributeKeys())
 	if err != nil {
-		return nil, u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			err.Error(),
 		)
 	}
@@ -195,8 +195,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 	}
 	response, interpreterErr, err := rpcActivityResponse(&activityOutput)
 	if err != nil {
-		return nil, u.provider.NewApplicationError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL,
 			err.Error(),
 		)
 	}
@@ -204,8 +204,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 		return &iwfpb.InvokeRpcUpdateResult{Error: interpreterErr}, nil
 	}
 	if err := validateLockedRPCWrites(response.GetUpsertAttributes(), keysToLock); err != nil {
-		return nil, u.provider.NewApplicationError(
-			service.IWFFailedPreconditionErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
 			err.Error(),
 		)
 	}
@@ -216,8 +216,8 @@ func (u *WorkflowUpdater) workerRpcHandler(
 		response.GetUpsertAttributes(),
 	)
 	if err != nil {
-		return nil, u.provider.NewApplicationError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL,
 			err.Error(),
 		)
 	}
@@ -234,33 +234,33 @@ func (u *WorkflowUpdater) workerRpcValidator(
 	input *iwfpb.InvokeRPCRequest,
 ) error {
 	if input == nil || input.GetRpcName() == "" {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"RPC name is required",
 		)
 	}
 	if input.GetTimeoutSeconds() < 0 {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"RPC timeout must be non-negative",
 		)
 	}
 	keys, err := normalizeLockKeys(input.GetLockAttributeKeys())
 	if err != nil {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			err.Error(),
 		)
 	}
 	if len(keys) == 0 {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"locking RPC requires attribute keys",
 		)
 	}
 	if !u.persistenceManager.CanLockKeys(keys) {
-		return u.provider.NewApplicationError(
-			service.IWFRPCAcquireLockFailureErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE,
 			"one or more attribute keys are locked",
 		)
 	}
@@ -320,20 +320,20 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 	request *iwfpb.WaitForStepCompletionRequest,
 ) error {
 	if request == nil {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"request is nil",
 		)
 	}
 	if request.GetWaitTimeSeconds() < 0 {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"wait time must be non-negative",
 		)
 	}
 	if request.GetStepType() == "" || request.GetStepExecutionNumber() == "" {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"step type and step execution number are required",
 		)
 	}
@@ -341,8 +341,8 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 		request.GetStepExecutionNumber(),
 	)
 	if err != nil {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			err.Error(),
 		)
 	}
@@ -359,8 +359,8 @@ func (u *WorkflowUpdater) waitForStepCompletion(
 		request.GetStepExecutionNumber(),
 	)
 	if err != nil {
-		return nil, u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			err.Error(),
 		)
 	}
@@ -380,13 +380,13 @@ func (u *WorkflowUpdater) waitForStepCompletion(
 	}
 	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
 		request.GetWaitTimeSeconds() == 0 {
-		return nil, u.provider.NewApplicationError(
-			service.IWFDeadlineExceededErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED,
 			"step completion wait timed out",
 		)
 	}
-	return nil, u.provider.NewApplicationError(
-		service.IWFContinueAsNewPreemptedErrorType,
+	return nil, u.provider.NewUpdateError(
+		iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
 		"continue-as-new preempted wait",
 	)
 }
@@ -414,29 +414,29 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 	request *iwfpb.WaitForAttributeRequest,
 ) error {
 	if request == nil || request.GetCondition() == nil {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"attribute condition is required",
 		)
 	}
 	if request.GetWaitTimeSeconds() < 0 {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"wait time must be non-negative",
 		)
 	}
 	equal, ok := request.GetCondition().GetKind().(*iwfpb.WaitForAttributeCondition_Equal)
 	if !ok || equal.Equal == nil || equal.Equal.GetKey() == "" ||
 		equal.Equal.GetValue() == nil || equal.Equal.GetValue().GetKind() == nil {
-		return u.provider.NewApplicationError(
-			service.IWFInvalidArgumentErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			"valid attribute equality is required",
 		)
 	}
 	// TODO: hydrate blob-backed attributes deterministically without losing concurrent writes.
 	if isBlobValue(equal.Equal.GetValue()) {
-		return u.provider.NewApplicationError(
-			service.IWFFailedPreconditionErrorType,
+		return u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
 			"blob-backed WaitForAttribute values are not supported",
 		)
 	}
@@ -460,8 +460,8 @@ func (u *WorkflowUpdater) waitForAttribute(
 		}
 	}
 	if wait.matchErr != nil {
-		return nil, u.provider.NewApplicationError(
-			service.IWFFailedPreconditionErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
 			wait.matchErr.Error(),
 		)
 	}
@@ -470,13 +470,13 @@ func (u *WorkflowUpdater) waitForAttribute(
 	}
 	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
 		request.GetWaitTimeSeconds() == 0 {
-		return nil, u.provider.NewApplicationError(
-			service.IWFDeadlineExceededErrorType,
+		return nil, u.provider.NewUpdateError(
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED,
 			"attribute wait timed out",
 		)
 	}
-	return nil, u.provider.NewApplicationError(
-		service.IWFContinueAsNewPreemptedErrorType,
+	return nil, u.provider.NewUpdateError(
+		iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
 		"continue-as-new preempted wait",
 	)
 }

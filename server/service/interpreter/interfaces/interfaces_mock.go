@@ -602,20 +602,6 @@ func (mr *MockWorkflowProviderMockRecorder) IsReplaying(ctx interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReplaying", reflect.TypeOf((*MockWorkflowProvider)(nil).IsReplaying), ctx)
 }
 
-// NewApplicationError mocks base method.
-func (m *MockWorkflowProvider) NewApplicationError(errType string, details interface{}) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewApplicationError", errType, details)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// NewApplicationError indicates an expected call of NewApplicationError.
-func (mr *MockWorkflowProviderMockRecorder) NewApplicationError(errType, details interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewApplicationError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewApplicationError), errType, details)
-}
-
 // NewInterpreterContinueAsNewError mocks base method.
 func (m *MockWorkflowProvider) NewInterpreterContinueAsNewError(ctx UnifiedContext, input *iwfpb.InterpreterWorkflowInput) error {
 	m.ctrl.T.Helper()
@@ -642,6 +628,34 @@ func (m *MockWorkflowProvider) NewTimer(ctx UnifiedContext, d time.Duration) Fut
 func (mr *MockWorkflowProviderMockRecorder) NewTimer(ctx, d interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewTimer", reflect.TypeOf((*MockWorkflowProvider)(nil).NewTimer), ctx, d)
+}
+
+// NewUpdateError mocks base method.
+func (m *MockWorkflowProvider) NewUpdateError(errType iwfpb.UpdateErrorType, details interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewUpdateError", errType, details)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewUpdateError indicates an expected call of NewUpdateError.
+func (mr *MockWorkflowProviderMockRecorder) NewUpdateError(errType, details interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewUpdateError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewUpdateError), errType, details)
+}
+
+// NewWorkflowError mocks base method.
+func (m *MockWorkflowProvider) NewWorkflowError(errType iwfpb.FlowErrorType, details interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewWorkflowError", errType, details)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewWorkflowError indicates an expected call of NewWorkflowError.
+func (mr *MockWorkflowProviderMockRecorder) NewWorkflowError(errType, details interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewWorkflowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewWorkflowError), errType, details)
 }
 
 // Now mocks base method.

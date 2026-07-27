@@ -299,8 +299,8 @@ func (i *Interpreter) StartEngineFlow(
 						"stepRequest",
 					).(StepRequest)
 					if !ok {
-						errToFailFlow = provider.NewApplicationError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+						errToFailFlow = provider.NewWorkflowError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
 							"cannot read step request from workflow context",
 						)
 						return
@@ -348,8 +348,8 @@ func (i *Interpreter) StartEngineFlow(
 						signalReceiver,
 					)
 					if err != nil {
-						errToFailFlow = provider.NewApplicationError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE.String(),
+						errToFailFlow = provider.NewWorkflowError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
 							err.Error(),
 						)
 					}
@@ -362,8 +362,8 @@ func (i *Interpreter) StartEngineFlow(
 						stepExeId,
 						decision.GetNextSteps(),
 					); err != nil {
-						errToFailFlow = provider.NewApplicationError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL.String(),
+						errToFailFlow = provider.NewWorkflowError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
 							err.Error(),
 						)
 						return
@@ -381,8 +381,8 @@ func (i *Interpreter) StartEngineFlow(
 						forceCompleteFlow = true
 					}
 					if forceFail {
-						errToFailFlow = provider.NewApplicationError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW.String(),
+						errToFailFlow = provider.NewWorkflowError(
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
 							"step decision requested flow failure",
 						)
 					}
@@ -751,8 +751,8 @@ func waitForFailureResult(
 			WaitingCondition: &iwfpb.WaitingCondition{},
 		}, true, true, nil
 	}
-	return nil, false, false, provider.NewApplicationError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+	return nil, false, false, provider.NewWorkflowError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
 		reason,
 	)
 }
@@ -996,8 +996,8 @@ func (i *Interpreter) invokeExecuteMethod(
 			}},
 		}, nil
 	}
-	return nil, nil, provider.NewApplicationError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+	return nil, nil, provider.NewWorkflowError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
 		err.Error(),
 	)
 }
@@ -1066,8 +1066,8 @@ func convertStepApiActivityError(
 	if provider.IsApplicationError(err) {
 		return err
 	}
-	return provider.NewApplicationError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL.String(),
+	return provider.NewWorkflowError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
 		err.Error(),
 	)
 }

@@ -40,11 +40,6 @@ const (
 	ExecuteOptimisticLockingRpcUpdateType = "ExecuteOptimisticLockingRpcUpdate"
 	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"
 	WaitForAttributeUpdateType            = "WaitForAttribute"
-	IWFContinueAsNewPreemptedErrorType    = "IWF_CAN_PREEMPTED"
-	IWFInvalidArgumentErrorType           = "IWF_INVALID_ARGUMENT"
-	IWFFailedPreconditionErrorType        = "IWF_FAILED_PRECONDITION"
-	IWFDeadlineExceededErrorType          = "IWF_DEADLINE_EXCEEDED"
-	IWFRPCAcquireLockFailureErrorType     = "IWF_RPC_ACQUIRE_LOCK_FAILURE"
 
 	SearchAttributeActiveStepIds   = "ActiveStepIds"
 	SearchAttributeIwfWorkflowType = "FlowType"

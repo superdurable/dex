@@ -315,7 +315,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.Wait
 			return &response, nil
 		}
 		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			service.IWFContinueAsNewPreemptedErrorType {
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -366,7 +366,7 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *iwfpb.WaitForAt
 			return &response, nil
 		}
 		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			service.IWFContinueAsNewPreemptedErrorType {
+			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -916,20 +916,20 @@ func (s *serviceImpl) handleError(err error) error {
 	}
 	_, details := s.client.GetApplicationErrorTypeAndDetails(err)
 	switch errorType {
-	case service.IWFInvalidArgumentErrorType:
+	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT.String():
 		return serviceerrors.InvalidArgument(
 			iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 			details,
 		).ToGRPCError()
-	case service.IWFFailedPreconditionErrorType:
+	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION.String():
 		return serviceerrors.NewErrorAndStatus(
 			codes.FailedPrecondition,
 			iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 			details,
 		).ToGRPCError()
-	case service.IWFDeadlineExceededErrorType:
+	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED.String():
 		return serviceerrors.DeadlineExceededLongPoll(details).ToGRPCError()
-	case service.IWFRPCAcquireLockFailureErrorType:
+	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE.String():
 		return serviceerrors.AbortedLockFailure(details).ToGRPCError()
 	default:
 		return serviceerrors.Internal(details).ToGRPCError()

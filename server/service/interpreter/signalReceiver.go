@@ -288,8 +288,8 @@ func (sr *SignalReceiver) IsFailFlowRequested() (bool, error) {
 	if sr.reasonFailFlowByClient != nil {
 		reason = *sr.reasonFailFlowByClient
 	}
-	return true, sr.provider.NewApplicationError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW.String(),
+	return true, sr.provider.NewWorkflowError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 		reason,
 	)
 }
