@@ -473,14 +473,6 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *iwfpb.StopFlowRequest) 
 			service.FailWorkflowSignalChannelName,
 			&iwfpb.FailFlowSignalRequest{Reason: req.GetReason()},
 		)
-	case iwfpb.StopType_STOP_TYPE_COMPLETE:
-		err = s.client.SignalWorkflow(
-			ctx,
-			req.GetFlowId(),
-			req.GetRunId(),
-			service.CompleteFlowSignalChannelName,
-			&iwfpb.CompleteFlowSignalRequest{Reason: req.GetReason()},
-		)
 	default:
 		return nil, makeInvalidRequestError("stop type is required")
 	}

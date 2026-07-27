@@ -422,22 +422,15 @@ entrypoints
   a FIFO commit queue. Do not dispatch a new full-attribute worker request while any
   lock is held.
 - Keep the existing per-step cancellation bool used by condition waiters. Backend
-  child contexts are unnecessary. Once its trigger, CompleteFlow, failure, or CAN
-  wins, set the bool and remove pending timers so predicates wake. An in-flight
+  child contexts are unnecessary. Once its trigger, failure, or CAN wins, set the
+  bool and remove pending timers so predicates wake. An in-flight
   activity finishes normally; discard its result after a terminal request. CAN
   awaits thread-count convergence without `time.Sleep`.
-- System signals: keep RPC/config/fail/skip-timer/trigger-CAN; add
-  **CompleteFlow** handler for `STOP_TYPE_COMPLETE`. Signal handlers update the
-  existing request flags; the main workflow loop performs terminal exits.
+- System signals: keep RPC/config/fail/skip-timer/trigger-CAN. Signal handlers
+  update the existing request flags; the main workflow loop performs terminal exits.
 - `SkipTimer` requires `timer_condition_id` or optional
   `timer_condition_index`. Query current timer infos and require a pending match
   before sending its system signal; condition ID wins when both are provided.
-- Keep the baseline main-loop priority when multiple requests become visible in one
-  workflow task: failure (step/activity/FailFlow) wins over CompleteFlow; CompleteFlow
-  wins over CAN.
-- On CompleteFlow, set the existing completion flag. Cooperative condition/update
-  waits observe it; in-flight activity results are discarded. Return the stable
-  retained outputs without synthesizing an in-flight step output.
 - On failure, set the existing error variable. Cooperative waits observe it and the
   main loop returns the accumulated outputs with that error.
 - Send each `PublishToChannel` batch in one `ExecuteRpcSignalRequest`, then
@@ -721,5 +714,5 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
 | S1 | common contracts + delete UpsertMemo + typed update registration + durability resolution + shared workflow names + FlowConfiger + GlobalVersioner v1; regenerate mocks | implemented and reviewed; legacy call sites migrate in S4/S5 |
 | S2 | pure MatchPlan/central commit + unified non-Memo persistence/owner locks + step queue/counter/retention indexes + GetAttributes | implemented; isolated matching/store gates green, root call-site migration waits for S4/S5 |
 | S3 | constructor-owned Activities/Workers; delete env/registry and memo-storage wiring; Temporal update adapter; greedy timers + timer queries; matching DataConverter config | implemented; isolated gates green, root integration waits for S4/S5 |
-| S4 | baseline InterpreterImpl loop + remove input memo flag + single-proto/durability activity calls + system/channel signals + terminal priority/CompleteFlow + conditional close | implemented; service and server entrypoint build |
+| S4 | baseline InterpreterImpl loop + remove input memo flag + single-proto/durability activity calls + system/channel signals + conditional close | implemented; service and server entrypoint build |
 | S5 | locking/non-locking InvokeRPC + Wait updates/CAN retry + all queries + canonical CAN paging/restore + InternalService + full Phase 4 gates | implemented; focused gates and full unit suite green |

@@ -580,84 +580,83 @@ public final class IwfProto extends com.google.protobuf.GeneratedFile {
       "ARCH_MODE_DISABLED\020\003*f\n\016StepDurability\022\037" +
       "\n\033STEP_DURABILITY_UNSPECIFIED\020\000\022\030\n\024STEP_" +
       "DURABILITY_SYNC\020\001\022\031\n\025STEP_DURABILITY_ASY" +
-      "NC\020\002*\200\001\n\010StopType\022\031\n\025STOP_TYPE_UNSPECIFI" +
-      "ED\020\000\022\024\n\020STOP_TYPE_CANCEL\020\001\022\027\n\023STOP_TYPE_" +
-      "TERMINATE\020\002\022\022\n\016STOP_TYPE_FAIL\020\003\022\026\n\022STOP_" +
-      "TYPE_COMPLETE\020\004*\346\001\n\nFlowStatus\022\033\n\027FLOW_S" +
-      "TATUS_UNSPECIFIED\020\000\022\027\n\023FLOW_STATUS_RUNNI" +
-      "NG\020\001\022\031\n\025FLOW_STATUS_COMPLETED\020\002\022\026\n\022FLOW_" +
-      "STATUS_FAILED\020\003\022\027\n\023FLOW_STATUS_TIMEOUT\020\004" +
-      "\022\032\n\026FLOW_STATUS_TERMINATED\020\005\022\030\n\024FLOW_STA" +
-      "TUS_CANCELED\020\006\022 \n\034FLOW_STATUS_CONTINUED_" +
-      "AS_NEW\020\007*\257\002\n\rFlowErrorType\022\037\n\033FLOW_ERROR" +
-      "_TYPE_UNSPECIFIED\020\000\022.\n*FLOW_ERROR_TYPE_S" +
-      "TEP_DECISION_FAILING_FLOW\020\001\022+\n\'FLOW_ERRO" +
-      "R_TYPE_CLIENT_API_FAILING_FLOW\020\002\022!\n\035FLOW" +
-      "_ERROR_TYPE_STEP_API_FAIL\020\003\022*\n&FLOW_ERRO" +
-      "R_TYPE_INVALID_USER_FLOW_CODE\020\004\022,\n(FLOW_" +
-      "ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE\020\005\022#\n" +
-      "\037FLOW_ERROR_TYPE_SERVER_INTERNAL\020\006*\343\001\n\rF" +
-      "lowResetType\022\037\n\033FLOW_RESET_TYPE_UNSPECIF" +
-      "IED\020\000\022$\n FLOW_RESET_TYPE_HISTORY_EVENT_I" +
-      "D\020\001\022\035\n\031FLOW_RESET_TYPE_BEGINNING\020\002\022&\n\"FL" +
-      "OW_RESET_TYPE_HISTORY_EVENT_TIME\020\003\022\035\n\031FL" +
-      "OW_RESET_TYPE_STEP_TYPE\020\004\022%\n!FLOW_RESET_" +
-      "TYPE_STEP_EXECUTION_ID\020\005*\367\001\n\016ErrorSubSta" +
-      "tus\022 \n\034ERROR_SUB_STATUS_UNSPECIFIED\020\000\022\"\n" +
-      "\036ERROR_SUB_STATUS_UNCATEGORIZED\020\001\022)\n%ERR" +
-      "OR_SUB_STATUS_FLOW_ALREADY_STARTED\020\002\022$\n " +
-      "ERROR_SUB_STATUS_FLOW_NOT_EXISTS\020\003\022%\n!ER" +
-      "ROR_SUB_STATUS_WORKER_API_ERROR\020\004\022\'\n#ERR" +
-      "OR_SUB_STATUS_LONG_POLL_TIME_OUT\020\005*\316\001\n\030F" +
-      "lowConditionalCloseType\022+\n\'FLOW_CONDITIO" +
-      "NAL_CLOSE_TYPE_UNSPECIFIED\020\000\022@\n<FLOW_CON" +
-      "DITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CH" +
-      "ANNELS_EMPTY\020\001\022C\n?FLOW_CONDITIONAL_CLOSE" +
-      "_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPT" +
-      "Y\020\002*\310\001\n\024WaitingConditionType\022&\n\"WAITING_" +
-      "CONDITION_TYPE_UNSPECIFIED\020\000\022(\n$WAITING_" +
-      "CONDITION_TYPE_ALL_COMPLETED\020\001\022(\n$WAITIN" +
-      "G_CONDITION_TYPE_ANY_COMPLETED\020\002\0224\n0WAIT" +
-      "ING_CONDITION_TYPE_ANY_COMBINATION_COMPL" +
-      "ETED\020\003*q\n\017ConditionStatus\022 \n\034CONDITION_S" +
-      "TATUS_UNSPECIFIED\020\000\022\034\n\030CONDITION_STATUS_" +
-      "WAITING\020\001\022\036\n\032CONDITION_STATUS_COMPLETED\020" +
-      "\0022\313\010\n\013FlowService\022:\n\tStartFlow\022\025.iwf.Sta" +
-      "rtFlowRequest\032\026.iwf.StartFlowResponse\022H\n" +
-      "\020PublishToChannel\022\034.iwf.PublishToChannel" +
-      "Request\032\026.google.protobuf.Empty\0228\n\010StopF" +
-      "low\022\024.iwf.StopFlowRequest\032\026.google.proto" +
-      "buf.Empty\022F\n\rGetAttributes\022\031.iwf.GetAttr" +
-      "ibutesRequest\032\032.iwf.GetAttributesRespons" +
-      "e\022B\n\rSetAttributes\022\031.iwf.SetAttributesRe" +
-      "quest\032\026.google.protobuf.Empty\022:\n\tLoadBlo" +
-      "bs\022\025.iwf.LoadBlobsRequest\032\026.iwf.LoadBlob" +
-      "sResponse\022@\n\013WaitForFlow\022\027.iwf.WaitForFl" +
-      "owRequest\032\030.iwf.WaitForFlowResponse\022@\n\013S" +
-      "earchFlows\022\027.iwf.SearchFlowsRequest\032\030.iw" +
-      "f.SearchFlowsResponse\022:\n\tResetFlow\022\025.iwf" +
-      ".ResetFlowRequest\032\026.iwf.ResetFlowRespons" +
-      "e\022:\n\tInvokeRPC\022\025.iwf.InvokeRPCRequest\032\026." +
-      "iwf.InvokeRPCResponse\022:\n\tSkipTimer\022\025.iwf" +
-      ".SkipTimerRequest\032\026.google.protobuf.Empt" +
-      "y\022H\n\020UpdateFlowConfig\022\034.iwf.UpdateFlowCo" +
-      "nfigRequest\032\026.google.protobuf.Empty\022^\n\025W" +
-      "aitForStepCompletion\022!.iwf.WaitForStepCo" +
-      "mpletionRequest\032\".iwf.WaitForStepComplet" +
-      "ionResponse\022H\n\020WaitForAttribute\022\034.iwf.Wa" +
-      "itForAttributeRequest\032\026.google.protobuf." +
-      "Empty\022P\n\024TriggerContinueAsNew\022 .iwf.Trig" +
-      "gerContinueAsNewRequest\032\026.google.protobu" +
-      "f.Empty\0226\n\013HealthCheck\022\026.google.protobuf" +
-      ".Empty\032\017.iwf.HealthInfo2\221\002\n\rWorkerServic" +
-      "e\022X\n\023InvokeWaitForMethod\022\037.iwf.InvokeWai" +
-      "tForMethodRequest\032 .iwf.InvokeWaitForMet" +
-      "hodResponse\022X\n\023InvokeExecuteMethod\022\037.iwf" +
-      ".InvokeExecuteMethodRequest\032 .iwf.Invoke" +
-      "ExecuteMethodResponse\022L\n\017InvokeWorkerRPC" +
-      "\022\033.iwf.InvokeWorkerRPCRequest\032\034.iwf.Invo" +
-      "keWorkerRPCResponseB!\n\023io.superdurable.g" +
-      "enB\010IwfProtoP\001b\006proto3"
+      "NC\020\002*h\n\010StopType\022\031\n\025STOP_TYPE_UNSPECIFIE" +
+      "D\020\000\022\024\n\020STOP_TYPE_CANCEL\020\001\022\027\n\023STOP_TYPE_T" +
+      "ERMINATE\020\002\022\022\n\016STOP_TYPE_FAIL\020\003*\346\001\n\nFlowS" +
+      "tatus\022\033\n\027FLOW_STATUS_UNSPECIFIED\020\000\022\027\n\023FL" +
+      "OW_STATUS_RUNNING\020\001\022\031\n\025FLOW_STATUS_COMPL" +
+      "ETED\020\002\022\026\n\022FLOW_STATUS_FAILED\020\003\022\027\n\023FLOW_S" +
+      "TATUS_TIMEOUT\020\004\022\032\n\026FLOW_STATUS_TERMINATE" +
+      "D\020\005\022\030\n\024FLOW_STATUS_CANCELED\020\006\022 \n\034FLOW_ST" +
+      "ATUS_CONTINUED_AS_NEW\020\007*\257\002\n\rFlowErrorTyp" +
+      "e\022\037\n\033FLOW_ERROR_TYPE_UNSPECIFIED\020\000\022.\n*FL" +
+      "OW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW" +
+      "\020\001\022+\n\'FLOW_ERROR_TYPE_CLIENT_API_FAILING" +
+      "_FLOW\020\002\022!\n\035FLOW_ERROR_TYPE_STEP_API_FAIL" +
+      "\020\003\022*\n&FLOW_ERROR_TYPE_INVALID_USER_FLOW_" +
+      "CODE\020\004\022,\n(FLOW_ERROR_TYPE_RPC_ACQUIRE_LO" +
+      "CK_FAILURE\020\005\022#\n\037FLOW_ERROR_TYPE_SERVER_I" +
+      "NTERNAL\020\006*\343\001\n\rFlowResetType\022\037\n\033FLOW_RESE" +
+      "T_TYPE_UNSPECIFIED\020\000\022$\n FLOW_RESET_TYPE_" +
+      "HISTORY_EVENT_ID\020\001\022\035\n\031FLOW_RESET_TYPE_BE" +
+      "GINNING\020\002\022&\n\"FLOW_RESET_TYPE_HISTORY_EVE" +
+      "NT_TIME\020\003\022\035\n\031FLOW_RESET_TYPE_STEP_TYPE\020\004" +
+      "\022%\n!FLOW_RESET_TYPE_STEP_EXECUTION_ID\020\005*" +
+      "\367\001\n\016ErrorSubStatus\022 \n\034ERROR_SUB_STATUS_U" +
+      "NSPECIFIED\020\000\022\"\n\036ERROR_SUB_STATUS_UNCATEG" +
+      "ORIZED\020\001\022)\n%ERROR_SUB_STATUS_FLOW_ALREAD" +
+      "Y_STARTED\020\002\022$\n ERROR_SUB_STATUS_FLOW_NOT" +
+      "_EXISTS\020\003\022%\n!ERROR_SUB_STATUS_WORKER_API" +
+      "_ERROR\020\004\022\'\n#ERROR_SUB_STATUS_LONG_POLL_T" +
+      "IME_OUT\020\005*\316\001\n\030FlowConditionalCloseType\022+" +
+      "\n\'FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIE" +
+      "D\020\000\022@\n<FLOW_CONDITIONAL_CLOSE_TYPE_FORCE" +
+      "_COMPLETE_ON_CHANNELS_EMPTY\020\001\022C\n?FLOW_CO" +
+      "NDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_O" +
+      "N_CHANNELS_EMPTY\020\002*\310\001\n\024WaitingConditionT" +
+      "ype\022&\n\"WAITING_CONDITION_TYPE_UNSPECIFIE" +
+      "D\020\000\022(\n$WAITING_CONDITION_TYPE_ALL_COMPLE" +
+      "TED\020\001\022(\n$WAITING_CONDITION_TYPE_ANY_COMP" +
+      "LETED\020\002\0224\n0WAITING_CONDITION_TYPE_ANY_CO" +
+      "MBINATION_COMPLETED\020\003*q\n\017ConditionStatus" +
+      "\022 \n\034CONDITION_STATUS_UNSPECIFIED\020\000\022\034\n\030CO" +
+      "NDITION_STATUS_WAITING\020\001\022\036\n\032CONDITION_ST" +
+      "ATUS_COMPLETED\020\0022\313\010\n\013FlowService\022:\n\tStar" +
+      "tFlow\022\025.iwf.StartFlowRequest\032\026.iwf.Start" +
+      "FlowResponse\022H\n\020PublishToChannel\022\034.iwf.P" +
+      "ublishToChannelRequest\032\026.google.protobuf" +
+      ".Empty\0228\n\010StopFlow\022\024.iwf.StopFlowRequest" +
+      "\032\026.google.protobuf.Empty\022F\n\rGetAttribute" +
+      "s\022\031.iwf.GetAttributesRequest\032\032.iwf.GetAt" +
+      "tributesResponse\022B\n\rSetAttributes\022\031.iwf." +
+      "SetAttributesRequest\032\026.google.protobuf.E" +
+      "mpty\022:\n\tLoadBlobs\022\025.iwf.LoadBlobsRequest" +
+      "\032\026.iwf.LoadBlobsResponse\022@\n\013WaitForFlow\022" +
+      "\027.iwf.WaitForFlowRequest\032\030.iwf.WaitForFl" +
+      "owResponse\022@\n\013SearchFlows\022\027.iwf.SearchFl" +
+      "owsRequest\032\030.iwf.SearchFlowsResponse\022:\n\t" +
+      "ResetFlow\022\025.iwf.ResetFlowRequest\032\026.iwf.R" +
+      "esetFlowResponse\022:\n\tInvokeRPC\022\025.iwf.Invo" +
+      "keRPCRequest\032\026.iwf.InvokeRPCResponse\022:\n\t" +
+      "SkipTimer\022\025.iwf.SkipTimerRequest\032\026.googl" +
+      "e.protobuf.Empty\022H\n\020UpdateFlowConfig\022\034.i" +
+      "wf.UpdateFlowConfigRequest\032\026.google.prot" +
+      "obuf.Empty\022^\n\025WaitForStepCompletion\022!.iw" +
+      "f.WaitForStepCompletionRequest\032\".iwf.Wai" +
+      "tForStepCompletionResponse\022H\n\020WaitForAtt" +
+      "ribute\022\034.iwf.WaitForAttributeRequest\032\026.g" +
+      "oogle.protobuf.Empty\022P\n\024TriggerContinueA" +
+      "sNew\022 .iwf.TriggerContinueAsNewRequest\032\026" +
+      ".google.protobuf.Empty\0226\n\013HealthCheck\022\026." +
+      "google.protobuf.Empty\032\017.iwf.HealthInfo2\221" +
+      "\002\n\rWorkerService\022X\n\023InvokeWaitForMethod\022" +
+      "\037.iwf.InvokeWaitForMethodRequest\032 .iwf.I" +
+      "nvokeWaitForMethodResponse\022X\n\023InvokeExec" +
+      "uteMethod\022\037.iwf.InvokeExecuteMethodReque" +
+      "st\032 .iwf.InvokeExecuteMethodResponse\022L\n\017" +
+      "InvokeWorkerRPC\022\033.iwf.InvokeWorkerRPCReq" +
+      "uest\032\034.iwf.InvokeWorkerRPCResponseB!\n\023io" +
+      ".superdurable.genB\010IwfProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

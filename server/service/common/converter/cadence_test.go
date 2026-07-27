@@ -82,15 +82,15 @@ func TestCadenceSingleRawByteSlicePassthrough(t *testing.T) {
 
 func TestCadenceTypedNilProto(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	var typedNil *iwfpb.CompleteFlowSignalRequest
+	var typedNil *iwfpb.FailFlowSignalRequest
 	data, err := dc.ToData(typedNil)
 	require.NoError(t, err)
 	require.Equal(t, kindProto, data[10])
 	require.Equal(t, nilFlagTrue, data[11])
 	require.Equal(t, uint32(0), binary.BigEndian.Uint32(data[12:16]))
 
-	var out *iwfpb.CompleteFlowSignalRequest
-	out = &iwfpb.CompleteFlowSignalRequest{Reason: "stale"}
+	var out *iwfpb.FailFlowSignalRequest
+	out = &iwfpb.FailFlowSignalRequest{Reason: "stale"}
 	require.NoError(t, dc.FromData(data, &out))
 	require.Nil(t, out)
 }

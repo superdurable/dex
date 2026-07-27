@@ -51,7 +51,6 @@ const (
 
 	SkipTimerSignalChannelName            = IwfSystemConstPrefix + "SkipTimerChannel"
 	FailWorkflowSignalChannelName         = IwfSystemConstPrefix + "FailWorkflowChannel"
-	CompleteFlowSignalChannelName         = IwfSystemConstPrefix + "CompleteFlowChannel"
 	UpdateConfigSignalChannelName         = IwfSystemConstPrefix + "UpdateWorkflowConfig"
 	ExecuteRpcSignalChannelName           = IwfSystemConstPrefix + "ExecuteRpc"
 	TriggerContinueAsNewSignalChannelName = IwfSystemConstPrefix + "TriggerContinueAsNew"

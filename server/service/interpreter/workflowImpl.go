@@ -321,7 +321,6 @@ func (i *Interpreter) StartEngineFlow(
 						stepExeId,
 						persistenceManager,
 						channelStore,
-						signalReceiver,
 						timerProcessor,
 						continueAsNewer,
 						continueAsNewCounter,
@@ -403,9 +402,6 @@ func (i *Interpreter) StartEngineFlow(
 				if failFlowByClient {
 					errToFailFlow = failErr
 				}
-				if signalReceiver.IsCompleteFlowRequested() {
-					forceCompleteFlow = true
-				}
 				return !stepRequestQueue.IsEmpty() ||
 					errToFailFlow != nil ||
 					forceCompleteFlow ||
@@ -458,7 +454,7 @@ func (i *Interpreter) StartEngineFlow(
 				StepCompletionOutputs: outputCollector.GetAll(),
 			}, failErr
 		}
-		if signalReceiver.IsCompleteFlowRequested() || forceCompleteFlow {
+		if forceCompleteFlow {
 			return &iwfpb.InterpreterWorkflowOutput{
 				StepCompletionOutputs: outputCollector.GetAll(),
 			}, nil
@@ -574,7 +570,6 @@ func (i *Interpreter) processStepExecution(
 	stepExecutionId string,
 	persistenceManager *PersistenceManager,
 	channelStore *ChannelStore,
-	signalReceiver *SignalReceiver,
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
@@ -640,7 +635,6 @@ func (i *Interpreter) processStepExecution(
 			waitingCondition,
 			completedTimerConditions,
 			channelStore,
-			signalReceiver,
 			timerProcessor,
 			continueAsNewer,
 			continueAsNewCounter,
@@ -766,7 +760,6 @@ func waitForConditions(
 	waitingCondition *iwfpb.WaitingCondition,
 	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
 	channelStore *ChannelStore,
-	signalReceiver *SignalReceiver,
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
@@ -814,9 +807,7 @@ func waitForConditions(
 		if matched {
 			matchPlan = plan
 		}
-		return matched ||
-			signalReceiver.isTerminalRequested() ||
-			continueAsNewCounter.IsThresholdMet()
+		return matched || continueAsNewCounter.IsThresholdMet()
 	})
 	// This variable tells all condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	// In both cases, the trigger condition has been met or the continue-as-new threshold has been reached, so we want the above condition threads to stop waiting.
@@ -851,8 +842,7 @@ func waitForConditions(
 	); matched {
 		matchPlan = plan
 	}
-	if matchPlan == nil ||
-		signalReceiver.isTerminalRequested() {
+	if matchPlan == nil {
 		return nil, false, nil
 	}
 

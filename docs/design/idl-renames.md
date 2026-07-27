@@ -125,7 +125,7 @@ protobuf via Temporal/Cadence DataConverters (`service/common/converter`).
 | `DumpFlowForContinueAsNewActivityInput` / `Output` | CAN dump activity |
 | `InvokeWorkerRPCActivityInput` / `Output` | Worker RPC activity |
 | `CleanupBlobStoreActivityInput` / `Output` | Blob cleanup activity |
-| `ExecuteRpcSignalRequest`, `SkipTimerSignalRequest`, `FailFlowSignalRequest`, `CompleteFlowSignalRequest` | System signals (`FlowConfig` reused for config update) |
+| `ExecuteRpcSignalRequest`, `SkipTimerSignalRequest`, `FailFlowSignalRequest` | System signals (`FlowConfig` reused for config update) |
 | `GetAttributesQueryRequest` / `Response`, `PrepareRpcQueryRequest` / `Response` | Attribute / RPC prep queries |
 | `GetCurrentTimerInfosQueryResponse`, `GetScheduledGreedyTimerTimesQueryResponse`, `DebugDumpResponse` | Timer / debug queries |
 | `TimerInfo`, `TimerInfoList`, `InternalTimerStatus` | Nested timer snapshot data |

@@ -59,7 +59,6 @@ class StopType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STOP_TYPE_CANCEL: _ClassVar[StopType]
     STOP_TYPE_TERMINATE: _ClassVar[StopType]
     STOP_TYPE_FAIL: _ClassVar[StopType]
-    STOP_TYPE_COMPLETE: _ClassVar[StopType]
 
 class FlowStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -148,7 +147,6 @@ STOP_TYPE_UNSPECIFIED: StopType
 STOP_TYPE_CANCEL: StopType
 STOP_TYPE_TERMINATE: StopType
 STOP_TYPE_FAIL: StopType
-STOP_TYPE_COMPLETE: StopType
 FLOW_STATUS_UNSPECIFIED: FlowStatus
 FLOW_STATUS_RUNNING: FlowStatus
 FLOW_STATUS_COMPLETED: FlowStatus

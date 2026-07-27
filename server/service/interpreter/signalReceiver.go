@@ -32,7 +32,6 @@ import (
 type SignalReceiver struct {
 	failFlowByClient       bool
 	reasonFailFlowByClient *string
-	completeFlowByClient   bool
 	provider               interfaces.WorkflowProvider
 	timerProcessor         interfaces.TimerProcessor
 	flowConfiger           *config.FlowConfiger
@@ -83,39 +82,6 @@ func NewSignalReceiver(
 				continueAsNewCounter.IncSignalsReceived()
 				sr.failFlowByClient = true
 				sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
-			} else {
-				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
-				break
-			}
-		}
-	})
-
-	//The thread waits until a CompleteFlowSignalChannelName signal has been
-	//received or a continueAsNew run is triggered. When a signal has been received it sets
-	//SignalReceiver.completeFlowByClient to true. If continueIsNew is triggered,
-	//the thread completes after all signals have been processed.
-	provider.GoNamed(ctx, "complete-flow-system-signal-handler", func(ctx interfaces.UnifiedContext) {
-		for {
-			ch := provider.GetSignalChannel(ctx, service.CompleteFlowSignalChannelName)
-
-			val := iwfpb.CompleteFlowSignalRequest{}
-			received := false
-			err := provider.Await(ctx, func() bool {
-				received = ch.ReceiveAsync(&val)
-				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
-				return received || continueAsNewCounter.IsThresholdMet()
-			})
-			if err != nil {
-				break
-			}
-			if received {
-				continueAsNewCounter.IncSignalsReceived()
-				sr.completeFlowByClient = true
-				sr.provider.GetLogger(ctx).Info(
-					"complete flow requested",
-					"reason",
-					val.GetReason(),
-				)
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
 				break
@@ -272,21 +238,6 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 		}
 	}
 
-	ch = sr.provider.GetSignalChannel(ctx, service.CompleteFlowSignalChannelName)
-	for {
-		val := iwfpb.CompleteFlowSignalRequest{}
-		if ch.ReceiveAsync(&val) {
-			sr.completeFlowByClient = true
-			sr.provider.GetLogger(ctx).Info(
-				"complete flow requested",
-				"reason",
-				val.GetReason(),
-			)
-		} else {
-			break
-		}
-	}
-
 	ch = sr.provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
 	for {
 		val := iwfpb.SkipTimerSignalRequest{}
@@ -350,12 +301,4 @@ func (sr *SignalReceiver) IsFailFlowRequested() (bool, error) {
 	} else {
 		return false, nil
 	}
-}
-
-func (sr *SignalReceiver) IsCompleteFlowRequested() bool {
-	return sr.completeFlowByClient
-}
-
-func (sr *SignalReceiver) isTerminalRequested() bool {
-	return sr.failFlowByClient || sr.completeFlowByClient
 }

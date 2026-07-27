@@ -244,7 +244,6 @@ enum StopType {
   STOP_TYPE_CANCEL = 1;
   STOP_TYPE_TERMINATE = 2;
   STOP_TYPE_FAIL = 3;
-  STOP_TYPE_COMPLETE = 4;
 }
 
 message StopFlowRequest {
@@ -775,10 +774,6 @@ message SkipTimerSignalRequest {
 }
 
 message FailFlowSignalRequest {
-  string reason = 1;
-}
-
-message CompleteFlowSignalRequest {
   string reason = 1;
 }
 

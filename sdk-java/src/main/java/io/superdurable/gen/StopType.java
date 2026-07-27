@@ -27,10 +27,6 @@ public enum StopType
    * <code>STOP_TYPE_FAIL = 3;</code>
    */
   STOP_TYPE_FAIL(3),
-  /**
-   * <code>STOP_TYPE_COMPLETE = 4;</code>
-   */
-  STOP_TYPE_COMPLETE(4),
   UNRECOGNIZED(-1),
   ;
 
@@ -59,10 +55,6 @@ public enum StopType
    * <code>STOP_TYPE_FAIL = 3;</code>
    */
   public static final int STOP_TYPE_FAIL_VALUE = 3;
-  /**
-   * <code>STOP_TYPE_COMPLETE = 4;</code>
-   */
-  public static final int STOP_TYPE_COMPLETE_VALUE = 4;
 
 
   public final int getNumber() {
@@ -93,7 +85,6 @@ public enum StopType
       case 1: return STOP_TYPE_CANCEL;
       case 2: return STOP_TYPE_TERMINATE;
       case 3: return STOP_TYPE_FAIL;
-      case 4: return STOP_TYPE_COMPLETE;
       default: return null;
     }
   }

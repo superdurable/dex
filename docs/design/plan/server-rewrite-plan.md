@@ -38,9 +38,6 @@ flowchart LR
 - **gRPC transport:** use plaintext gRPC targets in this phase. Reject HTTP(S)
   URLs rather than silently stripping their schemes. Forward configured default
   headers as outgoing gRPC metadata.
-- **Stop COMPLETE:** `STOP_TYPE_COMPLETE` sends a system control signal that
-  force-completes the interpreter successfully with its accumulated step results.
-  It does not synthesize a step output.
 - **Continue-as-new dump — proto, not JSON.** The CAN snapshot is currently
   `json.Marshal`ed (double serialization: already-encoded `Value`s re-wrapped in a
   JSON string, carried over HTTP + Temporal query, then `json.Unmarshal`ed). Replace
@@ -388,15 +385,6 @@ always-on, no version gate:
   search attributes, then discard it. Pass only non-null `KV` values through
   `InterpreterWorkflowInput.init_attributes`.
 
-**`StopFlow(COMPLETE)`:**
-- Send a new `CompleteFlowSignalChannelName` system signal to the interpreter on
-  both Temporal and Cadence.
-- The main interpreter loop cancels/drains waiting condition threads, preserves
-  already accumulated `StepCompletionOutput`s, and returns a successful
-  `InterpreterWorkflowOutput`. `reason` is logged/evented but is not a step output.
-- Do not synthesize completion for an in-flight step. A closed flow returns
-  `FailedPrecondition`.
-
 **`WaitForStepCompletion` (sync update, Temporal-only):**
 - If backend is Cadence → return `codes.Unimplemented`
   ("WaitForStepCompletion requires Temporal synchronous update").
@@ -560,7 +548,7 @@ contains a struct. Complete this table before assigning fields:
 | Server maintenance workflows | `BlobStoreCleanupWorkflowInput`/`Output` | Do not leave the cleanup workflow as primitive `string`/`int` I/O. |
 | Worker-method activities | `InvokeWaitForMethodActivityInput`/`Output`, `InvokeExecuteMethodActivityInput`/`Output` | One input message and one output message per activity. |
 | Internal/RPC/cleanup activities | `DumpFlowForContinueAsNewActivityInput`/`Output`, `InvokeWorkerRPCActivityInput`/`Output`, `CleanupBlobStoreActivityInput`/`Output` | Eliminate `backendType, request, ...` multi-arg call sites. Reuse existing request/response messages as nested fields where possible. |
-| Signals | `ExecuteRpcSignalRequest`, `SkipTimerSignalRequest`, `FailFlowSignalRequest`, `CompleteFlowSignalRequest` | Reuse `FlowConfig` directly for the config-update signal. |
+| Signals | `ExecuteRpcSignalRequest`, `SkipTimerSignalRequest`, `FailFlowSignalRequest` | Reuse `FlowConfig` directly for the config-update signal. |
 | Queries | `GetAttributesQueryRequest`/`Response`, `PrepareRpcQueryRequest`/`Response`, `GetCurrentTimerInfosQueryResponse`, `GetScheduledGreedyTimerTimesQueryResponse`, `DebugDumpResponse` | Every handler argument and result is a proto pointer. |
 | Synchronous updates | Reuse public wait/RPC request/response messages | Prefer returning the public response plus a Go error. Add an internal result envelope only if response/error multiplexing remains necessary. |
 | Nested timer/status data | `TimerInfo`, `InternalTimerStatus` | These become proto only because a serialized query/snapshot contains them. |
@@ -883,13 +871,6 @@ payloads route into the unified channel store. Arbitrary signal names are ignore
   sentinel over gRPC or reset the wait budget.
 - **Delete** the standalone WaitForStateCompletion system-workflow definition and its
   registration in the Temporal & Cadence interpreter workers.
-
-**Stop COMPLETE:** add `CompleteFlowSignalChannelName` to `signalReceiver.go`.
-Receiving it sets a terminal successful-completion flag, wakes and drains condition
-threads, prevents new step scheduling, and lets the main interpreter return its
-accumulated output. Include this flag in the CAN snapshot only if a snapshot can be
-taken before the main loop observes it; otherwise completion wins and CAN is
-skipped.
 
 **Continue-as-new dump → proto** (`continueAsNewer.go`, `queryHandler.go`, and the
 new `InternalService` handler):
