@@ -157,6 +157,7 @@ func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
 	for _, key := range DeterministicKeys(c.StepExecutionToResumeMap) {
 		localStepExecutionToResumeMap[key] = c.StepExecutionToResumeMap[key]
 	}
+	// NOTE: there could be more resume from even more previous run that hasn't started yet
 	for key, value := range c.stepRequestQueue.GetAllStepResumeRequests() {
 		localStepExecutionToResumeMap[key] = value
 	}

@@ -39,14 +39,6 @@ type SignalReceiver struct {
 	channelStore           *ChannelStore
 	stepRequestQueue       *StepRequestQueue
 	persistenceManager     *PersistenceManager
-	continueAsNewCounter   *cont.ContinueAsNewCounter
-}
-
-type signalAwaiter struct {
-	receiver *SignalReceiver
-	channel  interfaces.ReceiveChannel
-	valuePtr interface{}
-	received bool
 }
 
 func NewSignalReceiver(
@@ -59,248 +51,309 @@ func NewSignalReceiver(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *config.FlowConfiger,
 ) *SignalReceiver {
-	if provider == nil || channelStore == nil || stepRequestQueue == nil ||
-		persistenceManager == nil || timerProcessor == nil ||
-		continueAsNewCounter == nil || flowConfiger == nil {
-		panic("SignalReceiver requires non-nil dependencies")
-	}
-	signalReceiver := &SignalReceiver{
-		provider:             provider,
-		timerProcessor:       timerProcessor,
-		flowConfiger:         flowConfiger,
-		channelStore:         channelStore,
-		stepRequestQueue:     stepRequestQueue,
-		persistenceManager:   persistenceManager,
-		continueAsNewCounter: continueAsNewCounter,
+	sr := &SignalReceiver{
+		provider:           provider,
+		failFlowByClient:   false,
+		timerProcessor:     timerProcessor,
+		flowConfiger:       flowConfiger,
+		channelStore:       channelStore,
+		stepRequestQueue:   stepRequestQueue,
+		persistenceManager: persistenceManager,
 	}
 
-	// Handlers drain their system signal until continue-as-new or flow termination.
-	provider.GoNamed(ctx, "fail-flow-system-signal-handler", signalReceiver.runFailFlow)
-	provider.GoNamed(ctx, "complete-flow-system-signal-handler", signalReceiver.runCompleteFlow)
-	provider.GoNamed(ctx, "skip-timer-system-signal-handler", signalReceiver.runSkipTimer)
-	provider.GoNamed(ctx, "update-config-system-signal-handler", signalReceiver.runUpdateConfig)
-	provider.GoNamed(ctx, "execute-rpc-system-signal-handler", signalReceiver.runExecuteRPC)
-	provider.GoNamed(ctx, "trigger-continue-as-new-signal-handler", signalReceiver.runTriggerContinueAsNew)
-	return signalReceiver
-}
+	//The thread waits until a FailWorkflowSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it sets
+	//SignalReceiver.failFlowByClient to true and sets SignalReceiver.reasonFailFlowByClient to the reason
+	//given in the signal's value. If continueIsNew is triggered, the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "fail-flow-system-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
 
-func (sr *SignalReceiver) runFailFlow(ctx interfaces.UnifiedContext) {
-	for {
-		var request iwfpb.FailFlowSignalRequest
-		if !sr.receiveOrStop(ctx, service.FailWorkflowSignalChannelName, &request) {
+			val := iwfpb.FailFlowSignalRequest{}
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				break
+			}
+			if received {
+				continueAsNewCounter.IncSignalsReceived()
+				sr.failFlowByClient = true
+				sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
+			} else {
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				break
+			}
+		}
+	})
+
+	//The thread waits until a CompleteFlowSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it sets
+	//SignalReceiver.completeFlowByClient to true. If continueIsNew is triggered,
+	//the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "complete-flow-system-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.CompleteFlowSignalChannelName)
+
+			val := iwfpb.CompleteFlowSignalRequest{}
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				break
+			}
+			if received {
+				continueAsNewCounter.IncSignalsReceived()
+				sr.completeFlowByClient = true
+				sr.provider.GetLogger(ctx).Info(
+					"complete flow requested",
+					"reason",
+					val.GetReason(),
+				)
+			} else {
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				break
+			}
+		}
+	})
+
+	//The thread waits until a SkipTimerSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it skips the specific timer
+	//described in the signal's value. If continueIsNew is triggered, the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "skip-timer-system-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
+			val := iwfpb.SkipTimerSignalRequest{}
+
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				// break the loop to prevent goroutine leakage
+				break
+			}
+			if received {
+				continueAsNewCounter.IncSignalsReceived()
+				timerProcessor.SkipTimer(
+					val.GetStepExecutionId(),
+					val.GetTimerConditionId(),
+					int(val.GetTimerConditionIndex()),
+				)
+			} else {
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				return
+			}
+		}
+	})
+
+	//The thread waits until a UpdateConfigSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it updates the flow config
+	//defined in the signal's value. If continueIsNew is triggered, the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "update-config-system-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.UpdateConfigSignalChannelName)
+			val := iwfpb.UpdateFlowConfigRequest{}
+
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				// break the loop to prevent goroutine leakage
+				break
+			}
+			if received {
+				continueAsNewCounter.IncSignalsReceived()
+				if err := flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
+					sr.failFlowByClient = true
+					sr.reasonFailFlowByClient = ptr.Any(err.Error())
+				}
+			} else {
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				return
+			}
+		}
+	})
+
+	//The thread waits until a TriggerContinueAsNewSignalChannelName signal has
+	//been received or a continueAsNew run is triggered. When a signal has been received it triggers a continueAsNew run.
+	//Since this thread is triggering a continueAsNew run it doesn't need to wait for signals to drain from the channel.
+	provider.GoNamed(ctx, "trigger-continue-as-new-handler", func(ctx interfaces.UnifiedContext) {
+		// NOTE: unlike other signal channels, this one doesn't need to drain during continueAsNew
+		// because if there is a continueAsNew, this signal is not needed anymore
+		ch := provider.GetSignalChannel(ctx, service.TriggerContinueAsNewSignalChannelName)
+
+		received := false
+		err := provider.Await(ctx, func() bool {
+			received = ch.ReceiveAsync(nil)
+			return received || continueAsNewCounter.IsThresholdMet()
+		})
+		if err != nil {
 			return
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.failFlowByClient = true
-		sr.reasonFailFlowByClient = ptr.Any(request.GetReason())
-	}
-}
-
-func (sr *SignalReceiver) runCompleteFlow(ctx interfaces.UnifiedContext) {
-	for {
-		var request iwfpb.CompleteFlowSignalRequest
-		if !sr.receiveOrStop(ctx, service.CompleteFlowSignalChannelName, &request) {
+		if received {
+			continueAsNewCounter.TriggerByAPI()
 			return
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.completeFlowByClient = true
-		sr.provider.GetLogger(ctx).Info(
-			"complete flow requested",
-			"reason",
-			request.GetReason(),
-		)
-	}
-}
-
-func (sr *SignalReceiver) runSkipTimer(ctx interfaces.UnifiedContext) {
-	for {
-		var request iwfpb.SkipTimerSignalRequest
-		if !sr.receiveOrStop(ctx, service.SkipTimerSignalChannelName, &request) {
-			return
-		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.timerProcessor.SkipTimer(
-			request.GetStepExecutionId(),
-			request.GetTimerConditionId(),
-			int(request.GetTimerConditionIndex()),
-		)
-	}
-}
-
-func (sr *SignalReceiver) runUpdateConfig(ctx interfaces.UnifiedContext) {
-	for {
-		var request iwfpb.UpdateFlowConfigRequest
-		if !sr.receiveOrStop(ctx, service.UpdateConfigSignalChannelName, &request) {
-			return
-		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.processConfigUpdate(request.GetFlowConfig())
-	}
-}
-
-func (sr *SignalReceiver) runExecuteRPC(ctx interfaces.UnifiedContext) {
-	for {
-		var request iwfpb.ExecuteRpcSignalRequest
-		if !sr.receiveOrStop(ctx, service.ExecuteRpcSignalChannelName, &request) {
-			return
-		}
-		sr.processExecuteRPC(ctx, &request)
-	}
-}
-
-func (sr *SignalReceiver) runTriggerContinueAsNew(ctx interfaces.UnifiedContext) {
-	// An ongoing continue-as-new supersedes queued trigger requests.
-	if sr.receiveOrStop(ctx, service.TriggerContinueAsNewSignalChannelName, nil) {
-		sr.continueAsNewCounter.TriggerByAPI()
-	}
-}
-
-func (sr *SignalReceiver) receiveOrStop(
-	ctx interfaces.UnifiedContext,
-	signalName string,
-	valuePtr interface{},
-) bool {
-	waiter := &signalAwaiter{
-		receiver: sr,
-		channel:  sr.provider.GetSignalChannel(ctx, signalName),
-		valuePtr: valuePtr,
-	}
-	if err := sr.provider.Await(ctx, waiter.ready); err != nil {
-		return false
-	}
-	return waiter.received
-}
-
-func (w *signalAwaiter) ready() bool {
-	w.received = w.channel.ReceiveAsync(w.valuePtr)
-	return w.received || w.receiver.shouldStop()
-}
-
-func (sr *SignalReceiver) processConfigUpdate(flowConfig *iwfpb.FlowConfig) {
-	if err := sr.flowConfiger.UpdateByAPI(flowConfig); err != nil {
-		sr.failFlowByClient = true
-		sr.reasonFailFlowByClient = ptr.Any(err.Error())
-	}
-}
-
-func (sr *SignalReceiver) processExecuteRPC(
-	ctx interfaces.UnifiedContext,
-	request *iwfpb.ExecuteRpcSignalRequest,
-) {
-	sr.continueAsNewCounter.IncSignalsReceived()
-	decision := request.GetStepDecision()
-	if err := sr.persistenceManager.ApplyAttributeWrites(
-		ctx,
-		request.GetUpsertAttributes(),
-	); err != nil {
-		sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
 		return
-	}
-	sr.channelStore.ProcessPublishing(request.GetPublishToChannel())
-	sr.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	})
+
+	//The thread waits until a ExecuteRpcSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it upserts attributes
+	//(if they exist in the signal value), publishes messages to channels,
+	//and/or schedules new steps (if StepDecision is set in the signal value).
+	//If continueIsNew is triggered, the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "execute-rpc-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
+			var val iwfpb.ExecuteRpcSignalRequest
+
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				// break the loop to prevent goroutine leakage
+				break
+			}
+			if received {
+				continueAsNewCounter.IncSignalsReceived()
+				if err := sr.persistenceManager.ApplyAttributeWrites(
+					ctx,
+					val.GetUpsertAttributes(),
+				); err != nil {
+					sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
+					continue
+				}
+				sr.channelStore.ProcessPublishing(val.GetPublishToChannel())
+				if val.GetStepDecision() != nil {
+					sr.stepRequestQueue.AddStepStartRequests(
+						val.GetStepDecision().GetNextSteps(),
+					)
+				}
+			} else {
+				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
+				return
+			}
+		}
+	})
+	return sr
 }
 
+// DrainAllReceivedButUnprocessedSignals will process all the signals that are received but not processed in the current
+// flow task.
+// There are two cases this is needed:
+// 1. ContinueAsNew:
+// retrieve signals that after signal handler threads are stopped,
+// so that the signals can be carried over to next run by continueAsNew.
+// 2. Conditional close/complete flow on channel:
+// retrieve all channel messages before checking the channels
 func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	ctx interfaces.UnifiedContext,
 ) {
-	// Draining closes the receive-to-snapshot gap before continue-as-new and conditional close.
-	sr.drainFailFlow(ctx)
-	sr.drainCompleteFlow(ctx)
-	sr.drainSkipTimer(ctx)
-	sr.drainUpdateConfig(ctx)
-	sr.drainExecuteRPC(ctx)
-}
-
-func (sr *SignalReceiver) drainFailFlow(ctx interfaces.UnifiedContext) {
-	channel := sr.provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
+	ch := sr.provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
 	for {
-		var request iwfpb.FailFlowSignalRequest
-		if !channel.ReceiveAsync(&request) {
-			return
+		val := iwfpb.FailFlowSignalRequest{}
+		if ch.ReceiveAsync(&val) {
+			sr.failFlowByClient = true
+			sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
+		} else {
+			break
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.failFlowByClient = true
-		sr.reasonFailFlowByClient = ptr.Any(request.GetReason())
 	}
-}
 
-func (sr *SignalReceiver) drainCompleteFlow(ctx interfaces.UnifiedContext) {
-	channel := sr.provider.GetSignalChannel(ctx, service.CompleteFlowSignalChannelName)
+	ch = sr.provider.GetSignalChannel(ctx, service.CompleteFlowSignalChannelName)
 	for {
-		var request iwfpb.CompleteFlowSignalRequest
-		if !channel.ReceiveAsync(&request) {
-			return
+		val := iwfpb.CompleteFlowSignalRequest{}
+		if ch.ReceiveAsync(&val) {
+			sr.completeFlowByClient = true
+			sr.provider.GetLogger(ctx).Info(
+				"complete flow requested",
+				"reason",
+				val.GetReason(),
+			)
+		} else {
+			break
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.completeFlowByClient = true
-		sr.provider.GetLogger(ctx).Info(
-			"complete flow requested",
-			"reason",
-			request.GetReason(),
-		)
 	}
-}
 
-func (sr *SignalReceiver) drainSkipTimer(ctx interfaces.UnifiedContext) {
-	channel := sr.provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
+	ch = sr.provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
 	for {
-		var request iwfpb.SkipTimerSignalRequest
-		if !channel.ReceiveAsync(&request) {
-			return
+		val := iwfpb.SkipTimerSignalRequest{}
+		if ch.ReceiveAsync(&val) {
+			sr.timerProcessor.SkipTimer(
+				val.GetStepExecutionId(),
+				val.GetTimerConditionId(),
+				int(val.GetTimerConditionIndex()),
+			)
+		} else {
+			break
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.timerProcessor.SkipTimer(
-			request.GetStepExecutionId(),
-			request.GetTimerConditionId(),
-			int(request.GetTimerConditionIndex()),
-		)
 	}
-}
 
-func (sr *SignalReceiver) drainUpdateConfig(ctx interfaces.UnifiedContext) {
-	channel := sr.provider.GetSignalChannel(ctx, service.UpdateConfigSignalChannelName)
+	ch = sr.provider.GetSignalChannel(ctx, service.UpdateConfigSignalChannelName)
 	for {
-		var request iwfpb.UpdateFlowConfigRequest
-		if !channel.ReceiveAsync(&request) {
-			return
+		val := iwfpb.UpdateFlowConfigRequest{}
+		if ch.ReceiveAsync(&val) {
+			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
+				sr.failFlowByClient = true
+				sr.reasonFailFlowByClient = ptr.Any(err.Error())
+			}
+		} else {
+			break
 		}
-		sr.continueAsNewCounter.IncSignalsReceived()
-		sr.processConfigUpdate(request.GetFlowConfig())
 	}
-}
 
-func (sr *SignalReceiver) drainExecuteRPC(ctx interfaces.UnifiedContext) {
-	channel := sr.provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
+	ch = sr.provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
 	for {
-		var request iwfpb.ExecuteRpcSignalRequest
-		if !channel.ReceiveAsync(&request) {
-			return
+		val := iwfpb.ExecuteRpcSignalRequest{}
+		if ch.ReceiveAsync(&val) {
+			if err := sr.persistenceManager.ApplyAttributeWrites(
+				ctx,
+				val.GetUpsertAttributes(),
+			); err != nil {
+				sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
+				continue
+			}
+			sr.channelStore.ProcessPublishing(val.GetPublishToChannel())
+			if val.GetStepDecision() != nil {
+				sr.stepRequestQueue.AddStepStartRequests(
+					val.GetStepDecision().GetNextSteps(),
+				)
+			}
+		} else {
+			break
 		}
-		sr.processExecuteRPC(ctx, &request)
 	}
 }
 
 func (sr *SignalReceiver) IsFailFlowRequested() (bool, error) {
-	if !sr.failFlowByClient {
-		return false, nil
-	}
 	reason := "fail by client"
 	if sr.reasonFailFlowByClient != nil {
 		reason = *sr.reasonFailFlowByClient
 	}
-	return true, sr.provider.NewWorkflowError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-		reason,
-	)
+	if sr.failFlowByClient {
+		return true, sr.provider.NewWorkflowError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+			reason,
+		)
+	} else {
+		return false, nil
+	}
 }
 
 func (sr *SignalReceiver) IsCompleteFlowRequested() bool {
 	return sr.completeFlowByClient
-}
-
-func (sr *SignalReceiver) shouldStop() bool {
-	return sr.continueAsNewCounter.IsThresholdMet() ||
-		sr.isTerminalRequested()
 }
 
 func (sr *SignalReceiver) isTerminalRequested() bool {
