@@ -35,19 +35,10 @@ func NewOutputCollector(initOutputs []*iwfpb.StepCompletionOutput) *OutputCollec
 	}
 }
 
-func (o *OutputCollector) RecordCompletion(
-	stepType string,
-	stepExecutionId string,
-	output *iwfpb.Value,
+func (o *OutputCollector) Add(
+	output *iwfpb.StepCompletionOutput,
 ) {
-	if output == nil {
-		return
-	}
-	o.outputs = append(o.outputs, &iwfpb.StepCompletionOutput{
-		CompletedStepType:        stepType,
-		CompletedStepExecutionId: stepExecutionId,
-		CompletedStepOutput:      output,
-	})
+	o.outputs = append(o.outputs, output)
 }
 
 func (o *OutputCollector) GetAll() []*iwfpb.StepCompletionOutput {

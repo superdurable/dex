@@ -288,7 +288,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	}
 }
 
-func (sr *SignalReceiver) IsFailFlowRequested() (bool, error) {
+func (sr *SignalReceiver) IsFailWorkFlowRequested() (bool, error) {
 	reason := "fail by client"
 	if sr.reasonFailFlowByClient != nil {
 		reason = *sr.reasonFailFlowByClient
@@ -298,7 +298,7 @@ func (sr *SignalReceiver) IsFailFlowRequested() (bool, error) {
 			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 			reason,
 		)
-	} else {
-		return false, nil
 	}
+
+	return false, nil
 }

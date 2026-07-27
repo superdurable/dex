@@ -54,7 +54,7 @@ func (i *Interpreter) StartEngineFlow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	input *iwfpb.InterpreterWorkflowInput,
-) (output *iwfpb.InterpreterWorkflowOutput, retErr error) {
+) (out *iwfpb.InterpreterWorkflowOutput, retErr error) {
 	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
@@ -198,7 +198,7 @@ func (i *Interpreter) StartEngineFlow(
 		)
 	}
 
-	err := NewWorkflowUpdater(
+	updateErr := NewWorkflowUpdater(
 		&i.sharedConfig.Api,
 		i.activities,
 		ctx,
@@ -212,8 +212,8 @@ func (i *Interpreter) StartEngineFlow(
 		stepExecutionCounter,
 		basicInfo,
 	)
-	if err != nil {
-		return nil, err
+	if updateErr != nil {
+		return nil, updateErr
 	}
 	// We intentionally set the query handler after the continueAsNew/dumpInternal activity.
 	// This is to ensure the correctness. If we set the query handler before that,
@@ -232,8 +232,8 @@ func (i *Interpreter) StartEngineFlow(
 		return nil, err
 	}
 
-	var errToFailFlow error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
-	var forceCompleteFlow bool
+	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
+	var forceCompleteWf bool
 	var shouldGracefulComplete bool
 
 	if !input.GetIsResumeFromContinueAsNew() {
@@ -261,14 +261,14 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	for {
-		if err = provider.Await(ctx, func() bool {
-			failFlowByClient, _ := signalReceiver.IsFailFlowRequested()
+		if err := provider.Await(ctx, func() bool {
+			failFlowByClient, _ := signalReceiver.IsFailWorkFlowRequested()
 			return !stepRequestQueue.IsEmpty() || failFlowByClient || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
 
-		failWorkflowByClient, failErr := signalReceiver.IsFailFlowRequested()
+		failWorkflowByClient, failErr := signalReceiver.IsFailWorkFlowRequested()
 		if failWorkflowByClient {
 			return nil, failErr
 		}
@@ -299,7 +299,7 @@ func (i *Interpreter) StartEngineFlow(
 						"stepRequest",
 					).(StepRequest)
 					if !ok {
-						errToFailFlow = provider.NewWorkflowError(
+						errToFailWf = provider.NewWorkflowError(
 							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
 							"cannot read step request from workflow context",
 						)
@@ -315,7 +315,7 @@ func (i *Interpreter) StartEngineFlow(
 						stepExeId = stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
 					}
 
-					decision, stepExecutionStatus, err := i.processStepExecution(ctx, provider,
+					decision, stepExecutionStatus, stepExeErr := i.processStepExecution(ctx, provider,
 						basicInfo,
 						stepRequest,
 						stepExeId,
@@ -326,68 +326,71 @@ func (i *Interpreter) StartEngineFlow(
 						continueAsNewCounter,
 						flowConfiger,
 					)
-					if err != nil {
+					if stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
-						errToFailFlow = convertStepApiActivityError(provider, err)
+						errToFailWf = stepExeErr
 						// step execution fail should fail the flow, no more processing
 						return
 					}
-					if stepExecutionStatus != service.CompletedStepExecutionStatus {
-						// noop for WaitingConditionsStepExecutionStatus, because it means continueAsNew
-						return
+					if stepExecutionStatus == service.CompletedStepExecutionStatus {
+						// NOTE: decision is only available on this CompletedStepExecutionStatus
+						canGoNext, gracefulComplete, forceComplete, forceFail, output, checkErr := checkClosingWorkflow(
+							ctx,
+							provider,
+							decision,
+							step.GetStepType(),
+							stepExeId,
+							channelStore,
+							signalReceiver,
+						)
+						if checkErr != nil {
+							errToFailWf = checkErr
+							// no return so that it can fall through to call MarkStepExecutionCompleted
+						}
+						if gracefulComplete {
+							shouldGracefulComplete = true
+						}
+						if (gracefulComplete || forceComplete || forceFail) && output != nil {
+							outputCollector.Add(output)
+						}
+						if forceComplete {
+							forceCompleteWf = true
+						}
+						if forceFail {
+							errToFailWf = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW, outputCollector.GetAll())
+						}
+						if canGoNext {
+							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+						}
+						// finally, mark step completed and may also update system search attribute
+						if err := stepExecutionCounter.MarkStepExecutionCompleted(
+							step,
+							stepExeId,
+							decision.GetNextSteps(),
+						); err != nil {
+							errToFailWf = provider.NewWorkflowError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+								err.Error(),
+							)
+						}
+					} else if stepExecutionStatus == service.ExecuteApiFailedAndProceed {
+						options := step.GetStepOptions()
+						stepRequestQueue.AddSingleStepStartRequest(options.GetExecuteFailureProceedStepType(), step.StepInput, options.ExecuteFailureProceedStepOptions)
+						// finally, mark state completed and may also update activeStepType search attribute
+						err := stepExecutionCounter.MarkStepExecutionCompleted(
+							step,
+							stepExeId,
+							decision.GetNextSteps(),
+						)
+						if err != nil {
+							errToFailWf = err
+						}
+					} else if stepExecutionStatus == service.WaitingConditionsStepExecutionStatus {
+						// NOTE: noop for WaitingCommandsStepExecutionStatus, because it means continueAsNew
 					}
 
-					// NOTE: decision is only available on this CompletedStepExecutionStatus
-					canGoNext, gracefulComplete, forceComplete, forceFail,
-						completeOutput, err := checkClosingFlow(
-						ctx,
-						provider,
-						decision,
-						channelStore,
-						signalReceiver,
-					)
-					if err != nil {
-						errToFailFlow = provider.NewWorkflowError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
-							err.Error(),
-						)
-					}
-					if canGoNext {
-						stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
-					}
-					// finally, mark step completed and may also update system search attribute
-					if err := stepExecutionCounter.MarkStepExecutionCompleted(
-						step,
-						stepExeId,
-						decision.GetNextSteps(),
-					); err != nil {
-						errToFailFlow = provider.NewWorkflowError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
-							err.Error(),
-						)
-						return
-					}
-					outputCollector.RecordCompletion(
-						step.GetStepType(),
-						stepExeId,
-						completeOutput,
-					)
-
-					if gracefulComplete {
-						shouldGracefulComplete = true
-					}
-					if forceComplete {
-						forceCompleteFlow = true
-					}
-					if forceFail {
-						errToFailFlow = provider.NewWorkflowError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
-							"step decision requested flow failure",
-						)
-					}
-				},
-				)
-			}
+				}) // end of executing one step movement goroutine
+			} // end loop of executing all steps from the queue for one pass
 
 			// The conditions here are quite tricky:
 			// For !stepRequestQueue.IsEmpty(): We need some condition to wait here because all the step executions are running in different threads.
@@ -398,13 +401,14 @@ func (i *Interpreter) StartEngineFlow(
 			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
 			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
-				failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
+				failFlowByClient, failErr := signalReceiver.IsFailWorkFlowRequested()
 				if failFlowByClient {
-					errToFailFlow = failErr
+					errToFailWf = failErr
+					return true
 				}
 				return !stepRequestQueue.IsEmpty() ||
-					errToFailFlow != nil ||
-					forceCompleteFlow ||
+					errToFailWf != nil ||
+					forceCompleteWf ||
 					stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 ||
 					continueAsNewCounter.IsThresholdMet()
 			})
@@ -415,10 +419,10 @@ func (i *Interpreter) StartEngineFlow(
 				}
 			}
 
-			if errToFailFlow != nil || forceCompleteFlow {
+			if errToFailWf != nil || forceCompleteWf {
 				return &iwfpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}, errToFailFlow
+				}, errToFailWf
 			}
 			if awaitError != nil {
 				// this could happen for cancellation
@@ -428,71 +432,60 @@ func (i *Interpreter) StartEngineFlow(
 				// the outer logic will do the actual continue as new
 				break
 			}
-			if stepRequestQueue.IsEmpty() &&
-				stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 {
-				shouldGracefulComplete = true
+		} // end loop until no more step can be executed (dead end)
+
+		if continueAsNewCounter.IsThresholdMet() {
+			// we have to drain this again because this can be from non-step cases
+			if err := continueAsNewer.DrainThreads(ctx); err != nil {
+				errToFailWf = err
 				break
 			}
+			// NOTE: This must be the last thing before continueAsNew!!!
+			// Otherwise, there could be signals unhandled
+			signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
+
+			// after draining signals, there could be some changes like
+			// last fail flow signal, return the flow so that we don't carry over the fail request
+			failByApi, failErr := signalReceiver.IsFailWorkFlowRequested()
+			if failByApi {
+				return &iwfpb.InterpreterWorkflowOutput{
+					StepCompletionOutputs: outputCollector.GetAll(),
+				}, failErr
+			}
+			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
+				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
+				// so that we don't carry over shouldGracefulComplete
+				return &iwfpb.InterpreterWorkflowOutput{
+					StepCompletionOutputs: outputCollector.GetAll(),
+				}, nil
+			}
+			// last update config, do it here because we use input to carry over config, not continueAsNewer query
+			input.Config = flowConfiger.Get()
+			input.IsResumeFromContinueAsNew = true
+			input.ContinueAsNewInput = &iwfpb.ContinueAsNewInput{
+				PreviousInternalRunId: provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
+			}
+			// nix the unused data
+			input.StartStepType = ""
+			input.StepInput = nil
+			input.StepOptions = nil
+			input.InitAttributes = nil
+			return nil, provider.NewInterpreterContinueAsNewError(ctx, input)
 		}
 
-		if !continueAsNewCounter.IsThresholdMet() {
-			continue
-		}
-		// we have to drain this again because this can be from non-step cases
-		if err := continueAsNewer.DrainThreads(ctx); err != nil {
-			return nil, err
-		}
-		// NOTE: This must be the last thing before continueAsNew!!!
-		// Otherwise, there could be signals unhandled
-		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
-
-		// after draining signals, there could be some changes
-		// last fail flow signal, return the flow so that we don't carry over the fail request
-		failFlowByClient, failErr := signalReceiver.IsFailFlowRequested()
-		if failFlowByClient {
-			return &iwfpb.InterpreterWorkflowOutput{
-				StepCompletionOutputs: outputCollector.GetAll(),
-			}, failErr
-		}
-		if forceCompleteFlow {
-			return &iwfpb.InterpreterWorkflowOutput{
-				StepCompletionOutputs: outputCollector.GetAll(),
-			}, nil
-		}
-		if stepRequestQueue.IsEmpty() &&
-			!continueAsNewer.HasAnyStepExecutionToResume() &&
-			shouldGracefulComplete {
-			// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
-			// so that we don't carry over shouldGracefulComplete
-			return &iwfpb.InterpreterWorkflowOutput{
-				StepCompletionOutputs: outputCollector.GetAll(),
-			}, nil
-		}
-		// last update config, do it here because we use input to carry over config, not continueAsNewer query
-		input.Config = flowConfiger.Get()
-		input.IsResumeFromContinueAsNew = true
-		input.ContinueAsNewInput = &iwfpb.ContinueAsNewInput{
-			PreviousInternalRunId: provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
-		}
-		// nix the unused data
-		input.StartStepType = ""
-		input.StepInput = nil
-		input.StepOptions = nil
-		input.InitAttributes = nil
-		// NOTE: This must be the last thing before continueAsNew!!!
-		return nil, provider.NewInterpreterContinueAsNewError(ctx, input)
 	} // end main loop
 
 	// gracefully complete workflow when all states are executed to dead ends
 	return &iwfpb.InterpreterWorkflowOutput{
 		StepCompletionOutputs: outputCollector.GetAll(),
-	}, errToFailFlow
+	}, errToFailWf
 }
 
-func checkClosingFlow(
+func checkClosingWorkflow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	decision *iwfpb.StepDecision,
+	currentStepType, currentStepExeId string,
 	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
 ) (
@@ -500,14 +493,16 @@ func checkClosingFlow(
 	gracefulComplete bool,
 	forceComplete bool,
 	forceFail bool,
-	completeOutput *iwfpb.Value,
+	completeOutput *iwfpb.StepCompletionOutput,
 	err error,
 ) {
-	if decision == nil {
-		err = fmt.Errorf("step decision is nil")
-		return
-	}
 	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
+		if conditionalClose.ConditionalCloseType !=
+			iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
+			err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+				"invalid step decisions. Unsupported ConditionalCloseType ")
+			return
+		}
 		// trigger a signal draining so that all the channel messages are processed
 		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 		// Messages of channels could be published via step executions, within the same workflow task.
@@ -521,23 +516,35 @@ func checkClosingFlow(
 		if err = provider.Await(ctx, func() bool { return true }); err != nil {
 			return
 		}
-		for _, channelName := range conditionalClose.GetChannelNames() {
-			if channelStore.HasData(channelName) {
-				canGoNext = true
+
+		conditionMet := true
+		for _, chName := range conditionalClose.ChannelNames {
+			if channelStore.HasData(chName) {
+				conditionMet = false
+			}
+		}
+
+		if conditionMet {
+			// condition is met, force complete the workflow
+			forceComplete = true
+			completeOutput = &iwfpb.StepCompletionOutput{
+				CompletedStepType:        currentStepType,
+				CompletedStepExecutionId: currentStepExeId,
+				CompletedStepOutput:      conditionalClose.CloseInput,
+			}
+			return
+		}
+		for _, st := range decision.GetNextSteps() {
+			if service.ValidClosingFlowStepType[st.GetStepType()] {
+				err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+					"invalid ConditionUnmetDecision with stepType: "+st.GetStepType())
 				return
 			}
 		}
-		// condition is met, complete the flow
-		completeOutput = conditionalClose.GetCloseInput()
-		switch conditionalClose.GetConditionalCloseType() {
-		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY:
-			gracefulComplete = true
-		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
-			forceComplete = true
-		default:
-			err = fmt.Errorf("unsupported conditional close type")
-		}
+
+		canGoNext = true
 		return
+
 	}
 
 	canGoNext = true
@@ -546,18 +553,36 @@ func checkClosingFlow(
 		case service.GracefulCompletingFlowStepType:
 			canGoNext = false
 			gracefulComplete = true
-			completeOutput = movement.GetStepInput()
+			completeOutput = &iwfpb.StepCompletionOutput{
+				CompletedStepType:        currentStepType,
+				CompletedStepExecutionId: currentStepExeId,
+				CompletedStepOutput:      movement.GetStepInput(),
+			}
 		case service.ForceCompletingFlowStepType:
 			canGoNext = false
 			forceComplete = true
-			completeOutput = movement.GetStepInput()
+			completeOutput = &iwfpb.StepCompletionOutput{
+				CompletedStepType:        currentStepType,
+				CompletedStepExecutionId: currentStepExeId,
+				CompletedStepOutput:      movement.GetStepInput(),
+			}
 		case service.ForceFailingFlowStepType:
 			canGoNext = false
 			forceFail = true
-			completeOutput = movement.GetStepInput()
+			completeOutput = &iwfpb.StepCompletionOutput{
+				CompletedStepType:        currentStepType,
+				CompletedStepExecutionId: currentStepExeId,
+				CompletedStepOutput:      movement.GetStepInput(),
+			}
 		case service.DeadEndFlowStepType:
 			canGoNext = false
 		}
+	}
+
+	if !canGoNext && len(decision.NextSteps) > 1 {
+		// Illegal decision
+		err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+			"invalid state decisions. Closing workflow decision cannot be combined with other state decisions")
 	}
 	return
 }
@@ -1046,19 +1071,6 @@ func interpreterError(interpreterErr *iwfpb.InterpreterError) error {
 		"worker error with gRPC code %d: %s",
 		interpreterErr.GetGrpcCode(),
 		interpreterErr.GetError().GetDetail(),
-	)
-}
-
-func convertStepApiActivityError(
-	provider interfaces.WorkflowProvider,
-	err error,
-) error {
-	if provider.IsApplicationError(err) {
-		return err
-	}
-	return provider.NewWorkflowError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
-		err.Error(),
 	)
 }
 
