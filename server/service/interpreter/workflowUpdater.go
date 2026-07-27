@@ -51,22 +51,6 @@ type WorkflowUpdater struct {
 	basicInfo            service.BasicInfo
 }
 
-type stepCompletionWait struct {
-	updater             *WorkflowUpdater
-	request             *iwfpb.WaitForStepCompletionRequest
-	deadline            time.Time
-	stepExecutionNumber int32
-	matched             bool
-}
-
-type attributeWait struct {
-	updater  *WorkflowUpdater
-	request  *iwfpb.WaitForAttributeRequest
-	deadline time.Time
-	matched  bool
-	matchErr error
-}
-
 func NewWorkflowUpdater(
 	apiCfg *config.ApiConfig,
 	activities *Activities,
@@ -104,29 +88,45 @@ func NewWorkflowUpdater(
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
-		updater.workerRpcValidator,
-		updater.workerRpcHandler,
+		updater.validateWorkerRpc,
+		updater.handleWorkerRpc,
 	); err != nil {
 		return err
 	}
 	if err := provider.SetWaitForStepCompletionUpdateHandler(
 		ctx,
 		updater.validateWaitForStepCompletion,
-		updater.waitForStepCompletion,
+		updater.handleWaitForStepCompletion,
 	); err != nil {
 		return err
 	}
 	if err := provider.SetWaitForAttributeUpdateHandler(
 		ctx,
 		updater.validateWaitForAttribute,
-		updater.waitForAttribute,
+		updater.handleWaitForAttribute,
 	); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (u *WorkflowUpdater) workerRpcHandler(
+type stepCompletionWait struct {
+	updater             *WorkflowUpdater
+	request             *iwfpb.WaitForStepCompletionRequest
+	deadline            time.Time
+	stepExecutionNumber int32
+	matched             bool
+}
+
+type attributeWait struct {
+	updater  *WorkflowUpdater
+	request  *iwfpb.WaitForAttributeRequest
+	deadline time.Time
+	matched  bool
+	matchErr error
+}
+
+func (u *WorkflowUpdater) handleWorkerRpc(
 	ctx interfaces.UnifiedContext,
 	input *iwfpb.InvokeRPCRequest,
 ) (output *iwfpb.InvokeRpcUpdateResult, err error) {
@@ -229,7 +229,7 @@ func (u *WorkflowUpdater) workerRpcHandler(
 	}, nil
 }
 
-func (u *WorkflowUpdater) workerRpcValidator(
+func (u *WorkflowUpdater) validateWorkerRpc(
 	_ interfaces.UnifiedContext,
 	input *iwfpb.InvokeRPCRequest,
 ) error {
@@ -349,7 +349,7 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 	return nil
 }
 
-func (u *WorkflowUpdater) waitForStepCompletion(
+func (u *WorkflowUpdater) handleWaitForStepCompletion(
 	ctx interfaces.UnifiedContext,
 	request *iwfpb.WaitForStepCompletionRequest,
 ) (*iwfpb.WaitForStepCompletionResponse, error) {
@@ -443,7 +443,7 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 	return nil
 }
 
-func (u *WorkflowUpdater) waitForAttribute(
+func (u *WorkflowUpdater) handleWaitForAttribute(
 	ctx interfaces.UnifiedContext,
 	request *iwfpb.WaitForAttributeRequest,
 ) (*emptypb.Empty, error) {

@@ -119,26 +119,22 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 		if err != nil {
 			return nil, err
 		}
-		resp, respErr := continueAsNewActivityResponse(&activityOutput)
-		if respErr != nil {
-			return nil, respErr
-		}
-		if lastChecksum != "" && lastChecksum != resp.GetChecksum() {
+		if lastChecksum != "" && lastChecksum != activityOutput.Response.GetChecksum() {
 			// reset to start from beginning
 			pageNum = 0
 			wholeData = nil
 			provider.GetLogger(ctx).Error(
 				"checksum has changed during the loading",
 				lastChecksum,
-				resp.GetChecksum(),
+				activityOutput.Response.GetChecksum(),
 			)
 			lastChecksum = ""
 			continue
 		}
-		lastChecksum = resp.GetChecksum()
-		wholeData = append(wholeData, resp.GetPageContent()...)
+		lastChecksum = activityOutput.Response.GetChecksum()
+		wholeData = append(wholeData, activityOutput.Response.GetPageContent()...)
 		pageNum++
-		if pageNum >= resp.GetTotalPages() {
+		if pageNum >= activityOutput.Response.GetTotalPages() {
 			break
 		}
 	}
@@ -310,20 +306,4 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 			remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 	}
 	return false
-}
-
-func continueAsNewActivityResponse(
-	output *iwfpb.DumpFlowForContinueAsNewActivityOutput,
-) (*iwfpb.ContinueAsNewDumpResponse, error) {
-	if (output.GetResponse() == nil) == (output.GetError() == nil) {
-		return nil, fmt.Errorf("continue-as-new activity returned an invalid result envelope")
-	}
-	if interpreterErr := output.GetError(); interpreterErr != nil {
-		return nil, fmt.Errorf(
-			"continue-as-new dump failed with gRPC code %d: %s",
-			interpreterErr.GetGrpcCode(),
-			interpreterErr.GetError().GetDetail(),
-		)
-	}
-	return output.GetResponse(), nil
 }
