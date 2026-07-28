@@ -1,20 +1,42 @@
 ### Replay Tests
 
 ### Why
-Replay tests are special and unique in Cadence/Temporal programming model.
-It's ensuring the [determinism](https://docs.temporal.io/workflows#deterministic-constraints) is not being broken by the changes in the workflow logic.
 
-See more about replay tests in the [Cadence documentation](https://cadenceworkflow.io/docs/go-client/workflow-replay-shadowing/#workflow-replayer)
-and Temporal documentation [here](https://docs.temporal.io/develop/go/testing-suite#replay).
+Replay tests ensure Temporal workflow [determinism](https://docs.temporal.io/workflows#deterministic-constraints)
+is not broken by interpreter changes.
 
-To simplify the work, we only use Temporal replay tests in iWF.
+iWF uses Temporal-only replay (not Cadence). See Temporal docs
+[here](https://docs.temporal.io/develop/go/testing-suite#replay).
 
-### Global versioning design pattern
-In iWF, we are using the [global versioning design pattern](https://medium.com/@qlong/how-to-overcome-some-maintenance-challenges-of-temporal-cadence-workflow-versioning-f893815dd18d) 
-to ensure the determinism of the workflow.
-The pattern makes it simple to manage the workflow versioning and replay tests.
+### Global versioning
 
-* For every new [global version](../service/interpreter/versions/versions.go), we add at least a new [history file](./history) in the replay_test.
-* For each version, we may need to have multiple history files to cover different scenarios(code paths).
-* To get the JSON history file, start and run a workflow that will use the code path that you want to protect the determinism. Then download the JSON from WebUI.
-* Usually, the workflow is from an integration test 
+iWF uses the [global versioning design pattern](https://medium.com/@qlong/how-to-overcome-some-maintenance-challenges-of-temporal-cadence-workflow-versioning-f893815dd18d).
+
+After the gRPC interpreter rewrite, the global-version scheme **restarted at v1**.
+Pre-rewrite histories were deleted; do not keep baselines for old global versions.
+
+* For every new global version, add at least one new history under [`history/`](./history).
+* Each version may need multiple histories for different code paths.
+* Histories use binary protobuf payloads (`binary/protobuf` encoding).
+
+### Capturing a history (gRPC era)
+
+1. Run the Temporal integ scenario that exercises the path (unique flow id).
+2. Export from a real Temporal server:
+
+```bash
+docker exec temporal-admin-tools temporal workflow show \
+  --workflow-id <id> --run-id <rid> --output json \
+  > server/replayTests/history/vN-<scenario>.json
+```
+
+For continue-as-new chains, export **each** run (CAN1..CANn and the final
+`wf-finish` run) with the matching `--run-id`.
+
+3. Add the filename to [`replay_test.go`](./replay_test.go) and run:
+
+```bash
+make -C server replayTests 2>&1 | tee /tmp/test-replay.log
+```
+
+Usually the source workflow is an integration test under `server/integ/`.
