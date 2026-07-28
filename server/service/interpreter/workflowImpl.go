@@ -614,6 +614,7 @@ func (i *Interpreter) processStepExecution(
 	var errWaitForMethod error
 	var stepExeLocals []*iwfpb.KV
 	var waitingCondition *iwfpb.WaitingCondition
+	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]iwfpb.InternalTimerStatus{}
 
@@ -769,35 +770,6 @@ func (i *Interpreter) processStepExecution(
 		}
 	}
 
-	var matchPlan *channel.MatchPlan
-	var conditionMet bool
-	threadName := fmt.Sprintf(
-		"%s-match-plan-thread",
-		stepExeId,
-	)
-
-	provider.GoNamed(ctx, threadName, func(ctx interfaces.UnifiedContext) {
-		waitForThreads[threadName] = false
-
-		// Wait for condition trigger (ANY/ALL condition completed) OR continue-as-new threshold
-		_ = provider.Await(ctx, func() bool {
-			plan, matched := channel.Plan(
-				waitingCondition,
-				channelStore.Availability(),
-				completedTimerConditions,
-			)
-			if matched {
-				matchPlan = plan
-				conditionMet = matched
-			}
-			// Note that waitingConditionDoneOrCanceled is needed for two cases:
-			// 1. will be true when trigger type of the waitingCondition is completed(e.g. AnyCompleted) so we don't need to wait for all conditions. Returning the thread to avoid thread leakage.
-			// 2. will be true to cancel the wait for unblocking continueAsNew(continueAsNew will wait for all threads to complete)
-			return matched || waitingConditionDoneOrCanceled
-		})
-		waitForThreads[threadName] = true
-	})
-
 	//Passing a map of references of completed or soon to be completed conditions (once the above threads are complete) and the step execution variables to the continueAsNewer.
 	//After this method completes and if continueAsNewCounter.IsThresholdMet() is true, this snapshot will be used to start a new continueAsNew flow while preserving the state of the flow at the end of this method.
 	//This snapshot is also used to query the flow state, which can be done at anytime.
@@ -813,30 +785,38 @@ func (i *Interpreter) processStepExecution(
 		},
 	)
 
+	var matchPlan *channel.MatchPlan
+	var conditionMet bool
+
 	// Wait for condition met OR continue-as-new threshold
 	_ = provider.Await(ctx, func() bool {
+		matchPlan, conditionMet = channel.Plan(
+			waitingCondition,
+			channelStore.Availability(),
+			completedTimerConditions,
+		)
 		return conditionMet || continueAsNewCounter.IsThresholdMet()
 	})
 
-	//This variable tells all condition threads to stop waiting and exit, even if their specific condition has not been completed.
-	//In both cases, the trigger condition has been met or the continue-as-new threshold has been reached we want the above condition threads to stop waiting.
 	waitingConditionDoneOrCanceled = true
 
-	// Wait for condition threads to drain. After the waiting condition await completes, condition threads
-	// may still be in the process of storing retrieved data into completed condition maps.
-	// We must wait for these threads to finish before assembling condition results, otherwise
-	// retrieved data will be lost (the thread retrieved it but never stored it before we return the maps).
-	// We only wait for threads of conditions that currently have data or has been canceled or fired.
-	// A thread that doesn't have data can be canceled when waitingConditionDoneOrCanceled is set to true. This preserves ANY_COMPLETED semantics.
-	if err := provider.Await(ctx, func() bool {
+	_ = provider.Await(ctx, func() bool {
 		for _, isCompleted := range waitForThreads {
 			if !isCompleted {
 				return false
 			}
 		}
 		return true
-	}); err != nil {
-		return nil, service.WaitingConditionsStepExecutionStatus, err
+	})
+
+	if !conditionMet {
+		// this means continueAsNewCounter.IsThresholdMet == true
+		// not using continueAsNewCounter.IsThresholdMet because matchPlan is higher prioritized
+		// it won't continueAsNew in those cases
+		// 1. waitFor method fail with proceed policy
+		// 2. empty condition
+		// 3. both condition and continueAsNewThreshold are met
+		return nil, service.WaitingConditionsStepExecutionStatus, nil
 	}
 
 	if len(waitingCondition.GetTimerConditions()) > 0 {
