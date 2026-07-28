@@ -30,6 +30,7 @@ import (
 
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
+	NewActivityError(errType iwfpb.FlowErrorType, errorResponse *iwfpb.ErrorResponse) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})
 }

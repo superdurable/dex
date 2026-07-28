@@ -84,6 +84,20 @@ func (mr *MockActivityProviderMockRecorder) GetLogger(ctx interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLogger", reflect.TypeOf((*MockActivityProvider)(nil).GetLogger), ctx)
 }
 
+// NewActivityError mocks base method.
+func (m *MockActivityProvider) NewActivityError(errType iwfpb.FlowErrorType, errorResponse *iwfpb.ErrorResponse) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewActivityError", errType, errorResponse)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewActivityError indicates an expected call of NewActivityError.
+func (mr *MockActivityProviderMockRecorder) NewActivityError(errType, errorResponse interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewActivityError", reflect.TypeOf((*MockActivityProvider)(nil).NewActivityError), errType, errorResponse)
+}
+
 // RecordHeartbeat mocks base method.
 func (m *MockActivityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
 	m.ctrl.T.Helper()

@@ -23,14 +23,23 @@ package temporal
 import (
 	"context"
 
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 )
 
 type activityProvider struct{}
 
 func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogger {
 	return activity.GetLogger(ctx)
+}
+
+func (a *activityProvider) NewActivityError(
+	errType iwfpb.FlowErrorType,
+	errorResponse *iwfpb.ErrorResponse,
+) error {
+	return temporal.NewApplicationError("", errType.String(), errorResponse)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

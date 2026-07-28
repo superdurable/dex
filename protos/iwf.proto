@@ -673,13 +673,6 @@ enum UpdateErrorType {
   UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6;
 }
 
-// Serialized activity/update failure: gRPC code + ErrorResponse (never JSON-wrapped).
-message InterpreterError {
-  // google.golang.org/grpc/codes.Code as int32.
-  int32 grpc_code = 1;
-  ErrorResponse error = 2;
-}
-
 message ContinueAsNewInput {
   string previous_internal_run_id = 1;
 }
@@ -717,7 +710,6 @@ message InvokeWaitForMethodActivityInput {
 
 message InvokeWaitForMethodActivityOutput {
   InvokeWaitForMethodResponse response = 1;
-  InterpreterError error = 2;
 }
 
 message InvokeExecuteMethodActivityInput {
@@ -727,7 +719,6 @@ message InvokeExecuteMethodActivityInput {
 
 message InvokeExecuteMethodActivityOutput {
   InvokeExecuteMethodResponse response = 1;
-  InterpreterError error = 2;
 }
 
 message DumpFlowForContinueAsNewActivityInput {
@@ -736,7 +727,6 @@ message DumpFlowForContinueAsNewActivityInput {
 
 message DumpFlowForContinueAsNewActivityOutput {
   ContinueAsNewDumpResponse response = 1;
-  InterpreterError error = 2;
 }
 
 message InvokeWorkerRPCActivityInput {
@@ -746,7 +736,6 @@ message InvokeWorkerRPCActivityInput {
 
 message InvokeWorkerRPCActivityOutput {
   InvokeWorkerRPCResponse response = 1;
-  InterpreterError error = 2;
 }
 
 message CleanupBlobStoreActivityInput {
@@ -755,7 +744,6 @@ message CleanupBlobStoreActivityInput {
 
 message CleanupBlobStoreActivityOutput {
   int32 total_deleted = 1;
-  InterpreterError error = 2;
 }
 
 message ExecuteRpcSignalRequest {
@@ -828,7 +816,6 @@ message DebugDumpResponse {
 // Sync-update InvokeRPC handler result when response and error are multiplexed.
 message InvokeRpcUpdateResult {
   InvokeRPCResponse response = 1;
-  InterpreterError error = 2;
 }
 
 message StepExecutionNumbers {

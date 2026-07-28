@@ -23,7 +23,9 @@ package cadence
 import (
 	"context"
 
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"go.uber.org/cadence"
 	"go.uber.org/cadence/activity"
 )
 
@@ -34,6 +36,13 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 	return &loggerImpl{
 		zlogger: zLogger,
 	}
+}
+
+func (a *activityProvider) NewActivityError(
+	errType iwfpb.FlowErrorType,
+	errorResponse *iwfpb.ErrorResponse,
+) error {
+	return cadence.NewCustomError(errType.String(), errorResponse)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

@@ -34,10 +34,10 @@ type BasicInfo struct {
 // It is not serialized to history and has no proto equivalent.
 type StepExecutionStatus string
 
-const FailureStepExecutionStatus StepExecutionStatus = "Failure"
-const WaitingConditionsStepExecutionStatus StepExecutionStatus = "WaitingConditions"
-const CompletedStepExecutionStatus StepExecutionStatus = "Completed"
-const ExecuteApiFailedAndProceed StepExecutionStatus = "ExecuteApiFailedAndProceed"
+const StepExecutionStatusCompleted StepExecutionStatus = "Completed"
+const StepExecutionStatusFailedNoProceed StepExecutionStatus = "Failure"
+const StepExecutionStatusWaitingAborted StepExecutionStatus = "WaitingConditions"
+const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteApiFailedAndProceed"
 
 // ValidateTimerSkipRequest validates a pending timer by condition ID or index.
 func ValidateTimerSkipRequest(

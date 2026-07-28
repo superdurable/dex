@@ -35,7 +35,6 @@ import (
 	"github.com/superdurable/iwf/service/common/rpc"
 	"github.com/superdurable/iwf/service/common/workerclient"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -86,14 +85,6 @@ func (a *Activities) InvokeWaitForMethod(
 
 	activityInfo := provider.GetActivityInfo(ctx)
 	req := input.GetRequest()
-	if req == nil {
-		return &iwfpb.InvokeWaitForMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, "nil InvokeWaitForMethodRequest"),
-		}, nil
-	}
-	if req.Context == nil {
-		req.Context = &iwfpb.Context{}
-	}
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
@@ -111,23 +102,16 @@ func (a *Activities) InvokeWaitForMethod(
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
 	printDebugMsg(logger, err, input.GetWorkerTarget())
 	if err != nil {
-		a.emitStepEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
+		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
-		if isTransientWorkerError(err) {
-			return nil, err
-		}
-		return &iwfpb.InvokeWaitForMethodActivityOutput{Error: interpreterErrorFromWorker(err)}, nil
+		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
-		a.emitStepEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
-		return &iwfpb.InvokeWaitForMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, err.Error()),
-		}, nil
+		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
+		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWorkerWaitForResponse(resp); err != nil {
-		return &iwfpb.InvokeWaitForMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, err.Error()),
-		}, nil
+		return nil, composeActivityError(provider, err)
 	}
 
 	if activityInfo.IsLocalActivity {
@@ -137,7 +121,7 @@ func (a *Activities) InvokeWaitForMethod(
 		return nil, err
 	}
 
-	a.emitStepEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_SUCC")
+	a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_SUCC")
 	return &iwfpb.InvokeWaitForMethodActivityOutput{Response: resp}, nil
 }
 
@@ -151,11 +135,6 @@ func (a *Activities) InvokeExecuteMethod(
 
 	activityInfo := provider.GetActivityInfo(ctx)
 	req := input.GetRequest()
-	if req == nil {
-		return &iwfpb.InvokeExecuteMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, "nil InvokeExecuteMethodRequest"),
-		}, nil
-	}
 	if req.Context == nil {
 		req.Context = &iwfpb.Context{}
 	}
@@ -179,23 +158,15 @@ func (a *Activities) InvokeExecuteMethod(
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
 	printDebugMsg(logger, err, input.GetWorkerTarget())
 	if err != nil {
-		a.emitExecuteEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
+		a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
-		if isTransientWorkerError(err) {
-			return nil, err
-		}
-		return &iwfpb.InvokeExecuteMethodActivityOutput{Error: interpreterErrorFromWorker(err)}, nil
+		return nil, composeActivityError(provider, err)
 	}
 	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
-		a.emitExecuteEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
-		return &iwfpb.InvokeExecuteMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, err.Error()),
-		}, nil
+		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWorkerExecuteResponse(resp); err != nil {
-		return &iwfpb.InvokeExecuteMethodActivityOutput{
-			Error: newInterpreterError(codes.InvalidArgument, err.Error()),
-		}, nil
+		return nil, composeActivityError(provider, err)
 	}
 
 	if activityInfo.IsLocalActivity {
@@ -208,7 +179,7 @@ func (a *Activities) InvokeExecuteMethod(
 		return nil, err
 	}
 
-	a.emitExecuteEvent(req, activityInfo, "EXECUTE_ATTEMPT_SUCC")
+	a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_SUCC")
 	return &iwfpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
 }
 
@@ -226,12 +197,7 @@ func (a *Activities) DumpFlowForContinueAsNew(
 	}
 	resp, err := client.DumpFlowForContinueAsNew(callCtx, input.GetRequest())
 	if err != nil {
-		if isTransientWorkerError(err) {
-			return nil, err
-		}
-		return &iwfpb.DumpFlowForContinueAsNewActivityOutput{
-			Error: newInterpreterError(status.Code(err), status.Convert(err).Message()),
-		}, nil
+		return nil, composeActivityError(provider, err)
 	}
 	return &iwfpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
 }
@@ -247,7 +213,7 @@ func (a *Activities) InvokeWorkerRPC(
 	logger.Info("InvokeWorkerRpcActivity", "input", log.ToJsonAndTruncateForLogging(input))
 	activityInfo := provider.GetActivityInfo(ctx)
 
-	resp, statusErr, err := rpc.InvokeWorkerRpc(
+	resp, err := rpc.InvokeWorkerRpc(
 		ctx,
 		a.workerPool,
 		input.GetRpcPrep(),
@@ -257,20 +223,7 @@ func (a *Activities) InvokeWorkerRPC(
 		&a.cfg.ExternalStorage,
 	)
 	if err != nil {
-		if isTransientWorkerError(err) && activityInfo.Attempt < maxWorkerRpcActivityAttempts {
-			return nil, err
-		}
-		return &iwfpb.InvokeWorkerRPCActivityOutput{
-			Error: interpreterErrorFromWorker(err),
-		}, nil
-	}
-	if statusErr != nil {
-		return &iwfpb.InvokeWorkerRPCActivityOutput{
-			Error: &iwfpb.InterpreterError{
-				GrpcCode: int32(statusErr.Code),
-				Error:    statusErr.Error,
-			},
-		}, nil
+		return nil, composeActivityError(provider, err)
 	}
 	out := &iwfpb.InvokeWorkerRPCActivityOutput{Response: resp}
 	if activityInfo.IsLocalActivity {
@@ -457,8 +410,7 @@ func validateStepDecision(decision *iwfpb.StepDecision) error {
 			return fmt.Errorf("conditional close cannot contain a closing next step")
 		}
 		switch conditionalClose.GetConditionalCloseType() {
-		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
-			iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY:
+		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
 		default:
 			return fmt.Errorf("conditional close type is unspecified")
 		}
@@ -636,35 +588,18 @@ func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {
 	}
 }
 
-func isTransientWorkerError(err error) bool {
-	if err == nil {
-		return false
-	}
+func composeActivityError(provider interfaces.ActivityProvider, err error) error {
+
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
-		return true
+		return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+			&iwfpb.ErrorResponse{
+				Detail:    err.Error(),
+				SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			},
+		)
 	}
-	for _, detail := range grpcStatus.Details() {
-		if _, ok := detail.(*iwfpb.WorkerErrorResponse); ok {
-			return false
-		}
-	}
-	switch grpcStatus.Code() {
-	case codes.Canceled,
-		codes.Unknown,
-		codes.DeadlineExceeded,
-		codes.ResourceExhausted,
-		codes.Aborted,
-		codes.Internal,
-		codes.Unavailable:
-		return true
-	default:
-		return false
-	}
-}
 
-func interpreterErrorFromWorker(err error) *iwfpb.InterpreterError {
-	grpcStatus := status.Convert(err)
 	errorResponse := &iwfpb.ErrorResponse{
 		Detail:                    grpcStatus.Message(),
 		SubStatus:                 iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
@@ -678,20 +613,7 @@ func interpreterErrorFromWorker(err error) *iwfpb.InterpreterError {
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 	}
-	return &iwfpb.InterpreterError{
-		GrpcCode: int32(grpcStatus.Code()),
-		Error:    errorResponse,
-	}
-}
-
-func newInterpreterError(grpcCode codes.Code, detail string) *iwfpb.InterpreterError {
-	return &iwfpb.InterpreterError{
-		GrpcCode: int32(grpcCode),
-		Error: &iwfpb.ErrorResponse{
-			Detail:    detail,
-			SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		},
-	}
+	return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL, errorResponse)
 }
 
 func (a *Activities) logLocalActivityWarn(
@@ -707,7 +629,7 @@ func (a *Activities) logLocalActivityWarn(
 		"error", err)
 }
 
-func (a *Activities) emitStepEvent(
+func (a *Activities) emitStepWaitForMethodEvent(
 	req *iwfpb.InvokeWaitForMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
 ) {
 	a.eventHandler(event.Event{
@@ -720,7 +642,7 @@ func (a *Activities) emitStepEvent(
 	})
 }
 
-func (a *Activities) emitExecuteEvent(
+func (a *Activities) emitStepExecuteMethodEvent(
 	req *iwfpb.InvokeExecuteMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
 ) {
 	a.eventHandler(event.Event{

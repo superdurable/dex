@@ -326,13 +326,13 @@ func (i *Interpreter) StartEngineFlow(
 						continueAsNewCounter,
 						flowConfiger,
 					)
-					if stepExeErr != nil {
+					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
 						errToFailWf = stepExeErr
 						// step execution fail should fail the flow, no more processing
 						return
 					}
-					if stepExecutionStatus == service.CompletedStepExecutionStatus {
+					if stepExecutionStatus == service.StepExecutionStatusCompleted {
 						// NOTE: decision is only available on this CompletedStepExecutionStatus
 						canGoNext, gracefulComplete, forceComplete, forceFail, output, checkErr := checkClosingWorkflow(
 							ctx,
@@ -373,7 +373,7 @@ func (i *Interpreter) StartEngineFlow(
 								err.Error(),
 							)
 						}
-					} else if stepExecutionStatus == service.ExecuteApiFailedAndProceed {
+					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
 						stepRequestQueue.AddSingleStepStartRequest(options.GetExecuteFailureProceedStepType(), step.StepInput, options.ExecuteFailureProceedStepOptions)
 						// finally, mark state completed and may also update activeStepType search attribute
@@ -385,7 +385,7 @@ func (i *Interpreter) StartEngineFlow(
 						if err != nil {
 							errToFailWf = err
 						}
-					} else if stepExecutionStatus == service.WaitingConditionsStepExecutionStatus {
+					} else if stepExecutionStatus == service.StepExecutionStatusWaitingAborted {
 						// NOTE: noop for WaitingCommandsStepExecutionStatus, because it means continueAsNew
 					}
 
@@ -611,7 +611,7 @@ func (i *Interpreter) processStepExecution(
 		StartToCloseTimeout: 30 * time.Second,
 	}
 
-	var errWaitForMethod error
+	var waitForMethErr error
 	var stepExeLocals []*iwfpb.KV
 	var waitingCondition *iwfpb.WaitingCondition
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
@@ -643,8 +643,9 @@ func (i *Interpreter) processStepExecution(
 		resumeRequest := stepRequest.GetStepResumeRequest()
 		stepExeLocals = resumeRequest.GetStepExeLocals()
 		waitingCondition = resumeRequest.GetWaitingCondition()
-		if completed := resumeRequest.GetCompletedConditions(); completed != nil {
-			completedTimerConditions = completed.GetCompletedTimerConditions()
+		if resumeRequest.GetCompletedConditions() != nil &&
+			resumeRequest.GetCompletedConditions().GetCompletedTimerConditions() != nil {
+			completedTimerConditions = resumeRequest.GetCompletedConditions().GetCompletedTimerConditions()
 		}
 	} else {
 		if step.StepOptions != nil {
@@ -662,13 +663,13 @@ func (i *Interpreter) processStepExecution(
 		if len(lockAttributeKeys) > 0 {
 			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 			if err != nil {
-				return nil, service.FailureStepExecutionStatus, err
+				return nil, service.StepExecutionStatusFailedNoProceed, err
 			}
 			attributes = loadedAttributes
 		}
 
 		var activityOutput iwfpb.InvokeWaitForMethodActivityOutput
-		errWaitForMethod = provider.ExecuteActivity(
+		waitForMethErr = provider.ExecuteActivity(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
@@ -687,27 +688,19 @@ func (i *Interpreter) processStepExecution(
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
 		var waitForResponse *iwfpb.InvokeWaitForMethodResponse
-		if errWaitForMethod == nil {
-			if activityOutput.GetError() != nil {
-				errWaitForMethod = interpreterError(activityOutput.GetError())
-			} else {
-				waitForResponse = activityOutput.GetResponse()
-			}
-		}
-
-		if errWaitForMethod != nil && !shouldProceedOnWaitForApiError(step) {
-			return nil, service.FailureStepExecutionStatus, provider.NewWorkflowError(
+		if waitForMethErr != nil && !shouldProceedOnWaitForApiError(step) {
+			return nil, service.StepExecutionStatusFailedNoProceed, provider.NewWorkflowError(
 				iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
-				errWaitForMethod.Error(),
+				waitForMethErr,
 			)
 		}
 
-		if errWaitForMethod == nil {
+		if waitForMethErr == nil {
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
 				waitForResponse.GetUpsertAttributes(),
 			); err != nil {
-				return nil, service.FailureStepExecutionStatus, err
+				return nil, service.StepExecutionStatusFailedNoProceed, err
 			}
 			channelStore.ProcessPublishing(waitForResponse.GetPublishToChannel())
 			waitingCondition = waitForResponse.GetWaitingCondition()
@@ -816,7 +809,7 @@ func (i *Interpreter) processStepExecution(
 		// 1. waitFor method fail with proceed policy
 		// 2. empty condition
 		// 3. both condition and continueAsNewThreshold are met
-		return nil, service.WaitingConditionsStepExecutionStatus, nil
+		return nil, service.StepExecutionStatusWaitingAborted, nil
 	}
 
 	if len(waitingCondition.GetTimerConditions()) > 0 {
@@ -829,8 +822,9 @@ func (i *Interpreter) processStepExecution(
 		completedTimerConditions,
 		consumed,
 	)
-	if errWaitForMethod != nil {
+	if waitForMethErr != nil {
 		conditionResults.WaitForFailed = true
+		// TODO pass the errWaitForMethod to execute method
 	}
 
 	return i.invokeExecuteMethod(
@@ -882,12 +876,12 @@ func (i *Interpreter) invokeExecuteMethod(
 	if len(lockAttributeKeys) > 0 {
 		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
-			return nil, service.FailureStepExecutionStatus, err
+			return nil, service.StepExecutionStatusFailedNoProceed, err
 		}
 	}
 
 	var activityOutput iwfpb.InvokeExecuteMethodActivityOutput
-	err = provider.ExecuteActivity(
+	exeMethErr := provider.ExecuteActivity(
 		&activityOutput,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		ctx,
@@ -905,22 +899,17 @@ func (i *Interpreter) invokeExecuteMethod(
 			},
 		},
 	)
+	// always unlock and remove from resume map regardless of step success/failure
 	persistenceManager.UnlockKeys(lockAttributeKeys)
-	if err == nil {
-		if (activityOutput.GetResponse() == nil) == (activityOutput.GetError() == nil) {
-			err = fmt.Errorf("Execute activity returned an invalid result envelope")
-		} else if activityOutput.GetError() != nil {
-			err = interpreterError(activityOutput.GetError())
-		}
-	}
+	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
 
-	if err != nil {
-		if shouldProceedOnExecuteApiError(step) {
-			return nil, service.ExecuteApiFailedAndProceed, nil
+	if exeMethErr != nil {
+		if shouldProceedOnExecuteMethodError(step) {
+			// NOTE: also return error so that the recover step can read it
+			return nil, service.StepExecutionStatusFailedAndProceed, err
 		}
-		return nil, service.FailureStepExecutionStatus, provider.NewWorkflowError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
-			err.Error(),
+		return nil, service.StepExecutionStatusFailedNoProceed, provider.NewWorkflowError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL, err,
 		)
 	}
 	executeResponse := activityOutput.GetResponse()
@@ -928,13 +917,11 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		executeResponse.GetUpsertAttributes(),
 	); err != nil {
-		return nil, service.FailureStepExecutionStatus, err
+		return nil, service.StepExecutionStatusFailedNoProceed, err
 	}
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
-	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
-
-	return executeResponse.GetStepDecision(), service.CompletedStepExecutionStatus, nil
+	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
 }
 
 func shouldProceedOnWaitForApiError(step *iwfpb.StepMovement) bool {
@@ -942,22 +929,11 @@ func shouldProceedOnWaitForApiError(step *iwfpb.StepMovement) bool {
 		iwfpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE
 }
 
-func shouldProceedOnExecuteApiError(step *iwfpb.StepMovement) bool {
+func shouldProceedOnExecuteMethodError(step *iwfpb.StepMovement) bool {
 	options := step.GetStepOptions()
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
 			iwfpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
-}
-
-func interpreterError(interpreterErr *iwfpb.InterpreterError) error {
-	if interpreterErr.GetError() == nil {
-		return fmt.Errorf("worker error with gRPC code %d", interpreterErr.GetGrpcCode())
-	}
-	return fmt.Errorf(
-		"worker error with gRPC code %d: %s",
-		interpreterErr.GetGrpcCode(),
-		interpreterErr.GetError().GetDetail(),
-	)
 }
 
 func (i *Interpreter) BlobStoreCleanup(
@@ -980,9 +956,6 @@ func (i *Interpreter) BlobStoreCleanup(
 		},
 	); err != nil {
 		return 0, err
-	}
-	if output.GetError() != nil {
-		return 0, interpreterError(output.GetError())
 	}
 	return int(output.GetTotalDeleted()), nil
 }

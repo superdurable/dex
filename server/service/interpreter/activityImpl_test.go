@@ -279,7 +279,7 @@ func TestWorkerErrorDetailIsExpectedFailure(t *testing.T) {
 	workerError := grpcStatus.Err()
 	require.False(t, isTransientWorkerError(workerError))
 
-	interpreterError := interpreterErrorFromWorker(workerError)
+	interpreterError := composeActivityError(workerError)
 	require.Equal(t, int32(codes.Internal), interpreterError.GetGrpcCode())
 	require.Equal(t, "worker detail", interpreterError.GetError().GetOriginalWorkerErrorDetail())
 	require.Equal(t, "worker type", interpreterError.GetError().GetOriginalWorkerErrorType())
