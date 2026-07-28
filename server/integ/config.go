@@ -34,6 +34,9 @@ type IwfServiceTestConfig struct {
 	MemoEncryption  bool
 	DefaultHeaders  map[string]string
 	S3TestThreshold int
+	// LazyLoading overrides ExternalStorage.LazyLoading when S3 is enabled.
+	// Nil uses EffectiveLazyLoading default (true).
+	LazyLoading *bool
 }
 
 func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
@@ -61,6 +64,7 @@ func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
 	if testCfg.S3TestThreshold > 0 {
 		externalStorage := config.ExternalStorageConfig{
 			Enabled:                     true,
+			LazyLoading:                 testCfg.LazyLoading,
 			ThresholdInBytes:            testCfg.S3TestThreshold,
 			MinAgeForCleanupCheckInDays: 3,
 			SupportedStorages: []config.BlobStorageConfig{

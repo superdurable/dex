@@ -504,7 +504,13 @@ func (s *serviceImpl) GetAttributes(
 	); err != nil {
 		return nil, s.handleError(err)
 	}
-	return &iwfpb.GetAttributesResponse{Attributes: queryResponse.GetAttributes()}, nil
+	attributes := queryResponse.GetAttributes()
+	if !s.extStore.EffectiveLazyLoading() {
+		if err := blobstore.HydrateKVs(ctx, attributes, s.store); err != nil {
+			return nil, s.handleError(err)
+		}
+	}
+	return &iwfpb.GetAttributesResponse{Attributes: attributes}, nil
 }
 
 func (s *serviceImpl) SetAttributes(
@@ -541,25 +547,50 @@ func (s *serviceImpl) SetAttributes(
 }
 
 func (s *serviceImpl) LoadBlobs(ctx context.Context, req *iwfpb.LoadBlobsRequest) (*iwfpb.LoadBlobsResponse, error) {
-	if req == nil || len(req.GetBlobIds()) == 0 {
+	if req == nil || len(req.GetValues()) == 0 {
 		return &iwfpb.LoadBlobsResponse{Values: map[string]*iwfpb.Value{}}, nil
 	}
-	values := make(map[string]*iwfpb.Value, len(req.GetBlobIds()))
-	for _, blobId := range req.GetBlobIds() {
-		if blobId == "" {
-			return nil, makeInvalidRequestError("blob ID is required")
+	values := make(map[string]*iwfpb.Value, len(req.GetValues()))
+	for _, value := range req.GetValues() {
+		blobId, hydrateValue, err := blobArmForLoad(value)
+		if err != nil {
+			return nil, makeInvalidRequestError(err.Error())
 		}
-		value := &iwfpb.Value{
-			Kind: &iwfpb.Value_InternalBlobIdForStringValue{
-				InternalBlobIdForStringValue: blobId,
-			},
-		}
-		if err := blobstore.HydrateValue(ctx, value, s.store); err != nil {
+		if err := blobstore.HydrateValue(ctx, hydrateValue, s.store); err != nil {
 			return nil, s.handleError(err)
 		}
-		values[blobId] = value
+		values[blobId] = hydrateValue
 	}
 	return &iwfpb.LoadBlobsResponse{Values: values}, nil
+}
+
+// blobArmForLoad requires a blob-id arm and returns a fresh Value for hydrate.
+func blobArmForLoad(value *iwfpb.Value) (blobId string, hydrateValue *iwfpb.Value, err error) {
+	if value == nil {
+		return "", nil, fmt.Errorf("value is required")
+	}
+	switch kind := value.GetKind().(type) {
+	case *iwfpb.Value_InternalBlobIdForStringValue:
+		if kind.InternalBlobIdForStringValue == "" {
+			return "", nil, fmt.Errorf("blob ID is required")
+		}
+		return kind.InternalBlobIdForStringValue, &iwfpb.Value{
+			Kind: &iwfpb.Value_InternalBlobIdForStringValue{
+				InternalBlobIdForStringValue: kind.InternalBlobIdForStringValue,
+			},
+		}, nil
+	case *iwfpb.Value_InternalBlobIdForObjValue:
+		if kind.InternalBlobIdForObjValue == "" {
+			return "", nil, fmt.Errorf("blob ID is required")
+		}
+		return kind.InternalBlobIdForObjValue, &iwfpb.Value{
+			Kind: &iwfpb.Value_InternalBlobIdForObjValue{
+				InternalBlobIdForObjValue: kind.InternalBlobIdForObjValue,
+			},
+		}, nil
+	default:
+		return "", nil, fmt.Errorf("LoadBlobs accepts only blob-id arms, not payloads")
+	}
 }
 
 func (s *serviceImpl) WaitForFlow(

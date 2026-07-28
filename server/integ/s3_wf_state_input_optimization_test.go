@@ -22,6 +22,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,15 +31,20 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	s3_state_input_optimization "github.com/superdurable/iwf/integ/workflow/s3-state-input-optimization"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 )
 
 func TestS3WorkflowStateInputOptimizationTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3StateInputOptimization(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3StateInputOptimization(t, service.BackendTypeTemporal, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
@@ -46,19 +52,24 @@ func TestS3WorkflowStateInputOptimizationCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3StateInputOptimization(t, service.BackendTypeCadence)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3StateInputOptimization(t, service.BackendTypeCadence, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
-func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3_state_input_optimization.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := s3_state_input_optimization.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

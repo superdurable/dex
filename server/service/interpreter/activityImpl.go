@@ -89,9 +89,11 @@ func (a *Activities) InvokeWaitForMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
-	if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
-		return nil, composeInternalActivityError(provider, err)
+	if !a.cfg.ExternalStorage.EffectiveLazyLoading() {
+		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
+			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
+			return nil, composeInternalActivityError(provider, err)
+		}
 	}
 
 	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
@@ -142,13 +144,16 @@ func (a *Activities) InvokeExecuteMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
+	lazyLoading := a.cfg.ExternalStorage.EffectiveLazyLoading()
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
-	if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
-		return nil, composeInternalActivityError(provider, err)
-	}
-	if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
-		return nil, composeInternalActivityError(provider, err)
+	if !lazyLoading {
+		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
+			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
+			return nil, composeInternalActivityError(provider, err)
+		}
+		if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
+			return nil, composeInternalActivityError(provider, err)
+		}
 	}
 
 	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
@@ -315,8 +320,8 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	)
 }
 
-// reuseOrOffloadNextStepInputs keeps the original blob id when the worker
-// echoes the same hydrated step input, otherwise offloads new large values.
+// reuseOrOffloadNextStepInputs accepts worker-echoed blob ids as-is, reuses the
+// original blob id when the concrete payload matches, otherwise offloads.
 func (a *Activities) reuseOrOffloadNextStepInputs(
 	ctx context.Context,
 	decision *iwfpb.StepDecision,
@@ -331,6 +336,9 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 		if step == nil || step.GetStepInput() == nil {
 			continue
 		}
+		if stepInputBlobRef(step.GetStepInput()).id != "" {
+			continue
+		}
 		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, step.GetStepInput()) {
 			step.StepInput = originalStepInputBlob.toValue()
 			continue
@@ -340,6 +348,9 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 		}
 	}
 	if closeInput := decision.GetConditionalClose().GetCloseInput(); closeInput != nil {
+		if stepInputBlobRef(closeInput).id != "" {
+			return nil
+		}
 		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, closeInput) {
 			decision.ConditionalClose.CloseInput = originalStepInputBlob.toValue()
 			return nil
@@ -402,15 +413,15 @@ func shouldReuseStepInputBlob(original stepInputBlob, hydrated, next *iwfpb.Valu
 
 func valuePayloadEqual(left, right *iwfpb.Value) bool {
 	if left == nil || right == nil {
-		return left == right
+		return false
 	}
-	if left.GetStringValue() != "" || right.GetStringValue() != "" {
-		return left.GetStringValue() == right.GetStringValue()
+	if leftString := left.GetStringValue(); leftString != "" || right.GetStringValue() != "" {
+		return leftString == right.GetStringValue()
 	}
 	leftObj := left.GetObjValue()
 	rightObj := right.GetObjValue()
 	if leftObj == nil || rightObj == nil {
-		return leftObj == rightObj
+		return false
 	}
 	return leftObj.GetEncoding() == rightObj.GetEncoding() &&
 		bytes.Equal(leftObj.GetPayload(), rightObj.GetPayload())
@@ -441,21 +452,6 @@ func validateWorkerExecuteResponse(resp *iwfpb.InvokeExecuteMethodResponse) erro
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
 		return err
-	}
-	if decision := resp.GetStepDecision(); decision != nil {
-		for _, step := range decision.GetNextSteps() {
-			if step == nil {
-				continue
-			}
-			if err := workerclient.RejectWorkerBlobIDs(step.GetStepInput()); err != nil {
-				return err
-			}
-		}
-		if err := workerclient.RejectWorkerBlobIDs(
-			decision.GetConditionalClose().GetCloseInput(),
-		); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -22,6 +22,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	s3_start_input "github.com/superdurable/iwf/integ/workflow/s3-start-input"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,9 +39,13 @@ func TestS3WorkflowStartInputTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3StartInput(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3StartInput(t, service.BackendTypeTemporal, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
@@ -47,19 +53,24 @@ func TestS3WorkflowStartInputCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3StartInput(t, service.BackendTypeCadence)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3StartInput(t, service.BackendTypeCadence, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
-func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3_start_input.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := s3_start_input.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

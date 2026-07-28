@@ -905,3 +905,78 @@ class WorkerService:
             timeout,
             metadata,
             _registered_method=True)
+
+
+class InternalServiceStub:
+    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.DumpFlowForContinueAsNew = channel.unary_unary(
+                '/iwf.InternalService/DumpFlowForContinueAsNew',
+                request_serializer=iwf__pb2.ContinueAsNewDumpRequest.SerializeToString,
+                response_deserializer=iwf__pb2.ContinueAsNewDumpResponse.FromString,
+                _registered_method=True)
+
+
+class InternalServiceServicer:
+    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
+    """
+
+    def DumpFlowForContinueAsNew(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_InternalServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'DumpFlowForContinueAsNew': grpc.unary_unary_rpc_method_handler(
+                    servicer.DumpFlowForContinueAsNew,
+                    request_deserializer=iwf__pb2.ContinueAsNewDumpRequest.FromString,
+                    response_serializer=iwf__pb2.ContinueAsNewDumpResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'iwf.InternalService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('iwf.InternalService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class InternalService:
+    """Server-internal only (interpreter CAN activity → API). Not SDK-facing.
+    """
+
+    @staticmethod
+    def DumpFlowForContinueAsNew(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/iwf.InternalService/DumpFlowForContinueAsNew',
+            iwf__pb2.ContinueAsNewDumpRequest.SerializeToString,
+            iwf__pb2.ContinueAsNewDumpResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

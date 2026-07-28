@@ -22,11 +22,11 @@ package s3_start_input
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,17 +46,22 @@ const (
 
 type handler struct {
 	iwfpb.UnimplementedWorkerServiceServer
+	flowClient    iwfpb.FlowServiceClient
 	invokeHistory sync.Map
 }
 
-func NewHandler() *handler {
+func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+	if flowClient == nil {
+		panic("flowClient is required")
+	}
 	return &handler{
+		flowClient:    flowClient,
 		invokeHistory: sync.Map{},
 	}
 }
 
 func (h *handler) InvokeWaitForMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeWaitForMethodRequest,
 ) (*iwfpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
@@ -71,7 +76,11 @@ func (h *handler) InvokeWaitForMethod(
 
 	if request.GetFlowType() == WorkflowType && request.GetStepType() == State1 {
 		h.incrementInvokeHistory(State1 + "_waitFor")
-		h.invokeHistory.Store(State1+"_waitFor_input", request.GetStepInput())
+		resolved, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetStepInput())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
+		}
+		h.invokeHistory.Store(State1+"_waitFor_input", resolved)
 		return &iwfpb.InvokeWaitForMethodResponse{}, nil
 	}
 
@@ -79,7 +88,7 @@ func (h *handler) InvokeWaitForMethod(
 }
 
 func (h *handler) InvokeExecuteMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeExecuteMethodRequest,
 ) (*iwfpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
@@ -97,7 +106,11 @@ func (h *handler) InvokeExecuteMethod(
 	}
 
 	h.incrementInvokeHistory(request.GetStepType() + "_execute")
-	h.invokeHistory.Store(request.GetStepType()+"_execute_input", request.GetStepInput())
+	resolved, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetStepInput())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
+	}
+	h.invokeHistory.Store(request.GetStepType()+"_execute_input", resolved)
 
 	if request.GetStepType() == State1 {
 		return &iwfpb.InvokeExecuteMethodResponse{

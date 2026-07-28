@@ -22,6 +22,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	rpcStorage "github.com/superdurable/iwf/integ/workflow/rpc-external-storage"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,30 +39,43 @@ func TestRpcExternalStorageNonLockingTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	doTestRpcExternalStorage(t, service.BackendTypeTemporal, false)
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(t, service.BackendTypeTemporal, false, lazyLoading)
+		})
+	}
 }
 
 func TestRpcExternalStorageSynchronousUpdateTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	doTestRpcExternalStorage(t, service.BackendTypeTemporal, true)
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(t, service.BackendTypeTemporal, true, lazyLoading)
+		})
+	}
 }
 
 func TestRpcExternalStorageNonLockingCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	doTestRpcExternalStorage(t, service.BackendTypeCadence, false)
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(t, service.BackendTypeCadence, false, lazyLoading)
+		})
+	}
 }
 
-func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, useLocking bool) {
-	workerHandler := rpcStorage.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, useLocking bool, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 100,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := rpcStorage.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -77,7 +92,13 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{rpcStorage.SmallDataKey, rpcStorage.LargeDataKey},
+		})
+		return getErr == nil && len(getResult.GetAttributes()) == 2
+	}, 5*time.Second, 50*time.Millisecond)
 
 	rpcRequest := &iwfpb.InvokeRPCRequest{
 		FlowId:         flowId,
@@ -96,7 +117,11 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestOutput, rpcResp.GetOutput()))
 
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		testData := workerHandler.GetTestResult().InvokeData
+		_, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-received-data"]
+		return exists
+	}, 2*time.Second, 50*time.Millisecond)
 
 	testData := workerHandler.GetTestResult().InvokeData
 	rpcInputData, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-received-data"]

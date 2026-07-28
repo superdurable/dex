@@ -272,10 +272,14 @@ message SetAttributesRequest {
 }
 
 message LoadBlobsRequest {
-  repeated string blob_ids = 1;
+  // Each value must be a blob-id only
+  // (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
+  // Concrete payload arms (string_value / obj_value) are rejected.
+  repeated Value values = 1;
 }
 
 message LoadBlobsResponse {
+  // Hydrated concrete values keyed by blob id.
   map<string, Value> values = 1;
 }
 

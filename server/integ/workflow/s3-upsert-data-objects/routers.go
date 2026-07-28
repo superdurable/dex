@@ -22,11 +22,11 @@ package s3_upsert_data_objects
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -57,19 +57,24 @@ const (
 
 type handler struct {
 	iwfpb.UnimplementedWorkerServiceServer
+	flowClient    iwfpb.FlowServiceClient
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() *handler {
+func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+	if flowClient == nil {
+		panic("flowClient is required")
+	}
 	return &handler{
+		flowClient:    flowClient,
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
 func (h *handler) InvokeWaitForMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeWaitForMethodRequest,
 ) (*iwfpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
@@ -94,7 +99,9 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if stepType == State2 {
-		h.validateUpsertedAttributes(request.GetAttributes())
+		if err := h.validateUpsertedAttributes(ctx, request.GetAttributes()); err != nil {
+			return nil, err
+		}
 		return &iwfpb.InvokeWaitForMethodResponse{}, nil
 	}
 
@@ -194,7 +201,7 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) validateUpsertedAttributes(attributes []*iwfpb.KV) {
+func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*iwfpb.KV) error {
 	log.Printf("S2 WaitUntil: Received %d data objects, validating they match upserted values", len(attributes))
 
 	foundLargeObj1 := false
@@ -202,12 +209,9 @@ func (h *handler) validateUpsertedAttributes(attributes []*iwfpb.KV) {
 	foundSmallObj3 := false
 
 	for _, attribute := range attributes {
-		receivedData, ok := objPayloadFromValue(attribute.GetValue())
-		if !ok {
-			if blobId := blobIdFromValue(attribute.GetValue()); blobId != "" {
-				log.Printf("S2 WaitUntil: attribute %s still has blob id %q", attribute.GetKey(), blobId)
-			}
-			continue
+		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, attribute.GetValue())
+		if err != nil {
+			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
 
 		switch attribute.GetKey() {
@@ -247,6 +251,7 @@ func (h *handler) validateUpsertedAttributes(attributes []*iwfpb.KV) {
 
 	log.Printf("S2 WaitUntil: Data object validation complete - found large_obj1: %t, large_obj2: %t, small_obj3: %t",
 		foundLargeObj1, foundLargeObj2, foundSmallObj3)
+	return nil
 }
 
 func jsonObjValue(payload string) *iwfpb.Value {
@@ -258,25 +263,4 @@ func jsonObjValue(payload string) *iwfpb.Value {
 			},
 		},
 	}
-}
-
-func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
-	if value == nil {
-		return "", false
-	}
-	objValue := value.GetObjValue()
-	if objValue == nil {
-		return "", false
-	}
-	return string(objValue.GetPayload()), true
-}
-
-func blobIdFromValue(value *iwfpb.Value) string {
-	if value == nil {
-		return ""
-	}
-	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
-		return blobId
-	}
-	return value.GetInternalBlobIdForStringValue()
 }

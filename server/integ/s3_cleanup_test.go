@@ -55,12 +55,12 @@ func TestS3CleanupCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3_start_input.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
 	})
+	workerHandler := s3_start_input.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 	unifiedClient := runtime.UnifiedClient
 

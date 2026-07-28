@@ -22,11 +22,11 @@ package s3_state_input_optimization
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -57,19 +57,24 @@ const (
 
 type handler struct {
 	iwfpb.UnimplementedWorkerServiceServer
+	flowClient    iwfpb.FlowServiceClient
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() *handler {
+func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+	if flowClient == nil {
+		panic("flowClient is required")
+	}
 	return &handler{
+		flowClient:    flowClient,
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
 func (h *handler) InvokeWaitForMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeWaitForMethodRequest,
 ) (*iwfpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
@@ -92,7 +97,9 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	h.incrementInvokeHistory(stepType + "_waitFor")
-	h.storeStepInputData(stepType, request.GetStepInput())
+	if err := h.storeStepInputData(ctx, stepType, request.GetStepInput()); err != nil {
+		return nil, err
+	}
 
 	return &iwfpb.InvokeWaitForMethodResponse{}, nil
 }
@@ -185,31 +192,15 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) storeStepInputData(stepType string, stepInput *iwfpb.Value) {
-	inputData, ok := stepInputPayload(stepInput)
-	if !ok {
-		return
+func (h *handler) storeStepInputData(ctx context.Context, stepType string, stepInput *iwfpb.Value) error {
+	inputData, err := common.ObjPayloadString(ctx, h.flowClient, stepInput)
+	if err != nil {
+		return status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
+	}
+	if inputData == "" {
+		return nil
 	}
 	h.invokeData.Store(stepType+"_input_data", inputData)
 	log.Printf("%s WaitUntil: Received input data (length: %d): %s", stepType, len(inputData), inputData)
-}
-
-func stepInputPayload(stepInput *iwfpb.Value) (string, bool) {
-	if stepInput == nil {
-		return "", false
-	}
-	if objValue := stepInput.GetObjValue(); objValue != nil {
-		payload := string(objValue.GetPayload())
-		return payload, payload != ""
-	}
-	if blobId := stepInput.GetInternalBlobIdForObjValue(); blobId != "" {
-		return blobId, true
-	}
-	if blobId := stepInput.GetInternalBlobIdForStringValue(); blobId != "" {
-		return blobId, true
-	}
-	if stringValue := stepInput.GetStringValue(); stringValue != "" {
-		return stringValue, true
-	}
-	return "", false
+	return nil
 }

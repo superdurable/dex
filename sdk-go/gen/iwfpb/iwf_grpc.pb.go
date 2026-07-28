@@ -896,3 +896,109 @@ var WorkerService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "iwf.proto",
 }
+
+const (
+	InternalService_DumpFlowForContinueAsNew_FullMethodName = "/iwf.InternalService/DumpFlowForContinueAsNew"
+)
+
+// InternalServiceClient is the client API for InternalService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Server-internal only (interpreter CAN activity → API). Not SDK-facing.
+type InternalServiceClient interface {
+	DumpFlowForContinueAsNew(ctx context.Context, in *ContinueAsNewDumpRequest, opts ...grpc.CallOption) (*ContinueAsNewDumpResponse, error)
+}
+
+type internalServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewInternalServiceClient(cc grpc.ClientConnInterface) InternalServiceClient {
+	return &internalServiceClient{cc}
+}
+
+func (c *internalServiceClient) DumpFlowForContinueAsNew(ctx context.Context, in *ContinueAsNewDumpRequest, opts ...grpc.CallOption) (*ContinueAsNewDumpResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContinueAsNewDumpResponse)
+	err := c.cc.Invoke(ctx, InternalService_DumpFlowForContinueAsNew_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// InternalServiceServer is the server API for InternalService service.
+// All implementations must embed UnimplementedInternalServiceServer
+// for forward compatibility.
+//
+// Server-internal only (interpreter CAN activity → API). Not SDK-facing.
+type InternalServiceServer interface {
+	DumpFlowForContinueAsNew(context.Context, *ContinueAsNewDumpRequest) (*ContinueAsNewDumpResponse, error)
+	mustEmbedUnimplementedInternalServiceServer()
+}
+
+// UnimplementedInternalServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedInternalServiceServer struct{}
+
+func (UnimplementedInternalServiceServer) DumpFlowForContinueAsNew(context.Context, *ContinueAsNewDumpRequest) (*ContinueAsNewDumpResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DumpFlowForContinueAsNew not implemented")
+}
+func (UnimplementedInternalServiceServer) mustEmbedUnimplementedInternalServiceServer() {}
+func (UnimplementedInternalServiceServer) testEmbeddedByValue()                         {}
+
+// UnsafeInternalServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to InternalServiceServer will
+// result in compilation errors.
+type UnsafeInternalServiceServer interface {
+	mustEmbedUnimplementedInternalServiceServer()
+}
+
+func RegisterInternalServiceServer(s grpc.ServiceRegistrar, srv InternalServiceServer) {
+	// If the following call pancis, it indicates UnimplementedInternalServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&InternalService_ServiceDesc, srv)
+}
+
+func _InternalService_DumpFlowForContinueAsNew_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContinueAsNewDumpRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).DumpFlowForContinueAsNew(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_DumpFlowForContinueAsNew_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).DumpFlowForContinueAsNew(ctx, req.(*ContinueAsNewDumpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// InternalService_ServiceDesc is the grpc.ServiceDesc for InternalService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var InternalService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iwf.InternalService",
+	HandlerType: (*InternalServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "DumpFlowForContinueAsNew",
+			Handler:    _InternalService_DumpFlowForContinueAsNew_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "iwf.proto",
+}

@@ -22,6 +22,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,15 +31,21 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	s3_upsert_data_objects "github.com/superdurable/iwf/integ/workflow/s3-upsert-data-objects"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestS3WorkflowUpsertDataObjectsTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3UpsertDataObjects(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3UpsertDataObjects(t, service.BackendTypeTemporal, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
@@ -46,19 +53,24 @@ func TestS3WorkflowUpsertDataObjectsCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithS3UpsertDataObjects(t, service.BackendTypeCadence)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestWorkflowWithS3UpsertDataObjects(t, service.BackendTypeCadence, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
-func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3_upsert_data_objects.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := s3_upsert_data_objects.NewHandler(runtime.FlowClient)
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -106,17 +118,34 @@ func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.Bac
 	retrieved := attributeMap(getResult.GetAttributes())
 	blobId1 := blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey1])
 	blobId2 := blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey2])
-	require.NotEmpty(t, blobId1)
-	require.NotEmpty(t, blobId2)
-	require.Empty(t, blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey3]))
+	if lazyLoading {
+		require.NotEmpty(t, blobId1)
+		require.NotEmpty(t, blobId2)
+		require.Empty(t, blobIdFromValue(retrieved[s3_upsert_data_objects.TestDataObjKey3]))
+	} else {
+		require.Empty(t, blobId1)
+		require.Empty(t, blobId2)
+		require.True(t, proto.Equal(
+			objJSONValue("\""+s3_upsert_data_objects.LargeDataContent1+"\""),
+			retrieved[s3_upsert_data_objects.TestDataObjKey1],
+		))
+		require.True(t, proto.Equal(
+			objJSONValue("\""+s3_upsert_data_objects.LargeDataContent2+"\""),
+			retrieved[s3_upsert_data_objects.TestDataObjKey2],
+		))
+	}
 
 	if backendType == service.BackendTypeTemporal {
+		historyBlobIds := []string{blobId1, blobId2}
+		if !lazyLoading {
+			historyBlobIds = []string{"s3-store-id|"}
+		}
 		requireTemporalHistoryStoresBlobIdsNotPayloads(
 			t,
 			ctx,
 			runtime.UnifiedClient,
 			flowId,
-			[]string{blobId1, blobId2},
+			historyBlobIds,
 			[]string{
 				s3_upsert_data_objects.LargeDataContent1,
 				s3_upsert_data_objects.LargeDataContent2,

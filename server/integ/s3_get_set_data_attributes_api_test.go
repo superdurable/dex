@@ -22,6 +22,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	s3GetSetDataAttributes "github.com/superdurable/iwf/integ/workflow/s3-get-set-data-attributes"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,9 +39,13 @@ func TestS3GetSetDataAttributesTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestS3GetSetDataAttributes(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestS3GetSetDataAttributes(t, service.BackendTypeTemporal, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
@@ -47,9 +53,13 @@ func TestS3GetSetDataAttributesCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestS3GetSetDataAttributes(t, service.BackendTypeCadence)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestS3GetSetDataAttributes(t, service.BackendTypeCadence, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
@@ -57,19 +67,24 @@ func TestS3GetSetDataAttributesWithInitialDataTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestS3GetSetDataAttributesWithInitialData(t, service.BackendTypeTemporal)
-		smallWaitForFastTest()
+	for _, lazyLoading := range []bool{true, false} {
+		for i := 0; i < *repeatIntegTest; i++ {
+			t.Run(fmt.Sprintf("lazy=%v-%d", lazyLoading, i), func(t *testing.T) {
+				doTestS3GetSetDataAttributesWithInitialData(t, service.BackendTypeTemporal, lazyLoading)
+				smallWaitForFastTest()
+			})
+		}
 	}
 }
 
-func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3GetSetDataAttributes.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 50,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := s3GetSetDataAttributes.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -110,8 +125,12 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 			return false
 		}
 		retrieved := attributeMap(getResult.GetAttributes())
-		return blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]) != "" &&
-			blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]) != ""
+		if lazyLoading {
+			return blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]) != "" &&
+				blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]) != ""
+		}
+		return proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved[s3GetSetDataAttributes.LargeDataKey]) &&
+			proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
 	}, 10*time.Second, 100*time.Millisecond)
 
 	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
@@ -127,27 +146,29 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 
 	retrieved := attributeMap(getResult.GetAttributes())
 	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved[s3GetSetDataAttributes.SmallDataKey]))
-	largeBlobId := blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey])
-	anotherBlobId := blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
-	require.NotEmpty(t, largeBlobId)
-	require.NotEmpty(t, anotherBlobId)
-	require.Nil(t, retrieved[s3GetSetDataAttributes.LargeDataKey].GetObjValue())
-	require.Nil(t, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey].GetObjValue())
 
-	requireLoadedBlobPayload(
-		t,
-		ctx,
-		flowClient,
-		largeBlobId,
-		string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
-	)
-	requireLoadedBlobPayload(
-		t,
-		ctx,
-		flowClient,
-		anotherBlobId,
-		string(s3GetSetDataAttributes.AnotherLargeDataValue.GetObjValue().GetPayload()),
-	)
+	var largeBlobId, anotherBlobId string
+	if lazyLoading {
+		largeBlobId = blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey])
+		anotherBlobId = blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
+		require.NotEmpty(t, largeBlobId)
+		require.NotEmpty(t, anotherBlobId)
+		require.Nil(t, retrieved[s3GetSetDataAttributes.LargeDataKey].GetObjValue())
+		require.Nil(t, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey].GetObjValue())
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, largeBlobId,
+			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+		)
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, anotherBlobId,
+			string(s3GetSetDataAttributes.AnotherLargeDataValue.GetObjValue().GetPayload()),
+		)
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved[s3GetSetDataAttributes.LargeDataKey]))
+		require.True(t, proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
+		require.Empty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]))
+		require.Empty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
+	}
 
 	getSpecific, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
 		FlowId: flowId,
@@ -156,19 +177,27 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 	require.NoError(t, err)
 	require.Len(t, getSpecific.GetAttributes(), 1)
 	require.Equal(t, s3GetSetDataAttributes.LargeDataKey, getSpecific.GetAttributes()[0].GetKey())
-	require.Equal(t, largeBlobId, blobIdFromValue(getSpecific.GetAttributes()[0].GetValue()))
+	if lazyLoading {
+		require.Equal(t, largeBlobId, blobIdFromValue(getSpecific.GetAttributes()[0].GetValue()))
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, getSpecific.GetAttributes()[0].GetValue()))
+	}
 
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), objectCount)
 
 	if backendType == service.BackendTypeTemporal {
+		historyBlobIds := []string{largeBlobId, anotherBlobId}
+		if !lazyLoading {
+			historyBlobIds = []string{"s3-store-id|"}
+		}
 		requireTemporalHistoryStoresBlobIdsNotPayloads(
 			t,
 			ctx,
 			runtime.UnifiedClient,
 			flowId,
-			[]string{largeBlobId, anotherBlobId},
+			historyBlobIds,
 			[]string{
 				s3GetSetDataAttributes.LargeDataContent,
 				s3GetSetDataAttributes.AnotherLargeDataContent,
@@ -180,13 +209,14 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 	require.NoError(t, err)
 }
 
-func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType service.BackendType) {
-	workerHandler := s3GetSetDataAttributes.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
+func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 50,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := s3GetSetDataAttributes.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -218,7 +248,10 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 			return false
 		}
 		retrieved := attributeMap(getResult.GetAttributes())
-		return blobIdFromValue(retrieved["initial-large"]) != ""
+		if lazyLoading {
+			return blobIdFromValue(retrieved["initial-large"]) != ""
+		}
+		return proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"])
 	}, 10*time.Second, 100*time.Millisecond)
 
 	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
@@ -230,28 +263,35 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 
 	retrieved := attributeMap(getResult.GetAttributes())
 	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved["initial-small"]))
-	largeBlobId := blobIdFromValue(retrieved["initial-large"])
-	require.NotEmpty(t, largeBlobId)
-	require.Nil(t, retrieved["initial-large"].GetObjValue())
-	requireLoadedBlobPayload(
-		t,
-		ctx,
-		flowClient,
-		largeBlobId,
-		string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
-	)
+	var largeBlobId string
+	if lazyLoading {
+		largeBlobId = blobIdFromValue(retrieved["initial-large"])
+		require.NotEmpty(t, largeBlobId)
+		require.Nil(t, retrieved["initial-large"].GetObjValue())
+		requireLoadedBlobPayload(
+			t, ctx, flowClient, largeBlobId,
+			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+		)
+	} else {
+		require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"]))
+		require.Empty(t, blobIdFromValue(retrieved["initial-large"]))
+	}
 
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), objectCount)
 
 	if backendType == service.BackendTypeTemporal {
+		historyBlobIds := []string{largeBlobId}
+		if !lazyLoading {
+			historyBlobIds = []string{"s3-store-id|"}
+		}
 		requireTemporalHistoryStoresBlobIdsNotPayloads(
 			t,
 			ctx,
 			runtime.UnifiedClient,
 			flowId,
-			[]string{largeBlobId},
+			historyBlobIds,
 			[]string{s3GetSetDataAttributes.LargeDataContent},
 		)
 	}
@@ -287,11 +327,20 @@ func requireLoadedBlobPayload(
 ) {
 	t.Helper()
 	loadResult, err := flowClient.LoadBlobs(ctx, &iwfpb.LoadBlobsRequest{
-		BlobIds: []string{blobId},
+		Values: []*iwfpb.Value{
+			{
+				Kind: &iwfpb.Value_InternalBlobIdForObjValue{
+					InternalBlobIdForObjValue: blobId,
+				},
+			},
+		},
 	})
 	require.NoError(t, err)
 	loaded := loadResult.GetValues()[blobId]
 	require.NotNil(t, loaded)
-	// LoadBlobs hydrates via the string arm; compare raw stored bytes.
+	if obj := loaded.GetObjValue(); obj != nil {
+		require.Equal(t, expectedPayload, string(obj.GetPayload()))
+		return
+	}
 	require.Equal(t, expectedPayload, loaded.GetStringValue())
 }

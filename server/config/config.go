@@ -75,8 +75,8 @@ type (
 		// When on, server will only send blobIDs to worker for worker APIs(invoke waitFor/execute/RPC) and GetAttribute API.
 		// Worker wil call LoadBlobs API to get the actual values.
 		// So that worker & server can minimize the data transfer, and worker can cache the values if needed.
-		// Default true.
-		LazyLoading bool `yaml:"lazyLoading"`
+		// Default true when omitted (nil).
+		LazyLoading *bool `yaml:"lazyLoading"`
 		// ThresholdInBytes is the payload size that triggers writing a blob id onto Value instead of inline data. Default 0 (never offload when Enabled is false).
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
@@ -246,6 +246,14 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 		return DefaultMaxWaitSeconds
 	}
 	return c.MaxWaitSeconds
+}
+
+// EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.
+func (c ExternalStorageConfig) EffectiveLazyLoading() bool {
+	if c.LazyLoading == nil {
+		return true
+	}
+	return *c.LazyLoading
 }
 
 // EffectiveGrpcMaxMessageBytes returns GrpcMaxMessageBytes or DefaultGrpcMaxMessageBytes.

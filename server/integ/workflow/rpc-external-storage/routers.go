@@ -24,12 +24,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"strings"
 	"sync"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -78,17 +78,22 @@ var (
 
 type handler struct {
 	iwfpb.UnimplementedWorkerServiceServer
-	testData sync.Map
+	flowClient iwfpb.FlowServiceClient
+	testData   sync.Map
 }
 
-func NewHandler() *handler {
+func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+	if flowClient == nil {
+		panic("flowClient is required")
+	}
 	return &handler{
-		testData: sync.Map{},
+		flowClient: flowClient,
+		testData:   sync.Map{},
 	}
 }
 
 func (h *handler) InvokeWorkerRPC(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeWorkerRPCRequest,
 ) (*iwfpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
@@ -102,16 +107,25 @@ func (h *handler) InvokeWorkerRPC(
 	}
 
 	h.testData.Store(request.GetRpcName()+"-input", request.GetInput())
-	h.testData.Store(request.GetRpcName()+"-received-data", request.GetAttributes())
+
+	resolvedAttributes := make([]*iwfpb.KV, 0, len(request.GetAttributes()))
+	for _, attribute := range request.GetAttributes() {
+		if attribute.GetValue().GetKind() == nil {
+			return nil, status.Error(codes.InvalidArgument, "RPC attribute value kind is required")
+		}
+		resolved, err := common.LoadBlobsValue(ctx, h.flowClient, attribute.GetValue())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
+		}
+		resolvedAttributes = append(resolvedAttributes, &iwfpb.KV{
+			Key:   attribute.GetKey(),
+			Value: resolved,
+		})
+	}
+	h.testData.Store(request.GetRpcName()+"-received-data", resolvedAttributes)
 
 	if request.GetRpcName() != UpdateDataAttributesRPC {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("unknown RPC name: %s", request.GetRpcName()))
-	}
-
-	for _, attribute := range request.GetAttributes() {
-		if attribute.GetValue().GetKind() == nil {
-			return nil, status.Error(codes.InvalidArgument, "RPC should receive hydrated attribute values")
-		}
 	}
 
 	return &iwfpb.InvokeWorkerRPCResponse{

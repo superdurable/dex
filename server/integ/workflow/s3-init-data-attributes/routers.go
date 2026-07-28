@@ -22,11 +22,11 @@ package s3_init_data_attributes
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -63,19 +63,24 @@ var TestDataAttributeVal3 = jsonObjValue("\"" + SmallDataContent3 + "\"")
 
 type handler struct {
 	iwfpb.UnimplementedWorkerServiceServer
+	flowClient    iwfpb.FlowServiceClient
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() *handler {
+func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+	if flowClient == nil {
+		panic("flowClient is required")
+	}
 	return &handler{
+		flowClient:    flowClient,
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
 func (h *handler) InvokeWaitForMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeWaitForMethodRequest,
 ) (*iwfpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
@@ -97,11 +102,9 @@ func (h *handler) InvokeWaitForMethod(
 
 	if stepType == State1 {
 		h.invokeHistory.Store(stepType+"_waitFor_input", request.GetStepInput())
-		h.validateInitialAttributes(
-			request.GetAttributes(),
-			"S1 WaitUntil",
-			"S1_waitFor",
-		)
+		if err := h.validateInitialAttributes(ctx, request.GetAttributes(), "S1 WaitUntil", "S1_waitFor"); err != nil {
+			return nil, err
+		}
 		return &iwfpb.InvokeWaitForMethodResponse{}, nil
 	}
 
@@ -113,7 +116,7 @@ func (h *handler) InvokeWaitForMethod(
 }
 
 func (h *handler) InvokeExecuteMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *iwfpb.InvokeExecuteMethodRequest,
 ) (*iwfpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
@@ -149,11 +152,9 @@ func (h *handler) InvokeExecuteMethod(
 
 	if stepType == State2 {
 		h.invokeHistory.Store(stepType+"_execute_input", request.GetStepInput())
-		h.validateInitialAttributes(
-			request.GetAttributes(),
-			"S2 Execute",
-			"S2_execute",
-		)
+		if err := h.validateInitialAttributes(ctx, request.GetAttributes(), "S2 Execute", "S2_execute"); err != nil {
+			return nil, err
+		}
 		return &iwfpb.InvokeExecuteMethodResponse{
 			StepDecision: &iwfpb.StepDecision{
 				NextSteps: []*iwfpb.StepMovement{
@@ -197,7 +198,9 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, storePrefix string) {
+func (h *handler) validateInitialAttributes(
+	ctx context.Context, attributes []*iwfpb.KV, logPrefix, storePrefix string,
+) error {
 	log.Printf("%s: Received %d data attributes, validating they match initial values", logPrefix, len(attributes))
 
 	foundAttr1 := false
@@ -206,13 +209,9 @@ func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, s
 	validationErrors := []string{}
 
 	for _, attribute := range attributes {
-		receivedData, ok := objPayloadFromValue(attribute.GetValue())
-		if !ok {
-			if blobId := blobIdFromValue(attribute.GetValue()); blobId != "" {
-				validationErrors = append(validationErrors, attribute.GetKey()+" unexpected blob id arm")
-				log.Printf("%s: attribute %s still has blob id %q", logPrefix, attribute.GetKey(), blobId)
-			}
-			continue
+		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, attribute.GetValue())
+		if err != nil {
+			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
 
 		switch attribute.GetKey() {
@@ -257,6 +256,7 @@ func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, s
 	h.invokeData.Store(storePrefix+"_attr3_found", foundAttr3)
 	h.invokeData.Store(storePrefix+"_total_attrs", len(attributes))
 	h.invokeData.Store(storePrefix+"_validation_pass", allValidationsPass)
+	return nil
 }
 
 func jsonObjValue(payload string) *iwfpb.Value {
@@ -268,25 +268,4 @@ func jsonObjValue(payload string) *iwfpb.Value {
 			},
 		},
 	}
-}
-
-func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
-	if value == nil {
-		return "", false
-	}
-	objValue := value.GetObjValue()
-	if objValue == nil {
-		return "", false
-	}
-	return string(objValue.GetPayload()), true
-}
-
-func blobIdFromValue(value *iwfpb.Value) string {
-	if value == nil {
-		return ""
-	}
-	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
-		return blobId
-	}
-	return value.GetInternalBlobIdForStringValue()
 }

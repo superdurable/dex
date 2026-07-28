@@ -32,6 +32,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/signal"
 	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/iwf/service/common/ptr"
 )
 
 func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
@@ -45,13 +46,21 @@ func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
 }
 
 func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
-	workerHandler := signal.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
-	// Offload each 1MiB attribute so Temporal history/CAN stays under payload limits.
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			doTestLargeQueryAttributesLazy(t, flowConfig, lazyLoading)
+		})
+	}
+}
+
+func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, lazyLoading bool) {
 	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     service.BackendTypeTemporal,
 		S3TestThreshold: 100 * 1024,
+		LazyLoading:     ptr.Any(lazyLoading),
 	})
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -117,21 +126,30 @@ func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
 	retrieved := attributeMap(getResult.GetAttributes())
 	blobIds := make([]string, 0, 5)
 	for _, key := range keys {
-		blobId := blobIdFromValue(retrieved[key])
-		require.NotEmpty(t, blobId, key)
-		blobIds = append(blobIds, blobId)
+		if lazyLoading {
+			blobId := blobIdFromValue(retrieved[key])
+			require.NotEmpty(t, blobId, key)
+			blobIds = append(blobIds, blobId)
+		} else {
+			require.Empty(t, blobIdFromValue(retrieved[key]), key)
+			require.NotNil(t, retrieved[key].GetObjValue())
+		}
 	}
 
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(5), objectCount)
 
+	historyBlobIds := blobIds
+	if !lazyLoading {
+		historyBlobIds = []string{"s3-store-id|"}
+	}
 	requireTemporalHistoryStoresBlobIdsNotPayloads(
 		t,
 		ctx,
 		runtime.UnifiedClient,
 		flowId,
-		blobIds,
+		historyBlobIds,
 		[]string{oneMbPayload},
 	)
 }
