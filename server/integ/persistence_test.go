@@ -184,8 +184,12 @@ func doTestPersistenceWorkflow(
 	require.NoError(t, err)
 
 	queryResult2, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
-		FlowId:  flowId,
-		AllKeys: true,
+		FlowId: flowId,
+		Keys: []string{
+			persistence.TestDataAttributeKey,
+			persistence.TestDataAttributeKey2,
+			expectedDataAttribute.GetKey(),
+		},
 	})
 	require.NoError(t, err)
 
@@ -225,8 +229,8 @@ func doTestPersistenceWorkflow(
 		"S2_start_queryAttFound":  true,
 	}, data)
 
-	expectedVal1 := dataObjectAttribute(persistence.TestDataAttributeKey, `"test-data-attribute-value2"`)
-	expectedVal2 := dataObjectAttribute(persistence.TestDataAttributeKey2, `"test-data-attribute-value1"`)
+	expectedVal1 := dataObjectAttribute(persistence.TestDataAttributeKey, "test-data-attribute-value2")
+	expectedVal2 := dataObjectAttribute(persistence.TestDataAttributeKey2, "test-data-attribute-value1")
 
 	requireAttributesMatch(t, []*iwfpb.AttributeWrite{
 		expectedVal1,
@@ -295,19 +299,29 @@ func doTestPersistenceWorkflow(
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		})
-		startMore(firstFlowId+"-3", []*iwfpb.AttributeWrite{
+		attrs3 := []*iwfpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
-			indexedKeywordArrayAttribute("CustomKeywordField", "keyword1", "keyword2"),
-		})
-		startMore(firstFlowId+"-4", []*iwfpb.AttributeWrite{
+		}
+		attrs4 := []*iwfpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
-			indexedKeywordArrayAttribute("CustomKeywordField", "keyword1", "keyword2"),
-			indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"),
-		})
+		}
+		// Cadence has no KeywordList search attribute registration.
+		if backendType == service.BackendTypeTemporal {
+			keywordArray := indexedKeywordArrayAttribute(
+				persistence.TestSearchAttributeKeywordArrayKey,
+				"keyword1",
+				"keyword2",
+			)
+			attrs3 = append(attrs3, keywordArray)
+			attrs4 = append(attrs4, keywordArray)
+		}
+		attrs4 = append(attrs4, indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"))
+		startMore(firstFlowId+"-3", attrs3)
+		startMore(firstFlowId+"-4", attrs4)
 
 		for _, suffix := range []string{"-1", "-2", "-3", "-4"} {
 			resp, waitErr := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
@@ -319,16 +333,22 @@ func doTestPersistenceWorkflow(
 
 		time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
 
+		boolQuery := fmt.Sprintf("CustomDatetimeField='%v' AND CustomBoolField=%v", nowTimeStr, true)
+		if backendType == service.BackendTypeCadence {
+			// Cadence ES visibility expects a quoted bool literal.
+			boolQuery = fmt.Sprintf("CustomDatetimeField='%v' AND CustomBoolField='%v'", nowTimeStr, "true")
+		}
+
 		if flowConfig != nil {
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 15)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomStringField='%v'", nowTimeStr, "Quanzheng"), 3)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 9)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomBoolField='%v'", nowTimeStr, "true"), 0)
+			assertSearchFlows(t, flowClient, boolQuery, 0)
 		} else {
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomStringField='%v'", nowTimeStr, "Quanzheng"), 1)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomBoolField='%v'", nowTimeStr, "true"), 0)
+			assertSearchFlows(t, flowClient, boolQuery, 0)
 		}
 	}
 }

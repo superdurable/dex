@@ -110,6 +110,24 @@ func TestSetSearchAttributes(t *testing.T) {
 		require.True(t, found, "missing attribute %s", want.GetKey())
 	}
 
+	// Describe reads Temporal indexed fields, not workflow persistence.
+	desc, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+		ctx,
+		flowId,
+		"",
+		map[string]iwfpb.IndexType{
+			persistence.TestSearchAttributeIntKey:          iwfpb.IndexType_INDEX_TYPE_INT,
+			persistence.TestSearchAttributeKeywordKey:      iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+			persistence.TestSearchAttributeKeywordArrayKey: iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+		},
+	)
+	require.NoError(t, err)
+	for _, want := range expected {
+		got, ok := desc.IndexedAttributes[want.GetKey()]
+		require.True(t, ok, "missing backend indexed attribute %s", want.GetKey())
+		require.True(t, proto.Equal(got, want.GetValue()), "backend mismatch for %s", want.GetKey())
+	}
+
 	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
 		FlowId:   flowId,
 		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,

@@ -271,26 +271,43 @@ func backendObjectToValue(object interface{}, indexType iwfpb.IndexType, cadence
 		}
 		return &iwfpb.Value{Kind: &iwfpb.Value_BoolValue{BoolValue: b}}, nil
 	case iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY:
-		switch v := object.(type) {
-		case []string:
-			if len(v) == 1 {
-				return &iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: v[0]}}, nil
-			}
-			return nil, fmt.Errorf("KEYWORD_ARRAY multi-element decode not represented in Value yet")
-		case []interface{}:
-			if len(v) == 1 {
-				s, ok := v[0].(string)
-				if !ok {
-					return nil, fmt.Errorf("KEYWORD_ARRAY element not string")
-				}
-				return &iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: s}}, nil
-			}
-			_ = cadenceJSONNumber
-			return nil, fmt.Errorf("KEYWORD_ARRAY multi-element decode not represented in Value yet")
-		default:
-			return nil, fmt.Errorf("expected string array for KEYWORD_ARRAY")
+		_ = cadenceJSONNumber
+		values, err := keywordArrayObjectToStrings(object)
+		if err != nil {
+			return nil, err
 		}
+		payload, err := json.Marshal(values)
+		if err != nil {
+			return nil, err
+		}
+		return &iwfpb.Value{
+			Kind: &iwfpb.Value_ObjValue{
+				ObjValue: &iwfpb.EncodedObject{
+					Encoding: "json",
+					Payload:  payload,
+				},
+			},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported index type %v", indexType)
+	}
+}
+
+func keywordArrayObjectToStrings(object interface{}) ([]string, error) {
+	switch v := object.(type) {
+	case []string:
+		return v, nil
+	case []interface{}:
+		values := make([]string, 0, len(v))
+		for _, element := range v {
+			s, ok := element.(string)
+			if !ok {
+				return nil, fmt.Errorf("KEYWORD_ARRAY element not string")
+			}
+			values = append(values, s)
+		}
+		return values, nil
+	default:
+		return nil, fmt.Errorf("expected string array for KEYWORD_ARRAY")
 	}
 }

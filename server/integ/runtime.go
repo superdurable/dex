@@ -437,7 +437,7 @@ func indexedDatetimeAttribute(key, value string) *iwfpb.AttributeWrite {
 func indexedKeywordArrayAttribute(key string, values ...string) *iwfpb.AttributeWrite {
 	return &iwfpb.AttributeWrite{
 		Key:   key,
-		Value: jsonObjValue(mustJSONMarshal(values)),
+		Value: jsonObjValue(values),
 		IndexConfig: &iwfpb.IndexConfig{
 			Enable: true,
 			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
@@ -452,14 +452,6 @@ func dataObjectAttribute(key, jsonPayload string) *iwfpb.AttributeWrite {
 	}
 }
 
-func mustJSONMarshal(payload any) string {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		panic(err)
-	}
-	return string(bytes)
-}
-
 func assertSearchFlows(
 	t *testing.T,
 	flowClient iwfpb.FlowServiceClient,
@@ -469,6 +461,17 @@ func assertSearchFlows(
 	t.Helper()
 	assertions := require.New(t)
 	ctx := context.Background()
+
+	if expectedCount == 0 {
+		searchResp, err := flowClient.SearchFlows(ctx, &iwfpb.SearchFlowsRequest{
+			Query:    query,
+			PageSize: 2,
+		})
+		require.NoError(t, err)
+		assertions.Empty(searchResp.GetFlowRuns(), "expected zero results for query %v", query)
+		assertions.Empty(searchResp.GetNextPageToken())
+		return
+	}
 
 	var nextPageToken string
 	currentCount := 0
