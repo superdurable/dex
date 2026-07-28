@@ -36,15 +36,10 @@ type IwfServiceTestConfig struct {
 	S3TestThreshold int
 }
 
-// integGrpcMaxMessageBytes must fit several hydrated 1MiB attributes on worker
-// Invoke* RPCs (default gRPC 4MiB is too small for large_data_attributes_test).
-const integGrpcMaxMessageBytes = 32 * 1024 * 1024
-
 func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
 	cfg := config.Config{
 		Api: config.ApiConfig{
-			MaxWaitSeconds:      12, // use 12 so that we can test it in the waiting test
-			GrpcMaxMessageBytes: integGrpcMaxMessageBytes,
+			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
 			QueryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicy{
 				InitialIntervalSeconds: 1,
 				MaximumAttempts:        10,

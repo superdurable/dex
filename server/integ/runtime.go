@@ -73,9 +73,10 @@ func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
+	// Match Api.EffectiveGrpcMaxMessageBytes; bare grpc.NewServer defaults to 4MiB.
 	server := grpc.NewServer(
-		grpc.MaxRecvMsgSize(integGrpcMaxMessageBytes),
-		grpc.MaxSendMsgSize(integGrpcMaxMessageBytes),
+		grpc.MaxRecvMsgSize(config.DefaultGrpcMaxMessageBytes),
+		grpc.MaxSendMsgSize(config.DefaultGrpcMaxMessageBytes),
 	)
 	iwfpb.RegisterWorkerServiceServer(server, handler)
 	serveError := make(chan error, 1)
