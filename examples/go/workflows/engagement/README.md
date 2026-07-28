@@ -28,22 +28,22 @@
 # Implementation Details 
 
 ## InitState
-![Screenshot 2023-05-23 at 4 19 07 PM](https://github.com/superdurable/iwf/assets/4523955/1104f0d6-1933-4842-b22b-0b31cb055092)
+![Screenshot 2023-05-23 at 4 19 07 PM](https://github.com/superdurable/dex/assets/4523955/1104f0d6-1933-4842-b22b-0b31cb055092)
 
 ## ReminderState
 
-![Screenshot 2023-05-23 at 4 19 18 PM](https://github.com/superdurable/iwf/assets/4523955/2cdfc832-36ff-49d0-addf-d9101108aeb9)
+![Screenshot 2023-05-23 at 4 19 18 PM](https://github.com/superdurable/dex/assets/4523955/2cdfc832-36ff-49d0-addf-d9101108aeb9)
 
 ## RPC
 
-![Screenshot 2023-05-23 at 4 19 28 PM](https://github.com/superdurable/iwf/assets/4523955/b498439c-c79a-40ee-9d56-f0961727865d)
+![Screenshot 2023-05-23 at 4 19 28 PM](https://github.com/superdurable/dex/assets/4523955/b498439c-c79a-40ee-9d56-f0961727865d)
 
 ## NotifyExtState
-![Screenshot 2023-05-23 at 4 19 46 PM](https://github.com/superdurable/iwf/assets/4523955/e7e52e94-b383-4565-a1d2-d50b9c184745)
+![Screenshot 2023-05-23 at 4 19 46 PM](https://github.com/superdurable/dex/assets/4523955/e7e52e94-b383-4565-a1d2-d50b9c184745)
 
 
 ## Controller
-And controller is a very thin layer of calling iWF client APIs and workflow RPC stub APIs. See [engagement_controller](../../cmd/server/iwf/engagement_controller.go).
+And controller is a very thin layer of calling Dex client APIs and workflow RPC stub APIs. See [engagement_controller](../../cmd/server/dex/engagement_controller.go).
 
 # How to run
 

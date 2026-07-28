@@ -22,12 +22,12 @@ package headers
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -53,7 +53,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -77,8 +77,8 @@ func validateTestHeader(ctx context.Context) error {
 
 func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	if err := validateTestHeader(ctx); err != nil {
 		return nil, err
 	}
@@ -93,9 +93,9 @@ func (h *handler) InvokeWaitForMethod(
 				h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 			}
 
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
 			}, nil
 		}
@@ -106,9 +106,9 @@ func (h *handler) InvokeWaitForMethod(
 				h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 			}
 
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
 			}, nil
 		}
@@ -119,8 +119,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	if err := validateTestHeader(ctx); err != nil {
 		return nil, err
 	}
@@ -135,9 +135,9 @@ func (h *handler) InvokeExecuteMethod(
 		}
 
 		if request.GetStepType() == State1 {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{
 							StepType:  State2,
 							StepInput: request.GetStepInput(),
@@ -147,9 +147,9 @@ func (h *handler) InvokeExecuteMethod(
 			}, nil
 		}
 		if request.GetStepType() == State2 {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{
 							StepType:  service.GracefulCompletingFlowStepType,
 							StepInput: request.GetStepInput(),

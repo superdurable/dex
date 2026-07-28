@@ -25,9 +25,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -56,13 +56,13 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
-	flowClient    iwfpb.FlowServiceClient
+	dexpb.UnimplementedWorkerServiceServer
+	flowClient    dexpb.FlowServiceClient
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+func NewHandler(flowClient dexpb.FlowServiceClient) *handler {
 	if flowClient == nil {
 		panic("flowClient is required")
 	}
@@ -75,8 +75,8 @@ func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -101,13 +101,13 @@ func (h *handler) InvokeWaitForMethod(
 		return nil, err
 	}
 
-	return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
 }
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -127,9 +127,9 @@ func (h *handler) InvokeExecuteMethod(
 
 	switch stepType {
 	case State1:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  State2,
 						StepInput: request.GetStepInput(),
@@ -138,9 +138,9 @@ func (h *handler) InvokeExecuteMethod(
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  State3,
 						StepInput: request.GetStepInput(),
@@ -149,9 +149,9 @@ func (h *handler) InvokeExecuteMethod(
 			},
 		}, nil
 	case State3:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  service.GracefulCompletingFlowStepType,
 						StepInput: request.GetStepInput(),
@@ -192,7 +192,7 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) storeStepInputData(ctx context.Context, stepType string, stepInput *iwfpb.Value) error {
+func (h *handler) storeStepInputData(ctx context.Context, stepType string, stepInput *dexpb.Value) error {
 	inputData, err := common.ObjPayloadString(ctx, h.flowClient, stepInput)
 	if err != nil {
 		return status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)

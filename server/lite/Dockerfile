@@ -6,7 +6,7 @@ ARG TEMPORAL_VERSION
 ARG TARGETARCH
 ARG TARGETOS
 
-WORKDIR  /tmp/iwf-lite-deps
+WORKDIR  /tmp/dex-lite-deps
 
 #get temporal cli for each architecture we support
 ADD --checksum=sha256:e2f548af84e820b7d71f25fc6461a4e6a1ab7cdb6a80fde3c375641b0772375b --unpack=true https://github.com/temporalio/cli/releases/download/v${TEMPORAL_VERSION}/temporal_cli_${TEMPORAL_VERSION}_linux_amd64.tar.gz temporal/amd64/
@@ -19,7 +19,7 @@ ADD --checksum=sha256:0d60307cf036f5e29cf0d298dabc9dd62f1cce80f72cbfdbdb0e54ad77
 ADD --checksum=sha256:be6d0bd3696c3a13a35f02d3a0280b64319c67918b4501c5c3d87f96d000085c --unpack=true https://github.com/minio/minio/archive/refs/tags/${MINIO_RELEASE}.tar.gz minio/sourcecode
 
 
-WORKDIR /tmp/iwf-lite-deps/minio/sourcecode/minio-${MINIO_RELEASE}/
+WORKDIR /tmp/dex-lite-deps/minio/sourcecode/minio-${MINIO_RELEASE}/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -28,8 +28,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM golang:latest
 ARG MINIO_RELEASE
 ARG TARGETARCH
-COPY . /iwf/
-WORKDIR /iwf/
+COPY . /dex/
+WORKDIR /dex/
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -37,15 +37,15 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* 
 
-COPY --from=deps /tmp/iwf-lite-deps/temporal/${TARGETARCH}/temporal /usr/local/bin/temporal
+COPY --from=deps /tmp/dex-lite-deps/temporal/${TARGETARCH}/temporal /usr/local/bin/temporal
 
 
 # Build and Install MinIO
-COPY --from=deps /tmp/iwf-lite-deps/minio/sourcecode/minio-${MINIO_RELEASE}/minio /usr/local/bin/minio
+COPY --from=deps /tmp/dex-lite-deps/minio/sourcecode/minio-${MINIO_RELEASE}/minio /usr/local/bin/minio
 
-RUN rm -rf iwf-server && \
+RUN rm -rf dex-server && \
     make bins && \
-    chmod +x /iwf/lite/start-lite-server.sh
+    chmod +x /dex/lite/start-lite-server.sh
 
 EXPOSE  8801 7233 8233 9000 9001
-CMD ["/iwf/lite/start-lite-server.sh"]
+CMD ["/dex/lite/start-lite-server.sh"]

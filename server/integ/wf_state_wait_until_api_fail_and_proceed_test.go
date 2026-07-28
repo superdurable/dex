@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wf_state_api_fail_and_proceed"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wf_state_api_fail_and_proceed"
+	"github.com/superdurable/dex/service"
 )
 
 func TestStateApiFailAndProceedTemporal(t *testing.T) {
@@ -59,11 +59,11 @@ func TestStateApiFailAndProceedCadence(t *testing.T) {
 func doTestStateApiFailAndProceed(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := wf_state_api_fail_and_proceed.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
 	})
 	flowClient := runtime.FlowClient
@@ -72,22 +72,22 @@ func doTestStateApiFailAndProceed(
 	defer cancel()
 
 	flowId := wf_state_api_fail_and_proceed.FlowType + uuid.NewString()
-	stepOptions := &iwfpb.StepOptions{
-		WaitForRetryPolicy: &iwfpb.RetryPolicy{
+	stepOptions := &dexpb.StepOptions{
+		WaitForRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttempts: 1,
 		},
-		WaitForFailurePolicy: iwfpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE,
+		WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE,
 	}
 	if flowConfig != nil {
-		stepOptions = &iwfpb.StepOptions{
-			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+		stepOptions = &dexpb.StepOptions{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				MaximumAttempts: 1,
 			},
-			WaitForFailurePolicy: iwfpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE,
+			WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE,
 		}
 	}
 
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_state_api_fail_and_proceed.FlowType,
 		FlowTimeoutSeconds: 10,
@@ -96,14 +96,14 @@ func doTestStateApiFailAndProceed(
 		StepOptions:        stepOptions,
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
 	startResp, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -115,6 +115,6 @@ func doTestStateApiFailAndProceed(
 	}, history)
 
 	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 	require.Empty(t, resp.GetResults())
 }

@@ -20,7 +20,7 @@
 
 package interpreter
 
-import "github.com/superdurable/iwf/gen/iwfpb"
+import "github.com/superdurable/dex/gen/dexpb"
 
 type StepRequestQueue struct {
 	queue []StepRequest
@@ -31,8 +31,8 @@ func NewStepRequestQueue() *StepRequestQueue {
 }
 
 func NewStepRequestQueueWithResumeRequests(
-	startReqs []*iwfpb.StepMovement,
-	resumeReqs []*iwfpb.StepExecutionResumeInfo,
+	startReqs []*dexpb.StepMovement,
+	resumeReqs []*dexpb.StepExecutionResumeInfo,
 ) *StepRequestQueue {
 	var queue []StepRequest
 	for _, request := range startReqs {
@@ -66,8 +66,8 @@ func (srq *StepRequestQueue) TakeAll() []StepRequest {
 	return res
 }
 
-func (srq *StepRequestQueue) GetAllStepStartRequests() []*iwfpb.StepMovement {
-	var res []*iwfpb.StepMovement
+func (srq *StepRequestQueue) GetAllStepStartRequests() []*dexpb.StepMovement {
+	var res []*dexpb.StepMovement
 	for _, request := range srq.queue {
 		if !request.IsResumeRequest() {
 			res = append(res, request.GetStepStartRequest())
@@ -76,8 +76,8 @@ func (srq *StepRequestQueue) GetAllStepStartRequests() []*iwfpb.StepMovement {
 	return res
 }
 
-func (srq *StepRequestQueue) GetAllStepResumeRequests() map[string]*iwfpb.StepExecutionResumeInfo {
-	res := make(map[string]*iwfpb.StepExecutionResumeInfo)
+func (srq *StepRequestQueue) GetAllStepResumeRequests() map[string]*dexpb.StepExecutionResumeInfo {
+	res := make(map[string]*dexpb.StepExecutionResumeInfo)
 	for _, request := range srq.queue {
 		if request.IsResumeRequest() {
 			resumeRequest := request.GetStepResumeRequest()
@@ -87,7 +87,7 @@ func (srq *StepRequestQueue) GetAllStepResumeRequests() map[string]*iwfpb.StepEx
 	return res
 }
 
-func (srq *StepRequestQueue) AddStepStartRequests(reqs []*iwfpb.StepMovement) {
+func (srq *StepRequestQueue) AddStepStartRequests(reqs []*dexpb.StepMovement) {
 	for _, request := range reqs {
 		srq.queue = append(srq.queue, NewStepStartRequest(request))
 	}
@@ -95,10 +95,10 @@ func (srq *StepRequestQueue) AddStepStartRequests(reqs []*iwfpb.StepMovement) {
 
 func (srq *StepRequestQueue) AddSingleStepStartRequest(
 	stepType string,
-	input *iwfpb.Value,
-	options *iwfpb.StepOptions,
+	input *dexpb.Value,
+	options *dexpb.StepOptions,
 ) {
-	srq.queue = append(srq.queue, NewStepStartRequest(&iwfpb.StepMovement{
+	srq.queue = append(srq.queue, NewStepStartRequest(&dexpb.StepMovement{
 		StepType:    stepType,
 		StepInput:   input,
 		StepOptions: options,

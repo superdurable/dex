@@ -21,7 +21,7 @@
 package log
 
 import (
-	"github.com/superdurable/iwf/service/common/log/tag"
+	"github.com/superdurable/dex/service/common/log/tag"
 )
 
 // Logger is our abstraction for logging

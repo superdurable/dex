@@ -24,15 +24,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/event"
-	"github.com/superdurable/iwf/service/interpreter/channel"
-	interpreterconfig "github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
-	"github.com/superdurable/iwf/service/interpreter/timers"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/interpreter/channel"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/cont"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
+	"github.com/superdurable/dex/service/interpreter/timers"
 )
 
 type Interpreter struct {
@@ -53,8 +53,8 @@ func NewInterpreter(sharedConfig *config.Config, activities *Activities) *Interp
 func (i *Interpreter) StartEngineFlow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	input *iwfpb.InterpreterWorkflowInput,
-) (out *iwfpb.InterpreterWorkflowOutput, retErr error) {
+	input *dexpb.InterpreterWorkflowInput,
+) (out *dexpb.InterpreterWorkflowOutput, retErr error) {
 	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
@@ -74,7 +74,7 @@ func (i *Interpreter) StartEngineFlow(
 			return
 		}
 		info := provider.GetWorkflowInfo(ctx)
-		var attributes []*iwfpb.KV
+		var attributes []*dexpb.KV
 		if persistenceManager != nil {
 			attributes = persistenceManager.GetAllAttributes()
 		}
@@ -300,7 +300,7 @@ func (i *Interpreter) StartEngineFlow(
 					).(StepRequest)
 					if !ok {
 						errToFailWf = provider.NewWorkflowError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+							dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 							"cannot read step request from workflow context",
 						)
 						return
@@ -358,7 +358,7 @@ func (i *Interpreter) StartEngineFlow(
 						}
 						if forceFail {
 							errToFailWf = provider.NewWorkflowError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+								dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
 								outputCollector.GetAll())
 						}
 						if canGoNext {
@@ -371,7 +371,7 @@ func (i *Interpreter) StartEngineFlow(
 							decision.GetNextSteps(),
 						); err != nil {
 							errToFailWf = provider.NewWorkflowError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 								err,
 							)
 						}
@@ -422,7 +422,7 @@ func (i *Interpreter) StartEngineFlow(
 			}
 
 			if errToFailWf != nil || forceCompleteWf {
-				return &iwfpb.InterpreterWorkflowOutput{
+				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}, errToFailWf
 			}
@@ -450,21 +450,21 @@ func (i *Interpreter) StartEngineFlow(
 			// last fail flow signal, return the flow so that we don't carry over the fail request
 			failByApi, failErr := signalReceiver.IsFailWorkFlowRequested()
 			if failByApi {
-				return &iwfpb.InterpreterWorkflowOutput{
+				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}, failErr
 			}
 			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
 				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
 				// so that we don't carry over shouldGracefulComplete
-				return &iwfpb.InterpreterWorkflowOutput{
+				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}, nil
 			}
 			// last update config, do it here because we use input to carry over config, not continueAsNewer query
 			input.Config = flowConfiger.Get()
 			input.IsResumeFromContinueAsNew = true
-			input.ContinueAsNewInput = &iwfpb.ContinueAsNewInput{
+			input.ContinueAsNewInput = &dexpb.ContinueAsNewInput{
 				PreviousInternalRunId: provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID,
 			}
 			// nix the unused data
@@ -478,7 +478,7 @@ func (i *Interpreter) StartEngineFlow(
 	} // end main loop
 
 	// gracefully complete workflow when all states are executed to dead ends
-	return &iwfpb.InterpreterWorkflowOutput{
+	return &dexpb.InterpreterWorkflowOutput{
 		StepCompletionOutputs: outputCollector.GetAll(),
 	}, errToFailWf
 }
@@ -486,7 +486,7 @@ func (i *Interpreter) StartEngineFlow(
 func checkClosingWorkflow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	decision *iwfpb.StepDecision,
+	decision *dexpb.StepDecision,
 	currentStepType, currentStepExeId string,
 	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
@@ -495,13 +495,13 @@ func checkClosingWorkflow(
 	gracefulComplete bool,
 	forceComplete bool,
 	forceFail bool,
-	completeOutput *iwfpb.StepCompletionOutput,
+	completeOutput *dexpb.StepCompletionOutput,
 	err error,
 ) {
 	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
 		if conditionalClose.ConditionalCloseType !=
-			iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
-			err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
+			err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 				"invalid step decisions. Unsupported ConditionalCloseType ")
 			return
 		}
@@ -529,7 +529,7 @@ func checkClosingWorkflow(
 		if conditionMet {
 			// condition is met, force complete the workflow
 			forceComplete = true
-			completeOutput = &iwfpb.StepCompletionOutput{
+			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
 				CompletedStepOutput:      conditionalClose.CloseInput,
@@ -538,7 +538,7 @@ func checkClosingWorkflow(
 		}
 		for _, st := range decision.GetNextSteps() {
 			if service.ValidClosingFlowStepType[st.GetStepType()] {
-				err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+				err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 					"invalid ConditionUnmetDecision with stepType: "+st.GetStepType())
 				return
 			}
@@ -555,7 +555,7 @@ func checkClosingWorkflow(
 		case service.GracefulCompletingFlowStepType:
 			canGoNext = false
 			gracefulComplete = true
-			completeOutput = &iwfpb.StepCompletionOutput{
+			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
 				CompletedStepOutput:      movement.GetStepInput(),
@@ -563,7 +563,7 @@ func checkClosingWorkflow(
 		case service.ForceCompletingFlowStepType:
 			canGoNext = false
 			forceComplete = true
-			completeOutput = &iwfpb.StepCompletionOutput{
+			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
 				CompletedStepOutput:      movement.GetStepInput(),
@@ -571,7 +571,7 @@ func checkClosingWorkflow(
 		case service.ForceFailingFlowStepType:
 			canGoNext = false
 			forceFail = true
-			completeOutput = &iwfpb.StepCompletionOutput{
+			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
 				CompletedStepOutput:      movement.GetStepInput(),
@@ -583,7 +583,7 @@ func checkClosingWorkflow(
 
 	if !canGoNext && len(decision.NextSteps) > 1 {
 		// Illegal decision
-		err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+		err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			"invalid step decisions. Closing workflow decision cannot be combined with other state decisions")
 	}
 	return
@@ -601,9 +601,9 @@ func (i *Interpreter) processStepExecution(
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
-) (*iwfpb.StepDecision, service.StepExecutionStatus, error) {
+) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
-	executionContext := &iwfpb.Context{
+	executionContext := &dexpb.Context{
 		FlowId:               info.WorkflowExecution.ID,
 		RunId:                info.FirstRunID,
 		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
@@ -614,11 +614,11 @@ func (i *Interpreter) processStepExecution(
 	}
 
 	var waitForMethErr error
-	var stepExeLocals []*iwfpb.KV
-	var waitingCondition *iwfpb.WaitingCondition
+	var stepExeLocals []*dexpb.KV
+	var waitingCondition *dexpb.WaitingCondition
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
-	completedTimerConditions := map[int32]iwfpb.InternalTimerStatus{}
+	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
 
 	step := stepRequest.GetStepMovement()
 	isResumeFromContinueAsNew := stepRequest.IsResumeRequest()
@@ -670,15 +670,15 @@ func (i *Interpreter) processStepExecution(
 			attributes = loadedAttributes
 		}
 
-		var activityOutput iwfpb.InvokeWaitForMethodActivityOutput
+		var activityOutput dexpb.InvokeWaitForMethodActivityOutput
 		waitForMethErr = provider.ExecuteActivity(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
 			i.activities.InvokeWaitForMethod,
-			&iwfpb.InvokeWaitForMethodActivityInput{
+			&dexpb.InvokeWaitForMethodActivityInput{
 				WorkerTarget: basicInfo.WorkerTarget,
-				Request: &iwfpb.InvokeWaitForMethodRequest{
+				Request: &dexpb.InvokeWaitForMethodRequest{
 					Context:    executionContext,
 					FlowType:   basicInfo.FlowType,
 					StepType:   step.GetStepType(),
@@ -713,7 +713,7 @@ func (i *Interpreter) processStepExecution(
 		}
 	}
 	if waitingCondition == nil {
-		waitingCondition = &iwfpb.WaitingCondition{}
+		waitingCondition = &dexpb.WaitingCondition{}
 	}
 
 	waitForThreads := map[string]bool{}
@@ -753,8 +753,8 @@ func (i *Interpreter) processStepExecution(
 					index,
 					&waitingConditionDoneOrCanceled,
 				)
-				if status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
-					status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
+				if status == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
+					status == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 					completedTimerConditions[int32(index)] = status
 				}
 				waitForThreads[threadName] = true
@@ -766,10 +766,10 @@ func (i *Interpreter) processStepExecution(
 	//After this method completes and if continueAsNewCounter.IsThresholdMet() is true, this snapshot will be used to start a new continueAsNew flow while preserving the state of the flow at the end of this method.
 	//This snapshot is also used to query the flow state, which can be done at anytime.
 	continueAsNewer.AddPotentialStepExecutionToResume(
-		&iwfpb.StepExecutionResumeInfo{
+		&dexpb.StepExecutionResumeInfo{
 			StepExecutionId: stepExeId,
 			Step:            step,
-			CompletedConditions: &iwfpb.StepExecutionCompletedConditions{
+			CompletedConditions: &dexpb.StepExecutionCompletedConditions{
 				CompletedTimerConditions: completedTimerConditions,
 			},
 			WaitingCondition: waitingCondition,
@@ -846,16 +846,16 @@ func (i *Interpreter) invokeExecuteMethod(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	basicInfo service.BasicInfo,
-	step *iwfpb.StepMovement,
+	step *dexpb.StepMovement,
 	stepExeId string,
 	persistenceManager *PersistenceManager,
 	channelStore *ChannelStore,
-	executionContext *iwfpb.Context,
-	conditionResults *iwfpb.ConditionResults,
+	executionContext *dexpb.Context,
+	conditionResults *dexpb.ConditionResults,
 	continueAsNewer *ContinueAsNewer,
 	flowConfiger *interpreterconfig.FlowConfiger,
-	stepExeLocals []*iwfpb.KV,
-) (*iwfpb.StepDecision, service.StepExecutionStatus, error) {
+	stepExeLocals []*dexpb.KV,
+) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -879,15 +879,15 @@ func (i *Interpreter) invokeExecuteMethod(
 		}
 	}
 
-	var activityOutput iwfpb.InvokeExecuteMethodActivityOutput
+	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
 	exeMethErr := provider.ExecuteActivity(
 		&activityOutput,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		ctx,
 		i.activities.InvokeExecuteMethod,
-		&iwfpb.InvokeExecuteMethodActivityInput{
+		&dexpb.InvokeExecuteMethodActivityInput{
 			WorkerTarget: basicInfo.WorkerTarget,
-			Request: &iwfpb.InvokeExecuteMethodRequest{
+			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,
 				StepType:         step.GetStepType(),
@@ -920,16 +920,16 @@ func (i *Interpreter) invokeExecuteMethod(
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
 }
 
-func shouldProceedOnWaitForApiError(step *iwfpb.StepMovement) bool {
+func shouldProceedOnWaitForApiError(step *dexpb.StepMovement) bool {
 	return step.GetStepOptions().GetWaitForFailurePolicy() ==
-		iwfpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE
+		dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE
 }
 
-func shouldProceedOnExecuteMethodError(step *iwfpb.StepMovement) bool {
+func shouldProceedOnExecuteMethodError(step *dexpb.StepMovement) bool {
 	options := step.GetStepOptions()
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
-			iwfpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+			dexpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
 }
 
 func (i *Interpreter) BlobStoreCleanup(
@@ -939,15 +939,15 @@ func (i *Interpreter) BlobStoreCleanup(
 ) (int, error) {
 	activityCtx := provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		RetryPolicy:         &iwfpb.RetryPolicy{MaximumAttempts: 10},
+		RetryPolicy:         &dexpb.RetryPolicy{MaximumAttempts: 10},
 	})
-	var output iwfpb.CleanupBlobStoreActivityOutput
+	var output dexpb.CleanupBlobStoreActivityOutput
 	if err := provider.ExecuteActivity(
 		&output,
-		iwfpb.StepDurability_STEP_DURABILITY_SYNC,
+		dexpb.StepDurability_STEP_DURABILITY_SYNC,
 		activityCtx,
 		i.activities.CleanupBlobStore,
-		&iwfpb.CleanupBlobStoreActivityInput{
+		&dexpb.CleanupBlobStoreActivityInput{
 			StoreId: storeId,
 		},
 	); err != nil {

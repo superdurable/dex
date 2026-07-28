@@ -24,12 +24,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -56,7 +56,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -70,20 +70,20 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	if request.GetRpcName() == RPCNameGetSignalChannelInfo {
 		data, err := json.Marshal(request.GetChannelInfos())
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-		return &iwfpb.InvokeWorkerRPCResponse{
-			PublishToChannel: []*iwfpb.ChannelMessage{
+		return &dexpb.InvokeWorkerRPCResponse{
+			PublishToChannel: []*dexpb.ChannelMessage{
 				{ChannelName: InternalChannelName},
 			},
-			Output: &iwfpb.Value{
-				Kind: &iwfpb.Value_ObjValue{
-					ObjValue: &iwfpb.EncodedObject{
+			Output: &dexpb.Value{
+				Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{
 						Encoding: "json",
 						Payload:  data,
 					},
@@ -96,10 +96,10 @@ func (h *handler) InvokeWorkerRPC(
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-		return &iwfpb.InvokeWorkerRPCResponse{
-			Output: &iwfpb.Value{
-				Kind: &iwfpb.Value_ObjValue{
-					ObjValue: &iwfpb.EncodedObject{
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output: &dexpb.Value{
+				Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{
 						Encoding: "json",
 						Payload:  data,
 					},
@@ -112,8 +112,8 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -136,10 +136,10 @@ func (h *handler) InvokeWaitForMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ConditionId: "signal-cmd-id0", ChannelName: SignalName},
 					{ConditionId: "signal-cmd-id1", ChannelName: SignalName},
 					{ChannelName: SignalName},
@@ -148,9 +148,9 @@ func (h *handler) InvokeWaitForMethod(
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	default:
@@ -160,8 +160,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -187,24 +187,24 @@ func (h *handler) InvokeExecuteMethod(
 		channelResults := request.GetConditionResults().GetChannelResults()
 		for i := 0; i < 4; i++ {
 			signalId := channelResults[i].GetConditionId()
-			var signalValue *iwfpb.Value
+			var signalValue *dexpb.Value
 			if values := channelResults[i].GetValues(); len(values) > 0 {
 				signalValue = values[0]
 			}
 			h.invokeData.Store(fmt.Sprintf("signalId%v", i), signalId)
 			h.invokeData.Store(fmt.Sprintf("signalValue%v", i), signalValue)
 		}
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State2},
 				},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},

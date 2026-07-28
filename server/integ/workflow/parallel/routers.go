@@ -22,13 +22,13 @@ package parallel
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -74,7 +74,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -86,8 +86,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -97,9 +97,9 @@ func (h *handler) InvokeWaitForMethod(
 			h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 		}
 
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	}
@@ -109,8 +109,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -120,12 +120,12 @@ func (h *handler) InvokeExecuteMethod(
 			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		var nextSteps []*iwfpb.StepMovement
+		var nextSteps []*dexpb.StepMovement
 		switch request.GetStepType() {
 		case State1:
 			time.Sleep(time.Second * 1)
 
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{StepType: State11},
 				{StepType: State12},
 				{StepType: State13},
@@ -133,26 +133,26 @@ func (h *handler) InvokeExecuteMethod(
 		case State11:
 			time.Sleep(time.Second * 2)
 
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{StepType: State111},
 				{StepType: State112},
 			}
 		case State12:
 			time.Sleep(time.Second * 2)
 
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{StepType: State121},
 				{StepType: State122},
 			}
 		case State13:
 			time.Sleep(time.Second * 1)
 
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{
 					StepType: service.GracefulCompletingFlowStepType,
-					StepInput: &iwfpb.Value{
-						Kind: &iwfpb.Value_ObjValue{
-							ObjValue: &iwfpb.EncodedObject{
+					StepInput: &dexpb.Value{
+						Kind: &dexpb.Value_ObjValue{
+							ObjValue: &dexpb.EncodedObject{
 								Encoding: "json",
 								Payload:  []byte("from " + request.GetStepType()),
 							},
@@ -161,12 +161,12 @@ func (h *handler) InvokeExecuteMethod(
 				},
 			}
 		case State111, State112, State121, State122:
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{
 					StepType: service.GracefulCompletingFlowStepType,
-					StepInput: &iwfpb.Value{
-						Kind: &iwfpb.Value_ObjValue{
-							ObjValue: &iwfpb.EncodedObject{
+					StepInput: &dexpb.Value{
+						Kind: &dexpb.Value_ObjValue{
+							ObjValue: &dexpb.EncodedObject{
 								Encoding: "json",
 								Payload:  []byte("from " + request.GetStepType()),
 							},
@@ -175,13 +175,13 @@ func (h *handler) InvokeExecuteMethod(
 				},
 			}
 		default:
-			nextSteps = []*iwfpb.StepMovement{
+			nextSteps = []*dexpb.StepMovement{
 				{StepType: service.ForceFailingFlowStepType},
 			}
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
 				NextSteps: nextSteps,
 			},
 		}, nil

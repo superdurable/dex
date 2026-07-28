@@ -5,12 +5,12 @@ on:
     branches: [main]
     paths:
       - "examples/python/**"
-      - "sdk-python/iwf/tests/iwf-service-env/**"
+      - "sdk-python/dex/tests/dex-service-env/**"
       - ".github/workflows/examples-python-ci.yml"
   pull_request:
     paths:
       - "examples/python/**"
-      - "sdk-python/iwf/tests/iwf-service-env/**"
+      - "sdk-python/dex/tests/dex-service-env/**"
       - ".github/workflows/examples-python-ci.yml"
   workflow_dispatch:
 
@@ -23,65 +23,65 @@ jobs:
         working-directory: examples/python
     steps:
       - uses: actions/checkout@v4
-      - name: Start iWF environment
-        working-directory: sdk-python/iwf/tests/iwf-service-env
+      - name: Start Dex environment
+        working-directory: sdk-python/dex/tests/dex-service-env
         env:
-          IWF_SERVER_IMAGE: superdurable/iwf-server:latest
+          DEX_SERVER_IMAGE: superdurable/dex-server:latest
         run: |
-          docker pull "$IWF_SERVER_IMAGE"
+          docker pull "$DEX_SERVER_IMAGE"
           docker compose up -d
-      - name: Wait for iWF server
+      - name: Wait for Dex server
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
           echo "Waiting for Elasticsearch..."
           for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-iwf curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
+            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
               echo "Elasticsearch ready (attempt $i)"
               break
             fi
             if [ "$i" -eq 60 ]; then
               echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-iwf 2>&1 | tail -80 || true
+              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
               exit 1
             fi
             sleep 5
           done
           echo "Waiting for search attributes..."
           for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-iwf 2>&1 | grep -q "All search attributes are registered"; then
+            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
               echo "Search attributes ready (attempt $i)"
               break
             fi
             if [ "$i" -eq 120 ]; then
               echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-iwf 2>&1 | tail -80 || true
-              docker logs temporal-iwf 2>&1 | tail -80 || true
+              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
+              docker logs temporal-dex 2>&1 | tail -80 || true
               exit 1
             fi
             sleep 2
           done
-          echo "Waiting for iWF healthcheck..."
+          echo "Waiting for Dex healthcheck..."
           for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "iWF server healthy (attempt $i)"
+              echo "Dex server healthy (attempt $i)"
               exit 0
             fi
             sleep 2
           done
-          echo "Timed out waiting for iWF server"
-          docker logs iwf-server 2>&1 | tail -80 || true
+          echo "Timed out waiting for Dex server"
+          docker logs dex-server 2>&1 | tail -80 || true
           exit 1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
       - name: Install Poetry
         run: pipx install poetry
-      - name: Install dependencies (PyPI iwf-sdk)
+      - name: Install dependencies (PyPI dex-sdk)
         run: poetry install --no-interaction
       - name: Verify published package
         run: |
-          poetry run python -c "import iwf, importlib.metadata as m; print(m.version('iwf-sdk')); assert m.version('iwf-sdk') == '0.0.1'"
+          poetry run python -c "import dex, importlib.metadata as m; print(m.version('dex-sdk')); assert m.version('dex-sdk') == '0.0.1'"
       - name: Integ tests
         run: poetry run pytest -vv tests/
       - name: Dump docker logs

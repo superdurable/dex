@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "iwf-examples-python"
+name = "dex-examples-python"
 version = "0.1.0"
-description = "iWF Python Samples"
+description = "Dex Python Samples"
 authors = ["Quanzheng Long <qlong@indeed.com>"]
 license = "MIT"
 readme = "README.md"
@@ -15,7 +15,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.9"
 Flask = "^2.3.3"
-iwf-sdk = "^0.0.1"
+dex-sdk = "^0.0.1"
 attrs = "^22.2.0"
 openai = "^1.66.2"
 openai-agents = "^0.0.4"

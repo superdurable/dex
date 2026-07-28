@@ -23,9 +23,9 @@ package temporal
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/timeparser"
-	"github.com/superdurable/iwf/service/common/utils"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/timeparser"
+	"github.com/superdurable/dex/service/common/utils"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
@@ -33,7 +33,7 @@ import (
 	"strings"
 )
 
-func getResetEventIDByType(ctx context.Context, resetType iwfpb.FlowResetType,
+func getResetEventIDByType(ctx context.Context, resetType dexpb.FlowResetType,
 	namespace, wid, rid string,
 	frontendClient workflowservice.WorkflowServiceClient, converter converter.DataConverter,
 	historyEventId int32, earliestHistoryTimeStr string, stepType, stepExecutionId string,
@@ -42,10 +42,10 @@ func getResetEventIDByType(ctx context.Context, resetType iwfpb.FlowResetType,
 	resetBaseRunID = rid
 
 	switch resetType {
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID:
 		workflowTaskFinishID = int64(historyEventId)
 		return
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
 		var earliestTimeUnixNano int64
 		earliestTimeUnixNano, err = timeparser.ParseTime(earliestHistoryTimeStr)
 		if err != nil {
@@ -55,7 +55,7 @@ func getResetEventIDByType(ctx context.Context, resetType iwfpb.FlowResetType,
 		if err != nil {
 			return
 		}
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
 		firstRunID, firstRunErr := getTemporalFirstExecutionRunID(ctx, namespace, wid, rid, frontendClient)
 		if firstRunErr != nil {
 			err = firstRunErr
@@ -68,7 +68,7 @@ func getResetEventIDByType(ctx context.Context, resetType iwfpb.FlowResetType,
 		if err != nil {
 			return
 		}
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
 		workflowTaskFinishID, err = getDecisionEventIDByStepTypeOrStepExecutionId(ctx, namespace, wid, rid, stepType, stepExecutionId, frontendClient, converter)
 		if err != nil {
 			return
@@ -218,11 +218,11 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			if e.GetEventType() == enums.EVENT_TYPE_WORKFLOW_TASK_COMPLETED {
 				decisionFinishID = e.GetEventId()
 			}
-			//TODO: Add check for local activity. (IWF-403)
+			//TODO: Add check for local activity. (DEX-403)
 			if e.GetEventType() == enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED {
 				typeName := e.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
 				if strings.Contains(typeName, "InvokeExecuteMethod") {
-					var input iwfpb.InvokeExecuteMethodActivityInput
+					var input dexpb.InvokeExecuteMethodActivityInput
 					err = converter.FromPayloads(e.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
@@ -234,7 +234,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 						return
 					}
 				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
-					var input iwfpb.InvokeWaitForMethodActivityInput
+					var input dexpb.InvokeWaitForMethodActivityInput
 					err = converter.FromPayloads(e.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)

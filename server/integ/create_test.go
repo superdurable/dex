@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/rpc"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/rpc"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -61,7 +61,7 @@ func TestCreateFlowTemporalContinueAsNew(t *testing.T) {
 		doTestCreateWithoutStartingStep(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -75,7 +75,7 @@ func TestCreateFlowCadenceContinueAsNew(t *testing.T) {
 		doTestCreateWithoutStartingStep(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -84,11 +84,11 @@ func TestCreateFlowCadenceContinueAsNew(t *testing.T) {
 func doTestCreateWithoutStartingStep(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := rpc.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 	unifiedClient := runtime.UnifiedClient
 
@@ -96,27 +96,27 @@ func doTestCreateWithoutStartingStep(
 	defer cancel()
 
 	flowId := rpc.WorkflowType + "-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	debug := &iwfpb.DebugDumpResponse{}
+	debug := &dexpb.DebugDumpResponse{}
 	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(&iwfpb.StepExecutionCounterInfo{
+	require.True(t, proto.Equal(&dexpb.StepExecutionCounterInfo{
 		StepTypeStartedCount:            map[string]int32{},
 		StepTypeCurrentlyExecutingCount: map[string]int32{},
 		TotalCurrentlyExecutingCount:    0,
 	}, debug.GetSnapshot().GetCounterInfo()))
 
-	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		FlowId:         flowId,
 		RpcName:        rpc.RPCName,
 		Input:          rpc.TestInput,
@@ -124,12 +124,12 @@ func doTestCreateWithoutStartingStep(
 	})
 	require.NoError(t, err)
 
-	respWait, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	respWait, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
 
 	history := workerHandler.GetTestResult().InvokeHistory
 	require.Equalf(t, map[string]int64{

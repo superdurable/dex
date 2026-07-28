@@ -14,19 +14,19 @@
 
 from dataclasses import dataclass
 
-from iwf.command_request import CommandRequest, InternalChannelCommand, TimerCommand
-from iwf.command_results import CommandResults
-from iwf.communication import Communication
-from iwf.communication_schema import CommunicationSchema, CommunicationMethod
-from iwf.iwf_api.models import ChannelRequestStatus, PersistenceLoadingPolicy, PersistenceLoadingType
-from iwf.persistence import Persistence
-from iwf.persistence_schema import PersistenceField, PersistenceSchema
-from iwf.rpc import rpc
-from iwf.state_decision import StateDecision
-from iwf.state_schema import StateSchema
-from iwf.workflow import ObjectWorkflow
-from iwf.workflow_context import WorkflowContext
-from iwf.workflow_state import T, WorkflowState
+from dex.command_request import CommandRequest, InternalChannelCommand, TimerCommand
+from dex.command_results import CommandResults
+from dex.communication import Communication
+from dex.communication_schema import CommunicationSchema, CommunicationMethod
+from dex.dex_api.models import ChannelRequestStatus, PersistenceLoadingPolicy, PersistenceLoadingType
+from dex.persistence import Persistence
+from dex.persistence_schema import PersistenceField, PersistenceSchema
+from dex.rpc import rpc
+from dex.state_decision import StateDecision
+from dex.state_schema import StateSchema
+from dex.workflow import ObjectWorkflow
+from dex.workflow_context import WorkflowContext
+from dex.workflow_state import T, WorkflowState
 
 
 @dataclass

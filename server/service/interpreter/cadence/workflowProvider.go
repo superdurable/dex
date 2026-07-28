@@ -25,9 +25,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/retry"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/retry"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.uber.org/cadence"
 	"go.uber.org/cadence/client"
 	"go.uber.org/cadence/workflow"
@@ -48,14 +48,14 @@ func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 }
 
 func (w *workflowProvider) NewWorkflowError(
-	errType iwfpb.FlowErrorType,
+	errType dexpb.FlowErrorType,
 	details interface{},
 ) error {
 	return cadence.NewCustomError(errType.String(), details)
 }
 
 func (w *workflowProvider) NewUpdateError(
-	errType iwfpb.UpdateErrorType,
+	errType dexpb.UpdateErrorType,
 	details interface{},
 ) error {
 	return cadence.NewCustomError(errType.String(), details)
@@ -67,7 +67,7 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
-	ctx interfaces.UnifiedContext, input *iwfpb.InterpreterWorkflowInput,
+	ctx interfaces.UnifiedContext, input *dexpb.InterpreterWorkflowInput,
 ) error {
 	wfCtx, ok := ctx.GetContext().(workflow.Context)
 	if !ok {
@@ -267,7 +267,7 @@ func (t *futureImpl) Get(ctx interfaces.UnifiedContext, valuePtr interface{}) er
 }
 
 func (w *workflowProvider) ExecuteActivity(
-	valuePtr interface{}, durability iwfpb.StepDurability,
+	valuePtr interface{}, durability dexpb.StepDurability,
 	ctx interfaces.UnifiedContext, activity interface{}, args ...interface{},
 ) (err error) {
 	wfCtx, ok := ctx.GetContext().(workflow.Context)
@@ -275,9 +275,9 @@ func (w *workflowProvider) ExecuteActivity(
 		panic("cannot convert to cadence workflow context")
 	}
 	switch durability {
-	case iwfpb.StepDurability_STEP_DURABILITY_SYNC:
+	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
 		return workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
-	case iwfpb.StepDurability_STEP_DURABILITY_ASYNC:
+	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
 		err = workflow.ExecuteLocalActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
 		if err == nil {
 			return nil

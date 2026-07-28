@@ -23,29 +23,29 @@ package interpreter
 import (
 	"sort"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/index"
-	"github.com/superdurable/iwf/service/common/utils"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/index"
+	"github.com/superdurable/dex/service/common/utils"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type PersistenceManager struct {
 	provider interfaces.WorkflowProvider
 
-	attributes map[string]*iwfpb.Value
+	attributes map[string]*dexpb.Value
 
 	lockedKeys map[string]bool
 }
 
 func NewPersistenceManager(
 	provider interfaces.WorkflowProvider,
-	initialAttributes []*iwfpb.KV,
+	initialAttributes []*dexpb.KV,
 ) *PersistenceManager {
 	if provider == nil {
 		panic("PersistenceManager requires a WorkflowProvider")
 	}
 
-	attributes := make(map[string]*iwfpb.Value, len(initialAttributes))
+	attributes := make(map[string]*dexpb.Value, len(initialAttributes))
 	for _, attribute := range initialAttributes {
 		if utils.IsNullValue(attribute.GetValue()) {
 			continue
@@ -62,8 +62,8 @@ func NewPersistenceManager(
 }
 
 func (am *PersistenceManager) GetAttributes(
-	request *iwfpb.GetAttributesQueryRequest,
-) *iwfpb.GetAttributesQueryResponse {
+	request *dexpb.GetAttributesQueryRequest,
+) *dexpb.GetAttributesQueryResponse {
 	if request == nil {
 		panic("GetAttributes requires a request")
 	}
@@ -75,21 +75,21 @@ func (am *PersistenceManager) GetAttributes(
 		keys = sortedUniqueStrings(keys)
 	}
 
-	attributes := make([]*iwfpb.KV, 0, len(keys))
+	attributes := make([]*dexpb.KV, 0, len(keys))
 	for _, key := range keys {
 		value, ok := am.attributes[key]
 		if !ok {
 			continue
 		}
-		attributes = append(attributes, &iwfpb.KV{Key: key, Value: value})
+		attributes = append(attributes, &dexpb.KV{Key: key, Value: value})
 	}
-	return &iwfpb.GetAttributesQueryResponse{Attributes: attributes}
+	return &dexpb.GetAttributesQueryResponse{Attributes: attributes}
 }
 
 func (am *PersistenceManager) LoadAttributes(
 	ctx interfaces.UnifiedContext,
 	keysToLock []string,
-) ([]*iwfpb.KV, error) {
+) ([]*dexpb.KV, error) {
 	if err := am.provider.Await(ctx, func() bool {
 		return am.CanLockKeys(keysToLock)
 	}); err != nil {
@@ -101,19 +101,19 @@ func (am *PersistenceManager) LoadAttributes(
 	return am.GetAllAttributes(), nil
 }
 
-func (am *PersistenceManager) GetAllAttributes() []*iwfpb.KV {
-	attributes := make([]*iwfpb.KV, 0, len(am.attributes))
+func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
+	attributes := make([]*dexpb.KV, 0, len(am.attributes))
 
 	// NOTE: using sortedAttributeKeys so that the protobuf snapshot for continueAsNew is stable for pagination
 	for _, key := range sortedAttributeKeys(am.attributes) {
-		attributes = append(attributes, &iwfpb.KV{Key: key, Value: am.attributes[key]})
+		attributes = append(attributes, &dexpb.KV{Key: key, Value: am.attributes[key]})
 	}
 	return attributes
 }
 
 func (am *PersistenceManager) ApplyAttributeWrites(
 	ctx interfaces.UnifiedContext,
-	writes []*iwfpb.AttributeWrite,
+	writes []*dexpb.AttributeWrite,
 ) error {
 	if len(writes) == 0 {
 		return nil
@@ -153,12 +153,12 @@ func (am *PersistenceManager) UnlockKeys(keys []string) {
 	}
 }
 
-func (am *PersistenceManager) GetAttribute(key string) (*iwfpb.Value, bool) {
+func (am *PersistenceManager) GetAttribute(key string) (*dexpb.Value, bool) {
 	value, ok := am.attributes[key]
 	return value, ok
 }
 
-func sortedAttributeKeys(attributes map[string]*iwfpb.Value) []string {
+func sortedAttributeKeys(attributes map[string]*dexpb.Value) []string {
 	keys := make([]string, 0, len(attributes))
 	for key := range attributes {
 		keys = append(keys, key)

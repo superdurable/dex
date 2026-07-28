@@ -17,14 +17,14 @@ import unittest
 from threading import Thread
 
 from flask import Flask, request
-from iwf.client import Client
-from iwf.iwf_api.models import (
+from dex.client import Client
+from dex.dex_api.models import (
     WorkflowStateExecuteRequest,
     WorkflowStateWaitUntilRequest,
     WorkflowWorkerRpcRequest,
 )
-from iwf.registry import Registry
-from iwf.worker_service import WorkerService
+from dex.registry import Registry
+from dex.worker_service import WorkerService
 
 from basic.basic_workflow import BasicWorkflow
 

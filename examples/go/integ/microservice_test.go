@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/examples/go/workflows/microservices"
-	"github.com/superdurable/iwf/examples/go/workflows/service"
+	"github.com/superdurable/dex/examples/go/workflows/microservices"
+	"github.com/superdurable/dex/examples/go/workflows/service"
 )
 
 func TestMicroserviceOrchestrationWorkflow(t *testing.T) {

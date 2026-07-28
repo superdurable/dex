@@ -15,13 +15,13 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type persistenceWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyCommunicationSchema
+	dex.DefaultWorkflowType
+	dex.EmptyCommunicationSchema
 }
 
 const (
@@ -36,22 +36,22 @@ const (
 	testSearchAttributeKeyword  = "CustomKeywordField"
 )
 
-func (b persistenceWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&persistenceWorkflowState1{}),
-		iwf.NonStartingStateDef(&persistenceWorkflowState2{}),
+func (b persistenceWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&persistenceWorkflowState1{}),
+		dex.NonStartingStateDef(&persistenceWorkflowState2{}),
 	}
 }
 
-func (b persistenceWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
-	return []iwf.PersistenceFieldDef{
-		iwf.DataAttributeDef(testDataObjectKey),
-		iwf.DataAttributeDef(testDataObjectKey2),
-		iwf.SearchAttributeDef(testSearchAttributeInt, iwfidl.INT),
-		iwf.SearchAttributeDef(testSearchAttributeDatetime, iwfidl.DATETIME),
-		iwf.SearchAttributeDef(testSearchAttributeBool, iwfidl.BOOL),
-		iwf.SearchAttributeDef(testSearchAttributeDouble, iwfidl.DOUBLE),
-		iwf.SearchAttributeDef(testSearchAttributeText, iwfidl.TEXT),
-		iwf.SearchAttributeDef(testSearchAttributeKeyword, iwfidl.KEYWORD),
+func (b persistenceWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
+	return []dex.PersistenceFieldDef{
+		dex.DataAttributeDef(testDataObjectKey),
+		dex.DataAttributeDef(testDataObjectKey2),
+		dex.SearchAttributeDef(testSearchAttributeInt, dexpb.INT),
+		dex.SearchAttributeDef(testSearchAttributeDatetime, dexpb.DATETIME),
+		dex.SearchAttributeDef(testSearchAttributeBool, dexpb.BOOL),
+		dex.SearchAttributeDef(testSearchAttributeDouble, dexpb.DOUBLE),
+		dex.SearchAttributeDef(testSearchAttributeText, dexpb.TEXT),
+		dex.SearchAttributeDef(testSearchAttributeKeyword, dexpb.KEYWORD),
 	}
 }

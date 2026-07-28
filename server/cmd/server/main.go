@@ -23,12 +23,12 @@ package main
 import (
 	"os"
 
-	"github.com/superdurable/iwf/cmd/server/iwf"
+	"github.com/superdurable/dex/cmd/server/dex"
 )
 
-// main entry point for the iwf server
+// main entry point for the dex server
 func main() {
-	app := iwf.BuildCLI()
+	app := dex.BuildCLI()
 
 	if len(os.Args) == 1 {
 		os.Args = append(os.Args, "start")

@@ -35,7 +35,7 @@
         "firstWorkflowTaskBackoff": "0s",
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="
@@ -323,7 +323,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1065886",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {
@@ -416,7 +416,7 @@
         "header": {},
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="

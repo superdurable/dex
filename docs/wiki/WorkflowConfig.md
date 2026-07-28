@@ -8,7 +8,7 @@ title: WorkflowConfig
 
 # WorkflowConfig
 
-The `WorkflowConfig` struct allows for customization of workflow execution behavior within the iWF. It provides options to control various aspects of workflow management, including setting executing state ID to workflow search attributes, continue-as-new behavior, and execution optimizations.
+The `WorkflowConfig` struct allows for customization of workflow execution behavior within the Dex. It provides options to control various aspects of workflow management, including setting executing state ID to workflow search attributes, continue-as-new behavior, and execution optimizations.
 
 ## Properties
 

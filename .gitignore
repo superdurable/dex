@@ -10,8 +10,8 @@
 *.test
 *.out
 coverage.out
-iwf-server
-iwf-samples
+dex-server
+dex-samples
 .bin/
 .build/
 vendor/

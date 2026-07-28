@@ -25,9 +25,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -56,13 +56,13 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
-	flowClient    iwfpb.FlowServiceClient
+	dexpb.UnimplementedWorkerServiceServer
+	flowClient    dexpb.FlowServiceClient
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+func NewHandler(flowClient dexpb.FlowServiceClient) *handler {
 	if flowClient == nil {
 		panic("flowClient is required")
 	}
@@ -75,8 +75,8 @@ func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -95,14 +95,14 @@ func (h *handler) InvokeWaitForMethod(
 	h.incrementInvokeHistory(stepType + "_waitFor")
 
 	if stepType == State1 {
-		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{}, nil
 	}
 
 	if stepType == State2 {
 		if err := h.validateUpsertedAttributes(ctx, request.GetAttributes()); err != nil {
 			return nil, err
 		}
-		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{}, nil
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
@@ -110,8 +110,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -131,16 +131,16 @@ func (h *handler) InvokeExecuteMethod(
 
 	if stepType == State1 {
 		log.Printf("S1 Execute: Upserting data objects - 2 large (should go to S3), 1 small (should stay in memory)")
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  State2,
 						StepInput: request.GetStepInput(),
 					},
 				},
 			},
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				{
 					Key:   TestDataObjKey1,
 					Value: jsonObjValue("\"" + LargeDataContent1 + "\""),
@@ -158,9 +158,9 @@ func (h *handler) InvokeExecuteMethod(
 	}
 
 	if stepType == State2 {
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  service.GracefulCompletingFlowStepType,
 						StepInput: request.GetStepInput(),
@@ -201,7 +201,7 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*iwfpb.KV) error {
+func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*dexpb.KV) error {
 	log.Printf("S2 WaitUntil: Received %d data objects, validating they match upserted values", len(attributes))
 
 	foundLargeObj1 := false
@@ -254,10 +254,10 @@ func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*
 	return nil
 }
 
-func jsonObjValue(payload string) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func jsonObjValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte(payload),
 			},

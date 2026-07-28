@@ -21,7 +21,7 @@
 package interpreter
 
 import (
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 const globalChangeId = "global"

@@ -14,30 +14,30 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type skipWaitUntilWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyPersistenceSchema
-	iwf.EmptyCommunicationSchema
+	dex.DefaultWorkflowType
+	dex.EmptyPersistenceSchema
+	dex.EmptyCommunicationSchema
 }
 
-func (b skipWaitUntilWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&skipWaitUntilState1{}),
-		iwf.NonStartingStateDef(&skipWaitUntilState2{}),
+func (b skipWaitUntilWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&skipWaitUntilState1{}),
+		dex.NonStartingStateDef(&skipWaitUntilState2{}),
 	}
 }
 
 type skipWaitUntilWorkflow2 struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyPersistenceSchema
-	iwf.EmptyCommunicationSchema
+	dex.DefaultWorkflowType
+	dex.EmptyPersistenceSchema
+	dex.EmptyCommunicationSchema
 }
 
-func (b skipWaitUntilWorkflow2) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(skipWaitUntilState1{}),
-		iwf.NonStartingStateDef(skipWaitUntilState2{}),
+func (b skipWaitUntilWorkflow2) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(skipWaitUntilState1{}),
+		dex.NonStartingStateDef(skipWaitUntilState2{}),
 	}
 }

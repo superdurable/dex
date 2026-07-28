@@ -20,21 +20,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
-	"github.com/superdurable/iwf/sdk-go/iwf/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBasicWorkflow(t *testing.T) {
 	wfId := "TestBasicWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, 1, &iwf.WorkflowOptions{
-		WorkflowIdReusePolicy: ptr.Any(iwfidl.DISALLOW_REUSE),
-		WorkflowRetryPolicy: &iwfidl.WorkflowRetryPolicy{
-			InitialIntervalSeconds: iwfidl.PtrInt32(10),
-			MaximumAttempts:        iwfidl.PtrInt32(3),
-			MaximumIntervalSeconds: iwfidl.PtrInt32(100),
-			BackoffCoefficient:     iwfidl.PtrFloat32(3),
+	runId, err := client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, 1, &dex.WorkflowOptions{
+		WorkflowIdReusePolicy: ptr.Any(dexpb.DISALLOW_REUSE),
+		WorkflowRetryPolicy: &dexpb.WorkflowRetryPolicy{
+			InitialIntervalSeconds: dexpb.PtrInt32(10),
+			MaximumAttempts:        dexpb.PtrInt32(3),
+			MaximumIntervalSeconds: dexpb.PtrInt32(100),
+			BackoffCoefficient:     dexpb.PtrFloat32(3),
 		},
 	})
 	assert.Nil(t, err)
@@ -42,7 +42,7 @@ func TestBasicWorkflow(t *testing.T) {
 
 	// start the same workflowId again will fail
 	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, nil, nil)
-	assert.True(t, iwf.IsWorkflowAlreadyStartedError(err))
+	assert.True(t, dex.IsWorkflowAlreadyStartedError(err))
 
 	var output int
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
@@ -50,17 +50,17 @@ func TestBasicWorkflow(t *testing.T) {
 	assert.Equal(t, 3, output)
 
 	err = client.GetSimpleWorkflowResult(context.Background(), "a wrong workflowId", "", &output)
-	assert.True(t, iwf.IsWorkflowNotExistsError(err))
+	assert.True(t, dex.IsWorkflowNotExistsError(err))
 }
 
 func TestProceedOnStateStartFailWorkflow(t *testing.T) {
 	wfId := "TestProceedOnStateStartFailWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &proceedOnStateStartFailWorkflow{}, wfId, 10, "input", &iwf.WorkflowOptions{})
+	runId, err := client.StartWorkflow(context.Background(), &proceedOnStateStartFailWorkflow{}, wfId, 10, "input", &dex.WorkflowOptions{})
 	assert.Nil(t, err)
 	assert.NotEmpty(t, runId)
 
 	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, nil, nil)
-	assert.True(t, iwf.IsWorkflowAlreadyStartedError(err))
+	assert.True(t, dex.IsWorkflowAlreadyStartedError(err))
 
 	var output string
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)

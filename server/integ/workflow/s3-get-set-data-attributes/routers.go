@@ -22,12 +22,12 @@ package s3GetSetDataAttributes
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -73,7 +73,7 @@ var (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -83,8 +83,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -101,7 +101,7 @@ func (h *handler) InvokeWaitForMethod(
 
 	if request.GetStepType() == State1 {
 		h.invokeHistory.Store("S1_waitFor", int64(1))
-		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{}, nil
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
@@ -109,8 +109,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -127,9 +127,9 @@ func (h *handler) InvokeExecuteMethod(
 
 	if request.GetStepType() == State1 {
 		h.invokeHistory.Store("S1_execute", int64(1))
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType: service.GracefulCompletingFlowStepType,
 					},
@@ -150,10 +150,10 @@ func (h *handler) GetTestResult() common.TestResult {
 	return common.TestResult{InvokeData: outInvokehistory}
 }
 
-func jsonObjValue(payload string) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func jsonObjValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte(payload),
 			},

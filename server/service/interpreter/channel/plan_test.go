@@ -26,28 +26,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
-func chCond(id, name string, atLeast, atMost *int32) *iwfpb.ChannelCondition {
-	return &iwfpb.ChannelCondition{ConditionId: id, ChannelName: name, AtLeast: atLeast, AtMost: atMost}
+func chCond(id, name string, atLeast, atMost *int32) *dexpb.ChannelCondition {
+	return &dexpb.ChannelCondition{ConditionId: id, ChannelName: name, AtLeast: atLeast, AtMost: atMost}
 }
 
-func timerCond(id string) *iwfpb.TimerCondition {
-	return &iwfpb.TimerCondition{ConditionId: id, DurationSeconds: 1}
+func timerCond(id string) *dexpb.TimerCondition {
+	return &dexpb.TimerCondition{ConditionId: id, DurationSeconds: 1}
 }
 
-func wcAny(channels ...*iwfpb.ChannelCondition) *iwfpb.WaitingCondition {
-	return &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+func wcAny(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
+	return &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		ChannelConditions:    channels,
 	}
 }
 
-func wcAll(channels ...*iwfpb.ChannelCondition) *iwfpb.WaitingCondition {
-	return &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+func wcAll(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
+	return &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		ChannelConditions:    channels,
 	}
 }
@@ -63,7 +63,7 @@ func consumeByConditionIndex(plan *MatchPlan) map[int]int32 {
 func TestNormalization(t *testing.T) {
 	cases := []struct {
 		name      string
-		cond      *iwfpb.ChannelCondition
+		cond      *dexpb.ChannelCondition
 		avail     int32
 		wantMatch bool
 		wantCount int32
@@ -158,24 +158,24 @@ func TestPlan_ANY_FirstFeasibleInDeclarationOrder(t *testing.T) {
 }
 
 func TestPlan_ANY_TimerCandidate(t *testing.T) {
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-		TimerConditions:      []*iwfpb.TimerCondition{timerCond("t1")},
-		ChannelConditions:    []*iwfpb.ChannelCondition{chCond("c1", "ch", ptr.Any(int32(5)), ptr.Any(int32(5)))},
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
+		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", ptr.Any(int32(5)), ptr.Any(int32(5)))},
 	}
 
 	_, ok := Plan(
 		waitingCondition,
 		ChannelAvailability{"ch": 0},
-		map[int32]iwfpb.InternalTimerStatus{},
+		map[int32]dexpb.InternalTimerStatus{},
 	)
 	assert.False(t, ok, "timer pending and channel unmet -> no trigger")
 
 	plan, ok := Plan(
 		waitingCondition,
 		ChannelAvailability{"ch": 0},
-		map[int32]iwfpb.InternalTimerStatus{
-			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		map[int32]dexpb.InternalTimerStatus{
+			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
 	)
 	require.True(t, ok, "fired timer satisfies ANY")
@@ -183,32 +183,32 @@ func TestPlan_ANY_TimerCandidate(t *testing.T) {
 }
 
 func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-		TimerConditions:      []*iwfpb.TimerCondition{timerCond("t1")},
-		ChannelConditions:    []*iwfpb.ChannelCondition{chCond("c1", "ch", nil, nil)},
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
+		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", nil, nil)},
 	}
 	_, ok := Plan(
 		waitingCondition,
 		ChannelAvailability{"ch": 3},
-		map[int32]iwfpb.InternalTimerStatus{},
+		map[int32]dexpb.InternalTimerStatus{},
 	)
 	assert.False(t, ok, "ALL requires the timer to have fired")
 	_, ok = Plan(
 		waitingCondition,
 		ChannelAvailability{"ch": 3},
-		map[int32]iwfpb.InternalTimerStatus{
-			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		map[int32]dexpb.InternalTimerStatus{
+			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
 	)
 	assert.True(t, ok)
 }
 
 func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-		TimerConditions:      []*iwfpb.TimerCondition{timerCond("")},
-		ChannelConditions: []*iwfpb.ChannelCondition{
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCond("")},
+		ChannelConditions: []*dexpb.ChannelCondition{
 			chCond("", "first", nil, nil),
 			chCond("", "second", nil, nil),
 		},
@@ -216,8 +216,8 @@ func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
 	plan, ok := Plan(
 		waitingCondition,
 		ChannelAvailability{"first": 1, "second": 1},
-		map[int32]iwfpb.InternalTimerStatus{
-			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		map[int32]dexpb.InternalTimerStatus{
+			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
 	)
 	require.True(t, ok)
@@ -236,30 +236,30 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 	results := BuildConditionResults(
 		waitingCondition,
 		nil,
-		map[int][]*iwfpb.Value{1: nil},
+		map[int][]*dexpb.Value{1: nil},
 	)
 	require.Equal(
 		t,
-		iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+		dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 		results.GetChannelResults()[0].GetConditionStatus(),
 	)
 	require.Equal(
 		t,
-		iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+		dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 		results.GetChannelResults()[1].GetConditionStatus(),
 	)
 }
 
 func TestPlan_AnyCombination(t *testing.T) {
 	// Two combinations; first is infeasible (needs 5 on chA), second feasible.
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
-		ChannelConditions: []*iwfpb.ChannelCondition{
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+		ChannelConditions: []*dexpb.ChannelCondition{
 			chCond("a", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
 			chCond("b", "chB", nil, nil),
 			chCond("c", "chC", nil, nil),
 		},
-		ConditionCombinations: []*iwfpb.ConditionCombination{
+		ConditionCombinations: []*dexpb.ConditionCombination{
 			{ConditionIds: []string{"a", "b"}},
 			{ConditionIds: []string{"b", "c"}},
 		},
@@ -273,8 +273,8 @@ func TestPlan_AnyCombination(t *testing.T) {
 }
 
 func TestPlan_EmptyWaitingConditionMatches(t *testing.T) {
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 	}
 	plan, ok := Plan(waitingCondition, ChannelAvailability{}, nil)
 	require.True(t, ok)
@@ -282,36 +282,36 @@ func TestPlan_EmptyWaitingConditionMatches(t *testing.T) {
 }
 
 func TestBuildConditionResults(t *testing.T) {
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-		TimerConditions:      []*iwfpb.TimerCondition{timerCond("t1")},
-		ChannelConditions: []*iwfpb.ChannelCondition{
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
+		ChannelConditions: []*dexpb.ChannelCondition{
 			chCond("win", "chA", nil, nil),
 			chCond("lose", "chB", nil, nil),
 		},
 	}
-	values := []*iwfpb.Value{{Kind: &iwfpb.Value_StringValue{StringValue: "m1"}}}
+	values := []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "m1"}}}
 	results := BuildConditionResults(
 		waitingCondition,
-		map[int32]iwfpb.InternalTimerStatus{
-			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		map[int32]dexpb.InternalTimerStatus{
+			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
-		map[int][]*iwfpb.Value{0: values},
+		map[int][]*dexpb.Value{0: values},
 	)
 
 	require.Len(t, results.GetTimerResults(), 1)
 	assert.Equal(
 		t,
-		iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+		dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 		results.GetTimerResults()[0].GetConditionStatus(),
 	)
 
-	byId := map[string]*iwfpb.ChannelResult{}
+	byId := map[string]*dexpb.ChannelResult{}
 	for _, channelResult := range results.GetChannelResults() {
 		byId[channelResult.GetConditionId()] = channelResult
 	}
-	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, byId["win"].GetConditionStatus())
+	assert.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, byId["win"].GetConditionStatus())
 	assert.Len(t, byId["win"].GetValues(), 1)
-	assert.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, byId["lose"].GetConditionStatus())
+	assert.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_WAITING, byId["lose"].GetConditionStatus())
 	assert.Empty(t, byId["lose"].GetValues())
 }

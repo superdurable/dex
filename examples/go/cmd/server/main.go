@@ -21,12 +21,12 @@
 package main
 
 import (
-	"github.com/superdurable/iwf/examples/go/cmd/server/iwf"
+	"github.com/superdurable/dex/examples/go/cmd/server/dex"
 	"os"
 )
 
-// main entry point for the iwf server
+// main entry point for the dex server
 func main() {
-	app := iwf.BuildCLI()
+	app := dex.BuildCLI()
 	app.Run(os.Args)
 }

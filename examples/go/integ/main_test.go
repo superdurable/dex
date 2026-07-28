@@ -29,14 +29,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/examples/go/workflows"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 var (
-	client        = iwf.NewClient(workflows.GetRegistry(), nil)
-	workerService = iwf.NewWorkerService(workflows.GetRegistry(), nil)
+	client        = dex.NewClient(workflows.GetRegistry(), nil)
+	workerService = dex.NewWorkerService(workflows.GetRegistry(), nil)
 )
 
 func TestMain(m *testing.M) {
@@ -51,12 +51,12 @@ func TestMain(m *testing.M) {
 
 func startWorkflowWorker() func() {
 	router := gin.New()
-	router.POST(iwf.WorkflowStateWaitUntilApi, handleWaitUntil)
-	router.POST(iwf.WorkflowStateExecuteApi, handleExecute)
-	router.POST(iwf.WorkflowWorkerRPCAPI, handleRPC)
+	router.POST(dex.WorkflowStateWaitUntilApi, handleWaitUntil)
+	router.POST(dex.WorkflowStateExecuteApi, handleExecute)
+	router.POST(dex.WorkflowWorkerRPCAPI, handleRPC)
 
 	server := &http.Server{
-		Addr:    ":" + iwf.DefaultWorkerPort,
+		Addr:    ":" + dex.DefaultWorkerPort,
 		Handler: router,
 	}
 	go func() {
@@ -64,12 +64,12 @@ func startWorkflowWorker() func() {
 			log.Fatalf("worker listen: %v", err)
 		}
 	}()
-	fmt.Println("examples/go integ worker listening on", iwf.DefaultWorkerPort)
+	fmt.Println("examples/go integ worker listening on", dex.DefaultWorkerPort)
 	return func() { _ = server.Close() }
 }
 
 func handleWaitUntil(c *gin.Context) {
-	var req iwfidl.WorkflowStateWaitUntilRequest
+	var req dexpb.WorkflowStateWaitUntilRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -83,7 +83,7 @@ func handleWaitUntil(c *gin.Context) {
 }
 
 func handleExecute(c *gin.Context) {
-	var req iwfidl.WorkflowStateExecuteRequest
+	var req dexpb.WorkflowStateExecuteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -97,7 +97,7 @@ func handleExecute(c *gin.Context) {
 }
 
 func handleRPC(c *gin.Context) {
-	var req iwfidl.WorkflowWorkerRpcRequest
+	var req dexpb.WorkflowWorkerRpcRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

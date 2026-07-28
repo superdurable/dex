@@ -29,9 +29,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/locking"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/locking"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -55,7 +55,7 @@ func TestLockingWorkflowTemporalContinueAsNew(t *testing.T) {
 		doTestLockingWorkflow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -79,7 +79,7 @@ func TestLockingWorkflowCadenceContinueAsNew(t *testing.T) {
 		doTestLockingWorkflow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -88,33 +88,33 @@ func TestLockingWorkflowCadenceContinueAsNew(t *testing.T) {
 func doTestLockingWorkflow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := locking.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
 	flowId := locking.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           locking.WorkflowType,
 		FlowTimeoutSeconds: 300,
 		WorkerTarget:       workerTarget,
 		StartStepType:      locking.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
 	for i := 0; i < locking.NumUnusedSignals; i++ {
-		_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
-			Messages: []*iwfpb.ChannelMessage{
+			Messages: []*dexpb.ChannelMessage{
 				{ChannelName: locking.UnusedSignalChannelName},
 			},
 		})
@@ -132,7 +132,7 @@ func doTestLockingWorkflow(
 	if backendType == service.BackendTypeTemporal {
 		for i := 0; i < 25; i++ {
 			time.Sleep(2 * time.Second)
-			rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+			rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 				FlowId:         flowId,
 				RpcName:        locking.RPCName,
 				Input:          objJSONValue("data"),
@@ -147,7 +147,7 @@ func doTestLockingWorkflow(
 					errResp := grpcErrorResponse(t, rpcErr)
 					assertions.Equal("one or more attribute keys are locked", errResp.GetDetail())
 					assertions.Equal(
-						iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+						dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 						errResp.GetSubStatus(),
 					)
 					rpcLockingFailure++
@@ -163,7 +163,7 @@ func doTestLockingWorkflow(
 	}
 
 	time.Sleep(time.Second)
-	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		FlowId:  flowId,
 		RpcName: locking.RPCName,
 		Input:   objJSONValue(locking.ShouldUnblockStateWaiting),
@@ -171,7 +171,7 @@ func doTestLockingWorkflow(
 	require.NoError(t, err)
 
 	time.Sleep(20 * time.Second)
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -188,10 +188,10 @@ func doTestLockingWorkflow(
 		"S2_execute":           int64(s2StartsDecides),
 	}, history, "locking.test fail, %v", history)
 
-	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	assertions.Equal(0, len(response.GetResults()))
 
-	attributesResp, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	attributesResp, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
 	})
@@ -203,18 +203,18 @@ func doTestLockingWorkflow(
 		string(attributeMap[locking.TestDataAttributeKey1].GetObjValue().GetPayload()),
 	)
 
-	_, err = flowClient.ResetFlow(ctx, &iwfpb.ResetFlowRequest{
+	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		FlowId:                flowId,
-		ResetType:             iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
+		ResetType:             dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
 		StepType:              locking.StateWaiting,
 		SkipLockingRpcReapply: true,
 	})
 	require.NoError(t, err)
 
 	time.Sleep(20 * time.Second)
-	resetResponse, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resetResponse, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resetResponse.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resetResponse.GetFlowStatus())
 }

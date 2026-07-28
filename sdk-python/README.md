@@ -1,10 +1,10 @@
 
-# iwf-sdk
+# dex-python-sdk
 
-Python SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
+Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 ```
-pip install iwf-sdk==0.0.1
+pip install dex-python-sdk==0.0.1
 ```
 
 See [samples](../examples/python) for use case examples.
@@ -12,21 +12,21 @@ See [samples](../examples/python) for use case examples.
 ## Requirements
 
 - Python 3.9+
-- [iWF server](https://github.com/superdurable/iwf#how-to-use)
+- [Dex server](https://github.com/superdurable/dex#how-to-use)
 
 ## Concepts
 
 To implement a workflow, the two most core interfaces are
 
-* [Workflow interface](https://github.com/superdurable/iwf/blob/main/sdk-python/iwf/workflow.py)
+* [Workflow interface](https://github.com/superdurable/dex/blob/main/sdk-python/dex/workflow.py)
   defines the workflow definition
 
-* [WorkflowState interface](https://github.com/superdurable/iwf/blob/main/sdk-python/iwf/workflow_state.py)
+* [WorkflowState interface](https://github.com/superdurable/dex/blob/main/sdk-python/dex/workflow_state.py)
   defines the workflow states for workflow definitions
 
 A workflow can contain any number of WorkflowStates.
 
-See more in https://github.com/superdurable/iwf#what-is-iwf
+See more in https://github.com/superdurable/dex#what-is-dex
 
 
 # Development Plan
@@ -50,22 +50,22 @@ See more in https://github.com/superdurable/iwf#what-is-iwf
 - [x] Reset workflow API
 - [x] Skip timer API for testing/operation
 
-### Running iwf-server locally
+### Running dex-server locally
 
 #### Option 1: use docker compose
-See [iwf README](https://github.com/superdurable/iwf#using-docker-image--docker-compose)
+See [dex README](https://github.com/superdurable/dex#using-docker-image--docker-compose)
 
 #### Option 2: VSCode Dev Container
 
-Dev Container is an easy way to get iwf-server running locally. Follow these steps to launch a dev container:
+Dev Container is an easy way to get dex-server running locally. Follow these steps to launch a dev container:
 - Install Docker, VSCode, and [VSCode Dev Container plugin](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
 - Open the project in VSCode.
     ```bash
-    cd iwf-python-sdk
+    cd dex-python-sdk
     code .
     ```
 - Launch the Remote-Containers: Reopen in Container command from Command Palette (Ctrl + Shift + P). You can also click in the bottom left corner to access the remote container menu.
-- Once the dev container starts, iwf-server will be listening on port 8801.
+- Once the dev container starts, dex-server will be listening on port 8801.
 
 ## How To Contribute
 
@@ -85,7 +85,7 @@ poetry install
 
 #### Update IDL
 
-Edit [`protos/iwf.proto`](../protos/iwf.proto). Rename catalog: [`docs/design/idl-renames.md`](../docs/design/idl-renames.md).
+Edit [`protos/dex.proto`](../protos/dex.proto). Rename catalog: [`docs/design/idl-renames.md`](../docs/design/idl-renames.md).
 
 #### Generate stubs from IDL
 
@@ -93,7 +93,7 @@ Edit [`protos/iwf.proto`](../protos/iwf.proto). Rename catalog: [`docs/design/id
 make -C ../protos proto
 ```
 
-Checked-in Python stubs land in `iwf/iwfpb/`.
+Checked-in Python stubs land in `dex/dexpb/`.
 #### Linting
 
 To run linting for this project:

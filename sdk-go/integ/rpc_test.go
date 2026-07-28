@@ -16,8 +16,8 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"strconv"
 	"testing"
 	"time"
@@ -36,16 +36,16 @@ func TestRPCWorkflow(t *testing.T) {
 	time.Sleep(time.Second)
 	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
 	assert.Nil(t, err)
-	assert.Equal(t, iwfidl.RUNNING, info.Status)
+	assert.Equal(t, dexpb.RUNNING, info.Status)
 
 	err = client.InvokeRPC(context.Background(), wfId, "", wf.TestErrorRPC, 1, nil)
 	assert.NotNil(t, err)
-	assert.True(t, iwf.IsRPCError(err))
-	rpcErr, _ := err.(*iwf.ApiError)
+	assert.True(t, dex.IsRPCError(err))
+	rpcErr, _ := err.(*dex.ApiError)
 	assert.Equal(t, "worker API error, status:501, errorType:test-error-type", rpcErr.Response.GetDetail())
 
 	// Test unregister client
-	unregClient := iwf.NewUnregisteredClient(nil)
+	unregClient := dex.NewUnregisteredClient(nil)
 	err = unregClient.InvokeRPCByName(context.Background(), wfId, "", "TestErrorRPC", 1, nil, nil)
 	assert.NotNil(t, err)
 

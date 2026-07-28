@@ -25,9 +25,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -61,13 +61,13 @@ const (
 	testSignalCmd  = "test-signal-cmd"
 )
 
-var testChannelValue = &iwfpb.EncodedObject{
+var testChannelValue = &dexpb.EncodedObject{
 	Encoding: "json",
 	Payload:  []byte("channel-data"),
 }
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -81,8 +81,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -101,43 +101,43 @@ func (h *handler) InvokeWaitForMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				TimerConditions: []*iwfpb.TimerCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*dexpb.TimerCondition{
 					{
 						ConditionId:     testTimerCmd,
 						DurationSeconds: 2,
 					},
 				},
-				ChannelConditions: []*iwfpb.ChannelCondition{
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ConditionId: testSignalCmd, ChannelName: testSignal},
 					{ConditionId: testChannelCmd, ChannelName: testChannel},
 				},
 			},
-			PublishToChannel: []*iwfpb.ChannelMessage{
+			PublishToChannel: []*dexpb.ChannelMessage{
 				{
 					ChannelName: testChannel,
-					Value: &iwfpb.Value{
-						Kind: &iwfpb.Value_ObjValue{ObjValue: testChannelValue},
+					Value: &dexpb.Value{
+						Kind: &dexpb.Value_ObjValue{ObjValue: testChannelValue},
 					},
 				},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ConditionId: "s2-channel-cmd", ChannelName: testChannel + "2"},
 				},
 			},
 		}, nil
 	case State3:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				TimerConditions: []*iwfpb.TimerCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*dexpb.TimerCondition{
 					{
 						ConditionId:     "s3-timer-cmd",
 						DurationSeconds: 2,
@@ -146,16 +146,16 @@ func (h *handler) InvokeWaitForMethod(
 			},
 		}, nil
 	case StateAnyCmd:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-				TimerConditions: []*iwfpb.TimerCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+				TimerConditions: []*dexpb.TimerCondition{
 					{
 						ConditionId:     "any-cmd-timer",
 						DurationSeconds: 20,
 					},
 				},
-				ChannelConditions: []*iwfpb.ChannelCondition{
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ConditionId: "any-cmd-signal-cmd", ChannelName: "any-cmd-signal"},
 				},
 			},
@@ -167,8 +167,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -191,7 +191,7 @@ func (h *handler) InvokeExecuteMethod(
 
 		timerFired := false
 		for _, timerResult := range cmdResults.GetTimerResults() {
-			if timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+			if timerResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				timerFired = true
 				h.recordData("s1_timer_fired", true)
 			}
@@ -203,7 +203,7 @@ func (h *handler) InvokeExecuteMethod(
 		signalReceived := false
 		for _, channelResult := range cmdResults.GetChannelResults() {
 			if channelResult.GetChannelName() == testSignal &&
-				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				signalReceived = true
 				h.recordData("s1_signal_received", true)
 			}
@@ -215,7 +215,7 @@ func (h *handler) InvokeExecuteMethod(
 		channelReceived := false
 		for _, channelResult := range cmdResults.GetChannelResults() {
 			if channelResult.GetChannelName() == testChannel &&
-				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				channelReceived = true
 				h.recordData("s1_channel_received", true)
 			}
@@ -224,18 +224,18 @@ func (h *handler) InvokeExecuteMethod(
 			log.Println("ERROR: Internal channel should have been received in State1")
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State2},
 					{StepType: State3},
 				},
 			},
-			PublishToChannel: []*iwfpb.ChannelMessage{
+			PublishToChannel: []*dexpb.ChannelMessage{
 				{
 					ChannelName: testChannel + "2",
-					Value: &iwfpb.Value{
-						Kind: &iwfpb.Value_ObjValue{ObjValue: testChannelValue},
+					Value: &dexpb.Value{
+						Kind: &dexpb.Value_ObjValue{ObjValue: testChannelValue},
 					},
 				},
 			},
@@ -246,7 +246,7 @@ func (h *handler) InvokeExecuteMethod(
 		channelReceived := false
 		for _, channelResult := range cmdResults.GetChannelResults() {
 			if channelResult.GetChannelName() == testChannel+"2" &&
-				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				channelReceived = true
 				h.recordData("s2_channel_received", true)
 				if values := channelResult.GetValues(); len(values) > 0 {
@@ -260,9 +260,9 @@ func (h *handler) InvokeExecuteMethod(
 			h.recordData("s2_channel_received", false)
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.DeadEndFlowStepType},
 				},
 			},
@@ -272,7 +272,7 @@ func (h *handler) InvokeExecuteMethod(
 
 		timerFired := false
 		for _, timerResult := range cmdResults.GetTimerResults() {
-			if timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+			if timerResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				timerFired = true
 				h.recordData("s3_timer_fired", true)
 			}
@@ -283,9 +283,9 @@ func (h *handler) InvokeExecuteMethod(
 			h.recordData("s3_timer_fired", false)
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -298,7 +298,7 @@ func (h *handler) InvokeExecuteMethod(
 
 		for _, channelResult := range cmdResults.GetChannelResults() {
 			if channelResult.GetChannelName() == "any-cmd-signal" &&
-				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				signalReceived = true
 				h.recordData("any_cmd_signal_received", true)
 			}
@@ -306,7 +306,7 @@ func (h *handler) InvokeExecuteMethod(
 
 		for _, timerResult := range cmdResults.GetTimerResults() {
 			if timerResult.GetConditionId() == "any-cmd-timer" &&
-				timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				timerResult.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 				timerFired = true
 			}
 		}
@@ -320,9 +320,9 @@ func (h *handler) InvokeExecuteMethod(
 			log.Println("WARNING: Timer fired in StateAnyCmd - this suggests we waited for it instead of proceeding with signal")
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State3},
 				},
 			},

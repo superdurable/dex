@@ -14,16 +14,16 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type timerWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyCommunicationSchema
-	iwf.EmptyPersistenceSchema
+	dex.DefaultWorkflowType
+	dex.EmptyCommunicationSchema
+	dex.EmptyPersistenceSchema
 }
 
-func (b timerWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&timerWorkflowState1{}),
+func (b timerWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&timerWorkflowState1{}),
 	}
 }

@@ -35,7 +35,7 @@
         "firstWorkflowTaskBackoff": "0s",
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="
@@ -348,7 +348,7 @@
         "header": {},
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="

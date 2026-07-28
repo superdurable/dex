@@ -19,20 +19,20 @@ from dataclasses import dataclass
 
 from agents import AgentOutputSchema
 from agents.models.openai_responses import Converter
-from iwf.command_request import CommandRequest, TimerCommand, InternalChannelCommand
-from iwf.command_results import CommandResults
-from iwf.communication import Communication
-from iwf.communication_schema import CommunicationSchema, CommunicationMethod
-from iwf.iwf_api.models import RetryPolicy, ChannelRequestStatus
-from iwf.persistence import Persistence
-from iwf.persistence_schema import PersistenceSchema, PersistenceField
-from iwf.rpc import rpc
-from iwf.state_decision import StateDecision
-from iwf.state_schema import StateSchema
-from iwf.workflow import ObjectWorkflow
-from iwf.workflow_context import WorkflowContext
-from iwf.workflow_state import WorkflowState
-from iwf.workflow_state_options import WorkflowStateOptions
+from dex.command_request import CommandRequest, TimerCommand, InternalChannelCommand
+from dex.command_results import CommandResults
+from dex.communication import Communication
+from dex.communication_schema import CommunicationSchema, CommunicationMethod
+from dex.dex_api.models import RetryPolicy, ChannelRequestStatus
+from dex.persistence import Persistence
+from dex.persistence_schema import PersistenceSchema, PersistenceField
+from dex.rpc import rpc
+from dex.state_decision import StateDecision
+from dex.state_schema import StateSchema
+from dex.workflow import ObjectWorkflow
+from dex.workflow_context import WorkflowContext
+from dex.workflow_state import WorkflowState
+from dex.workflow_state_options import WorkflowStateOptions
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -250,7 +250,7 @@ class ScheduleState(WorkflowState[None]):
         persistence.set_data_attribute(DA_STATUS, STATUS_WAITING)
         send_time = persistence.get_data_attribute(DA_SCHEDULED_TIME_SECONDS)
         return CommandRequest.for_any_command_completed(
-            # timer in iWF is durable, meaning that it will not be lost for any instance restarts
+            # timer in Dex is durable, meaning that it will not be lost for any instance restarts
             TimerCommand.by_seconds(get_timer_duration(send_time)),
             # user can interrupt it anytime when waiting
             InternalChannelCommand.by_name(CH_USER_INPUT)

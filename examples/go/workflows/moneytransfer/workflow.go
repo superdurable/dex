@@ -22,13 +22,13 @@ package moneytransfer
 
 import (
 	"fmt"
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
-	"github.com/superdurable/iwf/sdk-go/iwf/ptr"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
-func NewMoneyTransferWorkflow(svc service.MyService) iwf.ObjectWorkflow {
+func NewMoneyTransferWorkflow(svc service.MyService) dex.ObjectWorkflow {
 
 	return &MoneyTransferWorkflow{
 		svc: svc,
@@ -36,19 +36,19 @@ func NewMoneyTransferWorkflow(svc service.MyService) iwf.ObjectWorkflow {
 }
 
 type MoneyTransferWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 
 	svc service.MyService
 }
 
-func (e MoneyTransferWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&checkBalanceState{svc: e.svc}),
-		iwf.NonStartingStateDef(&createDebitMemoState{svc: e.svc}),
-		iwf.NonStartingStateDef(&debitState{svc: e.svc}),
-		iwf.NonStartingStateDef(&createCreditMemoState{svc: e.svc}),
-		iwf.NonStartingStateDef(&creditState{svc: e.svc}),
-		iwf.NonStartingStateDef(&compensateState{svc: e.svc}),
+func (e MoneyTransferWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&checkBalanceState{svc: e.svc}),
+		dex.NonStartingStateDef(&createDebitMemoState{svc: e.svc}),
+		dex.NonStartingStateDef(&debitState{svc: e.svc}),
+		dex.NonStartingStateDef(&createCreditMemoState{svc: e.svc}),
+		dex.NonStartingStateDef(&creditState{svc: e.svc}),
+		dex.NonStartingStateDef(&compensateState{svc: e.svc}),
 	}
 }
 
@@ -60,34 +60,34 @@ type TransferRequest struct {
 }
 
 type checkBalanceState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i checkBalanceState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var request TransferRequest
 	input.Get(&request)
 
 	hasSufficientFunds := i.svc.CheckBalance(request.FromAccount, request.Amount)
 	if !hasSufficientFunds {
-		return iwf.ForceFailWorkflow("insufficient funds"), nil
+		return dex.ForceFailWorkflow("insufficient funds"), nil
 	}
 
-	return iwf.SingleNextState(&createDebitMemoState{}, request), nil
+	return dex.SingleNextState(&createDebitMemoState{}, request), nil
 }
 
 type createDebitMemoState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i createDebitMemoState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var request TransferRequest
 	input.Get(&request)
 
@@ -101,12 +101,12 @@ func (i createDebitMemoState) Execute(
 	//	return nil, fmt.Errorf("test error for testing error handling")
 	//}
 
-	return iwf.SingleNextState(&debitState{}, request), nil
+	return dex.SingleNextState(&debitState{}, request), nil
 }
 
-func (i createDebitMemoState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
+func (i createDebitMemoState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
 			// uncomment this to test a short retry
 			//MaximumAttemptsDurationSeconds: ptr.Any(int32(3)),
@@ -116,14 +116,14 @@ func (i createDebitMemoState) GetStateOptions() *iwf.StateOptions {
 }
 
 type debitState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i debitState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var request TransferRequest
 	input.Get(&request)
 
@@ -132,12 +132,12 @@ func (i debitState) Execute(
 		return nil, err
 	}
 
-	return iwf.SingleNextState(&createCreditMemoState{}, request), nil
+	return dex.SingleNextState(&createCreditMemoState{}, request), nil
 }
 
-func (i debitState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
+func (i debitState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
 		},
 		ExecuteApiFailureProceedState: &compensateState{},
@@ -145,14 +145,14 @@ func (i debitState) GetStateOptions() *iwf.StateOptions {
 }
 
 type createCreditMemoState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i createCreditMemoState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var request TransferRequest
 	input.Get(&request)
 
@@ -161,12 +161,12 @@ func (i createCreditMemoState) Execute(
 		return nil, err
 	}
 
-	return iwf.SingleNextState(&creditState{}, request), nil
+	return dex.SingleNextState(&creditState{}, request), nil
 }
 
-func (i createCreditMemoState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
+func (i createCreditMemoState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
 		},
 		ExecuteApiFailureProceedState: &compensateState{},
@@ -174,14 +174,14 @@ func (i createCreditMemoState) GetStateOptions() *iwf.StateOptions {
 }
 
 type creditState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i creditState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var request TransferRequest
 	input.Get(&request)
 
@@ -190,12 +190,12 @@ func (i creditState) Execute(
 		return nil, err
 	}
 
-	return iwf.GracefulCompleteWorkflow(fmt.Sprintf("transfer is done from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
+	return dex.GracefulCompleteWorkflow(fmt.Sprintf("transfer is done from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
 }
 
-func (i creditState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
+func (i creditState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
 		},
 		ExecuteApiFailureProceedState: &compensateState{},
@@ -203,15 +203,15 @@ func (i creditState) GetStateOptions() *iwf.StateOptions {
 }
 
 type compensateState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
 func (i compensateState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
-	// NOTE: to improve, we can use iWF data attributes to track whether each step has been attempted to execute
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
+	// NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
 	// and check a flag to see if we should undo it or not
 
 	var request TransferRequest
@@ -234,12 +234,12 @@ func (i compensateState) Execute(
 		return nil, err
 	}
 
-	return iwf.ForceFailWorkflow(fmt.Sprintf("transfer has failed: from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
+	return dex.ForceFailWorkflow(fmt.Sprintf("transfer has failed: from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
 }
 
-func (i compensateState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
+func (i compensateState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttemptsDurationSeconds: ptr.Any(int32(86400)),
 		},
 	}

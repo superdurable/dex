@@ -1,10 +1,10 @@
-# Server rewrite onto iwf.proto
+# Server rewrite onto dex.proto
 
-Detailed implementation plan for migrating the iWF Go server from the deleted
-OpenAPI `gen/iwfidl` stubs onto the gRPC `iwf.proto` IDL.
+Detailed implementation plan for migrating the Dex Go server from the deleted
+OpenAPI `gen/dexpb` stubs onto the gRPC `dex.proto` IDL.
 
 - Rename source of truth: [`docs/design/idl-renames.md`](../idl-renames.md)
-- Types: [`protos/iwf.proto`](../../../protos/iwf.proto) → [`server/gen/iwfpb`](../../../server/gen/iwfpb)
+- Types: [`protos/dex.proto`](../../../protos/dex.proto) → [`server/gen/dexpb`](../../../server/gen/dexpb)
 
 ```mermaid
 flowchart LR
@@ -16,9 +16,9 @@ flowchart LR
 
 ## Decisions (locked)
 
-- **Transport:** Full gRPC. Replace Gin/`iwfidl` with a `FlowService` server; call
+- **Transport:** Full gRPC. Replace Gin/`dexpb` with a `FlowService` server; call
   workers via a `WorkerService` client. Delete OpenAPI HTTP routes and all
-  `gen/iwfidl` usage under `server/`.
+  `gen/dexpb` usage under `server/`.
 - **`WaitForStepCompletion` & `WaitForAttribute`:** implemented via **Temporal
   Synchronous Update** against the main interpreter workflow (interpreter update
   handlers that `Await` inside the workflow). **Cadence drops support** for both
@@ -53,7 +53,7 @@ flowchart LR
   `useMemoForDataAttributes` feature and its config/interface/runtime plumbing. Keep
   only the legitimate backend memo uses: `WorkerTargetMemoKey`, workflow request-id
   idempotency, and the client memo encode/decode/encryption helpers serving those
-  system keys. `iwf.proto` intentionally has no memo field.
+  system keys. `dex.proto` intentionally has no memo field.
 - **SDK boundary:** SDK client/worker implementations are intentionally untouched.
   This phase makes `server/` + `server/integ` green; existing SDK implementations
   are expected to remain incompatible until their follow-up rewrite. Do not
@@ -67,8 +67,8 @@ flowchart LR
 - **History / internal serializable payloads are proto (Phase 2.5):** Every value that
   Temporal or Cadence serializes into workflow history (workflow I/O, activity I/O,
   signals, sync updates, continue-as-new input) **and** every query/update handler
-  request/response is a `proto.Message` defined in `iwf.proto` (server-internal
-  section). Do not leave Go structs with nested `iwfpb` fields as the outer
+  request/response is a `proto.Message` defined in `dex.proto` (server-internal
+  section). Do not leave Go structs with nested `dexpb` fields as the outer
   history type — that falls through to JSON and double-encodes `Value`s.
 - **Binary protobuf DataConverter (Temporal + Cadence):** Both backends use a
   shared encoding policy: `proto.Message` → binary protobuf. Temporal uses a
@@ -88,14 +88,14 @@ flowchart LR
 
 ## Current state / why sequencing matters
 
-`protos/iwf.proto` + `server/gen/iwfpb` already exist with the full
+`protos/dex.proto` + `server/gen/dexpb` already exist with the full
 Flow/Step/Condition IDL (`FlowService` + `WorkerService`). But the old OpenAPI
-stubs `server/gen/iwfidl` are **already deleted**, while **129 `.go` files still
+stubs `server/gen/dexpb` are **already deleted**, while **129 `.go` files still
 import them**, so the server does not compile:
 
 ```
 $ go build ./...
-config/config.go:29:2: no required module provides package .../gen/iwfidl
+config/config.go:29:2: no required module provides package .../gen/dexpb
 ... + ambiguous genproto imports
 ```
 
@@ -129,7 +129,7 @@ shim merely to make an intermediate commit green.
 
 ## Phase 0 — IDL contract (do first)
 
-1. In [`protos/iwf.proto`](../../../protos/iwf.proto) `ChannelResult` (~line 578):
+1. In [`protos/dex.proto`](../../../protos/dex.proto) `ChannelResult` (~line 578):
    replace `Value value = 4;` with `repeated Value values = 4;`.
 2. Change `ChannelCondition.at_least` / `at_most` to `optional int32`; explicit
    `at_least=0` must be distinguishable from an omitted field.
@@ -160,7 +160,7 @@ shim merely to make an intermediate commit green.
    `ContinueAsNewDump` addition (replaces the JSON `WorkflowDumpRequest/Response`).
 8. Add a server-only `proto-server-go` target in `protos/Makefile` and delegate to
    it from a matching `server/Makefile` target. Regenerate only
-   `server/gen/iwfpb`; do not run the existing `proto-go` / `idl-code-gen` targets
+   `server/gen/dexpb`; do not run the existing `proto-go` / `idl-code-gen` targets
    because they also rewrite SDK generated trees. Confirm the generated Go shows
    `Values []*Value`, optional bound presence, `LockAttributeKeys []string`, and
    the `InternalServiceServer` / `ContinueAsNewDump` types.
@@ -241,7 +241,7 @@ always-on, no version gate:
 
 ### 1a. Dependency graph (prerequisite — nothing compiles without this)
 
-- Do **not** run `go mod tidy` while deleted `gen/iwfidl` imports remain; it cannot
+- Do **not** run `go mod tidy` while deleted `gen/dexpb` imports remain; it cannot
   resolve the broken source graph. Keep the existing explicit
   `google.golang.org/genproto/googleapis/{api,rpc}`, `grpc v1.79.3`, and
   `protobuf v1.36.11` requirements during the source migration.
@@ -250,7 +250,7 @@ always-on, no version gate:
   `go mod tidy`. Do not blindly pin around an unknown import chain.
 - Remove `github.com/gin-gonic/gin` (+ `gin-contrib/sse`) from `require` once no
   code imports it (after Phase 5).
-- Verify at end of Phase 5: `rg -l 'gen/iwfidl' server --glob '*.go'` returns empty.
+- Verify at end of Phase 5: `rg -l 'gen/dexpb' server --glob '*.go'` returns empty.
 
 ### 1b. `server/config/config.go`
 
@@ -266,11 +266,11 @@ always-on, no version gate:
   the `GetSignalWithStartOnWithDefault` / `GetWaitForOnWithDefault` helpers.
 - **Delete** `Interpreter.FailAtMemoIncompatibility`; it guarded only the removed
   memo-as-data-attribute path.
-- Retype `Interpreter.DefaultWorkflowConfig` `*iwfidl.WorkflowConfig` →
-  `*iwfpb.FlowConfig`; update the `DefaultWorkflowConfig` package var
+- Retype `Interpreter.DefaultWorkflowConfig` `*dexpb.WorkflowConfig` →
+  `*dexpb.FlowConfig`; update the `DefaultWorkflowConfig` package var
   (`ContinueAsNewThreshold: 100`).
-- `DumpWorkflowInternalActivityConfig.RetryPolicy`: `*iwfidl.RetryPolicy` →
-  `*iwfpb.RetryPolicy`.
+- `DumpWorkflowInternalActivityConfig.RetryPolicy`: `*dexpb.RetryPolicy` →
+  `*dexpb.RetryPolicy`.
 - Rename `InterpreterActivityConfig.ApiServiceAddress` →
   `InternalServiceTarget` and its helper accordingly. Use YAML key
   `internalServiceTarget`; default `localhost:<Api.Port>`. Document that the
@@ -285,13 +285,13 @@ always-on, no version gate:
   that file into compliance: document its default, operational meaning, valid
   range, and relationships required by the repository config rules.
 
-### 1c. Bootstrap `server/cmd/server/iwf/iwf.go`
+### 1c. Bootstrap `server/cmd/server/dex/dex.go`
 
 - Replace the API branch (`api.NewService(...).Run(":port")`, an `http.Server`)
   with a `grpc.NewServer` configured with panic-recovery, structured logging,
   and metrics unary interceptors plus message-size server options; register
-  `iwfpb.RegisterFlowServiceServer(grpcServer, flowServer)`,
-  `iwfpb.RegisterInternalServiceServer(grpcServer, internalServer)` (CAN dump; same
+  `dexpb.RegisterFlowServiceServer(grpcServer, flowServer)`,
+  `dexpb.RegisterInternalServiceServer(grpcServer, internalServer)` (CAN dump; same
   server/port), `net.Listen("tcp", ":Api.Port")`, `grpcServer.Serve(lis)`.
 - Register health (implement IDL `HealthCheck` **and** `grpc/health`). Both report
   not-serving until the listener is bound and the configured Temporal/Cadence
@@ -314,8 +314,8 @@ always-on, no version gate:
 - Preserve the pre-rewrite file and dependency structure from
   `d5f06a2b51a1b878ce1329aa5d4f1d945ea09c27`:
   - `routers.go` owns gRPC construction, registration, health, and lifecycle;
-  - `handler.go` implements the generated `iwfpb.FlowServiceServer` and
-    `iwfpb.InternalServiceServer`, then delegates each RPC to `ApiService`;
+  - `handler.go` implements the generated `dexpb.FlowServiceServer` and
+    `dexpb.InternalServiceServer`, then delegates each RPC to `ApiService`;
   - `interfaces.go` defines the transport-independent `ApiService` contract;
   - `service.go` contains `serviceImpl` business logic and does not embed
     generated gRPC server types.
@@ -363,10 +363,10 @@ always-on, no version gate:
   | wait exceeds its effective deadline | `DeadlineExceeded` |
   | caller cancels | `Canceled` |
   | Temporal/Cadence backend unavailable | `Unavailable` |
-  | iWF application WorkerService failure or unreachable | `FailedPrecondition` |
+  | Dex application WorkerService failure or unreachable | `FailedPrecondition` |
   | violated trusted invariant or unexpected failure | `Internal` |
 
-  Attach `iwfpb.ErrorResponse` via `status.WithDetails`, preserving
+  Attach `dexpb.ErrorResponse` via `status.WithDetails`, preserving
   `ErrorSubStatus`. WorkerService failures (business or transport-to-worker)
   map to `FailedPrecondition` + `WORKER_API_ERROR` — never `Unavailable`, so they
   do not count against server SLA/SLO. Copy detail/type and the numeric gRPC
@@ -461,8 +461,8 @@ always load all attributes).
 - [`server/service/interfaces.go`](../../../server/service/interfaces.go) +
   [`const.go`](../../../server/service/const.go): **interim** retype of interpreter
   input/output Go structs (`InterpreterWorkflowInput/Output`,
-  `ExecuteRpcSignalRequest`, etc.) to nested `iwfpb` fields + Flow/Step/Condition
-  names, including `IwfWorkerUrl` → `WorkerTarget`. Drop HTTP worker-path constants
+  `ExecuteRpcSignalRequest`, etc.) to nested `dexpb` fields + Flow/Step/Condition
+  names, including `DexWorkerUrl` → `WorkerTarget`. Drop HTTP worker-path constants
   (`StateStartApi`, `StateDecideApi`, `WorkflowWorkerRpcApi`). **Keep** the system
   signal/query channel-name constants (`ExecuteRpcSignalChannelName`,
   `UpdateConfigSignalChannelName`, `FailWorkflowSignalChannelName`,
@@ -470,12 +470,12 @@ always load all attributes).
   types) — string names stay in Go; the **payload messages** move to proto in
   Phase 2.5. Add update-type constants `WaitForStepCompletionUpdateType`,
   `WaitForAttributeUpdateType` next to `ExecuteOptimisticLockingRpcUpdateType`.
-  Phase 2.5 replaces the remaining Go internal serializable structs with `iwfpb`
+  Phase 2.5 replaces the remaining Go internal serializable structs with `dexpb`
   messages. Delete `InterpreterWorkflowInput.UseMemoForDataAttributes` from any
   interim Go struct and every constructor/call site; the Phase 2.5 proto
   intentionally has no replacement field.
 - [`server/service/client/interfaces.go`](../../../server/service/client/interfaces.go)
-  + `temporal/` + `cadence/`: retype `UnifiedClient` and both impls to `iwfpb`
+  + `temporal/` + `cadence/`: retype `UnifiedClient` and both impls to `dexpb`
   names (`flow_id`, `run_id`, unified attributes, channel publish,
   `ResetFlowRequest` incl. renamed `STEP_TYPE`/`STEP_EXECUTION_ID`).
   - **Delete** `StartWaitForStateCompletionWorkflow`,
@@ -518,7 +518,7 @@ always load all attributes).
 
 **Goal:** Everything Temporal/Cadence serializes for the interpreter (history and
 query/update internal serializable payloads) is a top-level `proto.Message`, encoded as **binary
-protobuf** on both backends. Stop JSON-wrapping Go structs that nest `iwfpb`
+protobuf** on both backends. Stop JSON-wrapping Go structs that nest `dexpb`
 fields.
 
 **Scope / non-goals:**
@@ -531,14 +531,14 @@ fields.
 - **Search-attribute values are out of scope.** SA values are typed through Temporal's
   visibility / SA encoding (the `mapper`), **not** our `PayloadConverter`. Do not route
   SA encoding through the proto converter or expect binary there.
-- **In-process-only structs are out of scope.** `IwfEvent` / `event.Handle`, metric
-  tags, and similar are never serialized to history — they get retyped off `iwfidl` in
+- **In-process-only structs are out of scope.** `DexEvent` / `event.Handle`, metric
+  tags, and similar are never serialized to history — they get retyped off `dexpb` in
   Phase 2/4 but do **not** become proto messages.
 - **No global message registry.** Both SDKs decode into the target's concrete type from
   the call signature (Temporal per-arg; Cadence `FromData(to ...interface{})`), so no
   message-name → type registry is needed.
 
-### IDL (`protos/iwf.proto`)
+### IDL (`protos/dex.proto`)
 
 Add an **Internal serializable types** section (same spirit as
 `ContinueAsNewDump` / `InternalService` — not FlowService public RPCs). Select
@@ -636,7 +636,7 @@ with an exact, versioned wire format:
 3. Otherwise use JSON as a non-proto SDK/primitive escape hatch. No interpreter
    Internal serializable outer payload may use this frame kind after Phase 4.
 4. Frame multi-argument payloads as:
-   `magic("IWFDC") + version(uint8) + frame_count(uint32 BE) + frames`. Each frame
+   `magic("DEXDC") + version(uint8) + frame_count(uint32 BE) + frames`. Each frame
    contains `kind(uint8: proto/json/raw) + nil(uint8) + length(uint32 BE) + data`.
    Reject an unknown magic/version/kind, impossible declared length, truncation,
    trailing bytes, and argument-count mismatch. Check lengths against the remaining
@@ -644,7 +644,7 @@ with an exact, versioned wire format:
 5. A typed nil proto pointer is encoded as a nil proto frame; it must not silently
    become JSON `null`.
 
-All iWF interpreter call sites use exactly one top-level proto input and one
+All Dex interpreter call sites use exactly one top-level proto input and one
 top-level proto result. The generic multi-arg framing remains necessary to satisfy
 Cadence's variadic `DataConverter` contract and legitimate SDK values, not as an
 excuse to retain interpreter multi-arg calls.
@@ -663,7 +663,7 @@ tested Temporal/Cadence converter factories. It does not claim that current
 interpreter call sites are already migrated.
 
 Phase 4 must point interpreter + UnifiedClient
-start/signal/query/update/activity/continue-as-new paths at those `iwfpb` messages,
+start/signal/query/update/activity/continue-as-new paths at those `dexpb` messages,
 replace remaining `json.Marshal` of internal serializable snapshots with proto marshal, and
 remove the superseded Go payload structs. Phase 1c/4/5 must use the factory rather
 than reconstructing converter order independently.
@@ -681,7 +681,7 @@ checksum-mismatch reset loop can trip spuriously.
 make -C protos proto-server-go
 make -C server idl-code-gen-server
 GOWORK=off go test -v ./service/common/converter/... 2>&1 | tee /tmp/test-converters.log
-cd server && go build ./service/common/converter/... ./gen/iwfpb/...
+cd server && go build ./service/common/converter/... ./gen/dexpb/...
 ```
 
 Run the converter package tests directly while the full server remains uncompilable
@@ -706,7 +706,7 @@ Stop for review after Phase 2.5 before Phase 3.
   boundaries, and inspect raw query values or use a recording converter for query
   request/results. Temporal application payloads must have `binary/protobuf` metadata
   (or decode through the configured codec to that metadata); Cadence application
-  payloads must have an `IWFDC` proto frame. The test must fail if an Internal
+  payloads must have an `DEXDC` proto frame. The test must fail if an Internal
   serializable outer payload used JSON.
 - Cover workflow memo write/read on both backends and Temporal memo encryption,
   including StartFlow RequestId idempotency and `DescribeWorkflowExecution`.
@@ -733,7 +733,7 @@ Stop for review after Phase 2.5 before Phase 3.
 
 - [`service/interpreter/activityImpl.go`](../../../server/service/interpreter/activityImpl.go)
   + [`service/common/rpc/invoke.go`](../../../server/service/common/rpc/invoke.go):
-  replace `iwfidl.APIClient` (HTTP) with `iwfpb.WorkerServiceClient` (gRPC).
+  replace `dexpb.APIClient` (HTTP) with `dexpb.WorkerServiceClient` (gRPC).
   Add a constructor-injected `workerClientPool` keyed by normalized worker target;
   inject the dialer so tests can supply `bufconn`. The pool uses a mutex/singleflight
   creation path, reference counts active users, evicts only idle connections using
@@ -756,8 +756,8 @@ Stop for review after Phase 2.5 before Phase 3.
   values are needed. Worker responses must contain concrete values; validate them
   before applying any mutation.
 - **`DumpWorkflowInternal` activity** (`activityImpl.go:573`): replace the
-  `iwfidl.APIClient` HTTP call to `ApiV1WorkflowInternalDumpPost` with a gRPC
-  `iwfpb.InternalServiceClient.DumpFlowForContinueAsNew` call (dial the API service
+  `dexpb.APIClient` HTTP call to `ApiV1WorkflowInternalDumpPost` with a gRPC
+  `dexpb.InternalServiceClient.DumpFlowForContinueAsNew` call (dial the API service
   target from config — Phase 1b). Own and close the single reusable internal
   connection. Return proto
   `ContinueAsNewDumpResponse` pages; no JSON.
@@ -790,7 +790,7 @@ multi-value and shared-channel matching.
 **Internal serializable types migration (Phase 2.5 contract):**
 
 - Retype every start/signal/query/update/activity/continue-as-new call identified by
-  the boundary inventory to a single top-level `*iwfpb.Message` argument/result.
+  the boundary inventory to a single top-level `*dexpb.Message` argument/result.
   Delete the superseded Go payload structs, including serialized activity/update
   results outside `service/interfaces.go`; retain in-process helpers such as
   `BasicInfo`.
@@ -801,7 +801,7 @@ multi-value and shared-channel matching.
 - Keep search-attribute mapping backend-native. It does not pass through the
   Internal serializable types DataConverter.
 - After migration, inspect every Cadence `ExecuteActivity`/`ExecuteLocalActivity`
-  call: no iWF activity may retain variadic `backendType, request, ...` arguments.
+  call: no Dex activity may retain variadic `backendType, request, ...` arguments.
 
 Behavioral cleanups:
 
@@ -831,10 +831,10 @@ Behavioral cleanups:
   encode/decode/encryption stays in the backend client/bootstrap path.
 
 **Channels:** `InternalChannel` becomes the single unified store (rename →
-`Channel`/`channelStore`), `receivedData map[string][]*iwfpb.Value`. Implement
+`Channel`/`channelStore`), `receivedData map[string][]*dexpb.Value`. Implement
 the Phase 0 two-phase reservation/consume algorithm; a per-condition
 `Consume(name, atLeast, atMost)` alone is insufficient when multiple conditions
-share a channel. `GetInfos()` → `map[string]*iwfpb.ChannelInfo`. Matching lives in
+share a channel. `GetInfos()` → `map[string]*dexpb.ChannelInfo`. Matching lives in
 `channel/plan.go`; results are emitted as `ChannelResult.values` in FIFO order.
 Delete the single-message `Retrieve` / version-gated path. Do not introduce another
 interpreter orchestration component around it.
@@ -867,7 +867,7 @@ payloads route into the unified channel store. Arbitrary signal names are ignore
   `FailedPrecondition`; blob hydration remains the explicit follow-up TODO above.
 - Both increment/decrement the CAN inflight counter, but a long wait also includes
   `IsThresholdMet()` in its predicate. If CAN wins, return a private
-  `IWF_CAN_PREEMPTED` application error, decrement inflight, and let the API retry
+  `DEX_CAN_PREEMPTED` application error, decrement inflight, and let the API retry
   the same update against the current run (`runID=""` only at the backend client
   boundary) with the original caller context/absolute deadline. Match and terminal
   state win over CAN when visible in the same workflow task. Do not expose the
@@ -908,13 +908,13 @@ impossible. Add no compatibility aliases.
 ## Phase 5 — Integ + Makefile
 
 - [`server/integ/util.go`](../../../server/integ/util.go): replace the Gin
-  `http.Server` for the iwf service with a gRPC server hosting `FlowService`;
+  `http.Server` for the dex service with a gRPC server hosting `FlowService`;
   replace the Gin worker (`startWorkflowWorker*`, `doStartWorkflowWorker`) with an
   in-process gRPC `WorkerServiceServer`. Use `bufconn` with injected dialers or
   `127.0.0.1:0`; do not retain fixed test ports. Also register `InternalService` on
-  the iwf gRPC server (the CAN dump activity dials it). Provide a
+  the dex gRPC server (the CAN dump activity dials it). Provide a
   `FlowServiceClient` helper and close every server/connection in cleanup. Retype
-  `minimum*Config` helpers to `*iwfpb.FlowConfig` (`ContinueAsNewThreshold`,
+  `minimum*Config` helpers to `*dexpb.FlowConfig` (`ContinueAsNewThreshold`,
   `StepDurability`; drop `OptimizeTimer`). Drop `failTestAtHttpError*` in favor of
   gRPC status/detail assertions.
 - Rewrite **every** [`server/integ/workflow/*/routers.go`](../../../server/integ/workflow)
@@ -971,7 +971,7 @@ impossible. Add no compatibility aliases.
 - **Makefile / go.mod:** keep `unitTests`, `integTests`/`temporalIntegTests`/
   `cadenceIntegTests`, `ci-all-tests`, and the existing all-language
   `idl-code-gen`. Add the Phase 0 server-only proto target and a `replayTests`
-  Make target. After `rg -l 'gen/iwfidl' server --glob '*.go'` is empty, run
+  Make target. After `rg -l 'gen/dexpb' server --glob '*.go'` is empty, run
   `go mod tidy` to drop Gin/OpenAPI dependencies and resolve `genproto` from the
   actual module graph. Delete the OpenAPI generator jar
   (`server/openapi-generator-cli-6.6.0.jar`) and obsolete OpenAPI targets.
@@ -1062,10 +1062,10 @@ determinism-sensitive and must have their own captured histories.
     excluded and remain incompatible until a follow-up rewrite.
 11. **Internal serializable types / history encoding** — all interpreter internal serializable payloads
     selected by the serialization-boundary inventory (workflow/activity I/O, signals,
-    queries, sync updates, continue-as-new) live in `iwf.proto`; in-process helpers do
+    queries, sync updates, continue-as-new) live in `dex.proto`; in-process helpers do
     not become proto merely because they share a file with payload structs. Temporal
     and Cadence both use binary protobuf DataConverters. Temporal has no old-history
-    ProtoJSON compatibility path; Cadence uses the versioned `IWFDC` framing. API
+    ProtoJSON compatibility path; Cadence uses the versioned `DEXDC` framing. API
     client and interpreter worker use the same converter configuration and codec
     chain.
 12. **Memo boundary** — Memo stores only worker-target/request-id system metadata.

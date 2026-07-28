@@ -23,8 +23,8 @@ package temporal
 import (
 	"context"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 )
@@ -36,8 +36,8 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 }
 
 func (a *activityProvider) NewActivityError(
-	errType iwfpb.FlowErrorType,
-	errorResponse *iwfpb.ErrorResponse,
+	errType dexpb.FlowErrorType,
+	errorResponse *dexpb.ErrorResponse,
 ) error {
 	return temporal.NewApplicationError("", errType.String(), errorResponse)
 }

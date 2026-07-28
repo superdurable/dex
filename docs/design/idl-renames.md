@@ -1,4 +1,4 @@
-# iWF IDL renames (OpenAPI → iwf.proto)
+# Dex IDL renames (OpenAPI → dex.proto)
 
 Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as aliases.
 

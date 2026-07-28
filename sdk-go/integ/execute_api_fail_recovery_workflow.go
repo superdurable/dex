@@ -14,15 +14,15 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type executeApiFailRecoveryWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 }
 
-func (b executeApiFailRecoveryWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&executeApiFailRecoveryWorkflowState1{}),
-		iwf.NonStartingStateDef(&executeApiFailRecoveryWorkflowState2{}),
+func (b executeApiFailRecoveryWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&executeApiFailRecoveryWorkflowState1{}),
+		dex.NonStartingStateDef(&executeApiFailRecoveryWorkflowState2{}),
 	}
 }

@@ -14,16 +14,16 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type forceFailWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyCommunicationSchema
-	iwf.EmptyPersistenceSchema
+	dex.DefaultWorkflowType
+	dex.EmptyCommunicationSchema
+	dex.EmptyPersistenceSchema
 }
 
-func (b forceFailWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&forceFailWorkflowState1{}),
+func (b forceFailWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&forceFailWorkflowState1{}),
 	}
 }

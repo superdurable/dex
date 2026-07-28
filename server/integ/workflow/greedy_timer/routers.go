@@ -24,13 +24,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"strconv"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -46,7 +46,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -64,8 +64,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
 
 	flowContext := request.GetContext()
@@ -77,9 +77,9 @@ func (h *handler) InvokeWorkerRPC(
 	}
 
 	if request.GetRpcName() == SubmitDurationsRPC {
-		return &iwfpb.InvokeWorkerRPCResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeWorkerRPCResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  ScheduleTimerState,
 						StepInput: request.GetInput(),
@@ -94,8 +94,8 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -116,18 +116,18 @@ func (h *handler) InvokeWaitForMethod(
 				return nil, status.Error(codes.InvalidArgument, err.Error())
 			}
 
-			timers := make([]*iwfpb.TimerCondition, len(input.Durations))
+			timers := make([]*dexpb.TimerCondition, len(input.Durations))
 			for i, duration := range input.Durations {
-				timers[i] = &iwfpb.TimerCondition{
+				timers[i] = &dexpb.TimerCondition{
 					ConditionId:     "duration-" + strconv.FormatInt(duration, 10),
 					DurationSeconds: duration,
 				}
 			}
 
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
 					TimerConditions:      timers,
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
 			}, nil
 		}
@@ -138,8 +138,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -155,9 +155,9 @@ func (h *handler) InvokeExecuteMethod(
 			timerResults := results.GetTimerResults()
 			h.invokeData.Store("completed_timer_id", timerResults[0].GetConditionId())
 
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: service.ForceCompletingFlowStepType},
 					},
 				},

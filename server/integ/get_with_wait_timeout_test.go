@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -57,30 +57,30 @@ func TestFlowWaitForTimeoutCadence(t *testing.T) {
 func doTestFlowWithWaitTimeout(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := "wf-wait-timeout-test-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 15,
 		WorkerTarget:       workerTarget,
 		StartStepType:      signal.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
 	startTimeUnix := time.Now().Unix()
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	elapsedSeconds := time.Now().Unix() - startTimeUnix
@@ -89,7 +89,7 @@ func doTestFlowWithWaitTimeout(
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 	require.Contains(

@@ -30,10 +30,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/timer"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/timer"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestTimerFlowTemporal(t *testing.T) {
@@ -120,11 +120,11 @@ func TestGreedyTimerFlowCadenceContinueAsNew(t *testing.T) {
 func doTestTimerFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := timer.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 	unifiedClient := runtime.UnifiedClient
 
@@ -133,21 +133,21 @@ func doTestTimerFlow(
 
 	flowId := timer.WorkflowType + "-" + uuid.NewString()
 	nowTimestamp := time.Now().Unix()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           timer.WorkflowType,
 		FlowTimeoutSeconds: 30,
 		WorkerTarget:       workerTarget,
 		StartStepType:      timer.State1,
 		StepInput:          stringValue(strconv.FormatInt(nowTimestamp, 10)),
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
-	timerInfos := &iwfpb.GetCurrentTimerInfosQueryResponse{}
+	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
 	err = unifiedClient.QueryWorkflow(
 		ctx,
 		timerInfos,
@@ -158,24 +158,24 @@ func doTestTimerFlow(
 	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	timer2 := &iwfpb.TimerInfo{
+	timer2 := &dexpb.TimerInfo{
 		ConditionId:                "timer-cmd-id-2",
 		FiringUnixTimestampSeconds: nowTimestamp + 86400,
-		Status:                     iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
+		Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 	}
-	timer3 := &iwfpb.TimerInfo{
+	timer3 := &dexpb.TimerInfo{
 		ConditionId:                "timer-cmd-id-3",
 		FiringUnixTimestampSeconds: nowTimestamp + 86400*365,
-		Status:                     iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
+		Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 	}
-	expectedTimerInfos := &iwfpb.GetCurrentTimerInfosQueryResponse{
-		StepExecutionCurrentTimerInfos: map[string]*iwfpb.TimerInfoList{
+	expectedTimerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{
+		StepExecutionCurrentTimerInfos: map[string]*dexpb.TimerInfoList{
 			"S1-1": {
-				Timers: []*iwfpb.TimerInfo{
+				Timers: []*dexpb.TimerInfo{
 					{
 						ConditionId:                "timer-cmd-id",
 						FiringUnixTimestampSeconds: nowTimestamp + 10,
-						Status:                     iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
+						Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 					},
 					timer2,
 					timer3,
@@ -185,7 +185,7 @@ func doTestTimerFlow(
 	}
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
 
-	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:           flowId,
 		StepExecutionId:  "S1-1",
 		TimerConditionId: "timer-cmd-id-2",
@@ -193,7 +193,7 @@ func doTestTimerFlow(
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
-	timerInfos = &iwfpb.GetCurrentTimerInfosQueryResponse{}
+	timerInfos = &dexpb.GetCurrentTimerInfosQueryResponse{}
 	err = unifiedClient.QueryWorkflow(
 		ctx,
 		timerInfos,
@@ -202,10 +202,10 @@ func doTestTimerFlow(
 		service.GetCurrentTimerInfosQueryType,
 	)
 	require.NoError(t, err)
-	timer2.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	timer2.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
 
-	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:              flowId,
 		StepExecutionId:     "S1-1",
 		TimerConditionIndex: ptr.Any(int32(2)),
@@ -213,7 +213,7 @@ func doTestTimerFlow(
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
-	timerInfos = &iwfpb.GetCurrentTimerInfosQueryResponse{}
+	timerInfos = &dexpb.GetCurrentTimerInfosQueryResponse{}
 	err = unifiedClient.QueryWorkflow(
 		ctx,
 		timerInfos,
@@ -222,10 +222,10 @@ func doTestTimerFlow(
 		service.GetCurrentTimerInfosQueryType,
 	)
 	require.NoError(t, err)
-	timer3.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	timer3.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 30,
 	})
@@ -244,16 +244,16 @@ func doTestTimerFlow(
 	require.Equal(t, "timer-cmd-id", data["timer_id"])
 	require.True(t, duration >= 9 && duration <= 11, "duration=%d", duration)
 
-	_, err = flowClient.ResetFlow(ctx, &iwfpb.ResetFlowRequest{
+	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		FlowId:    flowId,
-		ResetType: iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING,
+		ResetType: dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING,
 	})
 	require.NoError(t, err)
 
-	timer2.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
-	timer3.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	timer2.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	timer3.Status = dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	require.Eventually(t, func() bool {
-		timerInfos = &iwfpb.GetCurrentTimerInfosQueryResponse{}
+		timerInfos = &dexpb.GetCurrentTimerInfosQueryResponse{}
 		if queryErr := unifiedClient.QueryWorkflow(
 			ctx,
 			timerInfos,
@@ -267,9 +267,9 @@ func doTestTimerFlow(
 		if actualList == nil || len(actualList.GetTimers()) != 3 {
 			return false
 		}
-		return actualList.GetTimers()[0].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
-			actualList.GetTimers()[1].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED &&
-			actualList.GetTimers()[2].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+		return actualList.GetTimers()[0].GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
+			actualList.GetTimers()[1].GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED &&
+			actualList.GetTimers()[2].GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	}, 15*time.Second, 200*time.Millisecond)
 	// Reset rebuilds firing times from workflow.Now; sync expected before compare.
 	for stepExecutionId, expectedList := range expectedTimerInfos.GetStepExecutionCurrentTimerInfos() {
@@ -283,18 +283,18 @@ func doTestTimerFlow(
 	}
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 30,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }
 
 func assertTimerQueryResponseEqual(
 	assertions *assert.Assertions,
-	expected *iwfpb.GetCurrentTimerInfosQueryResponse,
-	actual *iwfpb.GetCurrentTimerInfosQueryResponse,
+	expected *dexpb.GetCurrentTimerInfosQueryResponse,
+	actual *dexpb.GetCurrentTimerInfosQueryResponse,
 ) {
 	for stepExecutionId, expectedList := range expected.GetStepExecutionCurrentTimerInfos() {
 		actualList := actual.GetStepExecutionCurrentTimerInfos()[stepExecutionId]

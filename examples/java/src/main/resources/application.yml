@@ -5,7 +5,7 @@ spring:
   jackson:
     default-property-inclusion: NON_NULL
 
-iwf:
+dex:
   worker:
     url: http://localhost:8803/worker
   server:

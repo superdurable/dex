@@ -14,21 +14,21 @@
 
 from dataclasses import dataclass
 from typing import List
-from iwf.workflow import ObjectWorkflow
-from iwf.workflow_state import WorkflowState
-from iwf.state_schema import StateSchema
-from iwf.persistence_schema import PersistenceField, PersistenceSchema
-from iwf.communication_schema import CommunicationSchema, CommunicationMethod
-from iwf.state_decision import StateDecision
-from iwf.command_request import CommandRequest, InternalChannelCommand
-from iwf.command_results import CommandResults
-from iwf.persistence import Persistence
-from iwf.communication import Communication
-from iwf.workflow_context import WorkflowContext
-from iwf.rpc import rpc
-from iwf.errors import WorkflowAlreadyStartedError
-from iwf.workflow_options import WorkflowOptions
-from iwf.iwf_api.models import (
+from dex.workflow import ObjectWorkflow
+from dex.workflow_state import WorkflowState
+from dex.state_schema import StateSchema
+from dex.persistence_schema import PersistenceField, PersistenceSchema
+from dex.communication_schema import CommunicationSchema, CommunicationMethod
+from dex.state_decision import StateDecision
+from dex.command_request import CommandRequest, InternalChannelCommand
+from dex.command_results import CommandResults
+from dex.persistence import Persistence
+from dex.communication import Communication
+from dex.workflow_context import WorkflowContext
+from dex.rpc import rpc
+from dex.errors import WorkflowAlreadyStartedError
+from dex.workflow_options import WorkflowOptions
+from dex.dex_api.models import (
     IDReusePolicy,
     WorkflowAlreadyStartedOptions,
 )
@@ -142,7 +142,7 @@ class LoopForNextRequestState(WorkflowState[None]):
                     request = command_result.value
                     child_workflow_id = f"processing-{request.id}"
                     try:
-                        from iwf_config import client
+                        from dex_config import client
                         from processing_workflow import ProcessingWorkflow
                         from processing_workflow import DA_PARENT_WORKFLOW_ID
                         client.start_workflow(

@@ -38,7 +38,7 @@ State Decisions let you orchestrate the WorkflowState as complex as needed for a
 
 ### Commands from `waitUntil`
 
-iWF provides three types of commands:
+Dex provides three types of commands:
 
 
 * `TimerCommand` -- Wait for a **durable timer** to fire. 
@@ -62,7 +62,7 @@ CommandId is for differentiating the commands within the same state execution.
 It’s mostly only useful for AnyCommandCombinationCompleted CommandWaitingType, which is an advanced use case to select a subset of the commands to wait for. It’s required to be non empty when using AnyCommandCombinationCompleted.
 
 ## SignalChannel & InternalChannel: async message queue
-iWF provides message queue called `InternalChannel` & `SignalChannel`. User can just declare it in the workflow code without any management at all.
+Dex provides message queue called `InternalChannel` & `SignalChannel`. User can just declare it in the workflow code without any management at all.
 
 That means, you don't need to create or delete it, it just exists as you declaring it like a data attribute. The scope & lifecycle of the channels are within the workflow execution -- they are closed as the workflow execution closed (completed,timeout,failed,cacnceled).
 
@@ -73,12 +73,12 @@ Both channels are FIFO queues.
 The channels/queues can receive messages whenever you send to them, even there is no state waiting for messages (async).
 
 ### SignalChannel
-Signal is sent to iWF service without waiting for response of the processing.
-Using an iWF client to send a signal by calling the API:
+Signal is sent to Dex service without waiting for response of the processing.
+Using an Dex client to send a signal by calling the API:
 ```java
-iwfClient.signalWorkflow( MyWorkflow.class, "wf-id", "SignalChannelName", "some value");
+dexClient.signalWorkflow( MyWorkflow.class, "wf-id", "SignalChannelName", "some value");
 ```
-Signal will be persisted by iWF service into a signal channel until a workflow state consumes it.
+Signal will be persisted by Dex service into a signal channel until a workflow state consumes it.
 
 ### InternalChannel
 
@@ -105,9 +105,9 @@ A full execution flow of a single WorklfowState can look like this:
 ### SDKs
 
 To implement a WorkflowState, just implement the:
-* [Java interface](../../sdk-java/src/main/java/io/iworkflow/core/WorkflowState.java)
-* [Golang interface](../../sdk-go/iwf/workflow_state.go)
-* [Python Base Class](../../sdk-python/iwf/workflow_state.py)
+* [Java interface](../../sdk-java/src/main/java/io/dex/core/WorkflowState.java)
+* [Golang interface](../../sdk-go/dex/workflow_state.go)
+* [Python Base Class](../../sdk-python/dex/workflow_state.py)
 
 #### Java
 For Java, the `waitUntil` has a default implementation so you just not implement it, and SDK will skip it to invoke `execute` directly.
@@ -144,11 +144,11 @@ class WaitSignalOrTimerState implements WorkflowState<Void> {
 ```
 #### Golang
 
-Golang interface doesn't have default implementation. As a result, put `iwf.WorkflowStateDefaultsNoWaitUntil` into the struct to skip `waitUntil`.
+Golang interface doesn't have default implementation. As a result, put `dex.WorkflowStateDefaultsNoWaitUntil` into the struct to skip `waitUntil`.
 
 ```go
 type state1 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 }
 ```
 
@@ -156,33 +156,33 @@ But if it needs waitUntil:
 
 ```go
 type state1 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 ```
 
 For Golang a full state is like:
 ```go
 type state3 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
-func (i state3) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.AnyCommandCompletedRequest(
-		iwf.NewTimerCommand("", time.Now().Add(time.Hour*24)),
-		iwf.NewSignalCommand("", SignalChannelReady),
+func (i state3) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.AnyCommandCompletedRequest(
+		dex.NewTimerCommand("", time.Now().Add(time.Hour*24)),
+		dex.NewSignalCommand("", SignalChannelReady),
 	), nil
 }
 
-func (i state3) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i state3) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var data string
 	persistence.GetDataAttribute(keyData, &data)
 	i.svc.CallAPI3(data)
 
-	if commandResults.Timers[0].Status == iwfidl.FIRED {
-		return iwf.SingleNextState(state4{}, nil), nil
+	if commandResults.Timers[0].Status == dexpb.FIRED {
+		return dex.SingleNextState(state4{}, nil), nil
 	}
-	return iwf.GracefulCompletingWorkflow, nil
+	return dex.GracefulCompletingWorkflow, nil
 }
 ```
 #### Python

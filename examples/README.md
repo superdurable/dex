@@ -1,6 +1,6 @@
 # Examples
 
-Language-specific sample applications for iWF:
+Language-specific sample applications for Dex:
 
 | Path | Language |
 |------|----------|

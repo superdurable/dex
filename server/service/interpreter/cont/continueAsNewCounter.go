@@ -21,8 +21,8 @@
 package cont
 
 import (
-	"github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type ContinueAsNewCounter struct {

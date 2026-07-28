@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/skipstart"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/skipstart"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -76,11 +76,11 @@ func TestSkipStartFlowCadenceContinueAsNew(t *testing.T) {
 func doTestSkipStartFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := skipstart.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -88,23 +88,23 @@ func doTestSkipStartFlow(
 
 	flowId := skipstart.WorkflowType + "-" + uuid.NewString()
 	stepInput := encodedObjectValue("json", []byte("test data"))
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           skipstart.WorkflowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      skipstart.State1,
 		StepInput:          stepInput,
-		StepOptions: &iwfpb.StepOptions{
+		StepOptions: &dexpb.StepOptions{
 			SkipWaitFor: true,
 		},
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		NeedsResults:    true,
 		WaitTimeSeconds: 20,
@@ -117,7 +117,7 @@ func doTestSkipStartFlow(
 		"S2_execute": 1,
 	}, history, "skipstart test fail, %v", history)
 
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	require.Len(t, response.GetResults(), 1)
 	result := response.GetResults()[0]
 	require.Equal(t, skipstart.State2, result.GetCompletedStepType())

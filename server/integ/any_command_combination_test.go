@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	anycommandcombination "github.com/superdurable/iwf/integ/workflow/any_command_combination"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	anycommandcombination "github.com/superdurable/dex/integ/workflow/any_command_combination"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -52,7 +52,7 @@ func TestAnyCommandCombinationFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyCommandCombinationFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -76,7 +76,7 @@ func TestAnyCommandCombinationFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyCommandCombinationFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -85,24 +85,24 @@ func TestAnyCommandCombinationFlowCadenceContinueAsNew(t *testing.T) {
 func doTestAnyCommandCombinationFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := anycommandcombination.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	flowId := anycommandcombination.WorkflowType + "-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           anycommandcombination.WorkflowType,
 		FlowTimeoutSeconds: 40,
 		WorkerTarget:       workerTarget,
 		StartStepType:      anycommandcombination.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -110,9 +110,9 @@ func doTestAnyCommandCombinationFlow(
 
 	signalValue := encodedObjectValue("json", []byte("test-data-1"))
 	publishSignal := func() {
-		_, publishErr := flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		_, publishErr := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
-			Messages: []*iwfpb.ChannelMessage{
+			Messages: []*dexpb.ChannelMessage{
 				{
 					ChannelName: anycommandcombination.SignalNameAndId1,
 					Value:       signalValue,
@@ -126,7 +126,7 @@ func doTestAnyCommandCombinationFlow(
 	publishSignal()
 
 	time.Sleep(5 * time.Second)
-	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:           flowId,
 		StepExecutionId:  "S1-1",
 		TimerConditionId: anycommandcombination.TimerId1,
@@ -139,11 +139,11 @@ func doTestAnyCommandCombinationFlow(
 
 	descResp, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_RUNNING, descResp.Status)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, descResp.Status)
 
-	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: anycommandcombination.SignalNameAndId3,
 				Value:       signalValue,
@@ -152,9 +152,9 @@ func doTestAnyCommandCombinationFlow(
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: anycommandcombination.SignalNameAndId2,
 				Value:       signalValue,
@@ -167,14 +167,14 @@ func doTestAnyCommandCombinationFlow(
 		time.Sleep(time.Second)
 		descResp, err = runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
 		require.NoError(t, err)
-		require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, descResp.Status)
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, descResp.Status)
 	} else {
-		respWait, waitErr := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		respWait, waitErr := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 			FlowId:          flowId,
 			WaitTimeSeconds: 30,
 		})
 		require.NoError(t, waitErr)
-		require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
 	}
 
 	result := workerHandler.GetTestResult()
@@ -192,80 +192,80 @@ func doTestAnyCommandCombinationFlow(
 		"s2_commandResults": expectedS2ConditionResults(signalValue),
 	}
 	require.True(t, proto.Equal(
-		expectedData["s1_commandResults"].(*iwfpb.ConditionResults),
-		data["s1_commandResults"].(*iwfpb.ConditionResults),
+		expectedData["s1_commandResults"].(*dexpb.ConditionResults),
+		data["s1_commandResults"].(*dexpb.ConditionResults),
 	))
 	require.True(t, proto.Equal(
-		expectedData["s2_commandResults"].(*iwfpb.ConditionResults),
-		data["s2_commandResults"].(*iwfpb.ConditionResults),
+		expectedData["s2_commandResults"].(*dexpb.ConditionResults),
+		data["s2_commandResults"].(*dexpb.ConditionResults),
 	))
 }
 
-func expectedS1ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResults {
-	return &iwfpb.ConditionResults{
-		ChannelResults: []*iwfpb.ChannelResult{
+func expectedS1ConditionResults(signalValue *dexpb.Value) *dexpb.ConditionResults {
+	return &dexpb.ConditionResults{
+		ChannelResults: []*dexpb.ChannelResult{
 			{
 				ConditionId:     anycommandcombination.SignalCond1a,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
-				Values:          []*iwfpb.Value{signalValue},
+				Values:          []*dexpb.Value{signalValue},
 			},
 			{
 				ConditionId:     anycommandcombination.SignalCond1b,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
-				Values:          []*iwfpb.Value{signalValue},
+				Values:          []*dexpb.Value{signalValue},
 			},
 			{
 				ConditionId:     anycommandcombination.SignalNameAndId2,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId2,
 			},
 			{
 				ConditionId:     anycommandcombination.SignalNameAndId3,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId3,
 			},
 		},
-		TimerResults: []*iwfpb.TimerResult{
+		TimerResults: []*dexpb.TimerResult{
 			{
 				ConditionId:     anycommandcombination.TimerId1,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 			},
 		},
 	}
 }
 
-func expectedS2ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResults {
-	return &iwfpb.ConditionResults{
-		ChannelResults: []*iwfpb.ChannelResult{
+func expectedS2ConditionResults(signalValue *dexpb.Value) *dexpb.ConditionResults {
+	return &dexpb.ConditionResults{
+		ChannelResults: []*dexpb.ChannelResult{
 			{
 				ConditionId:     anycommandcombination.SignalCond1a,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
-				Values:          []*iwfpb.Value{signalValue},
+				Values:          []*dexpb.Value{signalValue},
 			},
 			{
 				ConditionId:     anycommandcombination.SignalCond1b,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
 			},
 			{
 				ConditionId:     anycommandcombination.SignalNameAndId2,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId2,
-				Values:          []*iwfpb.Value{signalValue},
+				Values:          []*dexpb.Value{signalValue},
 			},
 			{
 				ConditionId:     anycommandcombination.SignalNameAndId3,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId3,
 			},
 		},
-		TimerResults: []*iwfpb.TimerResult{
+		TimerResults: []*dexpb.TimerResult{
 			{
 				ConditionId:     anycommandcombination.TimerId1,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 			},
 		},
 	}

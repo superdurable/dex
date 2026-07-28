@@ -16,19 +16,19 @@ package integ
 
 import (
 	"fmt"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type noStateWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 }
 
-func (b noStateWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.RPCMethodDef(b.TestErrorRPC, nil),
+func (b noStateWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.RPCMethodDef(b.TestErrorRPC, nil),
 	}
 }
 
-func (b noStateWorkflow) TestErrorRPC(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (b noStateWorkflow) TestErrorRPC(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 	return nil, fmt.Errorf("test error")
 }

@@ -23,13 +23,13 @@ package reset
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"strconv"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -51,7 +51,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -63,15 +63,15 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	_ *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "No waitFor call is expected.")
 }
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("start of execute")
 	log.Println("received execute request, ", request)
 
@@ -95,13 +95,13 @@ func (h *handler) InvokeExecuteMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  State2,
 						StepInput: request.GetStepInput(),
-						StepOptions: &iwfpb.StepOptions{
+						StepOptions: &dexpb.StepOptions{
 							SkipWaitFor: true,
 						},
 					},
@@ -114,21 +114,21 @@ func (h *handler) InvokeExecuteMethod(
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if counter < 5 {
-			updatedInput := &iwfpb.Value{
-				Kind: &iwfpb.Value_ObjValue{
-					ObjValue: &iwfpb.EncodedObject{
+			updatedInput := &dexpb.Value{
+				Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{
 						Encoding: "json",
 						Payload:  []byte(fmt.Sprintf("%v", counter+1)),
 					},
 				},
 			}
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{
 							StepType:  State2,
 							StepInput: updatedInput,
-							StepOptions: &iwfpb.StepOptions{
+							StepOptions: &dexpb.StepOptions{
 								SkipWaitFor: true,
 							},
 						},
@@ -136,9 +136,9 @@ func (h *handler) InvokeExecuteMethod(
 				},
 			}, nil
 		}
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  service.GracefulCompletingFlowStepType,
 						StepInput: request.GetStepInput(),
@@ -151,14 +151,14 @@ func (h *handler) InvokeExecuteMethod(
 	}
 }
 
-func stepInputString(stepInput *iwfpb.Value) string {
+func stepInputString(stepInput *dexpb.Value) string {
 	if stepInput == nil {
 		return ""
 	}
-	if stringValue, ok := stepInput.Kind.(*iwfpb.Value_StringValue); ok {
+	if stringValue, ok := stepInput.Kind.(*dexpb.Value_StringValue); ok {
 		return stringValue.StringValue
 	}
-	if objValue, ok := stepInput.Kind.(*iwfpb.Value_ObjValue); ok {
+	if objValue, ok := stepInput.Kind.(*dexpb.Value_ObjValue); ok {
 		if objValue.ObjValue.GetEncoding() == "json" {
 			return string(objValue.ObjValue.GetPayload())
 		}

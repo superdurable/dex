@@ -16,49 +16,49 @@ package integ
 
 import (
 	"fmt"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
 )
 
 type signalWorkflowState2 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 
 const timerCommandId = "timerId"
 const signalCommandId = "s1"
 
-func (b signalWorkflowState2) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
+func (b signalWorkflowState2) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
 	var val int
 	input.Get(&val)
 	if val != 10 {
 		panic(fmt.Sprintf("input value should be 10 but is %v", val))
 	}
 
-	return iwf.AnyCommandCombinationsCompletedRequest(
+	return dex.AnyCommandCombinationsCompletedRequest(
 		[][]string{
 			{signalCommandId, timerCommandId},
 		},
-		iwf.NewSignalCommand(signalCommandId, testChannelName1),
-		iwf.NewSignalCommand(signalCommandId, testChannelName2),
-		iwf.NewTimerCommandByDuration(timerCommandId, 24*time.Hour),
+		dex.NewSignalCommand(signalCommandId, testChannelName1),
+		dex.NewSignalCommand(signalCommandId, testChannelName2),
+		dex.NewTimerCommandByDuration(timerCommandId, 24*time.Hour),
 	), nil
 }
 
-func (b signalWorkflowState2) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b signalWorkflowState2) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	signal0 := commandResults.Signals[0]
 	signal1 := commandResults.Signals[1]
 	timer := commandResults.Timers[0]
 
-	if signal0.CommandId != signalCommandId || signal0.ChannelName != testChannelName1 || signal0.Status != iwfidl.RECEIVED {
+	if signal0.CommandId != signalCommandId || signal0.ChannelName != testChannelName1 || signal0.Status != dexpb.RECEIVED {
 		panic(testChannelName1 + " should be waiting....")
 	}
 
-	if signal1.CommandId != signalCommandId || signal1.ChannelName != testChannelName2 || signal1.Status != iwfidl.WAITING {
+	if signal1.CommandId != signalCommandId || signal1.ChannelName != testChannelName2 || signal1.Status != dexpb.WAITING {
 		panic(testChannelName2 + " should be received....")
 	}
 
-	if timer.CommandId != timerCommandId || timer.Status != iwfidl.FIRED {
+	if timer.CommandId != timerCommandId || timer.Status != dexpb.FIRED {
 		panic("timer should be fired")
 	}
 
@@ -68,5 +68,5 @@ func (b signalWorkflowState2) Execute(ctx iwf.WorkflowContext, input iwf.Object,
 		panic("signal value should be 100")
 	}
 
-	return iwf.GracefulCompleteWorkflow(val), nil
+	return dex.GracefulCompleteWorkflow(val), nil
 }

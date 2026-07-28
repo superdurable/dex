@@ -23,12 +23,12 @@ package retry
 import (
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"go.temporal.io/sdk/temporal"
 	"go.uber.org/cadence/workflow"
 )
 
-func ConvertCadenceWorkflowRetryPolicy(policy *iwfpb.FlowRetryPolicy) *workflow.RetryPolicy {
+func ConvertCadenceWorkflowRetryPolicy(policy *dexpb.FlowRetryPolicy) *workflow.RetryPolicy {
 	if policy == nil {
 		return nil
 	}
@@ -42,11 +42,11 @@ func ConvertCadenceWorkflowRetryPolicy(policy *iwfpb.FlowRetryPolicy) *workflow.
 	}
 }
 
-func ConvertCadenceActivityRetryPolicy(policy *iwfpb.RetryPolicy) *workflow.RetryPolicy {
+func ConvertCadenceActivityRetryPolicy(policy *dexpb.RetryPolicy) *workflow.RetryPolicy {
 	// Cadence has no server-side default; Temporal does when RetryPolicy is omitted.
 	// Match Temporal's defaults so waitFor/execute keep infinite backoff without options.
 	if policy == nil {
-		policy = &iwfpb.RetryPolicy{}
+		policy = &dexpb.RetryPolicy{}
 	}
 	initial, maxInterval, maxAttempts, backoff, totalDuration := activityRetryDefaults(policy)
 
@@ -66,7 +66,7 @@ func ConvertCadenceActivityRetryPolicy(policy *iwfpb.RetryPolicy) *workflow.Retr
 	}
 }
 
-func ConvertTemporalWorkflowRetryPolicy(policy *iwfpb.FlowRetryPolicy) *temporal.RetryPolicy {
+func ConvertTemporalWorkflowRetryPolicy(policy *dexpb.FlowRetryPolicy) *temporal.RetryPolicy {
 	if policy == nil {
 		return nil
 	}
@@ -80,7 +80,7 @@ func ConvertTemporalWorkflowRetryPolicy(policy *iwfpb.FlowRetryPolicy) *temporal
 	}
 }
 
-func ConvertTemporalActivityRetryPolicy(policy *iwfpb.RetryPolicy) *temporal.RetryPolicy {
+func ConvertTemporalActivityRetryPolicy(policy *dexpb.RetryPolicy) *temporal.RetryPolicy {
 	if policy == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func ConvertTemporalActivityRetryPolicy(policy *iwfpb.RetryPolicy) *temporal.Ret
 	}
 }
 
-func flowRetryDefaults(policy *iwfpb.FlowRetryPolicy) (initial, maxInterval, maxAttempts int32, backoff float32) {
+func flowRetryDefaults(policy *dexpb.FlowRetryPolicy) (initial, maxInterval, maxAttempts int32, backoff float32) {
 	initial = policy.GetInitialIntervalSeconds()
 	if initial == 0 {
 		initial = 1
@@ -111,7 +111,7 @@ func flowRetryDefaults(policy *iwfpb.FlowRetryPolicy) (initial, maxInterval, max
 	return
 }
 
-func activityRetryDefaults(policy *iwfpb.RetryPolicy) (initial, maxInterval, maxAttempts int32, backoff float32, totalDuration int32) {
+func activityRetryDefaults(policy *dexpb.RetryPolicy) (initial, maxInterval, maxAttempts int32, backoff float32, totalDuration int32) {
 	initial = policy.GetInitialIntervalSeconds()
 	if initial == 0 {
 		initial = 1

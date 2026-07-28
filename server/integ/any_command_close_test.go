@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	anycommandclose "github.com/superdurable/iwf/integ/workflow/any_command_close"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	anycommandclose "github.com/superdurable/dex/integ/workflow/any_command_close"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -51,7 +51,7 @@ func TestAnyCommandCloseFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyCommandCloseFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -75,7 +75,7 @@ func TestAnyCommandCloseFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyCommandCloseFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -84,33 +84,33 @@ func TestAnyCommandCloseFlowCadenceContinueAsNew(t *testing.T) {
 func doTestAnyCommandCloseFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := anycommandclose.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := anycommandclose.WorkflowType + "-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           anycommandclose.WorkflowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      anycommandclose.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
 	signalValue := encodedObjectValue("json", []byte("test-data-1"))
-	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: anycommandclose.SignalName2,
 				Value:       signalValue,
@@ -119,7 +119,7 @@ func doTestAnyCommandCloseFlow(
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})
@@ -137,18 +137,18 @@ func doTestAnyCommandCloseFlow(
 
 	require.Equal(t, anycommandclose.SignalName2, data["signalChannelName1"])
 	require.Equal(t, "signal-cmd-id2", data["signalCommandId1"])
-	requireProtoValuesEqual(t, []*iwfpb.Value{signalValue}, data["signalValue1"])
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus1"])
+	requireProtoValuesEqual(t, []*dexpb.Value{signalValue}, data["signalValue1"])
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus1"])
 
 	require.Equal(t, anycommandclose.SignalName1, data["signalChannelName0"])
 	require.Equal(t, "signal-cmd-id1", data["signalCommandId0"])
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus0"])
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus0"])
 }
 
-func requireProtoValuesEqual(t *testing.T, expected []*iwfpb.Value, actual any) {
+func requireProtoValuesEqual(t *testing.T, expected []*dexpb.Value, actual any) {
 	t.Helper()
-	got, ok := actual.([]*iwfpb.Value)
-	require.True(t, ok, "expected []*iwfpb.Value, got %T", actual)
+	got, ok := actual.([]*dexpb.Value)
+	require.True(t, ok, "expected []*dexpb.Value, got %T", actual)
 	require.Len(t, got, len(expected))
 	for i := range expected {
 		require.True(t, proto.Equal(expected[i], got[i]), "value mismatch at index %d", i)

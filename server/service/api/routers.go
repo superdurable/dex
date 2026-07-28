@@ -26,12 +26,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	"github.com/superdurable/iwf/service/common/log"
-	"github.com/superdurable/iwf/service/common/log/tag"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/log/tag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -85,8 +85,8 @@ func NewServer(
 	maxMsg := apiCfg.EffectiveGrpcMaxMessageBytes()
 	healthSrv := health.NewServer()
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
-	healthSrv.SetServingStatus(iwfpb.FlowService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
-	healthSrv.SetServingStatus(iwfpb.InternalService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
+	healthSrv.SetServingStatus(dexpb.FlowService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
+	healthSrv.SetServingStatus(dexpb.InternalService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
 
 	unaryInterceptors := append(
 		extraUnaryInterceptors,
@@ -98,8 +98,8 @@ func NewServer(
 		grpc.MaxSendMsgSize(maxMsg),
 		grpc.ChainUnaryInterceptor(unaryInterceptors...),
 	)
-	iwfpb.RegisterFlowServiceServer(grpcServer, handler)
-	iwfpb.RegisterInternalServiceServer(grpcServer, handler)
+	dexpb.RegisterFlowServiceServer(grpcServer, handler)
+	dexpb.RegisterInternalServiceServer(grpcServer, handler)
 	healthpb.RegisterHealthServer(grpcServer, healthSrv)
 
 	return &Server{
@@ -160,8 +160,8 @@ func (s *Server) setServing(serving bool) {
 		st = healthpb.HealthCheckResponse_SERVING
 	}
 	s.healthSrv.SetServingStatus("", st)
-	s.healthSrv.SetServingStatus(iwfpb.FlowService_ServiceDesc.ServiceName, st)
-	s.healthSrv.SetServingStatus(iwfpb.InternalService_ServiceDesc.ServiceName, st)
+	s.healthSrv.SetServingStatus(dexpb.FlowService_ServiceDesc.ServiceName, st)
+	s.healthSrv.SetServingStatus(dexpb.InternalService_ServiceDesc.ServiceName, st)
 }
 
 func unaryRecover(logger log.Logger) grpc.UnaryServerInterceptor {

@@ -23,7 +23,7 @@ package temporal
 import (
 	"errors"
 	"github.com/golang/mock/gomock"
-	"github.com/superdurable/iwf/config"
+	"github.com/superdurable/dex/config"
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/api/serviceerror"
 	"testing"

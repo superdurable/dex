@@ -28,9 +28,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -77,12 +77,12 @@ var (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
-	flowClient iwfpb.FlowServiceClient
+	dexpb.UnimplementedWorkerServiceServer
+	flowClient dexpb.FlowServiceClient
 	testData   sync.Map
 }
 
-func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+func NewHandler(flowClient dexpb.FlowServiceClient) *handler {
 	if flowClient == nil {
 		panic("flowClient is required")
 	}
@@ -94,8 +94,8 @@ func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	ctx context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
 
 	flowContext := request.GetContext()
@@ -108,7 +108,7 @@ func (h *handler) InvokeWorkerRPC(
 
 	h.testData.Store(request.GetRpcName()+"-input", request.GetInput())
 
-	resolvedAttributes := make([]*iwfpb.KV, 0, len(request.GetAttributes()))
+	resolvedAttributes := make([]*dexpb.KV, 0, len(request.GetAttributes()))
 	for _, attribute := range request.GetAttributes() {
 		if attribute.GetValue().GetKind() == nil {
 			return nil, status.Error(codes.InvalidArgument, "RPC attribute value kind is required")
@@ -117,7 +117,7 @@ func (h *handler) InvokeWorkerRPC(
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
-		resolvedAttributes = append(resolvedAttributes, &iwfpb.KV{
+		resolvedAttributes = append(resolvedAttributes, &dexpb.KV{
 			Key:   attribute.GetKey(),
 			Value: resolved,
 		})
@@ -128,13 +128,13 @@ func (h *handler) InvokeWorkerRPC(
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("unknown RPC name: %s", request.GetRpcName()))
 	}
 
-	return &iwfpb.InvokeWorkerRPCResponse{
+	return &dexpb.InvokeWorkerRPCResponse{
 		Output: TestOutput,
-		UpsertAttributes: []*iwfpb.AttributeWrite{
+		UpsertAttributes: []*dexpb.AttributeWrite{
 			{Key: SmallDataKey, Value: SmallDataValue},
 			{Key: LargeDataKey, Value: LargeDataValue},
 		},
-		PublishToChannel: []*iwfpb.ChannelMessage{
+		PublishToChannel: []*dexpb.ChannelMessage{
 			{
 				ChannelName: closeWorkflowChannel,
 				Value:       jsonStringValue("close"),
@@ -145,8 +145,8 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() != WorkflowType {
@@ -155,22 +155,22 @@ func (h *handler) InvokeWaitForMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ChannelName: closeWorkflowChannel},
 				},
 			},
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				{Key: SmallDataKey, Value: InitialSmallData},
 				{Key: LargeDataKey, Value: InitialLargeData},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	default:
@@ -180,8 +180,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() != WorkflowType {
@@ -194,17 +194,17 @@ func (h *handler) InvokeExecuteMethod(
 		if len(channelResults) == 0 {
 			return nil, status.Error(codes.InvalidArgument, "expected close-workflow channel message")
 		}
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -224,14 +224,14 @@ func (h *handler) GetTestResult() common.TestResult {
 	return common.TestResult{InvokeHistory: history, InvokeData: testData}
 }
 
-func jsonStringValue(value string) *iwfpb.Value {
+func jsonStringValue(value string) *dexpb.Value {
 	payload, err := json.Marshal(value)
 	if err != nil {
 		panic(err)
 	}
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  payload,
 			},

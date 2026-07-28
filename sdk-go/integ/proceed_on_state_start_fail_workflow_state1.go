@@ -17,8 +17,8 @@ package integ
 import (
 	"errors"
 
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type proceedOnStateStartFailWorkflowState1 struct {
@@ -29,24 +29,24 @@ func (b *proceedOnStateStartFailWorkflowState1) GetStateId() string {
 	return "proceed_on_state_start_fail_workflow_state1"
 }
 
-func (b *proceedOnStateStartFailWorkflowState1) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
+func (b *proceedOnStateStartFailWorkflowState1) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
 	var i string
 	input.Get(&i)
 	b.output = i + "_state1_start"
 	return nil, errors.New("")
 }
 
-func (b *proceedOnStateStartFailWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b *proceedOnStateStartFailWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	b.output += "_state1_decide"
-	return iwf.SingleNextState(&proceedOnStateStartFailWorkflowState2{}, b.output), nil
+	return dex.SingleNextState(&proceedOnStateStartFailWorkflowState2{}, b.output), nil
 }
 
-func (b *proceedOnStateStartFailWorkflowState1) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		WaitUntilApiRetryPolicy: &iwfidl.RetryPolicy{
-			InitialIntervalSeconds: iwfidl.PtrInt32(1),
-			MaximumAttempts:        iwfidl.PtrInt32(2),
+func (b *proceedOnStateStartFailWorkflowState1) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		WaitUntilApiRetryPolicy: &dexpb.RetryPolicy{
+			InitialIntervalSeconds: dexpb.PtrInt32(1),
+			MaximumAttempts:        dexpb.PtrInt32(2),
 		},
-		WaitUntilApiFailurePolicy: iwfidl.PROCEED_ON_FAILURE.Ptr(),
+		WaitUntilApiFailurePolicy: dexpb.PROCEED_ON_FAILURE.Ptr(),
 	}
 }

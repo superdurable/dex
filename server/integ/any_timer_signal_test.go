@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	anytimersignal "github.com/superdurable/iwf/integ/workflow/any_timer_signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	anytimersignal "github.com/superdurable/dex/integ/workflow/any_timer_signal"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -81,7 +81,7 @@ func TestAnyTimerSignalFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyTimerSignalFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -105,7 +105,7 @@ func TestAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyTimerSignalFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -124,24 +124,24 @@ func TestGreedyAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 func doTestAnyTimerSignalFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := anytimersignal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := anytimersignal.WorkflowType + "-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           anytimersignal.WorkflowType,
 		FlowTimeoutSeconds: 20,
 		WorkerTarget:       workerTarget,
 		StartStepType:      anytimersignal.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -149,9 +149,9 @@ func doTestAnyTimerSignalFlow(
 
 	time.Sleep(3 * time.Second)
 	signalValue := encodedObjectValue("json", []byte("test-data-1"))
-	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: anytimersignal.SignalName,
 				Value:       signalValue,
@@ -160,7 +160,7 @@ func doTestAnyTimerSignalFlow(
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})
@@ -178,12 +178,12 @@ func doTestAnyTimerSignalFlow(
 
 	require.Equal(t, anytimersignal.SignalName, data["signalChannelName1"])
 	require.Equal(t, "signal-cmd-id", data["signalCommandId1"])
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus1"])
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus1"])
 
 	require.Equal(t, anytimersignal.SignalName, data["signalChannelName2"])
 	require.Equal(t, "signal-cmd-id", data["signalCommandId2"])
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus2"])
-	actualValues, ok := data["signalValue2"].([]*iwfpb.Value)
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus2"])
+	actualValues, ok := data["signalValue2"].([]*dexpb.Value)
 	require.True(t, ok)
 	require.Len(t, actualValues, 1)
 	require.True(t, proto.Equal(signalValue, actualValues[0]))

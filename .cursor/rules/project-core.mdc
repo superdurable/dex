@@ -1,11 +1,11 @@
 ---
-description: Core iWF architecture and code-quality constraints
+description: Core Dex architecture and code-quality constraints
 alwaysApply: true
 ---
 
-# iWF Project Rules
+# Dex Project Rules
 
-iWF is a durable workflow framework: Go server (`server/`), OpenAPI IDL
+Dex is a durable workflow framework: Go server (`server/`), OpenAPI IDL
 (`protos/`), and SDKs/samples for Go, Java, and Python. See `README.md` for the
 module map.
 

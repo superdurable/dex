@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	s3_init_data_attributes "github.com/superdurable/iwf/integ/workflow/s3-init-data-attributes"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	s3_init_data_attributes "github.com/superdurable/dex/integ/workflow/s3-init-data-attributes"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -64,7 +64,7 @@ func TestS3WorkflowInitDataAttributesCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.BackendType, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -77,15 +77,15 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	defer cancel()
 
 	flowId := s3_init_data_attributes.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           s3_init_data_attributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      s3_init_data_attributes.State1,
 		StepInput:          objJSONValue(`"test"`),
-		FlowStartOptions: &iwfpb.FlowStartOptions{
-			Attributes: []*iwfpb.AttributeWrite{
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
 				{
 					Key:   s3_init_data_attributes.TestDataAttrKey1,
 					Value: s3_init_data_attributes.TestDataAttributeVal1,
@@ -103,7 +103,7 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 
 	history := workerHandler.GetTestResult().InvokeData
@@ -129,7 +129,7 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	require.NoError(t, err)
 	require.Equal(t, int64(2), objectCount)
 
-	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys: []string{
 			s3_init_data_attributes.TestDataAttrKey1,

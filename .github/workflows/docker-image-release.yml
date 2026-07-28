@@ -43,12 +43,12 @@ jobs:
           context: ./server
           push: true
           platforms: linux/arm64,linux/amd64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/iwf-server:${{ steps.meta.outputs.tag }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server:${{ steps.meta.outputs.tag }}
       - name: Build and push lite
         uses: docker/build-push-action@v5
         with:
           context: ./server
           push: true
           platforms: linux/arm64,linux/amd64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/iwf-server-lite:${{ steps.meta.outputs.tag }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server-lite:${{ steps.meta.outputs.tag }}
           file: server/lite/Dockerfile

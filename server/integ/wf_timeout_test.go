@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
 )
 
 func TestFlowTimeoutTemporal(t *testing.T) {
@@ -59,30 +59,30 @@ func TestFlowTimeoutCadence(t *testing.T) {
 func doTestFlowTimeout(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := signal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := "wf-timeout-test-" + uuid.NewString()
-	startResp, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 1,
 		WorkerTarget:       workerTarget,
 		StartStepType:      signal.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	waitReq := &iwfpb.WaitForFlowRequest{
+	waitReq := &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	}
@@ -95,7 +95,7 @@ func doTestFlowTimeout(
 	require.NoError(t, err)
 
 	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT, resp.GetFlowStatus())
-	require.Equal(t, iwfpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, resp.GetErrorType())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, resp.GetErrorType())
 	require.Empty(t, resp.GetErrorMessage())
 }

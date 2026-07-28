@@ -23,7 +23,7 @@ Atomically sending internal channel, or triggering state executions is an import
 solves a very common problem in many existing distributed system applications. Because most RPCs (like REST/gRPC/GraphQL) don't provide a way to invoke 
 background execution when updating persistence. People sometimes have to use complicated design to acheive this. 
 
-**But in iWF, it's all builtin, and user application just needs a few lines of code!** 
+**But in Dex, it's all builtin, and user application just needs a few lines of code!** 
 
 ![flow with RPC](https://user-images.githubusercontent.com/4523955/234930263-40b98ca7-4401-44fa-af8a-32d5ae075438.png)
 
@@ -40,7 +40,7 @@ Historically, signal was created first as the only mechanism for external applic
 which is limited. RPC is the new way and much more powerful and flexible. 
 
 Here are some more details:
-* Signal is sent to iWF service without waiting for response of the processing
+* Signal is sent to Dex service without waiting for response of the processing
 * RPC will wait for worker to process the RPC request synchronously
 * Signal will be held in a signal channel until a workflow state consumes it
 * RPC will be processed by worker immediately
@@ -73,8 +73,8 @@ import TabItem from '@theme/TabItem';
 <!--- ## GITHUB-ONLY ## --->
 ### Java
 <!--- ## END-GITHUB-ONLY ## --->
-* Using the [RPC annotation](../../sdk-java/src/main/java/io/iworkflow/core/RPC.java) can make a method an RPC
-* The method must be [one of the four forms](../../sdk-java/src/main/java/io/iworkflow/core/RpcDefinitions.java)
+* Using the [RPC annotation](../../sdk-java/src/main/java/io/dex/core/RPC.java) can make a method an RPC
+* The method must be [one of the four forms](../../sdk-java/src/main/java/io/dex/core/RpcDefinitions.java)
 
 Example
 ```java
@@ -130,7 +130,7 @@ NOTE there there is a restriction to use RPC in Java/Kotlin:
 <!--- ## GITHUB-ONLY ## --->
 ### Python
 <!--- ## END-GITHUB-ONLY ## --->
-* Using [`rpc` decorator factory](../../sdk-python/iwf/rpc.py) to annotate a method will make it an RPC. 
+* Using [`rpc` decorator factory](../../sdk-python/dex/rpc.py) to annotate a method will make it an RPC. 
 * Because it's decorator factory, parentheses are required even there are not parameters : `@rpc()`
 * An RPC must have at most 5 params: self, context:WorkflowContext, input:Any, persistence:Persistence, communication:Communication, where input can be any type (the order doesn't matter, but it's recommended for convention)
 
@@ -168,16 +168,16 @@ Golang doesn't have equivalence to Java's annotation or Python's decorator. An R
 
 ```go
 type MyWorkfow struct{
-   iwf.WorkflowDefaults
+   dex.WorkflowDefaults
 }
 
-func (e MyWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.RPCMethodDef(e.MyRPC, nil),
+func (e MyWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.RPCMethodDef(e.MyRPC, nil),
 	}
 }
 
-func (e MyWorkflow) MyRPC(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (e MyWorkflow) MyRPC(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 
 	var oldData string
 	persistence.GetDataAttribute(keyData, &oldData)

@@ -35,7 +35,7 @@ make -C sdk-go ci-tests   # may start docker compose under sdk-go/integ
 
 ## IDL (`protos/`)
 
-Protobuf source lives in [`protos/iwf.proto`](protos/iwf.proto). Rename catalog: [`docs/design/idl-renames.md`](docs/design/idl-renames.md).
+Protobuf source lives in [`protos/dex.proto`](protos/dex.proto). Rename catalog: [`docs/design/idl-renames.md`](docs/design/idl-renames.md).
 
 Server-only regen (leave SDK trees alone during the server rewrite):
 
@@ -97,10 +97,10 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
-| Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `iwf-server:v1.0.0` and `iwf-server-lite:v1.0.0` |
-| Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`iwf-sdk`](https://pypi.org/project/iwf-sdk/) (version from `sdk-python/pyproject.toml`) |
-| Java SDK | `sdk-java-vX.Y.Z` | `sdk-java-v0.0.2` | Maven Central `io.superdurable:iwf-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from `sdk-java/build.gradle`) |
-| Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/iwf/sdk-go` |
+| Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `dex-server:v1.0.0` and `dex-server-lite:v1.0.0` |
+| Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`dex-sdk`](https://pypi.org/project/dex-sdk/) (version from `sdk-python/pyproject.toml`) |
+| Java SDK | `sdk-java-vX.Y.Z` | `sdk-java-v0.0.2` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from `sdk-java/build.gradle`) |
+| Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
 
 Notes:
 

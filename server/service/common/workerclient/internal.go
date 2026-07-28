@@ -25,8 +25,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/grpctarget"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/grpctarget"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -36,7 +36,7 @@ import (
 type InternalService struct {
 	mu     sync.Mutex
 	conn   *grpc.ClientConn
-	client iwfpb.InternalServiceClient
+	client dexpb.InternalServiceClient
 	header metadata.MD
 	target string
 	cfg    Config
@@ -72,7 +72,7 @@ func NewInternalService(target string, cfg Config, dial DialFunc) (*InternalServ
 	}
 	return &InternalService{
 		conn:   conn,
-		client: iwfpb.NewInternalServiceClient(conn),
+		client: dexpb.NewInternalServiceClient(conn),
 		header: metadata.New(cfg.DefaultHeaders),
 		target: normalized,
 		cfg:    cfg,
@@ -81,7 +81,7 @@ func NewInternalService(target string, cfg Config, dial DialFunc) (*InternalServ
 }
 
 // Client returns the InternalService client and a context with default headers.
-func (i *InternalService) Client(ctx context.Context) (iwfpb.InternalServiceClient, context.Context, error) {
+func (i *InternalService) Client(ctx context.Context) (dexpb.InternalServiceClient, context.Context, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.closed || i.client == nil {

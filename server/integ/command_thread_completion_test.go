@@ -29,10 +29,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/command_thread_completion"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/command_thread_completion"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -44,7 +44,7 @@ func TestCommandThreadCompletionTemporal(t *testing.T) {
 		doTestCommandThreadCompletion(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 
-		doTestCommandThreadCompletion(t, service.BackendTypeTemporal, &iwfpb.FlowConfig{
+		doTestCommandThreadCompletion(t, service.BackendTypeTemporal, &dexpb.FlowConfig{
 			ContinueAsNewThreshold: ptr.Any(int32(1)),
 		})
 		smallWaitForFastTest()
@@ -59,7 +59,7 @@ func TestCommandThreadCompletionCadence(t *testing.T) {
 		doTestCommandThreadCompletion(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 
-		doTestCommandThreadCompletion(t, service.BackendTypeCadence, &iwfpb.FlowConfig{
+		doTestCommandThreadCompletion(t, service.BackendTypeCadence, &dexpb.FlowConfig{
 			ContinueAsNewThreshold: ptr.Any(int32(1)),
 		})
 		smallWaitForFastTest()
@@ -83,7 +83,7 @@ func TestAnyCommandCompletedCadence(t *testing.T) {
 func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	workerHandler := command_thread_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -91,14 +91,14 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 
 	flowId := "any_cmd_can_test_" + uuid.NewString()
 	startTime := time.Now()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
 		WorkerTarget:       workerTarget,
 		StartStepType:      command_thread_completion.StateAnyCmd,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
-			FlowConfigOverride: &iwfpb.FlowConfig{
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			FlowConfigOverride: &dexpb.FlowConfig{
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
 			},
 		},
@@ -107,9 +107,9 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		_, publishErr := flowClient.PublishToChannel(context.Background(), &iwfpb.PublishToChannelRequest{
+		_, publishErr := flowClient.PublishToChannel(context.Background(), &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
-			Messages: []*iwfpb.ChannelMessage{
+			Messages: []*dexpb.ChannelMessage{
 				{
 					ChannelName: "any-cmd-signal",
 					Value:       stringValue("signal-data"),
@@ -123,7 +123,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 
 	assertions := assert.New(t)
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})
@@ -147,7 +147,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 		"StateAnyCmd_waitFor": 1,
 	}, history, "State execution history mismatch: %v", history)
 
-	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	signalReceived, ok := data["any_cmd_signal_received"].(bool)
 	assertions.True(ok, "any_cmd_signal_received data should be present")
 	assertions.True(signalReceived)
@@ -158,24 +158,24 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 func doTestCommandThreadCompletion(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := command_thread_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := command_thread_completion.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
 		WorkerTarget:       workerTarget,
 		StartStepType:      command_thread_completion.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -183,9 +183,9 @@ func doTestCommandThreadCompletion(
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		_, publishErr := flowClient.PublishToChannel(context.Background(), &iwfpb.PublishToChannelRequest{
+		_, publishErr := flowClient.PublishToChannel(context.Background(), &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
-			Messages: []*iwfpb.ChannelMessage{
+			Messages: []*dexpb.ChannelMessage{
 				{
 					ChannelName: "test-signal",
 					Value:       stringValue("signal-data"),
@@ -197,7 +197,7 @@ func doTestCommandThreadCompletion(
 		}
 	}()
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func doTestCommandThreadCompletion(
 		"S3_execute": 1,
 	}, history, "Command thread completion test failed - state execution history mismatch: %v", history)
 
-	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 
 	s1TimerFired, ok := data["s1_timer_fired"].(bool)
 	assertions.True(ok)
@@ -235,12 +235,12 @@ func doTestCommandThreadCompletion(
 	assertions.True(s2ChannelReceived)
 
 	if s2ChannelReceived {
-		channelValue, ok := data["s2_channel_value"].(*iwfpb.Value)
+		channelValue, ok := data["s2_channel_value"].(*dexpb.Value)
 		assertions.True(ok)
 		if ok {
-			expected := &iwfpb.Value{
-				Kind: &iwfpb.Value_ObjValue{
-					ObjValue: &iwfpb.EncodedObject{
+			expected := &dexpb.Value{
+				Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{
 						Encoding: "json",
 						Payload:  []byte("channel-data"),
 					},

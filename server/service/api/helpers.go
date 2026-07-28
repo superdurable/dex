@@ -23,11 +23,11 @@ package api
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/workerclient"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/workerclient"
 )
 
-func validateAttributeWrites(attributes []*iwfpb.AttributeWrite) error {
+func validateAttributeWrites(attributes []*dexpb.AttributeWrite) error {
 	seenKeys := make(map[string]bool, len(attributes))
 	for index, attribute := range attributes {
 		if attribute == nil || attribute.GetKey() == "" || attribute.GetValue() == nil ||

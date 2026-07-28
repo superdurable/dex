@@ -27,10 +27,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/persistence"
-	"github.com/superdurable/iwf/integ/workflow/persistence_loading_policy"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/persistence"
+	"github.com/superdurable/dex/integ/workflow/persistence_loading_policy"
+	"github.com/superdurable/dex/service"
 )
 
 func TestPersistenceLoadingPolicy(t *testing.T) {
@@ -51,7 +51,7 @@ func doTestPersistenceLoadingPolicy(
 ) {
 	workerHandler := persistence_loading_policy.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
 	})
 	flowClient := runtime.FlowClient
@@ -62,14 +62,14 @@ func doTestPersistenceLoadingPolicy(
 	flowId := persistence_loading_policy.WorkflowType + uuid.NewString()
 	flowInput := objJSONValue(`"ALL_WITHOUT_LOCKING"`)
 
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           persistence_loading_policy.WorkflowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      persistence_loading_policy.State1,
 		StepInput:          flowInput,
-		StepOptions: &iwfpb.StepOptions{
+		StepOptions: &dexpb.StepOptions{
 			SkipWaitFor: true,
 		},
 	})
@@ -77,7 +77,7 @@ func doTestPersistenceLoadingPolicy(
 
 	time.Sleep(2 * time.Second)
 
-	rpcRequest := &iwfpb.InvokeRPCRequest{
+	rpcRequest := &dexpb.InvokeRPCRequest{
 		FlowId:         flowId,
 		RpcName:        persistence_loading_policy.WorkflowType + "_rpc",
 		Input:          flowInput,
@@ -97,7 +97,7 @@ func doTestPersistenceLoadingPolicy(
 	}
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)

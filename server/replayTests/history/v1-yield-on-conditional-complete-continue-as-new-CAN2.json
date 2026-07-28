@@ -35,7 +35,7 @@
         "workflowExecutionExpirationTime": "2026-07-28T20:35:57.100Z",
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="
@@ -498,7 +498,7 @@
         "header": {},
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="

@@ -20,15 +20,15 @@
 
 package interpreter
 
-import "github.com/superdurable/iwf/gen/iwfpb"
+import "github.com/superdurable/dex/gen/dexpb"
 
 type OutputCollector struct {
-	outputs []*iwfpb.StepCompletionOutput
+	outputs []*dexpb.StepCompletionOutput
 }
 
-func NewOutputCollector(initOutputs []*iwfpb.StepCompletionOutput) *OutputCollector {
+func NewOutputCollector(initOutputs []*dexpb.StepCompletionOutput) *OutputCollector {
 	if initOutputs == nil {
-		initOutputs = []*iwfpb.StepCompletionOutput{}
+		initOutputs = []*dexpb.StepCompletionOutput{}
 	}
 	return &OutputCollector{
 		outputs: initOutputs,
@@ -36,11 +36,11 @@ func NewOutputCollector(initOutputs []*iwfpb.StepCompletionOutput) *OutputCollec
 }
 
 func (o *OutputCollector) Add(
-	output *iwfpb.StepCompletionOutput,
+	output *dexpb.StepCompletionOutput,
 ) {
 	o.outputs = append(o.outputs, output)
 }
 
-func (o *OutputCollector) GetAll() []*iwfpb.StepCompletionOutput {
+func (o *OutputCollector) GetAll() []*dexpb.StepCompletionOutput {
 	return o.outputs
 }

@@ -15,12 +15,12 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var registry = iwf.NewRegistry()
-var client = iwf.NewClient(registry, nil)
-var workerService = iwf.NewWorkerService(registry, nil)
+var registry = dex.NewRegistry()
+var client = dex.NewClient(registry, nil)
+var workerService = dex.NewWorkerService(registry, nil)
 
 func init() {
 	err := registry.AddWorkflows(

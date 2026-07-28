@@ -15,37 +15,37 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type noStartStateWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 }
 
-func (b noStartStateWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.RPCMethodDef(b.TestRPC, nil),
+func (b noStartStateWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.RPCMethodDef(b.TestRPC, nil),
 	}
 }
 
-func (b noStartStateWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.NonStartingStateDef(&noStartStateWorkflowState1{}),
+func (b noStartStateWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.NonStartingStateDef(&noStartStateWorkflowState1{}),
 	}
 }
 
-func (b noStartStateWorkflow) TestRPC(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (b noStartStateWorkflow) TestRPC(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 	var i int
 	input.Get(&i)
 	i++
-	communication.TriggerStateMovements(iwf.NewStateMovement(noStartStateWorkflowState1{}, nil))
+	communication.TriggerStateMovements(dex.NewStateMovement(noStartStateWorkflowState1{}, nil))
 	return i, nil
 }
 
 type noStartStateWorkflowState1 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 }
 
-func (b noStartStateWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
-	return iwf.GracefulCompletingWorkflow, nil
+func (b noStartStateWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
+	return dex.GracefulCompletingWorkflow, nil
 }

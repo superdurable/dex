@@ -29,10 +29,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wait_until_search_attributes_optimization"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wait_until_search_attributes_optimization"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
 	history "go.temporal.io/api/history/v1"
@@ -44,18 +44,18 @@ func TestWaitUntilSearchAttributesOptimizationWorkflowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilHistoryCompleted(t, &iwfpb.FlowConfig{
+		doTestWaitUntilHistoryCompleted(t, &dexpb.FlowConfig{
 			ActiveStepSearchMode: ptr.Any(
-				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
 			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilHistoryCompleted(t, &iwfpb.FlowConfig{
+		doTestWaitUntilHistoryCompleted(t, &dexpb.FlowConfig{
 			ActiveStepSearchMode: ptr.Any(
-				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
 			),
 		})
 		smallWaitForFastTest()
@@ -67,10 +67,10 @@ func TestWaitUntilSearchAttributesOptimizationWorkflowTemporal(t *testing.T) {
 	}
 }
 
-func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *dexpb.FlowConfig) {
 	workerHandler := wait_until_search_attributes_optimization.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	flowClient := runtime.FlowClient
@@ -80,7 +80,7 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 	defer cancel()
 
 	flowId := wait_until_search_attributes_optimization.WorkflowType + uuid.NewString()
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes_optimization.WorkflowType,
 		FlowTimeoutSeconds: 15,
@@ -88,7 +88,7 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 		StartStepType:      wait_until_search_attributes_optimization.State1,
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
@@ -97,9 +97,9 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 
 	time.Sleep(5 * time.Second)
 
-	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: wait_until_search_attributes_optimization.SignalName,
 				Value:       objJSONValue(`"test"`),
@@ -108,11 +108,11 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 	})
 	require.NoError(t, err)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 
 	api := unifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
 	eventHistory, err := api.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
@@ -130,13 +130,13 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 		}
 	}
 
-	mode := iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+	mode := dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
 	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
 		mode = flowConfig.GetActiveStepSearchMode()
 	}
 
 	switch mode {
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
 		require.Equal(t, 10, len(upsertSAEvents))
 		require.Equal(t, []string{"S1"}, historyEventSAs(upsertSAEvents[1]))
 		require.Equal(t, []string{"S2"}, historyEventSAs(upsertSAEvents[2]))
@@ -147,7 +147,7 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig)
 		require.Equal(t, []string{"S3", "S6"}, historyEventSAs(upsertSAEvents[7]))
 		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[8]))
 		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[9]))
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
 		require.Equal(t, 1, len(upsertSAEvents))
 	default:
 		require.Equal(t, 9, len(upsertSAEvents))

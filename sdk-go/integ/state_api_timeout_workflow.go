@@ -14,16 +14,16 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type stateApiTimeoutWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyCommunicationSchema
-	iwf.EmptyPersistenceSchema
+	dex.DefaultWorkflowType
+	dex.EmptyCommunicationSchema
+	dex.EmptyPersistenceSchema
 }
 
-func (b stateApiTimeoutWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&stateApiTimeoutWorkflowState1{}),
+func (b stateApiTimeoutWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&stateApiTimeoutWorkflowState1{}),
 	}
 }

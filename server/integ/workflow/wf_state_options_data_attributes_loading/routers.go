@@ -22,12 +22,12 @@ package wf_state_options_data_attributes_loading
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -51,7 +51,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -63,15 +63,15 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	_ *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	_ *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "unexpected worker rpc")
 }
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
@@ -86,17 +86,17 @@ func (h *handler) InvokeWaitForMethod(
 		}
 	}
 
-	return &iwfpb.InvokeWaitForMethodResponse{
-		WaitingCondition: &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		},
 	}, nil
 }
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
@@ -105,7 +105,7 @@ func (h *handler) InvokeExecuteMethod(
 
 	h.incrementInvokeHistory(request.GetStepType() + "_execute")
 
-	var response *iwfpb.InvokeExecuteMethodResponse
+	var response *dexpb.InvokeExecuteMethodResponse
 	switch request.GetStepType() {
 	case State1:
 		response = getState1ExecuteResponse(request)
@@ -143,10 +143,10 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func getState1ExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwfpb.InvokeExecuteMethodResponse {
-	return &iwfpb.InvokeExecuteMethodResponse{
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+func getState1ExecuteResponse(request *dexpb.InvokeExecuteMethodRequest) *dexpb.InvokeExecuteMethodResponse {
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{
 					StepType:  State2,
 					StepInput: request.GetStepInput(),
@@ -157,7 +157,7 @@ func getState1ExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwfpb.
 	}
 }
 
-func getNextStateExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwfpb.InvokeExecuteMethodResponse {
+func getNextStateExecuteResponse(request *dexpb.InvokeExecuteMethodRequest) *dexpb.InvokeExecuteMethodResponse {
 	var nextStepType string
 	switch request.GetStepType() {
 	case State2:
@@ -167,9 +167,9 @@ func getNextStateExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwf
 	case State4:
 		nextStepType = State5
 	}
-	return &iwfpb.InvokeExecuteMethodResponse{
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{
 					StepType:  nextStepType,
 					StepInput: request.GetStepInput(),
@@ -179,17 +179,17 @@ func getNextStateExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwf
 	}
 }
 
-func getState5ExecuteResponse() *iwfpb.InvokeExecuteMethodResponse {
-	return &iwfpb.InvokeExecuteMethodResponse{
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+func getState5ExecuteResponse() *dexpb.InvokeExecuteMethodResponse {
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{StepType: service.GracefulCompletingFlowStepType},
 			},
 		},
 	}
 }
 
-func verifyAllDataAttributes(attributes []*iwfpb.KV) error {
+func verifyAllDataAttributes(attributes []*dexpb.KV) error {
 	expected := upsertDataAttributeKVs()
 	if err := matchAttributeKVsUnordered(expected, attributes); err != nil {
 		return status.Error(codes.InvalidArgument, "data attributes should be the same: "+err.Error())
@@ -197,24 +197,24 @@ func verifyAllDataAttributes(attributes []*iwfpb.KV) error {
 	return nil
 }
 
-func upsertDataAttributes() []*iwfpb.AttributeWrite {
-	return []*iwfpb.AttributeWrite{
+func upsertDataAttributes() []*dexpb.AttributeWrite {
+	return []*dexpb.AttributeWrite{
 		dataObjectWrite("da_wait_until1", "test-data-attribute-wait-until"),
 		dataObjectWrite("da_execute1", "test-data-attribute-execute"),
 		dataObjectWrite("da_other_key", "random-value"),
 	}
 }
 
-func upsertDataAttributeKVs() []*iwfpb.KV {
+func upsertDataAttributeKVs() []*dexpb.KV {
 	writes := upsertDataAttributes()
-	kvs := make([]*iwfpb.KV, len(writes))
+	kvs := make([]*dexpb.KV, len(writes))
 	for index, write := range writes {
-		kvs[index] = &iwfpb.KV{Key: write.GetKey(), Value: write.GetValue()}
+		kvs[index] = &dexpb.KV{Key: write.GetKey(), Value: write.GetValue()}
 	}
 	return kvs
 }
 
-func matchAttributeKVsUnordered(expected, actual []*iwfpb.KV) error {
+func matchAttributeKVsUnordered(expected, actual []*dexpb.KV) error {
 	if len(expected) != len(actual) {
 		return status.Errorf(codes.InvalidArgument, "expected %d attributes, got %d", len(expected), len(actual))
 	}
@@ -226,7 +226,7 @@ func matchAttributeKVsUnordered(expected, actual []*iwfpb.KV) error {
 	return nil
 }
 
-func containsMatchingKV(attributes []*iwfpb.KV, expected *iwfpb.KV) bool {
+func containsMatchingKV(attributes []*dexpb.KV, expected *dexpb.KV) bool {
 	for _, attribute := range attributes {
 		if attribute.GetKey() != expected.GetKey() {
 			continue
@@ -242,12 +242,12 @@ func containsMatchingKV(attributes []*iwfpb.KV, expected *iwfpb.KV) bool {
 	return false
 }
 
-func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_ObjValue{
-				ObjValue: &iwfpb.EncodedObject{
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_ObjValue{
+				ObjValue: &dexpb.EncodedObject{
 					Encoding: "json",
 					Payload:  []byte(payload),
 				},
@@ -256,7 +256,7 @@ func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
 	}
 }
 
-func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+func objPayloadFromValue(value *dexpb.Value) (string, bool) {
 	if value == nil {
 		return "", false
 	}

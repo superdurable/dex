@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/persistence"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/timeparser"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/persistence"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/timeparser"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -64,7 +64,7 @@ func TestPersistenceWorkflowTemporalContinueAsNew(t *testing.T) {
 			t,
 			service.BackendTypeTemporal,
 			false,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -79,7 +79,7 @@ func TestPersistenceWorkflowTemporalContinueAsNewWithEncryption(t *testing.T) {
 			t,
 			service.BackendTypeTemporal,
 			true,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -104,7 +104,7 @@ func TestPersistenceWorkflowCadenceContinueAsNew(t *testing.T) {
 			t,
 			service.BackendTypeCadence,
 			false,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -114,11 +114,11 @@ func doTestPersistenceWorkflow(
 	t *testing.T,
 	backendType service.BackendType,
 	memoEncryption bool,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := persistence.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:    backendType,
 		MemoEncryption: memoEncryption,
 	})
@@ -135,14 +135,14 @@ func doTestPersistenceWorkflow(
 	expectedDataAttribute := dataObjectAttribute("TestKey", `"TestValue"`)
 	expectedDatetimeSearchAttribute := indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr)
 
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           persistence.WorkflowType,
 		FlowTimeoutSeconds: 20,
 		WorkerTarget:       workerTarget,
 		StartStepType:      persistence.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
-			Attributes: []*iwfpb.AttributeWrite{
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
 				expectedDatetimeSearchAttribute,
 				expectedDataAttribute,
 			},
@@ -171,7 +171,7 @@ func doTestPersistenceWorkflow(
 	require.NoError(t, err)
 	requireAttributePresent(t, queryResult.GetAttributes(), expectedDataAttribute)
 
-	waitResp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	waitResp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func doTestPersistenceWorkflow(
 	})
 	require.NoError(t, err)
 
-	queryResult2, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	queryResult2, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys: []string{
 			persistence.TestDataAttributeKey,
@@ -232,11 +232,11 @@ func doTestPersistenceWorkflow(
 	expectedVal1 := dataObjectAttribute(persistence.TestDataAttributeKey, "test-data-attribute-value2")
 	expectedVal2 := dataObjectAttribute(persistence.TestDataAttributeKey2, "test-data-attribute-value1")
 
-	requireAttributesMatch(t, []*iwfpb.AttributeWrite{
+	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
 		expectedDataAttribute,
 	}, queryResult1.GetAttributes())
-	requireAttributesMatch(t, []*iwfpb.AttributeWrite{
+	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
 		expectedVal2,
 		expectedDataAttribute,
@@ -252,10 +252,10 @@ func doTestPersistenceWorkflow(
 	)
 	expectedSearchBool := indexedBoolAttribute(persistence.TestSearchAttributeBoolKey, false)
 
-	requireAttributesMatch(t, []*iwfpb.AttributeWrite{expectedSearchKeyword}, searchResult1.GetAttributes())
-	requireAttributesMatch(t, []*iwfpb.AttributeWrite{expectedSearchInt}, searchResult2.GetAttributes())
+	requireAttributesMatch(t, []*dexpb.AttributeWrite{expectedSearchKeyword}, searchResult1.GetAttributes())
+	requireAttributesMatch(t, []*dexpb.AttributeWrite{expectedSearchInt}, searchResult2.GetAttributes())
 
-	allIndexed, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	allIndexed, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		RunId:  runId,
 		Keys: []string{
@@ -266,7 +266,7 @@ func doTestPersistenceWorkflow(
 		},
 	})
 	require.NoError(t, err)
-	requireAttributesMatch(t, []*iwfpb.AttributeWrite{
+	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedDatetimeSearchAttribute,
 		expectedSearchKeyword,
 		expectedSearchInt,
@@ -275,14 +275,14 @@ func doTestPersistenceWorkflow(
 
 	if *testSearchIntegTest {
 		firstFlowId := flowId
-		startMore := func(id string, attrs []*iwfpb.AttributeWrite) {
-			_, startErr := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		startMore := func(id string, attrs []*dexpb.AttributeWrite) {
+			_, startErr := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 				FlowId:             id,
 				FlowType:           persistence.WorkflowType,
 				FlowTimeoutSeconds: 20,
 				WorkerTarget:       workerTarget,
 				StartStepType:      persistence.State1,
-				FlowStartOptions: &iwfpb.FlowStartOptions{
+				FlowStartOptions: &dexpb.FlowStartOptions{
 					Attributes:         attrs,
 					FlowConfigOverride: flowConfig,
 				},
@@ -290,21 +290,21 @@ func doTestPersistenceWorkflow(
 			require.NoError(t, startErr)
 		}
 
-		startMore(firstFlowId+"-1", []*iwfpb.AttributeWrite{
+		startMore(firstFlowId+"-1", []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 		})
-		startMore(firstFlowId+"-2", []*iwfpb.AttributeWrite{
+		startMore(firstFlowId+"-2", []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		})
-		attrs3 := []*iwfpb.AttributeWrite{
+		attrs3 := []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		}
-		attrs4 := []*iwfpb.AttributeWrite{
+		attrs4 := []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
@@ -324,11 +324,11 @@ func doTestPersistenceWorkflow(
 		startMore(firstFlowId+"-4", attrs4)
 
 		for _, suffix := range []string{"-1", "-2", "-3", "-4"} {
-			resp, waitErr := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+			resp, waitErr := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 				FlowId: firstFlowId + suffix,
 			})
 			require.NoError(t, waitErr)
-			require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+			require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 		}
 
 		time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
@@ -355,17 +355,17 @@ func doTestPersistenceWorkflow(
 
 func getFlowAttributes(
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	flowId string,
 	keys []string,
-) (*iwfpb.GetAttributesResponse, error) {
-	return flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+) (*dexpb.GetAttributesResponse, error) {
+	return flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys:   keys,
 	})
 }
 
-func requireAttributePresent(t *testing.T, attributes []*iwfpb.KV, expected *iwfpb.AttributeWrite) {
+func requireAttributePresent(t *testing.T, attributes []*dexpb.KV, expected *dexpb.AttributeWrite) {
 	t.Helper()
 	for _, attribute := range attributes {
 		if attribute.GetKey() == expected.GetKey() &&
@@ -376,7 +376,7 @@ func requireAttributePresent(t *testing.T, attributes []*iwfpb.KV, expected *iwf
 	require.Fail(t, "expected attribute not found", expected.GetKey())
 }
 
-func requireAttributesMatch(t *testing.T, expected []*iwfpb.AttributeWrite, actual []*iwfpb.KV) {
+func requireAttributesMatch(t *testing.T, expected []*dexpb.AttributeWrite, actual []*dexpb.KV) {
 	t.Helper()
 	require.Len(t, actual, len(expected))
 	for _, want := range expected {

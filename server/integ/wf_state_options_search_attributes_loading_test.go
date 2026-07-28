@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wf_state_options_search_attributes_loading"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wf_state_options_search_attributes_loading"
+	"github.com/superdurable/dex/service"
 )
 
 func TestWfStateOptionsSearchAttributesLoading(t *testing.T) {
@@ -44,14 +44,14 @@ func TestWfStateOptionsSearchAttributesLoading(t *testing.T) {
 func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType service.BackendType) {
 	workerHandler := wf_state_options_search_attributes_loading.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := wf_state_options_search_attributes_loading.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_state_options_search_attributes_loading.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -61,7 +61,7 @@ func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType servi
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 
 	history := workerHandler.GetTestResult().InvokeHistory

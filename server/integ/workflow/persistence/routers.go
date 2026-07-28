@@ -22,12 +22,12 @@ package persistence
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -73,7 +73,7 @@ var testDataAttributeVal2Payload = "test-data-attribute-value2"
 var testStateLocalValPayload = "test-state-local-value"
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -87,8 +87,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
@@ -115,18 +115,18 @@ func (h *handler) InvokeWaitForMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue1),
 				indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue1),
 				indexedBoolWrite(TestSearchAttributeBoolKey, false),
 				dataObjectWrite(TestDataAttributeKey, testDataAttributeVal1Payload),
 				dataObjectWrite(TestDataAttributeKey2, testDataAttributeVal1Payload),
 			},
-			UpsertStepExeLocals: []*iwfpb.KV{
+			UpsertStepExeLocals: []*dexpb.KV{
 				{Key: TestStateLocalKey, Value: jsonObjValue(testStateLocalValPayload)},
 			},
 		}, nil
@@ -139,9 +139,9 @@ func (h *handler) InvokeWaitForMethod(
 		)
 		h.invokeData.Store("S2_start_queryAttFound", queryAttFound)
 
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	case State3:
@@ -163,9 +163,9 @@ func (h *handler) InvokeWaitForMethod(
 			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
 		}
 
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	default:
@@ -175,8 +175,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
@@ -215,13 +215,13 @@ func (h *handler) InvokeExecuteMethod(
 		}
 		h.invokeData.Store("S1_decide_localAttFound", localAttFound)
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State2},
 				},
 			},
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue2),
 				indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue2),
 				dataObjectWrite(TestDataAttributeKey, testDataAttributeVal2Payload),
@@ -236,9 +236,9 @@ func (h *handler) InvokeExecuteMethod(
 		)
 		h.invokeData.Store("S2_decide_queryAttFound", queryAttFound)
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State3},
 				},
 			},
@@ -262,9 +262,9 @@ func (h *handler) InvokeExecuteMethod(
 			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
 		}
 
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -296,7 +296,7 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) storeKeywordIntCounts(prefix string, attributes []*iwfpb.KV) {
+func (h *handler) storeKeywordIntCounts(prefix string, attributes []*dexpb.KV) {
 	kwSaFounds := 0
 	intSaFounds := 0
 	for _, attribute := range attributes {
@@ -317,7 +317,7 @@ func (h *handler) storeKeywordIntCounts(prefix string, attributes []*iwfpb.KV) {
 	h.invokeData.Store(prefix+"_intSaFounds", intSaFounds)
 }
 
-func validateStepContext(stepContext *iwfpb.Context) error {
+func validateStepContext(stepContext *dexpb.Context) error {
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
 		return status.Error(
 			codes.InvalidArgument,
@@ -327,10 +327,10 @@ func validateStepContext(stepContext *iwfpb.Context) error {
 	return nil
 }
 
-func jsonObjValue(payload string) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func jsonObjValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte(payload),
 			},
@@ -338,12 +338,12 @@ func jsonObjValue(payload string) *iwfpb.Value {
 	}
 }
 
-func attributeValuePayloadMatches(value *iwfpb.Value, expectedPayload string) bool {
+func attributeValuePayloadMatches(value *dexpb.Value, expectedPayload string) bool {
 	payload, ok := objPayloadFromValue(value)
 	return ok && payload == expectedPayload
 }
 
-func attributePayloadMatches(attributes []*iwfpb.KV, key, expectedPayload string) bool {
+func attributePayloadMatches(attributes []*dexpb.KV, key, expectedPayload string) bool {
 	for _, attribute := range attributes {
 		if attribute.GetKey() == key {
 			return attributeValuePayloadMatches(attribute.GetValue(), expectedPayload)
@@ -352,7 +352,7 @@ func attributePayloadMatches(attributes []*iwfpb.KV, key, expectedPayload string
 	return false
 }
 
-func attributeIntMatches(attributes []*iwfpb.KV, key string, expected int64) bool {
+func attributeIntMatches(attributes []*dexpb.KV, key string, expected int64) bool {
 	for _, attribute := range attributes {
 		if attribute.GetKey() == key && attribute.GetValue().GetIntValue() == expected {
 			return true
@@ -361,7 +361,7 @@ func attributeIntMatches(attributes []*iwfpb.KV, key string, expected int64) boo
 	return false
 }
 
-func countAttributesWithKeys(attributes []*iwfpb.KV, keys ...string) int {
+func countAttributesWithKeys(attributes []*dexpb.KV, keys ...string) int {
 	found := 0
 	for _, attribute := range attributes {
 		for _, key := range keys {
@@ -373,7 +373,7 @@ func countAttributesWithKeys(attributes []*iwfpb.KV, keys ...string) int {
 	return found
 }
 
-func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+func objPayloadFromValue(value *dexpb.Value) (string, bool) {
 	if value == nil {
 		return "", false
 	}
@@ -384,47 +384,47 @@ func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
 	return string(objValue.GetPayload()), true
 }
 
-func indexedKeywordWrite(key, value string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedKeywordWrite(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_StringValue{StringValue: value},
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: value},
 		},
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+			Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		},
 	}
 }
 
-func indexedIntWrite(key string, value int64) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedIntWrite(key string, value int64) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_IntValue{IntValue: value},
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_IntValue{IntValue: value},
 		},
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_INT,
+			Type:   dexpb.IndexType_INDEX_TYPE_INT,
 		},
 	}
 }
 
-func indexedBoolWrite(key string, value bool) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedBoolWrite(key string, value bool) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_BoolValue{BoolValue: value},
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_BoolValue{BoolValue: value},
 		},
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_BOOL,
+			Type:   dexpb.IndexType_INDEX_TYPE_BOOL,
 		},
 	}
 }
 
-func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: jsonObjValue(payload),
 	}

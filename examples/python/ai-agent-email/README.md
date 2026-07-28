@@ -12,17 +12,17 @@
 ## What it is
 
 The AI Agent Email is a feature-rich application that leverages AI to streamline email composition
-and management. It combines a React frontend with a Flask backend powered by iWF (Indeed Workflow Framework) to
+and management. It combines a React frontend with a Flask backend powered by Dex (Indeed Workflow Framework) to
 provide a durable, scalable email assistant.
 
-### Why iWF?
+### Why Dex?
 
-iWF (Indeed Workflow Framework) was chosen for this application due to its ability to provide extreme **simplicity** in
-software design and implementation. By leveraging iWF, developers can focus on building business logic without worrying
+Dex (Indeed Workflow Framework) was chosen for this application due to its ability to provide extreme **simplicity** in
+software design and implementation. By leveraging Dex, developers can focus on building business logic without worrying
 about the complexities of distributed systems, state management, or scalability.
 
-For more details on building reliable AI agents with iWF on Temporal, check out the following
-article: [Build Reliable AI Agents with iWF on Temporal](https://medium.com/@qlong/build-reliable-ai-agents-with-iwf-on-temporal-7f1a101e000b)
+For more details on building reliable AI agents with Dex on Temporal, check out the following
+article: [Build Reliable AI Agents with Dex on Temporal](https://medium.com/@qlong/build-reliable-ai-agents-with-dex-on-temporal-7f1a101e000b)
 
 ### Functional Features
 
@@ -35,7 +35,7 @@ article: [Build Reliable AI Agents with iWF on Temporal](https://medium.com/@qlo
 
 ### Technical Features
 
-- **Workflow Checkpointing**: Uses iWF to maintain workflow state, enabling resumption from previous points after any
+- **Workflow Checkpointing**: Uses Dex to maintain workflow state, enabling resumption from previous points after any
   instance restart
 - **Scalable Architecture**: Capable of handling **billions** of concurrent workflows
 - **Durable Timers**: Schedule-based operations use server-side durable timers that persist across system restarts
@@ -50,9 +50,9 @@ article: [Build Reliable AI Agents with iWF on Temporal](https://medium.com/@qlo
 
 [![AI Agent Email Demo](https://img.youtube.com/vi/2dvIetECHWg/0.jpg)](https://www.youtube.com/watch?v=2dvIetECHWg "AI Agent Email Demo")
 
-#### iWF Framework Overview(cancel a scheduled email)
+#### Dex Framework Overview(cancel a scheduled email)
 
-[![iWF Framework Overview](https://img.youtube.com/vi/EEHSLYkbREU/0.jpg)](https://www.youtube.com/watch?v=EEHSLYkbREU "iWF Framework Overview")
+[![Dex Framework Overview](https://img.youtube.com/vi/EEHSLYkbREU/0.jpg)](https://www.youtube.com/watch?v=EEHSLYkbREU "Dex Framework Overview")
 
 ## How to Run
 
@@ -60,10 +60,10 @@ article: [Build Reliable AI Agents with iWF on Temporal](https://medium.com/@qlo
 
 Make sure you have the following installed and set up:
 
-1. Run iWF server
+1. Run Dex server
     * The simplest way is to run
-      `docker pull iworkflowio/iwf-server-lite:latest && docker run -p 8801:8801 -p 7233:7233 -p 8233:8233 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it iworkflowio/iwf-server-lite:latest`
-    * Or check out [iWF documentation](https://github.com/superdurable/iwf?tab=readme-ov-file#how-to-use)
+      `docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -p 7233:7233 -p 8233:8233 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest`
+    * Or check out [Dex documentation](https://github.com/superdurable/dex?tab=readme-ov-file#how-to-use)
 2. [Python 3.13.2](https://www.python.org/downloads/)
 2. [Poetry](https://python-poetry.org/docs/) for dependency management and virtual environments.
 3. [Node.js and npm](https://nodejs.org/) for building the frontend.

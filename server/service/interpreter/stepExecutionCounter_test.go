@@ -25,12 +25,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/cont"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type stepExecutionCounterWorkflowProvider struct {
@@ -53,17 +53,17 @@ func (p *stepExecutionCounterWorkflowProvider) GetSearchAttributeKeywordArray(
 
 func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 	provider := &stepExecutionCounterWorkflowProvider{}
-	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{})
+	configer := config.NewFlowConfiger(&dexpb.FlowConfig{})
 	counter := NewStepExecutionCounter(
 		nil,
 		provider,
 		configer,
 		cont.NewContinueAsCounter(configer, nil, provider),
 	)
-	waitStep := &iwfpb.StepMovement{StepType: "wait"}
-	skipStep := &iwfpb.StepMovement{
+	waitStep := &dexpb.StepMovement{StepType: "wait"}
+	skipStep := &dexpb.StepMovement{
 		StepType:    "skip",
-		StepOptions: &iwfpb.StepOptions{SkipWaitFor: true},
+		StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
 	}
 
 	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
@@ -92,8 +92,8 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 			upsertErr: errors.New("backend unavailable"),
 		},
 	}
-	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{
-		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
+	configer := config.NewFlowConfiger(&dexpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
 	counter := NewStepExecutionCounter(
 		nil,
@@ -103,7 +103,7 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 	)
 
 	err := counter.MarkStepTypeActiveIfNotYet([]StepRequest{
-		NewStepStartRequest(&iwfpb.StepMovement{StepType: "step"}),
+		NewStepStartRequest(&dexpb.StepMovement{StepType: "step"}),
 	})
 	require.ErrorContains(t, err, "backend unavailable")
 	require.Equal(t, int32(1), counter.GetTotalCurrentlyExecutingCount())
@@ -112,8 +112,8 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 
 func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	disabledProvider := &stepExecutionCounterWorkflowProvider{}
-	disabledConfiger := config.NewFlowConfiger(&iwfpb.FlowConfig{
-		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
+	disabledConfiger := config.NewFlowConfiger(&dexpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
 	})
 	disabledCounter := NewStepExecutionCounter(
 		nil,
@@ -121,7 +121,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		disabledConfiger,
 		cont.NewContinueAsCounter(disabledConfiger, nil, disabledProvider),
 	)
-	disabledStep := &iwfpb.StepMovement{StepType: "disabled"}
+	disabledStep := &dexpb.StepMovement{StepType: "disabled"}
 	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(disabledStep),
 	}))
@@ -134,8 +134,8 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	require.Empty(t, disabledProvider.upserts)
 
 	sharedProvider := &stepExecutionCounterWorkflowProvider{}
-	sharedConfiger := config.NewFlowConfiger(&iwfpb.FlowConfig{
-		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
+	sharedConfiger := config.NewFlowConfiger(&dexpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
 	sharedCounter := NewStepExecutionCounter(
 		nil,
@@ -143,8 +143,8 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		sharedConfiger,
 		cont.NewContinueAsCounter(sharedConfiger, nil, sharedProvider),
 	)
-	first := &iwfpb.StepMovement{StepType: "shared"}
-	second := &iwfpb.StepMovement{StepType: "shared"}
+	first := &dexpb.StepMovement{StepType: "shared"}
+	second := &dexpb.StepMovement{StepType: "shared"}
 	require.NoError(t, sharedCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
 		NewStepStartRequest(first),
 		NewStepStartRequest(second),
@@ -168,14 +168,14 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 
 func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 	provider := &stepExecutionCounterWorkflowProvider{}
-	configer := config.NewFlowConfiger(&iwfpb.FlowConfig{
-		ActiveStepSearchMode: ptr.Any(iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
+	configer := config.NewFlowConfiger(&dexpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
-	info := &iwfpb.StepExecutionCounterInfo{
+	info := &dexpb.StepExecutionCounterInfo{
 		StepTypeStartedCount:            map[string]int32{"step": 2},
 		StepTypeCurrentlyExecutingCount: map[string]int32{"step": 1},
 		TotalCurrentlyExecutingCount:    1,
-		StepActiveExecutionNums: map[string]*iwfpb.StepExecutionNumbers{
+		StepActiveExecutionNums: map[string]*dexpb.StepExecutionNumbers{
 			"step": {Numbers: []int32{2}},
 		},
 	}
@@ -192,16 +192,16 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 	require.True(t, counter.IsStepExecutionCompleted("step", 1))
 	require.False(t, counter.IsStepExecutionCompleted("step", 2))
 	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
-		NewStepStartRequest(&iwfpb.StepMovement{StepType: "step"}),
+		NewStepStartRequest(&dexpb.StepMovement{StepType: "step"}),
 	}))
 	require.Equal(t, "step-3", counter.CreateNextExecutionId("step"))
 	require.NoError(t, counter.MarkStepExecutionCompleted(
-		&iwfpb.StepMovement{StepType: "step"},
+		&dexpb.StepMovement{StepType: "step"},
 		"step-2",
 		nil,
 	))
 	require.NoError(t, counter.MarkStepExecutionCompleted(
-		&iwfpb.StepMovement{StepType: "step"},
+		&dexpb.StepMovement{StepType: "step"},
 		"step-3",
 		nil,
 	))

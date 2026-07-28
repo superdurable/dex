@@ -35,7 +35,7 @@
         "firstWorkflowTaskBackoff": "0s",
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="
@@ -229,7 +229,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1070593",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_UpdateWorkflowConfig",
+        "signalName": "__DexSystem_UpdateWorkflowConfig",
         "input": {
           "payloads": [
             {
@@ -359,7 +359,7 @@
         "header": {},
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="

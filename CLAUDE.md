@@ -1,6 +1,6 @@
-# iWF Project Rules
+# Dex Project Rules
 
-iWF is a durable workflow framework with a Go server (`server/`), OpenAPI IDL
+Dex is a durable workflow framework with a Go server (`server/`), OpenAPI IDL
 (`protos/`), and SDKs/samples for Go, Java, and Python. See `README.md` for the
 module map.
 
@@ -73,7 +73,7 @@ Leave generated code unchanged and keep tightly coupled subsystem clusters intac
 ## Pointers and Naming
 
 - Use `ptr.Any(value)` for pointer literals. Import
-  `github.com/superdurable/iwf/service/common/ptr`.
+  `github.com/superdurable/dex/service/common/ptr`.
 - Give numeric literals explicit types, such as `ptr.Any(int64(0))`.
 - Do not use `ptr.Any` when the pointer must alias a named variable used elsewhere.
 - Do not call `proto.Clone` (or other defensive deep copies) "just in case".
@@ -83,7 +83,7 @@ Leave generated code unchanged and keep tightly coupled subsystem clusters intac
   value over cloning. Copy only when an algorithm must mutate a distinct shared
   value in place.
 - Use each package's declared name. Alias only for collisions, misleading names,
-  or established conventions such as `iwfidl`. Do not invent aliases such as
+  or established conventions such as `dexpb`. Do not invent aliases such as
   `servermetrics` or `mongostore`.
 - Use descriptive variable names. Receivers and `i j k n err ctx ok t mu wg id r
   w ch` are the only accepted one- or two-letter names.
@@ -102,8 +102,8 @@ Leave generated code unchanged and keep tightly coupled subsystem clusters intac
 # Server Error Handling (`server/**/*.go`)
 
 - API failures that reach Gin handlers should use `errors.ErrorAndStatus` from
-  `github.com/superdurable/iwf/service/common/errors` with an
-  `iwfidl.ErrorSubStatus` and HTTP status code.
+  `github.com/superdurable/dex/service/common/errors` with an
+  `dexpb.ErrorSubStatus` and HTTP status code.
 - Prefer `NewErrorAndStatus` / `NewErrorAndStatusWithWorkerError`.
 - Bad client/SDK input → 4xx + appropriate `ErrorSubStatus`.
 - Infrastructure / unexpected failures → 5xx.

@@ -1,11 +1,11 @@
-module github.com/superdurable/iwf/examples/go
+module github.com/superdurable/dex/examples/go
 
 go 1.24.0
 
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/stretchr/testify v1.10.0
-	github.com/superdurable/iwf/sdk-go v0.0.1
+	github.com/superdurable/dex/sdk-go v0.0.1
 	github.com/urfave/cli v1.22.10
 	go.uber.org/mock v0.3.0
 )
@@ -39,6 +39,10 @@ require (
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/superdurable/dex/sdk-go => ../../sdk-go

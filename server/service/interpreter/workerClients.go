@@ -23,8 +23,8 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/service/common/workerclient"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service/common/workerclient"
 )
 
 // NewWorkerClients builds activity clients.

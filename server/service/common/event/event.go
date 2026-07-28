@@ -20,7 +20,7 @@
 
 package event
 
-import "github.com/superdurable/iwf/gen/iwfpb"
+import "github.com/superdurable/dex/gen/dexpb"
 
 // Event is a lightweight server-side observability hook payload (not an IDL type).
 type Event struct {
@@ -32,7 +32,7 @@ type Event struct {
 	RpcName            string
 	EventType          string
 	StartTimestampInMs int64
-	Attributes         []*iwfpb.KV
+	Attributes         []*dexpb.KV
 }
 
 // HandleEventFunc must be lightweight, reliable, and fast (<1s).

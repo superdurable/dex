@@ -35,7 +35,7 @@
         "firstWorkflowTaskBackoff": "0s",
         "memo": {
           "fields": {
-            "__IwfSystem_WorkerTarget": {
+            "__DexSystem_WorkerTarget": {
               "metadata": {
                 "encoding": "YmluYXJ5L3Byb3RvYnVm",
                 "messageType": "aXdmLkVuY29kZWRPYmplY3Q="
@@ -79,7 +79,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1069427",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {
@@ -251,7 +251,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1069438",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {
@@ -319,7 +319,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1069446",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {
@@ -387,7 +387,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1069452",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {
@@ -8003,7 +8003,7 @@
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "taskId": "1070396",
       "workflowExecutionSignaledEventAttributes": {
-        "signalName": "__IwfSystem_ExecuteRpc",
+        "signalName": "__DexSystem_ExecuteRpc",
         "input": {
           "payloads": [
             {

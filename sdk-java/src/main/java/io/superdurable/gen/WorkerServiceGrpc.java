@@ -4,18 +4,18 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
  * <pre>
- * Hosted by iWF worker; server calls these RPCs.
+ * Hosted by Dex worker; server calls these RPCs.
  * </pre>
  */
 @javax.annotation.Generated(
     value = "by gRPC proto compiler (version 1.69.1)",
-    comments = "Source: iwf.proto")
+    comments = "Source: dex.proto")
 @io.grpc.stub.annotations.GrpcGenerated
 public final class WorkerServiceGrpc {
 
   private WorkerServiceGrpc() {}
 
-  public static final java.lang.String SERVICE_NAME = "iwf.WorkerService";
+  public static final java.lang.String SERVICE_NAME = "dex.WorkerService";
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.InvokeWaitForMethodRequest,
@@ -157,7 +157,7 @@ public final class WorkerServiceGrpc {
 
   /**
    * <pre>
-   * Hosted by iWF worker; server calls these RPCs.
+   * Hosted by Dex worker; server calls these RPCs.
    * </pre>
    */
   public interface AsyncService {
@@ -187,7 +187,7 @@ public final class WorkerServiceGrpc {
   /**
    * Base class for the server implementation of the service WorkerService.
    * <pre>
-   * Hosted by iWF worker; server calls these RPCs.
+   * Hosted by Dex worker; server calls these RPCs.
    * </pre>
    */
   public static abstract class WorkerServiceImplBase
@@ -201,7 +201,7 @@ public final class WorkerServiceGrpc {
   /**
    * A stub to allow clients to do asynchronous rpc calls to service WorkerService.
    * <pre>
-   * Hosted by iWF worker; server calls these RPCs.
+   * Hosted by Dex worker; server calls these RPCs.
    * </pre>
    */
   public static final class WorkerServiceStub
@@ -245,7 +245,7 @@ public final class WorkerServiceGrpc {
   /**
    * A stub to allow clients to do synchronous rpc calls to service WorkerService.
    * <pre>
-   * Hosted by iWF worker; server calls these RPCs.
+   * Hosted by Dex worker; server calls these RPCs.
    * </pre>
    */
   public static final class WorkerServiceBlockingStub
@@ -286,7 +286,7 @@ public final class WorkerServiceGrpc {
   /**
    * A stub to allow clients to do ListenableFuture-style rpc calls to service WorkerService.
    * <pre>
-   * Hosted by iWF worker; server calls these RPCs.
+   * Hosted by Dex worker; server calls these RPCs.
    * </pre>
    */
   public static final class WorkerServiceFutureStub
@@ -408,7 +408,7 @@ public final class WorkerServiceGrpc {
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.FileDescriptor getFileDescriptor() {
-      return io.superdurable.gen.IwfProto.getDescriptor();
+      return io.superdurable.gen.DexProto.getDescriptor();
     }
 
     @java.lang.Override

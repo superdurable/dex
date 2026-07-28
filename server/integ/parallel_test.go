@@ -28,9 +28,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/parallel"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/parallel"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -44,7 +44,7 @@ func TestParallelFlowTemporal(t *testing.T) {
 		doTestParallelFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -60,7 +60,7 @@ func TestParallelFlowCadence(t *testing.T) {
 		doTestParallelFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -69,30 +69,30 @@ func TestParallelFlowCadence(t *testing.T) {
 func doTestParallelFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := parallel.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := parallel.WorkflowType + "-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           parallel.WorkflowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      parallel.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		NeedsResults:    true,
 		WaitTimeSeconds: 30,
@@ -119,8 +119,8 @@ func doTestParallelFlow(
 		"S122_execute": 1,
 	}, history, "parallel test fail, %v", history)
 
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
-	expectedResults := []*iwfpb.StepCompletionOutput{
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	expectedResults := []*dexpb.StepCompletionOutput{
 		{
 			CompletedStepType:        parallel.State13,
 			CompletedStepExecutionId: parallel.State13 + "-1",
@@ -169,9 +169,9 @@ func doTestParallelFlow(
 }
 
 func findParallelResult(
-	results []*iwfpb.StepCompletionOutput,
-	expected *iwfpb.StepCompletionOutput,
-) *iwfpb.StepCompletionOutput {
+	results []*dexpb.StepCompletionOutput,
+	expected *dexpb.StepCompletionOutput,
+) *dexpb.StepCompletionOutput {
 	for _, result := range results {
 		if result.GetCompletedStepType() == expected.GetCompletedStepType() &&
 			result.GetCompletedStepExecutionId() == expected.GetCompletedStepExecutionId() {

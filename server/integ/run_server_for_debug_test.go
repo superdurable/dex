@@ -24,13 +24,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/service"
 )
 
 // remove the underscore to run
 // nolint
 func _TestNothingButJustRunningTheServiceTemporalWorkerForDebug(t *testing.T) {
-	startIwfService(t, IwfServiceTestConfig{
+	startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	time.Sleep(time.Hour)

@@ -24,8 +24,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 )
 
 type UnifiedClient interface {
@@ -46,15 +46,15 @@ type UnifiedClient interface {
 		args ...interface{},
 	) error
 	DescribeWorkflowExecution(
-		ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]iwfpb.IndexType,
+		ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]dexpb.IndexType,
 	) (*DescribeWorkflowExecutionResponse, error)
 	GetWorkflowResult(
 		ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-	) (resolvedRunID string, status iwfpb.FlowStatus, err error)
+	) (resolvedRunID string, status dexpb.FlowStatus, err error)
 	SynchronousUpdateWorkflow(
 		ctx context.Context, valuePtr interface{}, workflowID, runID, updateType string, input interface{},
 	) error
-	ResetWorkflow(ctx context.Context, request *iwfpb.ResetFlowRequest) (runId string, err error)
+	ResetWorkflow(ctx context.Context, request *dexpb.ResetFlowRequest) (runId string, err error)
 	GetBackendType() (backendType service.BackendType)
 	GetApiService() interface{}
 }
@@ -74,9 +74,9 @@ type StartWorkflowOptions struct {
 	ID                       string
 	TaskQueue                string
 	WorkflowExecutionTimeout time.Duration
-	IdReusePolicy            *iwfpb.IdReusePolicy
+	IdReusePolicy            *dexpb.IdReusePolicy
 	CronSchedule             *string
-	RetryPolicy              *iwfpb.FlowRetryPolicy
+	RetryPolicy              *dexpb.FlowRetryPolicy
 	// SearchAttributes are Temporal/Cadence indexed fields (already encoded as backend values).
 	SearchAttributes   map[string]interface{}
 	Memo               map[string]interface{}
@@ -90,15 +90,15 @@ type ListWorkflowExecutionsRequest struct {
 }
 
 type ListWorkflowExecutionsResponse struct {
-	Executions    []*iwfpb.SearchFlowsResponseEntry
+	Executions    []*dexpb.SearchFlowsResponseEntry
 	NextPageToken []byte
 }
 
 type DescribeWorkflowExecutionResponse struct {
-	Status               iwfpb.FlowStatus
+	Status               dexpb.FlowStatus
 	RunId                string
 	FirstRunId           string
-	IndexedAttributes    map[string]*iwfpb.Value
-	Memos                map[string]*iwfpb.Value
+	IndexedAttributes    map[string]*dexpb.Value
+	Memos                map[string]*dexpb.Value
 	FlowStartedTimestamp int64
 }

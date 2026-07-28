@@ -7,8 +7,8 @@ alwaysApply: false
 # Server Error Handling
 
 - API failures that reach Gin handlers should use
-  `errors.ErrorAndStatus` from `github.com/superdurable/iwf/service/common/errors`
-  with an `iwfidl.ErrorSubStatus` and HTTP status code.
+  `errors.ErrorAndStatus` from `github.com/superdurable/dex/service/common/errors`
+  with an `dexpb.ErrorSubStatus` and HTTP status code.
 - Prefer constructors `NewErrorAndStatus` /
   `NewErrorAndStatusWithWorkerError` over ad-hoc status maps.
 - Propagate typed API errors to the handler boundary; do not invent parallel

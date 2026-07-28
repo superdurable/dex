@@ -1,10 +1,10 @@
-# iwf-sdk (Java)
+# dex-sdk (Java)
 
-Java SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
+Java SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 See [samples](../examples/java) for how to use this SDK to build your workflow.
 
-Maven coordinates: `io.superdurable:iwf-sdk` (namespace for domain [superdurable.io](https://superdurable.io)).
+Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable.io](https://superdurable.io)).
 
 ## Requirements
 
@@ -13,14 +13,14 @@ Maven coordinates: `io.superdurable:iwf-sdk` (namespace for domain [superdurable
 ## How to use
 
 After publish, artifacts appear on
-[Maven Central](https://repo1.maven.org/maven2/io/superdurable/iwf-sdk/)
-(and on [MVN Repository](https://mvnrepository.com/artifact/io.superdurable/iwf-sdk) with some delay).
-Javadoc: [javadoc.io](https://www.javadoc.io/doc/io.superdurable/iwf-sdk/latest/index.html).
+[Maven Central](https://repo1.maven.org/maven2/io/superdurable/dex-sdk/)
+(and on [MVN Repository](https://mvnrepository.com/artifact/io.superdurable/dex-sdk) with some delay).
+Javadoc: [javadoc.io](https://www.javadoc.io/doc/io.superdurable/dex-sdk/latest/index.html).
 
 ### Gradle
 
 ```gradle
-implementation 'io.superdurable:iwf-sdk:0.0.2'
+implementation 'io.superdurable:dex-sdk:0.0.2'
 ```
 
 ### Maven
@@ -28,7 +28,7 @@ implementation 'io.superdurable:iwf-sdk:0.0.2'
 ```xml
 <dependency>
     <groupId>io.superdurable</groupId>
-    <artifactId>iwf-sdk</artifactId>
+    <artifactId>dex-sdk</artifactId>
     <version>0.0.2</version>
 </dependency>
 ```
@@ -38,21 +38,21 @@ implementation 'io.superdurable:iwf-sdk:0.0.2'
 
 To implement a workflow, the two most core interfaces are
 
-* [Workflow interface](src/main/java/io/iworkflow/core/ObjectWorkflow.java)
+* [Workflow interface](src/main/java/io/dex/core/ObjectWorkflow.java)
   defines the workflow definition
 
-* [WorkflowState interface](src/main/java/io/iworkflow/core/WorkflowState.java)
+* [WorkflowState interface](src/main/java/io/dex/core/WorkflowState.java)
   defines the workflow states for workflow definitions
 
 A workflow can contain any number of WorkflowStates.
 
-See more in https://github.com/superdurable/iwf#what-is-iwf
+See more in https://github.com/superdurable/dex#what-is-dex
 
 ## How to build & run
 
 ### Using IntelliJ
 
-1. Protobuf IDL lives in monorepo [`protos/iwf.proto`](../protos/iwf.proto) (no submodule checkout needed).
+1. Protobuf IDL lives in monorepo [`protos/dex.proto`](../protos/dex.proto) (no submodule checkout needed).
 2. In "Build, Execution, Deployment" -> "Gradle", choose "wrapper task in Gradle build script" for "Use gradle from".
 3. Open Gradle tab, click "build" under "build" to build the project
 
@@ -60,11 +60,11 @@ See more in https://github.com/superdurable/iwf#what-is-iwf
 
 ### Update IDL
 
-Edit [`protos/iwf.proto`](../protos/iwf.proto), then run `make -C ../protos proto` to refresh checked-in stubs under `src/main/java/io/superdurable/gen/`.
+Edit [`protos/dex.proto`](../protos/dex.proto), then run `make -C ../protos proto` to refresh checked-in stubs under `src/main/java/io/superdurable/gen/`.
 
 ### Local testing
 
-If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/iwf/tree/main/examples/java) repo, 
+If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
 use the local publishing command:
 
 1. Run:
@@ -72,7 +72,7 @@ use the local publishing command:
   ./gradlew publishToMavenLocal -x signMavenJavaPublication
   ```
 
-2. In the [samples](https://github.com/superdurable/iwf/tree/main/examples/java) repo, make sure your `build.gradle` depends on the same version you just published. To find which version you published, open the SDK's `build.gradle` file and look for the `version = "x.y.z"` line near the bottom of the file. Then run:
+2. In the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, make sure your `build.gradle` depends on the same version you just published. To find which version you published, open the SDK's `build.gradle` file and look for the `version = "x.y.z"` line near the bottom of the file. Then run:
   ```
    ./gradlew --refresh-dependencies build
   ```
@@ -84,11 +84,11 @@ use the local publishing command:
 
 ### Repo structure
 * `.github/workflows/`: the GithubActions workflows
-* IDL source lives in monorepo [`protos/iwf.proto`](../protos/iwf.proto) (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
+* IDL source lives in monorepo [`protos/dex.proto`](../protos/dex.proto) (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * Generated stubs: `src/main/java/io/superdurable/gen/`
 * `script/`: some scripts for GithubActions and testing
 * `src/`: Java source code
-  * `main/java/io/iworkflow/core/`: SDK code
+  * `main/java/io/dex/core/`: SDK code
     * `command/`: the command implementation
     * `communication/`: the communication implementation
     * `mapper/`: the mapper with IDL
@@ -96,11 +96,11 @@ use the local publishing command:
     * `validator/`: some validators
     * `Client.java`: the client implemntation
     * `...java` ...
-  * `test/java/io/iworkflow/`: Java test code (currently only integ test)
+  * `test/java/io/dex/`: Java test code (currently only integ test)
     * `spring/`: the integ test setup of using Spring as REST controller
     * `integ/`: the integration tests
       * `XyzTest.java`: a file for test cases
-      * `xyz/`: the iWF workflow implementation for the integration test cases
+      * `xyz/`: the Dex workflow implementation for the integration test cases
 
 # Development Plan
 

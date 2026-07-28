@@ -22,12 +22,12 @@ package wf_force_fail
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 )
 
 /**
@@ -43,13 +43,13 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
-var testStepInput = &iwfpb.Value{
-	Kind: &iwfpb.Value_ObjValue{
-		ObjValue: &iwfpb.EncodedObject{
+var testStepInput = &dexpb.Value{
+	Kind: &dexpb.Value_ObjValue{
+		ObjValue: &dexpb.EncodedObject{
 			Encoding: "test-encoding",
 			Payload:  []byte("test-data"),
 		},
@@ -64,8 +64,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() != FlowType {
@@ -79,7 +79,7 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if request.GetStepType() == Step1 {
-		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{}, nil
 	}
 
 	panic("should not get here")
@@ -87,8 +87,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() != FlowType || request.GetStepType() != Step1 {
@@ -101,9 +101,9 @@ func (h *handler) InvokeExecuteMethod(
 		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 	}
 
-	return &iwfpb.InvokeExecuteMethodResponse{
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{
 					StepType:  service.ForceFailingFlowStepType,
 					StepInput: testStepInput,

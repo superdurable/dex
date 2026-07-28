@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wf_ignore_already_started"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wf_ignore_already_started"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -42,7 +42,7 @@ func TestIgnoreAlreadyStartedFlowTemporal(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, nil, true)
 		smallWaitForFastTest()
 
-		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, &iwfpb.FlowAlreadyStartedOptions{
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, &dexpb.FlowAlreadyStartedOptions{
 			IgnoreAlreadyStartedError: true,
 		}, false)
 		smallWaitForFastTest()
@@ -50,8 +50,8 @@ func TestIgnoreAlreadyStartedFlowTemporal(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(
 			t,
 			service.BackendTypeTemporal,
-			&iwfpb.FlowAlreadyStartedOptions{RequestId: "test"},
-			&iwfpb.FlowAlreadyStartedOptions{
+			&dexpb.FlowAlreadyStartedOptions{RequestId: "test"},
+			&dexpb.FlowAlreadyStartedOptions{
 				IgnoreAlreadyStartedError: true,
 				RequestId:                 "test",
 			},
@@ -62,8 +62,8 @@ func TestIgnoreAlreadyStartedFlowTemporal(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(
 			t,
 			service.BackendTypeTemporal,
-			&iwfpb.FlowAlreadyStartedOptions{RequestId: "test1"},
-			&iwfpb.FlowAlreadyStartedOptions{
+			&dexpb.FlowAlreadyStartedOptions{RequestId: "test1"},
+			&dexpb.FlowAlreadyStartedOptions{
 				IgnoreAlreadyStartedError: true,
 				RequestId:                 "test2",
 			},
@@ -81,7 +81,7 @@ func TestIgnoreAlreadyStartedFlowCadence(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, nil, true)
 		smallWaitForFastTest()
 
-		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, &iwfpb.FlowAlreadyStartedOptions{
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, &dexpb.FlowAlreadyStartedOptions{
 			IgnoreAlreadyStartedError: true,
 		}, false)
 		smallWaitForFastTest()
@@ -89,8 +89,8 @@ func TestIgnoreAlreadyStartedFlowCadence(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(
 			t,
 			service.BackendTypeCadence,
-			&iwfpb.FlowAlreadyStartedOptions{RequestId: "test"},
-			&iwfpb.FlowAlreadyStartedOptions{
+			&dexpb.FlowAlreadyStartedOptions{RequestId: "test"},
+			&dexpb.FlowAlreadyStartedOptions{
 				IgnoreAlreadyStartedError: true,
 				RequestId:                 "test",
 			},
@@ -101,8 +101,8 @@ func TestIgnoreAlreadyStartedFlowCadence(t *testing.T) {
 		doIgnoreAlreadyStartedFlow(
 			t,
 			service.BackendTypeCadence,
-			&iwfpb.FlowAlreadyStartedOptions{RequestId: "test1"},
-			&iwfpb.FlowAlreadyStartedOptions{
+			&dexpb.FlowAlreadyStartedOptions{RequestId: "test1"},
+			&dexpb.FlowAlreadyStartedOptions{
 				IgnoreAlreadyStartedError: true,
 				RequestId:                 "test2",
 			},
@@ -115,12 +115,12 @@ func TestIgnoreAlreadyStartedFlowCadence(t *testing.T) {
 func doIgnoreAlreadyStartedFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	firstReqConfig *iwfpb.FlowAlreadyStartedOptions,
-	secondReqConfig *iwfpb.FlowAlreadyStartedOptions,
+	firstReqConfig *dexpb.FlowAlreadyStartedOptions,
+	secondReqConfig *dexpb.FlowAlreadyStartedOptions,
 	errorExpected bool,
 ) {
 	workerTarget := startWorker(t, wf_ignore_already_started.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -138,7 +138,7 @@ func doIgnoreAlreadyStartedFlow(
 		require.Equal(t, codes.AlreadyExists, status.Code(err))
 		require.Equal(
 			t,
-			iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
 			grpcErrorResponse(t, err).GetSubStatus(),
 		)
 	} else {
@@ -146,9 +146,9 @@ func doIgnoreAlreadyStartedFlow(
 		require.Equal(t, firstRes.GetRunId(), secondRes.GetRunId())
 	}
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }
@@ -156,15 +156,15 @@ func doIgnoreAlreadyStartedFlow(
 func createStartFlowRequest(
 	flowId string,
 	workerTarget string,
-	options *iwfpb.FlowAlreadyStartedOptions,
-) *iwfpb.StartFlowRequest {
-	return &iwfpb.StartFlowRequest{
+	options *dexpb.FlowAlreadyStartedOptions,
+) *dexpb.StartFlowRequest {
+	return &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_ignore_already_started.FlowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      wf_ignore_already_started.Step1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowAlreadyStartedOptions: options,
 		},
 	}

@@ -23,17 +23,17 @@ package config
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 )
 
 // FlowConfiger holds one execution's effective configuration.
 type FlowConfiger struct {
-	config *iwfpb.FlowConfig
+	config *dexpb.FlowConfig
 }
 
 // NewFlowConfiger validates the ownership-transferred configuration.
-func NewFlowConfiger(config *iwfpb.FlowConfig) *FlowConfiger {
+func NewFlowConfiger(config *dexpb.FlowConfig) *FlowConfiger {
 	if config == nil {
 		panic("FlowConfiger requires a non-nil FlowConfig")
 	}
@@ -44,7 +44,7 @@ func NewFlowConfiger(config *iwfpb.FlowConfig) *FlowConfiger {
 }
 
 // UpdateByAPI applies fields present in the validated request.
-func (fc *FlowConfiger) UpdateByAPI(config *iwfpb.FlowConfig) error {
+func (fc *FlowConfiger) UpdateByAPI(config *dexpb.FlowConfig) error {
 	if config == nil {
 		return fmt.Errorf("UpdateFlowConfig requires a non-nil FlowConfig")
 	}
@@ -67,7 +67,7 @@ func (fc *FlowConfiger) UpdateByAPI(config *iwfpb.FlowConfig) error {
 }
 
 // Get returns the immutable configuration.
-func (fc *FlowConfiger) Get() *iwfpb.FlowConfig {
+func (fc *FlowConfiger) Get() *dexpb.FlowConfig {
 	return fc.config
 }
 
@@ -86,46 +86,46 @@ func (fc *FlowConfiger) EffectiveContinueAsNewPageSizeInBytes() int32 {
 }
 
 // EffectiveActiveStepSearchMode resolves UNSPECIFIED to the wait-for default.
-func (fc *FlowConfiger) EffectiveActiveStepSearchMode() iwfpb.ActiveStepSearchMode {
-	if fc.config.GetActiveStepSearchMode() == iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED {
-		return iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+func (fc *FlowConfiger) EffectiveActiveStepSearchMode() dexpb.ActiveStepSearchMode {
+	if fc.config.GetActiveStepSearchMode() == dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED {
+		return dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
 	}
 	return fc.config.GetActiveStepSearchMode()
 }
 
 // ResolveWaitForDurability resolves the durability for a step's WaitFor activity.
-func (fc *FlowConfiger) ResolveWaitForDurability(opts *iwfpb.StepOptions) iwfpb.StepDurability {
+func (fc *FlowConfiger) ResolveWaitForDurability(opts *dexpb.StepOptions) dexpb.StepDurability {
 	return resolveDurability(opts.GetWaitForDurabilityOverride(), fc.config.GetStepDurability())
 }
 
 // ResolveExecuteDurability resolves the durability for a step's Execute activity.
-func (fc *FlowConfiger) ResolveExecuteDurability(opts *iwfpb.StepOptions) iwfpb.StepDurability {
+func (fc *FlowConfiger) ResolveExecuteDurability(opts *dexpb.StepOptions) dexpb.StepDurability {
 	return resolveDurability(opts.GetExecuteDurabilityOverride(), fc.config.GetStepDurability())
 }
 
 // resolveDurability applies step, flow, then synchronous precedence.
-func resolveDurability(override, flowLevel iwfpb.StepDurability) iwfpb.StepDurability {
-	if override != iwfpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
+func resolveDurability(override, flowLevel dexpb.StepDurability) dexpb.StepDurability {
+	if override != dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
 		return override
 	}
-	if flowLevel != iwfpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
+	if flowLevel != dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
 		return flowLevel
 	}
-	return iwfpb.StepDurability_STEP_DURABILITY_SYNC
+	return dexpb.StepDurability_STEP_DURABILITY_SYNC
 }
 
 // ValidateFlowConfig rejects negative sizes and unknown enum numbers.
-func ValidateFlowConfig(c *iwfpb.FlowConfig) error {
+func ValidateFlowConfig(c *dexpb.FlowConfig) error {
 	if c.GetContinueAsNewThreshold() < 0 {
 		return fmt.Errorf("continue_as_new_threshold must be >= 0, got %d", c.GetContinueAsNewThreshold())
 	}
 	if c.GetContinueAsNewPageSizeInBytes() < 0 {
 		return fmt.Errorf("continue_as_new_page_size_in_bytes must be >= 0, got %d", c.GetContinueAsNewPageSizeInBytes())
 	}
-	if _, ok := iwfpb.StepDurability_name[int32(c.GetStepDurability())]; !ok {
+	if _, ok := dexpb.StepDurability_name[int32(c.GetStepDurability())]; !ok {
 		return fmt.Errorf("unknown step_durability enum value %d", c.GetStepDurability())
 	}
-	if _, ok := iwfpb.ActiveStepSearchMode_name[int32(c.GetActiveStepSearchMode())]; !ok {
+	if _, ok := dexpb.ActiveStepSearchMode_name[int32(c.GetActiveStepSearchMode())]; !ok {
 		return fmt.Errorf("unknown active_step_search_mode enum value %d", c.GetActiveStepSearchMode())
 	}
 	return nil

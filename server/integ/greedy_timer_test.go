@@ -29,10 +29,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/greedy_timer"
-	"github.com/superdurable/iwf/service"
-	uclient "github.com/superdurable/iwf/service/client"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/greedy_timer"
+	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
 )
 
 func TestGreedyTimerFlowBaseTemporal(t *testing.T) {
@@ -82,12 +82,12 @@ func doTestGreedyTimerFlow(t *testing.T, backendType service.BackendType) {
 func doTestGreedyTimerFlowCustomConfig(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	assertions := assert.New(t)
 	workerHandler := greedy_timer.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 	unifiedClient := runtime.UnifiedClient
 
@@ -100,14 +100,14 @@ func doTestGreedyTimerFlowCustomConfig(
 	inputData, err := json.Marshal(input)
 	require.NoError(t, err)
 
-	_, err = flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err = flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           greedy_timer.WorkflowType,
 		FlowTimeoutSeconds: 30,
 		WorkerTarget:       workerTarget,
 		StartStepType:      greedy_timer.ScheduleTimerState,
 		StepInput:          encodedObjectValue("json", inputData),
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -115,7 +115,7 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	time.Sleep(time.Second)
 
-	debug := &iwfpb.DebugDumpResponse{}
+	debug := &dexpb.DebugDumpResponse{}
 	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
 	assertions.Equal(1, len(debug.GetFiringTimersUnixTimestamps()))
@@ -123,7 +123,7 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 20, 1)
 
-	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+	_, err = flowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
 		FlowId:           flowId,
 		StepExecutionId:  greedy_timer.ScheduleTimerState + "-1",
 		TimerConditionId: "duration-15",
@@ -138,7 +138,7 @@ func doTestGreedyTimerFlowCustomConfig(
 	assertions.LessOrEqual(singleTimerScheduled, debug.GetFiringTimersUnixTimestamps()[0])
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 5, 2)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 30,
 	})
@@ -153,7 +153,7 @@ func doTestGreedyTimerFlowCustomConfig(
 
 func scheduleTimerAndAssertExpectedScheduled(
 	t *testing.T,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	unifiedClient uclient.UnifiedClient,
 	flowId string,
 	duration int64,
@@ -167,7 +167,7 @@ func scheduleTimerAndAssertExpectedScheduled(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		FlowId:         flowId,
 		RpcName:        greedy_timer.SubmitDurationsRPC,
 		Input:          encodedObjectValue("json", inputData),
@@ -177,7 +177,7 @@ func scheduleTimerAndAssertExpectedScheduled(
 
 	time.Sleep(time.Second)
 
-	debug := &iwfpb.DebugDumpResponse{}
+	debug := &dexpb.DebugDumpResponse{}
 	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
 	assertions.LessOrEqual(len(debug.GetFiringTimersUnixTimestamps()), noMoreThan)

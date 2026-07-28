@@ -23,10 +23,10 @@ package timers
 import (
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
-func removeElement(s []*iwfpb.StaleSkipTimer, i int) []*iwfpb.StaleSkipTimer {
+func removeElement(s []*dexpb.StaleSkipTimer, i int) []*dexpb.StaleSkipTimer {
 	s[i] = s[len(s)-1]
 	return s[:len(s)-1]
 }
@@ -35,11 +35,11 @@ func removeElement(s []*iwfpb.StaleSkipTimer, i int) []*iwfpb.StaleSkipTimer {
 // This prevents time drift after continueAsNew.
 func FixTimerConditionFromActivityOutput(
 	now time.Time,
-	waitingCondition *iwfpb.WaitingCondition,
-) *iwfpb.WaitingCondition {
-	var timerConditions []*iwfpb.TimerCondition
+	waitingCondition *dexpb.WaitingCondition,
+) *dexpb.WaitingCondition {
+	var timerConditions []*dexpb.TimerCondition
 	for _, timerCondition := range waitingCondition.GetTimerConditions() {
-		timerConditions = append(timerConditions, &iwfpb.TimerCondition{
+		timerConditions = append(timerConditions, &dexpb.TimerCondition{
 			ConditionId: timerCondition.ConditionId,
 			FiringUnixTimestampSeconds: now.Unix() +
 				timerCondition.GetDurationSeconds(),

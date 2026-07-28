@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/errors"
-	"github.com/superdurable/iwf/service/common/log/tag"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/errors"
+	"github.com/superdurable/dex/service/common/log/tag"
 	"google.golang.org/grpc/codes"
 )
 
@@ -51,7 +51,7 @@ func CapturePanic(errPanic interface{}, logger Logger, retError **errors.ErrorAn
 		if retError != nil {
 			*retError = errors.NewErrorAndStatus(
 				codes.Internal,
-				iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 				err.Error(),
 			)
 		}

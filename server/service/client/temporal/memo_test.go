@@ -25,7 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 )
@@ -83,11 +83,11 @@ func TestGetMemoAndDecryptIfNeeded(t *testing.T) {
 	cryptoConverter := converter.NewCodecDataConverter(converter.GetDefaultDataConverter(), &testEncryptionCodec{})
 	client := &temporalClient{dataConverter: cryptoConverter, memoEncryption: true}
 
-	encoded := &iwfpb.EncodedObject{
+	encoded := &dexpb.EncodedObject{
 		Encoding: "json",
 		Payload:  []byte("TestValue"),
 	}
-	expected := &iwfpb.Value{Kind: &iwfpb.Value_ObjValue{ObjValue: encoded}}
+	expected := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: encoded}}
 
 	innerPayload, err := cryptoConverter.ToPayload(encoded)
 	require.NoError(t, err)

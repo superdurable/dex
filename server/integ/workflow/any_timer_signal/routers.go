@@ -25,9 +25,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -50,7 +50,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -64,8 +64,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -76,35 +76,35 @@ func (h *handler) InvokeWaitForMethod(
 		}
 
 		if request.GetStepType() == State1 {
-			var timerConditions []*iwfpb.TimerCondition
+			var timerConditions []*dexpb.TimerCondition
 			stepContext := request.GetContext()
 
 			if stepContext.GetStepExecutionId() == State1+"-"+"1" {
-				timerConditions = []*iwfpb.TimerCondition{
+				timerConditions = []*dexpb.TimerCondition{
 					{
 						DurationSeconds: 1,
 					},
 				}
 			}
 
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					ChannelConditions: []*iwfpb.ChannelCondition{
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					ChannelConditions: []*dexpb.ChannelCondition{
 						{
 							ConditionId: "signal-cmd-id",
 							ChannelName: SignalName,
 						},
 					},
 					TimerConditions:      timerConditions,
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 				},
 			}, nil
 		}
 
 		if request.GetStepType() == State2 {
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
 			}, nil
 		}
@@ -115,8 +115,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -128,31 +128,31 @@ func (h *handler) InvokeExecuteMethod(
 
 		if request.GetStepType() == State1 {
 			channelResults := request.GetConditionResults().GetChannelResults()
-			var nextSteps []*iwfpb.StepMovement
+			var nextSteps []*dexpb.StepMovement
 
 			stepContext := request.GetContext()
 			if stepContext.GetStepExecutionId() == State1+"-"+"1" {
 				h.invokeData.Store("signalChannelName1", channelResults[0].GetChannelName())
 				h.invokeData.Store("signalCommandId1", channelResults[0].GetConditionId())
 				h.invokeData.Store("signalStatus1", channelResults[0].GetConditionStatus())
-				nextSteps = []*iwfpb.StepMovement{{StepType: State1}}
+				nextSteps = []*dexpb.StepMovement{{StepType: State1}}
 			} else {
 				h.invokeData.Store("signalChannelName2", channelResults[0].GetChannelName())
 				h.invokeData.Store("signalCommandId2", channelResults[0].GetConditionId())
 				h.invokeData.Store("signalStatus2", channelResults[0].GetConditionStatus())
 				h.invokeData.Store("signalValue2", channelResults[0].GetValues())
-				nextSteps = []*iwfpb.StepMovement{{StepType: State2}}
+				nextSteps = []*dexpb.StepMovement{{StepType: State2}}
 			}
 
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
 					NextSteps: nextSteps,
 				},
 			}, nil
 		} else if request.GetStepType() == State2 {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: service.GracefulCompletingFlowStepType},
 					},
 				},

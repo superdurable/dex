@@ -1,4 +1,4 @@
-module github.com/superdurable/iwf/sdk-go
+module github.com/superdurable/dex/sdk-go
 
 go 1.24.0
 

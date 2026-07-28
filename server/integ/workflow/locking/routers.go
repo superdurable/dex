@@ -23,14 +23,14 @@ package locking
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -72,7 +72,7 @@ const (
 
 var testValue = jsonObjValue("data")
 
-var state2StepOptions = &iwfpb.StepOptions{
+var state2StepOptions = &dexpb.StepOptions{
 	WaitForLockAttributeKeys: []string{
 		TestSearchAttributeIntKey,
 		TestDataAttributeKey1,
@@ -84,7 +84,7 @@ var state2StepOptions = &iwfpb.StepOptions{
 }
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	rpcInvokes    int32
 }
@@ -97,8 +97,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
 
 	if request.GetFlowType() != WorkflowType || request.GetRpcName() != RPCName {
@@ -112,8 +112,8 @@ func (h *handler) InvokeWorkerRPC(
 	inputPayload := string(inputObj.GetPayload())
 
 	if inputPayload == ShouldUnblockStateWaiting {
-		return &iwfpb.InvokeWorkerRPCResponse{
-			PublishToChannel: []*iwfpb.ChannelMessage{
+		return &dexpb.InvokeWorkerRPCResponse{
+			PublishToChannel: []*dexpb.ChannelMessage{
 				{
 					ChannelName: InternalChannelName,
 					Value:       testValue,
@@ -146,7 +146,7 @@ func (h *handler) InvokeWorkerRPC(
 	saInt++
 
 	stepContext := request.GetContext()
-	upsertAttributes := []*iwfpb.AttributeWrite{
+	upsertAttributes := []*dexpb.AttributeWrite{
 		indexedKeywordWrite(TestSearchAttributeKeywordKey, stepContext.GetStepExecutionId()),
 		indexedIntWrite(TestSearchAttributeIntKey, saInt),
 	}
@@ -171,10 +171,10 @@ func (h *handler) InvokeWorkerRPC(
 		dataObjectWrite(TestDataAttributeKey2, stepContext.GetStepExecutionId()),
 	)
 
-	return &iwfpb.InvokeWorkerRPCResponse{
+	return &dexpb.InvokeWorkerRPCResponse{
 		Output: testValue,
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{
 					StepType:    State2,
 					StepOptions: state2StepOptions,
@@ -182,10 +182,10 @@ func (h *handler) InvokeWorkerRPC(
 			},
 		},
 		UpsertAttributes: upsertAttributes,
-		RecordEvents: []*iwfpb.KV{
+		RecordEvents: []*dexpb.KV{
 			{Key: "test-key", Value: testValue},
 		},
-		PublishToChannel: []*iwfpb.ChannelMessage{
+		PublishToChannel: []*dexpb.ChannelMessage{
 			{
 				ChannelName: UnusedInternalChannelName,
 				Value:       testValue,
@@ -196,8 +196,8 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
@@ -212,16 +212,16 @@ func (h *handler) InvokeWaitForMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	case StateWaiting:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{ChannelName: InternalChannelName},
 				},
 			},
@@ -237,11 +237,11 @@ func (h *handler) InvokeWaitForMethod(
 		saInt++
 
 		stepContext := request.GetContext()
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				indexedKeywordWrite(TestSearchAttributeKeywordKey, stepContext.GetStepExecutionId()),
 				indexedIntWrite(TestSearchAttributeIntKey, saInt),
 			},
@@ -253,8 +253,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
@@ -269,22 +269,22 @@ func (h *handler) InvokeExecuteMethod(
 
 	switch request.GetStepType() {
 	case State1:
-		nextSteps := []*iwfpb.StepMovement{
+		nextSteps := []*dexpb.StepMovement{
 			{StepType: StateWaiting},
 		}
 		for i := 0; i < InParallelS2; i++ {
-			nextSteps = append(nextSteps, &iwfpb.StepMovement{
+			nextSteps = append(nextSteps, &dexpb.StepMovement{
 				StepType:    State2,
 				StepOptions: state2StepOptions,
 			})
 		}
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{NextSteps: nextSteps},
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{NextSteps: nextSteps},
 		}, nil
 	case StateWaiting:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -307,13 +307,13 @@ func (h *handler) InvokeExecuteMethod(
 		daInt++
 
 		stepContext := request.GetContext()
-		return &iwfpb.InvokeExecuteMethodResponse{
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+		return &dexpb.InvokeExecuteMethodResponse{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				dataObjectWrite(TestDataAttributeKey1, fmt.Sprintf("%v", daInt)),
 				dataObjectWrite(TestDataAttributeKey2, stepContext.GetStepExecutionId()),
 			},
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -340,7 +340,7 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func validateStepContext(stepContext *iwfpb.Context) error {
+func validateStepContext(stepContext *dexpb.Context) error {
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
 		return status.Error(
 			codes.InvalidArgument,
@@ -350,10 +350,10 @@ func validateStepContext(stepContext *iwfpb.Context) error {
 	return nil
 }
 
-func jsonObjValue(payload string) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func jsonObjValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte(payload),
 			},
@@ -361,7 +361,7 @@ func jsonObjValue(payload string) *iwfpb.Value {
 	}
 }
 
-func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+func objPayloadFromValue(value *dexpb.Value) (string, bool) {
 	if value == nil {
 		return "", false
 	}
@@ -372,34 +372,34 @@ func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
 	return string(objValue.GetPayload()), true
 }
 
-func indexedKeywordWrite(key, value string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedKeywordWrite(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_StringValue{StringValue: value},
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: value},
 		},
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+			Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		},
 	}
 }
 
-func indexedIntWrite(key string, value int64) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedIntWrite(key string, value int64) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key: key,
-		Value: &iwfpb.Value{
-			Kind: &iwfpb.Value_IntValue{IntValue: value},
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_IntValue{IntValue: value},
 		},
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_INT,
+			Type:   dexpb.IndexType_INDEX_TYPE_INT,
 		},
 	}
 }
 
-func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: jsonObjValue(payload),
 	}

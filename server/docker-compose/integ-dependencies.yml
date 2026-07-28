@@ -161,7 +161,7 @@ services:
     networks:
       - testing-network
   temporal-ui:
-    container_name: temporal-ui-iwf
+    container_name: temporal-ui-dex
     depends_on:
       - temporal
     environment:

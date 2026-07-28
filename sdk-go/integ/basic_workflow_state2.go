@@ -15,19 +15,19 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type basicWorkflowState2 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 
-func (b basicWorkflowState2) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.EmptyCommandRequest(), nil
+func (b basicWorkflowState2) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.EmptyCommandRequest(), nil
 }
 
-func (b basicWorkflowState2) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b basicWorkflowState2) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var i int
 	input.Get(&i)
-	return iwf.GracefulCompleteWorkflow(i + 1), nil
+	return dex.GracefulCompleteWorkflow(i + 1), nil
 }

@@ -20,21 +20,21 @@
 
 package interpreter
 
-import "github.com/superdurable/iwf/gen/iwfpb"
+import "github.com/superdurable/dex/gen/dexpb"
 
 type StepRequest struct {
-	stepStartRequest  *iwfpb.StepMovement
-	stepResumeRequest *iwfpb.StepExecutionResumeInfo
+	stepStartRequest  *dexpb.StepMovement
+	stepResumeRequest *dexpb.StepExecutionResumeInfo
 }
 
-func NewStepStartRequest(movement *iwfpb.StepMovement) StepRequest {
+func NewStepStartRequest(movement *dexpb.StepMovement) StepRequest {
 	if movement == nil {
 		panic("step start request requires a movement")
 	}
 	return StepRequest{stepStartRequest: movement}
 }
 
-func NewStepResumeRequest(resumeRequest *iwfpb.StepExecutionResumeInfo) StepRequest {
+func NewStepResumeRequest(resumeRequest *dexpb.StepExecutionResumeInfo) StepRequest {
 	if resumeRequest == nil || resumeRequest.GetStep() == nil {
 		panic("step resume request requires resume info and a movement")
 	}
@@ -44,14 +44,14 @@ func NewStepResumeRequest(resumeRequest *iwfpb.StepExecutionResumeInfo) StepRequ
 	return StepRequest{stepResumeRequest: resumeRequest}
 }
 
-func (sq StepRequest) GetStepStartRequest() *iwfpb.StepMovement {
+func (sq StepRequest) GetStepStartRequest() *dexpb.StepMovement {
 	if sq.IsResumeRequest() {
 		panic("resume request has no start request")
 	}
 	return sq.stepStartRequest
 }
 
-func (sq StepRequest) GetStepResumeRequest() *iwfpb.StepExecutionResumeInfo {
+func (sq StepRequest) GetStepResumeRequest() *dexpb.StepExecutionResumeInfo {
 	if !sq.IsResumeRequest() {
 		panic("start request has no resume request")
 	}
@@ -62,7 +62,7 @@ func (sq StepRequest) IsResumeRequest() bool {
 	return sq.stepResumeRequest != nil
 }
 
-func (sq StepRequest) GetStepMovement() *iwfpb.StepMovement {
+func (sq StepRequest) GetStepMovement() *dexpb.StepMovement {
 	if sq.IsResumeRequest() {
 		return sq.stepResumeRequest.GetStep()
 	}

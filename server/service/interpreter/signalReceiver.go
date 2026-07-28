@@ -21,12 +21,12 @@
 package interpreter
 
 import (
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/cont"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type SignalReceiver struct {
@@ -68,7 +68,7 @@ func NewSignalReceiver(
 		for {
 			ch := provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
 
-			val := iwfpb.FailFlowSignalRequest{}
+			val := dexpb.FailFlowSignalRequest{}
 			received := false
 			err := provider.Await(ctx, func() bool {
 				received = ch.ReceiveAsync(&val)
@@ -95,7 +95,7 @@ func NewSignalReceiver(
 	provider.GoNamed(ctx, "skip-timer-system-signal-handler", func(ctx interfaces.UnifiedContext) {
 		for {
 			ch := provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
-			val := iwfpb.SkipTimerSignalRequest{}
+			val := dexpb.SkipTimerSignalRequest{}
 
 			received := false
 			err := provider.Await(ctx, func() bool {
@@ -126,7 +126,7 @@ func NewSignalReceiver(
 	provider.GoNamed(ctx, "update-config-system-signal-handler", func(ctx interfaces.UnifiedContext) {
 		for {
 			ch := provider.GetSignalChannel(ctx, service.UpdateConfigSignalChannelName)
-			val := iwfpb.UpdateFlowConfigRequest{}
+			val := dexpb.UpdateFlowConfigRequest{}
 
 			received := false
 			err := provider.Await(ctx, func() bool {
@@ -181,7 +181,7 @@ func NewSignalReceiver(
 	provider.GoNamed(ctx, "execute-rpc-signal-handler", func(ctx interfaces.UnifiedContext) {
 		for {
 			ch := provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
-			var val iwfpb.ExecuteRpcSignalRequest
+			var val dexpb.ExecuteRpcSignalRequest
 
 			received := false
 			err := provider.Await(ctx, func() bool {
@@ -229,7 +229,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 ) {
 	ch := sr.provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
 	for {
-		val := iwfpb.FailFlowSignalRequest{}
+		val := dexpb.FailFlowSignalRequest{}
 		if ch.ReceiveAsync(&val) {
 			sr.failFlowByClient = true
 			sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
@@ -240,7 +240,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 
 	ch = sr.provider.GetSignalChannel(ctx, service.SkipTimerSignalChannelName)
 	for {
-		val := iwfpb.SkipTimerSignalRequest{}
+		val := dexpb.SkipTimerSignalRequest{}
 		if ch.ReceiveAsync(&val) {
 			sr.timerProcessor.SkipTimer(
 				val.GetStepExecutionId(),
@@ -254,7 +254,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 
 	ch = sr.provider.GetSignalChannel(ctx, service.UpdateConfigSignalChannelName)
 	for {
-		val := iwfpb.UpdateFlowConfigRequest{}
+		val := dexpb.UpdateFlowConfigRequest{}
 		if ch.ReceiveAsync(&val) {
 			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
 				sr.failFlowByClient = true
@@ -267,7 +267,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 
 	ch = sr.provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
 	for {
-		val := iwfpb.ExecuteRpcSignalRequest{}
+		val := dexpb.ExecuteRpcSignalRequest{}
 		if ch.ReceiveAsync(&val) {
 			if err := sr.persistenceManager.ApplyAttributeWrites(
 				ctx,
@@ -295,7 +295,7 @@ func (sr *SignalReceiver) IsFailWorkFlowRequested() (bool, error) {
 	}
 	if sr.failFlowByClient {
 		return true, sr.provider.NewWorkflowError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 			reason,
 		)
 	}

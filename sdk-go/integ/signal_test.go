@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,15 +46,15 @@ func TestSignalWorkflow(t *testing.T) {
 	assert.Equal(t, 100, output)
 
 	err = client.SignalWorkflow(context.Background(), &signalWorkflow{}, "a wrong workflowId", "", testChannelName1, 100)
-	assert.True(t, iwf.IsWorkflowNotExistsError(err))
+	assert.True(t, dex.IsWorkflowNotExistsError(err))
 }
 
 func TestSignalWorkflowWithUntypedClient(t *testing.T) {
-	unregisteredClient := iwf.NewUnregisteredClient(nil)
+	unregisteredClient := dex.NewUnregisteredClient(nil)
 
-	wfType := iwf.GetFinalWorkflowType(&signalWorkflow{})
+	wfType := dex.GetFinalWorkflowType(&signalWorkflow{})
 	wfId := "TestSignalWorkflowWithUntypedClient" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := unregisteredClient.StartWorkflow(context.Background(), wfType, iwf.GetFinalWorkflowStateId(signalWorkflowState1{}), wfId, 10, nil, nil)
+	runId, err := unregisteredClient.StartWorkflow(context.Background(), wfType, dex.GetFinalWorkflowStateId(signalWorkflowState1{}), wfId, 10, nil, nil)
 	assert.Nil(t, err)
 	assert.NotEmpty(t, runId)
 	err = unregisteredClient.SignalWorkflow(context.Background(), wfId, "", testChannelName2, 10)
@@ -65,7 +65,7 @@ func TestSignalWorkflowWithUntypedClient(t *testing.T) {
 	err = unregisteredClient.SignalWorkflow(context.Background(), wfId, "", testChannelName1, 100)
 	assert.Nil(t, err)
 
-	err = unregisteredClient.SkipTimerByCommandIndex(context.Background(), wfId, "", iwf.GetFinalWorkflowStateId(signalWorkflowState2{}), 1, 0)
+	err = unregisteredClient.SkipTimerByCommandIndex(context.Background(), wfId, "", dex.GetFinalWorkflowStateId(signalWorkflowState2{}), 1, 0)
 	assert.Nil(t, err)
 
 	var output int

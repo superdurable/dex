@@ -26,8 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/grpctarget"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/grpctarget"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -93,7 +93,7 @@ func defaultDial(ctx context.Context, target string, opts ...grpc.DialOption) (*
 }
 
 // Acquire returns a WorkerService client for target. Call release when the RPC finishes.
-func (p *Pool) Acquire(ctx context.Context, target string) (iwfpb.WorkerServiceClient, context.Context, func(), error) {
+func (p *Pool) Acquire(ctx context.Context, target string) (dexpb.WorkerServiceClient, context.Context, func(), error) {
 	normalized, err := grpctarget.NormalizeWorkerTarget(target)
 	if err != nil {
 		return nil, ctx, nil, err
@@ -108,7 +108,7 @@ func (p *Pool) Acquire(ctx context.Context, target string) (iwfpb.WorkerServiceC
 		existing.refs++
 		conn := existing.conn
 		p.mu.Unlock()
-		return iwfpb.NewWorkerServiceClient(conn), p.withHeaders(ctx), p.releaseFunc(normalized), nil
+		return dexpb.NewWorkerServiceClient(conn), p.withHeaders(ctx), p.releaseFunc(normalized), nil
 	}
 	p.mu.Unlock()
 
@@ -129,7 +129,7 @@ func (p *Pool) Acquire(ctx context.Context, target string) (iwfpb.WorkerServiceC
 		return nil, ctx, nil, fmt.Errorf("workerclient: connection missing after dial")
 	}
 	entry.refs++
-	return iwfpb.NewWorkerServiceClient(entry.conn), p.withHeaders(ctx), p.releaseFunc(normalized), nil
+	return dexpb.NewWorkerServiceClient(entry.conn), p.withHeaders(ctx), p.releaseFunc(normalized), nil
 }
 
 func (p *Pool) createConn(ctx context.Context, normalized string) error {

@@ -31,21 +31,21 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/cmd/server/iwf"
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/api"
-	uclient "github.com/superdurable/iwf/service/client"
-	cadenceapi "github.com/superdurable/iwf/service/client/cadence"
-	temporalapi "github.com/superdurable/iwf/service/client/temporal"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	iwfconverter "github.com/superdurable/iwf/service/common/converter"
-	"github.com/superdurable/iwf/service/common/log"
-	"github.com/superdurable/iwf/service/common/log/loggerimpl"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/interpreter/cadence"
-	"github.com/superdurable/iwf/service/interpreter/temporal"
+	"github.com/superdurable/dex/cmd/server/dex"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/api"
+	uclient "github.com/superdurable/dex/service/client"
+	cadenceapi "github.com/superdurable/dex/service/client/cadence"
+	temporalapi "github.com/superdurable/dex/service/client/temporal"
+	"github.com/superdurable/dex/service/common/blobstore"
+	dexconverter "github.com/superdurable/dex/service/common/converter"
+	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/interpreter/cadence"
+	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"google.golang.org/grpc"
@@ -55,9 +55,9 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// integRuntime is the in-process gRPC iWF stack started for one test.
+// integRuntime is the in-process gRPC Dex stack started for one test.
 type integRuntime struct {
-	FlowClient    iwfpb.FlowServiceClient
+	FlowClient    dexpb.FlowServiceClient
 	UnifiedClient uclient.UnifiedClient
 	BlobStore     blobstore.BlobStore
 
@@ -90,7 +90,7 @@ func newInternalDumpHeaderCaptureInterceptor(
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		if info.FullMethod == iwfpb.InternalService_DumpFlowForContinueAsNew_FullMethodName {
+		if info.FullMethod == dexpb.InternalService_DumpFlowForContinueAsNew_FullMethodName {
 			captured := metadata.MD{}
 			if incomingMetadata, ok := metadata.FromIncomingContext(ctx); ok {
 				captured = incomingMetadata.Copy()
@@ -108,7 +108,7 @@ type interpreterWorker interface {
 }
 
 // startWorker serves a WorkerServiceServer on 127.0.0.1:0 and returns the dial target.
-func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
+func startWorker(t *testing.T, handler dexpb.WorkerServiceServer) string {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -119,7 +119,7 @@ func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
 		grpc.MaxRecvMsgSize(config.DefaultGrpcMaxMessageBytes),
 		grpc.MaxSendMsgSize(config.DefaultGrpcMaxMessageBytes),
 	)
-	iwfpb.RegisterWorkerServiceServer(server, handler)
+	dexpb.RegisterWorkerServiceServer(server, handler)
 	serveError := make(chan error, 1)
 	go func() {
 		serveError <- server.Serve(listener)
@@ -136,8 +136,8 @@ func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
 	return listener.Addr().String()
 }
 
-// startIwfService starts API + interpreter against Temporal or Cadence and returns clients.
-func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntime {
+// startDexService starts API + interpreter against Temporal or Cadence and returns clients.
+func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntime {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -147,14 +147,14 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntim
 	cfg.Interpreter.InterpreterActivityConfig.InternalServiceTarget = listener.Addr().String()
 	logger, err := loggerimpl.NewDevelopment()
 	require.NoError(t, err)
-	s3Client := iwf.CreateS3Client(cfg, context.Background())
+	s3Client := dex.CreateS3Client(cfg, context.Background())
 
 	var worker interpreterWorker
 	var unifiedClient uclient.UnifiedClient
 	var store blobstore.BlobStore
 	switch testConfig.BackendType {
 	case service.BackendTypeTemporal:
-		dataConverter := iwfconverter.NewTemporalDataConverter()
+		dataConverter := dexconverter.NewTemporalDataConverter()
 		if testConfig.MemoEncryption {
 			dataConverter = encryptionDataConverter
 		}
@@ -182,26 +182,26 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntim
 			store,
 		)
 	case service.BackendTypeCadence:
-		serviceClient, closeServiceClient, err := iwf.BuildCadenceServiceClient(
-			iwf.DefaultCadenceHostPort,
+		serviceClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
+			dex.DefaultCadenceHostPort,
 		)
 		require.NoError(t, err)
-		dataConverter := iwfconverter.NewCadenceDataConverter()
-		cadenceClient, err := iwf.BuildCadenceClient(
+		dataConverter := dexconverter.NewCadenceDataConverter()
+		cadenceClient, err := dex.BuildCadenceClient(
 			serviceClient,
-			iwf.DefaultCadenceDomain,
+			dex.DefaultCadenceDomain,
 			dataConverter,
 		)
 		require.NoError(t, err)
 		store = blobstore.NewBlobStore(
 			s3Client,
-			iwf.DefaultCadenceDomain,
+			dex.DefaultCadenceDomain,
 			cfg.ExternalStorage,
 			logger,
 			client.MetricsNopHandler,
 		)
 		unifiedClient = cadenceapi.NewCadenceClient(
-			iwf.DefaultCadenceDomain,
+			dex.DefaultCadenceDomain,
 			cadenceClient,
 			serviceClient,
 			dataConverter,
@@ -211,7 +211,7 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntim
 		worker = cadence.NewInterpreterWorker(
 			&cfg,
 			serviceClient,
-			iwf.DefaultCadenceDomain,
+			dex.DefaultCadenceDomain,
 			service.TaskQueue,
 			closeServiceClient,
 			dataConverter,
@@ -258,7 +258,7 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntim
 	})
 
 	globalBlobStore = store
-	runtime.FlowClient = iwfpb.NewFlowServiceClient(connection)
+	runtime.FlowClient = dexpb.NewFlowServiceClient(connection)
 	runtime.UnifiedClient = unifiedClient
 	runtime.BlobStore = store
 	return runtime
@@ -291,7 +291,7 @@ func (runtime *integRuntime) requireInternalDumpHeaders(
 	)
 }
 
-// globalBlobStore is set by startIwfService for S3 cleanup tests that need the store.
+// globalBlobStore is set by startDexService for S3 cleanup tests that need the store.
 var globalBlobStore blobstore.BlobStore
 
 func startInterpreter(worker interpreterWorker) {
@@ -354,13 +354,13 @@ func createTemporalClient(
 	return temporalClient
 }
 
-func grpcErrorResponse(t *testing.T, err error) *iwfpb.ErrorResponse {
+func grpcErrorResponse(t *testing.T, err error) *dexpb.ErrorResponse {
 	t.Helper()
 	require.Error(t, err)
 	statusError, ok := status.FromError(err)
 	require.True(t, ok)
 	for _, detail := range statusError.Details() {
-		if response, ok := detail.(*iwfpb.ErrorResponse); ok {
+		if response, ok := detail.(*dexpb.ErrorResponse); ok {
 			return response
 		}
 	}
@@ -376,21 +376,21 @@ func smallWaitForFastTest() {
 	time.Sleep(duration)
 }
 
-func minimumContinueAsNewConfig(durability iwfpb.StepDurability) *iwfpb.FlowConfig {
-	return &iwfpb.FlowConfig{
+func minimumContinueAsNewConfig(durability dexpb.StepDurability) *dexpb.FlowConfig {
+	return &dexpb.FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(1)),
 		StepDurability:         ptr.Any(durability),
 	}
 }
 
-func minimumContinueAsNewConfigV0() *iwfpb.FlowConfig {
-	return minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC)
+func minimumContinueAsNewConfigV0() *dexpb.FlowConfig {
+	return minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC)
 }
 
-func encodedObjectValue(encoding string, payload []byte) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func encodedObjectValue(encoding string, payload []byte) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: encoding,
 				Payload:  payload,
 			},
@@ -409,14 +409,14 @@ func getBackendTypes() []service.BackendType {
 	return backends
 }
 
-func jsonObjValue(payload any) *iwfpb.Value {
+func jsonObjValue(payload any) *dexpb.Value {
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)
 	}
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  bytes,
 			},
@@ -424,32 +424,32 @@ func jsonObjValue(payload any) *iwfpb.Value {
 	}
 }
 
-func stringValue(value string) *iwfpb.Value {
-	return &iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: value}}
+func stringValue(value string) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}}
 }
 
-func intValue(value int64) *iwfpb.Value {
-	return &iwfpb.Value{Kind: &iwfpb.Value_IntValue{IntValue: value}}
+func intValue(value int64) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: value}}
 }
 
-func boolValue(value bool) *iwfpb.Value {
-	return &iwfpb.Value{Kind: &iwfpb.Value_BoolValue{BoolValue: value}}
+func boolValue(value bool) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: value}}
 }
 
-func doubleValue(value float64) *iwfpb.Value {
-	return &iwfpb.Value{Kind: &iwfpb.Value_DoubleValue{DoubleValue: value}}
+func doubleValue(value float64) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: value}}
 }
 
-func nullValue() *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
+func nullValue() *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
 	}
 }
 
-func objJSONValue(payload string) *iwfpb.Value {
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+func objJSONValue(payload string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte(payload),
 			},
@@ -457,85 +457,85 @@ func objJSONValue(payload string) *iwfpb.Value {
 	}
 }
 
-func indexedKeywordAttribute(key, value string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedKeywordAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: stringValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+			Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		},
 	}
 }
 
-func indexedTextAttribute(key, value string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedTextAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: stringValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_TEXT,
+			Type:   dexpb.IndexType_INDEX_TYPE_TEXT,
 		},
 	}
 }
 
-func indexedIntAttribute(key string, value int64) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedIntAttribute(key string, value int64) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: intValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_INT,
+			Type:   dexpb.IndexType_INDEX_TYPE_INT,
 		},
 	}
 }
 
-func indexedDoubleAttribute(key string, value float64) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedDoubleAttribute(key string, value float64) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: doubleValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_DOUBLE,
+			Type:   dexpb.IndexType_INDEX_TYPE_DOUBLE,
 		},
 	}
 }
 
-func indexedBoolAttribute(key string, value bool) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedBoolAttribute(key string, value bool) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: boolValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_BOOL,
+			Type:   dexpb.IndexType_INDEX_TYPE_BOOL,
 		},
 	}
 }
 
-func indexedDatetimeAttribute(key, value string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedDatetimeAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: stringValue(value),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_DATETIME,
+			Type:   dexpb.IndexType_INDEX_TYPE_DATETIME,
 		},
 	}
 }
 
-func indexedKeywordArrayAttribute(key string, values ...string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func indexedKeywordArrayAttribute(key string, values ...string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: jsonObjValue(values),
-		IndexConfig: &iwfpb.IndexConfig{
+		IndexConfig: &dexpb.IndexConfig{
 			Enable: true,
-			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+			Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
 		},
 	}
 }
 
-func dataObjectAttribute(key, jsonPayload string) *iwfpb.AttributeWrite {
-	return &iwfpb.AttributeWrite{
+func dataObjectAttribute(key, jsonPayload string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: objJSONValue(jsonPayload),
 	}
@@ -543,7 +543,7 @@ func dataObjectAttribute(key, jsonPayload string) *iwfpb.AttributeWrite {
 
 func assertSearchFlows(
 	t *testing.T,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	query string,
 	expectedCount int,
 ) {
@@ -552,7 +552,7 @@ func assertSearchFlows(
 	ctx := context.Background()
 
 	if expectedCount == 0 {
-		searchResp, err := flowClient.SearchFlows(ctx, &iwfpb.SearchFlowsRequest{
+		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
 			Query:    query,
 			PageSize: 2,
 		})
@@ -565,7 +565,7 @@ func assertSearchFlows(
 	var nextPageToken string
 	currentCount := 0
 	for currentCount < expectedCount {
-		searchResp, err := flowClient.SearchFlows(ctx, &iwfpb.SearchFlowsRequest{
+		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
 			Query:         query,
 			PageSize:      2,
 			NextPageToken: nextPageToken,
@@ -580,7 +580,7 @@ func assertSearchFlows(
 		} else if currentCount == expectedCount {
 			if searchResp.GetNextPageToken() != "" {
 				nextPageToken = searchResp.GetNextPageToken()
-				searchResp, err = flowClient.SearchFlows(ctx, &iwfpb.SearchFlowsRequest{
+				searchResp, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
 					Query:         query,
 					PageSize:      2,
 					NextPageToken: nextPageToken,

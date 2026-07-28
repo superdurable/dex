@@ -28,13 +28,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/index"
-	"github.com/superdurable/iwf/service/common/utils"
-	"github.com/superdurable/iwf/service/interpreter/temporal"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/index"
+	"github.com/superdurable/dex/service/common/utils"
+	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
@@ -141,10 +141,10 @@ func (t *temporalClient) GetApplicationErrorDetails(err error, detailsPtr interf
 func (t *temporalClient) GetApplicationErrorTypeAndDetails(err error) (string, string) {
 	errType := t.GetApplicationErrorTypeIfIsApplicationError(err)
 
-	var errorResponse iwfpb.ErrorResponse
+	var errorResponse dexpb.ErrorResponse
 	if detailsErr := t.GetApplicationErrorDetails(err, &errorResponse); detailsErr == nil &&
 		(errorResponse.GetDetail() != "" ||
-			errorResponse.GetSubStatus() != iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED ||
+			errorResponse.GetSubStatus() != dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED ||
 			errorResponse.GetOriginalWorkerErrorDetail() != "" ||
 			errorResponse.GetOriginalWorkerErrorType() != "" ||
 			errorResponse.GetOriginalWorkerErrorStatus() != 0) {
@@ -162,7 +162,7 @@ func (t *temporalClient) GetApplicationErrorTypeAndDetails(err error) (string, s
 		if ok {
 			errDetails = errDetailsString
 		} else {
-			// All other types, e.g. iwfpb.StepCompletionOutput, try to Marshal the object to JSON
+			// All other types, e.g. dexpb.StepCompletionOutput, try to Marshal the object to JSON
 			var err error
 			jsonBytes, err := json.Marshal(errDetailsPtr)
 			if err == nil {
@@ -301,9 +301,9 @@ func (t *temporalClient) ListWorkflow(
 	if err != nil {
 		return nil, err
 	}
-	var executions []*iwfpb.SearchFlowsResponseEntry
+	var executions []*dexpb.SearchFlowsResponseEntry
 	for _, exe := range resp.GetExecutions() {
-		executions = append(executions, &iwfpb.SearchFlowsResponseEntry{
+		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
 			FlowId: exe.Execution.WorkflowId,
 			RunId:  exe.Execution.RunId,
 		})
@@ -342,13 +342,13 @@ func (t *temporalClient) QueryWorkflow(
 }
 
 func (t *temporalClient) DescribeWorkflowExecution(
-	ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]iwfpb.IndexType,
+	ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]dexpb.IndexType,
 ) (*uclient.DescribeWorkflowExecutionResponse, error) {
 	resp, err := t.tClient.DescribeWorkflowExecution(ctx, workflowID, runID)
 	if err != nil {
 		return nil, err
 	}
-	status, err := mapToIwfWorkflowStatus(resp.GetWorkflowExecutionInfo().GetStatus())
+	status, err := mapToDexWorkflowStatus(resp.GetWorkflowExecutionInfo().GetStatus())
 	if err != nil {
 		return nil, err
 	}
@@ -390,19 +390,19 @@ func (t *temporalClient) encryptMemoIfNeeded(rawMemo map[string]interface{}) (ma
 	return out, nil
 }
 
-func (t *temporalClient) getMemoAndDecryptIfNeeded(memo *common.Memo) (map[string]*iwfpb.Value, error) {
+func (t *temporalClient) getMemoAndDecryptIfNeeded(memo *common.Memo) (map[string]*dexpb.Value, error) {
 	if memo == nil || len(memo.GetFields()) == 0 {
 		return nil, nil
 	}
 
-	out := map[string]*iwfpb.Value{}
+	out := map[string]*dexpb.Value{}
 	for k, payload := range memo.GetFields() {
-		var value iwfpb.EncodedObject
+		var value dexpb.EncodedObject
 
 		if t.memoEncryption {
 			// Newer Temporal SDKs apply the configured DataConverter (including its
 			// PayloadCodec) to memos (sdk-go #1045), whereas older SDKs used the default
-			// converter. iwf also pre-encrypts the memo value, so the stored memo is
+			// converter. dex also pre-encrypts the memo value, so the stored memo is
 			// double-wrapped by the encrypting converter. Decode twice through that same
 			// converter: first to recover the inner (pre-encrypted) payload, then the value.
 			var encryptedPayload common.Payload
@@ -421,24 +421,24 @@ func (t *temporalClient) getMemoAndDecryptIfNeeded(memo *common.Memo) (map[strin
 				return nil, err
 			}
 		}
-		out[k] = &iwfpb.Value{Kind: &iwfpb.Value_ObjValue{ObjValue: &value}}
+		out[k] = &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &value}}
 	}
 	return out, nil
 }
 
-func mapToTemporalWorkflowIdReusePolicy(idReusePolicy iwfpb.IdReusePolicy) (*enums.WorkflowIdReusePolicy, error) {
+func mapToTemporalWorkflowIdReusePolicy(idReusePolicy dexpb.IdReusePolicy) (*enums.WorkflowIdReusePolicy, error) {
 	var res enums.WorkflowIdReusePolicy
 	switch idReusePolicy {
-	case iwfpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING:
+	case dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING:
 		res = enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
 		return &res, nil
-	case iwfpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY:
+	case dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY:
 		res = enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY
 		return &res, nil
-	case iwfpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE:
+	case dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE:
 		res = enums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
 		return &res, nil
-	case iwfpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING:
+	case dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING:
 		res = enums.WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING
 		return &res, nil
 	default:
@@ -447,8 +447,8 @@ func mapToTemporalWorkflowIdReusePolicy(idReusePolicy iwfpb.IdReusePolicy) (*enu
 }
 
 // mapToTemporalRetryPolicy fills unset (zero-value) fields with the same
-// defaults iwf has always used for flow retries.
-func mapToTemporalRetryPolicy(policy *iwfpb.FlowRetryPolicy) *realtemporal.RetryPolicy {
+// defaults dex has always used for flow retries.
+func mapToTemporalRetryPolicy(policy *dexpb.FlowRetryPolicy) *realtemporal.RetryPolicy {
 	if policy == nil {
 		return nil
 	}
@@ -474,46 +474,46 @@ func mapToTemporalRetryPolicy(policy *iwfpb.FlowRetryPolicy) *realtemporal.Retry
 	}
 }
 
-func mapToIwfWorkflowStatus(status enums.WorkflowExecutionStatus) (iwfpb.FlowStatus, error) {
+func mapToDexWorkflowStatus(status enums.WorkflowExecutionStatus) (dexpb.FlowStatus, error) {
 	switch status {
 	case enums.WORKFLOW_EXECUTION_STATUS_CANCELED:
-		return iwfpb.FlowStatus_FLOW_STATUS_CANCELED, nil
+		return dexpb.FlowStatus_FLOW_STATUS_CANCELED, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-		return iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, nil
+		return dexpb.FlowStatus_FLOW_STATUS_COMPLETED, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
-		return iwfpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, nil
+		return dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_FAILED:
-		return iwfpb.FlowStatus_FLOW_STATUS_FAILED, nil
+		return dexpb.FlowStatus_FLOW_STATUS_FAILED, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_RUNNING:
-		return iwfpb.FlowStatus_FLOW_STATUS_RUNNING, nil
+		return dexpb.FlowStatus_FLOW_STATUS_RUNNING, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
-		return iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT, nil
+		return dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_TERMINATED:
-		return iwfpb.FlowStatus_FLOW_STATUS_TERMINATED, nil
+		return dexpb.FlowStatus_FLOW_STATUS_TERMINATED, nil
 	default:
-		return iwfpb.FlowStatus_FLOW_STATUS_UNSPECIFIED, fmt.Errorf("not supported status %s", status)
+		return dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED, fmt.Errorf("not supported status %s", status)
 	}
 }
 
 func (t *temporalClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-) (resolvedRunID string, status iwfpb.FlowStatus, err error) {
+) (resolvedRunID string, status dexpb.FlowStatus, err error) {
 	workflowRun := t.tClient.GetWorkflow(ctx, workflowID, runID)
 	err = workflowRun.Get(ctx, valuePtr)
 	resolvedRunID = workflowRun.GetRunID()
 	switch {
 	case err == nil:
-		status = iwfpb.FlowStatus_FLOW_STATUS_COMPLETED
+		status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
 	case realtemporal.IsCanceledError(err):
-		status = iwfpb.FlowStatus_FLOW_STATUS_CANCELED
+		status = dexpb.FlowStatus_FLOW_STATUS_CANCELED
 	case realtemporal.IsTimeoutError(err):
-		status = iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT
+		status = dexpb.FlowStatus_FLOW_STATUS_TIMEOUT
 	case realtemporal.IsTerminatedError(err):
-		status = iwfpb.FlowStatus_FLOW_STATUS_TERMINATED
+		status = dexpb.FlowStatus_FLOW_STATUS_TERMINATED
 	default:
 		var workflowExecutionError *realtemporal.WorkflowExecutionError
 		if errors.As(err, &workflowExecutionError) {
-			status = iwfpb.FlowStatus_FLOW_STATUS_FAILED
+			status = dexpb.FlowStatus_FLOW_STATUS_FAILED
 		}
 	}
 	return
@@ -539,7 +539,7 @@ func (t *temporalClient) SynchronousUpdateWorkflow(
 }
 
 func (t *temporalClient) ResetWorkflow(
-	ctx context.Context, request *iwfpb.ResetFlowRequest,
+	ctx context.Context, request *dexpb.ResetFlowRequest,
 ) (runId string, err error) {
 	reqRunId := request.GetRunId()
 	if reqRunId == "" {

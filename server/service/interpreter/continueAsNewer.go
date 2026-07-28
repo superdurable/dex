@@ -27,10 +27,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,7 +38,7 @@ type ContinueAsNewer struct {
 	provider interfaces.WorkflowProvider
 	apiCfg   *config.ApiConfig
 
-	StepExecutionToResumeMap map[string]*iwfpb.StepExecutionResumeInfo // stepExeId to StepExecutionResumeInfo
+	StepExecutionToResumeMap map[string]*dexpb.StepExecutionResumeInfo // stepExeId to StepExecutionResumeInfo
 	inflightUpdateOperations int
 
 	stepRequestQueue     *StepRequestQueue
@@ -65,7 +65,7 @@ func NewContinueAsNewer(
 		provider: provider,
 		apiCfg:   apiCfg,
 
-		StepExecutionToResumeMap: map[string]*iwfpb.StepExecutionResumeInfo{},
+		StepExecutionToResumeMap: map[string]*dexpb.StepExecutionResumeInfo{},
 
 		stepRequestQueue:     stepRequestQueue,
 		channelStore:         channelStore,
@@ -81,10 +81,10 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 	provider interfaces.WorkflowProvider,
 	previousRunId string,
 	continueAsNewPageSizeInBytes int32,
-) (*iwfpb.ContinueAsNewDump, error) {
+) (*dexpb.ContinueAsNewDump, error) {
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Second,
-		RetryPolicy:         &iwfpb.RetryPolicy{MaximumIntervalSeconds: 5},
+		RetryPolicy:         &dexpb.RetryPolicy{MaximumIntervalSeconds: 5},
 	}
 	activityCfg := i.sharedConfig.Interpreter.InterpreterActivityConfig
 	if activityConfig := activityCfg.DumpWorkflowInternalActivityConfig; activityConfig != nil {
@@ -103,13 +103,13 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 	lastChecksum := ""
 	pageNum := int32(0)
 	for {
-		var activityOutput iwfpb.DumpFlowForContinueAsNewActivityOutput
+		var activityOutput dexpb.DumpFlowForContinueAsNewActivityOutput
 		err := provider.ExecuteLocalActivity(
 			&activityOutput,
 			ctx,
 			i.activities.DumpFlowForContinueAsNew,
-			&iwfpb.DumpFlowForContinueAsNewActivityInput{
-				Request: &iwfpb.ContinueAsNewDumpRequest{
+			&dexpb.DumpFlowForContinueAsNewActivityInput{
+				Request: &dexpb.ContinueAsNewDumpRequest{
 					FlowId:          workflowId,
 					RunId:           previousRunId,
 					PageNum:         pageNum,
@@ -140,17 +140,17 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 		}
 	}
 
-	var resp iwfpb.ContinueAsNewDump
+	var resp dexpb.ContinueAsNewDump
 	if err := proto.Unmarshal(wholeData, &resp); err != nil {
 		return nil, provider.NewWorkflowError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			fmt.Errorf("unmarshal continue-as-new dump: %w", err))
 	}
 	return &resp, nil
 }
 
-func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
-	localStepExecutionToResumeMap := map[string]*iwfpb.StepExecutionResumeInfo{}
+func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
+	localStepExecutionToResumeMap := map[string]*dexpb.StepExecutionResumeInfo{}
 	for _, key := range DeterministicKeys(c.StepExecutionToResumeMap) {
 		localStepExecutionToResumeMap[key] = c.StepExecutionToResumeMap[key]
 	}
@@ -158,14 +158,14 @@ func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
 	for key, value := range c.stepRequestQueue.GetAllStepResumeRequests() {
 		localStepExecutionToResumeMap[key] = value
 	}
-	var stepExecutionsToResume []*iwfpb.StepExecutionResumeInfo
+	var stepExecutionsToResume []*dexpb.StepExecutionResumeInfo
 	for _, key := range DeterministicKeys(localStepExecutionToResumeMap) {
 		stepExecutionsToResume = append(
 			stepExecutionsToResume,
 			localStepExecutionToResumeMap[key],
 		)
 	}
-	return &iwfpb.ContinueAsNewDump{
+	return &dexpb.ContinueAsNewDump{
 		ChannelReceived:           c.channelStore.GetAllReceived(),
 		CounterInfo:               c.stepExecutionCounter.Dump(),
 		Attributes:                c.persistenceManager.GetAllAttributes(),
@@ -185,7 +185,7 @@ func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 		ctx,
 		service.ContinueAsNewDumpByPageQueryType,
 		// return the current page of the whole snapshot
-		func(request *iwfpb.ContinueAsNewDumpRequest) (*iwfpb.ContinueAsNewDumpResponse, error) {
+		func(request *dexpb.ContinueAsNewDumpRequest) (*dexpb.ContinueAsNewDumpResponse, error) {
 			if request == nil {
 				return nil, fmt.Errorf("continue-as-new dump request is nil")
 			}
@@ -219,7 +219,7 @@ func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 			if end > len(wholeData) {
 				end = len(wholeData)
 			}
-			return &iwfpb.ContinueAsNewDumpResponse{
+			return &dexpb.ContinueAsNewDumpResponse{
 				PageContent: wholeData[start:end],
 				PageNum:     request.GetPageNum(),
 				TotalPages:  totalPages,
@@ -230,7 +230,7 @@ func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 }
 
 func (c *ContinueAsNewer) AddPotentialStepExecutionToResume(
-	resumeInfo *iwfpb.StepExecutionResumeInfo,
+	resumeInfo *dexpb.StepExecutionResumeInfo,
 ) {
 	if resumeInfo == nil || resumeInfo.GetStepExecutionId() == "" {
 		panic("step resume info requires an execution ID")

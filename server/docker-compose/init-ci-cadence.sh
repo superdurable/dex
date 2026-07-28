@@ -2,7 +2,7 @@
 
 for run in {1..120}; do
   sleep 1
-  echo "now trying to register iWF system search attributes..."
+  echo "now trying to register Dex system search attributes..."
   if yes | cadence adm cl asa --search_attr_key FlowType --search_attr_type 1; then
     break
   fi

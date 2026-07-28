@@ -23,8 +23,8 @@ package replayTests
 import (
 	"testing"
 
-	iwfconverter "github.com/superdurable/iwf/service/common/converter"
-	"github.com/superdurable/iwf/service/interpreter/temporal"
+	dexconverter "github.com/superdurable/dex/service/common/converter"
+	"github.com/superdurable/dex/service/interpreter/temporal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -80,7 +80,7 @@ func TestTemporalReplay(t *testing.T) {
 	replayer, err := worker.NewWorkflowReplayerWithOptions(
 		worker.WorkflowReplayerOptions{
 			EnableLoggingInReplay: true,
-			DataConverter:         iwfconverter.NewTemporalDataConverter(),
+			DataConverter:         dexconverter.NewTemporalDataConverter(),
 		})
 	require.NoError(t, err)
 

@@ -30,9 +30,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wait_for_state_completion"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wait_for_state_completion"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -82,7 +82,7 @@ func doTestWaitForStateCompletion(
 ) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -90,7 +90,7 @@ func doTestWaitForStateCompletion(
 
 	flowId := wait_for_state_completion.WorkflowType + uuid.NewString()
 	nowTimestamp := time.Now().Unix()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -103,7 +103,7 @@ func doTestWaitForStateCompletion(
 	assertions := assert.New(t)
 
 	if backendType == service.BackendTypeCadence {
-		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 			FlowId:              flowId,
 			StepType:            wait_for_state_completion.State2,
 			StepExecutionNumber: "1",
@@ -111,7 +111,7 @@ func doTestWaitForStateCompletion(
 		})
 		require.Equal(t, codes.Unimplemented, status.Code(err))
 	} else if waitByStepType {
-		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 			FlowId:              flowId,
 			StepType:            wait_for_state_completion.State2,
 			StepExecutionNumber: "1",
@@ -119,7 +119,7 @@ func doTestWaitForStateCompletion(
 		})
 		require.NoError(t, err)
 	} else {
-		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 			FlowId:              flowId,
 			StepType:            wait_for_state_completion.State1,
 			StepExecutionNumber: "1",
@@ -128,7 +128,7 @@ func doTestWaitForStateCompletion(
 		require.NoError(t, err)
 	}
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -150,14 +150,14 @@ func doTestWaitForStateCompletion(
 func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-timeout-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -167,7 +167,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State1,
 		StepExecutionNumber: "999",
@@ -178,14 +178,14 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	errResp := grpcErrorResponse(t, err)
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "step completion wait timed out", errResp.GetDetail())
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }
@@ -193,27 +193,27 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-can-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
 		WorkerTarget:       workerTarget,
 		StartStepType:      wait_for_state_completion.State1,
 		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: minimumContinueAsNewConfigV0(),
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
@@ -221,7 +221,7 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -230,14 +230,14 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 func doTestWaitForStateCompletionCancel(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-cancel-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -251,7 +251,7 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 	defer waitCancel()
 	waitDone := make(chan error, 1)
 	go func() {
-		_, waitErr := flowClient.WaitForStepCompletion(waitCtx, &iwfpb.WaitForStepCompletionRequest{
+		_, waitErr := flowClient.WaitForStepCompletion(waitCtx, &dexpb.WaitForStepCompletionRequest{
 			FlowId:              flowId,
 			StepType:            wait_for_state_completion.State2,
 			StepExecutionNumber: "1",
@@ -271,22 +271,22 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 		t.Fatal("WaitForStepCompletion did not return after cancel")
 	}
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }
 
 func doTestWaitForStateCompletionNotFound(t *testing.T) {
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-notfound-" + uuid.NewString()
-	_, err := flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err := flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
@@ -296,7 +296,7 @@ func doTestWaitForStateCompletionNotFound(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 }
@@ -304,14 +304,14 @@ func doTestWaitForStateCompletionNotFound(t *testing.T) {
 func doTestWaitForStateCompletionClosed(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-closed-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -321,13 +321,13 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
@@ -340,14 +340,14 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-concurrent-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
@@ -357,7 +357,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	waitRequest := &iwfpb.WaitForStepCompletionRequest{
+	waitRequest := &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
@@ -380,7 +380,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 		require.NoError(t, waitErr, "waiter %d failed", waitIndex)
 	}
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -389,14 +389,14 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-invalid-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -406,7 +406,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            "",
 		StepExecutionNumber: "1",
@@ -415,7 +415,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "abc",
@@ -424,7 +424,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
@@ -433,9 +433,9 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }

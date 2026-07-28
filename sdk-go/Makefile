@@ -118,7 +118,7 @@ endef
 
 .PHONY: release clean
 
-idl-code-gen: # regenerate protobuf stubs from protos/iwf.proto into server + SDKs
+idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
 	$(MAKE) -C ../protos proto
 
 clean: ## Clean binaries and build folder
@@ -143,15 +143,15 @@ integTests:
 	$Q go test -v ./integ
 
 unitTests:
-	$Q go test -v ./iwf
+	$Q go test -v ./dex
 
 tests: integTests unitTests
 
 ci-tests:
-	$Q go test -v -cover ./integ ./iwf -coverprofile coverage.out -coverpkg ./iwf/...
+	$Q go test -v -cover ./integ ./dex -coverprofile coverage.out -coverpkg ./dex/...
 
 fmt:
-	$Q gofmt -s -w ./iwf ./iwftest ./integ
+	$Q gofmt -s -w ./dex ./dextest ./integ
   
 help:
 	@# print help first, so it's visible

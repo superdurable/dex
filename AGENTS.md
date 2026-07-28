@@ -1,4 +1,4 @@
-# iWF — Codex Instructions
+# Dex — Codex Instructions
 
 Durable workflow framework: Go server (`server/`), OpenAPI IDL (`protos/`), and
 SDKs/samples for Go, Java, and Python. See [README.md](README.md) for the module
@@ -128,8 +128,8 @@ subsystems in one file (keep the cluster intact).
 ### `ptr.Any(...)` for Pointer Literals (Go)
 
 Use `ptr.Any(value)` instead of a throwaway local variable taken by address.
-Import: `github.com/superdurable/iwf/service/common/ptr` (server) or
-`github.com/superdurable/iwf/sdk-go/iwf/ptr` (SDK). Use explicit types for
+Import: `github.com/superdurable/dex/service/common/ptr` (server) or
+`github.com/superdurable/dex/sdk-go/dex/ptr` (SDK). Use explicit types for
 numerics: `ptr.Any(int64(0))`, `ptr.Any(int32(1))`.
 
 Do not use `ptr.Any` when the pointer must alias an existing named variable that
@@ -191,7 +191,7 @@ Use the package's declared name. Only alias when:
 
 - Two packages share the same name in one file.
 - The default name is misleading or ambiguous.
-- An established repo convention applies (e.g. `iwfidl` for generated OpenAPI).
+- An established repo convention applies (e.g. `dexpb` for generated OpenAPI).
 
 Do not invent aliases like `servermetrics` or `mongostore`.
 
@@ -204,8 +204,8 @@ add nil checks when nil is a valid, expected value.
 ### Server Error Handling (`server/`)
 
 API failures that reach Gin handlers should use `errors.ErrorAndStatus` from
-`github.com/superdurable/iwf/service/common/errors` with an
-`iwfidl.ErrorSubStatus` and HTTP status code.
+`github.com/superdurable/dex/service/common/errors` with an
+`dexpb.ErrorSubStatus` and HTTP status code.
 
 - Prefer `NewErrorAndStatus` / `NewErrorAndStatusWithWorkerError`.
 - Bad client/SDK input → 4xx + appropriate `ErrorSubStatus`.

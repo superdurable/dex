@@ -9,7 +9,7 @@
 ## Overview
 
 As writing code with programming model, you must have to deal with _data_ everywhere. 
-iWF provides a Key-Value storage out of the box. This eliminates the need to depend on a database to implement your workflow.
+Dex provides a Key-Value storage out of the box. This eliminates the need to depend on a database to implement your workflow.
 
 Your data are stored as Data Attributes and Search Attributes. Together both define the "persistence schema".
 The persistence schema is defined and maintained in the code along with other business logic. 
@@ -32,11 +32,11 @@ Note:
 * The scope of the data/search attribute are isolated within its own workflow execution
 * Lifecycle: after workflows are closed(completed, timeout, terminated, canceled, failed), all the data retained in your persistence schema will be deleted once the configured retention period elapses.
 
-The iWF persistence is mainly for storing the workflow intermediate states/data.
-**It is important to not abuse iWF persistence for things like any large dataset, permanent storage, or for tracking/analytics purpose.**
+The Dex persistence is mainly for storing the workflow intermediate states/data.
+**It is important to not abuse Dex persistence for things like any large dataset, permanent storage, or for tracking/analytics purpose.**
 
 ## Persistence best practices and size limits
-DO NOT abuse iWF persistence for large dataset. You should store reference(key, Id) to external storage(database,S3) instead.
+DO NOT abuse Dex persistence for large dataset. You should store reference(key, Id) to external storage(database,S3) instead.
  
 Best practices for ease of mind is to make sure never store large blob of data into data attributes, channel messages, or state inputs:
 * Total data attributes stored in a workflow execution is not greater than 500KB
@@ -79,7 +79,7 @@ See [more in this wiki page](RPC-locking%3A-What-does-the-atomicity-of-RPC-reall
 
 
 ## SDKs
-Defining iWF persistence schema is simply declaring in code the key and value types(if applicable). 
+Defining Dex persistence schema is simply declaring in code the key and value types(if applicable). 
 With the type defined for the attribute, the SDK will check the type matching when read/write. (note that the type enforcement is only on the SDK. The server doesn't care about the types for a data/search attribute -- they are just transparent data blobs.
 
 
@@ -100,7 +100,7 @@ import TabItem from '@theme/TabItem';
 ### Java
 <!--- ## END-GITHUB-ONLY ## --->
 
-An [example](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java) of Java workflow definition with persistence:
+An [example](../../examples/java/src/main/java/io/dex/workflow/signup/UserSignupWorkflow.java) of Java workflow definition with persistence:
 ```java
 public class UserSignupWorkflow implements ObjectWorkflow {
 
@@ -178,20 +178,20 @@ Due to the limitation of Golang, the Golang SDK doesn't let you define "type" of
 This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Golang workflow definition with persistence:
 ```go
 type OrchestrationWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 }
 
-func (e OrchestrationWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
-	return []iwf.PersistenceFieldDef{
-		iwf.DataAttributeDef(keyData),
+func (e OrchestrationWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
+	return []dex.PersistenceFieldDef{
+		dex.DataAttributeDef(keyData),
 	}
 }
 
-func (e OrchestrationWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.SignalChannelDef(SignalChannelReady),
+func (e OrchestrationWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.SignalChannelDef(SignalChannelReady),
 
-		iwf.RPCMethodDef(e.MyRPC, nil),
+		dex.RPCMethodDef(e.MyRPC, nil),
 	}
 }
 ```

@@ -23,7 +23,7 @@ Build an application for a limited time Subscription (eg a 36 month Phone plan) 
 Of course, this all has to be fault tolerant, scalable to millions of customers, testable, maintainable, and observable.
 
 ## Controller
-And controller is a very thin layer of calling iWF client APIs and workflow RPC stub APIs. See [subscriptionController](../../cmd/server/iwf/subscription_controller.go).
+And controller is a very thin layer of calling Dex client APIs and workflow RPC stub APIs. See [subscriptionController](../../cmd/server/dex/subscription_controller.go).
 
 ## How to run
 
@@ -44,6 +44,6 @@ To cancel the subscription:
 To describe the subscription:
 * Open http://localhost:8803/subscription/describe?workflowId=<TheWorkflowId>
 
-This is a iWF state diagram to visualize the workflow design:
+This is a Dex state diagram to visualize the workflow design:
 ![subscription state diagram](https://user-images.githubusercontent.com/4523955/217110240-5dfe1d33-0b7c-49f2-8c12-b0d91c4eb970.png)
 

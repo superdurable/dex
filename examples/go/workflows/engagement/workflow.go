@@ -22,13 +22,13 @@ package engagement
 
 import (
 	"fmt"
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
 )
 
-func NewEngagementWorkflow(svc service.MyService) iwf.ObjectWorkflow {
+func NewEngagementWorkflow(svc service.MyService) dex.ObjectWorkflow {
 
 	return &EngagementWorkflow{
 		svc: svc,
@@ -36,39 +36,39 @@ func NewEngagementWorkflow(svc service.MyService) iwf.ObjectWorkflow {
 }
 
 type EngagementWorkflow struct {
-	iwf.DefaultWorkflowType
+	dex.DefaultWorkflowType
 
 	svc service.MyService
 }
 
-func (e EngagementWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(NewInitState()),
-		iwf.NonStartingStateDef(NewProcessTimoutState(e.svc)),
-		iwf.NonStartingStateDef(NewReminderState(e.svc)),
-		iwf.NonStartingStateDef(NewNotifyExternalSystemState(e.svc)),
+func (e EngagementWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(NewInitState()),
+		dex.NonStartingStateDef(NewProcessTimoutState(e.svc)),
+		dex.NonStartingStateDef(NewReminderState(e.svc)),
+		dex.NonStartingStateDef(NewNotifyExternalSystemState(e.svc)),
 	}
 }
 
-func (e EngagementWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
-	return []iwf.PersistenceFieldDef{
-		iwf.SearchAttributeDef(keyEmployerId, iwfidl.KEYWORD),
-		iwf.SearchAttributeDef(keyJobSeekerId, iwfidl.KEYWORD),
-		iwf.SearchAttributeDef(keyStatus, iwfidl.KEYWORD),
-		iwf.SearchAttributeDef(keyLastUpdateTimestamp, iwfidl.INT),
+func (e EngagementWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
+	return []dex.PersistenceFieldDef{
+		dex.SearchAttributeDef(keyEmployerId, dexpb.KEYWORD),
+		dex.SearchAttributeDef(keyJobSeekerId, dexpb.KEYWORD),
+		dex.SearchAttributeDef(keyStatus, dexpb.KEYWORD),
+		dex.SearchAttributeDef(keyLastUpdateTimestamp, dexpb.INT),
 
-		iwf.DataAttributeDef(keyNotes),
+		dex.DataAttributeDef(keyNotes),
 	}
 }
 
-func (e EngagementWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.SignalChannelDef(SignalChannelOptOutReminder),
-		iwf.InternalChannelDef(InternalChannelCompleteProcess),
+func (e EngagementWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.SignalChannelDef(SignalChannelOptOutReminder),
+		dex.InternalChannelDef(InternalChannelCompleteProcess),
 
-		iwf.RPCMethodDef(e.Describe, nil),
-		iwf.RPCMethodDef(e.Decline, nil),
-		iwf.RPCMethodDef(e.Accept, nil),
+		dex.RPCMethodDef(e.Describe, nil),
+		dex.RPCMethodDef(e.Decline, nil),
+		dex.RPCMethodDef(e.Accept, nil),
 	}
 }
 
@@ -83,7 +83,7 @@ const (
 	InternalChannelCompleteProcess = "CompleteProcess"
 )
 
-func (e EngagementWorkflow) Describe(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (e EngagementWorkflow) Describe(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 
 	status := persistence.GetSearchAttributeKeyword(keyStatus)
 	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
@@ -99,7 +99,7 @@ func (e EngagementWorkflow) Describe(ctx iwf.WorkflowContext, input iwf.Object, 
 	}, nil
 }
 
-func (e EngagementWorkflow) Decline(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (e EngagementWorkflow) Decline(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 
 	status := Status(persistence.GetSearchAttributeKeyword(keyStatus))
 	if status != StatusInitiated {
@@ -108,7 +108,7 @@ func (e EngagementWorkflow) Decline(ctx iwf.WorkflowContext, input iwf.Object, p
 
 	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusDeclined))
 	persistence.SetSearchAttributeInt(keyLastUpdateTimestamp, time.Now().Unix())
-	communication.TriggerStateMovements(iwf.NewStateMovement(notifyExternalSystemState{}, string(StatusDeclined)))
+	communication.TriggerStateMovements(dex.NewStateMovement(notifyExternalSystemState{}, string(StatusDeclined)))
 
 	var notes string
 	input.Get(&notes)
@@ -119,7 +119,7 @@ func (e EngagementWorkflow) Decline(ctx iwf.WorkflowContext, input iwf.Object, p
 	return nil, nil
 }
 
-func (e EngagementWorkflow) Accept(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (e EngagementWorkflow) Accept(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 
 	status := Status(persistence.GetSearchAttributeKeyword(keyStatus))
 	if status != StatusInitiated && status != StatusDeclined {
@@ -128,7 +128,7 @@ func (e EngagementWorkflow) Accept(ctx iwf.WorkflowContext, input iwf.Object, pe
 
 	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusAccepted))
 	persistence.SetSearchAttributeInt(keyLastUpdateTimestamp, time.Now().Unix())
-	communication.TriggerStateMovements(iwf.NewStateMovement(notifyExternalSystemState{}, string(StatusAccepted)))
+	communication.TriggerStateMovements(dex.NewStateMovement(notifyExternalSystemState{}, string(StatusAccepted)))
 
 	var notes string
 	input.Get(&notes)
@@ -139,15 +139,15 @@ func (e EngagementWorkflow) Accept(ctx iwf.WorkflowContext, input iwf.Object, pe
 	return nil, nil
 }
 
-func NewInitState() iwf.WorkflowState {
+func NewInitState() dex.WorkflowState {
 	return initState{}
 }
 
 type initState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 }
 
-func (i initState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i initState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var engInput EngagementInput
 	input.Get(&engInput)
 
@@ -156,32 +156,32 @@ func (i initState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandRes
 	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusInitiated))
 
 	persistence.SetDataAttribute(keyNotes, engInput.Notes)
-	return iwf.MultiNextStatesWithInput(
-		iwf.NewStateMovement(processTimoutState{}, nil),
-		iwf.NewStateMovement(reminderState{}, nil),
-		iwf.NewStateMovement(notifyExternalSystemState{}, StatusInitiated),
+	return dex.MultiNextStatesWithInput(
+		dex.NewStateMovement(processTimoutState{}, nil),
+		dex.NewStateMovement(reminderState{}, nil),
+		dex.NewStateMovement(notifyExternalSystemState{}, StatusInitiated),
 	), nil
 }
 
-func NewProcessTimoutState(svc service.MyService) iwf.WorkflowState {
+func NewProcessTimoutState(svc service.MyService) dex.WorkflowState {
 	return processTimoutState{
 		svc: svc,
 	}
 }
 
 type processTimoutState struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
-func (p processTimoutState) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.AnyCommandCompletedRequest(
-		iwf.NewTimerCommand("", time.Now().Add(time.Hour*24*60)), // ~ 2 months
-		iwf.NewInternalChannelCommand("", InternalChannelCompleteProcess),
+func (p processTimoutState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.AnyCommandCompletedRequest(
+		dex.NewTimerCommand("", time.Now().Add(time.Hour*24*60)), // ~ 2 months
+		dex.NewInternalChannelCommand("", InternalChannelCompleteProcess),
 	), nil
 }
 
-func (p processTimoutState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (p processTimoutState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	status := persistence.GetSearchAttributeKeyword(keyStatus)
 	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
 	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
@@ -190,78 +190,78 @@ func (p processTimoutState) Execute(ctx iwf.WorkflowContext, input iwf.Object, c
 		updateStatus = "done"
 	}
 	p.svc.UpdateExternalSystem(fmt.Sprintf("notify engagement from employer %v, jobSeeker %v for status %v", employerId, jobSeekerId, status))
-	return iwf.GracefulCompleteWorkflow(updateStatus), nil
+	return dex.GracefulCompleteWorkflow(updateStatus), nil
 }
 
-func NewReminderState(svc service.MyService) iwf.WorkflowState {
+func NewReminderState(svc service.MyService) dex.WorkflowState {
 	return reminderState{
 		svc: svc,
 	}
 }
 
 type reminderState struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
-func (r reminderState) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.AnyCommandCompletedRequest(
-		iwf.NewTimerCommand("", time.Now().Add(time.Second*5)), // use 5 seconds for demo, should be 24 hours in real world
-		iwf.NewSignalCommand("", SignalChannelOptOutReminder),
+func (r reminderState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.AnyCommandCompletedRequest(
+		dex.NewTimerCommand("", time.Now().Add(time.Second*5)), // use 5 seconds for demo, should be 24 hours in real world
+		dex.NewSignalCommand("", SignalChannelOptOutReminder),
 	), nil
 }
 
-func (r reminderState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (r reminderState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	status := persistence.GetSearchAttributeKeyword(keyStatus)
 	if status != string(StatusInitiated) {
-		return iwf.DeadEnd, nil
+		return dex.DeadEnd, nil
 	}
 	optoutSignalCommandResult := commandResults.Signals[0]
-	if optoutSignalCommandResult.Status == iwfidl.RECEIVED {
+	if optoutSignalCommandResult.Status == dexpb.RECEIVED {
 		var currentNotes string
 		persistence.GetDataAttribute(keyNotes, &currentNotes)
 		persistence.SetDataAttribute(keyNotes, currentNotes+";"+"User optout reminder")
 
-		return iwf.DeadEnd, nil
+		return dex.DeadEnd, nil
 	}
 
 	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
 	r.svc.SendEmail(jobSeekerId, "Reminder:xxx please respond", "Hello xxx, ...")
-	return iwf.SingleNextState(reminderState{}, nil), nil
+	return dex.SingleNextState(reminderState{}, nil), nil
 }
 
-func NewNotifyExternalSystemState(svc service.MyService) iwf.WorkflowState {
+func NewNotifyExternalSystemState(svc service.MyService) dex.WorkflowState {
 	return notifyExternalSystemState{
 		svc: svc,
 	}
 }
 
 type notifyExternalSystemState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
-func (n notifyExternalSystemState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (n notifyExternalSystemState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var status Status
 	input.Get(&status)
 
 	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
 	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
 	n.svc.UpdateExternalSystem(fmt.Sprintf("notify engagement from employerId %v to jobSeekerId %v for status %v ", employerId, jobSeekerId, status))
-	return iwf.DeadEnd, nil
+	return dex.DeadEnd, nil
 }
 
 // GetStateOptions customize the state options
 // By default, all state execution will retry infinitely (until workflow timeout).
 // This may not work for some dependency as we may want to retry for only a certain times
-func (n notifyExternalSystemState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
-			BackoffCoefficient:             iwfidl.PtrFloat32(2),
-			MaximumAttempts:                iwfidl.PtrInt32(100),
-			MaximumAttemptsDurationSeconds: iwfidl.PtrInt32(3600),
-			MaximumIntervalSeconds:         iwfidl.PtrInt32(60),
-			InitialIntervalSeconds:         iwfidl.PtrInt32(3),
+func (n notifyExternalSystemState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
+			BackoffCoefficient:             dexpb.PtrFloat32(2),
+			MaximumAttempts:                dexpb.PtrInt32(100),
+			MaximumAttemptsDurationSeconds: dexpb.PtrInt32(3600),
+			MaximumIntervalSeconds:         dexpb.PtrInt32(60),
+			InitialIntervalSeconds:         dexpb.PtrInt32(3),
 		},
 	}
 }

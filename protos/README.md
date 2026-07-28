@@ -1,8 +1,8 @@
-# iWF IDL (`protos/`)
+# Dex IDL (`protos/`)
 
-Protobuf + gRPC interface between iWF SDKs and the iWF server.
+Protobuf + gRPC interface between Dex SDKs and the Dex server.
 
-- Source: [`iwf.proto`](iwf.proto)
+- Source: [`dex.proto`](dex.proto)
 - Rename catalog: [`../docs/design/idl-renames.md`](../docs/design/idl-renames.md)
 - License: MIT ([`LICENSE`](LICENSE))
 
@@ -21,9 +21,9 @@ make -C protos proto
 
 | Output | Replaces |
 |--------|----------|
-| `server/gen/iwfpb/` | `server/gen/iwfidl/` |
-| `sdk-go/gen/iwfpb/` | `sdk-go/gen/iwfidl/` |
+| `server/gen/dexpb/` | `server/gen/dexpb/` |
+| `sdk-go/gen/dexpb/` | `sdk-go/gen/dexpb/` |
 | `sdk-java/src/main/java/io/superdurable/gen/` | OpenAPI `build/generated` |
-| `sdk-python/iwf/iwfpb/` | `sdk-python/iwf/iwf_api/` |
+| `sdk-python/dex/dexpb/` | `sdk-python/dex/dex_api/` |
 
 `make -C server idl-code-gen` and `make -C sdk-go idl-code-gen` delegate to `make -C protos proto`.

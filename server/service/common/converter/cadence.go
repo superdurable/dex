@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	cadenceMagic       = "IWFDC"
+	cadenceMagic       = "DEXDC"
 	cadenceVersion     = uint8(1)
 	cadenceHeaderLen   = 5 + 1 + 4 // magic + version + frame_count
 	cadenceFrameHdrLen = 1 + 1 + 4 // kind + nil + length
@@ -50,7 +50,7 @@ const (
 
 type cadenceDataConverter struct{}
 
-// NewCadenceDataConverter returns the IWFDC-framed Cadence DataConverter.
+// NewCadenceDataConverter returns the DEXDC-framed Cadence DataConverter.
 func NewCadenceDataConverter() encoded.DataConverter {
 	return &cadenceDataConverter{}
 }

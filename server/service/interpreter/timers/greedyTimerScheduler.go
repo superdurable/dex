@@ -23,21 +23,21 @@ package timers
 import (
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/cont"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type timerScheduler struct {
 	// Timers requested by the workflow in desc order
-	pendingScheduling []*iwfpb.TimerInfo
+	pendingScheduling []*dexpb.TimerInfo
 	// timers created through the workflow provider that are going to fire in desc order
 	providerScheduledTimerUnixTs []int64
 }
 
-func (t *timerScheduler) addTimer(toAdd *iwfpb.TimerInfo) {
+func (t *timerScheduler) addTimer(toAdd *dexpb.TimerInfo) {
 	if toAdd == nil ||
-		toAdd.GetStatus() != iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+		toAdd.GetStatus() != dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
 		panic("invalid timer added")
 	}
 
@@ -55,16 +55,16 @@ func (t *timerScheduler) addTimer(toAdd *iwfpb.TimerInfo) {
 	}
 
 	front := t.pendingScheduling[:insertIndex]
-	var back []*iwfpb.TimerInfo
+	var back []*dexpb.TimerInfo
 	if insertIndex >= len(t.pendingScheduling) {
-		back = []*iwfpb.TimerInfo{toAdd}
+		back = []*dexpb.TimerInfo{toAdd}
 	} else {
-		back = append([]*iwfpb.TimerInfo{toAdd}, t.pendingScheduling[insertIndex:]...)
+		back = append([]*dexpb.TimerInfo{toAdd}, t.pendingScheduling[insertIndex:]...)
 	}
 	t.pendingScheduling = append(front, back...)
 }
 
-func (t *timerScheduler) removeTimer(toRemove *iwfpb.TimerInfo) {
+func (t *timerScheduler) removeTimer(toRemove *dexpb.TimerInfo) {
 	for i, timer := range t.pendingScheduling {
 		if toRemove == timer {
 			t.pendingScheduling = append(t.pendingScheduling[:i], t.pendingScheduling[i+1:]...)
@@ -73,7 +73,7 @@ func (t *timerScheduler) removeTimer(toRemove *iwfpb.TimerInfo) {
 	}
 }
 
-func (t *timerScheduler) pruneToNextTimer(pruneTo int64) *iwfpb.TimerInfo {
+func (t *timerScheduler) pruneToNextTimer(pruneTo int64) *dexpb.TimerInfo {
 	index := len(t.providerScheduledTimerUnixTs)
 	for i := len(t.providerScheduledTimerUnixTs) - 1; i >= 0; i-- {
 		timerTime := t.providerScheduledTimerUnixTs[i]
@@ -98,7 +98,7 @@ func (t *timerScheduler) pruneToNextTimer(pruneTo int64) *iwfpb.TimerInfo {
 	for i := len(t.pendingScheduling) - 1; i >= 0; i-- {
 		timer := t.pendingScheduling[i]
 		if timer.GetFiringUnixTimestampSeconds() > pruneTo &&
-			timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+			timer.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
 			break
 		}
 		index = i

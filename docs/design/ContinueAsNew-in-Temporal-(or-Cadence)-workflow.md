@@ -1,4 +1,4 @@
-Based on [Long's Medium article](https://medium.com/@qlong/guide-to-continueasnew-in-cadence-temporal-workflow-using-iwf-as-an-example-part-1-c24ae5266f07). This version focuses on using Temporal/Candence with GoSDK, just like iWF does.
+Based on [Long's Medium article](https://medium.com/@qlong/guide-to-continueasnew-in-cadence-temporal-workflow-using-dex-as-an-example-part-1-c24ae5266f07). This version focuses on using Temporal/Candence with GoSDK, just like Dex does.
 
 NOTE: the term “Temporal” is used here to represent both Cadence and Temporal to make it easier to read.
 
@@ -6,7 +6,7 @@ NOTE: the term “Temporal” is used here to represent both Cadence and Tempora
 
 Temporal has a [50K history event length limit and 50MB size limit](https://docs.temporal.io/kb/temporal-platform-limits-sheet) for each execution. If the workflows reach the limit, the Temporal server will immediately **terminate** them.
 
-In fact, server and worker performance will be significantly degraded if the workflow history length is over ~10K events, or even earlier (especially for workflows built by Java SDK, however, iWF uses Go SDK). This is because the replay mechanism requires a full history to be downloaded to the worker locally. Replaying a long history will consume a lot of network IO, memory and CPU.
+In fact, server and worker performance will be significantly degraded if the workflow history length is over ~10K events, or even earlier (especially for workflows built by Java SDK, however, Dex uses Go SDK). This is because the replay mechanism requires a full history to be downloaded to the worker locally. Replaying a long history will consume a lot of network IO, memory and CPU.
 
 As a result, [continue as new](https://docs.temporal.io/workflows#continue-as-new) is needed to avoid running into the history scalability issue.
 
@@ -16,7 +16,7 @@ This page is to provide some guidance to implement “Continue As New” in a Te
 
 The goal is to provide a comprehensive guide for implementing continueAsNew. It’s not for providing a lot of details of all the basics of Temporal workflow. It assumes you are already familiar with the basic concepts and APIs, and the key concept — [workflow task](https://stackoverflow.com/questions/62904129/what-exactly-is-a-cadence-decision-task/63964726#63964726) in Temporal.
 
-iWF as a Temporal [abstraction/framework](https://github.com/temporalio/awesome-temporal#frameworks), has already implemented continueAsNew underneath. This article uses iWF as example to show how to implement it and provide a summary of how it’s implemented so that people can better understand iWF.
+Dex as a Temporal [abstraction/framework](https://github.com/temporalio/awesome-temporal#frameworks), has already implemented continueAsNew underneath. This article uses Dex as example to show how to implement it and provide a summary of how it’s implemented so that people can better understand Dex.
 
 # What is ContinueAsNew
 
@@ -80,10 +80,10 @@ The root problem is that user workflow code is written in native programming lan
 
 Doing this in a naive way essentially means that Temporal SDKs will have to create a snapshot of all the process states (heap, off-heap, thread stacks), and then rebuild the process state which is not feasible.
 
-# Why iWF can do it, as an abstraction of Temporal
+# Why Dex can do it, as an abstraction of Temporal
 
-*   Everything in iWF becomes “explicit” instead of “implicit”. The state transition, data storage, etc. Everything is clearly explicit between the user workflow code and server by the API contract.
-*   Or simply put, iWF doesn’t “replay” user workflow code at all.
+*   Everything in Dex becomes “explicit” instead of “implicit”. The state transition, data storage, etc. Everything is clearly explicit between the user workflow code and server by the API contract.
+*   Or simply put, Dex doesn’t “replay” user workflow code at all.
 
 ### Avoid long workflow history if possible
 
@@ -143,7 +143,7 @@ Mostly, `drainAllSignalsInOneWorkflowTask` can:
 *   Store the signal values in the snapshot that is to be built
 *   Process the signal in a non-blocking way — upsertSearchAttribute or complete or fail the workflow
 
-So here is the [implementation](../../server/service/interpreter/signalReceiver.go#L226) of the iWF for draining all signals, which is called [before continueAsNew API is called](../../server/service/interpreter/workflowImpl.go#L246).
+So here is the [implementation](../../server/service/interpreter/signalReceiver.go#L226) of the Dex for draining all signals, which is called [before continueAsNew API is called](../../server/service/interpreter/workflowImpl.go#L246).
 
 In draining the signals, it only mutates the workflow in-memory variables without making any blocking API calls.
 
@@ -156,7 +156,7 @@ When proactively receiving and processing all the signals received, if you know 
 *   use Temporal’s [“Len()” API](https://github.com/temporalio/sdk-go/blob/9bd67dd23989cc63672215bdc7bb88b315c14eee/internal/workflow.go#L108C3-L108C8) to check if any un-processed signals
 *   use [selector “Default” method to set a flag to indicate that all signals are received from the channel](https://github.com/uber-common/cadence-samples/blob/ce920bd6e917aec5fab3c66057a37a51b23c51ef/cmd/samples/recipes/signalcounter/signal_counter_workflow.go#L53).
 
-However, in a very dynamic workflow like iWF, the workflow doesn’t know all the signal names beforehand. In that case, [iWF uses a special API from Cadence/Temporal called GetUnhandledSignalNames](../../server/service/interpreter/signalReceiver.go#L227C31-L227C54).
+However, in a very dynamic workflow like Dex, the workflow doesn’t know all the signal names beforehand. In that case, [Dex uses a special API from Cadence/Temporal called GetUnhandledSignalNames](../../server/service/interpreter/signalReceiver.go#L227C31-L227C54).
 
 ### What if a signal is received when the continueAsNew command is returned to the server?
 
@@ -224,9 +224,9 @@ However, as the signalQueue pattern stores the received signals in a queue, your
 
 ### Waiting for an unbounded number of sub-threads
 
-iWF took a slightly more advanced approach to wait for the sub-threads. This is because there could be unbounded sub-threads in iWF.
+Dex took a slightly more advanced approach to wait for the sub-threads. This is because there could be unbounded sub-threads in Dex.
 
-iWF has a [wrapper](../../server/service/interpreter/temporal/workflowProvider.go) of the `workflow.Go(...)` API, which track the thread started and completed.
+Dex has a [wrapper](../../server/service/interpreter/temporal/workflowProvider.go) of the `workflow.Go(...)` API, which track the thread started and completed.
 
 ```
 type workflowProvider struct {
@@ -260,7 +260,7 @@ func (w *workflowProvider) GetPendingThreadNames() map[string]int {
 func (w *workflowProvider) GetThreadCount() int {
 ```
 
-The wrapper is also related to the fact that iWF has to support both Cadence and Temporal without any duplicate code.
+The wrapper is also related to the fact that Dex has to support both Cadence and Temporal without any duplicate code.
 
 Therefore, the workflow code can just [check the sub-thread count](../../server/service/interpreter/continueAsNewer.go#L149) in a `workflow.Await(…)` API call.
 
@@ -286,4 +286,4 @@ Until now, your workflow code may be like this to drain threads and signals.
 ...
 ```
 
-This is a base of the real production [iWF code to drain the threads](../../server/service/interpreter/workflowImpl.go#L226). The implementation is more complicated because we also have to optimize the workflow, so that if a workflow can fail/complete early, and let it fail/complete before continueAsNew, but this should give enough understand to the feature and its implementation. To understand it fully please study the production code.
+This is a base of the real production [Dex code to drain the threads](../../server/service/interpreter/workflowImpl.go#L226). The implementation is more complicated because we also have to optimize the workflow, so that if a workflow can fail/complete early, and let it fail/complete before continueAsNew, but this should give enough understand to the feature and its implementation. To understand it fully please study the production code.

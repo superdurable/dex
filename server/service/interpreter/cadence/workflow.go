@@ -21,15 +21,15 @@
 package cadence
 
 import (
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.uber.org/cadence/workflow"
 )
 
 func (iw *InterpreterWorker) Engine(
 	ctx workflow.Context,
-	input *iwfpb.InterpreterWorkflowInput,
-) (*iwfpb.InterpreterWorkflowOutput, error) {
+	input *dexpb.InterpreterWorkflowInput,
+) (*dexpb.InterpreterWorkflowOutput, error) {
 	return iw.workflow.StartEngineFlow(
 		interfaces.NewUnifiedContext(ctx),
 		newCadenceWorkflowProvider(),

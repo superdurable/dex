@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wf_force_fail"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wf_force_fail"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -60,39 +60,39 @@ func TestFlowForceFailCadence(t *testing.T) {
 func doTestFlowForceFail(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := wf_force_fail.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := "wf-force-fail-test-" + uuid.NewString()
-	startResp, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_force_fail.FlowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      wf_force_fail.Step1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		NeedsResults:    true,
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
 
-	expectedStepOutput := &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+	expectedStepOutput := &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "test-encoding",
 				Payload:  []byte("test-data"),
 			},
@@ -100,10 +100,10 @@ func doTestFlowForceFail(
 	}
 
 	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 	require.Equal(
 		t,
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
 		resp.GetErrorType(),
 	)
 	require.Len(t, resp.GetResults(), 1)

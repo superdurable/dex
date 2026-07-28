@@ -15,14 +15,14 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type persistenceWorkflowState1 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 
-func (b persistenceWorkflowState1) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
+func (b persistenceWorkflowState1) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
 	kw := persistence.GetSearchAttributeKeyword(testSearchAttributeKeyword)
 
 	if kw != "init-keyword" {
@@ -47,10 +47,10 @@ func (b persistenceWorkflowState1) WaitUntil(ctx iwf.WorkflowContext, input iwf.
 	persistence.SetDataAttribute(testDataObjectKey2, "a string")
 	persistence.SetSearchAttributeInt(testSearchAttributeInt, 1)
 
-	return iwf.EmptyCommandRequest(), nil
+	return dex.EmptyCommandRequest(), nil
 }
 
-func (b persistenceWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b persistenceWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	iv := persistence.GetSearchAttributeInt(testSearchAttributeInt)
 	if iv != 1 {
 		panic("this value must be 1 because it got set by WaitUntil API")
@@ -66,5 +66,5 @@ func (b persistenceWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Ob
 
 	persistence.SetSearchAttributeDatetime(testSearchAttributeDatetime, do.Datetime)
 	persistence.SetSearchAttributeBool(testSearchAttributeBool, true)
-	return iwf.SingleNextState(persistenceWorkflowState2{}, nil), nil
+	return dex.SingleNextState(persistenceWorkflowState2{}, nil), nil
 }

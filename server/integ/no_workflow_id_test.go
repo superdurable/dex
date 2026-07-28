@@ -26,9 +26,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -37,7 +37,7 @@ func TestPublishToChannelNoFlowId(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	flowClient := runtime.FlowClient
@@ -45,9 +45,9 @@ func TestPublishToChannelNoFlowId(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: "",
-		Messages: []*iwfpb.ChannelMessage{
+		Messages: []*dexpb.ChannelMessage{
 			{
 				ChannelName: signal.SignalName,
 				Value:       stringValue("test"),

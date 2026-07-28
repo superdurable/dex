@@ -10,7 +10,7 @@ Users can customize the WorkflowState
 
 ## WorkflowState WaitUntil/Execute API timeout and retry policy
 
-Retry is built-in in iWF WorkflowState. Returning any error will just let the state API(waitUntil/execute) retry until the attempts has maxed out the retryPolicy.
+Retry is built-in in Dex WorkflowState. Returning any error will just let the state API(waitUntil/execute) retry until the attempts has maxed out the retryPolicy.
 
 Generally, it's recommended to NOT catch retryable (e.g. 5xx status from REST APIs, service internal error or unavailable, timeouts), or a generic error (e.g. Exception in Java), otherwise you lose the benefits of the retry. In other words, it's anti-pattern to catch those exceptions (unless catch and re-throw after logging).
 
@@ -88,20 +88,20 @@ public class DebitState extends WorkflowState {
 In Golang SDK:
 ```go
 type debitState struct{
-    iwf.WorkflowStateDefaultsNoWaitUntil
+    dex.WorkflowStateDefaultsNoWaitUntil
 }
 
-func (b debitState) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
+func (b debitState) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
            // make sure the retry duration is less than the workflow timeout so that recovery state has a chance to run options.
-           ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{...},
+           ExecuteApiRetryPolicy: &dexpb.RetryPolicy{...},
 
            ExecuteApiFailureProceedState: undoDebitState{},
         }
 }
 
 
-func (b debitState) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b debitState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
        // make three API calls for a debit operation
 }
 ```
@@ -144,7 +144,7 @@ class DebitState(WorkflowState[None]):
 For WaitUntil API, using `PROCEED_ON_API_FAILURE` for `WaitUntilApiFailurePolicy` will let workflow continue to invoke `execute`
 API when the API fails with maxing out all the retry attempts.
 
-See example here in [Java](../../sdk-java/src/test/java/io/iworkflow/integ/basic/ProceedOnStateStartFailWorkflowState1.java#L45) and [Golang](../../sdk-go/integ/proceed_on_state_start_fail_workflow_state1.go#L36).
+See example here in [Java](../../sdk-java/src/test/java/io/dex/integ/basic/ProceedOnStateStartFailWorkflowState1.java#L45) and [Golang](../../sdk-go/integ/proceed_on_state_start_fail_workflow_state1.go#L36).
 
 This is very uncommonly needed than the failure policy of Execute API. Currently not implemented in Python SDK yet.
 
@@ -158,4 +158,4 @@ To have a different WorkflowStateOptions, normally you just need to implement th
 
 But in some rare cases, you may need it to be more dynamic -- for example, different state executions could have a different retry policy, even they are from the same state definitions. 
 
-To achieve this, you can provide an [stateOptionsOverride to the StateMovement of StateDecision](../../sdk-java/src/main/java/io/iworkflow/core/StateDecision.java#L152).
+To achieve this, you can provide an [stateOptionsOverride to the StateMovement of StateDecision](../../sdk-java/src/main/java/io/dex/core/StateDecision.java#L152).

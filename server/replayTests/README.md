@@ -5,12 +5,12 @@
 Replay tests ensure Temporal workflow [determinism](https://docs.temporal.io/workflows#deterministic-constraints)
 is not broken by interpreter changes.
 
-iWF uses Temporal-only replay (not Cadence). See Temporal docs
+Dex uses Temporal-only replay (not Cadence). See Temporal docs
 [here](https://docs.temporal.io/develop/go/testing-suite#replay).
 
 ### Global versioning
 
-iWF uses the [global versioning design pattern](https://medium.com/@qlong/how-to-overcome-some-maintenance-challenges-of-temporal-cadence-workflow-versioning-f893815dd18d).
+Dex uses the [global versioning design pattern](https://medium.com/@qlong/how-to-overcome-some-maintenance-challenges-of-temporal-cadence-workflow-versioning-f893815dd18d).
 
 After the gRPC interpreter rewrite, the global-version scheme **restarted at v1**.
 Pre-rewrite histories were deleted; do not keep baselines for old global versions.

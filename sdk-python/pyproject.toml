@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "iwf-sdk"
+name = "dex-python-sdk"
 version = "0.0.1"
-description = "Python SDK for the iWF workflow engine"
-authors = ["Indeed Engineering"]
+description = "Python SDK for the Dex workflow engine"
+authors = ["Super Durable"]
 readme = "README.md"
-packages = [{include = "iwf"}]
-repository = "https://github.com/superdurable/iwf"
-homepage = "https://github.com/superdurable/iwf/tree/main/sdk-python"
+packages = [{include = "dex"}]
+repository = "https://github.com/superdurable/dex"
+homepage = "https://github.com/superdurable/dex/tree/main/sdk-python"
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -34,7 +34,7 @@ ignore = ["E501"]
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-src_paths = ["iwf",]
+src_paths = ["dex",]
 
 [tool.mypy]
 ignore_missing_imports = true

@@ -24,23 +24,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 func TestNewStepRequestQueueWithResumeRequestsUsesStableResumeOrder(t *testing.T) {
-	start := &iwfpb.StepMovement{StepType: "start"}
-	resumeA := &iwfpb.StepExecutionResumeInfo{
+	start := &dexpb.StepMovement{StepType: "start"}
+	resumeA := &dexpb.StepExecutionResumeInfo{
 		StepExecutionId: "resume-a-1",
-		Step:            &iwfpb.StepMovement{StepType: "resume-a"},
+		Step:            &dexpb.StepMovement{StepType: "resume-a"},
 	}
-	resumeB := &iwfpb.StepExecutionResumeInfo{
+	resumeB := &dexpb.StepExecutionResumeInfo{
 		StepExecutionId: "resume-b-1",
-		Step:            &iwfpb.StepMovement{StepType: "resume-b"},
+		Step:            &dexpb.StepMovement{StepType: "resume-b"},
 	}
 
 	queue := NewStepRequestQueueWithResumeRequests(
-		[]*iwfpb.StepMovement{start},
-		[]*iwfpb.StepExecutionResumeInfo{resumeB, resumeA},
+		[]*dexpb.StepMovement{start},
+		[]*dexpb.StepExecutionResumeInfo{resumeB, resumeA},
 	)
 	requests := queue.TakeAll()
 	require.Equal(t, []string{"start", "resume-a", "resume-b"}, []string{
@@ -54,21 +54,21 @@ func TestNewStepRequestQueueWithResumeRequestsUsesStableResumeOrder(t *testing.T
 }
 
 func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
-	start := &iwfpb.StepMovement{StepType: "start"}
-	resume := &iwfpb.StepExecutionResumeInfo{
+	start := &dexpb.StepMovement{StepType: "start"}
+	resume := &dexpb.StepExecutionResumeInfo{
 		StepExecutionId: "resume-1",
-		Step:            &iwfpb.StepMovement{StepType: "resume"},
+		Step:            &dexpb.StepMovement{StepType: "resume"},
 	}
 	queue := NewStepRequestQueueWithResumeRequests(
 		nil,
-		[]*iwfpb.StepExecutionResumeInfo{resume},
+		[]*dexpb.StepExecutionResumeInfo{resume},
 	)
 
-	queue.AddStepStartRequests([]*iwfpb.StepMovement{start})
+	queue.AddStepStartRequests([]*dexpb.StepMovement{start})
 	queue.AddSingleStepStartRequest(
 		"single",
-		&iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: "input"}},
-		&iwfpb.StepOptions{SkipWaitFor: true},
+		&dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "input"}},
+		&dexpb.StepOptions{SkipWaitFor: true},
 	)
 
 	starts := queue.GetAllStepStartRequests()
@@ -80,16 +80,16 @@ func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
 
 func TestStepRequestRejectsInvalidResumeInfo(t *testing.T) {
 	require.Panics(t, func() {
-		NewStepResumeRequest(&iwfpb.StepExecutionResumeInfo{})
+		NewStepResumeRequest(&dexpb.StepExecutionResumeInfo{})
 	})
 	require.Panics(t, func() {
-		resume := &iwfpb.StepExecutionResumeInfo{
+		resume := &dexpb.StepExecutionResumeInfo{
 			StepExecutionId: "duplicate-id",
-			Step:            &iwfpb.StepMovement{StepType: "step"},
+			Step:            &dexpb.StepMovement{StepType: "step"},
 		}
 		NewStepRequestQueueWithResumeRequests(
 			nil,
-			[]*iwfpb.StepExecutionResumeInfo{resume, resume},
+			[]*dexpb.StepExecutionResumeInfo{resume, resume},
 		)
 	})
 }

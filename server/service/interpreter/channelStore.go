@@ -23,22 +23,22 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/channel"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/channel"
 )
 
 // ChannelStore holds FIFO messages by channel.
 type ChannelStore struct {
-	channelMessages map[string][]*iwfpb.Value
+	channelMessages map[string][]*dexpb.Value
 }
 
 func NewChannelStore() *ChannelStore {
-	return &ChannelStore{channelMessages: map[string][]*iwfpb.Value{}}
+	return &ChannelStore{channelMessages: map[string][]*dexpb.Value{}}
 }
 
 // RebuildChannelStore restores a snapshot.
-func RebuildChannelStore(refill map[string]*iwfpb.ChannelValues) *ChannelStore {
-	chMsgs := make(map[string][]*iwfpb.Value, len(refill))
+func RebuildChannelStore(refill map[string]*dexpb.ChannelValues) *ChannelStore {
+	chMsgs := make(map[string][]*dexpb.Value, len(refill))
 	for name, channelValues := range refill {
 		if len(channelValues.GetValues()) > 0 {
 			chMsgs[name] = channelValues.GetValues()
@@ -48,7 +48,7 @@ func RebuildChannelStore(refill map[string]*iwfpb.ChannelValues) *ChannelStore {
 }
 
 // ProcessPublishing appends messages.
-func (i *ChannelStore) ProcessPublishing(messages []*iwfpb.ChannelMessage) {
+func (i *ChannelStore) ProcessPublishing(messages []*dexpb.ChannelMessage) {
 	for _, message := range messages {
 		i.receive(message.GetChannelName(), message.GetValue())
 	}
@@ -69,26 +69,26 @@ func (i *ChannelStore) HasData(channelName string) bool {
 }
 
 // GetInfos returns channel sizes.
-func (i *ChannelStore) GetInfos() map[string]*iwfpb.ChannelInfo {
-	infos := make(map[string]*iwfpb.ChannelInfo, len(i.channelMessages))
+func (i *ChannelStore) GetInfos() map[string]*dexpb.ChannelInfo {
+	infos := make(map[string]*dexpb.ChannelInfo, len(i.channelMessages))
 	for name, values := range i.channelMessages {
-		infos[name] = &iwfpb.ChannelInfo{Size: int32(len(values))}
+		infos[name] = &dexpb.ChannelInfo{Size: int32(len(values))}
 	}
 	return infos
 }
 
 // GetAllReceived returns the current messages.
-func (i *ChannelStore) GetAllReceived() map[string]*iwfpb.ChannelValues {
-	snapshot := make(map[string]*iwfpb.ChannelValues, len(i.channelMessages))
+func (i *ChannelStore) GetAllReceived() map[string]*dexpb.ChannelValues {
+	snapshot := make(map[string]*dexpb.ChannelValues, len(i.channelMessages))
 	for name, values := range i.channelMessages {
-		snapshot[name] = &iwfpb.ChannelValues{Values: values}
+		snapshot[name] = &dexpb.ChannelValues{Values: values}
 	}
 	return snapshot
 }
 
 // CommitMatch consumes a plan and returns the consumed messages.
-func (i *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*iwfpb.Value {
-	consumed := make(map[int][]*iwfpb.Value, len(plan.Consumes))
+func (i *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*dexpb.Value {
+	consumed := make(map[int][]*dexpb.Value, len(plan.Consumes))
 	for _, consumption := range plan.Consumes {
 		values := i.channelMessages[consumption.ChannelName]
 		if int32(len(values)) < consumption.Count {
@@ -114,7 +114,7 @@ func (i *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*iwfpb.Val
 	return consumed
 }
 
-func (i *ChannelStore) receive(channelName string, data *iwfpb.Value) {
+func (i *ChannelStore) receive(channelName string, data *dexpb.Value) {
 	values := i.channelMessages[channelName]
 	values = append(values, data)
 	i.channelMessages[channelName] = values

@@ -9,17 +9,17 @@ ENV HOST=''
 ENV TEMPORAL_SERVICE_NAME=''
 ENV CADENCE_SERVICE_NAME=''
 
-COPY . /iwf/
-WORKDIR /iwf/
+COPY . /dex/
+WORKDIR /dex/
 
-RUN rm -rf iwf-server  \
+RUN rm -rf dex-server  \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     make bins && \
-    chmod +x /iwf/script/start-server.sh
+    chmod +x /dex/script/start-server.sh
 
 EXPOSE  8801
-ENTRYPOINT ["/iwf/script/start-server.sh"]
+ENTRYPOINT ["/dex/script/start-server.sh"]

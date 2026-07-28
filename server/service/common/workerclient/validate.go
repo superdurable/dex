@@ -23,17 +23,17 @@ package workerclient
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // RejectWorkerBlobIDs rejects server-minted blob-id arms on worker responses (untrusted).
-func RejectWorkerBlobIDs(values ...*iwfpb.Value) error {
+func RejectWorkerBlobIDs(values ...*dexpb.Value) error {
 	for _, value := range values {
 		if value == nil {
 			continue
 		}
 		switch value.GetKind().(type) {
-		case *iwfpb.Value_InternalBlobIdForStringValue, *iwfpb.Value_InternalBlobIdForObjValue:
+		case *dexpb.Value_InternalBlobIdForStringValue, *dexpb.Value_InternalBlobIdForObjValue:
 			return fmt.Errorf("worker response must not contain internal_blob_id arms")
 		}
 	}
@@ -41,7 +41,7 @@ func RejectWorkerBlobIDs(values ...*iwfpb.Value) error {
 }
 
 // RejectWorkerAttributeWriteBlobIDs rejects blob-id arms on AttributeWrite values.
-func RejectWorkerAttributeWriteBlobIDs(writes []*iwfpb.AttributeWrite) error {
+func RejectWorkerAttributeWriteBlobIDs(writes []*dexpb.AttributeWrite) error {
 	for _, write := range writes {
 		if write == nil {
 			continue
@@ -54,7 +54,7 @@ func RejectWorkerAttributeWriteBlobIDs(writes []*iwfpb.AttributeWrite) error {
 }
 
 // RejectWorkerKVBlobIDs rejects blob-id arms on KV values.
-func RejectWorkerKVBlobIDs(kvs []*iwfpb.KV) error {
+func RejectWorkerKVBlobIDs(kvs []*dexpb.KV) error {
 	for _, kv := range kvs {
 		if kv == nil {
 			continue

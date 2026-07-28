@@ -21,13 +21,13 @@
 package microservices
 
 import (
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
 )
 
-func NewMicroserviceOrchestrationWorkflow(svc service.MyService) iwf.ObjectWorkflow {
+func NewMicroserviceOrchestrationWorkflow(svc service.MyService) dex.ObjectWorkflow {
 
 	return &OrchestrationWorkflow{
 		svc: svc,
@@ -35,31 +35,31 @@ func NewMicroserviceOrchestrationWorkflow(svc service.MyService) iwf.ObjectWorkf
 }
 
 type OrchestrationWorkflow struct {
-	iwf.DefaultWorkflowType
+	dex.DefaultWorkflowType
 
 	svc service.MyService
 }
 
-func (e OrchestrationWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(NewState1(e.svc)),
-		iwf.NonStartingStateDef(NewState2(e.svc)),
-		iwf.NonStartingStateDef(NewState3(e.svc)),
-		iwf.NonStartingStateDef(NewState4(e.svc)),
+func (e OrchestrationWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(NewState1(e.svc)),
+		dex.NonStartingStateDef(NewState2(e.svc)),
+		dex.NonStartingStateDef(NewState3(e.svc)),
+		dex.NonStartingStateDef(NewState4(e.svc)),
 	}
 }
 
-func (e OrchestrationWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
-	return []iwf.PersistenceFieldDef{
-		iwf.DataAttributeDef(keyData),
+func (e OrchestrationWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
+	return []dex.PersistenceFieldDef{
+		dex.DataAttributeDef(keyData),
 	}
 }
 
-func (e OrchestrationWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.SignalChannelDef(SignalChannelReady),
+func (e OrchestrationWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.SignalChannelDef(SignalChannelReady),
 
-		iwf.RPCMethodDef(e.Swap, nil),
+		dex.RPCMethodDef(e.Swap, nil),
 	}
 }
 
@@ -69,7 +69,7 @@ const (
 	SignalChannelReady = "Ready"
 )
 
-func (e OrchestrationWorkflow) Swap(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (interface{}, error) {
+func (e OrchestrationWorkflow) Swap(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
 
 	var oldData string
 	persistence.GetDataAttribute(keyData, &oldData)
@@ -80,84 +80,84 @@ func (e OrchestrationWorkflow) Swap(ctx iwf.WorkflowContext, input iwf.Object, p
 	return oldData, nil
 }
 
-func NewState1(svc service.MyService) iwf.WorkflowState {
+func NewState1(svc service.MyService) dex.WorkflowState {
 	return state1{svc: svc}
 }
 
 type state1 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
-func (i state1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i state1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var inString string
 	input.Get(&inString)
 
 	i.svc.CallAPI1(inString)
 
 	persistence.SetDataAttribute(keyData, inString)
-	return iwf.MultiNextStatesWithInput(
-		iwf.NewStateMovement(state2{}, nil),
-		iwf.NewStateMovement(state3{}, nil),
+	return dex.MultiNextStatesWithInput(
+		dex.NewStateMovement(state2{}, nil),
+		dex.NewStateMovement(state3{}, nil),
 	), nil
 }
 
-func NewState2(svc service.MyService) iwf.WorkflowState {
+func NewState2(svc service.MyService) dex.WorkflowState {
 	return state2{svc: svc}
 }
 
 type state2 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
-func (i state2) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i state2) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var data string
 	persistence.GetDataAttribute(keyData, &data)
 
 	i.svc.CallAPI2(data)
-	return iwf.DeadEnd, nil
+	return dex.DeadEnd, nil
 }
 
-func NewState3(svc service.MyService) iwf.WorkflowState {
+func NewState3(svc service.MyService) dex.WorkflowState {
 	return state3{svc: svc}
 }
 
 type state3 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
-func (i state3) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.AnyCommandCompletedRequest(
-		iwf.NewTimerCommand("", time.Now().Add(time.Hour*24)),
-		iwf.NewSignalCommand("", SignalChannelReady),
+func (i state3) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.AnyCommandCompletedRequest(
+		dex.NewTimerCommand("", time.Now().Add(time.Hour*24)),
+		dex.NewSignalCommand("", SignalChannelReady),
 	), nil
 }
 
-func (i state3) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i state3) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var data string
 	persistence.GetDataAttribute(keyData, &data)
 	i.svc.CallAPI3(data)
 
-	if commandResults.Timers[0].Status == iwfidl.FIRED {
-		return iwf.SingleNextState(state4{}, nil), nil
+	if commandResults.Timers[0].Status == dexpb.FIRED {
+		return dex.SingleNextState(state4{}, nil), nil
 	}
-	return iwf.GracefulCompletingWorkflow, nil
+	return dex.GracefulCompletingWorkflow, nil
 }
 
-func NewState4(svc service.MyService) iwf.WorkflowState {
+func NewState4(svc service.MyService) dex.WorkflowState {
 	return state4{svc: svc}
 }
 
 type state4 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 	svc service.MyService
 }
 
-func (i state4) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (i state4) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var data string
 	persistence.GetDataAttribute(keyData, &data)
 	i.svc.CallAPI4(data)
-	return iwf.GracefulCompletingWorkflow, nil
+	return dex.GracefulCompletingWorkflow, nil
 }

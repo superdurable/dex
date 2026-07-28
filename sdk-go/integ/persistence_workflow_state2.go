@@ -15,16 +15,16 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type persistenceWorkflowState2 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 
-const testText = "Hail iWF!"
+const testText = "Hail Dex!"
 
-func (b persistenceWorkflowState2) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
+func (b persistenceWorkflowState2) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
 	iv := persistence.GetSearchAttributeInt(testSearchAttributeInt)
 	if iv != 1 {
 		panic("this value must be 1 because it got set by WaitUntil API")
@@ -37,17 +37,17 @@ func (b persistenceWorkflowState2) WaitUntil(ctx iwf.WorkflowContext, input iwf.
 	persistence.SetSearchAttributeDouble(testSearchAttributeDouble, 1.0)
 	if dv.Unix() == do.Datetime.Unix() && bv {
 		persistence.SetSearchAttributeText(testSearchAttributeText, testText)
-		return iwf.EmptyCommandRequest(), nil
+		return dex.EmptyCommandRequest(), nil
 	}
 	panic("the value of datatime or bool search attribute is incorrect")
 
 }
 
-func (b persistenceWorkflowState2) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b persistenceWorkflowState2) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	tv := persistence.GetSearchAttributeText(testSearchAttributeText)
-	persistence.SetSearchAttributeKeyword(testSearchAttributeKeyword, "iWF")
+	persistence.SetSearchAttributeKeyword(testSearchAttributeKeyword, "Dex")
 	if tv == testText {
-		return iwf.GracefulCompletingWorkflow, nil
+		return dex.GracefulCompletingWorkflow, nil
 	}
 	panic("the value of text search attribute is incorrect")
 }

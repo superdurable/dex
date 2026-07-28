@@ -29,10 +29,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
@@ -45,7 +45,7 @@ func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
 	}
 }
 
-func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+func doTestLargeQueryAttributes(t *testing.T, flowConfig *dexpb.FlowConfig) {
 	for _, lazyLoading := range []bool{true, false} {
 		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
 			doTestLargeQueryAttributesLazy(t, flowConfig, lazyLoading)
@@ -53,8 +53,8 @@ func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
 	}
 }
 
-func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *dexpb.FlowConfig, lazyLoading bool) {
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     service.BackendTypeTemporal,
 		S3TestThreshold: 100 * 1024,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -67,7 +67,7 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, 
 	defer cancel()
 
 	flowId := signal.WorkflowType + uuid.NewString()
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 86400,
@@ -75,7 +75,7 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, 
 		StartStepType:      signal.State1,
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
@@ -88,9 +88,9 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, 
 	keys := make([]string, 5)
 	for i := 0; i < 5; i++ {
 		keys[i] = "large-data-attribute-" + fmt.Sprintf("%d", i)
-		_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+		_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 			FlowId: flowId,
-			Attributes: []*iwfpb.AttributeWrite{
+			Attributes: []*dexpb.AttributeWrite{
 				dataObjectAttribute(keys[i], `"`+oneMbPayload+`"`),
 			},
 		})
@@ -98,9 +98,9 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, 
 	}
 
 	for i := 0; i < 4; i++ {
-		_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
-			Messages: []*iwfpb.ChannelMessage{
+			Messages: []*dexpb.ChannelMessage{
 				{
 					ChannelName: signal.SignalName,
 					Value:       objJSONValue(`"` + fmt.Sprintf("test-data-%v", i) + `"`),
@@ -110,13 +110,13 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *iwfpb.FlowConfig, 
 		require.NoError(t, err)
 	}
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 
-	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys:   keys,
 	})

@@ -4,7 +4,7 @@ What is **Signal-With-Start** in [Temporal](https://docs.temporal.io/encyclopedi
 - Temporal’s definition:
   - Signal-With-Start is a great tool for lazily initializing Workflows. When you send this operation, if there is a running Workflow Execution with the given Workflow Id, it will be Signaled. Otherwise, a new Workflow Execution starts and is immediately sent the Signal.
 
-For iWF’s **waitForStateExecutionCompletion** API, there are several cases:
+For Dex’s **waitForStateExecutionCompletion** API, there are several cases:
 
 **Case 1:**
 - API Service waits for a state that has not been completed.

@@ -32,17 +32,17 @@ With some other existing technologies, you solve it using message queue(like SQS
 
 It's complicated and hard to maintain and extend.   
 
-### iWF solution
+### Dex solution
 ![3](https://github.com/indeedeng/iwf/assets/4523955/3428523e-c3d9-4fd6-8d10-c19b91ac7ecd)
 
-The solution with iWF:
+The solution with Dex:
 * All in one single place without scattered business logic
 * Natural to represent business
 * Builtin & rich support for operation tooling
 
 It's so simple & easy to do that the code can be shown here!
 
-See the running code in [Java samples](../../examples/java/src/main/java/io/iworkflow/workflow/microservices), [Golang samples](../../examples/go/workflows/microservices). 
+See the running code in [Java samples](../../examples/java/src/main/java/io/dex/workflow/microservices), [Golang samples](../../examples/go/workflows/microservices). 
 ```java
 public class OrchestrationWorkflow implements ObjectWorkflow {
 
@@ -147,7 +147,7 @@ class State4 implements WorkflowState<Void> {
 }
 ```
 
-And the [application code](../../examples/java/src/main/java/io/iworkflow/controller/MicroserviceWorkflowController.java) simply interacts with the workflow like below:
+And the [application code](../../examples/java/src/main/java/io/dex/controller/MicroserviceWorkflowController.java) simply interacts with the workflow like below:
 ```java
     @GetMapping("/start")
     public ResponseEntity<String> start(

@@ -4,7 +4,7 @@ The page is to answer the two questions:
 * Does this mean an RPC call will always block other RPC calls in the same workflow until it is finished? Or blocking happens only when the lock is needed (like RPC method writes persistence fields)
 
 
-There are three levels of atomicity in iWF RPC 
+There are three levels of atomicity in Dex RPC 
 
 * Level 1: Atomicity as the whole read+write
 * Level 2: Atomicity of reading the results as a snapshot with strong read after write consistency, and atomicity of writing (updating persistence, publishing messages, trigger state movements etc). 

@@ -24,11 +24,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // BlobIdFromValue returns the internal blob id arm, if any.
-func BlobIdFromValue(value *iwfpb.Value) string {
+func BlobIdFromValue(value *dexpb.Value) string {
 	if value == nil {
 		return ""
 	}
@@ -42,9 +42,9 @@ func BlobIdFromValue(value *iwfpb.Value) string {
 // concrete Value. Does not mutate value. Concrete values are returned as-is.
 func LoadBlobsValue(
 	ctx context.Context,
-	client iwfpb.FlowServiceClient,
-	value *iwfpb.Value,
-) (*iwfpb.Value, error) {
+	client dexpb.FlowServiceClient,
+	value *dexpb.Value,
+) (*dexpb.Value, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -55,8 +55,8 @@ func LoadBlobsValue(
 	if client == nil {
 		return nil, fmt.Errorf("FlowServiceClient is required to LoadBlobs")
 	}
-	resp, err := client.LoadBlobs(ctx, &iwfpb.LoadBlobsRequest{
-		Values: []*iwfpb.Value{blobArmCopy(value)},
+	resp, err := client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Values: []*dexpb.Value{blobArmCopy(value)},
 	})
 	if err != nil {
 		return nil, err
@@ -68,14 +68,14 @@ func LoadBlobsValue(
 	return loaded, nil
 }
 
-func blobArmCopy(value *iwfpb.Value) *iwfpb.Value {
+func blobArmCopy(value *dexpb.Value) *dexpb.Value {
 	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
-		return &iwfpb.Value{
-			Kind: &iwfpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobId},
+		return &dexpb.Value{
+			Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobId},
 		}
 	}
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_InternalBlobIdForStringValue{
+	return &dexpb.Value{
+		Kind: &dexpb.Value_InternalBlobIdForStringValue{
 			InternalBlobIdForStringValue: value.GetInternalBlobIdForStringValue(),
 		},
 	}
@@ -84,8 +84,8 @@ func blobArmCopy(value *iwfpb.Value) *iwfpb.Value {
 // ObjPayloadString returns the obj payload as a string, resolving blob arms via LoadBlobs.
 func ObjPayloadString(
 	ctx context.Context,
-	client iwfpb.FlowServiceClient,
-	value *iwfpb.Value,
+	client dexpb.FlowServiceClient,
+	value *dexpb.Value,
 ) (string, error) {
 	resolved, err := LoadBlobsValue(ctx, client, value)
 	if err != nil {

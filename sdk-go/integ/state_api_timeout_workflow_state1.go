@@ -15,29 +15,29 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
 )
 
 type stateApiTimeoutWorkflowState1 struct {
-	iwf.DefaultStateId
+	dex.DefaultStateId
 }
 
-func (b stateApiTimeoutWorkflowState1) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
+func (b stateApiTimeoutWorkflowState1) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
 	time.Sleep(time.Minute)
 	return nil, nil
 }
 
-func (b stateApiTimeoutWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
-	return iwf.ForceFailWorkflow("a failing message"), nil
+func (b stateApiTimeoutWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
+	return dex.ForceFailWorkflow("a failing message"), nil
 }
 
-func (b stateApiTimeoutWorkflowState1) GetStateOptions() *iwf.StateOptions {
-	return &iwf.StateOptions{
-		WaitUntilApiRetryPolicy: &iwfidl.RetryPolicy{
-			MaximumAttempts: iwfidl.PtrInt32(1),
+func (b stateApiTimeoutWorkflowState1) GetStateOptions() *dex.StateOptions {
+	return &dex.StateOptions{
+		WaitUntilApiRetryPolicy: &dexpb.RetryPolicy{
+			MaximumAttempts: dexpb.PtrInt32(1),
 		},
-		WaitUntilApiTimeoutSeconds: iwfidl.PtrInt32(1),
+		WaitUntilApiTimeoutSeconds: dexpb.PtrInt32(1),
 	}
 }

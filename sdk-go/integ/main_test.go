@@ -22,8 +22,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 func TestMain(m *testing.M) {
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func apiV1WorkflowStateStart(c *gin.Context) {
-	var req iwfidl.WorkflowStateWaitUntilRequest
+	var req dexpb.WorkflowStateWaitUntilRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -50,7 +50,7 @@ func apiV1WorkflowStateStart(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 func apiV1WorkflowStateDecide(c *gin.Context) {
-	var req iwfidl.WorkflowStateExecuteRequest
+	var req dexpb.WorkflowStateExecuteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -65,7 +65,7 @@ func apiV1WorkflowStateDecide(c *gin.Context) {
 }
 
 func apiV1WorkflowWorkerRpc(c *gin.Context) {
-	var req iwfidl.WorkflowWorkerRpcRequest
+	var req dexpb.WorkflowWorkerRpcRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -73,9 +73,9 @@ func apiV1WorkflowWorkerRpc(c *gin.Context) {
 
 	resp, err := workerService.HandleWorkflowWorkerRPC(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(501, iwfidl.WorkerErrorResponse{
-			Detail:    iwfidl.PtrString(err.Error()),
-			ErrorType: iwfidl.PtrString("test-error-type"),
+		c.JSON(501, dexpb.WorkerErrorResponse{
+			Detail:    dexpb.PtrString(err.Error()),
+			ErrorType: dexpb.PtrString("test-error-type"),
 		})
 		return
 	}
@@ -84,12 +84,12 @@ func apiV1WorkflowWorkerRpc(c *gin.Context) {
 
 func startWorkflowWorker() (closeFunc func()) {
 	router := gin.Default()
-	router.POST(iwf.WorkflowStateWaitUntilApi, apiV1WorkflowStateStart)
-	router.POST(iwf.WorkflowStateExecuteApi, apiV1WorkflowStateDecide)
-	router.POST(iwf.WorkflowWorkerRPCAPI, apiV1WorkflowWorkerRpc)
+	router.POST(dex.WorkflowStateWaitUntilApi, apiV1WorkflowStateStart)
+	router.POST(dex.WorkflowStateExecuteApi, apiV1WorkflowStateDecide)
+	router.POST(dex.WorkflowWorkerRPCAPI, apiV1WorkflowWorkerRpc)
 
 	wfServer := &http.Server{
-		Addr:    ":" + iwf.DefaultWorkerPort,
+		Addr:    ":" + dex.DefaultWorkerPort,
 		Handler: router,
 	}
 	go func() {

@@ -27,11 +27,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/channel_multivalue"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/channel_multivalue"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -90,7 +90,7 @@ func TestChannelMultivalueCadence(t *testing.T) {
 func doTestChannelMultivalueExactN(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioExactN, flowConfig,
@@ -100,7 +100,7 @@ func doTestChannelMultivalueExactN(
 
 	results := channelResultsFromData(t, workerHandler.GetTestResult(), channel_multivalue.ScenarioExactN)
 	require.Len(t, results, 1)
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	requireStringValues(t, results[0].GetValues(), "m0", "m1", "m2")
 
 	leftover := channelReceivedFromDump(t, runtime, flowId, channel_multivalue.ChannelName)
@@ -110,7 +110,7 @@ func doTestChannelMultivalueExactN(
 func doTestChannelMultivalueOneToAll(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioOneToAll, flowConfig,
@@ -126,7 +126,7 @@ func doTestChannelMultivalueOneToAll(
 func doTestChannelMultivalueZeroToAllEmpty(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioZeroToAllEmpty, flowConfig,
@@ -135,14 +135,14 @@ func doTestChannelMultivalueZeroToAllEmpty(
 
 	results := channelResultsFromData(t, workerHandler.GetTestResult(), channel_multivalue.ScenarioZeroToAllEmpty)
 	require.Len(t, results, 1)
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	require.Empty(t, results[0].GetValues())
 }
 
 func doTestChannelMultivalueRange(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioRange, flowConfig,
@@ -158,7 +158,7 @@ func doTestChannelMultivalueRange(
 func doTestChannelMultivalueSameChannelExact(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioSameChannelExact, flowConfig,
@@ -176,7 +176,7 @@ func doTestChannelMultivalueSameChannelExact(
 func doTestChannelMultivalueExact2PlusZero(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioExact2PlusZero, flowConfig,
@@ -193,7 +193,7 @@ func doTestChannelMultivalueExact2PlusZero(
 func doTestChannelMultivalueAnyNoPremature(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
 		t, backendType, channel_multivalue.ScenarioAnyNoPremature, flowConfig,
@@ -215,26 +215,26 @@ func doTestChannelMultivalueAnyNoPremature(
 func doTestChannelMultivalueInvalidBounds(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	_, runtime, flowId, ctx := startChannelMultivalueFlowWithStepOptions(
 		t,
 		backendType,
 		channel_multivalue.ScenarioInvalidBounds,
 		flowConfig,
-		&iwfpb.StepOptions{
-			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+		&dexpb.StepOptions{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				TotalDurationSeconds: 1,
 			},
 		},
 	)
-	resp, err := runtime.FlowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
-	require.Equal(t, iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, resp.GetErrorType())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, resp.GetErrorType())
 	require.Contains(t, resp.GetErrorMessage(), "at_most")
 }
 
@@ -243,7 +243,7 @@ func doTestChannelMultivalueCanBuffered(t *testing.T, backendType service.Backen
 		t,
 		backendType,
 		channel_multivalue.ScenarioCanBuffered,
-		&iwfpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
+		&dexpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
 	)
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "b0", "b1")
 	require.Eventually(t, func() bool {
@@ -266,14 +266,14 @@ func doTestChannelMultivalueCanMatchBoundary(t *testing.T, backendType service.B
 		t,
 		backendType,
 		channel_multivalue.ScenarioCanMatchBoundary,
-		&iwfpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
+		&dexpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
 	)
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "c0", "c1", "c2")
 	waitChannelMultivalueComplete(t, ctx, runtime.FlowClient, flowId)
 
 	results := channelResultsFromData(t, workerHandler.GetTestResult(), channel_multivalue.ScenarioCanMatchBoundary)
 	require.Len(t, results, 1)
-	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	requireStringValues(t, results[0].GetValues(), "c0", "c1", "c2")
 }
 
@@ -285,7 +285,7 @@ func startChannelMultivalueFlow(
 	t *testing.T,
 	backendType service.BackendType,
 	scenario string,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) (channelMultivalueWorker, *integRuntime, string, context.Context) {
 	return startChannelMultivalueFlowWithStepOptions(t, backendType, scenario, flowConfig, nil)
 }
@@ -294,19 +294,19 @@ func startChannelMultivalueFlowWithStepOptions(
 	t *testing.T,
 	backendType service.BackendType,
 	scenario string,
-	flowConfig *iwfpb.FlowConfig,
-	stepOptions *iwfpb.StepOptions,
+	flowConfig *dexpb.FlowConfig,
+	stepOptions *dexpb.StepOptions,
 ) (channelMultivalueWorker, *integRuntime, string, context.Context) {
 	t.Helper()
 	workerHandler := channel_multivalue.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
 	flowId := channel_multivalue.WorkflowType + "-" + scenario + "-" + uuid.NewString()
-	_, err := runtime.FlowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           channel_multivalue.WorkflowType,
 		FlowTimeoutSeconds: 40,
@@ -314,7 +314,7 @@ func startChannelMultivalueFlowWithStepOptions(
 		StartStepType:      channel_multivalue.State1,
 		StepInput:          stringValue(scenario),
 		StepOptions:        stepOptions,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -325,20 +325,20 @@ func startChannelMultivalueFlowWithStepOptions(
 func publishChannelStrings(
 	t *testing.T,
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	flowId string,
 	channelName string,
 	payloads ...string,
 ) {
 	t.Helper()
-	messages := make([]*iwfpb.ChannelMessage, 0, len(payloads))
+	messages := make([]*dexpb.ChannelMessage, 0, len(payloads))
 	for _, payload := range payloads {
-		messages = append(messages, &iwfpb.ChannelMessage{
+		messages = append(messages, &dexpb.ChannelMessage{
 			ChannelName: channelName,
 			Value:       stringValue(payload),
 		})
 	}
-	_, err := flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+	_, err := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId:   flowId,
 		Messages: messages,
 	})
@@ -348,50 +348,50 @@ func publishChannelStrings(
 func waitChannelMultivalueComplete(
 	t *testing.T,
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	flowId string,
 ) {
 	t.Helper()
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 30,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }
 
 func channelResultsFromData(
 	t *testing.T,
 	result common.TestResult,
 	scenario string,
-) []*iwfpb.ChannelResult {
+) []*dexpb.ChannelResult {
 	t.Helper()
 	raw, ok := result.InvokeData[scenario+"-results"]
 	require.True(t, ok, "missing results for %s", scenario)
-	results, ok := raw.([]*iwfpb.ChannelResult)
+	results, ok := raw.([]*dexpb.ChannelResult)
 	require.True(t, ok)
 	return results
 }
 
-func channelResultsByID(results []*iwfpb.ChannelResult) map[string]*iwfpb.ChannelResult {
-	out := make(map[string]*iwfpb.ChannelResult, len(results))
+func channelResultsByID(results []*dexpb.ChannelResult) map[string]*dexpb.ChannelResult {
+	out := make(map[string]*dexpb.ChannelResult, len(results))
 	for _, result := range results {
 		out[result.GetConditionId()] = result
 	}
 	return out
 }
 
-func completedChannelResults(results []*iwfpb.ChannelResult) []*iwfpb.ChannelResult {
-	var out []*iwfpb.ChannelResult
+func completedChannelResults(results []*dexpb.ChannelResult) []*dexpb.ChannelResult {
+	var out []*dexpb.ChannelResult
 	for _, result := range results {
-		if result.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+		if result.GetConditionStatus() == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
 			out = append(out, result)
 		}
 	}
 	return out
 }
 
-func requireStringValues(t *testing.T, values []*iwfpb.Value, expected ...string) {
+func requireStringValues(t *testing.T, values []*dexpb.Value, expected ...string) {
 	t.Helper()
 	require.Len(t, values, len(expected))
 	for i, want := range expected {
@@ -404,7 +404,7 @@ func channelReceivedFromDump(
 	runtime *integRuntime,
 	flowId string,
 	channelName string,
-) []*iwfpb.Value {
+) []*dexpb.Value {
 	t.Helper()
 	dump := queryChannelDump(t, runtime, flowId)
 	received := dump.GetSnapshot().GetChannelReceived()[channelName]
@@ -418,9 +418,9 @@ func queryChannelDump(
 	t *testing.T,
 	runtime *integRuntime,
 	flowId string,
-) *iwfpb.DebugDumpResponse {
+) *dexpb.DebugDumpResponse {
 	t.Helper()
-	var dump iwfpb.DebugDumpResponse
+	var dump dexpb.DebugDumpResponse
 	err := runtime.UnifiedClient.QueryWorkflow(
 		context.Background(),
 		&dump,

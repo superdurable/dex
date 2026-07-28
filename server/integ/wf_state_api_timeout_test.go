@@ -28,9 +28,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wf_state_api_timeout"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wf_state_api_timeout"
+	"github.com/superdurable/dex/service"
 )
 
 func TestStateApiTimeoutTemporal(t *testing.T) {
@@ -60,11 +60,11 @@ func TestStateApiTimeoutCadence(t *testing.T) {
 func doTestStateApiTimeout(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := wf_state_api_timeout.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
 	})
 	flowClient := runtime.FlowClient
@@ -73,28 +73,28 @@ func doTestStateApiTimeout(
 	defer cancel()
 
 	flowId := wf_state_api_timeout.FlowType + uuid.NewString()
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_state_api_timeout.FlowType,
 		FlowTimeoutSeconds: 10,
 		WorkerTarget:       workerTarget,
 		StartStepType:      wf_state_api_timeout.Step1,
-		StepOptions: &iwfpb.StepOptions{
+		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 1,
-			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				MaximumAttempts: 1,
 			},
 		},
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
 	startResp, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
@@ -111,10 +111,10 @@ func doTestStateApiTimeout(
 		resp.GetErrorMessage(),
 	)
 	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 	require.Equal(
 		t,
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 		resp.GetErrorType(),
 	)
 }

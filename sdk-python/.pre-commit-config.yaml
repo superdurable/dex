@@ -1,7 +1,7 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 # Generated protobuf client is excluded (paths differ standalone vs monorepo).
-exclude: ^(iwf/iwfpb/|sdk-python/iwf/iwfpb/)
+exclude: ^(dex/dexpb/|sdk-python/dex/dexpb/)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -43,7 +43,7 @@ repos:
 
   - id: mypy
     name: Validate types with MyPy
-    entry: bash -euo pipefail -c 'cd sdk-python && poetry run mypy iwf'
+    entry: bash -euo pipefail -c 'cd sdk-python && poetry run mypy dex'
     language: system
     types: [python]
     pass_filenames: false

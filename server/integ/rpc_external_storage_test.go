@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	rpcStorage "github.com/superdurable/iwf/integ/workflow/rpc-external-storage"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	rpcStorage "github.com/superdurable/dex/integ/workflow/rpc-external-storage"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -69,7 +69,7 @@ func TestRpcExternalStorageNonLockingCadence(t *testing.T) {
 }
 
 func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, useLocking bool, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 100,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -82,7 +82,7 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	defer cancel()
 
 	flowId := rpcStorage.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           rpcStorage.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -93,14 +93,14 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		getResult, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 			FlowId: flowId,
 			Keys:   []string{rpcStorage.SmallDataKey, rpcStorage.LargeDataKey},
 		})
 		return getErr == nil && len(getResult.GetAttributes()) == 2
 	}, 5*time.Second, 50*time.Millisecond)
 
-	rpcRequest := &iwfpb.InvokeRPCRequest{
+	rpcRequest := &dexpb.InvokeRPCRequest{
 		FlowId:         flowId,
 		RpcName:        rpcStorage.UpdateDataAttributesRPC,
 		Input:          objJSONValue(`"rpc-input"`),
@@ -127,10 +127,10 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	rpcInputData, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-received-data"]
 	require.True(t, exists)
 
-	receivedAttributes, ok := rpcInputData.([]*iwfpb.KV)
+	receivedAttributes, ok := rpcInputData.([]*dexpb.KV)
 	require.True(t, ok)
 
-	receivedDataMap := make(map[string]*iwfpb.Value)
+	receivedDataMap := make(map[string]*dexpb.Value)
 	for _, attribute := range receivedAttributes {
 		receivedDataMap[attribute.GetKey()] = attribute.GetValue()
 	}
@@ -143,15 +143,15 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	require.True(t, exists)
 	require.True(t, hasObjPayload(largeValue))
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 5,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }
 
-func hasObjPayload(value *iwfpb.Value) bool {
+func hasObjPayload(value *dexpb.Value) bool {
 	if value == nil {
 		return false
 	}

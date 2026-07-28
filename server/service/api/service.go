@@ -28,21 +28,21 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	serviceerrors "github.com/superdurable/iwf/service/common/errors"
-	"github.com/superdurable/iwf/service/common/grpctarget"
-	"github.com/superdurable/iwf/service/common/index"
-	"github.com/superdurable/iwf/service/common/log"
-	"github.com/superdurable/iwf/service/common/log/tag"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/common/rpc"
-	"github.com/superdurable/iwf/service/common/utils"
-	"github.com/superdurable/iwf/service/common/workerclient"
-	interpreterconfig "github.com/superdurable/iwf/service/interpreter/config"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/blobstore"
+	serviceerrors "github.com/superdurable/dex/service/common/errors"
+	"github.com/superdurable/dex/service/common/grpctarget"
+	"github.com/superdurable/dex/service/common/index"
+	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/log/tag"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/rpc"
+	"github.com/superdurable/dex/service/common/utils"
+	"github.com/superdurable/dex/service/common/workerclient"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -106,8 +106,8 @@ func (s *serviceImpl) Close() {
 
 func (s *serviceImpl) StartFlow(
 	ctx context.Context,
-	req *iwfpb.StartFlowRequest,
-) (*iwfpb.StartFlowResponse, error) {
+	req *dexpb.StartFlowRequest,
+) (*dexpb.StartFlowResponse, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" {
 		return nil, makeInvalidRequestError("flow ID and flow type are required")
 	}
@@ -129,7 +129,7 @@ func (s *serviceImpl) StartFlow(
 	}
 
 	searchAttributes := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
-	searchAttributes[service.SearchAttributeIwfWorkflowType] = req.GetFlowType()
+	searchAttributes[service.SearchAttributeDexWorkflowType] = req.GetFlowType()
 
 	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
@@ -155,18 +155,18 @@ func (s *serviceImpl) StartFlow(
 		return nil, s.handleError(err)
 	}
 
-	initAttributes := make([]*iwfpb.KV, 0, len(attributes))
+	initAttributes := make([]*dexpb.KV, 0, len(attributes))
 	for _, attribute := range attributes {
-		if _, isNull := attribute.GetValue().GetKind().(*iwfpb.Value_NullValue); isNull {
+		if _, isNull := attribute.GetValue().GetKind().(*dexpb.Value_NullValue); isNull {
 			continue
 		}
-		initAttributes = append(initAttributes, &iwfpb.KV{
+		initAttributes = append(initAttributes, &dexpb.KV{
 			Key:   attribute.GetKey(),
 			Value: attribute.GetValue(),
 		})
 	}
 
-	var workflowConfig iwfpb.FlowConfig
+	var workflowConfig dexpb.FlowConfig
 	if s.interpreterCfg.DefaultWorkflowConfig == nil {
 		workflowConfig = *config.DefaultWorkflowConfig
 	} else {
@@ -185,7 +185,7 @@ func (s *serviceImpl) StartFlow(
 		WorkflowExecutionTimeout: time.Duration(req.GetFlowTimeoutSeconds()) * time.Second,
 		SearchAttributes:         searchAttributes,
 		Memo: map[string]interface{}{
-			service.WorkerTargetMemoKey: &iwfpb.EncodedObject{
+			service.WorkerTargetMemoKey: &dexpb.EncodedObject{
 				Payload: []byte(workerTarget),
 			},
 		},
@@ -193,8 +193,8 @@ func (s *serviceImpl) StartFlow(
 	ignoreAlreadyStartedError := false
 	requestId := ""
 	if startOptions != nil {
-		if startOptions.GetIdReusePolicy() != iwfpb.IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED {
-			if _, known := iwfpb.IdReusePolicy_name[int32(startOptions.GetIdReusePolicy())]; !known {
+		if startOptions.GetIdReusePolicy() != dexpb.IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED {
+			if _, known := dexpb.IdReusePolicy_name[int32(startOptions.GetIdReusePolicy())]; !known {
 				return nil, makeInvalidRequestError("unknown ID reuse policy")
 			}
 			workflowOptions.IdReusePolicy = ptr.Any(startOptions.GetIdReusePolicy())
@@ -215,14 +215,14 @@ func (s *serviceImpl) StartFlow(
 			ignoreAlreadyStartedError = alreadyStartedOptions.GetIgnoreAlreadyStartedError()
 			requestId = alreadyStartedOptions.GetRequestId()
 			if requestId != "" {
-				workflowOptions.Memo[service.WorkflowRequestId] = &iwfpb.EncodedObject{
+				workflowOptions.Memo[service.WorkflowRequestId] = &dexpb.EncodedObject{
 					Payload: []byte(requestId),
 				}
 			}
 		}
 	}
 
-	input := &iwfpb.InterpreterWorkflowInput{
+	input := &dexpb.InterpreterWorkflowInput{
 		FlowType:       req.GetFlowType(),
 		WorkerTarget:   workerTarget,
 		StartStepType:  req.GetStartStepType(),
@@ -261,10 +261,10 @@ func (s *serviceImpl) StartFlow(
 	} else {
 		s.logger.Info("Started flow", tag.WorkflowID(req.GetFlowId()), tag.WorkflowRunID(runId))
 	}
-	return &iwfpb.StartFlowResponse{RunId: runId}, nil
+	return &dexpb.StartFlowResponse{RunId: runId}, nil
 }
 
-func overrideWorkflowConfig(configOverride iwfpb.FlowConfig, workflowConfig *iwfpb.FlowConfig) {
+func overrideWorkflowConfig(configOverride dexpb.FlowConfig, workflowConfig *dexpb.FlowConfig) {
 	if configOverride.ActiveStepSearchMode != nil {
 		workflowConfig.ActiveStepSearchMode = configOverride.ActiveStepSearchMode
 	}
@@ -279,7 +279,7 @@ func overrideWorkflowConfig(configOverride iwfpb.FlowConfig, workflowConfig *iwf
 	}
 }
 
-func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.WaitForStepCompletionRequest) (*iwfpb.WaitForStepCompletionResponse, error) {
+func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.WaitForStepCompletionRequest) (*dexpb.WaitForStepCompletionResponse, error) {
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "WaitForStepCompletion requires Temporal synchronous update")
 	}
@@ -299,7 +299,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.Wait
 	}
 	waitCtx, cancel, deadline := s.waitContext(ctx, req.GetWaitTimeSeconds())
 	defer cancel()
-	var response iwfpb.WaitForStepCompletionResponse
+	var response dexpb.WaitForStepCompletionResponse
 	backoff := 25 * time.Millisecond
 	originalWaitSeconds := req.GetWaitTimeSeconds()
 	for {
@@ -316,7 +316,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.Wait
 			return &response, nil
 		}
 		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -333,7 +333,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *iwfpb.Wait
 	}
 }
 
-func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *iwfpb.WaitForAttributeRequest) (*emptypb.Empty, error) {
+func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error) {
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "WaitForAttribute requires Temporal synchronous update")
 	}
@@ -367,7 +367,7 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *iwfpb.WaitForAt
 			return &response, nil
 		}
 		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -386,7 +386,7 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *iwfpb.WaitForAt
 
 func (s *serviceImpl) PublishToChannel(
 	ctx context.Context,
-	req *iwfpb.PublishToChannelRequest,
+	req *dexpb.PublishToChannelRequest,
 ) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
@@ -396,7 +396,7 @@ func (s *serviceImpl) PublishToChannel(
 			return nil, makeInvalidRequestError("channel name is required")
 		}
 		if message.GetValue() == nil {
-			message.Value = &iwfpb.Value{}
+			message.Value = &dexpb.Value{}
 		}
 		if err := workerclient.RejectWorkerBlobIDs(message.GetValue()); err != nil {
 			return nil, makeInvalidRequestError(err.Error())
@@ -410,7 +410,7 @@ func (s *serviceImpl) PublishToChannel(
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
-		&iwfpb.ExecuteRpcSignalRequest{PublishToChannel: req.GetMessages()},
+		&dexpb.ExecuteRpcSignalRequest{PublishToChannel: req.GetMessages()},
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -419,7 +419,7 @@ func (s *serviceImpl) PublishToChannel(
 
 func (s *serviceImpl) UpdateFlowConfig(
 	ctx context.Context,
-	req *iwfpb.UpdateFlowConfigRequest,
+	req *dexpb.UpdateFlowConfigRequest,
 ) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetFlowConfig() == nil {
 		return nil, makeInvalidRequestError("flow ID and flow config are required")
@@ -441,7 +441,7 @@ func (s *serviceImpl) UpdateFlowConfig(
 
 func (s *serviceImpl) TriggerContinueAsNew(
 	ctx context.Context,
-	req *iwfpb.TriggerContinueAsNewRequest,
+	req *dexpb.TriggerContinueAsNewRequest,
 ) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
@@ -458,27 +458,27 @@ func (s *serviceImpl) TriggerContinueAsNew(
 	return &emptypb.Empty{}, nil
 }
 
-func (s *serviceImpl) StopFlow(ctx context.Context, req *iwfpb.StopFlowRequest) (*emptypb.Empty, error) {
+func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
 	stopType := req.GetStopType()
-	if stopType == iwfpb.StopType_STOP_TYPE_UNSPECIFIED {
-		stopType = iwfpb.StopType_STOP_TYPE_CANCEL
+	if stopType == dexpb.StopType_STOP_TYPE_UNSPECIFIED {
+		stopType = dexpb.StopType_STOP_TYPE_CANCEL
 	}
 	var err error
 	switch stopType {
-	case iwfpb.StopType_STOP_TYPE_CANCEL:
+	case dexpb.StopType_STOP_TYPE_CANCEL:
 		err = s.client.CancelWorkflow(ctx, req.GetFlowId(), req.GetRunId())
-	case iwfpb.StopType_STOP_TYPE_TERMINATE:
+	case dexpb.StopType_STOP_TYPE_TERMINATE:
 		err = s.client.TerminateWorkflow(ctx, req.GetFlowId(), req.GetRunId(), req.GetReason())
-	case iwfpb.StopType_STOP_TYPE_FAIL:
+	case dexpb.StopType_STOP_TYPE_FAIL:
 		err = s.client.SignalWorkflow(
 			ctx,
 			req.GetFlowId(),
 			req.GetRunId(),
 			service.FailWorkflowSignalChannelName,
-			&iwfpb.FailFlowSignalRequest{Reason: req.GetReason()},
+			&dexpb.FailFlowSignalRequest{Reason: req.GetReason()},
 		)
 	default:
 		return nil, makeInvalidRequestError("stop type is required")
@@ -491,19 +491,19 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *iwfpb.StopFlowRequest) 
 
 func (s *serviceImpl) GetAttributes(
 	ctx context.Context,
-	req *iwfpb.GetAttributesRequest,
-) (*iwfpb.GetAttributesResponse, error) {
+	req *dexpb.GetAttributesRequest,
+) (*dexpb.GetAttributesResponse, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
-	var queryResponse iwfpb.GetAttributesQueryResponse
+	var queryResponse dexpb.GetAttributesQueryResponse
 	if err := s.client.QueryWorkflow(
 		ctx,
 		&queryResponse,
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.GetAttributesWorkflowQueryType,
-		&iwfpb.GetAttributesQueryRequest{
+		&dexpb.GetAttributesQueryRequest{
 			Keys:    req.GetKeys(),
 			AllKeys: req.GetAllKeys(),
 		},
@@ -516,12 +516,12 @@ func (s *serviceImpl) GetAttributes(
 			return nil, s.handleError(err)
 		}
 	}
-	return &iwfpb.GetAttributesResponse{Attributes: attributes}, nil
+	return &dexpb.GetAttributesResponse{Attributes: attributes}, nil
 }
 
 func (s *serviceImpl) SetAttributes(
 	ctx context.Context,
-	req *iwfpb.SetAttributesRequest,
+	req *dexpb.SetAttributesRequest,
 ) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
@@ -545,18 +545,18 @@ func (s *serviceImpl) SetAttributes(
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
-		&iwfpb.ExecuteRpcSignalRequest{UpsertAttributes: attributes},
+		&dexpb.ExecuteRpcSignalRequest{UpsertAttributes: attributes},
 	); err != nil {
 		return nil, s.handleError(err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
-func (s *serviceImpl) LoadBlobs(ctx context.Context, req *iwfpb.LoadBlobsRequest) (*iwfpb.LoadBlobsResponse, error) {
+func (s *serviceImpl) LoadBlobs(ctx context.Context, req *dexpb.LoadBlobsRequest) (*dexpb.LoadBlobsResponse, error) {
 	if req == nil || len(req.GetValues()) == 0 {
-		return &iwfpb.LoadBlobsResponse{Values: map[string]*iwfpb.Value{}}, nil
+		return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{}}, nil
 	}
-	values := make(map[string]*iwfpb.Value, len(req.GetValues()))
+	values := make(map[string]*dexpb.Value, len(req.GetValues()))
 	for _, value := range req.GetValues() {
 		blobId, hydrateValue, err := blobArmForLoad(value)
 		if err != nil {
@@ -567,30 +567,30 @@ func (s *serviceImpl) LoadBlobs(ctx context.Context, req *iwfpb.LoadBlobsRequest
 		}
 		values[blobId] = hydrateValue
 	}
-	return &iwfpb.LoadBlobsResponse{Values: values}, nil
+	return &dexpb.LoadBlobsResponse{Values: values}, nil
 }
 
 // blobArmForLoad requires a blob-id arm and returns a fresh Value for hydrate.
-func blobArmForLoad(value *iwfpb.Value) (blobId string, hydrateValue *iwfpb.Value, err error) {
+func blobArmForLoad(value *dexpb.Value) (blobId string, hydrateValue *dexpb.Value, err error) {
 	if value == nil {
 		return "", nil, fmt.Errorf("value is required")
 	}
 	switch kind := value.GetKind().(type) {
-	case *iwfpb.Value_InternalBlobIdForStringValue:
+	case *dexpb.Value_InternalBlobIdForStringValue:
 		if kind.InternalBlobIdForStringValue == "" {
 			return "", nil, fmt.Errorf("blob ID is required")
 		}
-		return kind.InternalBlobIdForStringValue, &iwfpb.Value{
-			Kind: &iwfpb.Value_InternalBlobIdForStringValue{
+		return kind.InternalBlobIdForStringValue, &dexpb.Value{
+			Kind: &dexpb.Value_InternalBlobIdForStringValue{
 				InternalBlobIdForStringValue: kind.InternalBlobIdForStringValue,
 			},
 		}, nil
-	case *iwfpb.Value_InternalBlobIdForObjValue:
+	case *dexpb.Value_InternalBlobIdForObjValue:
 		if kind.InternalBlobIdForObjValue == "" {
 			return "", nil, fmt.Errorf("blob ID is required")
 		}
-		return kind.InternalBlobIdForObjValue, &iwfpb.Value{
-			Kind: &iwfpb.Value_InternalBlobIdForObjValue{
+		return kind.InternalBlobIdForObjValue, &dexpb.Value{
+			Kind: &dexpb.Value_InternalBlobIdForObjValue{
 				InternalBlobIdForObjValue: kind.InternalBlobIdForObjValue,
 			},
 		}, nil
@@ -601,8 +601,8 @@ func blobArmForLoad(value *iwfpb.Value) (blobId string, hydrateValue *iwfpb.Valu
 
 func (s *serviceImpl) WaitForFlow(
 	ctx context.Context,
-	req *iwfpb.WaitForFlowRequest,
-) (*iwfpb.WaitForFlowResponse, error) {
+	req *dexpb.WaitForFlowRequest,
+) (*dexpb.WaitForFlowResponse, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
@@ -612,14 +612,14 @@ func (s *serviceImpl) WaitForFlow(
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 	)
 	defer cancel()
-	var output iwfpb.InterpreterWorkflowOutput
+	var output dexpb.InterpreterWorkflowOutput
 	runId, flowStatus, getErr := s.client.GetWorkflowResult(
 		getCtx,
 		&output,
 		req.GetFlowId(),
 		req.GetRunId(),
 	)
-	response := &iwfpb.WaitForFlowResponse{
+	response := &dexpb.WaitForFlowResponse{
 		RunId:      runId,
 		FlowStatus: flowStatus,
 	}
@@ -640,23 +640,23 @@ func (s *serviceImpl) WaitForFlow(
 
 	errorType := s.client.GetApplicationErrorTypeIfIsApplicationError(getErr)
 	if errorType != "" {
-		errorTypeValue, known := iwfpb.FlowErrorType_value[errorType]
+		errorTypeValue, known := dexpb.FlowErrorType_value[errorType]
 		if !known {
 			return nil, s.handleError(getErr)
 		}
 		_, errorMessage := s.client.GetApplicationErrorTypeAndDetails(getErr)
-		response.FlowStatus = iwfpb.FlowStatus_FLOW_STATUS_FAILED
-		response.ErrorType = iwfpb.FlowErrorType(errorTypeValue)
+		response.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
+		response.ErrorType = dexpb.FlowErrorType(errorTypeValue)
 		response.ErrorMessage = errorMessage
 		return response, nil
 	}
 
 	switch flowStatus {
-	case iwfpb.FlowStatus_FLOW_STATUS_CANCELED,
-		iwfpb.FlowStatus_FLOW_STATUS_TERMINATED,
-		iwfpb.FlowStatus_FLOW_STATUS_TIMEOUT:
+	case dexpb.FlowStatus_FLOW_STATUS_CANCELED,
+		dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
+		dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
 		return response, nil
-	case iwfpb.FlowStatus_FLOW_STATUS_FAILED:
+	case dexpb.FlowStatus_FLOW_STATUS_FAILED:
 		response.ErrorMessage = "unknown flow failure from interpreter implementation"
 		return response, nil
 	default:
@@ -666,8 +666,8 @@ func (s *serviceImpl) WaitForFlow(
 
 func (s *serviceImpl) SearchFlows(
 	ctx context.Context,
-	req *iwfpb.SearchFlowsRequest,
-) (*iwfpb.SearchFlowsResponse, error) {
+	req *dexpb.SearchFlowsRequest,
+) (*dexpb.SearchFlowsResponse, error) {
 	if req == nil || req.GetPageSize() < 0 {
 		return nil, makeInvalidRequestError("page size must be non-negative")
 	}
@@ -683,7 +683,7 @@ func (s *serviceImpl) SearchFlows(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
-	return &iwfpb.SearchFlowsResponse{
+	return &dexpb.SearchFlowsResponse{
 		FlowRuns:      response.Executions,
 		NextPageToken: string(response.NextPageToken),
 	}, nil
@@ -691,8 +691,8 @@ func (s *serviceImpl) SearchFlows(
 
 func (s *serviceImpl) InvokeRPC(
 	ctx context.Context,
-	req *iwfpb.InvokeRPCRequest,
-) (*iwfpb.InvokeRPCResponse, error) {
+	req *dexpb.InvokeRPCRequest,
+) (*dexpb.InvokeRPCResponse, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetRpcName() == "" {
 		return nil, makeInvalidRequestError("flow ID and RPC name are required")
 	}
@@ -706,14 +706,14 @@ func (s *serviceImpl) InvokeRPC(
 		return s.handleRpcBySynchronousUpdate(ctx, req)
 	}
 
-	var preparation iwfpb.PrepareRpcQueryResponse
+	var preparation dexpb.PrepareRpcQueryResponse
 	if err := s.client.QueryWorkflow(
 		ctx,
 		&preparation,
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.PrepareRpcQueryType,
-		&iwfpb.PrepareRpcQueryRequest{},
+		&dexpb.PrepareRpcQueryRequest{},
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -738,7 +738,7 @@ func (s *serviceImpl) InvokeRPC(
 		len(workerResponse.GetPublishToChannel()) > 0 ||
 		len(decision.GetNextSteps()) > 0 ||
 		decision.GetConditionalClose() != nil {
-		signalRequest := &iwfpb.ExecuteRpcSignalRequest{
+		signalRequest := &dexpb.ExecuteRpcSignalRequest{
 			RpcInput:         req.GetInput(),
 			RpcOutput:        workerResponse.GetOutput(),
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
@@ -760,17 +760,17 @@ func (s *serviceImpl) InvokeRPC(
 			return nil, s.handleError(err)
 		}
 	}
-	return &iwfpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
+	return &dexpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
 }
 
 func (s *serviceImpl) handleRpcBySynchronousUpdate(
 	ctx context.Context,
-	req *iwfpb.InvokeRPCRequest,
-) (*iwfpb.InvokeRPCResponse, error) {
+	req *dexpb.InvokeRPCRequest,
+) (*dexpb.InvokeRPCResponse, error) {
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
-	var result iwfpb.InvokeRpcUpdateResult
+	var result dexpb.InvokeRpcUpdateResult
 	if err := s.client.SynchronousUpdateWorkflow(
 		ctx,
 		&result,
@@ -789,8 +789,8 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 
 func (s *serviceImpl) ResetFlow(
 	ctx context.Context,
-	req *iwfpb.ResetFlowRequest,
-) (*iwfpb.ResetFlowResponse, error) {
+	req *dexpb.ResetFlowRequest,
+) (*dexpb.ResetFlowResponse, error) {
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
@@ -798,12 +798,12 @@ func (s *serviceImpl) ResetFlow(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
-	return &iwfpb.ResetFlowResponse{RunId: runId}, nil
+	return &dexpb.ResetFlowResponse{RunId: runId}, nil
 }
 
 func (s *serviceImpl) SkipTimer(
 	ctx context.Context,
-	req *iwfpb.SkipTimerRequest,
+	req *dexpb.SkipTimerRequest,
 ) (*emptypb.Empty, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetStepExecutionId() == "" {
 		return nil, makeInvalidRequestError("flow ID and step execution ID are required")
@@ -811,7 +811,7 @@ func (s *serviceImpl) SkipTimer(
 	if req.GetTimerConditionId() == "" && req.TimerConditionIndex == nil {
 		return nil, makeInvalidRequestError("timer condition ID or index is required")
 	}
-	var timerInfos iwfpb.GetCurrentTimerInfosQueryResponse
+	var timerInfos dexpb.GetCurrentTimerInfosQueryResponse
 	if err := s.client.QueryWorkflow(
 		ctx,
 		&timerInfos,
@@ -834,7 +834,7 @@ func (s *serviceImpl) SkipTimer(
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.SkipTimerSignalChannelName,
-		&iwfpb.SkipTimerSignalRequest{
+		&dexpb.SkipTimerSignalRequest{
 			StepExecutionId:     req.GetStepExecutionId(),
 			TimerConditionId:    req.GetTimerConditionId(),
 			TimerConditionIndex: req.GetTimerConditionIndex(),
@@ -847,12 +847,12 @@ func (s *serviceImpl) SkipTimer(
 
 func (s *serviceImpl) DumpFlowForContinueAsNew(
 	ctx context.Context,
-	req *iwfpb.ContinueAsNewDumpRequest,
-) (*iwfpb.ContinueAsNewDumpResponse, error) {
+	req *dexpb.ContinueAsNewDumpRequest,
+) (*dexpb.ContinueAsNewDumpResponse, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetRunId() == "" {
 		return nil, makeInvalidRequestError("flow ID and run ID are required")
 	}
-	var response iwfpb.ContinueAsNewDumpResponse
+	var response dexpb.ContinueAsNewDumpResponse
 	if err := s.client.QueryWorkflow(
 		ctx,
 		&response,
@@ -866,12 +866,12 @@ func (s *serviceImpl) DumpFlowForContinueAsNew(
 	return &response, nil
 }
 
-func (s *serviceImpl) HealthCheck(ctx context.Context, _ *emptypb.Empty) (*iwfpb.HealthInfo, error) {
+func (s *serviceImpl) HealthCheck(ctx context.Context, _ *emptypb.Empty) (*dexpb.HealthInfo, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "Hostname Not Available"
 	}
-	return &iwfpb.HealthInfo{
+	return &dexpb.HealthInfo{
 		Condition: "OK",
 		Hostname:  hostname,
 		Duration:  0,
@@ -952,43 +952,43 @@ func (s *serviceImpl) handleError(err error) error {
 		s.logger.Error("encountered API server error", tag.Error(err))
 		return serviceerrors.Internal(err.Error()).ToGRPCError()
 	}
-	errorTypeValue, known := iwfpb.UpdateErrorType_value[errorTypeName]
+	errorTypeValue, known := dexpb.UpdateErrorType_value[errorTypeName]
 	if known {
 		var details string
 		if detailsErr := s.client.GetApplicationErrorDetails(err, &details); detailsErr != nil {
 			s.logger.Error("failed to decode update error details", tag.Error(detailsErr))
 			return serviceerrors.Internal(err.Error()).ToGRPCError()
 		}
-		switch iwfpb.UpdateErrorType(errorTypeValue) {
-		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT:
+		switch dexpb.UpdateErrorType(errorTypeValue) {
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT:
 			return serviceerrors.InvalidArgument(
-				iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 				details,
 			).ToGRPCError()
-		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:
 			return serviceerrors.NewErrorAndStatus(
 				codes.FailedPrecondition,
-				iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 				details,
 			).ToGRPCError()
-		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:
 			return serviceerrors.DeadlineExceededLongPoll(details).ToGRPCError()
-		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE:
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE:
 			return serviceerrors.AbortedLockFailure(details).ToGRPCError()
-		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:
 			return serviceerrors.Internal(details).ToGRPCError()
 		default:
 			return serviceerrors.Internal(details).ToGRPCError()
 		}
 	}
 
-	flowErrorTypeValue, known := iwfpb.FlowErrorType_value[errorTypeName]
+	flowErrorTypeValue, known := dexpb.FlowErrorType_value[errorTypeName]
 	if known {
-		flowErrorType := iwfpb.FlowErrorType(flowErrorTypeValue)
+		flowErrorType := dexpb.FlowErrorType(flowErrorTypeValue)
 		switch flowErrorType {
-		case iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL:
-			var errorResponse iwfpb.ErrorResponse
+		case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL:
+			var errorResponse dexpb.ErrorResponse
 			if detailsErr := s.client.GetApplicationErrorDetails(
 				err,
 				&errorResponse,
@@ -997,14 +997,14 @@ func (s *serviceImpl) handleError(err error) error {
 				return serviceerrors.Internal(err.Error()).ToGRPCError()
 			}
 			if errorResponse.GetDetail() == "" &&
-				errorResponse.GetSubStatus() == iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED &&
+				errorResponse.GetSubStatus() == dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED &&
 				errorResponse.GetOriginalWorkerErrorDetail() == "" &&
 				errorResponse.GetOriginalWorkerErrorType() == "" &&
 				errorResponse.GetOriginalWorkerErrorStatus() == 0 {
 				return serviceerrors.Internal(err.Error()).ToGRPCError()
 			}
 			grpcCode := codes.Internal
-			if flowErrorType == iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
+			if flowErrorType == dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
 				grpcCode = codes.FailedPrecondition
 			}
 			return serviceerrors.NewErrorAndStatusWithWorkerError(
@@ -1031,7 +1031,7 @@ func waitContextStatus(err error) error {
 
 func makeInvalidRequestError(details string) error {
 	return serviceerrors.InvalidArgument(
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		details,
 	).ToGRPCError()
 }

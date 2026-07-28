@@ -25,13 +25,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestCadenceSingleProtoRoundTrip(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	in := &iwfpb.SkipTimerSignalRequest{
+	in := &dexpb.SkipTimerSignalRequest{
 		StepExecutionId:     "s-1",
 		TimerConditionId:    "t-1",
 		TimerConditionIndex: 2,
@@ -44,14 +44,14 @@ func TestCadenceSingleProtoRoundTrip(t *testing.T) {
 	require.Equal(t, uint32(1), binary.BigEndian.Uint32(data[6:10]))
 	require.Equal(t, kindProto, data[10])
 
-	out := &iwfpb.SkipTimerSignalRequest{}
+	out := &dexpb.SkipTimerSignalRequest{}
 	require.NoError(t, dc.FromData(data, &out))
 	require.True(t, proto.Equal(in, out))
 }
 
 func TestCadenceMultiFrameMixedKinds(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	protoMsg := &iwfpb.FailFlowSignalRequest{Reason: "boom"}
+	protoMsg := &dexpb.FailFlowSignalRequest{Reason: "boom"}
 	jsonVal := map[string]string{"k": "v"}
 	raw := []byte{9, 8, 7}
 
@@ -59,7 +59,7 @@ func TestCadenceMultiFrameMixedKinds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint32(3), binary.BigEndian.Uint32(data[6:10]))
 
-	var outProto *iwfpb.FailFlowSignalRequest
+	var outProto *dexpb.FailFlowSignalRequest
 	var outJSON map[string]string
 	var outRaw []byte
 	require.NoError(t, dc.FromData(data, &outProto, &outJSON, &outRaw))
@@ -82,29 +82,29 @@ func TestCadenceSingleRawByteSlicePassthrough(t *testing.T) {
 
 func TestCadenceTypedNilProto(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	var typedNil *iwfpb.FailFlowSignalRequest
+	var typedNil *dexpb.FailFlowSignalRequest
 	data, err := dc.ToData(typedNil)
 	require.NoError(t, err)
 	require.Equal(t, kindProto, data[10])
 	require.Equal(t, nilFlagTrue, data[11])
 	require.Equal(t, uint32(0), binary.BigEndian.Uint32(data[12:16]))
 
-	var out *iwfpb.FailFlowSignalRequest
-	out = &iwfpb.FailFlowSignalRequest{Reason: "stale"}
+	var out *dexpb.FailFlowSignalRequest
+	out = &dexpb.FailFlowSignalRequest{Reason: "stale"}
 	require.NoError(t, dc.FromData(data, &out))
 	require.Nil(t, out)
 }
 
 func TestCadenceMapOneofRoundTrip(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	in := &iwfpb.GetCurrentTimerInfosQueryResponse{
-		StepExecutionCurrentTimerInfos: map[string]*iwfpb.TimerInfoList{
+	in := &dexpb.GetCurrentTimerInfosQueryResponse{
+		StepExecutionCurrentTimerInfos: map[string]*dexpb.TimerInfoList{
 			"exe-1": {
-				Timers: []*iwfpb.TimerInfo{
+				Timers: []*dexpb.TimerInfo{
 					{
 						ConditionId:                "c1",
 						FiringUnixTimestampSeconds: 42,
-						Status:                     iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
+						Status:                     dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING,
 					},
 				},
 			},
@@ -112,7 +112,7 @@ func TestCadenceMapOneofRoundTrip(t *testing.T) {
 	}
 	data, err := dc.ToData(in)
 	require.NoError(t, err)
-	out := &iwfpb.GetCurrentTimerInfosQueryResponse{}
+	out := &dexpb.GetCurrentTimerInfosQueryResponse{}
 	require.NoError(t, dc.FromData(data, &out))
 	require.True(t, proto.Equal(in, out))
 }
@@ -124,15 +124,15 @@ func TestCadenceEmptyNoArgRoundTrip(t *testing.T) {
 	require.Empty(t, data)
 	require.NoError(t, dc.FromData(nil))
 	require.NoError(t, dc.FromData([]byte{}))
-	require.Error(t, dc.FromData(nil, new(iwfpb.Value)))
+	require.Error(t, dc.FromData(nil, new(dexpb.Value)))
 }
 
 func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	var out *iwfpb.Value
+	var out *dexpb.Value
 
 	require.Error(t, dc.FromData([]byte("XXXXX"), &out))
-	require.Error(t, dc.FromData([]byte("IWFDC"), &out))
+	require.Error(t, dc.FromData([]byte("DEXDC"), &out))
 
 	badVersion := append([]byte(cadenceMagic), 99, 0, 0, 0, 1)
 	require.Error(t, dc.FromData(badVersion, &out))
@@ -165,9 +165,9 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	require.Error(t, dc.FromData(tooBig, &out))
 
 	// Wrong arity.
-	good, err := dc.ToData(&iwfpb.Value{Kind: &iwfpb.Value_IntValue{IntValue: 1}})
+	good, err := dc.ToData(&dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 1}})
 	require.NoError(t, err)
-	var a, b *iwfpb.Value
+	var a, b *dexpb.Value
 	require.Error(t, dc.FromData(good, &a, &b))
 
 	// Trailing bytes.

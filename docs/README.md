@@ -1,17 +1,17 @@
-# iWF documentation
+# Dex documentation
 
 ## Design
 
-* [iWF Design](design/iWF-Design.md)
+* [Dex Design](design/Dex-Design.md)
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
-* [IDL renames (OpenAPI → iwf.proto)](design/idl-renames.md)
+* [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
 
 ## Case studies / examples
 
 * [User sign-up/registry in Python/Java](case-study/Use-case-study-%E2%80%90%E2%80%90-user-signup-workflow.md)
 * [Abstracted microservice orchestration in Java/Golang](case-study/Use-case-study-%E2%80%90%E2%80%90-Microservice-Orchestration.md)
-* Employer & JobSeeker engagement in [Java](../examples/java/src/main/java/io/iworkflow/workflow/engagement) or [Golang](../examples/go/workflows/engagement)
-* Subscription Workflow in [Java](../examples/java/src/main/java/io/iworkflow/workflow/subscription) or [Golang](../examples/go/workflows/subscription)
+* Employer & JobSeeker engagement in [Java](../examples/java/src/main/java/io/dex/workflow/engagement) or [Golang](../examples/go/workflows/engagement)
+* Subscription Workflow in [Java](../examples/java/src/main/java/io/dex/workflow/subscription) or [Golang](../examples/go/workflows/subscription)
 
 ## Wiki
 
@@ -32,26 +32,26 @@
 * [WorkflowStateOptions](wiki/WorkflowStateOptions.md)
 * [Conditional complete workflow with checking channel emptiness](wiki/Conditionally-complete-workflow-with-atomic-checking-on-signal-or-internal-channel.md)
 * [WaitForStateExecutionCompletion](wiki/How-to-wait-for-a-workflow-state-to-complete.md)
-* [iWF limitation](wiki/iWF-limitation.md)
+* [Dex limitation](wiki/Dex-limitation.md)
 * [Persistence Caching (experimental)](wiki/Persistence-Caching.md)
 * [RPC locking](wiki/RPC-locking%3A-What-does-the-atomicity-of-RPC-really-mean%3F.md)
 * [SignalChannel vs InternalChannel](wiki/SignalChannel-vs-InternalChannel.md)
 
 ### Operation
 
-* [iWF application operation](wiki/iWF-Application-Operations.md)
-* [iWF server operation](wiki/iWF-Server-Operations.md)
-* [How to modify/version iWF workflow safely](wiki/%5BVersioning%5DHow-to-modify-workflow-code-without-breaking-changes.md)
+* [Dex application operation](wiki/Dex-Application-Operations.md)
+* [Dex server operation](wiki/Dex-Server-Operations.md)
+* [How to modify/version Dex workflow safely](wiki/%5BVersioning%5DHow-to-modify-workflow-code-without-breaking-changes.md)
 * [How to change server config in docker](wiki/How-to-change-server-config-in-docker.md)
 
 ### FAQ
 
 * [SignalChannel vs InternalChannel](wiki/SignalChannel-vs-InternalChannel.md)
-* [Using iWF as storage system](wiki/What-are-Pros-and-Cons-of-using-iWF-as-a-database-for-permanent-data-storage%3F.md)
-* [How iWF works & design](design/iWF-Design.md)
+* [Using Dex as storage system](wiki/What-are-Pros-and-Cons-of-using-Dex-as-a-database-for-permanent-data-storage%3F.md)
+* [How Dex works & design](design/Dex-Design.md)
 * [Data Persistence vs StateExecutionLocal vs input](wiki/Using-persistence-vs-State-input-vs-StateExecutionLocal-to-pass-data.md)
 * [RPC atomicity](wiki/RPC-locking%3A-What-does-the-atomicity-of-RPC-really-mean%3F.md)
-* [iWF limitation](wiki/iWF-limitation.md)
+* [Dex limitation](wiki/Dex-limitation.md)
 * [Wait for workflow to complete](wiki/How-to-wait-for-a-workflow-to-complete.md)
 * [Wait for workflow state to complete](wiki/How-to-wait-for-a-workflow-state-to-complete.md)
 * [How does waitForStateExecutionCompletion works](wiki/How-does-waitForStateCompletion-work%3F.md)

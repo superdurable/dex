@@ -31,14 +31,14 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/client"
 )
 
 const (
-	testBucket    = "iwf-test-bucket"
+	testBucket    = "dex-test-bucket"
 	testRegion    = "us-east-1"
 	testEndpoint  = "http://localhost:9000"
 	testAccessKey = "minioadmin"

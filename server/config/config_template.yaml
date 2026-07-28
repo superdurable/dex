@@ -1,5 +1,5 @@
-# please see all available config in https://github.com/superdurable/iwf/blob/main/config/config.go
-# You can use volume mount to override this config path(/iwf/config/config_template.yaml), e.g. for production
+# please see all available config in https://github.com/superdurable/dex/blob/main/config/config.go
+# You can use volume mount to override this config path(/dex/config/config_template.yaml), e.g. for production
 api:
   port: 8801
   queryWorkflowFailedRetryPolicy:

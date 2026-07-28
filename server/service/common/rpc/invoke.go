@@ -24,24 +24,24 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	"github.com/superdurable/iwf/service/common/utils"
-	"github.com/superdurable/iwf/service/common/workerclient"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/utils"
+	"github.com/superdurable/dex/service/common/workerclient"
 )
 
 // InvokeWorkerRpc calls WorkerService.InvokeWorkerRPC using the shared worker pool.
 func InvokeWorkerRpc(
 	ctx context.Context,
 	pool *workerclient.Pool,
-	rpcPrep *iwfpb.PrepareRpcQueryResponse,
-	req *iwfpb.InvokeRPCRequest,
+	rpcPrep *dexpb.PrepareRpcQueryResponse,
+	req *dexpb.InvokeRPCRequest,
 	apiMaxSeconds int64,
 	blobStore blobstore.BlobStore,
 	externalStorageConfig *config.ExternalStorageConfig,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 
 	if !externalStorageConfig.EffectiveLazyLoading() {
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
@@ -68,11 +68,11 @@ func InvokeWorkerRpc(
 
 	channelInfos := rpcPrep.GetChannelInfos()
 	if channelInfos == nil {
-		channelInfos = map[string]*iwfpb.ChannelInfo{}
+		channelInfos = map[string]*dexpb.ChannelInfo{}
 	}
 
-	workerReq := &iwfpb.InvokeWorkerRPCRequest{
-		Context: &iwfpb.Context{
+	workerReq := &dexpb.InvokeWorkerRPCRequest{
+		Context: &dexpb.Context{
 			FlowId:               req.GetFlowId(),
 			RunId:                rpcPrep.GetRunId(),
 			FlowStartedTimestamp: rpcPrep.GetFlowStartedTimestamp(),
@@ -109,7 +109,7 @@ func InvokeWorkerRpc(
 	return resp, nil
 }
 
-func validateWorkerRpcResponse(resp *iwfpb.InvokeWorkerRPCResponse) error {
+func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeWorkerRPCResponse")
 	}

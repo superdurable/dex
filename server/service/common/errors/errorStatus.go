@@ -21,7 +21,7 @@
 package errors
 
 import (
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -29,14 +29,14 @@ import (
 // ErrorAndStatus is an API-layer failure carrying ErrorSubStatus and a gRPC code.
 type ErrorAndStatus struct {
 	Code  codes.Code
-	Error *iwfpb.ErrorResponse
+	Error *dexpb.ErrorResponse
 }
 
 // NewErrorAndStatus builds an ErrorAndStatus without worker-origin details.
-func NewErrorAndStatus(code codes.Code, subStatus iwfpb.ErrorSubStatus, details string) *ErrorAndStatus {
+func NewErrorAndStatus(code codes.Code, subStatus dexpb.ErrorSubStatus, details string) *ErrorAndStatus {
 	return &ErrorAndStatus{
 		Code: code,
-		Error: &iwfpb.ErrorResponse{
+		Error: &dexpb.ErrorResponse{
 			SubStatus: subStatus,
 			Detail:    details,
 		},
@@ -45,12 +45,12 @@ func NewErrorAndStatus(code codes.Code, subStatus iwfpb.ErrorSubStatus, details 
 
 // NewErrorAndStatusWithWorkerError attaches original WorkerService failure fields.
 func NewErrorAndStatusWithWorkerError(
-	code codes.Code, subStatus iwfpb.ErrorSubStatus, details string,
+	code codes.Code, subStatus dexpb.ErrorSubStatus, details string,
 	originalWorkerDetails string, originalWorkerErrType string, originalWorkerStatus int32,
 ) *ErrorAndStatus {
 	return &ErrorAndStatus{
 		Code: code,
-		Error: &iwfpb.ErrorResponse{
+		Error: &dexpb.ErrorResponse{
 			SubStatus:                 subStatus,
 			Detail:                    details,
 			OriginalWorkerErrorDetail: originalWorkerDetails,
@@ -76,23 +76,23 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 }
 
 // InvalidArgument is a convenience for bad client/worker input.
-func InvalidArgument(subStatus iwfpb.ErrorSubStatus, details string) *ErrorAndStatus {
+func InvalidArgument(subStatus dexpb.ErrorSubStatus, details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.InvalidArgument, subStatus, details)
 }
 
 // NotFound is a convenience for missing flows/runs.
 func NotFound(details string) *ErrorAndStatus {
-	return NewErrorAndStatus(codes.NotFound, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, details)
+	return NewErrorAndStatus(codes.NotFound, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, details)
 }
 
 // AlreadyExists is a convenience for duplicate flow starts.
 func AlreadyExists(details string) *ErrorAndStatus {
-	return NewErrorAndStatus(codes.AlreadyExists, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED, details)
+	return NewErrorAndStatus(codes.AlreadyExists, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED, details)
 }
 
 // AbortedLockFailure is returned when RPC attribute lock acquisition fails.
 func AbortedLockFailure(details string) *ErrorAndStatus {
-	return NewErrorAndStatus(codes.Aborted, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, details)
+	return NewErrorAndStatus(codes.Aborted, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, details)
 }
 
 // WorkerAPIFailure maps a WorkerService gRPC failure to FailedPrecondition.
@@ -105,7 +105,7 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	workerDetail := ""
 	workerType := ""
 	for _, detail := range grpcStatus.Details() {
-		workerError, ok := detail.(*iwfpb.WorkerErrorResponse)
+		workerError, ok := detail.(*dexpb.WorkerErrorResponse)
 		if !ok {
 			continue
 		}
@@ -114,7 +114,7 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	}
 	return NewErrorAndStatusWithWorkerError(
 		codes.FailedPrecondition,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		grpcStatus.Message(),
 		workerDetail,
 		workerType,
@@ -124,10 +124,10 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 
 // DeadlineExceededLongPoll is returned when a wait RPC hits its effective deadline.
 func DeadlineExceededLongPoll(details string) *ErrorAndStatus {
-	return NewErrorAndStatus(codes.DeadlineExceeded, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT, details)
+	return NewErrorAndStatus(codes.DeadlineExceeded, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT, details)
 }
 
 // Internal is a convenience for unexpected failures.
 func Internal(details string) *ErrorAndStatus {
-	return NewErrorAndStatus(codes.Internal, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED, details)
+	return NewErrorAndStatus(codes.Internal, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED, details)
 }

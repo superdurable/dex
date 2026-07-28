@@ -23,10 +23,10 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 func SetQueryHandlers(
@@ -39,7 +39,7 @@ func SetQueryHandlers(
 	flowConfiger *config.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {
-	err := provider.SetQueryHandler(ctx, service.GetAttributesWorkflowQueryType, func(req *iwfpb.GetAttributesQueryRequest) (*iwfpb.GetAttributesQueryResponse, error) {
+	err := provider.SetQueryHandler(ctx, service.GetAttributesWorkflowQueryType, func(req *dexpb.GetAttributesQueryRequest) (*dexpb.GetAttributesQueryResponse, error) {
 		if req == nil {
 			return nil, fmt.Errorf("GetAttributes query requires a request")
 		}
@@ -52,8 +52,8 @@ func SetQueryHandlers(
 	if err != nil {
 		return err
 	}
-	err = provider.SetQueryHandler(ctx, service.DebugDumpQueryType, func() (*iwfpb.DebugDumpResponse, error) {
-		return &iwfpb.DebugDumpResponse{
+	err = provider.SetQueryHandler(ctx, service.DebugDumpQueryType, func() (*dexpb.DebugDumpResponse, error) {
+		return &dexpb.DebugDumpResponse{
 			Config:                     flowConfiger.Get(),
 			Snapshot:                   continueAsNewer.GetSnapshot(),
 			FiringTimersUnixTimestamps: timerProcessor.GetTimerStartedUnixTimestamps(),
@@ -62,7 +62,7 @@ func SetQueryHandlers(
 	if err != nil {
 		return err
 	}
-	err = provider.SetQueryHandler(ctx, service.PrepareRpcQueryType, func(req *iwfpb.PrepareRpcQueryRequest) (*iwfpb.PrepareRpcQueryResponse, error) {
+	err = provider.SetQueryHandler(ctx, service.PrepareRpcQueryType, func(req *dexpb.PrepareRpcQueryRequest) (*dexpb.PrepareRpcQueryResponse, error) {
 		if req == nil {
 			return nil, fmt.Errorf("PrepareRpc query requires a request")
 		}
@@ -70,7 +70,7 @@ func SetQueryHandlers(
 			return nil, err
 		}
 		info := provider.GetWorkflowInfo(ctx)
-		return &iwfpb.PrepareRpcQueryResponse{
+		return &dexpb.PrepareRpcQueryResponse{
 			Attributes:           persistenceManager.GetAllAttributes(),
 			RunId:                info.WorkflowExecution.RunID,
 			FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
@@ -82,12 +82,12 @@ func SetQueryHandlers(
 	if err != nil {
 		return err
 	}
-	err = provider.SetQueryHandler(ctx, service.GetCurrentTimerInfosQueryType, func() (*iwfpb.GetCurrentTimerInfosQueryResponse, error) {
-		timerInfos := make(map[string]*iwfpb.TimerInfoList, len(timerProcessor.GetTimerInfos()))
+	err = provider.SetQueryHandler(ctx, service.GetCurrentTimerInfosQueryType, func() (*dexpb.GetCurrentTimerInfosQueryResponse, error) {
+		timerInfos := make(map[string]*dexpb.TimerInfoList, len(timerProcessor.GetTimerInfos()))
 		for stepExecutionId, infos := range timerProcessor.GetTimerInfos() {
-			timerInfos[stepExecutionId] = &iwfpb.TimerInfoList{Timers: infos}
+			timerInfos[stepExecutionId] = &dexpb.TimerInfoList{Timers: infos}
 		}
-		return &iwfpb.GetCurrentTimerInfosQueryResponse{
+		return &dexpb.GetCurrentTimerInfosQueryResponse{
 			StepExecutionCurrentTimerInfos: timerInfos,
 		}, nil
 	})

@@ -26,16 +26,16 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	"github.com/superdurable/iwf/service/common/event"
-	"github.com/superdurable/iwf/service/common/log"
-	"github.com/superdurable/iwf/service/common/rpc"
-	"github.com/superdurable/iwf/service/common/workerclient"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/rpc"
+	"github.com/superdurable/dex/service/common/workerclient"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/grpc/status"
 )
 
@@ -78,8 +78,8 @@ func NewActivities(
 
 // InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.
 func (a *Activities) InvokeWaitForMethod(
-	ctx context.Context, input *iwfpb.InvokeWaitForMethodActivityInput,
-) (*iwfpb.InvokeWaitForMethodActivityOutput, error) {
+	ctx context.Context, input *dexpb.InvokeWaitForMethodActivityInput,
+) (*dexpb.InvokeWaitForMethodActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -125,13 +125,13 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 
 	a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_SUCC")
-	return &iwfpb.InvokeWaitForMethodActivityOutput{Response: resp}, nil
+	return &dexpb.InvokeWaitForMethodActivityOutput{Response: resp}, nil
 }
 
 // InvokeExecuteMethod calls WorkerService.InvokeExecuteMethod.
 func (a *Activities) InvokeExecuteMethod(
-	ctx context.Context, input *iwfpb.InvokeExecuteMethodActivityInput,
-) (*iwfpb.InvokeExecuteMethodActivityOutput, error) {
+	ctx context.Context, input *dexpb.InvokeExecuteMethodActivityInput,
+) (*dexpb.InvokeExecuteMethodActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -139,7 +139,7 @@ func (a *Activities) InvokeExecuteMethod(
 	activityInfo := provider.GetActivityInfo(ctx)
 	req := input.GetRequest()
 	if req.Context == nil {
-		req.Context = &iwfpb.Context{}
+		req.Context = &dexpb.Context{}
 	}
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
@@ -193,13 +193,13 @@ func (a *Activities) InvokeExecuteMethod(
 	}
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_SUCC")
-	return &iwfpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
+	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
 }
 
 // DumpFlowForContinueAsNew pages ContinueAsNewDump via InternalService.
 func (a *Activities) DumpFlowForContinueAsNew(
-	ctx context.Context, input *iwfpb.DumpFlowForContinueAsNewActivityInput,
-) (*iwfpb.DumpFlowForContinueAsNewActivityOutput, error) {
+	ctx context.Context, input *dexpb.DumpFlowForContinueAsNewActivityInput,
+) (*dexpb.DumpFlowForContinueAsNewActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("DumpFlowForContinueAsNewActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -212,15 +212,15 @@ func (a *Activities) DumpFlowForContinueAsNew(
 	if err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
-	return &iwfpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
+	return &dexpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
 }
 
 const maxWorkerRpcActivityAttempts = 3
 
 // InvokeWorkerRPC wraps rpc.InvokeWorkerRpc for the activity worker.
 func (a *Activities) InvokeWorkerRPC(
-	ctx context.Context, input *iwfpb.InvokeWorkerRPCActivityInput,
-) (*iwfpb.InvokeWorkerRPCActivityOutput, error) {
+	ctx context.Context, input *dexpb.InvokeWorkerRPCActivityInput,
+) (*dexpb.InvokeWorkerRPCActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
 	logger.Info("InvokeWorkerRpcActivity", "input", log.ToJsonAndTruncateForLogging(input))
@@ -238,7 +238,7 @@ func (a *Activities) InvokeWorkerRPC(
 	if err != nil {
 		return nil, composeActivityError(provider, err)
 	}
-	out := &iwfpb.InvokeWorkerRPCActivityOutput{Response: resp}
+	out := &dexpb.InvokeWorkerRPCActivityOutput{Response: resp}
 	if activityInfo.IsLocalActivity {
 		payload := log.ToJsonAndTruncateForLogging(out)
 		if threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes; threshold > 0 && len(payload) >= threshold {
@@ -252,8 +252,8 @@ func (a *Activities) InvokeWorkerRPC(
 
 // CleanupBlobStore deletes blob objects for flows that no longer exist in the backend.
 func (a *Activities) CleanupBlobStore(
-	ctx context.Context, input *iwfpb.CleanupBlobStoreActivityInput,
-) (*iwfpb.CleanupBlobStoreActivityOutput, error) {
+	ctx context.Context, input *dexpb.CleanupBlobStoreActivityInput,
+) (*dexpb.CleanupBlobStoreActivityOutput, error) {
 	store := a.blobStore
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
@@ -297,11 +297,11 @@ func (a *Activities) CleanupBlobStore(
 		}
 	}
 	logger.Info("CleanupBlobStore completed", "totalDeleted", totalDeleted)
-	return &iwfpb.CleanupBlobStoreActivityOutput{TotalDeleted: totalDeleted}, nil
+	return &dexpb.CleanupBlobStoreActivityOutput{TotalDeleted: totalDeleted}, nil
 }
 
 func (a *Activities) hydrateWorkerRequestValues(
-	ctx context.Context, stepInput *iwfpb.Value, attributes []*iwfpb.KV,
+	ctx context.Context, stepInput *dexpb.Value, attributes []*dexpb.KV,
 ) error {
 	if err := blobstore.HydrateValue(ctx, stepInput, a.blobStore); err != nil {
 		return err
@@ -310,7 +310,7 @@ func (a *Activities) hydrateWorkerRequestValues(
 }
 
 func (a *Activities) offloadWorkerAttributeWrites(
-	ctx context.Context, writes []*iwfpb.AttributeWrite, flowId string,
+	ctx context.Context, writes []*dexpb.AttributeWrite, flowId string,
 ) error {
 	if !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
@@ -324,9 +324,9 @@ func (a *Activities) offloadWorkerAttributeWrites(
 // original blob id when the concrete payload matches, otherwise offloads.
 func (a *Activities) reuseOrOffloadNextStepInputs(
 	ctx context.Context,
-	decision *iwfpb.StepDecision,
+	decision *dexpb.StepDecision,
 	originalStepInputBlob stepInputBlob,
-	hydratedStepInput *iwfpb.Value,
+	hydratedStepInput *dexpb.Value,
 	flowId string,
 ) error {
 	if decision == nil || !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
@@ -363,7 +363,7 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 }
 
 func (a *Activities) offloadStepInput(
-	ctx context.Context, stepInput *iwfpb.Value, flowId string,
+	ctx context.Context, stepInput *dexpb.Value, flowId string,
 ) error {
 	return blobstore.OffloadLargeValue(
 		ctx,
@@ -380,7 +380,7 @@ type stepInputBlob struct {
 	isObj bool
 }
 
-func stepInputBlobRef(value *iwfpb.Value) stepInputBlob {
+func stepInputBlobRef(value *dexpb.Value) stepInputBlob {
 	if value == nil {
 		return stepInputBlob{}
 	}
@@ -390,28 +390,28 @@ func stepInputBlobRef(value *iwfpb.Value) stepInputBlob {
 	return stepInputBlob{id: value.GetInternalBlobIdForStringValue()}
 }
 
-func (blob stepInputBlob) toValue() *iwfpb.Value {
+func (blob stepInputBlob) toValue() *dexpb.Value {
 	if blob.id == "" {
 		return nil
 	}
 	if blob.isObj {
-		return &iwfpb.Value{
-			Kind: &iwfpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blob.id},
+		return &dexpb.Value{
+			Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blob.id},
 		}
 	}
-	return &iwfpb.Value{
-		Kind: &iwfpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blob.id},
+	return &dexpb.Value{
+		Kind: &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blob.id},
 	}
 }
 
-func shouldReuseStepInputBlob(original stepInputBlob, hydrated, next *iwfpb.Value) bool {
+func shouldReuseStepInputBlob(original stepInputBlob, hydrated, next *dexpb.Value) bool {
 	if original.id == "" || next == nil {
 		return false
 	}
 	return valuePayloadEqual(hydrated, next)
 }
 
-func valuePayloadEqual(left, right *iwfpb.Value) bool {
+func valuePayloadEqual(left, right *dexpb.Value) bool {
 	if left == nil || right == nil {
 		return false
 	}
@@ -427,7 +427,7 @@ func valuePayloadEqual(left, right *iwfpb.Value) bool {
 		bytes.Equal(leftObj.GetPayload(), rightObj.GetPayload())
 }
 
-func validateWorkerWaitForResponse(resp *iwfpb.InvokeWaitForMethodResponse) error {
+func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeWaitForMethodResponse")
 	}
@@ -440,7 +440,7 @@ func validateWorkerWaitForResponse(resp *iwfpb.InvokeWaitForMethodResponse) erro
 	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
 }
 
-func validateWorkerExecuteResponse(resp *iwfpb.InvokeExecuteMethodResponse) error {
+func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeExecuteMethodResponse")
 	}
@@ -456,7 +456,7 @@ func validateWorkerExecuteResponse(resp *iwfpb.InvokeExecuteMethodResponse) erro
 	return nil
 }
 
-func validateStepDecision(decision *iwfpb.StepDecision) error {
+func validateStepDecision(decision *dexpb.StepDecision) error {
 	if decision == nil {
 		return fmt.Errorf("step decision is nil")
 	}
@@ -480,7 +480,7 @@ func validateStepDecision(decision *iwfpb.StepDecision) error {
 			return fmt.Errorf("conditional close cannot contain a closing next step")
 		}
 		switch conditionalClose.GetConditionalCloseType() {
-		case iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
+		case dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
 		default:
 			return fmt.Errorf("conditional close type is unspecified")
 		}
@@ -501,14 +501,14 @@ func validateStepDecision(decision *iwfpb.StepDecision) error {
 	return nil
 }
 
-func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
+func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 	if waiting == nil {
 		return nil
 	}
 
 	declaredIds := map[string]bool{}
 	conditionIdsRequired := waiting.GetWaitingConditionType() ==
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
 	for i, timerCondition := range waiting.GetTimerConditions() {
 		if timerCondition == nil {
 			return fmt.Errorf("timer condition at index %d is nil", i)
@@ -580,12 +580,12 @@ func validateWaitingCondition(waiting *iwfpb.WaitingCondition) error {
 	}
 
 	switch waiting.GetWaitingConditionType() {
-	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
+	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
 		if len(waiting.GetConditionCombinations()) > 0 {
 			return fmt.Errorf("condition_combinations are only valid for ANY_COMBINATION_COMPLETED")
 		}
-	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
+	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
 		if err := validateWaitingConditionCombinations(waiting, declaredIds); err != nil {
 			return err
 		}
@@ -615,7 +615,7 @@ func registerWaitingConditionId(
 }
 
 func validateWaitingConditionCombinations(
-	waiting *iwfpb.WaitingCondition,
+	waiting *dexpb.WaitingCondition,
 	declaredIds map[string]bool,
 ) error {
 	combinations := waiting.GetConditionCombinations()
@@ -664,20 +664,20 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		return composeInternalActivityError(provider, err)
 	}
 
-	errorResponse := &iwfpb.ErrorResponse{
+	errorResponse := &dexpb.ErrorResponse{
 		Detail:                    grpcStatus.Message(),
-		SubStatus:                 iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		OriginalWorkerErrorStatus: int32(grpcStatus.Code()),
 	}
 	for _, detail := range grpcStatus.Details() {
-		workerError, ok := detail.(*iwfpb.WorkerErrorResponse)
+		workerError, ok := detail.(*dexpb.WorkerErrorResponse)
 		if !ok {
 			continue
 		}
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 	}
-	return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
+	return provider.NewActivityError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
 }
 
 func composeInternalActivityError(
@@ -685,10 +685,10 @@ func composeInternalActivityError(
 	err error,
 ) error {
 	return provider.NewActivityError(
-		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-		&iwfpb.ErrorResponse{
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+		&dexpb.ErrorResponse{
 			Detail:    err.Error(),
-			SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			SubStatus: dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		},
 	)
 }
@@ -707,7 +707,7 @@ func (a *Activities) logLocalActivityWarn(
 }
 
 func (a *Activities) emitStepWaitForMethodEvent(
-	req *iwfpb.InvokeWaitForMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
+	req *dexpb.InvokeWaitForMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
 ) {
 	a.eventHandler(event.Event{
 		FlowId:          activityInfo.WorkflowExecution.ID,
@@ -720,7 +720,7 @@ func (a *Activities) emitStepWaitForMethodEvent(
 }
 
 func (a *Activities) emitStepExecuteMethodEvent(
-	req *iwfpb.InvokeExecuteMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
+	req *dexpb.InvokeExecuteMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
 ) {
 	a.eventHandler(event.Event{
 		FlowId:          activityInfo.WorkflowExecution.ID,

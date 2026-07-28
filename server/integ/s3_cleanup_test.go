@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	s3_start_input "github.com/superdurable/iwf/integ/workflow/s3-start-input"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/blobstore"
+	"github.com/superdurable/dex/gen/dexpb"
+	s3_start_input "github.com/superdurable/dex/integ/workflow/s3-start-input"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/blobstore"
 )
 
 func TestS3CleanupTemporal(t *testing.T) {
@@ -55,7 +55,7 @@ func TestS3CleanupCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
 	})
@@ -71,7 +71,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	for i := 0; i < 12; i++ {
 		flowId := fmt.Sprintf("test-user-wf-%d-%s", i, uuid.NewString())
 		flowIds = append(flowIds, flowId)
-		_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 			FlowId:             flowId,
 			FlowType:           s3_start_input.WorkflowType,
 			FlowTimeoutSeconds: 100,

@@ -42,21 +42,21 @@ const (
 	WaitForAttributeUpdateType            = "WaitForAttribute"
 
 	SearchAttributeActiveStepTypes = "ActiveStepTypes"
-	SearchAttributeIwfWorkflowType = "FlowType"
+	SearchAttributeDexWorkflowType = "FlowType"
 
 	BackendTypeCadence  BackendType = "cadence"
 	BackendTypeTemporal BackendType = "temporal"
 
-	IwfSystemConstPrefix = "__IwfSystem_"
+	DexSystemConstPrefix = "__DexSystem_"
 
-	SkipTimerSignalChannelName            = IwfSystemConstPrefix + "SkipTimerChannel"
-	FailWorkflowSignalChannelName         = IwfSystemConstPrefix + "FailWorkflowChannel"
-	UpdateConfigSignalChannelName         = IwfSystemConstPrefix + "UpdateWorkflowConfig"
-	ExecuteRpcSignalChannelName           = IwfSystemConstPrefix + "ExecuteRpc"
-	TriggerContinueAsNewSignalChannelName = IwfSystemConstPrefix + "TriggerContinueAsNew"
+	SkipTimerSignalChannelName            = DexSystemConstPrefix + "SkipTimerChannel"
+	FailWorkflowSignalChannelName         = DexSystemConstPrefix + "FailWorkflowChannel"
+	UpdateConfigSignalChannelName         = DexSystemConstPrefix + "UpdateWorkflowConfig"
+	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
+	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
 
-	WorkerTargetMemoKey = IwfSystemConstPrefix + "WorkerTarget"
-	WorkflowRequestId   = IwfSystemConstPrefix + "WorkflowRequestId"
+	WorkerTargetMemoKey = DexSystemConstPrefix + "WorkerTarget"
+	WorkflowRequestId   = DexSystemConstPrefix + "WorkflowRequestId"
 )
 
 const (

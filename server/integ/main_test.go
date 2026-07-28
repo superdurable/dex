@@ -30,8 +30,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/cmd/server/iwf"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/cmd/server/dex"
+	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/.gen/go/shared"
@@ -86,7 +86,7 @@ func TestMain(m *testing.M) {
 
 	if *cadenceIntegTest {
 		for i := 0; i < *dependencyWaitSeconds; i++ {
-			_, _, err = iwf.BuildCadenceServiceClient(iwf.DefaultCadenceHostPort)
+			_, _, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
 			if err != nil {
 				fmt.Println("wait for Cadence to be up...last err: ", err)
 				time.Sleep(time.Second)
@@ -101,11 +101,11 @@ func TestMain(m *testing.M) {
 
 		var closeFunc func()
 		var serviceClient workflowserviceclient.Interface
-		serviceClient, closeFunc, err = iwf.BuildCadenceServiceClient(iwf.DefaultCadenceHostPort)
+		serviceClient, closeFunc, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
 		for i := 0; i < *dependencyWaitSeconds; i++ {
 			ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
 			_, err = serviceClient.DescribeDomain(ctx, &shared.DescribeDomainRequest{
-				Name: ptr.Any(iwf.DefaultCadenceDomain),
+				Name: ptr.Any(dex.DefaultCadenceDomain),
 			})
 			if err != nil {
 				fmt.Println("wait for Cadence domain to be ready...", err)
@@ -128,19 +128,19 @@ func TestMain(m *testing.M) {
 	//	// only start connection once
 	//	// TODO need to do this for outside of ci as well
 	//	if *cadenceIntegTest {
-	//		integCadenceUclientCached, integCadenceUclientCloseFunc = doStartIwfServiceWithClient(service.BackendTypeCadence)
+	//		integCadenceUclientCached, integCadenceUclientCloseFunc = doStartDexServiceWithClient(service.BackendTypeCadence)
 	//		defer func() {
-	//			fmt.Println("shutdown cadence client and iwf server")
+	//			fmt.Println("shutdown cadence client and dex server")
 	//			integCadenceUclientCloseFunc()
 	//		}()
-	//		fmt.Println("cached cadence client and iwf server")
+	//		fmt.Println("cached cadence client and dex server")
 	//	} else {
-	//		integTemporalUclientCached, integTemporalUclientCloseFunc = doStartIwfServiceWithClient(service.BackendTypeTemporal)
+	//		integTemporalUclientCached, integTemporalUclientCloseFunc = doStartDexServiceWithClient(service.BackendTypeTemporal)
 	//		defer func() {
-	//			fmt.Println("shutdown temporal client and iwf server")
+	//			fmt.Println("shutdown temporal client and dex server")
 	//			integTemporalUclientCloseFunc()
 	//		}()
-	//		fmt.Println("cached temporal client and iwf server")
+	//		fmt.Println("cached temporal client and dex server")
 	//	}
 	//}
 

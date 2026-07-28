@@ -26,17 +26,17 @@ With some other existing technologies, you solve it using message queue(like SQS
 
 **The business code will be scattered. It's complicated and hard to maintain and extend.**
 
-### New solution with iWF
+### New solution with Dex
 
-The solution with iWF:
-<img width="752" alt="iwf solution" src="https://github.com/indeedeng/iwf-python-sdk/assets/4523955/4cec7742-a965-4a2d-868b-693ffba372fa">
+The solution with Dex:
+<img width="752" alt="dex solution" src="https://github.com/indeedeng/iwf-python-sdk/assets/4523955/4cec7742-a965-4a2d-868b-693ffba372fa">
 * All in one single place without scattered business logic
 * Natural to represent business
 * Builtin & rich support for operation tooling
 
 It's so simple & easy to do that the [business logic code](../../examples/python/signup/signup_workflow.py) can be shown here!
 
-Also see the [implementation in Java here](../../examples/java/src/main/java/io/iworkflow/workflow/signup).
+Also see the [implementation in Java here](../../examples/java/src/main/java/io/dex/workflow/signup).
 
 ```python
 class SubmitState(WorkflowState[Form]):

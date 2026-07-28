@@ -62,7 +62,7 @@ flowchart TB
 - CAN dump uses deterministic proto marshal + checksum; no JSON pages.
 - Deterministic marshal does not sort repeated fields constructed from maps.
   Snapshot/build helpers sort every map-derived repeated collection explicitly.
-- Activity calls are single top-level `*iwfpb.*` arg/result (no
+- Activity calls are single top-level `*dexpb.*` arg/result (no
   `backendType, req, ...` multi-arg).
 - Any map iteration that feeds workflow decisions uses `DeterministicKeys`
   where ordering matters; `channel.Plan` winner selection and commit iterate ordered
@@ -85,7 +85,7 @@ remains bounded and drains before CAN.
   `response.Memos`; `Interpreter.FailAtMemoIncompatibility` and
   `service.UseMemoForDataAttributesKey` are deleted.
 - Phase 2/2.5 has no `InterpreterWorkflowInput.UseMemoForDataAttributes`; do not add a
-  replacement proto field (`iwf.proto` intentionally contains no memo field).
+  replacement proto field (`dex.proto` intentionally contains no memo field).
 - Preserve only legitimate backend Memo behavior: `WorkerTargetMemoKey`, workflow
   request-id idempotency, and client-side memo encode/decode/encryption helpers for
   those system keys.
@@ -103,8 +103,8 @@ remains bounded and drains before CAN.
 [`service/interfaces.go`](../../../server/service/interfaces.go) (delete
 superseded Go payload structs; keep `BasicInfo` / helpers).
 
-- Drop all `iwfidl` from `WorkflowProvider` / `TimerProcessor` / `ActivityOptions`.
-- Retype to `iwfpb` (`RetryPolicy`, `TimerCondition`, attributes).
+- Drop all `dexpb` from `WorkflowProvider` / `TimerProcessor` / `ActivityOptions`.
+- Retype to `dexpb` (`RetryPolicy`, `TimerCondition`, attributes).
 - Delete `WorkflowProvider.UpsertMemo`, both Temporal/Cadence implementations, the
   generated mock method, and timer/provider test stubs. Do not replace it: the only
   caller was memo-as-attribute storage.
@@ -131,7 +131,7 @@ superseded Go payload structs; keep `BasicInfo` / helpers).
 - Keep workflow registration names in `service/const.go`; Temporal and Cadence must
   reference the same `Interpreter` and `BlobStoreCleanup` constants.
 - Keep application-error creation and detection on `WorkflowProvider`.
-- `FlowConfiger`: use `*iwfpb.FlowConfig`; retain the ownership-transferred input
+- `FlowConfiger`: use `*dexpb.FlowConfig`; retain the ownership-transferred input
   directly and panic on a nil constructor argument. Never retain the mutable
   `config.DefaultWorkflowConfig` pointer. FlowConfig scalar fields retain presence,
   so StartFlow `flow_config_override` and `UpdateFlowConfig` apply only present
@@ -175,17 +175,17 @@ slices share it.
 
 ### Channel store
 
-- `receivedData map[string][]*iwfpb.Value`.
+- `receivedData map[string][]*dexpb.Value`.
 - Keep the store API small: publish/peek/snapshot plus
   `CommitMatch(*channel.MatchPlan)`. Planning is pure and never writes reservation
   state into the store. Commit verifies the planned counts against the current queue,
   consumes FIFO, and cannot yield.
-- `GetInfos() map[string]*iwfpb.ChannelInfo`.
+- `GetInfos() map[string]*dexpb.ChannelInfo`.
 - Delete single-message `Retrieve` / version-gated paths.
 
 ### Decider / matching
 
-- Input: `*iwfpb.WaitingCondition`.
+- Input: `*dexpb.WaitingCondition`.
 - Normalize AtLeast/AtMost per Phase 0 (Exact N / OneToAll / ZeroToAll /
   defaults).
 - Put normalization and planning in a pure `interpreter/channel` subpackage so its
@@ -219,13 +219,13 @@ slices share it.
      Consumed channels are `COMPLETED`; other channels are `WAITING`. Every timer
      reports its observed processor state: fired/skipped maps to `COMPLETED`, while
      pending/canceled maps to `WAITING`.
-- Output: `*iwfpb.ConditionResults` with `ChannelResult.values`.
+- Output: `*dexpb.ConditionResults` with `ChannelResult.values`.
 - Provide the commit as a single call the step coroutine invokes from one thread
   (S4); the per-condition wait threads only peek, never consume.
 
 ### Persistence
 
-- One `map[string]*iwfpb.Value`. `AttributeWrite` is transient: process its current
+- One `map[string]*dexpb.Value`. `AttributeWrite` is transient: process its current
   `IndexConfig` into the backend update, then discard it. Persistence, queries, and
   CAN retain only key/value pairs. Ownership of retained values transfers on ingress;
   readers must not mutate them. Do not defensively clone on ingress/egress.
@@ -242,7 +242,7 @@ slices share it.
   Never recover old index metadata from persistence or the provider.
 - `InterpreterWorkflowInput.init_attributes` and `ContinueAsNewDump.attributes` are
   `KV`, not `AttributeWrite`. `NewPersistenceManager` initializes new and CAN-restored
-  runs from ownership-transferred `[]*iwfpb.KV` and rejects invalid or duplicate
+  runs from ownership-transferred `[]*dexpb.KV` and rejects invalid or duplicate
   entries.
 - The mutation entrypoint is
   `ApplyAttributeWrites(ctx, writes) (applied bool, err error)`.
@@ -294,7 +294,7 @@ slices share it.
   then execution id as the deterministic tie-break.
 
 **Review gate:** `make -C server phase4MatchingTests phase4S2Tests` is green; touched
-store files are free of `iwfidl`/`compatibility`; every state-changing persistence
+store files are free of `dexpb`/`compatibility`; every state-changing persistence
 method handles mapper/backend errors. Root-package tests run at S5 after the stacked
 migration compiles.
 
@@ -395,7 +395,7 @@ entrypoints
   baseline commit. Retype that structure in place; do not replace it with a runtime
   object or a new state machine. Extract only callbacks that must become methods
   under the repository's stateful-closure rule.
-- Interpreter input/output = `*iwfpb.InterpreterWorkflowInput/Output`.
+- Interpreter input/output = `*dexpb.InterpreterWorkflowInput/Output`.
 - Initial and CAN-restore construction of `PersistenceManager` takes no
   `input.UseMemoForDataAttributes` argument; that field has no proto replacement.
 - Condition wait threads (rework of `workflowImpl.go:740-828`): each thread `Await`s a
@@ -505,7 +505,7 @@ compile only after S5 migrates updater/query/CAN files.
   enforces the exact sub-second deadline, and CAN retries never reset the user's wait
   budget.
 - Define a private Temporal application-error type such as
-  `IWF_CAN_PREEMPTED`. UnifiedClient/API consumes it internally: retry
+  `DEX_CAN_PREEMPTED`. UnifiedClient/API consumes it internally: retry
   `SynchronousUpdateWorkflow` against the main workflow without pinning a run
   (`runID=""` only at the backend client boundary) using bounded context-aware
   backoff until the new run accepts it or the original context/deadline ends. The
@@ -518,7 +518,7 @@ compile only after S5 migrates updater/query/CAN files.
   `match || hasTerminalRequest(...) || IsThresholdMet()`.
 - Outcome order after Await returns: a real match wins; terminal returns
   `FailedPrecondition`; timeout returns `DeadlineExceeded` +
-  `LONG_POLL_TIME_OUT`; CAN threshold returns `IWF_CAN_PREEMPTED`. This order avoids
+  `LONG_POLL_TIME_OUT`; CAN threshold returns `DEX_CAN_PREEMPTED`. This order avoids
   losing a completion/attribute write that became visible in the same workflow task
   as CAN.
 - Zero timeout performs one immediate check and never installs a timer. Caller
@@ -570,7 +570,7 @@ compile only after S5 migrates updater/query/CAN files.
    signals. Re-check fail/complete; a terminal request wins and cancels CAN.
 2. Copy the latest `FlowConfig` into continue-as-new input. Assert no held lock,
    uncommitted `MatchPlan`, inflight update, or live step thread remains.
-3. `GetSnapshot()` builds a fresh `*iwfpb.ContinueAsNewDump`. Sort attribute keys and
+3. `GetSnapshot()` builds a fresh `*dexpb.ContinueAsNewDump`. Sort attribute keys and
    every map-derived repeated field; retain FIFO queue order and monotonic output
    order. Use `proto.MarshalOptions{Deterministic:true}` and a hex checksum over the
    full canonical bytes.
@@ -604,7 +604,7 @@ make -C server unitTests 2>&1 | tee /tmp/test-phase4-unit.log
 make copyright-check 2>&1 | tee /tmp/test-phase4-copyright.log
 git diff --check
 
-if rg -n 'gen/iwfidl|service/common/compatibility' \
+if rg -n 'gen/dexpb|service/common/compatibility' \
   server/service/interpreter --glob '*.go'; then
   exit 1
 fi

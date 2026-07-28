@@ -29,20 +29,20 @@ export PATH="$PATH:/root/.temporalio/bin"
 temporal server start-dev --ip 0.0.0.0 --ui-ip 0.0.0.0 &
 # add SAs...
 echo "temporal server started..."
-echo "now trying to register iWF system search attributes..."
+echo "now trying to register Dex system search attributes..."
 
 for run in {1..60}; do
   sleep 1
-  temporal  operator search-attribute  create --name IwfWorkflowType --type Keyword
+  temporal  operator search-attribute  create --name DexWorkflowType --type Keyword
   sleep 0.1
-  temporal  operator search-attribute  create --name IwfGlobalWorkflowVersion --type Int 
+  temporal  operator search-attribute  create --name DexGlobalWorkflowVersion --type Int 
   sleep 0.1
-  temporal  operator search-attribute  create --name IwfExecutingStateIds --type KeywordList 
+  temporal  operator search-attribute  create --name DexExecutingStateIds --type KeywordList 
   sleep 0.1
-  if checkExists "IwfWorkflowType" && checkExists "IwfGlobalWorkflowVersion" && checkExists "IwfExecutingStateIds" ; then
+  if checkExists "DexWorkflowType" && checkExists "DexGlobalWorkflowVersion" && checkExists "DexExecutingStateIds" ; then
       echo "All search attributes are registered"
       break
     fi
 done
 
-/iwf/iwf-server start
+/dex/dex-server start

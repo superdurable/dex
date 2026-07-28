@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/wait_until_search_attributes"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/wait_until_search_attributes"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
@@ -39,18 +39,18 @@ func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilSearchAttributes(t, &iwfpb.FlowConfig{
+		doTestWaitUntilSearchAttributes(t, &dexpb.FlowConfig{
 			ActiveStepSearchMode: ptr.Any(
-				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
 			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilSearchAttributes(t, &iwfpb.FlowConfig{
+		doTestWaitUntilSearchAttributes(t, &dexpb.FlowConfig{
 			ActiveStepSearchMode: ptr.Any(
-				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
 			),
 		})
 		smallWaitForFastTest()
@@ -62,10 +62,10 @@ func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
 	}
 }
 
-func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig) {
 	workerHandler := wait_until_search_attributes.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	flowClient := runtime.FlowClient
@@ -74,7 +74,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig)
 	defer cancel()
 
 	flowId := wait_until_search_attributes.WorkflowType + uuid.NewString()
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -82,7 +82,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig)
 		StartStepType:      wait_until_search_attributes.State1,
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
@@ -91,13 +91,13 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig)
 
 	time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
 
-	mode := iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+	mode := dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
 	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
 		mode = flowConfig.GetActiveStepSearchMode()
 	}
 
 	switch mode {
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
 		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
 		assertSearchFlows(
 			t,
@@ -110,8 +110,8 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig)
 			),
 			1,
 		)
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
-		iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
+		dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
 		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
 		assertSearchFlows(
 			t,
@@ -126,9 +126,9 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig)
 		)
 	}
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }

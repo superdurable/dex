@@ -26,8 +26,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/uber-go/tally/v4/prometheus"
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
@@ -136,7 +136,7 @@ type (
 		// Cadence connects the interpreter to a Cadence cluster. Mutually exclusive with Temporal.
 		Cadence *CadenceConfig `yaml:"cadence"`
 		// DefaultWorkflowConfig is the default FlowConfig applied when StartFlow omits an override. Nil uses package DefaultWorkflowConfig.
-		DefaultWorkflowConfig *iwfpb.FlowConfig `yaml:"defaultWorkflowConfig"`
+		DefaultWorkflowConfig *dexpb.FlowConfig `yaml:"defaultWorkflowConfig"`
 		// InterpreterActivityConfig tunes worker→API and worker→WorkerService dialing.
 		InterpreterActivityConfig InterpreterActivityConfig `yaml:"interpreterActivityConfig"`
 		// VerboseDebug enables extra interpreter debug logs. Default false.
@@ -184,7 +184,7 @@ type (
 		// StartToCloseTimeout is the activity start-to-close timeout. Zero uses the activity registration default.
 		StartToCloseTimeout time.Duration `yaml:"startToCloseTimeout"`
 		// RetryPolicy is the activity retry policy. Nil uses the registration default.
-		RetryPolicy *iwfpb.RetryPolicy `yaml:"retryPolicy"`
+		RetryPolicy *dexpb.RetryPolicy `yaml:"retryPolicy"`
 	}
 
 	Logger struct {
@@ -202,7 +202,7 @@ type (
 )
 
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
-var DefaultWorkflowConfig = &iwfpb.FlowConfig{
+var DefaultWorkflowConfig = &dexpb.FlowConfig{
 	ContinueAsNewThreshold: ptr.Any(int32(100)),
 }
 

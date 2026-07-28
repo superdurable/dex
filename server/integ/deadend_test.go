@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/deadend"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/deadend"
+	"github.com/superdurable/dex/service"
 )
 
 func TestDeadEndFlowTemporal(t *testing.T) {
@@ -60,7 +60,7 @@ func TestDeadEndFlowTemporalContinueAsNew(t *testing.T) {
 		doTestDeadEndFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -74,7 +74,7 @@ func TestDeadEndFlowCadenceContinueAsNew(t *testing.T) {
 		doTestDeadEndFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -83,23 +83,23 @@ func TestDeadEndFlowCadenceContinueAsNew(t *testing.T) {
 func doTestDeadEndFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := deadend.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	flowId := deadend.WorkflowType + "-" + uuid.NewString()
-	startResp, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
@@ -107,7 +107,7 @@ func doTestDeadEndFlow(
 
 	for range 3 {
 		time.Sleep(2 * time.Second)
-		_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 			FlowId:  flowId,
 			RpcName: deadend.RPCWriteData,
 		})
@@ -122,7 +122,7 @@ func doTestDeadEndFlow(
 
 	for range 3 {
 		time.Sleep(2 * time.Second)
-		_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 			FlowId:  flowId,
 			RpcName: deadend.RPCTriggerState,
 		})
@@ -131,7 +131,7 @@ func doTestDeadEndFlow(
 
 	time.Sleep(2 * time.Second)
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)

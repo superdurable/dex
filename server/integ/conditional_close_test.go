@@ -28,9 +28,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	conditionalClose "github.com/superdurable/iwf/integ/workflow/conditional_close"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	conditionalClose "github.com/superdurable/dex/integ/workflow/conditional_close"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -62,7 +62,7 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueA
 		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -76,7 +76,7 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowCadenceContinueAs
 		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -85,7 +85,7 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowCadenceContinueAs
 func doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, flowConfig, false)
 	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, flowConfig, true)
@@ -94,14 +94,14 @@ func doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 	useSignalChannel bool,
 ) {
 	assertions := assert.New(t)
 
 	workerHandler := conditionalClose.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -113,13 +113,13 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	}
 	flowId := conditionalClose.WorkflowType + channelType + uuid.NewString()
 
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           conditionalClose.WorkflowType,
 		FlowTimeoutSeconds: 20,
 		WorkerTarget:       workerTarget,
 		StartStepType:      conditionalClose.State1,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	}
@@ -133,14 +133,14 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	time.Sleep(time.Second)
 	for i := 0; i < 3; i++ {
 		if useSignalChannel {
-			_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+			_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 				FlowId: flowId,
-				Messages: []*iwfpb.ChannelMessage{
+				Messages: []*dexpb.ChannelMessage{
 					{ChannelName: conditionalClose.TestChannelName},
 				},
 			})
 		} else {
-			_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+			_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 				FlowId:  flowId,
 				RpcName: conditionalClose.RpcPublishInternalChannel,
 			})
@@ -151,7 +151,7 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 		}
 	}
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:       flowId,
 		NeedsResults: true,
 	})
@@ -168,9 +168,9 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	}
 	assertions.Equalf(expectMap, history, "conditional close test fail, %v", history)
 
-	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	require.Len(t, response.GetResults(), 1)
-	expectedOutput := &iwfpb.StepCompletionOutput{
+	expectedOutput := &dexpb.StepCompletionOutput{
 		CompletedStepType:        "S1",
 		CompletedStepExecutionId: "S1-3",
 		CompletedStepOutput:      conditionalClose.TestInput,

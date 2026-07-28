@@ -21,15 +21,15 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service"
 )
 
 const testNamespace = "default"
 
-// Api.Port / fixed worker ports are unused: startWorker and startIwfService bind 127.0.0.1:0.
+// Api.Port / fixed worker ports are unused: startWorker and startDexService bind 127.0.0.1:0.
 
-type IwfServiceTestConfig struct {
+type DexServiceTestConfig struct {
 	BackendType     service.BackendType
 	MemoEncryption  bool
 	DefaultHeaders  map[string]string
@@ -39,7 +39,7 @@ type IwfServiceTestConfig struct {
 	LazyLoading *bool
 }
 
-func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
+func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 	cfg := config.Config{
 		Api: config.ApiConfig{
 			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
@@ -73,7 +73,7 @@ func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
 					StorageId:   "s3-store-id",
 					StorageType: config.StorageTypeS3,
 					S3Endpoint:  "http://localhost:9000",
-					S3Bucket:    "iwf-test-bucket",
+					S3Bucket:    "dex-test-bucket",
 					S3Region:    "us-east-1",
 					S3AccessKey: "minioadmin",
 					S3SecretKey: "minioadmin",

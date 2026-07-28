@@ -26,20 +26,20 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func TestInvalidAnyConditionCombination(t *testing.T) {
 	timers, channels := createConditions()
-	waiting := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+	waiting := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
 		TimerConditions:      timers,
 		ChannelConditions:    channels,
-		ConditionCombinations: []*iwfpb.ConditionCombination{
+		ConditionCombinations: []*dexpb.ConditionCombination{
 			{ConditionIds: []string{"timer-cmd1", "signal-cmd1"}},
 			{ConditionIds: []string{"timer-cmd1", "invalid"}},
 		},
@@ -52,11 +52,11 @@ func TestInvalidAnyConditionCombination(t *testing.T) {
 
 func TestValidAnyConditionCombination(t *testing.T) {
 	timers, channels := createConditions()
-	waiting := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+	waiting := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
 		TimerConditions:      timers,
 		ChannelConditions:    channels,
-		ConditionCombinations: []*iwfpb.ConditionCombination{
+		ConditionCombinations: []*dexpb.ConditionCombination{
 			{ConditionIds: []string{"timer-cmd1", "signal-cmd1"}},
 			{ConditionIds: []string{"timer-cmd1", "internal-cmd1"}},
 		},
@@ -66,9 +66,9 @@ func TestValidAnyConditionCombination(t *testing.T) {
 }
 
 func TestValidateWaitingConditionChannelBounds(t *testing.T) {
-	waiting := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-		ChannelConditions: []*iwfpb.ChannelCondition{
+	waiting := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		ChannelConditions: []*dexpb.ChannelCondition{
 			{ConditionId: "c1", ChannelName: "ch", AtLeast: ptr.Any(int32(2)), AtMost: ptr.Any(int32(1))},
 		},
 	}
@@ -77,45 +77,45 @@ func TestValidateWaitingConditionChannelBounds(t *testing.T) {
 
 func TestValidateWaitingConditionRejections(t *testing.T) {
 	duplicateId := newValidWaitingCondition()
-	duplicateId.TimerConditions = []*iwfpb.TimerCondition{{ConditionId: "condition"}}
+	duplicateId.TimerConditions = []*dexpb.TimerCondition{{ConditionId: "condition"}}
 
 	negativeTimer := newValidWaitingCondition()
-	negativeTimer.TimerConditions = []*iwfpb.TimerCondition{{
+	negativeTimer.TimerConditions = []*dexpb.TimerCondition{{
 		ConditionId:     "timer",
 		DurationSeconds: -1,
 	}}
 
 	absoluteTimer := newValidWaitingCondition()
-	absoluteTimer.TimerConditions = []*iwfpb.TimerCondition{{
+	absoluteTimer.TimerConditions = []*dexpb.TimerCondition{{
 		ConditionId:                "timer",
 		FiringUnixTimestampSeconds: 10,
 	}}
 
 	combinationsOnAll := newValidWaitingCondition()
 	combinationsOnAll.WaitingConditionType =
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED
-	combinationsOnAll.ConditionCombinations = []*iwfpb.ConditionCombination{{
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED
+	combinationsOnAll.ConditionCombinations = []*dexpb.ConditionCombination{{
 		ConditionIds: []string{"condition"},
 	}}
 
 	missingCombination := newValidWaitingCondition()
 	missingCombination.WaitingConditionType =
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
 
 	unknownType := newValidWaitingCondition()
 	unknownType.WaitingConditionType =
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_UNSPECIFIED
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_UNSPECIFIED
 
 	emptyConditionId := waitingConditionWithChannel(newChannelCondition("", "channel", nil, nil))
 	emptyConditionId.WaitingConditionType =
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
-	emptyConditionId.ConditionCombinations = []*iwfpb.ConditionCombination{{
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED
+	emptyConditionId.ConditionCombinations = []*dexpb.ConditionCombination{{
 		ConditionIds: []string{"condition"},
 	}}
 
 	testCases := []struct {
 		name             string
-		waitingCondition *iwfpb.WaitingCondition
+		waitingCondition *dexpb.WaitingCondition
 		errorContains    string
 	}{
 		{"nil_timer_entry", waitingConditionWithTimer(nil), "timer condition at index 0 is nil"},
@@ -146,10 +146,10 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 		{"any_combination_requires_combination", missingCombination, "requires at least one condition_combination"},
 		{
 			"empty_combination",
-			&iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
-				ChannelConditions:    []*iwfpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
-				ConditionCombinations: []*iwfpb.ConditionCombination{
+			&dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+				ChannelConditions:    []*dexpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
+				ConditionCombinations: []*dexpb.ConditionCombination{
 					{},
 				},
 			},
@@ -157,10 +157,10 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 		},
 		{
 			"combination_references_undeclared_id",
-			&iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
-				ChannelConditions:    []*iwfpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
-				ConditionCombinations: []*iwfpb.ConditionCombination{
+			&dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+				ChannelConditions:    []*dexpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
+				ConditionCombinations: []*dexpb.ConditionCombination{
 					{ConditionIds: []string{"undeclared"}},
 				},
 			},
@@ -168,10 +168,10 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 		},
 		{
 			"combination_duplicate_id",
-			&iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
-				ChannelConditions:    []*iwfpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
-				ConditionCombinations: []*iwfpb.ConditionCombination{
+			&dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+				ChannelConditions:    []*dexpb.ChannelCondition{newChannelCondition("condition", "channel", nil, nil)},
+				ConditionCombinations: []*dexpb.ConditionCombination{
 					{ConditionIds: []string{"condition", "condition"}},
 				},
 			},
@@ -192,47 +192,47 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 
 func TestValidateStepDecisionEmpty(t *testing.T) {
 	require.Error(t, validateStepDecision(nil))
-	require.Error(t, validateStepDecision(&iwfpb.StepDecision{}))
-	require.NoError(t, validateStepDecision(&iwfpb.StepDecision{
-		NextSteps: []*iwfpb.StepMovement{{StepType: "s"}},
+	require.Error(t, validateStepDecision(&dexpb.StepDecision{}))
+	require.NoError(t, validateStepDecision(&dexpb.StepDecision{
+		NextSteps: []*dexpb.StepMovement{{StepType: "s"}},
 	}))
 }
 
-func createConditions() ([]*iwfpb.TimerCondition, []*iwfpb.ChannelCondition) {
-	timers := []*iwfpb.TimerCondition{
+func createConditions() ([]*dexpb.TimerCondition, []*dexpb.ChannelCondition) {
+	timers := []*dexpb.TimerCondition{
 		{ConditionId: "timer-cmd1", DurationSeconds: 86400 * 365},
 	}
-	channels := []*iwfpb.ChannelCondition{
+	channels := []*dexpb.ChannelCondition{
 		{ConditionId: "signal-cmd1", ChannelName: "test-signal-name1"},
 		{ConditionId: "internal-cmd1", ChannelName: "test-internal-name1"},
 	}
 	return timers, channels
 }
 
-func newValidWaitingCondition() *iwfpb.WaitingCondition {
+func newValidWaitingCondition() *dexpb.WaitingCondition {
 	return waitingConditionWithChannel(newChannelCondition("condition", "channel", nil, nil))
 }
 
-func waitingConditionWithTimer(timerCondition *iwfpb.TimerCondition) *iwfpb.WaitingCondition {
-	return &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-		TimerConditions:      []*iwfpb.TimerCondition{timerCondition},
+func waitingConditionWithTimer(timerCondition *dexpb.TimerCondition) *dexpb.WaitingCondition {
+	return &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCondition},
 	}
 }
 
 func TestValidateWaitingConditionAllowsEmptyIDsForAllAndAny(t *testing.T) {
-	waitingConditionTypes := []iwfpb.WaitingConditionType{
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-		iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+	waitingConditionTypes := []dexpb.WaitingConditionType{
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 	}
 	for _, waitingConditionType := range waitingConditionTypes {
-		waitingCondition := &iwfpb.WaitingCondition{
+		waitingCondition := &dexpb.WaitingCondition{
 			WaitingConditionType: waitingConditionType,
-			TimerConditions: []*iwfpb.TimerCondition{
+			TimerConditions: []*dexpb.TimerCondition{
 				{DurationSeconds: 1},
 				{DurationSeconds: 2},
 			},
-			ChannelConditions: []*iwfpb.ChannelCondition{
+			ChannelConditions: []*dexpb.ChannelCondition{
 				newChannelCondition("", "first", nil, nil),
 				newChannelCondition("", "second", nil, nil),
 			},
@@ -241,10 +241,10 @@ func TestValidateWaitingConditionAllowsEmptyIDsForAllAndAny(t *testing.T) {
 	}
 }
 
-func waitingConditionWithChannel(channelCondition *iwfpb.ChannelCondition) *iwfpb.WaitingCondition {
-	return &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-		ChannelConditions:    []*iwfpb.ChannelCondition{channelCondition},
+func waitingConditionWithChannel(channelCondition *dexpb.ChannelCondition) *dexpb.WaitingCondition {
+	return &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		ChannelConditions:    []*dexpb.ChannelCondition{channelCondition},
 	}
 }
 
@@ -253,8 +253,8 @@ func newChannelCondition(
 	channelName string,
 	atLeast *int32,
 	atMost *int32,
-) *iwfpb.ChannelCondition {
-	return &iwfpb.ChannelCondition{
+) *dexpb.ChannelCondition {
+	return &dexpb.ChannelCondition{
 		ConditionId: conditionId,
 		ChannelName: channelName,
 		AtLeast:     atLeast,
@@ -266,15 +266,15 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := errors.New("dial failed")
 	activityError := errors.New("activity error")
-	var errorResponse *iwfpb.ErrorResponse
+	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
 		NewActivityError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 		).
 		DoAndReturn(func(
-			_ iwfpb.FlowErrorType,
-			response *iwfpb.ErrorResponse,
+			_ dexpb.FlowErrorType,
+			response *dexpb.ErrorResponse,
 		) error {
 			errorResponse = response
 			return activityError
@@ -284,7 +284,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 	require.Equal(t, "dial failed", errorResponse.GetDetail())
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		errorResponse.GetSubStatus(),
 	)
 }
@@ -292,7 +292,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
-		&iwfpb.WorkerErrorResponse{
+		&dexpb.WorkerErrorResponse{
 			Detail:    "worker detail",
 			ErrorType: "worker type",
 		},
@@ -300,15 +300,15 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.NoError(t, err)
 
 	activityError := errors.New("activity error")
-	var errorResponse *iwfpb.ErrorResponse
+	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
 		NewActivityError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
 		).
 		DoAndReturn(func(
-			_ iwfpb.FlowErrorType,
-			response *iwfpb.ErrorResponse,
+			_ dexpb.FlowErrorType,
+			response *dexpb.ErrorResponse,
 		) error {
 			errorResponse = response
 			return activityError
@@ -318,7 +318,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, "worker failure", errorResponse.GetDetail())
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		errorResponse.GetSubStatus(),
 	)
 	require.Equal(t, int32(codes.Internal), errorResponse.GetOriginalWorkerErrorStatus())
@@ -330,15 +330,15 @@ func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := status.Error(codes.Unavailable, "internal service unavailable")
 	activityError := errors.New("activity error")
-	var errorResponse *iwfpb.ErrorResponse
+	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
 		NewActivityError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 		).
 		DoAndReturn(func(
-			_ iwfpb.FlowErrorType,
-			response *iwfpb.ErrorResponse,
+			_ dexpb.FlowErrorType,
+			response *dexpb.ErrorResponse,
 		) error {
 			errorResponse = response
 			return activityError
@@ -348,7 +348,7 @@ func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
 	require.Contains(t, errorResponse.GetDetail(), "internal service unavailable")
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		errorResponse.GetSubStatus(),
 	)
 }

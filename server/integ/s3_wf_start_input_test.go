@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	s3_start_input "github.com/superdurable/iwf/integ/workflow/s3-start-input"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	s3_start_input "github.com/superdurable/dex/integ/workflow/s3-start-input"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -64,7 +64,7 @@ func TestS3WorkflowStartInputCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendType, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -80,7 +80,7 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	const largeInputPayload = `"12345678901"`
 	stepInput := objJSONValue(largeInputPayload)
 
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           s3_start_input.WorkflowType,
 		FlowTimeoutSeconds: 100,
@@ -90,12 +90,12 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 
 	history := workerHandler.GetTestResult().InvokeData
-	s1WaitForInput := history["S1_waitFor_input"].(*iwfpb.Value)
-	s1ExecuteInput := history["S1_execute_input"].(*iwfpb.Value)
+	s1WaitForInput := history["S1_waitFor_input"].(*dexpb.Value)
+	s1ExecuteInput := history["S1_execute_input"].(*dexpb.Value)
 
 	require.True(t, proto.Equal(stepInput, s1WaitForInput))
 	require.True(t, proto.Equal(stepInput, s1ExecuteInput))

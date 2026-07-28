@@ -14,16 +14,16 @@
 
 from dataclasses import dataclass
 
-from iwf.command_results import CommandResults
-from iwf.communication import Communication
-from iwf.iwf_api.models import RetryPolicy
-from iwf.persistence import Persistence
-from iwf.state_decision import StateDecision
-from iwf.state_schema import StateSchema
-from iwf.workflow import ObjectWorkflow
-from iwf.workflow_context import WorkflowContext
-from iwf.workflow_state import WorkflowState
-from iwf.workflow_state_options import WorkflowStateOptions
+from dex.command_results import CommandResults
+from dex.communication import Communication
+from dex.dex_api.models import RetryPolicy
+from dex.persistence import Persistence
+from dex.state_decision import StateDecision
+from dex.state_schema import StateSchema
+from dex.workflow import ObjectWorkflow
+from dex.workflow_context import WorkflowContext
+from dex.workflow_state import WorkflowState
+from dex.workflow_state_options import WorkflowStateOptions
 
 
 @dataclass
@@ -153,7 +153,7 @@ class CompensateState(WorkflowState[TransferRequest]):
             persistence: Persistence,
             communication: Communication,
     ) -> StateDecision:
-        # NOTE: to improve, we can use iWF data attributes to track whether each step has been attempted to execute
+        # NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
         # and check a flag to see if we should undo it or not
 
         print(f"API to undo credit account {request.to_account} for amount{request.amount}")

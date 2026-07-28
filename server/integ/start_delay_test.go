@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/basic"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/basic"
+	"github.com/superdurable/dex/service"
 )
 
 func TestStartDelayTemporal(t *testing.T) {
@@ -49,10 +49,10 @@ func TestStartDelayCadence(t *testing.T) {
 func doTestStartDelay(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerTarget := startWorker(t, basic.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -61,34 +61,34 @@ func doTestStartDelay(
 	flowId := basic.FlowType + "-" + uuid.NewString()
 	stepInput := encodedObjectValue("json", []byte("test data"))
 	timeSentReq := time.Now()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      basic.Step1,
 		StepInput:          stepInput,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowStartDelaySeconds: 10,
 			FlowConfigOverride:    flowConfig,
-			IdReusePolicy:         iwfpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
-			RetryPolicy: &iwfpb.FlowRetryPolicy{
+			IdReusePolicy:         dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
+			RetryPolicy: &dexpb.FlowRetryPolicy{
 				InitialIntervalSeconds: 11,
 				BackoffCoefficient:     11,
 				MaximumAttempts:        11,
 				MaximumIntervalSeconds: 11,
 			},
 		},
-		StepOptions: &iwfpb.StepOptions{
+		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 12,
 			ExecuteTimeoutSeconds: 13,
-			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				InitialIntervalSeconds: 12,
 				BackoffCoefficient:     12,
 				MaximumAttempts:        12,
 				MaximumIntervalSeconds: 12,
 			},
-			ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+			ExecuteRetryPolicy: &dexpb.RetryPolicy{
 				InitialIntervalSeconds: 13,
 				BackoffCoefficient:     13,
 				MaximumAttempts:        13,
@@ -99,7 +99,7 @@ func doTestStartDelay(
 	require.NoError(t, err)
 
 	time.Sleep(5 * time.Second)
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})

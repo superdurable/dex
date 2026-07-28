@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish:
-    name: Publish iwf-sdk
+    name: Publish dex-sdk
     runs-on: ubuntu-latest
     # Monorepo: only publish on sdk-java-v* release tags, or manual dispatch.
     if: >

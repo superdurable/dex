@@ -25,10 +25,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
-	"github.com/superdurable/iwf/sdk-go/iwftest"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dextest"
 	"go.uber.org/mock/gomock"
 )
 
@@ -47,22 +47,22 @@ var testCustomer = Customer{
 	},
 }
 
-var testCustomerObj = iwftest.NewTestObject(testCustomer)
+var testCustomerObj = dextest.NewTestObject(testCustomer)
 
-var mockWfCtx *iwftest.MockWorkflowContext
-var mockPersistence *iwftest.MockPersistence
-var mockCommunication *iwftest.MockCommunication
-var emptyCmdResults = iwf.CommandResults{}
-var emptyObj = iwftest.NewTestObject(nil)
+var mockWfCtx *dextest.MockWorkflowContext
+var mockPersistence *dextest.MockPersistence
+var mockCommunication *dextest.MockCommunication
+var emptyCmdResults = dex.CommandResults{}
+var emptyObj = dextest.NewTestObject(nil)
 var mockSvc *service.MockMyService
 
 func beforeEach(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	mockSvc = service.NewMockMyService(ctrl)
-	mockWfCtx = iwftest.NewMockWorkflowContext(ctrl)
-	mockPersistence = iwftest.NewMockPersistence(ctrl)
-	mockCommunication = iwftest.NewMockCommunication(ctrl)
+	mockWfCtx = dextest.NewMockWorkflowContext(ctrl)
+	mockPersistence = dextest.NewMockPersistence(ctrl)
+	mockCommunication = dextest.NewMockCommunication(ctrl)
 }
 
 func TestInitState_WaitUntil(t *testing.T) {
@@ -73,18 +73,18 @@ func TestInitState_WaitUntil(t *testing.T) {
 	mockPersistence.EXPECT().SetDataAttribute(keyCustomer, testCustomer)
 	cmdReq, err := state.WaitUntil(mockWfCtx, testCustomerObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.EmptyCommandRequest(), cmdReq)
+	assert.Equal(t, dex.EmptyCommandRequest(), cmdReq)
 }
 
 func TestInitState_Execute(t *testing.T) {
 	beforeEach(t)
 
 	state := NewInitState()
-	input := iwftest.NewTestObject(testCustomer)
+	input := dextest.NewTestObject(testCustomer)
 
 	decision, err := state.Execute(mockWfCtx, input, emptyCmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.MultiNextStates(
+	assert.Equal(t, dex.MultiNextStates(
 		trialState{}, cancelState{}, updateChargeAmountState{},
 	), decision)
 }
@@ -98,8 +98,8 @@ func TestTrialState_WaitUntil(t *testing.T) {
 	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
 	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.AllCommandsCompletedRequest(
-		iwf.NewTimerCommandByDuration("", testCustomer.Subscription.TrialPeriod),
+	assert.Equal(t, dex.AllCommandsCompletedRequest(
+		dex.NewTimerCommandByDuration("", testCustomer.Subscription.TrialPeriod),
 	), cmdReq)
 }
 
@@ -112,7 +112,7 @@ func TestTrialState_Execute(t *testing.T) {
 
 	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.SingleNextState(
+	assert.Equal(t, dex.SingleNextState(
 		chargeCurrentBillState{}, nil,
 	), decision)
 }
@@ -128,8 +128,8 @@ func TestChargeCurrentBillStateStart_waitForDuration(t *testing.T) {
 
 	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.AllCommandsCompletedRequest(
-		iwf.NewTimerCommandByDuration("", testCustomer.Subscription.BillingPeriod),
+	assert.Equal(t, dex.AllCommandsCompletedRequest(
+		dex.NewTimerCommandByDuration("", testCustomer.Subscription.BillingPeriod),
 	), cmdReq)
 }
 
@@ -144,7 +144,7 @@ func TestChargeCurrentBillStateStart_subscriptionOver(t *testing.T) {
 
 	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.EmptyCommandRequest(), cmdReq)
+	assert.Equal(t, dex.EmptyCommandRequest(), cmdReq)
 }
 
 func TestChargeCurrentBillStateDecide_subscriptionNotOver(t *testing.T) {
@@ -158,7 +158,7 @@ func TestChargeCurrentBillStateDecide_subscriptionNotOver(t *testing.T) {
 
 	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.SingleNextState(&chargeCurrentBillState{}, nil), decision)
+	assert.Equal(t, dex.SingleNextState(&chargeCurrentBillState{}, nil), decision)
 }
 
 func TestChargeCurrentBillStateDecide_subscriptionOver(t *testing.T) {
@@ -172,7 +172,7 @@ func TestChargeCurrentBillStateDecide_subscriptionOver(t *testing.T) {
 
 	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.ForceCompletingWorkflow, decision)
+	assert.Equal(t, dex.ForceCompletingWorkflow, decision)
 }
 
 func TestUpdateChargeAmountState_WaitUntil(t *testing.T) {
@@ -182,7 +182,7 @@ func TestUpdateChargeAmountState_WaitUntil(t *testing.T) {
 
 	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.AllCommandsCompletedRequest(iwf.NewSignalCommand("", SignalUpdateBillingPeriodChargeAmount)), cmdReq)
+	assert.Equal(t, dex.AllCommandsCompletedRequest(dex.NewSignalCommand("", SignalUpdateBillingPeriodChargeAmount)), cmdReq)
 }
 
 func TestUpdateChargeAmountState_Execute(t *testing.T) {
@@ -190,12 +190,12 @@ func TestUpdateChargeAmountState_Execute(t *testing.T) {
 
 	state := NewUpdateChargeAmountState()
 
-	cmdResults := iwf.CommandResults{
-		Signals: []iwf.SignalCommandResult{
+	cmdResults := dex.CommandResults{
+		Signals: []dex.SignalCommandResult{
 			{
 				ChannelName: SignalUpdateBillingPeriodChargeAmount,
-				SignalValue: iwftest.NewTestObject(200),
-				Status:      iwfidl.RECEIVED,
+				SignalValue: dextest.NewTestObject(200),
+				Status:      dexpb.RECEIVED,
 			},
 		},
 	}
@@ -208,7 +208,7 @@ func TestUpdateChargeAmountState_Execute(t *testing.T) {
 
 	decision, err := state.Execute(mockWfCtx, emptyObj, cmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.SingleNextState(&updateChargeAmountState{}, nil), decision)
+	assert.Equal(t, dex.SingleNextState(&updateChargeAmountState{}, nil), decision)
 }
 
 func TestCancelState_WaitUntil(t *testing.T) {
@@ -218,7 +218,7 @@ func TestCancelState_WaitUntil(t *testing.T) {
 
 	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.AllCommandsCompletedRequest(iwf.NewSignalCommand("", SignalCancelSubscription)), cmdReq)
+	assert.Equal(t, dex.AllCommandsCompletedRequest(dex.NewSignalCommand("", SignalCancelSubscription)), cmdReq)
 }
 
 func TestCancelState_Execute(t *testing.T) {
@@ -231,5 +231,5 @@ func TestCancelState_Execute(t *testing.T) {
 
 	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
 	assert.Nil(t, err)
-	assert.Equal(t, iwf.ForceCompletingWorkflow, decision)
+	assert.Equal(t, dex.ForceCompletingWorkflow, decision)
 }

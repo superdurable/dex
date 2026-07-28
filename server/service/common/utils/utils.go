@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -33,11 +33,11 @@ const (
 	defaultMaxApiTimeoutSeconds = 60
 )
 
-func IsNullValue(value *iwfpb.Value) bool {
+func IsNullValue(value *dexpb.Value) bool {
 	if value == nil {
 		return true
 	}
-	_, ok := value.GetKind().(*iwfpb.Value_NullValue)
+	_, ok := value.GetKind().(*dexpb.Value_NullValue)
 	return ok
 }
 
@@ -71,7 +71,7 @@ func MergeMap(first map[string]interface{}, second map[string]interface{}) map[s
 	return out
 }
 
-func TrimRpcTimeoutSeconds(ctx context.Context, req *iwfpb.InvokeRPCRequest) int32 {
+func TrimRpcTimeoutSeconds(ctx context.Context, req *dexpb.InvokeRPCRequest) int32 {
 	secondsRemaining := int32(defaultMaxApiTimeoutSeconds)
 	ddl, ok := ctx.Deadline()
 	if ok {

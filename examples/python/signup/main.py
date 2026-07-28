@@ -15,16 +15,16 @@
 import traceback
 
 from flask import Flask, request
-from iwf.iwf_api.models import (
+from dex.dex_api.models import (
     WorkflowStateExecuteRequest,
     WorkflowStateWaitUntilRequest,
     WorkflowWorkerRpcRequest,
 )
-from iwf.worker_service import (
+from dex.worker_service import (
     WorkerService,
 )
 
-from signup.iwf_config import client, worker_service
+from signup.dex_config import client, worker_service
 from signup.signup_workflow import UserSignupWorkflow, Form
 
 flask_app = Flask(__name__)
@@ -62,10 +62,10 @@ def signup_describe():
 
 @flask_app.route("/")
 def index():
-    return "iwf workflow home"
+    return "dex workflow home"
 
 
-# below are iWF workflow worker APIs to be called by iWF server
+# below are Dex workflow worker APIs to be called by Dex server
 
 
 @flask_app.route(WorkerService.api_path_workflow_state_wait_until, methods=["POST"])
@@ -89,7 +89,7 @@ def handle_rpc():
     return resp.to_dict()
 
 
-# this handler is extremely useful for debugging iWF
+# this handler is extremely useful for debugging Dex
 # the WebUI will be able to show you the error with stacktrace
 @flask_app.errorhandler(Exception)
 def internal_error(exception):

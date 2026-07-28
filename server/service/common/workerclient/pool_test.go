@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -37,29 +37,29 @@ import (
 const bufSize = 1024 * 1024
 
 type stubWorkerServer struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	calls int
 }
 
 func (s *stubWorkerServer) InvokeWorkerRPC(
-	ctx context.Context, req *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	ctx context.Context, req *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	s.calls++
-	return &iwfpb.InvokeWorkerRPCResponse{}, nil
+	return &dexpb.InvokeWorkerRPCResponse{}, nil
 }
 
 func (s *stubWorkerServer) InvokeWaitForMethod(
-	ctx context.Context, req *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
-	return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	ctx context.Context, req *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
 }
 
 func (s *stubWorkerServer) InvokeExecuteMethod(
-	ctx context.Context, req *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
-	return &iwfpb.InvokeExecuteMethodResponse{
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{{StepType: "done"}},
+	ctx context.Context, req *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{{StepType: "done"}},
 		},
 	}, nil
 }
@@ -68,7 +68,7 @@ func TestPoolAcquireReuseAndCapacity(t *testing.T) {
 	lis := bufconn.Listen(bufSize)
 	srv := grpc.NewServer()
 	stub := &stubWorkerServer{}
-	iwfpb.RegisterWorkerServiceServer(srv, stub)
+	dexpb.RegisterWorkerServiceServer(srv, stub)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() {
 		srv.Stop()
@@ -96,7 +96,7 @@ func TestPoolAcquireReuseAndCapacity(t *testing.T) {
 	client1, _, release1, err := pool.Acquire(context.Background(), "worker-a:1")
 	require.NoError(t, err)
 	require.Equal(t, 1, pool.Len())
-	_, err = client1.InvokeWorkerRPC(context.Background(), &iwfpb.InvokeWorkerRPCRequest{})
+	_, err = client1.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{})
 	require.NoError(t, err)
 
 	client2, _, release2, err := pool.Acquire(context.Background(), "worker-a:1")
@@ -123,8 +123,8 @@ func TestNewPoolRejectsBadHeaders(t *testing.T) {
 }
 
 func TestRejectWorkerBlobIDs(t *testing.T) {
-	err := RejectWorkerBlobIDs(&iwfpb.Value{
-		Kind: &iwfpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: "s|p"},
+	err := RejectWorkerBlobIDs(&dexpb.Value{
+		Kind: &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: "s|p"},
 	})
 	require.Error(t, err)
 }

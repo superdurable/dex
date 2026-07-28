@@ -50,54 +50,54 @@ jobs:
         with:
           go-version-file: examples/go/go.mod
           cache-dependency-path: examples/go/go.sum
-      - name: Start iWF environment
+      - name: Start Dex environment
         working-directory: sdk-go
         env:
-          IWF_SERVER_IMAGE: superdurable/iwf-server:latest
+          DEX_SERVER_IMAGE: superdurable/dex-server:latest
         run: |
-          docker pull "$IWF_SERVER_IMAGE"
+          docker pull "$DEX_SERVER_IMAGE"
           docker compose -f integ/docker-compose.yml up -d
-      - name: Wait for iWF server
+      - name: Wait for Dex server
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
           echo "Waiting for Elasticsearch..."
           for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-iwf curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
+            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
               echo "Elasticsearch ready (attempt $i)"
               break
             fi
             if [ "$i" -eq 60 ]; then
               echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-iwf 2>&1 | tail -80 || true
+              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
               exit 1
             fi
             sleep 5
           done
           echo "Waiting for search attributes..."
           for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-iwf 2>&1 | grep -q "All search attributes are registered"; then
+            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
               echo "Search attributes ready (attempt $i)"
               break
             fi
             if [ "$i" -eq 120 ]; then
               echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-iwf 2>&1 | tail -80 || true
-              docker logs temporal-iwf 2>&1 | tail -80 || true
+              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
+              docker logs temporal-dex 2>&1 | tail -80 || true
               exit 1
             fi
             sleep 2
           done
-          echo "Waiting for iWF healthcheck..."
+          echo "Waiting for Dex healthcheck..."
           for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "iWF server healthy (attempt $i)"
+              echo "Dex server healthy (attempt $i)"
               exit 0
             fi
             sleep 5
           done
-          echo "Timed out waiting for iWF server"
-          docker logs iwf-server 2>&1 | tail -80 || true
+          echo "Timed out waiting for Dex server"
+          docker logs dex-server 2>&1 | tail -80 || true
           exit 1
       - name: Integration tests
         env:

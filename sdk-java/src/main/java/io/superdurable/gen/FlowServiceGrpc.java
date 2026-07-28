@@ -4,18 +4,18 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
  * <pre>
- * Hosted by iWF server; SDKs call these RPCs.
+ * Hosted by Dex server; SDKs call these RPCs.
  * </pre>
  */
 @javax.annotation.Generated(
     value = "by gRPC proto compiler (version 1.69.1)",
-    comments = "Source: iwf.proto")
+    comments = "Source: dex.proto")
 @io.grpc.stub.annotations.GrpcGenerated
 public final class FlowServiceGrpc {
 
   private FlowServiceGrpc() {}
 
-  public static final java.lang.String SERVICE_NAME = "iwf.FlowService";
+  public static final java.lang.String SERVICE_NAME = "dex.FlowService";
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.StartFlowRequest,
@@ -560,7 +560,7 @@ public final class FlowServiceGrpc {
 
   /**
    * <pre>
-   * Hosted by iWF server; SDKs call these RPCs.
+   * Hosted by Dex server; SDKs call these RPCs.
    * </pre>
    */
   public interface AsyncService {
@@ -681,7 +681,7 @@ public final class FlowServiceGrpc {
   /**
    * Base class for the server implementation of the service FlowService.
    * <pre>
-   * Hosted by iWF server; SDKs call these RPCs.
+   * Hosted by Dex server; SDKs call these RPCs.
    * </pre>
    */
   public static abstract class FlowServiceImplBase
@@ -695,7 +695,7 @@ public final class FlowServiceGrpc {
   /**
    * A stub to allow clients to do asynchronous rpc calls to service FlowService.
    * <pre>
-   * Hosted by iWF server; SDKs call these RPCs.
+   * Hosted by Dex server; SDKs call these RPCs.
    * </pre>
    */
   public static final class FlowServiceStub
@@ -843,7 +843,7 @@ public final class FlowServiceGrpc {
   /**
    * A stub to allow clients to do synchronous rpc calls to service FlowService.
    * <pre>
-   * Hosted by iWF server; SDKs call these RPCs.
+   * Hosted by Dex server; SDKs call these RPCs.
    * </pre>
    */
   public static final class FlowServiceBlockingStub
@@ -975,7 +975,7 @@ public final class FlowServiceGrpc {
   /**
    * A stub to allow clients to do ListenableFuture-style rpc calls to service FlowService.
    * <pre>
-   * Hosted by iWF server; SDKs call these RPCs.
+   * Hosted by Dex server; SDKs call these RPCs.
    * </pre>
    */
   public static final class FlowServiceFutureStub
@@ -1357,7 +1357,7 @@ public final class FlowServiceGrpc {
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.FileDescriptor getFileDescriptor() {
-      return io.superdurable.gen.IwfProto.getDescriptor();
+      return io.superdurable.gen.DexProto.getDescriptor();
     }
 
     @java.lang.Override

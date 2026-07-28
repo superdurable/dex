@@ -1,4 +1,4 @@
-This is the code that is [shown in iWF server as an example of microservice orchestration](https://github.com/superdurable/iwf#example-microservice-orchestration).
+This is the code that is [shown in Dex server as an example of microservice orchestration](https://github.com/superdurable/dex#example-microservice-orchestration).
 
 ## How to test the APIs in browser
 

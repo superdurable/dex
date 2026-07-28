@@ -23,9 +23,9 @@ package cadence
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/superdurable/iwf/service/common/timeparser"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/timeparser"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/.gen/go/shared"
 	"go.uber.org/cadence/encoded"
@@ -34,7 +34,7 @@ import (
 
 func getResetIDsByType(
 	ctx context.Context,
-	resetType iwfpb.FlowResetType,
+	resetType dexpb.FlowResetType,
 	domain, wid, rid string,
 	frontendClient workflowserviceclient.Interface, converter encoded.DataConverter,
 	historyEventId int32, earliestHistoryTimeStr string, stepType, stepExecutionId string,
@@ -43,10 +43,10 @@ func getResetIDsByType(
 	resetBaseRunID = rid
 
 	switch resetType {
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID:
 		decisionFinishID = int64(historyEventId)
 		return
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
 		firstRunID, firstRunErr := getCadenceFirstExecutionRunID(ctx, domain, wid, rid, frontendClient)
 		if firstRunErr != nil {
 			err = firstRunErr
@@ -60,7 +60,7 @@ func getResetIDsByType(
 		if err != nil {
 			return
 		}
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
 		var earliestTimeUnixNano int64
 		earliestTimeUnixNano, err = timeparser.ParseTime(earliestHistoryTimeStr)
 		if err != nil {
@@ -70,7 +70,7 @@ func getResetIDsByType(
 		if err != nil {
 			return
 		}
-	case iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
 		decisionFinishID, err = getDecisionEventIDByStepTypeOrStepExecutionId(ctx, domain, wid, rid, stepType, stepExecutionId, frontendClient, converter)
 		if err != nil {
 			return
@@ -225,11 +225,11 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			if e.GetEventType() == shared.EventTypeDecisionTaskCompleted {
 				decisionFinishID = e.GetEventId()
 			}
-			//TODO: Add check for local activity. (IWF-403)
+			//TODO: Add check for local activity. (DEX-403)
 			if e.GetEventType() == shared.EventTypeActivityTaskScheduled {
 				typeName := e.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
 				if strings.Contains(typeName, "InvokeExecuteMethod") {
-					var input iwfpb.InvokeExecuteMethodActivityInput
+					var input dexpb.InvokeExecuteMethodActivityInput
 					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
@@ -241,7 +241,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 						return
 					}
 				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
-					var input iwfpb.InvokeWaitForMethodActivityInput
+					var input dexpb.InvokeWaitForMethodActivityInput
 					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)

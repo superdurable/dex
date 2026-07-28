@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"go.temporal.io/sdk/converter"
 	"google.golang.org/protobuf/proto"
 )
@@ -36,12 +36,12 @@ type plainNonProtoStruct struct {
 func TestTemporalProtoPayloadIsBinaryProtobuf(t *testing.T) {
 	dc := NewTemporalDataConverter()
 
-	in := &iwfpb.InterpreterWorkflowInput{
+	in := &dexpb.InterpreterWorkflowInput{
 		FlowType:     "order",
 		WorkerTarget: "127.0.0.1:9000",
-		StepInput:    &iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: "hi"}},
-		InitAttributes: []*iwfpb.KV{
-			{Key: "k", Value: &iwfpb.Value{Kind: &iwfpb.Value_IntValue{IntValue: 7}}},
+		StepInput:    &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "hi"}},
+		InitAttributes: []*dexpb.KV{
+			{Key: "k", Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 7}}},
 		},
 	}
 
@@ -49,7 +49,7 @@ func TestTemporalProtoPayloadIsBinaryProtobuf(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, converter.MetadataEncodingProto, string(payload.Metadata[converter.MetadataEncoding]))
 
-	out := &iwfpb.InterpreterWorkflowInput{}
+	out := &dexpb.InterpreterWorkflowInput{}
 	require.NoError(t, dc.FromPayload(payload, out))
 	require.True(t, proto.Equal(in, out))
 }
@@ -73,22 +73,22 @@ func TestTemporalNilAndBytesRoundTrip(t *testing.T) {
 
 func TestTemporalMapOneofRoundTrip(t *testing.T) {
 	dc := NewTemporalDataConverter()
-	in := &iwfpb.PrepareRpcQueryResponse{
+	in := &dexpb.PrepareRpcQueryResponse{
 		RunId:        "run-1",
 		FlowType:     "ft",
 		WorkerTarget: "host:1",
-		ChannelInfos: map[string]*iwfpb.ChannelInfo{
+		ChannelInfos: map[string]*dexpb.ChannelInfo{
 			"ch": {Size: 2},
 		},
-		Attributes: []*iwfpb.KV{
-			{Key: "a", Value: &iwfpb.Value{Kind: &iwfpb.Value_BoolValue{BoolValue: true}}},
+		Attributes: []*dexpb.KV{
+			{Key: "a", Value: &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: true}}},
 		},
 	}
 	payload, err := dc.ToPayload(in)
 	require.NoError(t, err)
 	require.Equal(t, converter.MetadataEncodingProto, string(payload.Metadata[converter.MetadataEncoding]))
 
-	out := &iwfpb.PrepareRpcQueryResponse{}
+	out := &dexpb.PrepareRpcQueryResponse{}
 	require.NoError(t, dc.FromPayload(payload, out))
 	require.True(t, proto.Equal(in, out))
 }
@@ -106,10 +106,10 @@ func TestTemporalJSONEscapeHatchForNonProto(t *testing.T) {
 }
 
 func TestMarshalDeterministicStableForMaps(t *testing.T) {
-	msg := &iwfpb.ContinueAsNewDump{
-		ChannelReceived: map[string]*iwfpb.ChannelValues{
-			"b": {Values: []*iwfpb.Value{{Kind: &iwfpb.Value_StringValue{StringValue: "2"}}}},
-			"a": {Values: []*iwfpb.Value{{Kind: &iwfpb.Value_StringValue{StringValue: "1"}}}},
+	msg := &dexpb.ContinueAsNewDump{
+		ChannelReceived: map[string]*dexpb.ChannelValues{
+			"b": {Values: []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "2"}}}},
+			"a": {Values: []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "1"}}}},
 		},
 	}
 	first, err := MarshalDeterministic(msg)

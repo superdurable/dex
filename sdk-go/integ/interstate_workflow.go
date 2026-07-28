@@ -14,27 +14,27 @@
 
 package integ
 
-import "github.com/superdurable/iwf/sdk-go/iwf"
+import "github.com/superdurable/dex/sdk-go/dex"
 
 type interStateWorkflow struct {
-	iwf.DefaultWorkflowType
-	iwf.EmptyPersistenceSchema
+	dex.DefaultWorkflowType
+	dex.EmptyPersistenceSchema
 }
 
 const interStateChannel1 = "test-inter-state-channel-1"
 const interStateChannel2 = "test-inter-state-channel-2"
 
-func (b interStateWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&interStateWorkflowState0{}),
-		iwf.NonStartingStateDef(&interStateWorkflowState1{}),
-		iwf.NonStartingStateDef(&interStateWorkflowState2{}),
+func (b interStateWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&interStateWorkflowState0{}),
+		dex.NonStartingStateDef(&interStateWorkflowState1{}),
+		dex.NonStartingStateDef(&interStateWorkflowState2{}),
 	}
 }
 
-func (b interStateWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.InternalChannelDef(interStateChannel1),
-		iwf.InternalChannelDef(interStateChannel2),
+func (b interStateWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.InternalChannelDef(interStateChannel1),
+		dex.InternalChannelDef(interStateChannel2),
 	}
 }

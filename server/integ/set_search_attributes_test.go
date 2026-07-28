@@ -27,10 +27,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/persistence"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/persistence"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -41,7 +41,7 @@ func TestSetSearchAttributes(t *testing.T) {
 
 	workerHandler := signal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	flowClient := runtime.FlowClient
@@ -50,7 +50,7 @@ func TestSetSearchAttributes(t *testing.T) {
 	defer cancel()
 
 	flowId := signal.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -59,7 +59,7 @@ func TestSetSearchAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	searchAttributes := []*iwfpb.AttributeWrite{
+	searchAttributes := []*dexpb.AttributeWrite{
 		indexedIntAttribute(
 			persistence.TestSearchAttributeIntKey,
 			persistence.TestSearchAttributeIntValue1,
@@ -75,7 +75,7 @@ func TestSetSearchAttributes(t *testing.T) {
 		),
 	}
 
-	_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId:     flowId,
 		Attributes: searchAttributes,
 	})
@@ -83,7 +83,7 @@ func TestSetSearchAttributes(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	searchResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	searchResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys: []string{
 			persistence.TestSearchAttributeIntKey,
@@ -93,7 +93,7 @@ func TestSetSearchAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	expected := []*iwfpb.KV{
+	expected := []*dexpb.KV{
 		{Key: persistence.TestSearchAttributeIntKey, Value: searchAttributes[0].GetValue()},
 		{Key: persistence.TestSearchAttributeKeywordKey, Value: searchAttributes[1].GetValue()},
 		{Key: persistence.TestSearchAttributeKeywordArrayKey, Value: searchAttributes[2].GetValue()},
@@ -115,10 +115,10 @@ func TestSetSearchAttributes(t *testing.T) {
 		ctx,
 		flowId,
 		"",
-		map[string]iwfpb.IndexType{
-			persistence.TestSearchAttributeIntKey:          iwfpb.IndexType_INDEX_TYPE_INT,
-			persistence.TestSearchAttributeKeywordKey:      iwfpb.IndexType_INDEX_TYPE_KEYWORD,
-			persistence.TestSearchAttributeKeywordArrayKey: iwfpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+		map[string]dexpb.IndexType{
+			persistence.TestSearchAttributeIntKey:          dexpb.IndexType_INDEX_TYPE_INT,
+			persistence.TestSearchAttributeKeywordKey:      dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			persistence.TestSearchAttributeKeywordArrayKey: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
 		},
 	)
 	require.NoError(t, err)
@@ -128,9 +128,9 @@ func TestSetSearchAttributes(t *testing.T) {
 		require.True(t, proto.Equal(got, want.GetValue()), "backend mismatch for %s", want.GetKey())
 	}
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }

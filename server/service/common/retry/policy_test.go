@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 func TestConvertCadenceActivityRetryPolicyNilMatchesTemporalDefaults(t *testing.T) {
@@ -39,7 +39,7 @@ func TestConvertCadenceActivityRetryPolicyNilMatchesTemporalDefaults(t *testing.
 }
 
 func TestConvertCadenceActivityRetryPolicyHonorsExplicitMaximumAttempts(t *testing.T) {
-	policy := ConvertCadenceActivityRetryPolicy(&iwfpb.RetryPolicy{MaximumAttempts: 1})
+	policy := ConvertCadenceActivityRetryPolicy(&dexpb.RetryPolicy{MaximumAttempts: 1})
 	require.NotNil(t, policy)
 	require.Equal(t, int32(1), policy.MaximumAttempts)
 }

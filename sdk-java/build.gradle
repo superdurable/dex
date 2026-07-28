@@ -48,7 +48,7 @@ dependencies {
     implementation 'com.google.guava:guava:31.0.1-jre'
 
     // protobuf / gRPC (checked-in stubs under src/main/java/io/superdurable/gen)
-    api 'com.google.protobuf:protobuf-java:3.25.5'
+    api 'com.google.protobuf:protobuf-java:4.35.1'
     api 'io.grpc:grpc-stub:1.69.1'
     api 'io.grpc:grpc-protobuf:1.69.1'
     compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
@@ -106,7 +106,7 @@ check.dependsOn jacocoTestReport
 // Custom task to unpublish from local Maven repository
 // Usage: ./gradlew unpublishFromMavenLocal
 task unpublishFromMavenLocal(type: Delete) {
-    def groupPath = "io/superdurable/iwf-sdk"
+    def groupPath = "io/superdurable/dex-sdk"
     def version = project.version
     def m2Repo = "${System.getProperty('user.home')}/.m2/repository"
     delete "$m2Repo/$groupPath/$version"
@@ -115,7 +115,7 @@ task unpublishFromMavenLocal(type: Delete) {
     }
 }
 
-// Maven coordinates: io.superdurable:iwf-sdk (reverse-DNS of superdurable.io)
+// Maven coordinates: io.superdurable:dex-sdk (reverse-DNS of superdurable.io)
 group = "io.superdurable"
 version = "0.0.2"
 
@@ -123,19 +123,19 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             groupId = project.group
-            artifactId = 'iwf-sdk'
+            artifactId = 'dex-sdk'
             version = project.version
             from(components.java)
 
             pom {
-                name = "iwf-sdk"
-                description = "iWF Java SDK"
-                url = 'https://github.com/superdurable/iwf'
+                name = "dex-sdk"
+                description = "Dex Java SDK"
+                url = 'https://github.com/superdurable/dex'
 
                 scm {
-                    connection = 'scm:git@github.com:superdurable/iwf.git'
-                    developerConnection = 'scm:git@github.com:superdurable/iwf.git'
-                    url = 'https://github.com/superdurable/iwf.git'
+                    connection = 'scm:git@github.com:superdurable/dex.git'
+                    developerConnection = 'scm:git@github.com:superdurable/dex.git'
+                    url = 'https://github.com/superdurable/dex.git'
                 }
 
                 licenses {

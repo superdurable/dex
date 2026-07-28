@@ -27,11 +27,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/interpreter/config"
-	"github.com/superdurable/iwf/service/interpreter/cont"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/interpreter/config"
+	"github.com/superdurable/dex/service/interpreter/cont"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type StepExecutionCounter struct {
@@ -74,7 +74,7 @@ func RebuildStepExecutionCounter(
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
-	counterInfo *iwfpb.StepExecutionCounterInfo,
+	counterInfo *dexpb.StepExecutionCounterInfo,
 ) *StepExecutionCounter {
 	stepTypeStartedCounts := counterInfo.GetStepTypeStartedCount()
 	if stepTypeStartedCounts == nil {
@@ -99,7 +99,7 @@ func RebuildStepExecutionCounter(
 }
 
 func stepActiveExecutionNumsFromProto(
-	values map[string]*iwfpb.StepExecutionNumbers,
+	values map[string]*dexpb.StepExecutionNumbers,
 ) map[string][]int32 {
 	result := make(map[string][]int32, len(values))
 	for stepType, executionNumbers := range values {
@@ -111,8 +111,8 @@ func stepActiveExecutionNumsFromProto(
 	return result
 }
 
-func (e *StepExecutionCounter) Dump() *iwfpb.StepExecutionCounterInfo {
-	return &iwfpb.StepExecutionCounterInfo{
+func (e *StepExecutionCounter) Dump() *dexpb.StepExecutionCounterInfo {
+	return &dexpb.StepExecutionCounterInfo{
 		StepTypeStartedCount:            e.stepTypeStartedCounts,
 		StepTypeCurrentlyExecutingCount: e.stepTypeActiveCounts,
 		TotalCurrentlyExecutingCount:    e.totalActiveCount,
@@ -122,10 +122,10 @@ func (e *StepExecutionCounter) Dump() *iwfpb.StepExecutionCounterInfo {
 
 func stepActiveExecutionNumsToProto(
 	values map[string][]int32,
-) map[string]*iwfpb.StepExecutionNumbers {
-	result := make(map[string]*iwfpb.StepExecutionNumbers, len(values))
+) map[string]*dexpb.StepExecutionNumbers {
+	result := make(map[string]*dexpb.StepExecutionNumbers, len(values))
 	for stepType, executionNumbers := range values {
-		result[stepType] = &iwfpb.StepExecutionNumbers{Numbers: executionNumbers}
+		result[stepType] = &dexpb.StepExecutionNumbers{Numbers: executionNumbers}
 	}
 	return result
 }
@@ -167,9 +167,9 @@ func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 }
 
 func (e *StepExecutionCounter) MarkStepExecutionCompleted(
-	currentStep *iwfpb.StepMovement,
+	currentStep *dexpb.StepMovement,
 	stepExecutionId string,
-	nextSteps []*iwfpb.StepMovement,
+	nextSteps []*dexpb.StepMovement,
 ) error {
 	e.totalActiveCount--
 	e.removeStepActiveExecutionNum(
@@ -188,7 +188,7 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 	e.decreaseStepIdActiveCounts(currentStep)
 
 	enabledForAll := e.configer.EffectiveActiveStepSearchMode() ==
-		iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
+		dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
 	shouldSkipRefresh := determineIfShouldSkipRefreshOnCompleted(nextSteps, enabledForAll)
 	if shouldSkipRefresh {
 		return nil
@@ -234,13 +234,13 @@ func (e *StepExecutionCounter) IsStepExecutionActive(stepExeId string) bool {
 	return !e.IsStepExecutionCompleted(stepType, stepExecutionNumber)
 }
 
-func (e *StepExecutionCounter) increaseStepIdActiveCounts(s *iwfpb.StepMovement) bool {
+func (e *StepExecutionCounter) increaseStepIdActiveCounts(s *dexpb.StepMovement) bool {
 	e.stepTypeActiveCounts[s.StepType]++
 	// first time the stateId show up
 	return e.stepTypeActiveCounts[s.StepType] == 1
 }
 
-func (e *StepExecutionCounter) decreaseStepIdActiveCounts(step *iwfpb.StepMovement) {
+func (e *StepExecutionCounter) decreaseStepIdActiveCounts(step *dexpb.StepMovement) {
 	e.stepTypeActiveCounts[step.GetStepType()]--
 	if e.stepTypeActiveCounts[step.GetStepType()] == 0 {
 		delete(e.stepTypeActiveCounts, step.GetStepType())
@@ -250,10 +250,10 @@ func (e *StepExecutionCounter) decreaseStepIdActiveCounts(step *iwfpb.StepMoveme
 // as an optimization, we want to skip refreshing the search attribute
 // if there are no non-closing next steps, to avoid unnecessary refreshes
 func determineIfShouldSkipRefreshOnCompleted(
-	nextSteps []*iwfpb.StepMovement,
+	nextSteps []*dexpb.StepMovement,
 	enabledForAll bool,
 ) bool {
-	var nonClosingNextSteps []*iwfpb.StepMovement
+	var nonClosingNextSteps []*dexpb.StepMovement
 	for _, step := range nextSteps {
 		if _, ok := service.ValidClosingFlowStepType[step.GetStepType()]; !ok {
 			// step is not a ValidClosingFlowStepType
@@ -274,13 +274,13 @@ func determineIfShouldSkipRefreshOnCompleted(
 	return false
 }
 
-func (e *StepExecutionCounter) shouldTrackActiveStep(step *iwfpb.StepMovement) bool {
+func (e *StepExecutionCounter) shouldTrackActiveStep(step *dexpb.StepMovement) bool {
 	switch e.configer.EffectiveActiveStepSearchMode() {
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
 		return false
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
 		return true
-	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR:
+	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR:
 		return !step.GetStepOptions().GetSkipWaitFor()
 	default:
 		panic("FlowConfiger returned an invalid active step search mode")

@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/basic"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/basic"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -50,14 +50,14 @@ func TestBasicFlowTemporal(t *testing.T) {
 				t,
 				service.BackendTypeTemporal,
 				minimumContinueAsNewConfig(
-					iwfpb.StepDurability_STEP_DURABILITY_ASYNC,
+					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 				),
 			)
 		})
 		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {
-			doTestBasicFlow(t, service.BackendTypeTemporal, &iwfpb.FlowConfig{
+			doTestBasicFlow(t, service.BackendTypeTemporal, &dexpb.FlowConfig{
 				ActiveStepSearchMode: ptr.Any(
-					iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+					dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
 				),
 			})
 		})
@@ -77,14 +77,14 @@ func TestBasicFlowCadence(t *testing.T) {
 				t,
 				service.BackendTypeCadence,
 				minimumContinueAsNewConfig(
-					iwfpb.StepDurability_STEP_DURABILITY_ASYNC,
+					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 				),
 			)
 		})
 		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {
-			doTestBasicFlow(t, service.BackendTypeCadence, &iwfpb.FlowConfig{
+			doTestBasicFlow(t, service.BackendTypeCadence, &dexpb.FlowConfig{
 				ActiveStepSearchMode: ptr.Any(
-					iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+					dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
 				),
 			})
 		})
@@ -94,11 +94,11 @@ func TestBasicFlowCadence(t *testing.T) {
 func doTestBasicFlow(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := basic.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
 	})
 	flowClient := runtime.FlowClient
@@ -107,44 +107,44 @@ func doTestBasicFlow(
 	defer cancel()
 
 	flowId := basic.FlowType + "-" + uuid.NewString()
-	flowInput := &iwfpb.Value{
-		Kind: &iwfpb.Value_ObjValue{
-			ObjValue: &iwfpb.EncodedObject{
+	flowInput := &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
 				Encoding: "json",
 				Payload:  []byte("test data"),
 			},
 		},
 	}
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      basic.Step1,
 		StepInput:          flowInput,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-			IdReusePolicy:      iwfpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
+			IdReusePolicy:      dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
 			// TODO: need more work to write integ test for cron
 			// manual testing for now by uncomment the following line
 			// CronSchedule: "* * * * *",
-			RetryPolicy: &iwfpb.FlowRetryPolicy{
+			RetryPolicy: &dexpb.FlowRetryPolicy{
 				InitialIntervalSeconds: 11,
 				BackoffCoefficient:     11,
 				MaximumAttempts:        11,
 				MaximumIntervalSeconds: 11,
 			},
 		},
-		StepOptions: &iwfpb.StepOptions{
+		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 12,
 			ExecuteTimeoutSeconds: 13,
-			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				InitialIntervalSeconds: 12,
 				BackoffCoefficient:     12,
 				MaximumAttempts:        12,
 				MaximumIntervalSeconds: 12,
 			},
-			ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+			ExecuteRetryPolicy: &dexpb.RetryPolicy{
 				InitialIntervalSeconds: 13,
 				BackoffCoefficient:     13,
 				MaximumAttempts:        13,
@@ -160,25 +160,25 @@ func doTestBasicFlow(
 	require.Equal(t, codes.AlreadyExists, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 
-	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		NeedsResults:    true,
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          "a-wrong-flow-id-" + uuid.NewString(),
 		WaitTimeSeconds: 1,
 	})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 
@@ -190,7 +190,7 @@ func doTestBasicFlow(
 		"S2_execute": 1,
 	}, history)
 
-	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	require.Len(t, response.GetResults(), 1)
 	result := response.GetResults()[0]
 	require.Equal(t, basic.Step2, result.GetCompletedStepType())

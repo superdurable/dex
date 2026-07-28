@@ -21,16 +21,16 @@
 package workflows
 
 import (
-	"github.com/superdurable/iwf/examples/go/workflows/engagement"
-	"github.com/superdurable/iwf/examples/go/workflows/microservices"
-	"github.com/superdurable/iwf/examples/go/workflows/moneytransfer"
-	"github.com/superdurable/iwf/examples/go/workflows/polling"
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/examples/go/workflows/subscription"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/examples/go/workflows/engagement"
+	"github.com/superdurable/dex/examples/go/workflows/microservices"
+	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
+	"github.com/superdurable/dex/examples/go/workflows/polling"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/examples/go/workflows/subscription"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var registry = iwf.NewRegistry()
+var registry = dex.NewRegistry()
 
 func init() {
 
@@ -48,6 +48,6 @@ func init() {
 	}
 }
 
-func GetRegistry() iwf.Registry {
+func GetRegistry() dex.Registry {
 	return registry
 }

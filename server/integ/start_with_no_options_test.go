@@ -27,9 +27,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/basic"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/basic"
+	"github.com/superdurable/dex/service"
 )
 
 func TestStartFlowNoOptionsTemporal(t *testing.T) {
@@ -48,7 +48,7 @@ func TestStartFlowNoOptionsCadence(t *testing.T) {
 
 func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.BackendType) {
 	workerTarget := startWorker(t, basic.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -56,7 +56,7 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 
 	flowId := "TestStartFlowWithoutStartOptions-" + uuid.NewString()
 	stepInput := encodedObjectValue("json", []byte("test data"))
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
@@ -70,17 +70,17 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 		ctx,
 		flowId,
 		"",
-		map[string]iwfpb.IndexType{
-			service.SearchAttributeIwfWorkflowType: iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+		map[string]dexpb.IndexType{
+			service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		},
 	)
 	require.NoError(t, err)
-	attribute := response.IndexedAttributes[service.SearchAttributeIwfWorkflowType]
+	attribute := response.IndexedAttributes[service.SearchAttributeDexWorkflowType]
 	require.Equal(t, basic.FlowType, attribute.GetStringValue())
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }

@@ -22,12 +22,12 @@ package anycommandclose
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -51,7 +51,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -65,8 +65,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -77,9 +77,9 @@ func (h *handler) InvokeWaitForMethod(
 		}
 
 		if request.GetStepType() == State1 {
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					ChannelConditions: []*iwfpb.ChannelCondition{
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					ChannelConditions: []*dexpb.ChannelCondition{
 						{
 							ConditionId: "signal-cmd-id1",
 							ChannelName: SignalName1,
@@ -89,15 +89,15 @@ func (h *handler) InvokeWaitForMethod(
 							ChannelName: SignalName2,
 						},
 					},
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 				},
 			}, nil
 		}
 
 		if request.GetStepType() == State2 {
-			return &iwfpb.InvokeWaitForMethodResponse{
-				WaitingCondition: &iwfpb.WaitingCondition{
-					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			return &dexpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &dexpb.WaitingCondition{
+					WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
 			}, nil
 		}
@@ -108,8 +108,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -132,17 +132,17 @@ func (h *handler) InvokeExecuteMethod(
 			h.invokeData.Store("signalStatus1", channelResults[1].GetConditionStatus())
 			h.invokeData.Store("signalValue1", channelResults[1].GetValues())
 
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: State2},
 					},
 				},
 			}, nil
 		} else if request.GetStepType() == State2 {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: service.GracefulCompletingFlowStepType},
 					},
 				},

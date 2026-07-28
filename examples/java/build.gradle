@@ -31,7 +31,7 @@ dependencies {
     implementation "org.springframework.boot:spring-boot-starter-test"
     implementation "javax.validation:validation-api:2.0.1.Final"
 
-    implementation "io.superdurable:iwf-sdk:0.0.2"
+    implementation "io.superdurable:dex-sdk:0.0.2"
 
     // openapi
     implementation "org.openapitools:jackson-databind-nullable:0.2.1"

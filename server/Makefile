@@ -135,17 +135,17 @@ GOARCH ?= $(shell go env GOARCH)
 
 BINS =
 
-BINS += iwf-server
-iwf-server:
-	@echo "compiling iwf-server with OS: $(GOOS), ARCH: $(GOARCH)"
+BINS += dex-server
+dex-server:
+	@echo "compiling dex-server with OS: $(GOOS), ARCH: $(GOARCH)"
 	@go build -o $@ cmd/server/main.go
 
 .PHONY: bins release clean replayTests
 
-idl-code-gen: # regenerate protobuf stubs from protos/iwf.proto into server + SDKs
+idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
 	$(MAKE) -C ../protos proto
 
-idl-code-gen-server: # server rewrite: regenerate only server/gen/iwfpb (leave SDK trees alone)
+idl-code-gen-server: # server rewrite: regenerate only server/gen/dexpb (leave SDK trees alone)
 	$(MAKE) -C ../protos proto-server-go
 
 bins: $(BINS)

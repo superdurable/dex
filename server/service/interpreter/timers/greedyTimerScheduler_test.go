@@ -27,8 +27,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/interfaces"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type fakeWorkflowProvider struct {
@@ -36,11 +36,11 @@ type fakeWorkflowProvider struct {
 	awaitErr       error
 }
 
-func (p *fakeWorkflowProvider) NewWorkflowError(iwfpb.FlowErrorType, interface{}) error {
+func (p *fakeWorkflowProvider) NewWorkflowError(dexpb.FlowErrorType, interface{}) error {
 	return nil
 }
 
-func (p *fakeWorkflowProvider) NewUpdateError(iwfpb.UpdateErrorType, interface{}) error {
+func (p *fakeWorkflowProvider) NewUpdateError(dexpb.UpdateErrorType, interface{}) error {
 	return nil
 }
 
@@ -138,7 +138,7 @@ func (p *fakeWorkflowProvider) WithActivityOptions(
 
 func (p *fakeWorkflowProvider) ExecuteActivity(
 	interface{},
-	iwfpb.StepDurability,
+	dexpb.StepDurability,
 	interfaces.UnifiedContext,
 	interface{},
 	...interface{},
@@ -205,7 +205,7 @@ func (p *fakeWorkflowProvider) GetLogger(
 
 func (p *fakeWorkflowProvider) NewInterpreterContinueAsNewError(
 	interfaces.UnifiedContext,
-	*iwfpb.InterpreterWorkflowInput,
+	*dexpb.InterpreterWorkflowInput,
 ) error {
 	return nil
 }
@@ -219,11 +219,11 @@ func (fakeLogger) Error(string, ...interface{}) {}
 
 func TestPruneToNextTimer_PrunesCorrectly_WithTwoScheduled(t *testing.T) {
 	timerScheduler := &timerScheduler{
-		pendingScheduling: []*iwfpb.TimerInfo{
-			{FiringUnixTimestampSeconds: 1751395615, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395955, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395755, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395555, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+		pendingScheduling: []*dexpb.TimerInfo{
+			{FiringUnixTimestampSeconds: 1751395615, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395955, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395755, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395555, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
 		},
 		providerScheduledTimerUnixTs: []int64{1751395955, 1751395555},
 	}
@@ -240,11 +240,11 @@ func TestPruneToNextTimer_PrunesCorrectly_WithTwoScheduled(t *testing.T) {
 
 func TestPruneToNextTimer_PrunesCorrectly_WithOneScheduled(t *testing.T) {
 	timerScheduler := &timerScheduler{
-		pendingScheduling: []*iwfpb.TimerInfo{
-			{FiringUnixTimestampSeconds: 1751395615, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395955, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395755, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
-			{FiringUnixTimestampSeconds: 1751395555, Status: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+		pendingScheduling: []*dexpb.TimerInfo{
+			{FiringUnixTimestampSeconds: 1751395615, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395955, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395755, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
+			{FiringUnixTimestampSeconds: 1751395555, Status: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING},
 		},
 		providerScheduledTimerUnixTs: []int64{1751395555},
 	}

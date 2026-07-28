@@ -22,14 +22,14 @@ package wait_for_state_completion
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -51,7 +51,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -65,8 +65,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -95,10 +95,10 @@ func (h *handler) InvokeWaitForMethod(
 		}
 		now := int64(nowInt)
 		h.invokeData.Store("scheduled_at", now)
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				TimerConditions: []*iwfpb.TimerCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*dexpb.TimerCondition{
 					{
 						ConditionId:     "timer-cmd-id",
 						DurationSeconds: 10,
@@ -107,9 +107,9 @@ func (h *handler) InvokeWaitForMethod(
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			},
 		}, nil
 	default:
@@ -119,8 +119,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -148,17 +148,17 @@ func (h *handler) InvokeExecuteMethod(
 		timerResults := request.GetConditionResults().GetTimerResults()
 		timerId := timerResults[0].GetConditionId()
 		h.invokeData.Store("timer_id", timerId)
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: State2},
 				},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -168,14 +168,14 @@ func (h *handler) InvokeExecuteMethod(
 	}
 }
 
-func stepInputString(stepInput *iwfpb.Value) string {
+func stepInputString(stepInput *dexpb.Value) string {
 	if stepInput == nil {
 		return ""
 	}
-	if stringValue, ok := stepInput.Kind.(*iwfpb.Value_StringValue); ok {
+	if stringValue, ok := stepInput.Kind.(*dexpb.Value_StringValue); ok {
 		return stringValue.StringValue
 	}
-	if objValue, ok := stepInput.Kind.(*iwfpb.Value_ObjValue); ok {
+	if objValue, ok := stepInput.Kind.(*dexpb.Value_ObjValue); ok {
 		if objValue.ObjValue.GetEncoding() == "json" {
 			return string(objValue.ObjValue.GetPayload())
 		}

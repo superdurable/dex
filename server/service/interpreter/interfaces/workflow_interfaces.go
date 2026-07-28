@@ -24,13 +24,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
-	NewActivityError(errType iwfpb.FlowErrorType, errorResponse *iwfpb.ErrorResponse) error
+	NewActivityError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})
 }
@@ -68,7 +68,7 @@ type ActivityOptions struct {
 	StartToCloseTimeout                 time.Duration
 	LocalActivityScheduleToCloseTimeout time.Duration
 	HeartbeatTimeout                    time.Duration
-	RetryPolicy                         *iwfpb.RetryPolicy
+	RetryPolicy                         *dexpb.RetryPolicy
 }
 
 type UnifiedContext interface {
@@ -91,19 +91,19 @@ func NewUnifiedContext(ctx interface{}) UnifiedContext {
 
 type TimerProcessor interface {
 	// Callback avoids importing StepExecutionCounter (timers↔interpreter cycle).
-	Dump(isStepExecutionActive func(stepExeId string) bool) []*iwfpb.StaleSkipTimer
+	Dump(isStepExecutionActive func(stepExeId string) bool) []*dexpb.StaleSkipTimer
 	SkipTimer(stepExeId string, timerConditionId string, timerIdx int) bool
 	ReapplyStaleSkipTimer() bool
-	WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) iwfpb.InternalTimerStatus
+	WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) dexpb.InternalTimerStatus
 	RemovePendingTimersOfStep(stepExeId string)
-	AddTimers(stepExeId string, timerConditions []*iwfpb.TimerCondition, completedTimerConditions map[int32]iwfpb.InternalTimerStatus)
-	GetTimerInfos() map[string][]*iwfpb.TimerInfo
+	AddTimers(stepExeId string, timerConditions []*dexpb.TimerCondition, completedTimerConditions map[int32]dexpb.InternalTimerStatus)
+	GetTimerInfos() map[string][]*dexpb.TimerInfo
 	GetTimerStartedUnixTimestamps() []int64
 }
 
 type WorkflowProvider interface {
-	NewWorkflowError(errType iwfpb.FlowErrorType, details interface{}) error
-	NewUpdateError(errType iwfpb.UpdateErrorType, details interface{}) error
+	NewWorkflowError(errType dexpb.FlowErrorType, details interface{}) error
+	NewUpdateError(errType dexpb.UpdateErrorType, details interface{}) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
@@ -116,7 +116,7 @@ type WorkflowProvider interface {
 	Await(ctx UnifiedContext, condition func() bool) error
 	WithActivityOptions(ctx UnifiedContext, options ActivityOptions) UnifiedContext
 	ExecuteActivity(
-		valuePtr interface{}, durability iwfpb.StepDurability, ctx UnifiedContext, activity interface{},
+		valuePtr interface{}, durability dexpb.StepDurability, ctx UnifiedContext, activity interface{},
 		args ...interface{},
 	) (err error)
 	ExecuteLocalActivity(
@@ -130,21 +130,21 @@ type WorkflowProvider interface {
 	GetContextValue(ctx UnifiedContext, key string) interface{}
 	GetVersion(ctx UnifiedContext, changeID string, minSupported, maxSupported int) int
 	GetLogger(ctx UnifiedContext) UnifiedLogger
-	NewInterpreterContinueAsNewError(ctx UnifiedContext, input *iwfpb.InterpreterWorkflowInput) error
+	NewInterpreterContinueAsNewError(ctx UnifiedContext, input *dexpb.InterpreterWorkflowInput) error
 	SetInvokeRPCUpdateHandler(ctx UnifiedContext, validator InvokeRPCUpdateValidator, handler InvokeRPCUpdateHandler) error
 	SetWaitForStepCompletionUpdateHandler(ctx UnifiedContext, validator WaitForStepCompletionUpdateValidator, handler WaitForStepCompletionUpdateHandler) error
 	SetWaitForAttributeUpdateHandler(ctx UnifiedContext, validator WaitForAttributeUpdateValidator, handler WaitForAttributeUpdateHandler) error
 }
 
 type (
-	InvokeRPCUpdateValidator func(ctx UnifiedContext, req *iwfpb.InvokeRPCRequest) error
-	InvokeRPCUpdateHandler   func(ctx UnifiedContext, req *iwfpb.InvokeRPCRequest) (*iwfpb.InvokeRpcUpdateResult, error)
+	InvokeRPCUpdateValidator func(ctx UnifiedContext, req *dexpb.InvokeRPCRequest) error
+	InvokeRPCUpdateHandler   func(ctx UnifiedContext, req *dexpb.InvokeRPCRequest) (*dexpb.InvokeRpcUpdateResult, error)
 
-	WaitForStepCompletionUpdateValidator func(ctx UnifiedContext, req *iwfpb.WaitForStepCompletionRequest) error
-	WaitForStepCompletionUpdateHandler   func(ctx UnifiedContext, req *iwfpb.WaitForStepCompletionRequest) (*iwfpb.WaitForStepCompletionResponse, error)
+	WaitForStepCompletionUpdateValidator func(ctx UnifiedContext, req *dexpb.WaitForStepCompletionRequest) error
+	WaitForStepCompletionUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForStepCompletionRequest) (*dexpb.WaitForStepCompletionResponse, error)
 
-	WaitForAttributeUpdateValidator func(ctx UnifiedContext, req *iwfpb.WaitForAttributeRequest) error
-	WaitForAttributeUpdateHandler   func(ctx UnifiedContext, req *iwfpb.WaitForAttributeRequest) (*emptypb.Empty, error)
+	WaitForAttributeUpdateValidator func(ctx UnifiedContext, req *dexpb.WaitForAttributeRequest) error
+	WaitForAttributeUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error)
 )
 
 type ReceiveChannel interface {

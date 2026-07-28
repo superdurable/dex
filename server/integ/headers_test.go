@@ -27,10 +27,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/headers"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/headers"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestHeadersFlowTemporal(t *testing.T) {
@@ -45,13 +45,13 @@ func TestHeadersFlowTemporal(t *testing.T) {
 		doTestFlowWithHeaders(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 		)
 		smallWaitForFastTest()
 
-		doTestFlowWithHeaders(t, service.BackendTypeTemporal, &iwfpb.FlowConfig{
+		doTestFlowWithHeaders(t, service.BackendTypeTemporal, &dexpb.FlowConfig{
 			ActiveStepSearchMode: ptr.Any(
-				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
 			),
 		})
 		smallWaitForFastTest()
@@ -68,7 +68,7 @@ func TestHeadersFlowCadence(t *testing.T) {
 		doTestFlowWithHeaders(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 		)
 		smallWaitForFastTest()
 	}
@@ -77,11 +77,11 @@ func TestHeadersFlowCadence(t *testing.T) {
 func doTestFlowWithHeaders(
 	t *testing.T,
 	backendType service.BackendType,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) {
 	workerHandler := headers.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
 		DefaultHeaders: map[string]string{
 			headers.TestHeaderKey: headers.TestHeaderValue,
@@ -94,20 +94,20 @@ func doTestFlowWithHeaders(
 
 	flowId := headers.WorkflowType + "-" + uuid.NewString()
 	stepInput := encodedObjectValue("json", []byte("test data"))
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           headers.WorkflowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      headers.State1,
 		StepInput:          stepInput,
-		FlowStartOptions: &iwfpb.FlowStartOptions{
+		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
 	})

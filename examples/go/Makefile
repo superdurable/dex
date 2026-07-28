@@ -148,9 +148,9 @@ help:
 
 BINS =
 
-BINS += iwf-samples
-iwf-samples:
-	@echo "compiling iwf-server with OS: $(GOOS), ARCH: $(GOARCH)"
+BINS += dex-samples
+dex-samples:
+	@echo "compiling dex-server with OS: $(GOOS), ARCH: $(GOARCH)"
 	@go build -o $@ cmd/server/main.go
 
 .PHONY: bins release clean

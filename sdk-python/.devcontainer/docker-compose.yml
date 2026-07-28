@@ -41,7 +41,7 @@ services:
 
   # Temporal services
   elasticsearch:
-    container_name: temporal-elasticsearch-iwf
+    container_name: temporal-elasticsearch-dex
     environment:
     - cluster.routing.allocation.disk.threshold_enabled=true
     - cluster.routing.allocation.disk.watermark.low=512mb
@@ -56,7 +56,7 @@ services:
     expose:
     - 9200
   postgresql:
-    container_name: temporal-postgresql-iwf
+    container_name: temporal-postgresql-dex
     environment:
       POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal
@@ -68,7 +68,7 @@ services:
     volumes:
     - /var/lib/postgresql/data
   temporal:
-    container_name: temporal-iwf
+    container_name: temporal-dex
     depends_on:
     - postgresql
     environment:
@@ -91,7 +91,7 @@ services:
     labels:
       kompose.volume.type: configMap
   temporal-admin-tools:
-    container_name: temporal-admin-tools-iwf
+    container_name: temporal-admin-tools-dex
     depends_on:
     - temporal
     environment:
@@ -112,11 +112,11 @@ services:
     - temporal-network
     ports:
     - 8080:8080
-  iwf-server:
-    container_name: iwf-server
-    image: ${IWF_SERVER_IMAGE:-superdurable/iwf-server:latest}
+  dex-server:
+    container_name: dex-server
+    image: ${DEX_SERVER_IMAGE:-superdurable/dex-server:latest}
     environment:
-    - AUTO_FIX_WORKER_URL=172.17.0.1   # this will let iwf-server automatically replace all iwfWorkerUrls of "localhost" or "127.0.0.1" with "172.17.0.1"
+    - AUTO_FIX_WORKER_URL=172.17.0.1   # this will let dex-server automatically replace all dexWorkerUrls of "localhost" or "127.0.0.1" with "172.17.0.1"
     networks:
     - temporal-network
     ports:

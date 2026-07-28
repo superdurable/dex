@@ -16,29 +16,29 @@ package integ
 
 import (
 	"fmt"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type interStateWorkflowState1 struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 }
 
-func (b interStateWorkflowState1) WaitUntil(ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication) (*iwf.CommandRequest, error) {
-	return iwf.AnyCommandCompletedRequest(
-			iwf.NewInternalChannelCommand("id1", interStateChannel1),
-			iwf.NewInternalChannelCommand("id2", interStateChannel2)),
+func (b interStateWorkflowState1) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
+	return dex.AnyCommandCompletedRequest(
+			dex.NewInternalChannelCommand("id1", interStateChannel1),
+			dex.NewInternalChannelCommand("id2", interStateChannel2)),
 		nil
 }
 
-func (b interStateWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b interStateWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	var i int
 	cmd1 := commandResults.GetInternalChannelCommandResultById("id1")
 	cmd2 := commandResults.GetInternalChannelCommandResultById("id2")
 	cmd2.Value.Get(&i)
 
-	if cmd1.Status == iwfidl.WAITING && i == 2 {
-		return iwf.GracefulCompletingWorkflow, nil
+	if cmd1.Status == dexpb.WAITING && i == 2 {
+		return dex.GracefulCompletingWorkflow, nil
 	}
 	return nil, fmt.Errorf("error in executing %s", ctx.GetStateExecutionId())
 }

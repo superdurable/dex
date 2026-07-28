@@ -23,12 +23,12 @@ package deadend
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -53,7 +53,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -65,8 +65,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
 
 	flowContext := request.GetContext()
@@ -79,12 +79,12 @@ func (h *handler) InvokeWorkerRPC(
 
 	switch request.GetRpcName() {
 	case RPCTriggerState:
-		return &iwfpb.InvokeWorkerRPCResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeWorkerRPCResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType: State1,
-						StepOptions: &iwfpb.StepOptions{
+						StepOptions: &dexpb.StepOptions{
 							SkipWaitFor: true,
 						},
 					},
@@ -92,13 +92,13 @@ func (h *handler) InvokeWorkerRPC(
 			},
 		}, nil
 	case RPCWriteData:
-		return &iwfpb.InvokeWorkerRPCResponse{
-			UpsertAttributes: []*iwfpb.AttributeWrite{
+		return &dexpb.InvokeWorkerRPCResponse{
+			UpsertAttributes: []*dexpb.AttributeWrite{
 				{
 					Key: "any key",
-					Value: &iwfpb.Value{
-						Kind: &iwfpb.Value_ObjValue{
-							ObjValue: &iwfpb.EncodedObject{
+					Value: &dexpb.Value{
+						Kind: &dexpb.Value_ObjValue{
+							ObjValue: &dexpb.EncodedObject{
 								Encoding: "encoding",
 								Payload:  []byte("data"),
 							},
@@ -114,15 +114,15 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	_ *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "should not be called")
 }
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
@@ -133,9 +133,9 @@ func (h *handler) InvokeExecuteMethod(
 		}
 
 		if request.GetStepType() == State1 {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: service.DeadEndFlowStepType},
 					},
 				},

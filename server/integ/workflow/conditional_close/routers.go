@@ -22,12 +22,12 @@ package conditional_close
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,9 +49,9 @@ const (
 	State1 = "S1"
 )
 
-var TestInput = &iwfpb.Value{
-	Kind: &iwfpb.Value_ObjValue{
-		ObjValue: &iwfpb.EncodedObject{
+var TestInput = &dexpb.Value{
+	Kind: &dexpb.Value_ObjValue{
+		ObjValue: &dexpb.EncodedObject{
 			Encoding: "json",
 			Payload:  []byte("test-data"),
 		},
@@ -59,7 +59,7 @@ var TestInput = &iwfpb.Value{
 }
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -73,8 +73,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
-	request *iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	log.Println("received worker rpc request, ", request)
 	if value, ok := h.invokeHistory.Load(request.GetRpcName()); ok {
 		h.invokeHistory.Store(request.GetRpcName(), value.(int64)+1)
@@ -82,8 +82,8 @@ func (h *handler) InvokeWorkerRPC(
 		h.invokeHistory.Store(request.GetRpcName(), int64(1))
 	}
 
-	return &iwfpb.InvokeWorkerRPCResponse{
-		PublishToChannel: []*iwfpb.ChannelMessage{
+	return &dexpb.InvokeWorkerRPCResponse{
+		PublishToChannel: []*dexpb.ChannelMessage{
 			{ChannelName: TestChannelName},
 		},
 	}, nil
@@ -91,8 +91,8 @@ func (h *handler) InvokeWorkerRPC(
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -113,30 +113,30 @@ func (h *handler) InvokeWaitForMethod(
 		h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 	}
 
-	waitingCondition := &iwfpb.WaitingCondition{
-		WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-		ChannelConditions: []*iwfpb.ChannelCondition{
+	waitingCondition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		ChannelConditions: []*dexpb.ChannelCondition{
 			{ChannelName: TestChannelName},
 		},
 	}
 	if stepInputString(request.GetStepInput()) == "use-signal-channel" {
-		waitingCondition = &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		waitingCondition = &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{ChannelName: TestChannelName},
 			},
 		}
 	}
 
-	return &iwfpb.InvokeWaitForMethodResponse{
+	return &dexpb.InvokeWaitForMethodResponse{
 		WaitingCondition: waitingCondition,
 	}, nil
 }
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -157,21 +157,21 @@ func (h *handler) InvokeExecuteMethod(
 		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 	}
 
-	var publishToChannel []*iwfpb.ChannelMessage
+	var publishToChannel []*dexpb.ChannelMessage
 	if stepContext.GetStepExecutionId() == "S1-1" {
 		time.Sleep(time.Second * 3)
 	}
 
-	conditionalClose := &iwfpb.FlowConditionalClose{
-		ConditionalCloseType: iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	conditionalClose := &dexpb.FlowConditionalClose{
+		ConditionalCloseType: dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
 		ChannelNames:         []string{TestChannelName},
 		CloseInput:           TestInput,
 	}
 
-	return &iwfpb.InvokeExecuteMethodResponse{
+	return &dexpb.InvokeExecuteMethodResponse{
 		PublishToChannel: publishToChannel,
-		StepDecision: &iwfpb.StepDecision{
-			NextSteps: []*iwfpb.StepMovement{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
 				{
 					StepType:  State1,
 					StepInput: request.GetStepInput(),
@@ -182,14 +182,14 @@ func (h *handler) InvokeExecuteMethod(
 	}, nil
 }
 
-func stepInputString(stepInput *iwfpb.Value) string {
+func stepInputString(stepInput *dexpb.Value) string {
 	if stepInput == nil {
 		return ""
 	}
-	if stringValue, ok := stepInput.Kind.(*iwfpb.Value_StringValue); ok {
+	if stringValue, ok := stepInput.Kind.(*dexpb.Value_StringValue); ok {
 		return stringValue.StringValue
 	}
-	if objValue, ok := stepInput.Kind.(*iwfpb.Value_ObjValue); ok {
+	if objValue, ok := stepInput.Kind.(*dexpb.Value_ObjValue); ok {
 		if objValue.ObjValue.GetEncoding() == "json" {
 			return string(objValue.ObjValue.GetPayload())
 		}

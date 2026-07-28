@@ -22,12 +22,12 @@ package basic
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,7 +49,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -61,8 +61,8 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -81,7 +81,7 @@ func (h *handler) InvokeWaitForMethod(
 			} else {
 				h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 			}
-			return &iwfpb.InvokeWaitForMethodResponse{}, nil
+			return &dexpb.InvokeWaitForMethodResponse{}, nil
 		}
 	}
 
@@ -90,8 +90,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -111,22 +111,22 @@ func (h *handler) InvokeExecuteMethod(
 
 		if request.GetStepType() == Step1 {
 			// Move to next step
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{
 							StepType:  Step2,
 							StepInput: request.GetStepInput(),
-							StepOptions: &iwfpb.StepOptions{
+							StepOptions: &dexpb.StepOptions{
 								WaitForTimeoutSeconds: 14,
 								ExecuteTimeoutSeconds: 15,
-								WaitForRetryPolicy: &iwfpb.RetryPolicy{
+								WaitForRetryPolicy: &dexpb.RetryPolicy{
 									InitialIntervalSeconds: 14,
 									BackoffCoefficient:     14,
 									MaximumAttempts:        14,
 									MaximumIntervalSeconds: 14,
 								},
-								ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+								ExecuteRetryPolicy: &dexpb.RetryPolicy{
 									InitialIntervalSeconds: 15,
 									BackoffCoefficient:     15,
 									MaximumAttempts:        15,
@@ -139,9 +139,9 @@ func (h *handler) InvokeExecuteMethod(
 			}, nil
 		} else if request.GetStepType() == Step2 {
 			// Move to completion
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{
 							StepType:  service.GracefulCompletingFlowStepType,
 							StepInput: request.GetStepInput(),

@@ -9,7 +9,7 @@ checkExists () {
 fi
 }
 
-echo "now trying to register iWF system search attributes..."
+echo "now trying to register Dex system search attributes..."
 for run in {1..120}; do
   sleep 1
   temporal  operator search-attribute  create --name FlowType --type Keyword

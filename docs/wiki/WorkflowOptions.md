@@ -6,7 +6,7 @@
 
 <!---## DOCHUB-PATH: advanced-concepts :DOCHUB-PATH ##--->
 
-iWF let you deeply customize the workflow behaviors with the below options.
+Dex let you deeply customize the workflow behaviors with the below options.
 
 #### IdReusePolicy for WorkflowId
 
@@ -25,14 +25,14 @@ WorkflowOptions.
 * `DISALLOW_REUSE` 
     * Not allow to start a new workflow execution with the same workflowId.
 * `ALLOW_TERMINATE_IF_RUNNING`
-    * Always allow starting workflow no matter what -- iWF server will terminate the current running one if it exists.
+    * Always allow starting workflow no matter what -- Dex server will terminate the current running one if it exists.
 
 Note that the behavior is limited by Cadence/Temporal workflow retention, which is configured at domain/namespace level.
 If a workflow is deleted after retention expired, the workflowId can be started regardless of any Policy
 
 #### CRON Schedule
 
-iWF allows you to start a workflow with a fixed cron schedule like below
+Dex allows you to start a workflow with a fixed cron schedule like below
 
 ```text
 // CronSchedule - Optional cron schedule for workflow. If a cron schedule is specified, the workflow will run
@@ -55,7 +55,7 @@ that
 
 NOTE:
 
-* iWF also
+* Dex also
   supports [more advanced cron expressions](https://pkg.go.dev/github.com/robfig/cron#hdr-CRON_Expression_Format)
 * The [crontab guru](https://crontab.guru/) site is useful for testing your cron expressions.
 * To cancel a cron schedule, use terminate of cancel type to stop the workflow execution.

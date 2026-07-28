@@ -17,9 +17,9 @@ package integ
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
-	"github.com/superdurable/iwf/sdk-go/iwf/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/stretchr/testify/assert"
 	"strconv"
 	"strings"
@@ -35,9 +35,9 @@ func TestWorkflowTimeout(t *testing.T) {
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
 
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.TIMEOUT, nil, nil, nil, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.TIMEOUT, nil, nil, nil, dex.GetDefaultObjectEncoder()), wErr)
 
 	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
 	assert.Nil(t, out)
@@ -57,9 +57,9 @@ func TestWorkflowCancel(t *testing.T) {
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
 
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.CANCELED, nil, nil, nil, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.CANCELED, nil, nil, nil, dex.GetDefaultObjectEncoder()), wErr)
 
 	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
 	assert.Nil(t, out)
@@ -76,9 +76,9 @@ func TestForceFailWorkflow(t *testing.T) {
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
 
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.FAILED, ptr.Any(iwfidl.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE), nil, wErr.StateResults, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE), nil, wErr.StateResults, dex.GetDefaultObjectEncoder()), wErr)
 
 	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
 	assert.Nil(t, out)
@@ -93,15 +93,15 @@ func TestForceFailWorkflow(t *testing.T) {
 
 func TestStateApiFailWorkflow(t *testing.T) {
 	wfId := "TestStateApiFailWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &stateApiFailWorkflow{}, wfId, 10, nil, &iwf.WorkflowOptions{})
+	runId, err := client.StartWorkflow(context.Background(), &stateApiFailWorkflow{}, wfId, 10, nil, &dex.WorkflowOptions{})
 	assert.Nil(t, err)
 	assert.NotEmpty(t, runId)
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
 
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.FAILED, ptr.Any(iwfidl.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
 
 	assert.True(t, strings.Contains(*wErr.ErrorMessage, "test api failing"), "must contain api failing message")
 
@@ -114,15 +114,15 @@ func TestStateApiFailWorkflow(t *testing.T) {
 
 func TestStateApiTimeoutWorkflow(t *testing.T) {
 	wfId := "TestStateApiTimeoutWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &stateApiTimeoutWorkflow{}, wfId, 10, nil, &iwf.WorkflowOptions{})
+	runId, err := client.StartWorkflow(context.Background(), &stateApiTimeoutWorkflow{}, wfId, 10, nil, &dex.WorkflowOptions{})
 	assert.Nil(t, err)
 	assert.NotEmpty(t, runId)
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
 
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.FAILED, ptr.Any(iwfidl.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
 
 	fmt.Println(err)
 

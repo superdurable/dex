@@ -30,7 +30,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	iwfpb "github.com/superdurable/iwf/gen/iwfpb"
+	dexpb "github.com/superdurable/dex/gen/dexpb"
 )
 
 // MockActivityProvider is a mock of ActivityProvider interface.
@@ -85,7 +85,7 @@ func (mr *MockActivityProviderMockRecorder) GetLogger(ctx interface{}) *gomock.C
 }
 
 // NewActivityError mocks base method.
-func (m *MockActivityProvider) NewActivityError(errType iwfpb.FlowErrorType, errorResponse *iwfpb.ErrorResponse) error {
+func (m *MockActivityProvider) NewActivityError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewActivityError", errType, errorResponse)
 	ret0, _ := ret[0].(error)
@@ -267,7 +267,7 @@ func (m *MockTimerProcessor) EXPECT() *MockTimerProcessorMockRecorder {
 }
 
 // AddTimers mocks base method.
-func (m *MockTimerProcessor) AddTimers(stepExeId string, timerConditions []*iwfpb.TimerCondition, completedTimerConditions map[int32]iwfpb.InternalTimerStatus) {
+func (m *MockTimerProcessor) AddTimers(stepExeId string, timerConditions []*dexpb.TimerCondition, completedTimerConditions map[int32]dexpb.InternalTimerStatus) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "AddTimers", stepExeId, timerConditions, completedTimerConditions)
 }
@@ -279,10 +279,10 @@ func (mr *MockTimerProcessorMockRecorder) AddTimers(stepExeId, timerConditions, 
 }
 
 // Dump mocks base method.
-func (m *MockTimerProcessor) Dump(isStepExecutionActive func(stepExeId string) bool) []*iwfpb.StaleSkipTimer {
+func (m *MockTimerProcessor) Dump(isStepExecutionActive func(stepExeId string) bool) []*dexpb.StaleSkipTimer {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Dump", isStepExecutionActive)
-	ret0, _ := ret[0].([]*iwfpb.StaleSkipTimer)
+	ret0, _ := ret[0].([]*dexpb.StaleSkipTimer)
 	return ret0
 }
 
@@ -293,10 +293,10 @@ func (mr *MockTimerProcessorMockRecorder) Dump(isStepExecutionActive interface{}
 }
 
 // GetTimerInfos mocks base method.
-func (m *MockTimerProcessor) GetTimerInfos() map[string][]*iwfpb.TimerInfo {
+func (m *MockTimerProcessor) GetTimerInfos() map[string][]*dexpb.TimerInfo {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTimerInfos")
-	ret0, _ := ret[0].(map[string][]*iwfpb.TimerInfo)
+	ret0, _ := ret[0].(map[string][]*dexpb.TimerInfo)
 	return ret0
 }
 
@@ -361,10 +361,10 @@ func (mr *MockTimerProcessorMockRecorder) SkipTimer(stepExeId, timerConditionId,
 }
 
 // WaitForTimerFiredOrSkipped mocks base method.
-func (m *MockTimerProcessor) WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) iwfpb.InternalTimerStatus {
+func (m *MockTimerProcessor) WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) dexpb.InternalTimerStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WaitForTimerFiredOrSkipped", ctx, stepExeId, timerIdx, cancelWaiting)
-	ret0, _ := ret[0].(iwfpb.InternalTimerStatus)
+	ret0, _ := ret[0].(dexpb.InternalTimerStatus)
 	return ret0
 }
 
@@ -412,7 +412,7 @@ func (mr *MockWorkflowProviderMockRecorder) Await(ctx, condition interface{}) *g
 }
 
 // ExecuteActivity mocks base method.
-func (m *MockWorkflowProvider) ExecuteActivity(valuePtr interface{}, durability iwfpb.StepDurability, ctx UnifiedContext, activity interface{}, args ...interface{}) error {
+func (m *MockWorkflowProvider) ExecuteActivity(valuePtr interface{}, durability dexpb.StepDurability, ctx UnifiedContext, activity interface{}, args ...interface{}) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{valuePtr, durability, ctx, activity}
 	for _, a := range args {
@@ -617,7 +617,7 @@ func (mr *MockWorkflowProviderMockRecorder) IsReplaying(ctx interface{}) *gomock
 }
 
 // NewInterpreterContinueAsNewError mocks base method.
-func (m *MockWorkflowProvider) NewInterpreterContinueAsNewError(ctx UnifiedContext, input *iwfpb.InterpreterWorkflowInput) error {
+func (m *MockWorkflowProvider) NewInterpreterContinueAsNewError(ctx UnifiedContext, input *dexpb.InterpreterWorkflowInput) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewInterpreterContinueAsNewError", ctx, input)
 	ret0, _ := ret[0].(error)
@@ -645,7 +645,7 @@ func (mr *MockWorkflowProviderMockRecorder) NewTimer(ctx, d interface{}) *gomock
 }
 
 // NewUpdateError mocks base method.
-func (m *MockWorkflowProvider) NewUpdateError(errType iwfpb.UpdateErrorType, details interface{}) error {
+func (m *MockWorkflowProvider) NewUpdateError(errType dexpb.UpdateErrorType, details interface{}) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewUpdateError", errType, details)
 	ret0, _ := ret[0].(error)
@@ -659,7 +659,7 @@ func (mr *MockWorkflowProviderMockRecorder) NewUpdateError(errType, details inte
 }
 
 // NewWorkflowError mocks base method.
-func (m *MockWorkflowProvider) NewWorkflowError(errType iwfpb.FlowErrorType, details interface{}) error {
+func (m *MockWorkflowProvider) NewWorkflowError(errType dexpb.FlowErrorType, details interface{}) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewWorkflowError", errType, details)
 	ret0, _ := ret[0].(error)

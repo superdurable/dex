@@ -25,9 +25,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -45,12 +45,12 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
-	flowClient    iwfpb.FlowServiceClient
+	dexpb.UnimplementedWorkerServiceServer
+	flowClient    dexpb.FlowServiceClient
 	invokeHistory sync.Map
 }
 
-func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
+func NewHandler(flowClient dexpb.FlowServiceClient) *handler {
 	if flowClient == nil {
 		panic("flowClient is required")
 	}
@@ -62,8 +62,8 @@ func NewHandler(flowClient iwfpb.FlowServiceClient) *handler {
 
 func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
@@ -81,7 +81,7 @@ func (h *handler) InvokeWaitForMethod(
 			return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
 		}
 		h.invokeHistory.Store(State1+"_waitFor_input", resolved)
-		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{}, nil
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
@@ -89,8 +89,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	ctx context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("received execute request, ", request)
 
 	stepContext := request.GetContext()
@@ -113,9 +113,9 @@ func (h *handler) InvokeExecuteMethod(
 	h.invokeHistory.Store(request.GetStepType()+"_execute_input", resolved)
 
 	if request.GetStepType() == State1 {
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{
 						StepType:  service.GracefulCompletingFlowStepType,
 						StepInput: request.GetStepInput(),

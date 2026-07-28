@@ -17,8 +17,8 @@ package integ
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/stretchr/testify/assert"
 	"strconv"
 	"testing"
@@ -32,7 +32,7 @@ func TestPersistenceWorkflow(t *testing.T) {
 		StrValue: wfId,
 		Datetime: time.Now(),
 	}
-	opt := iwf.WorkflowOptions{
+	opt := dex.WorkflowOptions{
 		InitialSearchAttributes: map[string]interface{}{
 			testSearchAttributeKeyword:  "init-keyword",
 			testSearchAttributeText:     "init-text",
@@ -49,7 +49,7 @@ func TestPersistenceWorkflow(t *testing.T) {
 	assert.Nil(t, err)
 	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
 	assert.Nil(t, err)
-	assert.Equal(t, iwfidl.COMPLETED, info.Status)
+	assert.Equal(t, dexpb.COMPLETED, info.Status)
 	dos, err := client.GetWorkflowDataAttributes(context.Background(), &persistenceWorkflow{}, wfId, "", []string{
 		testDataObjectKey,
 	})
@@ -70,27 +70,27 @@ func TestPersistenceWorkflow(t *testing.T) {
 		testSearchAttributeKeyword,
 		testSearchAttributeText,
 		testSearchAttributeBool,
-		// testSearchAttributeDatetime, // TODO https://github.com/superdurable/iwf/issues/261
+		// testSearchAttributeDatetime, // TODO https://github.com/superdurable/dex/issues/261
 		testSearchAttributeInt,
 		testSearchAttributeDouble,
 	})
 	assert.Nil(t, err)
 	expectedSas := map[string]interface{}{
-		testSearchAttributeKeyword: "iWF",
-		testSearchAttributeText:    "Hail iWF!",
+		testSearchAttributeKeyword: "Dex",
+		testSearchAttributeText:    "Hail Dex!",
 		testSearchAttributeBool:    true,
-		// testSearchAttributeDatetime: sas[testSearchAttributeDatetime], // // TODO https://github.com/superdurable/iwf/issues/261
+		// testSearchAttributeDatetime: sas[testSearchAttributeDatetime], // // TODO https://github.com/superdurable/dex/issues/261
 		testSearchAttributeInt:    int64(1),
 		testSearchAttributeDouble: 1.0,
 	}
 	assert.Equal(t, expectedSas, sas)
 
 	time.Sleep(time.Second * 2) // wait for 2 seconds so that the index is updated
-	resp, err := client.SearchWorkflow(context.Background(), iwfidl.WorkflowSearchRequest{
-		Query:         fmt.Sprintf("IwfWorkflowType='%v'", iwf.GetFinalWorkflowType(&persistenceWorkflow{})),
-		PageSize:      iwfidl.PtrInt32(1),
+	resp, err := client.SearchWorkflow(context.Background(), dexpb.WorkflowSearchRequest{
+		Query:         fmt.Sprintf("DexWorkflowType='%v'", dex.GetFinalWorkflowType(&persistenceWorkflow{})),
+		PageSize:      dexpb.PtrInt32(1),
 		NextPageToken: nil,
 	})
-	assert.Nil(t, err, iwf.GetOpenApiErrorBody(err))
+	assert.Nil(t, err, dex.GetOpenApiErrorBody(err))
 	assert.True(t, len(resp.WorkflowExecutions) > 0)
 }

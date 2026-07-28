@@ -1,14 +1,14 @@
-# iWF Golang SDK
+# Dex Golang SDK
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/superdurable/iwf/sdk-go.svg)](https://pkg.go.dev/github.com/superdurable/iwf/sdk-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/superdurable/iwf/sdk-go)](https://goreportcard.com/report/github.com/superdurable/iwf/sdk-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/superdurable/dex/sdk-go.svg)](https://pkg.go.dev/github.com/superdurable/dex/sdk-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/superdurable/dex/sdk-go)](https://goreportcard.com/report/github.com/superdurable/dex/sdk-go)
 
-[![Build status](https://github.com/superdurable/iwf/actions/workflows/sdk-go-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/iwf/actions/workflows/sdk-go-ci.yml)
+[![Build status](https://github.com/superdurable/dex/actions/workflows/sdk-go-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-go-ci.yml)
 
-Golang SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
+Golang SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 ```bash
-go get github.com/superdurable/iwf/sdk-go@latest
+go get github.com/superdurable/dex/sdk-go@latest
 ```
 
 See [samples](../examples/go) for how to use this SDK.

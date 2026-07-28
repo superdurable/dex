@@ -29,10 +29,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -86,7 +86,7 @@ func TestWaitForAttributeCadence(t *testing.T) {
 
 func doTestWaitForAttributeBlobBacked(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     service.BackendTypeTemporal,
 		S3TestThreshold: 50,
 		LazyLoading:     ptr.Any(true),
@@ -97,7 +97,7 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 	defer cancel()
 
 	flowId := "wait-for-attribute-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -107,15 +107,15 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 	require.NoError(t, err)
 
 	largeValue := stringValue(strings.Repeat("x", 120))
-	_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId: flowId,
-		Attributes: []*iwfpb.AttributeWrite{
+		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeBlobKey, Value: largeValue},
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeBlobKey,
@@ -128,22 +128,22 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 	errResp := grpcErrorResponse(t, err)
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		errResp.GetSubStatus(),
 	)
 	require.Contains(t, errResp.GetDetail(), "blob-backed")
 	require.Contains(t, errResp.GetDetail(), waitForAttributeBlobKey)
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }
 
 func doTestWaitForAttributeSuccess(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -152,15 +152,15 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-success")
 
-	_, err := flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId: flowId,
-		Attributes: []*iwfpb.AttributeWrite{
+		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
 		},
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeKey,
@@ -175,7 +175,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 
 func doTestWaitForAttributeTimeout(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -183,7 +183,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 
-	_, err := flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeKey,
@@ -196,7 +196,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	errResp := grpcErrorResponse(t, err)
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "attribute wait timed out", errResp.GetDetail())
@@ -206,7 +206,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 
 func doTestWaitForAttributeCancel(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -216,7 +216,7 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, waitErr := flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 			FlowId: flowId,
 			Condition: waitForAttributeEqualCondition(
 				waitForAttributeKey,
@@ -241,13 +241,13 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 }
 
 func doTestWaitForAttributeNotFound(t *testing.T) {
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: "wait-for-attribute-missing-" + uuid.NewString(),
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeKey,
@@ -258,14 +258,14 @@ func doTestWaitForAttributeNotFound(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 }
 
 func doTestWaitForAttributeClosed(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -273,13 +273,13 @@ func doTestWaitForAttributeClosed(t *testing.T) {
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 
-	_, err := flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err := flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeKey,
@@ -291,14 +291,14 @@ func doTestWaitForAttributeClosed(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(
 		t,
-		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
 		grpcErrorResponse(t, err).GetSubStatus(),
 	)
 }
 
 func doTestWaitForAttributeConcurrent(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -313,7 +313,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 		waitGroup.Add(1)
 		go func(resultIndex int) {
 			defer waitGroup.Done()
-			_, waitErr := flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 				FlowId: flowId,
 				Condition: waitForAttributeEqualCondition(
 					waitForAttributeKey,
@@ -327,9 +327,9 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	_, err := flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId: flowId,
-		Attributes: []*iwfpb.AttributeWrite{
+		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
 		},
 	})
@@ -345,7 +345,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 
 func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -362,9 +362,9 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		_, setErr := flowClient.SetAttributes(context.Background(), &iwfpb.SetAttributesRequest{
+		_, setErr := flowClient.SetAttributes(context.Background(), &dexpb.SetAttributesRequest{
 			FlowId: flowId,
-			Attributes: []*iwfpb.AttributeWrite{
+			Attributes: []*dexpb.AttributeWrite{
 				{Key: waitForAttributeKey, Value: expectedValue},
 			},
 		})
@@ -373,7 +373,7 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 		}
 	}()
 
-	_, err := flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeKey,
@@ -388,14 +388,14 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 
 func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	workerTarget := startWorker(t, signal.NewHandler())
-	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeCadence})
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeCadence})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	flowId := "wait-for-attribute-cadence-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -404,7 +404,7 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForAttribute(ctx, &iwfpb.WaitForAttributeRequest{
+	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Condition: waitForAttributeEqualCondition(
 			waitForAttributeBlobKey,
@@ -414,20 +414,20 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	})
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }
 
 func waitForAttributeEqualCondition(
 	key string,
-	value *iwfpb.Value,
-) *iwfpb.WaitForAttributeCondition {
-	return &iwfpb.WaitForAttributeCondition{
-		Kind: &iwfpb.WaitForAttributeCondition_Equal{
-			Equal: &iwfpb.WaitForAttributeEqual{
+	value *dexpb.Value,
+) *dexpb.WaitForAttributeCondition {
+	return &dexpb.WaitForAttributeCondition{
+		Kind: &dexpb.WaitForAttributeCondition_Equal{
+			Equal: &dexpb.WaitForAttributeEqual{
 				Key:   key,
 				Value: value,
 			},
@@ -438,14 +438,14 @@ func waitForAttributeEqualCondition(
 func startParkedWaitForAttributeFlow(
 	t *testing.T,
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	workerTarget string,
-	flowConfig *iwfpb.FlowConfig,
+	flowConfig *dexpb.FlowConfig,
 ) string {
 	t.Helper()
 
 	flowId := "wait-for-attribute-" + uuid.NewString()
-	startRequest := &iwfpb.StartFlowRequest{
+	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -453,7 +453,7 @@ func startParkedWaitForAttributeFlow(
 		StartStepType:      signal.State1,
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}
 	}
@@ -465,14 +465,14 @@ func startParkedWaitForAttributeFlow(
 func stopParkedWaitForAttributeFlow(
 	t *testing.T,
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	flowId string,
 ) {
 	t.Helper()
 
-	_, err := flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err := flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }

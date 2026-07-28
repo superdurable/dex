@@ -17,23 +17,23 @@ package integ
 import (
 	"errors"
 
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 type executeApiFailRecoveryWorkflowState1 struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 }
 
 func (b executeApiFailRecoveryWorkflowState1) GetStateId() string {
 	return "execute_api_fail_recovery_workflow_state1"
 }
 
-func (b executeApiFailRecoveryWorkflowState1) GetStateOptions() *iwf.StateOptions {
-	options := &iwf.StateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
-			InitialIntervalSeconds: iwfidl.PtrInt32(1),
-			MaximumAttempts:        iwfidl.PtrInt32(1),
+func (b executeApiFailRecoveryWorkflowState1) GetStateOptions() *dex.StateOptions {
+	options := &dex.StateOptions{
+		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
+			InitialIntervalSeconds: dexpb.PtrInt32(1),
+			MaximumAttempts:        dexpb.PtrInt32(1),
 		},
 		ExecuteApiFailureProceedState: &executeApiFailRecoveryWorkflowState2{},
 	}
@@ -41,6 +41,6 @@ func (b executeApiFailRecoveryWorkflowState1) GetStateOptions() *iwf.StateOption
 	return options
 }
 
-func (b executeApiFailRecoveryWorkflowState1) Execute(ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence, communication iwf.Communication) (*iwf.StateDecision, error) {
+func (b executeApiFailRecoveryWorkflowState1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
 	return nil, errors.New("error")
 }

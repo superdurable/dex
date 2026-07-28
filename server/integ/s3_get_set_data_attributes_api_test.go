@@ -28,10 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	s3GetSetDataAttributes "github.com/superdurable/iwf/integ/workflow/s3-get-set-data-attributes"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	s3GetSetDataAttributes "github.com/superdurable/dex/integ/workflow/s3-get-set-data-attributes"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -78,7 +78,7 @@ func TestS3GetSetDataAttributesWithInitialDataTemporal(t *testing.T) {
 }
 
 func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 50,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -91,7 +91,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 	defer cancel()
 
 	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
@@ -101,19 +101,19 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 	})
 	require.NoError(t, err)
 
-	testAttributes := []*iwfpb.AttributeWrite{
+	testAttributes := []*dexpb.AttributeWrite{
 		{Key: s3GetSetDataAttributes.SmallDataKey, Value: s3GetSetDataAttributes.SmallDataValue},
 		{Key: s3GetSetDataAttributes.LargeDataKey, Value: s3GetSetDataAttributes.LargeDataValue},
 		{Key: s3GetSetDataAttributes.AnotherLargeDataKey, Value: s3GetSetDataAttributes.AnotherLargeDataValue},
 	}
-	_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId:     flowId,
 		Attributes: testAttributes,
 	})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		getResult, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 			FlowId: flowId,
 			Keys: []string{
 				s3GetSetDataAttributes.SmallDataKey,
@@ -133,7 +133,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 			proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
 	}, 10*time.Second, 100*time.Millisecond)
 
-	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys: []string{
 			s3GetSetDataAttributes.SmallDataKey,
@@ -170,7 +170,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		require.Empty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
 	}
 
-	getSpecific, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getSpecific, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys:   []string{s3GetSetDataAttributes.LargeDataKey},
 	})
@@ -205,12 +205,12 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		)
 	}
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 }
 
 func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType service.BackendType, lazyLoading bool) {
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 50,
 		LazyLoading:     ptr.Any(lazyLoading),
@@ -223,15 +223,15 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 	defer cancel()
 
 	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString() + "-initial"
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
 		WorkerTarget:       workerTarget,
 		StartStepType:      s3GetSetDataAttributes.State1,
 		StepInput:          objJSONValue(`"test-input"`),
-		FlowStartOptions: &iwfpb.FlowStartOptions{
-			Attributes: []*iwfpb.AttributeWrite{
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
 				{Key: "initial-small", Value: s3GetSetDataAttributes.SmallDataValue},
 				{Key: "initial-large", Value: s3GetSetDataAttributes.LargeDataValue},
 			},
@@ -240,7 +240,7 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		getResult, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 			FlowId: flowId,
 			Keys:   []string{"initial-small", "initial-large"},
 		})
@@ -254,7 +254,7 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		return proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"])
 	}, 10*time.Second, 100*time.Millisecond)
 
-	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys:   []string{"initial-small", "initial-large"},
 	})
@@ -296,19 +296,19 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		)
 	}
 
-	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 }
 
-func attributeMap(attributes []*iwfpb.KV) map[string]*iwfpb.Value {
-	result := make(map[string]*iwfpb.Value, len(attributes))
+func attributeMap(attributes []*dexpb.KV) map[string]*dexpb.Value {
+	result := make(map[string]*dexpb.Value, len(attributes))
 	for _, attribute := range attributes {
 		result[attribute.GetKey()] = attribute.GetValue()
 	}
 	return result
 }
 
-func blobIdFromValue(value *iwfpb.Value) string {
+func blobIdFromValue(value *dexpb.Value) string {
 	if value == nil {
 		return ""
 	}
@@ -321,15 +321,15 @@ func blobIdFromValue(value *iwfpb.Value) string {
 func requireLoadedBlobPayload(
 	t *testing.T,
 	ctx context.Context,
-	flowClient iwfpb.FlowServiceClient,
+	flowClient dexpb.FlowServiceClient,
 	blobId string,
 	expectedPayload string,
 ) {
 	t.Helper()
-	loadResult, err := flowClient.LoadBlobs(ctx, &iwfpb.LoadBlobsRequest{
-		Values: []*iwfpb.Value{
+	loadResult, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Values: []*dexpb.Value{
 			{
-				Kind: &iwfpb.Value_InternalBlobIdForObjValue{
+				Kind: &dexpb.Value_InternalBlobIdForObjValue{
 					InternalBlobIdForObjValue: blobId,
 				},
 			},

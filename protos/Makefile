@@ -4,15 +4,15 @@ PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
 PROTOC_GEN_GRPC_JAVA_VERSION := 1.69.1
 
 PROTO_DIR := .
-PROTO_FILE := $(PROTO_DIR)/iwf.proto
+PROTO_FILE := $(PROTO_DIR)/dex.proto
 
-SERVER_GO_OUT := ../server/gen/iwfpb
-SDK_GO_OUT := ../sdk-go/gen/iwfpb
+SERVER_GO_OUT := ../server/gen/dexpb
+SDK_GO_OUT := ../sdk-go/gen/dexpb
 SDK_JAVA_OUT := ../sdk-java/src/main/java
-SDK_PYTHON_OUT := ../sdk-python/iwf/iwfpb
+SDK_PYTHON_OUT := ../sdk-python/dex/dexpb
 
-SERVER_GO_PKG := github.com/superdurable/iwf/gen/iwfpb
-SDK_GO_PKG := github.com/superdurable/iwf/sdk-go/gen/iwfpb
+SERVER_GO_PKG := github.com/superdurable/dex/gen/dexpb
+SDK_GO_PKG := github.com/superdurable/dex/sdk-go/gen/dexpb
 
 GOPATH_BIN := $(shell go env GOPATH)/bin
 export PATH := $(GOPATH_BIN):$(PATH)
@@ -53,10 +53,10 @@ proto-server-go: ensure-tools
 		-I $(PROTO_DIR) \
 		--go_out=$(SERVER_GO_OUT) \
 		--go_opt=paths=source_relative \
-		--go_opt=Miwf.proto=$(SERVER_GO_PKG) \
+		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		--go-grpc_out=$(SERVER_GO_OUT) \
 		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Miwf.proto=$(SERVER_GO_PKG) \
+		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		$(PROTO_FILE)
 
 proto-go: ensure-tools
@@ -66,19 +66,19 @@ proto-go: ensure-tools
 		-I $(PROTO_DIR) \
 		--go_out=$(SERVER_GO_OUT) \
 		--go_opt=paths=source_relative \
-		--go_opt=Miwf.proto=$(SERVER_GO_PKG) \
+		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		--go-grpc_out=$(SERVER_GO_OUT) \
 		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Miwf.proto=$(SERVER_GO_PKG) \
+		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		$(PROTO_FILE)
 	protoc \
 		-I $(PROTO_DIR) \
 		--go_out=$(SDK_GO_OUT) \
 		--go_opt=paths=source_relative \
-		--go_opt=Miwf.proto=$(SDK_GO_PKG) \
+		--go_opt=Mdex.proto=$(SDK_GO_PKG) \
 		--go-grpc_out=$(SDK_GO_OUT) \
 		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Miwf.proto=$(SDK_GO_PKG) \
+		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
 		$(PROTO_FILE)
 
 proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
@@ -100,10 +100,10 @@ proto-python: ensure-tools
 		--grpc_python_out=$(SDK_PYTHON_OUT) \
 		--pyi_out=$(SDK_PYTHON_OUT) \
 		$(PROTO_FILE)
-	printf '%s\n' '# Generated package for iWF protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
-	# grpc stubs import "iwf_pb2"; fix to relative for package layout.
-	@if [ -f $(SDK_PYTHON_OUT)/iwf_pb2_grpc.py ]; then \
-		sed -i.bak 's/^import iwf_pb2 as/from . import iwf_pb2 as/' $(SDK_PYTHON_OUT)/iwf_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/iwf_pb2_grpc.py.bak; \
+	printf '%s\n' '# Generated package for Dex protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
+	# grpc stubs import "dex_pb2"; fix to relative for package layout.
+	@if [ -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py ]; then \
+		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
 	fi
 
 clean:

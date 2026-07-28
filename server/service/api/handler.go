@@ -23,12 +23,12 @@ package api
 import (
 	"context"
 
-	"github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/superdurable/iwf/service/common/blobstore"
-	"github.com/superdurable/iwf/service/common/log"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/log"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -37,8 +37,8 @@ import (
 var DumpFlowForContinueAsNewHeaderObserver func(context.Context)
 
 type handler struct {
-	iwfpb.UnimplementedFlowServiceServer
-	iwfpb.UnimplementedInternalServiceServer
+	dexpb.UnimplementedFlowServiceServer
+	dexpb.UnimplementedInternalServiceServer
 
 	svc    ApiService
 	logger log.Logger
@@ -76,105 +76,105 @@ func (h *handler) close() {
 
 func (h *handler) StartFlow(
 	ctx context.Context,
-	req *iwfpb.StartFlowRequest,
-) (*iwfpb.StartFlowResponse, error) {
+	req *dexpb.StartFlowRequest,
+) (*dexpb.StartFlowResponse, error) {
 	return h.svc.StartFlow(ctx, req)
 }
 
 func (h *handler) PublishToChannel(
 	ctx context.Context,
-	req *iwfpb.PublishToChannelRequest,
+	req *dexpb.PublishToChannelRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.PublishToChannel(ctx, req)
 }
 
 func (h *handler) StopFlow(
 	ctx context.Context,
-	req *iwfpb.StopFlowRequest,
+	req *dexpb.StopFlowRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.StopFlow(ctx, req)
 }
 
 func (h *handler) GetAttributes(
 	ctx context.Context,
-	req *iwfpb.GetAttributesRequest,
-) (*iwfpb.GetAttributesResponse, error) {
+	req *dexpb.GetAttributesRequest,
+) (*dexpb.GetAttributesResponse, error) {
 	return h.svc.GetAttributes(ctx, req)
 }
 
 func (h *handler) SetAttributes(
 	ctx context.Context,
-	req *iwfpb.SetAttributesRequest,
+	req *dexpb.SetAttributesRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.SetAttributes(ctx, req)
 }
 
 func (h *handler) LoadBlobs(
 	ctx context.Context,
-	req *iwfpb.LoadBlobsRequest,
-) (*iwfpb.LoadBlobsResponse, error) {
+	req *dexpb.LoadBlobsRequest,
+) (*dexpb.LoadBlobsResponse, error) {
 	return h.svc.LoadBlobs(ctx, req)
 }
 
 func (h *handler) WaitForFlow(
 	ctx context.Context,
-	req *iwfpb.WaitForFlowRequest,
-) (*iwfpb.WaitForFlowResponse, error) {
+	req *dexpb.WaitForFlowRequest,
+) (*dexpb.WaitForFlowResponse, error) {
 	return h.svc.WaitForFlow(ctx, req)
 }
 
 func (h *handler) SearchFlows(
 	ctx context.Context,
-	req *iwfpb.SearchFlowsRequest,
-) (*iwfpb.SearchFlowsResponse, error) {
+	req *dexpb.SearchFlowsRequest,
+) (*dexpb.SearchFlowsResponse, error) {
 	return h.svc.SearchFlows(ctx, req)
 }
 
 func (h *handler) ResetFlow(
 	ctx context.Context,
-	req *iwfpb.ResetFlowRequest,
-) (*iwfpb.ResetFlowResponse, error) {
+	req *dexpb.ResetFlowRequest,
+) (*dexpb.ResetFlowResponse, error) {
 	return h.svc.ResetFlow(ctx, req)
 }
 
 func (h *handler) InvokeRPC(
 	ctx context.Context,
-	req *iwfpb.InvokeRPCRequest,
-) (*iwfpb.InvokeRPCResponse, error) {
+	req *dexpb.InvokeRPCRequest,
+) (*dexpb.InvokeRPCResponse, error) {
 	return h.svc.InvokeRPC(ctx, req)
 }
 
 func (h *handler) SkipTimer(
 	ctx context.Context,
-	req *iwfpb.SkipTimerRequest,
+	req *dexpb.SkipTimerRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.SkipTimer(ctx, req)
 }
 
 func (h *handler) UpdateFlowConfig(
 	ctx context.Context,
-	req *iwfpb.UpdateFlowConfigRequest,
+	req *dexpb.UpdateFlowConfigRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.UpdateFlowConfig(ctx, req)
 }
 
 func (h *handler) WaitForStepCompletion(
 	ctx context.Context,
-	req *iwfpb.WaitForStepCompletionRequest,
-) (*iwfpb.WaitForStepCompletionResponse, error) {
+	req *dexpb.WaitForStepCompletionRequest,
+) (*dexpb.WaitForStepCompletionResponse, error) {
 	return h.svc.WaitForStepCompletion(ctx, req)
 }
 
 func (h *handler) WaitForAttribute(
 	ctx context.Context,
-	req *iwfpb.WaitForAttributeRequest,
+	req *dexpb.WaitForAttributeRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.WaitForAttribute(ctx, req)
 }
 
 func (h *handler) TriggerContinueAsNew(
 	ctx context.Context,
-	req *iwfpb.TriggerContinueAsNewRequest,
+	req *dexpb.TriggerContinueAsNewRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.TriggerContinueAsNew(ctx, req)
 }
@@ -182,14 +182,14 @@ func (h *handler) TriggerContinueAsNew(
 func (h *handler) HealthCheck(
 	ctx context.Context,
 	req *emptypb.Empty,
-) (*iwfpb.HealthInfo, error) {
+) (*dexpb.HealthInfo, error) {
 	return h.svc.HealthCheck(ctx, req)
 }
 
 func (h *handler) DumpFlowForContinueAsNew(
 	ctx context.Context,
-	req *iwfpb.ContinueAsNewDumpRequest,
-) (*iwfpb.ContinueAsNewDumpResponse, error) {
+	req *dexpb.ContinueAsNewDumpRequest,
+) (*dexpb.ContinueAsNewDumpResponse, error) {
 	if DumpFlowForContinueAsNewHeaderObserver != nil {
 		DumpFlowForContinueAsNewHeaderObserver(ctx)
 	}

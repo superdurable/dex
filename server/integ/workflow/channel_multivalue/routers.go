@@ -25,10 +25,10 @@ import (
 	"log"
 	"sync"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -53,7 +53,7 @@ const (
 )
 
 type handler struct {
-	iwfpb.UnimplementedWorkerServiceServer
+	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -64,15 +64,15 @@ func NewHandler() *handler {
 
 func (h *handler) InvokeWorkerRPC(
 	context.Context,
-	*iwfpb.InvokeWorkerRPCRequest,
-) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	*dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "no RPC")
 }
 
 func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
-	request *iwfpb.InvokeWaitForMethodRequest,
-) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
 	log.Println("channel_multivalue waitFor", request.GetStepType(), request.GetStepInput())
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
@@ -82,14 +82,14 @@ func (h *handler) InvokeWaitForMethod(
 	scenario := stepInputString(request.GetStepInput())
 	switch request.GetStepType() {
 	case State1:
-		return &iwfpb.InvokeWaitForMethodResponse{
+		return &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: waitingConditionForScenario(scenario),
 		}, nil
 	case State2:
-		return &iwfpb.InvokeWaitForMethodResponse{
-			WaitingCondition: &iwfpb.WaitingCondition{
-				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-				ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
 					{
 						ConditionId: "s2",
 						ChannelName: ChannelName,
@@ -106,8 +106,8 @@ func (h *handler) InvokeWaitForMethod(
 
 func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
-	request *iwfpb.InvokeExecuteMethodRequest,
-) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("channel_multivalue execute", request.GetStepType())
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
@@ -123,25 +123,25 @@ func (h *handler) InvokeExecuteMethod(
 	switch request.GetStepType() {
 	case State1:
 		if scenario == ScenarioCanBuffered {
-			return &iwfpb.InvokeExecuteMethodResponse{
-				StepDecision: &iwfpb.StepDecision{
-					NextSteps: []*iwfpb.StepMovement{
+			return &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{
+					NextSteps: []*dexpb.StepMovement{
 						{StepType: State2, StepInput: request.GetStepInput()},
 					},
 				},
 			}, nil
 		}
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
 		}, nil
 	case State2:
-		return &iwfpb.InvokeExecuteMethodResponse{
-			StepDecision: &iwfpb.StepDecision{
-				NextSteps: []*iwfpb.StepMovement{
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
 					{StepType: service.GracefulCompletingFlowStepType},
 				},
 			},
@@ -165,12 +165,12 @@ func (h *handler) GetTestResult() common.TestResult {
 	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }
 
-func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
+func waitingConditionForScenario(scenario string) *dexpb.WaitingCondition {
 	switch scenario {
 	case ScenarioExactN, ScenarioCanBuffered, ScenarioCanMatchBoundary:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "c1",
 					ChannelName: ChannelName,
@@ -180,9 +180,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioOneToAll:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "c1",
 					ChannelName: ChannelName,
@@ -191,9 +191,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioZeroToAllEmpty:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "c1",
 					ChannelName: ChannelName,
@@ -202,9 +202,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioRange:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "c1",
 					ChannelName: ChannelName,
@@ -214,9 +214,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioSameChannelExact:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "c1",
 					ChannelName: ChannelName,
@@ -232,9 +232,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioExact2PlusZero:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "exact",
 					ChannelName: ChannelName,
@@ -249,9 +249,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioAnyNoPremature:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "a",
 					ChannelName: ChannelName,
@@ -267,9 +267,9 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	case ScenarioInvalidBounds:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
-			ChannelConditions: []*iwfpb.ChannelCondition{
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
 				{
 					ConditionId: "bad",
 					ChannelName: ChannelName,
@@ -279,17 +279,17 @@ func waitingConditionForScenario(scenario string) *iwfpb.WaitingCondition {
 			},
 		}
 	default:
-		return &iwfpb.WaitingCondition{
-			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		}
 	}
 }
 
-func stepInputString(stepInput *iwfpb.Value) string {
+func stepInputString(stepInput *dexpb.Value) string {
 	if stepInput == nil {
 		return ""
 	}
-	if stringValue, ok := stepInput.Kind.(*iwfpb.Value_StringValue); ok {
+	if stringValue, ok := stepInput.Kind.(*dexpb.Value_StringValue); ok {
 		return stringValue.StringValue
 	}
 	return ""
@@ -303,17 +303,17 @@ func bump(history *sync.Map, key string) {
 	history.Store(key, int64(1))
 }
 
-func cloneChannelResults(results []*iwfpb.ChannelResult) []*iwfpb.ChannelResult {
-	out := make([]*iwfpb.ChannelResult, 0, len(results))
+func cloneChannelResults(results []*dexpb.ChannelResult) []*dexpb.ChannelResult {
+	out := make([]*dexpb.ChannelResult, 0, len(results))
 	for _, result := range results {
 		if result == nil {
 			continue
 		}
-		cloned := &iwfpb.ChannelResult{
+		cloned := &dexpb.ChannelResult{
 			ConditionId:     result.GetConditionId(),
 			ConditionStatus: result.GetConditionStatus(),
 			ChannelName:     result.GetChannelName(),
-			Values:          append([]*iwfpb.Value{}, result.GetValues()...),
+			Values:          append([]*dexpb.Value{}, result.GetValues()...),
 		}
 		out = append(out, cloned)
 	}

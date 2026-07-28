@@ -22,7 +22,7 @@
 package channel
 
 import (
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // ChannelAvailability snapshots message counts by channel.
@@ -42,9 +42,9 @@ type MatchPlan struct {
 
 // Plan evaluates a validated condition against channel and timer snapshots.
 func Plan(
-	waitingCondition *iwfpb.WaitingCondition,
+	waitingCondition *dexpb.WaitingCondition,
 	availability ChannelAvailability,
-	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
+	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 ) (*MatchPlan, bool) {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
@@ -60,8 +60,8 @@ func Plan(
 
 	completedTimers := make(map[int]bool, len(completedTimerConditions))
 	for idx, status := range completedTimerConditions {
-		if status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
-			status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
+		if status == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
+			status == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 			completedTimers[int(idx)] = true
 		}
 	}
@@ -96,12 +96,12 @@ type triggerCandidate struct {
 }
 
 func buildTriggerCandidates(
-	waitingCondition *iwfpb.WaitingCondition,
+	waitingCondition *dexpb.WaitingCondition,
 ) []triggerCandidate {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
 	switch waitingCondition.GetWaitingConditionType() {
-	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED:
+	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED:
 		// ALL has one candidate containing every condition.
 		all := triggerCandidate{}
 		for i := range timers {
@@ -112,7 +112,7 @@ func buildTriggerCandidates(
 		}
 		return []triggerCandidate{all}
 
-	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
+	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
 		// ANY has one candidate per condition.
 		//
 		// Canonical order: timers by declaration, then channels by declaration.
@@ -125,7 +125,7 @@ func buildTriggerCandidates(
 		}
 		return candidates
 
-	case iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
+	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED:
 		// ANY_COMBINATION has one candidate per declared combination.
 		timerIndexById := make(map[string]int, len(timers))
 		for i, timerCondition := range timers {
@@ -234,7 +234,7 @@ func remainingForChannel(
 }
 
 // normalizeChannel applies Exact N, OneToAll, and ZeroToAll semantics.
-func normalizeChannel(condition *iwfpb.ChannelCondition) normalizedChannelCondition {
+func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondition {
 	normalized := normalizedChannelCondition{
 		channelName: condition.GetChannelName(),
 	}
@@ -258,29 +258,29 @@ func normalizeChannel(condition *iwfpb.ChannelCondition) normalizedChannelCondit
 
 // BuildConditionResults reports timer states and consumed channel values.
 func BuildConditionResults(
-	waitingCondition *iwfpb.WaitingCondition,
-	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
-	consumedByChannelConditionIndex map[int][]*iwfpb.Value,
-) *iwfpb.ConditionResults {
-	results := &iwfpb.ConditionResults{}
+	waitingCondition *dexpb.WaitingCondition,
+	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
+	consumedByChannelConditionIndex map[int][]*dexpb.Value,
+) *dexpb.ConditionResults {
+	results := &dexpb.ConditionResults{}
 	for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
-		status := iwfpb.ConditionStatus_CONDITION_STATUS_WAITING
+		status := dexpb.ConditionStatus_CONDITION_STATUS_WAITING
 		if _, ok := completedTimerConditions[int32(timerIndex)]; ok {
-			status = iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED
+			status = dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
 		}
-		results.TimerResults = append(results.TimerResults, &iwfpb.TimerResult{
+		results.TimerResults = append(results.TimerResults, &dexpb.TimerResult{
 			ConditionId:     timerCondition.GetConditionId(),
 			ConditionStatus: status,
 		})
 	}
 	for channelIndex, channelCondition := range waitingCondition.GetChannelConditions() {
-		channelResult := &iwfpb.ChannelResult{
+		channelResult := &dexpb.ChannelResult{
 			ConditionId:     channelCondition.GetConditionId(),
 			ChannelName:     channelCondition.GetChannelName(),
-			ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+			ConditionStatus: dexpb.ConditionStatus_CONDITION_STATUS_WAITING,
 		}
 		if values, completed := consumedByChannelConditionIndex[channelIndex]; completed {
-			channelResult.ConditionStatus = iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED
+			channelResult.ConditionStatus = dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
 			channelResult.Values = values
 		}
 		results.ChannelResults = append(results.ChannelResults, channelResult)

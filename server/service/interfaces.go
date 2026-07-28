@@ -21,7 +21,7 @@
 package service
 
 import (
-	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // BasicInfo contains non-serialized flow identity.
@@ -41,14 +41,14 @@ const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteApiFaile
 
 // ValidateTimerSkipRequest validates a pending timer by condition ID or index.
 func ValidateTimerSkipRequest(
-	timerInfos []*iwfpb.TimerInfo,
+	timerInfos []*dexpb.TimerInfo,
 	timerConditionId string,
 	timerConditionIndex int,
-) (*iwfpb.TimerInfo, bool) {
+) (*dexpb.TimerInfo, bool) {
 	if timerConditionId != "" {
 		for _, timerInfo := range timerInfos {
 			if timerInfo.GetConditionId() == timerConditionId &&
-				timerInfo.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+				timerInfo.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
 				return timerInfo, true
 			}
 		}
@@ -56,7 +56,7 @@ func ValidateTimerSkipRequest(
 	}
 	if timerConditionIndex >= 0 && timerConditionIndex < len(timerInfos) {
 		timerInfo := timerInfos[timerConditionIndex]
-		if timerInfo.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
+		if timerInfo.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING {
 			return timerInfo, true
 		}
 	}

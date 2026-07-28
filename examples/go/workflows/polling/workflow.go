@@ -21,12 +21,12 @@
 package polling
 
 import (
-	"github.com/superdurable/iwf/examples/go/workflows/service"
-	"github.com/superdurable/iwf/sdk-go/iwf"
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
 )
 
-func NewPollingWorkflow(svc service.MyService) iwf.ObjectWorkflow {
+func NewPollingWorkflow(svc service.MyService) dex.ObjectWorkflow {
 
 	return &PollingWorkflow{
 		svc: svc,
@@ -43,90 +43,90 @@ const (
 )
 
 type PollingWorkflow struct {
-	iwf.WorkflowDefaults
+	dex.WorkflowDefaults
 
 	svc service.MyService
 }
 
-func (e PollingWorkflow) GetWorkflowStates() []iwf.StateDef {
-	return []iwf.StateDef{
-		iwf.StartingStateDef(&initState{}),
-		iwf.NonStartingStateDef(&pollState{svc: e.svc}),
-		iwf.NonStartingStateDef(&checkAndCompleteState{svc: e.svc}),
+func (e PollingWorkflow) GetWorkflowStates() []dex.StateDef {
+	return []dex.StateDef{
+		dex.StartingStateDef(&initState{}),
+		dex.NonStartingStateDef(&pollState{svc: e.svc}),
+		dex.NonStartingStateDef(&checkAndCompleteState{svc: e.svc}),
 	}
 }
 
-func (e PollingWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
-	return []iwf.PersistenceFieldDef{
-		iwf.DataAttributeDef(dataAttrCurrPolls),
+func (e PollingWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
+	return []dex.PersistenceFieldDef{
+		dex.DataAttributeDef(dataAttrCurrPolls),
 	}
 }
 
-func (e PollingWorkflow) GetCommunicationSchema() []iwf.CommunicationMethodDef {
-	return []iwf.CommunicationMethodDef{
-		iwf.SignalChannelDef(SignalChannelTaskACompleted),
-		iwf.SignalChannelDef(SignalChannelTaskBCompleted),
-		iwf.InternalChannelDef(InternalChannelTaskCCompleted),
+func (e PollingWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
+	return []dex.CommunicationMethodDef{
+		dex.SignalChannelDef(SignalChannelTaskACompleted),
+		dex.SignalChannelDef(SignalChannelTaskBCompleted),
+		dex.InternalChannelDef(InternalChannelTaskCCompleted),
 	}
 }
 
 type initState struct {
-	iwf.WorkflowStateDefaultsNoWaitUntil
+	dex.WorkflowStateDefaultsNoWaitUntil
 }
 
 func (i initState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var maxPollsRequired int
 	input.Get(&maxPollsRequired)
 
-	return iwf.MultiNextStatesWithInput(
-		iwf.NewStateMovement(pollState{}, maxPollsRequired),
-		iwf.NewStateMovement(checkAndCompleteState{}, nil),
+	return dex.MultiNextStatesWithInput(
+		dex.NewStateMovement(pollState{}, maxPollsRequired),
+		dex.NewStateMovement(checkAndCompleteState{}, nil),
 	), nil
 }
 
 type checkAndCompleteState struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
 func (i checkAndCompleteState) WaitUntil(
-	ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication,
-) (*iwf.CommandRequest, error) {
-	return iwf.AllCommandsCompletedRequest(
-		iwf.NewSignalCommand("", SignalChannelTaskACompleted),
-		iwf.NewSignalCommand("", SignalChannelTaskBCompleted),
-		iwf.NewInternalChannelCommand("", InternalChannelTaskCCompleted),
+	ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication,
+) (*dex.CommandRequest, error) {
+	return dex.AllCommandsCompletedRequest(
+		dex.NewSignalCommand("", SignalChannelTaskACompleted),
+		dex.NewSignalCommand("", SignalChannelTaskBCompleted),
+		dex.NewInternalChannelCommand("", InternalChannelTaskCCompleted),
 	), nil
 }
 
 func (i checkAndCompleteState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
-	return iwf.GracefulCompletingWorkflow, nil
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
+	return dex.GracefulCompletingWorkflow, nil
 }
 
 type pollState struct {
-	iwf.WorkflowStateDefaults
+	dex.WorkflowStateDefaults
 	svc service.MyService
 }
 
 func (i pollState) WaitUntil(
-	ctx iwf.WorkflowContext, input iwf.Object, persistence iwf.Persistence, communication iwf.Communication,
-) (*iwf.CommandRequest, error) {
+	ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication,
+) (*dex.CommandRequest, error) {
 
-	return iwf.AnyCommandCompletedRequest(
-		iwf.NewTimerCommand("", time.Now().Add(time.Second*2)),
+	return dex.AnyCommandCompletedRequest(
+		dex.NewTimerCommand("", time.Now().Add(time.Second*2)),
 	), nil
 }
 
 func (i pollState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
-	communication iwf.Communication,
-) (*iwf.StateDecision, error) {
+	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
+	communication dex.Communication,
+) (*dex.StateDecision, error) {
 	var maxPollsRequired int
 	input.Get(&maxPollsRequired)
 
@@ -136,10 +136,10 @@ func (i pollState) Execute(
 	persistence.GetDataAttribute(dataAttrCurrPolls, &currPolls)
 	if currPolls >= maxPollsRequired {
 		communication.PublishInternalChannel(InternalChannelTaskCCompleted, nil)
-		return iwf.DeadEnd, nil
+		return dex.DeadEnd, nil
 	}
 
 	persistence.SetDataAttribute(dataAttrCurrPolls, currPolls+1)
 	// loop back to check
-	return iwf.SingleNextState(pollState{}, maxPollsRequired), nil
+	return dex.SingleNextState(pollState{}, maxPollsRequired), nil
 }

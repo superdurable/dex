@@ -21,17 +21,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
-	"github.com/superdurable/iwf/sdk-go/iwf"
-	"github.com/superdurable/iwf/sdk-go/iwf/ptr"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestAbnormalExitWorkflow(t *testing.T) {
 	wfId := "TestAbnormalExitWorkflow" + strconv.Itoa(int(time.Now().Unix()))
 
-	opt := iwf.WorkflowOptions{
-		WorkflowIdReusePolicy: ptr.Any(iwfidl.ALLOW_IF_PREVIOUS_EXITS_ABNORMALLY),
+	opt := dex.WorkflowOptions{
+		WorkflowIdReusePolicy: ptr.Any(dexpb.ALLOW_IF_PREVIOUS_EXITS_ABNORMALLY),
 	}
 
 	runId, err := client.StartWorkflow(context.Background(), &abnormalExitWorkflow{}, wfId, 10, nil, &opt)
@@ -39,14 +39,14 @@ func TestAbnormalExitWorkflow(t *testing.T) {
 	assert.NotEmpty(t, runId)
 
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-	wErr, ok := iwf.AsWorkflowUncompletedError(err)
+	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
 	assert.True(t, strings.Contains(*wErr.ErrorMessage, "abnormal exit state"))
-	assert.Equal(t, iwf.NewWorkflowUncompletedError(runId, iwfidl.FAILED, ptr.Any(iwfidl.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, wErr.StateResults, iwf.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, wErr.StateResults, dex.GetDefaultObjectEncoder()), wErr)
 
 	// Starting a workflow with the same ID should be allowed since the previous failed abnormally
 	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, 1, &opt)
-	assert.False(t, iwf.IsWorkflowAlreadyStartedError(err))
+	assert.False(t, dex.IsWorkflowAlreadyStartedError(err))
 
 	var output int
 	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)

@@ -16,7 +16,7 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/sdk-go/gen/iwfidl"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"strconv"
 	"testing"
 	"time"
@@ -40,5 +40,5 @@ func TestNoStartStateWorkflow(t *testing.T) {
 	time.Sleep(time.Second * 2)
 	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
 	assert.Nil(t, err)
-	assert.Equal(t, iwfidl.COMPLETED, info.Status)
+	assert.Equal(t, dexpb.COMPLETED, info.Status)
 }

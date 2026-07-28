@@ -7,9 +7,9 @@ Content-Type: application/json
 
 {
   "workflowId": "test-wf",
-  "iwfWorkflowType": "test-wf-type",
+  "dexWorkflowType": "test-wf-type",
   "workflowTimeoutSeconds": 10,
-  "iwfWorkerUrl": "http://localhost:8080",
+  "dexWorkerUrl": "http://localhost:8080",
   "startStateId": "test_state_1",
   "stateInput": {
     "encoding": "json",

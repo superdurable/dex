@@ -27,10 +27,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/integ/workflow/persistence"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/persistence"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -41,7 +41,7 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 
 	workerHandler := signal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startIwfService(t, IwfServiceTestConfig{
+	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 	})
 	flowClient := runtime.FlowClient
@@ -50,7 +50,7 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 	defer cancel()
 
 	flowId := signal.WorkflowType + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -59,12 +59,12 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	smallDataAttributes := []*iwfpb.AttributeWrite{
+	smallDataAttributes := []*dexpb.AttributeWrite{
 		dataObjectAttribute(persistence.TestDataAttributeKey, `"test-data-attribute-value1"`),
 		dataObjectAttribute(persistence.TestDataAttributeKey2, `"test-data-attribute-value2"`),
 	}
 
-	_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId:     flowId,
 		Attributes: smallDataAttributes,
 	})
@@ -72,7 +72,7 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+	getResult, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowId,
 		Keys: []string{
 			persistence.TestDataAttributeKey,
@@ -81,7 +81,7 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	expected := []*iwfpb.KV{
+	expected := []*dexpb.KV{
 		{Key: persistence.TestDataAttributeKey, Value: smallDataAttributes[0].GetValue()},
 		{Key: persistence.TestDataAttributeKey2, Value: smallDataAttributes[1].GetValue()},
 	}
@@ -97,9 +97,9 @@ func TestSetDataAttributesTemporal(t *testing.T) {
 		require.True(t, found, "missing attribute %s", want.GetKey())
 	}
 
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
 }

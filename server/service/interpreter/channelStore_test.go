@@ -25,8 +25,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/superdurable/iwf/gen/iwfpb"
-	"github.com/superdurable/iwf/service/interpreter/channel"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/channel"
 )
 
 func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
@@ -34,7 +34,7 @@ func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
 	second := stringValue("second")
 	third := stringValue("third")
 	store := NewChannelStore()
-	store.ProcessPublishing([]*iwfpb.ChannelMessage{
+	store.ProcessPublishing([]*dexpb.ChannelMessage{
 		{ChannelName: "events", Value: first},
 		{ChannelName: "events", Value: second},
 		{ChannelName: "events", Value: third},
@@ -50,14 +50,14 @@ func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
 		}},
 	})
 
-	require.Equal(t, []*iwfpb.Value{first, second}, consumed[1])
+	require.Equal(t, []*dexpb.Value{first, second}, consumed[1])
 	require.Same(t, first, consumed[1][0])
-	require.Equal(t, []*iwfpb.Value{third}, store.GetAllReceived()["events"].GetValues())
+	require.Equal(t, []*dexpb.Value{third}, store.GetAllReceived()["events"].GetValues())
 }
 
 func TestChannelStoreCommitMatchRejectsStalePlan(t *testing.T) {
 	store := NewChannelStore()
-	store.ProcessPublishing([]*iwfpb.ChannelMessage{{
+	store.ProcessPublishing([]*dexpb.ChannelMessage{{
 		ChannelName: "events",
 		Value:       stringValue("only"),
 	}})
@@ -73,6 +73,6 @@ func TestChannelStoreCommitMatchRejectsStalePlan(t *testing.T) {
 	})
 }
 
-func stringValue(value string) *iwfpb.Value {
-	return &iwfpb.Value{Kind: &iwfpb.Value_StringValue{StringValue: value}}
+func stringValue(value string) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}}
 }

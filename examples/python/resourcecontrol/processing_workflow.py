@@ -12,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from iwf.workflow import ObjectWorkflow
-from iwf.workflow_state import WorkflowState
-from iwf.state_schema import StateSchema
-from iwf.persistence_schema import PersistenceField, PersistenceSchema
-from iwf.state_decision import StateDecision
-from iwf.command_request import CommandRequest, TimerCommand
-from iwf.command_results import CommandResults
-from iwf.persistence import Persistence
-from iwf.communication import Communication
-from iwf.workflow_context import WorkflowContext
-from iwf.rpc import rpc
+from dex.workflow import ObjectWorkflow
+from dex.workflow_state import WorkflowState
+from dex.state_schema import StateSchema
+from dex.persistence_schema import PersistenceField, PersistenceSchema
+from dex.state_decision import StateDecision
+from dex.command_request import CommandRequest, TimerCommand
+from dex.command_results import CommandResults
+from dex.persistence import Persistence
+from dex.communication import Communication
+from dex.workflow_context import WorkflowContext
+from dex.rpc import rpc
 from controller_workflow import Request
 from controller_workflow import ControllerWorkflow
-from iwf.errors import WorkflowNotExistsError
+from dex.errors import WorkflowNotExistsError
 
 from resourcecontrol.controller_workflow import DA_INSTANCE_ID
 
@@ -125,7 +125,7 @@ class CompleteState(WorkflowState[None]):
     def execute(self, ctx: WorkflowContext, ignored: None, command_results: CommandResults, persistence: Persistence, communication: Communication) -> StateDecision:
         parent_workflow_id = persistence.get_data_attribute(DA_PARENT_WORKFLOW_ID)
 
-        from iwf_config import client
+        from dex_config import client
         try:
             client.invoke_rpc(parent_workflow_id, ControllerWorkflow.complete_child_workflow, ctx.workflow_id)
         except WorkflowNotExistsError:
