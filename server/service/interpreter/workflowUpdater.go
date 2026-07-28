@@ -190,36 +190,16 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	)
 	u.persistenceManager.UnlockKeys(keysToLock)
 	if err != nil {
-		// logging only -- intentionally do not return an error -- error will fail the workflow
-		u.provider.GetLogger(ctx).Error("activity invocation failure", "error", err)
+		return nil, err
 	}
-	response, interpreterErr, err := rpcActivityResponse(&activityOutput)
-	if err != nil {
-		return nil, u.provider.NewUpdateError(
-			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL,
-			err.Error(),
-		)
-	}
-	if interpreterErr != nil {
-		return &iwfpb.InvokeRpcUpdateResult{Error: interpreterErr}, nil
-	}
-	if err := validateLockedRPCWrites(response.GetUpsertAttributes(), keysToLock); err != nil {
-		return nil, u.provider.NewUpdateError(
-			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
-			err.Error(),
-		)
-	}
-
+	response := activityOutput.GetResponse()
 	decision := response.GetStepDecision()
 	err = u.persistenceManager.ApplyAttributeWrites(
 		ctx,
 		response.GetUpsertAttributes(),
 	)
 	if err != nil {
-		return nil, u.provider.NewUpdateError(
-			iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL,
-			err.Error(),
-		)
+		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
@@ -273,18 +253,6 @@ func (u *WorkflowUpdater) effectiveRPCBudget(requestedSeconds int32) time.Durati
 		maximumSeconds = int64(requestedSeconds)
 	}
 	return time.Duration(maximumSeconds) * time.Second
-}
-
-func rpcActivityResponse(
-	output *iwfpb.InvokeWorkerRPCActivityOutput,
-) (*iwfpb.InvokeWorkerRPCResponse, *iwfpb.InterpreterError, error) {
-	if (output.GetResponse() == nil) == (output.GetError() == nil) {
-		return nil, nil, fmt.Errorf("RPC activity returned an invalid result envelope")
-	}
-	if output.GetError() != nil {
-		return nil, output.GetError(), nil
-	}
-	return output.GetResponse(), nil, nil
 }
 
 func validateLockedRPCWrites(

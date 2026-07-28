@@ -592,7 +592,7 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
-		return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+		return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			&iwfpb.ErrorResponse{
 				Detail:    err.Error(),
 				SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,

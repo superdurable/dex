@@ -357,7 +357,9 @@ func (i *Interpreter) StartEngineFlow(
 							forceCompleteWf = true
 						}
 						if forceFail {
-							errToFailWf = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW, outputCollector.GetAll())
+							errToFailWf = provider.NewWorkflowError(
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+								outputCollector.GetAll())
 						}
 						if canGoNext {
 							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
@@ -582,7 +584,7 @@ func checkClosingWorkflow(
 	if !canGoNext && len(decision.NextSteps) > 1 {
 		// Illegal decision
 		err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			"invalid state decisions. Closing workflow decision cannot be combined with other state decisions")
+			"invalid step decisions. Closing workflow decision cannot be combined with other state decisions")
 	}
 	return
 }
@@ -689,13 +691,11 @@ func (i *Interpreter) processStepExecution(
 
 		var waitForResponse *iwfpb.InvokeWaitForMethodResponse
 		if waitForMethErr != nil && !shouldProceedOnWaitForApiError(step) {
-			return nil, service.StepExecutionStatusFailedNoProceed, provider.NewWorkflowError(
-				iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
-				waitForMethErr,
-			)
+			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
 
 		if waitForMethErr == nil {
+			waitingCondition = waitForResponse.GetWaitingCondition()
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
 				waitForResponse.GetUpsertAttributes(),
@@ -906,11 +906,9 @@ func (i *Interpreter) invokeExecuteMethod(
 	if exeMethErr != nil {
 		if shouldProceedOnExecuteMethodError(step) {
 			// NOTE: also return error so that the recover step can read it
-			return nil, service.StepExecutionStatusFailedAndProceed, err
+			return nil, service.StepExecutionStatusFailedAndProceed, exeMethErr
 		}
-		return nil, service.StepExecutionStatusFailedNoProceed, provider.NewWorkflowError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL, err,
-		)
+		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
 	}
 	executeResponse := activityOutput.GetResponse()
 	if err := persistenceManager.ApplyAttributeWrites(

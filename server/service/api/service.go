@@ -668,20 +668,17 @@ func (s *serviceImpl) InvokeRPC(
 	); err != nil {
 		return nil, s.handleError(err)
 	}
-	workerResponse, statusErr, err := rpc.InvokeWorkerRpc(
+	workerResponse, err := rpc.InvokeWorkerRpc(
 		ctx,
 		s.workerPool,
 		&preparation,
 		req,
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 		s.store,
-		*s.extStore,
+		s.extStore,
 	)
 	if err != nil {
-		return nil, serviceerrors.Internal(err.Error()).ToGRPCError()
-	}
-	if statusErr != nil {
-		return nil, statusErr.ToGRPCError()
+		return nil, err
 	}
 	decision := workerResponse.GetStepDecision()
 	if len(workerResponse.GetUpsertAttributes()) > 0 ||
@@ -731,9 +728,6 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 		req,
 	); err != nil {
 		return nil, s.handleError(err)
-	}
-	if result.GetError() != nil {
-		return nil, interpreterErrorStatus(result.GetError())
 	}
 	if result.GetResponse() == nil {
 		return nil, serviceerrors.Internal("locking RPC returned no response").ToGRPCError()
@@ -924,6 +918,10 @@ func (s *serviceImpl) handleError(err error) error {
 	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE.String():
 		return serviceerrors.AbortedLockFailure(details).ToGRPCError()
 	default:
+		_, ok := status.FromError(err)
+		if !ok {
+			return err
+		}
 		return serviceerrors.Internal(details).ToGRPCError()
 	}
 }
@@ -933,16 +931,6 @@ func waitContextStatus(err error) error {
 		return status.Error(codes.Canceled, err.Error())
 	}
 	return serviceerrors.DeadlineExceededLongPoll(err.Error()).ToGRPCError()
-}
-
-func interpreterErrorStatus(interpreterErr *iwfpb.InterpreterError) error {
-	if interpreterErr.GetError() == nil {
-		return serviceerrors.Internal("RPC returned an empty interpreter error").ToGRPCError()
-	}
-	return (&serviceerrors.ErrorAndStatus{
-		Code:  codes.Code(interpreterErr.GetGrpcCode()),
-		Error: interpreterErr.GetError(),
-	}).ToGRPCError()
 }
 
 func makeInvalidRequestError(details string) error {
