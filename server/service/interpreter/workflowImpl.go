@@ -689,28 +689,27 @@ func (i *Interpreter) processStepExecution(
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
-		var waitForResponse *iwfpb.InvokeWaitForMethodResponse
 		if waitForMethErr != nil && !shouldProceedOnWaitForApiError(step) {
 			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
 
 		if waitForMethErr == nil {
-			waitingCondition = waitForResponse.GetWaitingCondition()
+			waitingCondition = activityOutput.Response.GetWaitingCondition()
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
-				waitForResponse.GetUpsertAttributes(),
+				activityOutput.Response.GetUpsertAttributes(),
 			); err != nil {
 				return nil, service.StepExecutionStatusFailedNoProceed, err
 			}
-			channelStore.ProcessPublishing(waitForResponse.GetPublishToChannel())
-			waitingCondition = waitForResponse.GetWaitingCondition()
+			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
+			waitingCondition = activityOutput.Response.GetWaitingCondition()
 			if waitingCondition != nil {
 				waitingCondition = timers.FixTimerConditionFromActivityOutput(
 					provider.Now(ctx),
 					waitingCondition,
 				)
 			}
-			stepExeLocals = waitForResponse.GetUpsertStepExeLocals()
+			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
 		}
 	}
 	if waitingCondition == nil {
