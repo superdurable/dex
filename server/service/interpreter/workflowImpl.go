@@ -300,7 +300,7 @@ func (i *Interpreter) StartEngineFlow(
 					).(StepRequest)
 					if !ok {
 						errToFailWf = provider.NewWorkflowError(
-							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+							iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 							"cannot read step request from workflow context",
 						)
 						return
@@ -369,8 +369,8 @@ func (i *Interpreter) StartEngineFlow(
 							decision.GetNextSteps(),
 						); err != nil {
 							errToFailWf = provider.NewWorkflowError(
-								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
-								err.Error(),
+								iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+								err,
 							)
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
@@ -499,7 +499,7 @@ func checkClosingWorkflow(
 	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
 		if conditionalClose.ConditionalCloseType !=
 			iwfpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
-			err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+			err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 				"invalid step decisions. Unsupported ConditionalCloseType ")
 			return
 		}
@@ -536,7 +536,7 @@ func checkClosingWorkflow(
 		}
 		for _, st := range decision.GetNextSteps() {
 			if service.ValidClosingFlowStepType[st.GetStepType()] {
-				err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+				err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 					"invalid ConditionUnmetDecision with stepType: "+st.GetStepType())
 				return
 			}
@@ -581,7 +581,7 @@ func checkClosingWorkflow(
 
 	if !canGoNext && len(decision.NextSteps) > 1 {
 		// Illegal decision
-		err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+		err = provider.NewWorkflowError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			"invalid state decisions. Closing workflow decision cannot be combined with other state decisions")
 	}
 	return
