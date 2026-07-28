@@ -21,43 +21,25 @@
 package wf_state_options_data_attributes_loading
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has four states, using REST controller to implement the workflow directly.
+ * This test flow has five steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method does nothing
- * 		- Execute method creates all Data Attributes keys that will be used in this test
- * 			- da_wait_until1
- * 			- da_execute1
- *			- da_other_key
- * State2:
- * 		- State Options contains WaitUntilApiDataAttributesLoadingPolicy
- * 		- WaitUntil method asserts that expected DataAttributes are loaded
- * 		- Execute method asserts that no DataAttributes are loaded
- * State3:
- * 		- State Options contains ExecuteApiDataAttributesLoadingPolicy
- * 		- WaitUntil method asserts that no DataAttributes are loaded
- * 		- Execute method asserts that expected DataAttributes are loaded
- * State4:
- * 		- State Options contains DataAttributesLoadingPolicy
- * 		- WaitUntil method asserts that expected DataAttributes are loaded
- * 		- Execute method asserts that expected DataAttributes are loaded
- * State5:
- * 		- State Options contains DataAttributesLoadingPolicy and WaitUntilApiDataAttributesLoadingPolicy
- * 		- WaitUntil method asserts that WaitUntilApiDataAttributesLoadingPolicy are loaded
- * 		- Execute method asserts that DataAttributesLoadingPolicy are loaded
+ * Step1:
+ *		- WaitFor method does nothing
+ * 		- Execute method creates all data attribute keys used in this test
+ * Step2 through Step5:
+ *		- WaitFor and Execute verify all data attributes are loaded
  */
 const (
 	WorkflowType = "state_options_data_attributes_loading"
@@ -69,322 +51,218 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
-func NewHandler() common.WorkflowHandlerWithRpc {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if req.GetWorkflowType() != WorkflowType {
-		c.JSON(http.StatusBadRequest, struct{}{})
-		return
-	}
-
-	log.Println("state_options_data_attributes_loading: received state start request, ", req)
-
-	if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-		h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-	} else {
-		h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-	}
-
-	currentMethod := "WaitUntil"
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
-
-	if req.GetWorkflowStateId() == State2 || req.GetWorkflowStateId() == State4 || req.GetWorkflowStateId() == State5 {
-		verifyLoadedDataAttributes(t, req.GetWorkflowStateId(), currentMethod, req.GetDataObjects(), loadingType)
-	}
-
-	if req.GetWorkflowStateId() == State3 {
-		verifyEmptyDataAttributes(t, req.GetDataObjects())
-	}
-
-	// Go straight to the decide methods without any commands
-	c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-		CommandRequest: &iwfidl.CommandRequest{
-			DeciderTriggerType: iwfidl.ANY_COMMAND_COMPLETED.Ptr(),
-		},
-	})
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	_ *iwfpb.InvokeWorkerRPCRequest,
+) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	return nil, status.Error(codes.InvalidArgument, "unexpected worker rpc")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 
-	if req.GetWorkflowType() != WorkflowType {
-		c.JSON(http.StatusBadRequest, struct{}{})
-		return
+	log.Println("state_options_data_attributes_loading: received waitFor request, ", request)
+
+	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
+
+	if request.GetStepType() != State1 {
+		if err := verifyAllDataAttributes(request.GetAttributes()); err != nil {
+			return nil, err
+		}
 	}
 
-	log.Println("state_options_data_attributes_loading: received state decide request, ", req)
+	return &iwfpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &iwfpb.WaitingCondition{
+			WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		},
+	}, nil
+}
 
-	if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-		h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-	} else {
-		h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 
-	currentMethod := "Execute"
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
+	log.Println("state_options_data_attributes_loading: received execute request, ", request)
 
-	var response iwfidl.WorkflowStateDecideResponse
-	switch req.GetWorkflowStateId() {
+	h.incrementInvokeHistory(request.GetStepType() + "_execute")
+
+	var response *iwfpb.InvokeExecuteMethodResponse
+	switch request.GetStepType() {
 	case State1:
-		response = getState1DecideResponse(req)
-	case State2:
-		verifyEmptyDataAttributes(t, req.GetDataObjects())
-		response = getState2DecideResponse(req)
-	case State3:
-		verifyLoadedDataAttributes(t, req.GetWorkflowStateId(), currentMethod, req.GetDataObjects(), loadingType)
-		response = getState3DecideResponse(req)
-	case State4:
-		verifyLoadedDataAttributes(t, req.GetWorkflowStateId(), currentMethod, req.GetDataObjects(), loadingType)
-		response = getState4DecideResponse(req)
+		response = getState1ExecuteResponse(request)
+	case State2, State3, State4:
+		if err := verifyAllDataAttributes(request.GetAttributes()); err != nil {
+			return nil, err
+		}
+		response = getNextStateExecuteResponse(request)
 	case State5:
-		verifyLoadedDataAttributes(t, req.GetWorkflowStateId(), currentMethod, req.GetDataObjects(), loadingType)
-		response = getState5DecideResponse()
-	}
-
-	c.JSON(http.StatusOK, response)
-}
-
-func (h *handler) ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T) {
-	c.JSON(http.StatusBadRequest, struct{}{})
-}
-
-func getState1DecideResponse(req iwfidl.WorkflowStateDecideRequest) iwfidl.WorkflowStateDecideResponse {
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
-	noneLoadingType := iwfidl.NONE
-
-	// Move to State 2 with provided options & input after updating data attributes
-	return iwfidl.WorkflowStateDecideResponse{
-		StateDecision: &iwfidl.StateDecision{
-			NextStates: []iwfidl.StateMovement{
-				{
-					StateId: State2,
-					StateOptions: &iwfidl.WorkflowStateOptions{
-						WaitUntilApiDataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &loadingType,
-							PartialLoadingKeys:     []string{"da_wait_until1"},
-						},
-						ExecuteApiDataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &noneLoadingType,
-						},
-					},
-					StateInput: &loadingTypeFromInput,
-				},
-			},
-		},
-		UpsertDataObjects: getUpsertDataAttributes(),
-	}
-}
-
-func getState2DecideResponse(req iwfidl.WorkflowStateDecideRequest) iwfidl.WorkflowStateDecideResponse {
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
-	noneLoadingType := iwfidl.NONE
-
-	// Move to State 3 with provided options & input
-	return iwfidl.WorkflowStateDecideResponse{
-		StateDecision: &iwfidl.StateDecision{
-			NextStates: []iwfidl.StateMovement{
-				{
-					StateId: State3,
-					StateOptions: &iwfidl.WorkflowStateOptions{
-						WaitUntilApiDataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &noneLoadingType,
-						},
-						ExecuteApiDataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &loadingType,
-							PartialLoadingKeys:     []string{"da_execute1"},
-						},
-					},
-					StateInput: &loadingTypeFromInput,
-				},
-			},
-		},
-	}
-}
-
-func getState3DecideResponse(req iwfidl.WorkflowStateDecideRequest) iwfidl.WorkflowStateDecideResponse {
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
-
-	// Move to State 4 with provided options & input
-	return iwfidl.WorkflowStateDecideResponse{
-		StateDecision: &iwfidl.StateDecision{
-			NextStates: []iwfidl.StateMovement{
-				{
-					StateId: State4,
-					StateOptions: &iwfidl.WorkflowStateOptions{
-						DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &loadingType,
-							PartialLoadingKeys:     []string{"da_other_key"},
-						},
-					},
-					StateInput: &loadingTypeFromInput,
-				},
-			},
-		},
-	}
-}
-
-func getState4DecideResponse(req iwfidl.WorkflowStateDecideRequest) iwfidl.WorkflowStateDecideResponse {
-	loadingTypeFromInput := req.GetStateInput()
-	loadingType := iwfidl.PersistenceLoadingType(loadingTypeFromInput.GetData())
-
-	// Move to State 5 with provided options & input
-	return iwfidl.WorkflowStateDecideResponse{
-		StateDecision: &iwfidl.StateDecision{
-			NextStates: []iwfidl.StateMovement{
-				{
-					StateId: State5,
-					StateOptions: &iwfidl.WorkflowStateOptions{
-						WaitUntilApiDataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &loadingType,
-							PartialLoadingKeys:     []string{"da_wait_until1"},
-						},
-						DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-							PersistenceLoadingType: &loadingType,
-							PartialLoadingKeys:     []string{"da_other_key"},
-						},
-					},
-					StateInput: &loadingTypeFromInput,
-				},
-			},
-		},
-	}
-}
-
-func getState5DecideResponse() iwfidl.WorkflowStateDecideResponse {
-	// Move to completion
-	return iwfidl.WorkflowStateDecideResponse{
-		StateDecision: &iwfidl.StateDecision{
-			NextStates: []iwfidl.StateMovement{
-				{
-					StateId: service.GracefulCompletingWorkflowStateId,
-				},
-			},
-		},
-	}
-}
-
-func verifyEmptyDataAttributes(t *testing.T, dataAttributes []iwfidl.KeyValue) {
-	var expectedDataAttributes []iwfidl.KeyValue
-	if !assert.ElementsMatch(common.DummyT{}, expectedDataAttributes, dataAttributes) {
-		helpers.FailTestWithErrorMessage("Data attributes should be empty", t)
-	}
-}
-
-func verifyLoadedDataAttributes(t *testing.T, stateId string, method string, dataAttributes []iwfidl.KeyValue, loadingType iwfidl.PersistenceLoadingType) {
-	expectedDataAttributes := getExpectedDataAttributes(stateId, method, loadingType)
-	if !assert.ElementsMatch(common.DummyT{}, expectedDataAttributes, dataAttributes) {
-		helpers.FailTestWithErrorMessage("Data attributes should be the same", t)
-	}
-}
-
-func getUpsertDataAttributes() []iwfidl.KeyValue {
-	return []iwfidl.KeyValue{
-		{
-			Key:   iwfidl.PtrString("da_wait_until1"),
-			Value: &iwfidl.EncodedObject{Encoding: iwfidl.PtrString("json"), Data: iwfidl.PtrString("test-data-attribute-wait-until")},
-		},
-		{
-			Key:   iwfidl.PtrString("da_execute1"),
-			Value: &iwfidl.EncodedObject{Encoding: iwfidl.PtrString("json"), Data: iwfidl.PtrString("test-data-attribute-execute")},
-		},
-		{
-			Key:   iwfidl.PtrString("da_other_key"),
-			Value: &iwfidl.EncodedObject{Encoding: iwfidl.PtrString("json"), Data: iwfidl.PtrString("random-value")},
-		},
-	}
-}
-
-func getExpectedDataAttributes(stateId string, method string, loadingType iwfidl.PersistenceLoadingType) []iwfidl.KeyValue {
-	if stateId == State2 && (loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK || loadingType == iwfidl.PARTIAL_WITHOUT_LOCKING) {
-		return []iwfidl.KeyValue{
-			{
-				Key: iwfidl.PtrString("da_wait_until1"),
-				Value: &iwfidl.EncodedObject{
-					Encoding: iwfidl.PtrString("json"),
-					Data:     iwfidl.PtrString("test-data-attribute-wait-until"),
-				},
-			},
+		if err := verifyAllDataAttributes(request.GetAttributes()); err != nil {
+			return nil, err
 		}
-	}
-	if stateId == State3 && (loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK || loadingType == iwfidl.PARTIAL_WITHOUT_LOCKING) {
-		return []iwfidl.KeyValue{
-			{
-				Key: iwfidl.PtrString("da_execute1"),
-				Value: &iwfidl.EncodedObject{
-					Encoding: iwfidl.PtrString("json"),
-					Data:     iwfidl.PtrString("test-data-attribute-execute"),
-				},
-			},
-		}
+		response = getState5ExecuteResponse()
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid step type")
 	}
 
-	if stateId == State4 && (loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK || loadingType == iwfidl.PARTIAL_WITHOUT_LOCKING) {
-		return []iwfidl.KeyValue{
-			{
-				Key: iwfidl.PtrString("da_other_key"),
-				Value: &iwfidl.EncodedObject{
-					Encoding: iwfidl.PtrString("json"),
-					Data:     iwfidl.PtrString("random-value"),
-				},
-			},
-		}
-	}
-
-	if stateId == State5 && (loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK || loadingType == iwfidl.PARTIAL_WITHOUT_LOCKING) {
-		switch method {
-		case "WaitUntil":
-			return []iwfidl.KeyValue{
-				{
-					Key: iwfidl.PtrString("da_wait_until1"),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("json"),
-						Data:     iwfidl.PtrString("test-data-attribute-wait-until"),
-					},
-				},
-			}
-		case "Execute":
-			return []iwfidl.KeyValue{
-				{
-					Key: iwfidl.PtrString("da_other_key"),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("json"),
-						Data:     iwfidl.PtrString("random-value"),
-					},
-				},
-			}
-		}
-	}
-
-	return getUpsertDataAttributes()
+	return response, nil
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
+}
+
+func getState1ExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwfpb.InvokeExecuteMethodResponse {
+	return &iwfpb.InvokeExecuteMethodResponse{
+		StepDecision: &iwfpb.StepDecision{
+			NextSteps: []*iwfpb.StepMovement{
+				{
+					StepType:  State2,
+					StepInput: request.GetStepInput(),
+				},
+			},
+		},
+		UpsertAttributes: upsertDataAttributes(),
+	}
+}
+
+func getNextStateExecuteResponse(request *iwfpb.InvokeExecuteMethodRequest) *iwfpb.InvokeExecuteMethodResponse {
+	var nextStepType string
+	switch request.GetStepType() {
+	case State2:
+		nextStepType = State3
+	case State3:
+		nextStepType = State4
+	case State4:
+		nextStepType = State5
+	}
+	return &iwfpb.InvokeExecuteMethodResponse{
+		StepDecision: &iwfpb.StepDecision{
+			NextSteps: []*iwfpb.StepMovement{
+				{
+					StepType:  nextStepType,
+					StepInput: request.GetStepInput(),
+				},
+			},
+		},
+	}
+}
+
+func getState5ExecuteResponse() *iwfpb.InvokeExecuteMethodResponse {
+	return &iwfpb.InvokeExecuteMethodResponse{
+		StepDecision: &iwfpb.StepDecision{
+			NextSteps: []*iwfpb.StepMovement{
+				{StepType: service.GracefulCompletingFlowStepType},
+			},
+		},
+	}
+}
+
+func verifyAllDataAttributes(attributes []*iwfpb.KV) error {
+	expected := upsertDataAttributeKVs()
+	if err := matchAttributeKVsUnordered(expected, attributes); err != nil {
+		return status.Error(codes.InvalidArgument, "data attributes should be the same: "+err.Error())
+	}
+	return nil
+}
+
+func upsertDataAttributes() []*iwfpb.AttributeWrite {
+	return []*iwfpb.AttributeWrite{
+		dataObjectWrite("da_wait_until1", "test-data-attribute-wait-until"),
+		dataObjectWrite("da_execute1", "test-data-attribute-execute"),
+		dataObjectWrite("da_other_key", "random-value"),
+	}
+}
+
+func upsertDataAttributeKVs() []*iwfpb.KV {
+	writes := upsertDataAttributes()
+	kvs := make([]*iwfpb.KV, len(writes))
+	for index, write := range writes {
+		kvs[index] = &iwfpb.KV{Key: write.GetKey(), Value: write.GetValue()}
+	}
+	return kvs
+}
+
+func matchAttributeKVsUnordered(expected, actual []*iwfpb.KV) error {
+	if len(expected) != len(actual) {
+		return status.Errorf(codes.InvalidArgument, "expected %d attributes, got %d", len(expected), len(actual))
+	}
+	for _, expectedAttribute := range expected {
+		if !containsMatchingKV(actual, expectedAttribute) {
+			return status.Errorf(codes.InvalidArgument, "missing attribute key %q", expectedAttribute.GetKey())
+		}
+	}
+	return nil
+}
+
+func containsMatchingKV(attributes []*iwfpb.KV, expected *iwfpb.KV) bool {
+	for _, attribute := range attributes {
+		if attribute.GetKey() != expected.GetKey() {
+			continue
+		}
+		expectedPayload, expectedOk := objPayloadFromValue(expected.GetValue())
+		actualPayload, actualOk := objPayloadFromValue(attribute.GetValue())
+		if expectedOk && actualOk &&
+			expected.GetValue().GetObjValue().GetEncoding() == attribute.GetValue().GetObjValue().GetEncoding() &&
+			expectedPayload == actualPayload {
+			return true
+		}
+	}
+	return false
+}
+
+func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_ObjValue{
+				ObjValue: &iwfpb.EncodedObject{
+					Encoding: "json",
+					Payload:  []byte(payload),
+				},
+			},
+		},
+	}
+}
+
+func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	objValue := value.GetObjValue()
+	if objValue == nil {
+		return "", false
+	}
+	return string(objValue.GetPayload()), true
 }

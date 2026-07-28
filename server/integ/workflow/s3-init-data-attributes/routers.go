@@ -21,26 +21,27 @@
 package s3_init_data_attributes
 
 import (
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, testing S3 data attribute loading functionality.
+ * This test flow has 2 steps, testing S3 data attribute loading functionality.
  *
- * State1:
- *		- WaitUntil method loads and validates data attributes from S3
- *      - Execute method transitions to State2
+ * Step1:
+ *		- WaitFor loads and validates data attributes from S3
+ *      - Execute transitions to Step2
  *
- * State2:
- *		- WaitUntil method does nothing
- *      - Execute method loads and validates data attributes from S3, then completes workflow
+ * Step2:
+ *		- WaitFor does nothing
+ *      - Execute loads and validates data attributes from S3, then completes flow
  */
 const (
 	WorkflowType      = "s3-init-data-attributes"
@@ -54,22 +55,14 @@ const (
 	SmallDataContent3 = "small"
 )
 
-var TestDataAttributeVal1 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("\"" + LargeDataContent1 + "\""),
-}
+var TestDataAttributeVal1 = jsonObjValue("\"" + LargeDataContent1 + "\"")
 
-var TestDataAttributeVal2 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("\"" + LargeDataContent2 + "\""),
-}
+var TestDataAttributeVal2 = jsonObjValue("\"" + LargeDataContent2 + "\"")
 
-var TestDataAttributeVal3 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("\"" + SmallDataContent3 + "\""),
-}
+var TestDataAttributeVal3 = jsonObjValue("\"" + SmallDataContent3 + "\"")
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -81,232 +74,102 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if req.GetWorkflowStateId() == State1 {
-			// Increment invoke count
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-			}
-
-			// Store the state input for verification
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start_input", req.GetStateInput())
-
-			// Validate that data attributes received match exactly the initial values provided at workflow start
-			queryAtts := req.GetDataObjects()
-			log.Printf("S1 WaitUntil: Received %d data attributes, validating they match initial values", len(queryAtts))
-
-			foundAttr1 := false
-			foundAttr2 := false
-			foundAttr3 := false
-			validationErrors := []string{}
-
-			for _, queryAtt := range queryAtts {
-				if queryAtt.GetKey() == TestDataAttrKey1 {
-					expectedData := *TestDataAttributeVal1.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr1 = true
-						h.invokeData.Store("S1_start_attr1_data", receivedData)
-						log.Printf("S1 WaitUntil: ✅ %s value matches initial data (length: %d)", TestDataAttrKey1, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr1 mismatch")
-						log.Printf("S1 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey1, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataAttrKey2 {
-					expectedData := *TestDataAttributeVal2.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr2 = true
-						h.invokeData.Store("S1_start_attr2_data", receivedData)
-						log.Printf("S1 WaitUntil: ✅ %s value matches initial data (length: %d)", TestDataAttrKey2, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr2 mismatch")
-						log.Printf("S1 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey2, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataAttrKey3 {
-					expectedData := *TestDataAttributeVal3.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr3 = true
-						h.invokeData.Store("S1_start_attr3_data", receivedData)
-						log.Printf("S1 WaitUntil: ✅ %s value matches initial data (length: %d)", TestDataAttrKey3, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr3 mismatch")
-						log.Printf("S1 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey3, expectedData, receivedData)
-					}
-				}
-			}
-
-			allValidationsPass := foundAttr1 && foundAttr2 && foundAttr3 && len(validationErrors) == 0
-			log.Printf("S1 WaitUntil: Data attribute validation complete - all match initial values: %t", allValidationsPass)
-
-			h.invokeData.Store("S1_start_attr1_found", foundAttr1)
-			h.invokeData.Store("S1_start_attr2_found", foundAttr2)
-			h.invokeData.Store("S1_start_attr3_found", foundAttr3)
-			h.invokeData.Store("S1_start_total_attrs", len(queryAtts))
-			h.invokeData.Store("S1_start_validation_pass", allValidationsPass)
-
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State2 {
-			// Increment invoke count
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-			}
-
-			// State2 waitUntil doesn't need to check data attributes
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	stepType := request.GetStepType()
+	h.incrementInvokeHistory(stepType + "_waitFor")
+
+	if stepType == State1 {
+		h.invokeHistory.Store(stepType+"_waitFor_input", request.GetStepInput())
+		h.validateInitialAttributes(
+			request.GetAttributes(),
+			"S1 WaitUntil",
+			"S1_waitFor",
+		)
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	if stepType == State2 {
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if req.GetWorkflowStateId() == State1 {
-			// Increment invoke count
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-			}
-
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide_input", req.GetStateInput())
-
-			// Transition to State2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    State2,
-							StateInput: req.StateInput,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State2 {
-			// Increment invoke count
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-			}
-
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide_input", req.GetStateInput())
-
-			// Validate that data attributes received match exactly the initial values provided at workflow start
-			queryAtts := req.GetDataObjects()
-			log.Printf("S2 Execute: Received %d data attributes, validating they match initial values", len(queryAtts))
-
-			foundAttr1 := false
-			foundAttr2 := false
-			foundAttr3 := false
-			validationErrors := []string{}
-
-			for _, queryAtt := range queryAtts {
-				if queryAtt.GetKey() == TestDataAttrKey1 {
-					expectedData := *TestDataAttributeVal1.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr1 = true
-						h.invokeData.Store("S2_decide_attr1_data", receivedData)
-						log.Printf("S2 Execute: ✅ %s value matches initial data (length: %d)", TestDataAttrKey1, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr1 mismatch")
-						log.Printf("S2 Execute: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey1, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataAttrKey2 {
-					expectedData := *TestDataAttributeVal2.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr2 = true
-						h.invokeData.Store("S2_decide_attr2_data", receivedData)
-						log.Printf("S2 Execute: ✅ %s value matches initial data (length: %d)", TestDataAttrKey2, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr2 mismatch")
-						log.Printf("S2 Execute: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey2, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataAttrKey3 {
-					expectedData := *TestDataAttributeVal3.Data
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundAttr3 = true
-						h.invokeData.Store("S2_decide_attr3_data", receivedData)
-						log.Printf("S2 Execute: ✅ %s value matches initial data (length: %d)", TestDataAttrKey3, len(receivedData))
-					} else {
-						validationErrors = append(validationErrors, "attr3 mismatch")
-						log.Printf("S2 Execute: ❌ %s value mismatch - expected: %s, received: %s", TestDataAttrKey3, expectedData, receivedData)
-					}
-				}
-			}
-
-			allValidationsPass := foundAttr1 && foundAttr2 && foundAttr3 && len(validationErrors) == 0
-			log.Printf("S2 Execute: Data attribute validation complete - all match initial values: %t", allValidationsPass)
-
-			h.invokeData.Store("S2_decide_attr1_found", foundAttr1)
-			h.invokeData.Store("S2_decide_attr2_found", foundAttr2)
-			h.invokeData.Store("S2_decide_attr3_found", foundAttr3)
-			h.invokeData.Store("S2_decide_total_attrs", len(queryAtts))
-			h.invokeData.Store("S2_decide_validation_pass", allValidationsPass)
-
-			// Complete workflow
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    service.GracefulCompletingWorkflowStateId,
-							StateInput: req.StateInput,
-						},
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	stepType := request.GetStepType()
+	h.incrementInvokeHistory(stepType + "_execute")
+
+	if stepType == State1 {
+		h.invokeHistory.Store(stepType+"_execute_input", request.GetStepInput())
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  State2,
+						StepInput: request.GetStepInput(),
+					},
+				},
+			},
+		}, nil
+	}
+
+	if stepType == State2 {
+		h.invokeHistory.Store(stepType+"_execute_input", request.GetStepInput())
+		h.validateInitialAttributes(
+			request.GetAttributes(),
+			"S2 Execute",
+			"S2_execute",
+		)
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  service.GracefulCompletingFlowStepType,
+						StepInput: request.GetStepInput(),
+					},
+				},
+			},
+		}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	outInvokehistory := make(map[string]interface{})
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		outInvokehistory[key.(string)] = value
@@ -319,10 +182,111 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		return true
 	})
 
-	// Merge both maps
-	for k, v := range outInvokeData {
-		outInvokehistory[k] = v
+	for key, value := range outInvokeData {
+		outInvokehistory[key] = value
 	}
 
-	return nil, outInvokehistory
+	return common.TestResult{InvokeData: outInvokehistory}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
+}
+
+func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, storePrefix string) {
+	log.Printf("%s: Received %d data attributes, validating they match initial values", logPrefix, len(attributes))
+
+	foundAttr1 := false
+	foundAttr2 := false
+	foundAttr3 := false
+	validationErrors := []string{}
+
+	for _, attribute := range attributes {
+		receivedData, ok := objPayloadFromValue(attribute.GetValue())
+		if !ok {
+			if blobId := blobIdFromValue(attribute.GetValue()); blobId != "" {
+				validationErrors = append(validationErrors, attribute.GetKey()+" unexpected blob id arm")
+				log.Printf("%s: attribute %s still has blob id %q", logPrefix, attribute.GetKey(), blobId)
+			}
+			continue
+		}
+
+		switch attribute.GetKey() {
+		case TestDataAttrKey1:
+			expectedData := string(TestDataAttributeVal1.GetObjValue().GetPayload())
+			if receivedData == expectedData {
+				foundAttr1 = true
+				h.invokeData.Store(storePrefix+"_attr1_data", receivedData)
+				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey1, len(receivedData))
+			} else {
+				validationErrors = append(validationErrors, "attr1 mismatch")
+				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey1, expectedData, receivedData)
+			}
+		case TestDataAttrKey2:
+			expectedData := string(TestDataAttributeVal2.GetObjValue().GetPayload())
+			if receivedData == expectedData {
+				foundAttr2 = true
+				h.invokeData.Store(storePrefix+"_attr2_data", receivedData)
+				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey2, len(receivedData))
+			} else {
+				validationErrors = append(validationErrors, "attr2 mismatch")
+				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey2, expectedData, receivedData)
+			}
+		case TestDataAttrKey3:
+			expectedData := string(TestDataAttributeVal3.GetObjValue().GetPayload())
+			if receivedData == expectedData {
+				foundAttr3 = true
+				h.invokeData.Store(storePrefix+"_attr3_data", receivedData)
+				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey3, len(receivedData))
+			} else {
+				validationErrors = append(validationErrors, "attr3 mismatch")
+				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey3, expectedData, receivedData)
+			}
+		}
+	}
+
+	allValidationsPass := foundAttr1 && foundAttr2 && foundAttr3 && len(validationErrors) == 0
+	log.Printf("%s: Data attribute validation complete - all match initial values: %t", logPrefix, allValidationsPass)
+
+	h.invokeData.Store(storePrefix+"_attr1_found", foundAttr1)
+	h.invokeData.Store(storePrefix+"_attr2_found", foundAttr2)
+	h.invokeData.Store(storePrefix+"_attr3_found", foundAttr3)
+	h.invokeData.Store(storePrefix+"_total_attrs", len(attributes))
+	h.invokeData.Store(storePrefix+"_validation_pass", allValidationsPass)
+}
+
+func jsonObjValue(payload string) *iwfpb.Value {
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
+			},
+		},
+	}
+}
+
+func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	objValue := value.GetObjValue()
+	if objValue == nil {
+		return "", false
+	}
+	return string(objValue.GetPayload()), true
+}
+
+func blobIdFromValue(value *iwfpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
+		return blobId
+	}
+	return value.GetInternalBlobIdForStringValue()
 }

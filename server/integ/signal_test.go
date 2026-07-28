@@ -24,17 +24,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	config2 "github.com/superdurable/iwf/config"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/signal"
 	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"net/http"
-	"strconv"
-	"testing"
-	"time"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSignalWorkflowTemporal(t *testing.T) {
@@ -77,237 +78,199 @@ func TestSignalWorkflowCadenceContinueAsNew(t *testing.T) {
 	}
 }
 
-func doTestSignalWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
+func doTestSignalWorkflow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
 	assertions := assert.New(t)
 
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
+	unifiedClient := runtime.UnifiedClient
 
-	uclient, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := signal.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := signal.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 20,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	// test update config
-	var debugDump service.DebugDumpResponse
-	err = uclient.QueryWorkflow(context.Background(), &debugDump, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
+	var debugDump iwfpb.DebugDumpResponse
+	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	expectedConfig := proto.Clone(config2.DefaultWorkflowConfig).(*iwfpb.FlowConfig)
+	if flowConfig != nil {
+		expectedConfig = proto.Clone(flowConfig).(*iwfpb.FlowConfig)
 	}
-	expectedConfig := *config2.DefaultWorkflowConfig
-	if config != nil {
-		expectedConfig = *config
-	}
-	assertions.Equal(expectedConfig, debugDump.Config)
+	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
 
-	// update the disable system SA
-	reqUpdateConfig := apiClient.DefaultApi.ApiV1WorkflowConfigUpdatePost(context.Background())
-	httpResp, err = reqUpdateConfig.WorkflowConfigUpdateRequest(iwfidl.WorkflowConfigUpdateRequest{
-		WorkflowId: wfId,
-		WorkflowConfig: iwfidl.WorkflowConfig{
-			DisableSystemSearchAttribute: iwfidl.PtrBool(true),
+	_, err = flowClient.UpdateFlowConfig(ctx, &iwfpb.UpdateFlowConfigRequest{
+		FlowId: flowId,
+		FlowConfig: &iwfpb.FlowConfig{
+			ContinueAsNewPageSizeInBytes: ptr.Any(int32(3000000)),
 		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	})
+	require.NoError(t, err)
 
-	// Short wait for workflow update
 	time.Sleep(2 * time.Second)
 
-	err = uclient.QueryWorkflow(context.Background(), &debugDump, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
-	expectedConfig.DisableSystemSearchAttribute = iwfidl.PtrBool(true)
-	assertions.Equal(expectedConfig, debugDump.Config)
+	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	expectedConfig.ContinueAsNewPageSizeInBytes = ptr.Any(int32(3000000))
+	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
 
-	// update the pagination size
-	reqUpdateConfig = apiClient.DefaultApi.ApiV1WorkflowConfigUpdatePost(context.Background())
-	httpResp, err = reqUpdateConfig.WorkflowConfigUpdateRequest(iwfidl.WorkflowConfigUpdateRequest{
-		WorkflowId: wfId,
-		WorkflowConfig: iwfidl.WorkflowConfig{
-			ContinueAsNewPageSizeInBytes: iwfidl.PtrInt32(3000000),
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Short wait for workflow update
-	time.Sleep(2 * time.Second)
-
-	err = uclient.QueryWorkflow(context.Background(), &debugDump, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
-	expectedConfig.ContinueAsNewPageSizeInBytes = iwfidl.PtrInt32(3000000)
-	assertions.Equal(expectedConfig, debugDump.Config)
-
-	// signal for testing unhandled signals
-	var unhandledSignalVals []*iwfidl.EncodedObject
+	var unhandledSignalVals []*iwfpb.Value
 	for i := 0; i < 10; i++ {
-		sigVal := &iwfidl.EncodedObject{
-			Encoding: iwfidl.PtrString("json"),
-			Data:     iwfidl.PtrString(fmt.Sprintf("test-data-%v", i)),
+		signalVal := stringValue(fmt.Sprintf("test-data-%v", i))
+		_, publishErr := flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: signal.UnhandledSignalName,
+					Value:       signalVal,
+				},
+			},
+		})
+		if publishErr == nil {
+			unhandledSignalVals = append(unhandledSignalVals, signalVal)
 		}
-		req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-		httpResp2, _ := req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-			WorkflowId:        wfId,
-			SignalChannelName: signal.UnhandledSignalName,
-			SignalValue:       sigVal,
-		}).Execute()
-		if httpResp2.StatusCode == http.StatusOK {
-			// see why in https://github.com/temporalio/temporal/issues/4801
-			unhandledSignalVals = append(unhandledSignalVals, sigVal)
-		}
-		// Cadence seems to be slower to process; short sleep needed
 		if *cadenceIntegTest {
 			time.Sleep(100 * time.Millisecond)
 		}
-		reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-		rpcResp, httpResp2, err2 := reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-			WorkflowId: wfId,
-			RpcName:    signal.RPCNameGetSignalChannelInfo,
-		}).Execute()
-		failTestAtHttpError(err2, httpResp2, t)
-		var infos map[string]iwfidl.ChannelInfo
-		err = json.Unmarshal([]byte(rpcResp.Output.GetData()), &infos)
-		failTestAtError(err, t)
+
+		rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+			FlowId:  flowId,
+			RpcName: signal.RPCNameGetSignalChannelInfo,
+		})
+		require.NoError(t, rpcErr)
+		infos := channelInfosFromOutput(t, rpcResp.GetOutput())
 		assertions.Equal(
-			map[string]iwfidl.ChannelInfo{signal.UnhandledSignalName: {Size: ptr.Any(int32(i + 1))}}, infos)
+			map[string]*iwfpb.ChannelInfo{
+				signal.UnhandledSignalName: {Size: int32(i + 1)},
+			},
+			infos,
+		)
 	}
-	// Cadence seems to be slower to process; short sleep needed
 	if *cadenceIntegTest {
 		time.Sleep(100 * time.Millisecond)
 	}
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	rpcResp, httpResp2, err2 := reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    signal.RPCNameGetInternalChannelInfo,
-	}).Execute()
-	failTestAtHttpError(err2, httpResp2, t)
-	var infos map[string]iwfidl.ChannelInfo
-	err = json.Unmarshal([]byte(rpcResp.Output.GetData()), &infos)
-	failTestAtError(err, t)
+
+	rpcResp, err := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:  flowId,
+		RpcName: signal.RPCNameGetInternalChannelInfo,
+	})
+	require.NoError(t, err)
+	infos := channelInfosFromOutput(t, rpcResp.GetOutput())
 	assertions.Equal(
-		map[string]iwfidl.ChannelInfo{signal.InternalChannelName: {Size: ptr.Any(int32(10))}}, infos)
+		map[string]*iwfpb.ChannelInfo{
+			signal.InternalChannelName: {Size: 10},
+		},
+		infos,
+	)
 
-	// signal the workflow
-	var signalVals []iwfidl.EncodedObject
+	var signalVals []*iwfpb.Value
 	for i := 0; i < 4; i++ {
-		signalVal := iwfidl.EncodedObject{
-			Encoding: iwfidl.PtrString("json"),
-			Data:     iwfidl.PtrString(fmt.Sprintf("test-data-%v", i)),
-		}
+		signalVal := stringValue(fmt.Sprintf("test-data-%v", i))
 		signalVals = append(signalVals, signalVal)
-
-		req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-		httpResp2, err := req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-			WorkflowId:        wfId,
-			SignalChannelName: signal.SignalName,
-			SignalValue:       &signalVal,
-		}).Execute()
-
-		failTestAtHttpError(err, httpResp2, t)
+		_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: signal.SignalName,
+					Value:       signalVal,
+				},
+			},
+		})
+		require.NoError(t, err)
 	}
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	history, data := wfHandler.GetTestResult()
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
 	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-		"S2_start":  1,
-		"S2_decide": 1,
+		"S1_waitFor": 1,
+		"S1_execute": 1,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
 	}, history, "signal test fail, %v", history)
 
-	assertions.Equal(fmt.Sprintf("signal-cmd-id%v", 0), data[fmt.Sprintf("signalId%v", 0)])
-	assertions.Equal(fmt.Sprintf("signal-cmd-id%v", 1), data[fmt.Sprintf("signalId%v", 1)])
-	assertions.Equal("", data[fmt.Sprintf("signalId%v", 2)])
-	assertions.Equal("", data[fmt.Sprintf("signalId%v", 3)])
+	assertions.Equal("signal-cmd-id0", data["signalId0"])
+	assertions.Equal("signal-cmd-id1", data["signalId1"])
+	assertions.Equal("", data["signalId2"])
+	assertions.Equal("", data["signalId3"])
 	for i := 0; i < 4; i++ {
-		assertions.Equal(signalVals[i], data[fmt.Sprintf("signalValue%v", i)])
+		assertions.True(proto.Equal(signalVals[i], data[fmt.Sprintf("signalValue%v", i)].(*iwfpb.Value)))
 	}
 
-	var dump service.DebugDumpResponse
-	err = uclient.QueryWorkflow(context.Background(), &dump, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
-	assertions.Equal(unhandledSignalVals, dump.Snapshot.SignalsReceived[signal.UnhandledSignalName])
+	var dump iwfpb.DebugDumpResponse
+	err = unifiedClient.QueryWorkflow(ctx, &dump, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	received := dump.GetSnapshot().GetChannelReceived()[signal.UnhandledSignalName].GetValues()
 	assertions.True(len(unhandledSignalVals) > 0)
-
-	if config == nil {
-		// TODO add assertion for continueAsNew case
-
-		// reset with all signals reserved (default behavior)
-		// reset to beginning
-		req4 := apiClient.DefaultApi.ApiV1WorkflowResetPost(context.Background())
-		_, httpResp, err = req4.WorkflowResetRequest(iwfidl.WorkflowResetRequest{
-			WorkflowId: wfId,
-			ResetType:  iwfidl.BEGINNING,
-		}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		reqWait = apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-		resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-			WorkflowId: wfId,
-		}).Execute()
-		failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, resp, t)
-
-		// reset to STATE_EXECUTION_ID
-		req4 = apiClient.DefaultApi.ApiV1WorkflowResetPost(context.Background())
-		_, httpResp, err = req4.WorkflowResetRequest(iwfidl.WorkflowResetRequest{
-			WorkflowId:       wfId,
-			ResetType:        iwfidl.STATE_EXECUTION_ID,
-			StateExecutionId: iwfidl.PtrString("S2-1"),
-		}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		reqWait = apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-		resp, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-			WorkflowId: wfId,
-		}).Execute()
-		failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, resp, t)
-
-		// reset to STATE_ID
-		req4 = apiClient.DefaultApi.ApiV1WorkflowResetPost(context.Background())
-		_, httpResp, err = req4.WorkflowResetRequest(iwfidl.WorkflowResetRequest{
-			WorkflowId: wfId,
-			ResetType:  iwfidl.STATE_ID,
-			StateId:    iwfidl.PtrString("S2"),
-		}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		reqWait = apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-		resp, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-			WorkflowId: wfId,
-		}).Execute()
-		failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, resp, t)
+	require.Len(t, received, len(unhandledSignalVals))
+	for i, expected := range unhandledSignalVals {
+		assertions.True(proto.Equal(expected, received[i]))
 	}
 
+	if flowConfig == nil {
+		_, err = flowClient.ResetFlow(ctx, &iwfpb.ResetFlowRequest{
+			FlowId:    flowId,
+			ResetType: iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING,
+		})
+		require.NoError(t, err)
+		_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+			FlowId:          flowId,
+			WaitTimeSeconds: 20,
+		})
+		require.NoError(t, err)
+
+		_, err = flowClient.ResetFlow(ctx, &iwfpb.ResetFlowRequest{
+			FlowId:          flowId,
+			ResetType:       iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+			StepExecutionId: "S2-1",
+		})
+		require.NoError(t, err)
+		_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+			FlowId:          flowId,
+			WaitTimeSeconds: 20,
+		})
+		require.NoError(t, err)
+
+		_, err = flowClient.ResetFlow(ctx, &iwfpb.ResetFlowRequest{
+			FlowId:    flowId,
+			ResetType: iwfpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
+			StepType:  "S2",
+		})
+		require.NoError(t, err)
+		_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+			FlowId:          flowId,
+			WaitTimeSeconds: 20,
+		})
+		require.NoError(t, err)
+	}
+}
+
+func channelInfosFromOutput(t *testing.T, output *iwfpb.Value) map[string]*iwfpb.ChannelInfo {
+	t.Helper()
+	var infos map[string]*iwfpb.ChannelInfo
+	err := json.Unmarshal(output.GetObjValue().GetPayload(), &infos)
+	require.NoError(t, err)
+	return infos
 }

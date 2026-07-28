@@ -20,18 +20,13 @@
 
 package common
 
-import (
-	"github.com/gin-gonic/gin"
-	"testing"
-)
-
-type WorkflowHandler interface {
-	ApiV1WorkflowStateStart(c *gin.Context, t *testing.T)
-	ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T)
-	GetTestResult() (map[string]int64, map[string]interface{})
+// TestResult holds worker invoke counters and arbitrary captured data for assertions.
+type TestResult struct {
+	InvokeHistory map[string]int64
+	InvokeData    map[string]interface{}
 }
 
-type WorkflowHandlerWithRpc interface {
-	WorkflowHandler
-	ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T)
+// TestResultProvider exposes invoke results for integ assertions.
+type TestResultProvider interface {
+	GetTestResult() TestResult
 }

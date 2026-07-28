@@ -27,6 +27,14 @@ import (
 
 const testWorkflowServerPort = "9714"
 const testIwfServerPort = "9715"
+const testNamespace = "default"
+
+type IwfServiceTestConfig struct {
+	BackendType     service.BackendType
+	MemoEncryption  bool
+	DefaultHeaders  map[string]string
+	S3TestThreshold int
+}
 
 func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
 	cfg := config.Config{

@@ -21,33 +21,32 @@
 package locking
 
 import (
+	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"strconv"
 	"sync"
-	"testing"
 	"time"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has three states, using REST controller to implement the workflow directly.
+ * This test flow has three steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method does nothing
- * 		- Execute method will move to State Waiting, and 10 instances of State 2
- * State2:
- * 		- WaitUntil update SA
- * 		- Execute method will update data attributes and will gracefully complete workflow
+ * Step1:
+ *		- WaitFor method does nothing
+ * 		- Execute method will move to Step Waiting, and 10 instances of Step 2
+ * Step2:
+ * 		- WaitFor update indexed attributes
+ * 		- Execute method will update data attributes and will gracefully complete flow
  * StateWaiting:
- * 		- WaitUntil will proceed once the internal channel has been published to
- *      - Execute method will gracefully complete workflow
+ * 		- WaitFor will proceed once the internal channel has been published to
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType                  = "locking"
@@ -71,368 +70,337 @@ const (
 	UnusedInternalChannelName = "test-unused-internal-channel"
 )
 
-var TestValue = &iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("data"),
-}
+var testValue = jsonObjValue("data")
 
-var UnblockValue = &iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString(ShouldUnblockStateWaiting),
-}
-
-var state2Options = &iwfidl.WorkflowStateOptions{
-	SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-		PersistenceLoadingType: iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK.Ptr(),
-		PartialLoadingKeys: []string{
-			TestSearchAttributeIntKey,
-			TestSearchAttributeKeywordKey,
-		},
-		LockingKeys: []string{
-			TestSearchAttributeIntKey,
-		},
+var state2StepOptions = &iwfpb.StepOptions{
+	WaitForLockAttributeKeys: []string{
+		TestSearchAttributeIntKey,
+		TestDataAttributeKey1,
 	},
-	DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-		PersistenceLoadingType: iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK.Ptr(),
-		PartialLoadingKeys: []string{
-			TestDataAttributeKey1,
-			TestDataAttributeKey2,
-		},
-		LockingKeys: []string{
-			TestDataAttributeKey1,
-		},
+	ExecuteLockAttributeKeys: []string{
+		TestSearchAttributeIntKey,
+		TestDataAttributeKey1,
 	},
-}
-
-var state2Movement = iwfidl.StateMovement{
-	StateId:      State2,
-	StateOptions: state2Options,
 }
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	rpcInvokes    int32
 }
 
-func NewHandler() common.WorkflowHandlerWithRpc {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received workflow worker rpc request, ", req)
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	request *iwfpb.InvokeWorkerRPCRequest,
+) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	log.Println("received worker rpc request, ", request)
 
-	if req.WorkflowType != WorkflowType || (req.RpcName != RPCName) {
-		helpers.FailTestWithErrorMessage(fmt.Sprintf("invalid rpc name: %s", req.RpcName), t)
+	if request.GetFlowType() != WorkflowType || request.GetRpcName() != RPCName {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
 	}
 
-	input := req.Input
-	if input.GetEncoding() != TestValue.GetEncoding() {
-		helpers.FailTestWithErrorMessage("input is incorrect", t)
+	inputObj := request.GetInput().GetObjValue()
+	if inputObj == nil || inputObj.GetEncoding() != "json" {
+		return nil, status.Error(codes.InvalidArgument, "input is incorrect")
 	}
+	inputPayload := string(inputObj.GetPayload())
 
-	// Publish to internal channel
-	if input.GetData() == ShouldUnblockStateWaiting {
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
+	if inputPayload == ShouldUnblockStateWaiting {
+		return &iwfpb.InvokeWorkerRPCResponse{
+			PublishToChannel: []*iwfpb.ChannelMessage{
 				{
 					ChannelName: InternalChannelName,
-					Value:       TestValue,
+					Value:       testValue,
 				},
 			},
-		})
-		return
+		}, nil
 	}
 
-	signalChannelInfo := (*req.SignalChannelInfos)[UnusedSignalChannelName]
+	signalChannelInfo := request.GetChannelInfos()[UnusedSignalChannelName]
 	if signalChannelInfo.GetSize() != NumUnusedSignals {
-		// the 4 messages are sent from the beginning of "locking_test"
-		helpers.FailTestWithErrorMessage("incorrect signal channel size", t)
+		return nil, status.Error(codes.InvalidArgument, "incorrect signal channel size")
 	}
 
 	if h.rpcInvokes > 0 {
-		internalChannelInfo := (*req.InternalChannelInfos)[UnusedInternalChannelName]
+		internalChannelInfo := request.GetChannelInfos()[UnusedInternalChannelName]
 		if h.rpcInvokes != internalChannelInfo.GetSize() {
-			helpers.FailTestWithErrorMessage("incorrect internal channel size", t)
+			return nil, status.Error(codes.InvalidArgument, "incorrect internal channel size")
 		}
 	}
 	h.rpcInvokes++
 
 	time.Sleep(time.Millisecond)
 
-	// This RPC will increase both SA and DA
 	saInt := int64(0)
-	for _, sa := range req.GetSearchAttributes() {
-		if sa.GetKey() == TestSearchAttributeIntKey {
-			saInt = sa.GetIntegerValue()
+	for _, attribute := range request.GetAttributes() {
+		if attribute.GetKey() == TestSearchAttributeIntKey {
+			saInt = attribute.GetValue().GetIntValue()
 		}
 	}
 	saInt++
 
-	context := req.GetContext()
-	upsertSearchAttributes := []iwfidl.SearchAttribute{
-		{
-			Key:         iwfidl.PtrString(TestSearchAttributeKeywordKey),
-			StringValue: iwfidl.PtrString(context.GetStateExecutionId()),
-			ValueType:   ptr.Any(iwfidl.KEYWORD),
-		},
-		{
-			Key:          iwfidl.PtrString(TestSearchAttributeIntKey),
-			IntegerValue: iwfidl.PtrInt64(saInt),
-			ValueType:    ptr.Any(iwfidl.INT),
-		},
+	stepContext := request.GetContext()
+	upsertAttributes := []*iwfpb.AttributeWrite{
+		indexedKeywordWrite(TestSearchAttributeKeywordKey, stepContext.GetStepExecutionId()),
+		indexedIntWrite(TestSearchAttributeIntKey, saInt),
 	}
 
 	daInt := 0
-	for _, da := range req.DataAttributes {
-		if da.GetKey() == TestDataAttributeKey1 {
-			value := da.GetValue()
-			data := value.GetData()
-			if data != "" {
-				i, err := strconv.ParseInt(data, 10, 32)
+	for _, attribute := range request.GetAttributes() {
+		if attribute.GetKey() == TestDataAttributeKey1 {
+			payload, hasPayload := objPayloadFromValue(attribute.GetValue())
+			if hasPayload && payload != "" {
+				parsed, err := strconv.ParseInt(payload, 10, 32)
 				if err != nil {
-					helpers.FailTestWithError(err, t)
+					return nil, status.Error(codes.InvalidArgument, err.Error())
 				}
-				daInt = int(i)
+				daInt = int(parsed)
 			}
 		}
 	}
 	daInt++
 
-	upsertDataAttributes := []iwfidl.KeyValue{
-		{
-			Key: iwfidl.PtrString(TestDataAttributeKey1),
-			Value: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString(fmt.Sprintf("%v", daInt)),
-			},
-		},
-		{
-			Key: iwfidl.PtrString(TestDataAttributeKey2),
-			Value: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString(context.GetStateExecutionId()),
-			},
-		},
-	}
+	upsertAttributes = append(upsertAttributes,
+		dataObjectWrite(TestDataAttributeKey1, fmt.Sprintf("%v", daInt)),
+		dataObjectWrite(TestDataAttributeKey2, stepContext.GetStepExecutionId()),
+	)
 
-	response := iwfidl.WorkflowWorkerRpcResponse{
-		Output: TestValue,
-		StateDecision: &iwfidl.StateDecision{NextStates: []iwfidl.StateMovement{
-			state2Movement,
-		}},
-		UpsertSearchAttributes: upsertSearchAttributes,
-		UpsertDataAttributes:   upsertDataAttributes,
-		RecordEvents: []iwfidl.KeyValue{
-			{
-				Key:   iwfidl.PtrString("test-key"),
-				Value: TestValue,
+	return &iwfpb.InvokeWorkerRPCResponse{
+		Output: testValue,
+		StepDecision: &iwfpb.StepDecision{
+			NextSteps: []*iwfpb.StepMovement{
+				{
+					StepType:    State2,
+					StepOptions: state2StepOptions,
+				},
 			},
 		},
-		PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
+		UpsertAttributes: upsertAttributes,
+		RecordEvents: []*iwfpb.KV{
+			{Key: "test-key", Value: testValue},
+		},
+		PublishToChannel: []*iwfpb.ChannelMessage{
 			{
 				ChannelName: UnusedInternalChannelName,
-				Value:       TestValue,
+				Value:       testValue,
 			},
 		},
-	}
-	c.JSON(http.StatusOK, response)
-
+	}, nil
 }
 
-// ApiV1WorkflowStateStart - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-		}
-
-		// Go straight to the decide methods without any commands
-		if req.GetWorkflowStateId() == State1 {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
-		// Will proceed once the internal channel has been published to
-		if req.GetWorkflowStateId() == StateWaiting {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					InterStateChannelCommands: []iwfidl.InterStateChannelCommand{
-						{
-							ChannelName: InternalChannelName,
-						},
-					},
-				},
-			})
-			return
-
-		}
-		if req.GetWorkflowStateId() == State2 {
-			// This state API is to increase SA
-			time.Sleep(time.Second)
-			saInt := int64(0)
-			for _, sa := range req.GetSearchAttributes() {
-				if sa.GetKey() == TestSearchAttributeIntKey {
-					saInt = sa.GetIntegerValue()
-				}
-			}
-			saInt++
-
-			var sa []iwfidl.SearchAttribute
-			context := req.GetContext()
-			sa = []iwfidl.SearchAttribute{
-				{
-					Key:         iwfidl.PtrString(TestSearchAttributeKeywordKey),
-					StringValue: iwfidl.PtrString(context.GetStateExecutionId()),
-					ValueType:   ptr.Any(iwfidl.KEYWORD),
-				},
-				{
-					Key:          iwfidl.PtrString(TestSearchAttributeIntKey),
-					IntegerValue: iwfidl.PtrInt64(saInt),
-					ValueType:    ptr.Any(iwfidl.INT),
-				},
-			}
-
-			// Go straight to the decide methods after updating SA
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-				UpsertSearchAttributes: sa,
-			})
-			return
-		}
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
+
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	case StateWaiting:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ChannelName: InternalChannelName},
+				},
+			},
+		}, nil
+	case State2:
+		time.Sleep(time.Second)
+		saInt := int64(0)
+		for _, attribute := range request.GetAttributes() {
+			if attribute.GetKey() == TestSearchAttributeIntKey {
+				saInt = attribute.GetValue().GetIntValue()
+			}
+		}
+		saInt++
+
+		stepContext := request.GetContext()
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				indexedKeywordWrite(TestSearchAttributeKeywordKey, stepContext.GetStepExecutionId()),
+				indexedIntWrite(TestSearchAttributeIntKey, saInt),
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
+
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
 	}
-	log.Println("received state decide request, ", req)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_execute")
+
+	switch request.GetStepType() {
+	case State1:
+		nextSteps := []*iwfpb.StepMovement{
+			{StepType: StateWaiting},
 		}
-
-		if req.GetWorkflowStateId() == State1 {
-
-			stms := []iwfidl.StateMovement{
-				{
-					StateId: StateWaiting,
-				},
-			}
-			for i := 0; i < InParallelS2; i++ {
-				stms = append(stms, state2Movement)
-			}
-
-			// Move to State Waiting, and 10 instances of State 2
-			// State Waiting will not complete until the internal channel has been published to
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: stms,
-				},
+		for i := 0; i < InParallelS2; i++ {
+			nextSteps = append(nextSteps, &iwfpb.StepMovement{
+				StepType:    State2,
+				StepOptions: state2StepOptions,
 			})
-			return
 		}
-		// Move to completion
-		if req.GetWorkflowStateId() == StateWaiting {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{NextSteps: nextSteps},
+		}, nil
+	case StateWaiting:
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
 				},
-			})
-			return
-		}
-		if req.GetWorkflowStateId() == State2 {
-			// This API is to increase DA
-			time.Sleep(time.Second)
-			daInt := 0
-			for _, da := range req.DataObjects {
-				if da.GetKey() == TestDataAttributeKey1 {
-					value := da.GetValue()
-					data := value.GetData()
-					if data != "" {
-						i, err := strconv.ParseInt(data, 10, 32)
-						if err != nil {
-							helpers.FailTestWithError(err, t)
-						}
-						daInt = int(i)
+			},
+		}, nil
+	case State2:
+		time.Sleep(time.Second)
+		daInt := 0
+		for _, attribute := range request.GetAttributes() {
+			if attribute.GetKey() == TestDataAttributeKey1 {
+				payload, hasPayload := objPayloadFromValue(attribute.GetValue())
+				if hasPayload && payload != "" {
+					parsed, err := strconv.ParseInt(payload, 10, 32)
+					if err != nil {
+						return nil, status.Error(codes.InvalidArgument, err.Error())
 					}
+					daInt = int(parsed)
 				}
 			}
-			daInt++
-			context := req.GetContext()
-
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				UpsertDataObjects: []iwfidl.KeyValue{
-					{
-						Key: iwfidl.PtrString(TestDataAttributeKey1),
-						Value: &iwfidl.EncodedObject{
-							Encoding: iwfidl.PtrString("json"),
-							Data:     iwfidl.PtrString(fmt.Sprintf("%v", daInt)),
-						},
-					},
-					{
-						Key: iwfidl.PtrString(TestDataAttributeKey2),
-						Value: &iwfidl.EncodedObject{
-							Encoding: iwfidl.PtrString("json"),
-							Data:     iwfidl.PtrString(context.GetStateExecutionId()),
-						},
-					},
-				},
-
-				// Move to completion
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
 		}
-	}
+		daInt++
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+		stepContext := request.GetContext()
+		return &iwfpb.InvokeExecuteMethodResponse{
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				dataObjectWrite(TestDataAttributeKey1, fmt.Sprintf("%v", daInt)),
+				dataObjectWrite(TestDataAttributeKey2, stepContext.GetStepExecutionId()),
+			},
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
+}
+
+func validateStepContext(stepContext *iwfpb.Context) error {
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+	return nil
+}
+
+func jsonObjValue(payload string) *iwfpb.Value {
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
+			},
+		},
+	}
+}
+
+func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	objValue := value.GetObjValue()
+	if objValue == nil {
+		return "", false
+	}
+	return string(objValue.GetPayload()), true
+}
+
+func indexedKeywordWrite(key, value string) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_StringValue{StringValue: value},
+		},
+		IndexConfig: &iwfpb.IndexConfig{
+			Enable: true,
+			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	}
+}
+
+func indexedIntWrite(key string, value int64) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_IntValue{IntValue: value},
+		},
+		IndexConfig: &iwfpb.IndexConfig{
+			Enable: true,
+			Type:   iwfpb.IndexType_INDEX_TYPE_INT,
+		},
+	}
+}
+
+func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key:   key,
+		Value: jsonObjValue(payload),
+	}
 }

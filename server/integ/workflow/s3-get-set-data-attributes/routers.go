@@ -21,25 +21,26 @@
 package s3GetSetDataAttributes
 
 import (
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * Test workflow for S3 external storage with get/set data attributes APIs.
+ * Test flow for S3 external storage with get/set data attributes APIs.
  * Tests both small data (stays in Temporal) and large data (goes to S3).
  *
- * State1:
- *   - Simple workflow that waits and completes
+ * Step1:
+ *   - Simple flow that waits and completes
  *
  * The main testing is done via direct API calls to get/set data attributes,
- * not through workflow state transitions.
+ * not through flow step transitions.
  */
 
 const (
@@ -50,46 +51,29 @@ const (
 	LargeDataKey        = "large-data"
 	AnotherLargeDataKey = "another-large-data"
 
-	// Small data content (stays in Temporal - under 50 byte threshold)
 	SmallDataContent = "small"
 
-	// Large data content (goes to S3 - over 50 byte threshold)
-	LargeDataContent        = "large-data-content-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" // Over 50 bytes
-	AnotherLargeDataContent = "another-large-data-content-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"         // Over 50 bytes
+	LargeDataContent        = "large-data-content-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+	AnotherLargeDataContent = "another-large-data-content-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
 
-	// Updated values for testing updates
 	UpdatedSmallDataContent = "updated-small"
-	UpdatedLargeDataContent = "updated-large-data-content-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" // Over 50 bytes
+	UpdatedLargeDataContent = "updated-large-data-content-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 )
 
 var (
-	SmallDataValue = iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"" + SmallDataContent + "\""),
-	}
+	SmallDataValue = jsonObjValue("\"" + SmallDataContent + "\"")
 
-	LargeDataValue = iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"" + LargeDataContent + "\""),
-	}
+	LargeDataValue = jsonObjValue("\"" + LargeDataContent + "\"")
 
-	AnotherLargeDataValue = iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"" + AnotherLargeDataContent + "\""),
-	}
+	AnotherLargeDataValue = jsonObjValue("\"" + AnotherLargeDataContent + "\"")
 
-	UpdatedSmallDataValue = iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"" + UpdatedSmallDataContent + "\""),
-	}
+	UpdatedSmallDataValue = jsonObjValue("\"" + UpdatedSmallDataContent + "\"")
 
-	UpdatedLargeDataValue = iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"" + UpdatedLargeDataContent + "\""),
-	}
+	UpdatedLargeDataValue = jsonObjValue("\"" + UpdatedLargeDataContent + "\"")
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -97,92 +81,82 @@ func NewHandler() *handler {
 	return &handler{}
 }
 
-// GetTestResult returns the test result
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if request.GetStepType() == State1 {
+		h.invokeHistory.Store("S1_waitFor", int64(1))
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+}
+
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if request.GetStepType() == State1 {
+		h.invokeHistory.Store("S1_execute", int64(1))
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType: service.GracefulCompletingFlowStepType,
+					},
+				},
+			},
+		}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+}
+
+func (h *handler) GetTestResult() common.TestResult {
 	outInvokehistory := make(map[string]interface{})
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		outInvokehistory[key.(string)] = value
 		return true
 	})
-	return nil, outInvokehistory
+	return common.TestResult{InvokeData: outInvokehistory}
 }
 
-// ApiV1WorkflowStartPost - Define workflow states
-func (h *handler) ApiV1WorkflowStartPost(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if req.GetIwfWorkflowType() != WorkflowType {
-		c.JSON(http.StatusBadRequest, struct{}{})
-		return
-	}
-
-	c.JSON(http.StatusOK, iwfidl.WorkflowStartResponse{
-		WorkflowRunId: iwfidl.PtrString("test-run-id"),
-	})
-}
-
-// ApiV1WorkflowStateStart - Handle state start (waitUntil)
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
-
-	if req.GetWorkflowType() != WorkflowType {
-		c.JSON(http.StatusBadRequest, struct{}{})
-		return
-	}
-
-	if req.GetWorkflowStateId() == State1 {
-		h.invokeHistory.Store("S1_start", int64(1))
-
-		// Simple waitUntil - no commands, just proceed
-		c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-			CommandRequest: &iwfidl.CommandRequest{
-				DeciderTriggerType: iwfidl.ANY_COMMAND_COMPLETED.Ptr(),
+func jsonObjValue(payload string) *iwfpb.Value {
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
 			},
-		})
-		return
+		},
 	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
-}
-
-// ApiV1WorkflowStateDecide - Handle state execution (execute)
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
-
-	if req.GetWorkflowType() != WorkflowType {
-		c.JSON(http.StatusBadRequest, struct{}{})
-		return
-	}
-
-	if req.GetWorkflowStateId() == State1 {
-		h.invokeHistory.Store("S1_decide", int64(1))
-
-		// Complete the workflow
-		c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-			StateDecision: &iwfidl.StateDecision{
-				NextStates: []iwfidl.StateMovement{
-					{
-						StateId: service.GracefulCompletingWorkflowStateId,
-					},
-				},
-			},
-		})
-		return
-	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
 }

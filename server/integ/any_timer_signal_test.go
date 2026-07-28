@@ -22,165 +22,165 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	anytimersignal "github.com/superdurable/iwf/integ/workflow/any_timer_signal"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	anytimersignal "github.com/superdurable/iwf/integ/workflow/any_timer_signal"
+	"github.com/superdurable/iwf/service"
 )
 
-func TestAnyTimerSignalWorkflowTemporal(t *testing.T) {
+func TestAnyTimerSignalFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestAnyTimerSignalFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyAnyTimerSignalWorkflowTemporal(t *testing.T) {
+func TestGreedyAnyTimerSignalFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeTemporal, minimumGreedyTimerConfig())
+		doTestAnyTimerSignalFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyTimerSignalWorkflowCadence(t *testing.T) {
+func TestAnyTimerSignalFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeCadence, nil)
+		doTestAnyTimerSignalFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyAnyTimerSignalWorkflowCadence(t *testing.T) {
+func TestGreedyAnyTimerSignalFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeCadence, minimumGreedyTimerConfig())
+		doTestAnyTimerSignalFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyTimerSignalWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestAnyTimerSignalFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestAnyTimerSignalFlow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyAnyTimerSignalWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestGreedyAnyTimerSignalFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeTemporal, greedyTimerConfig(true))
+		doTestAnyTimerSignalFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyTimerSignalWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestAnyTimerSignalFlow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyAnyTimerSignalWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestGreedyAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalWorkflow(t, service.BackendTypeCadence, greedyTimerConfig(true))
+		doTestAnyTimerSignalFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func doTestAnyTimerSignalWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := anytimersignal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestAnyTimerSignalFlow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := anytimersignal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// create client
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
+	flowId := anytimersignal.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           anytimersignal.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		WorkerTarget:       workerTarget,
+		StartStepType:      anytimersignal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		},
+	})
+	require.NoError(t, err)
+
+	time.Sleep(3 * time.Second)
+	signalValue := encodedObjectValue("json", []byte("test-data-1"))
+	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*iwfpb.ChannelMessage{
 			{
-				URL: "http://localhost:" + testIwfServerPort,
+				ChannelName: anytimersignal.SignalName,
+				Value:       signalValue,
 			},
 		},
 	})
+	require.NoError(t, err)
 
-	// start a workflow
-	wfId := anytimersignal.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        anytimersignal.WorkflowType,
-		WorkflowTimeoutSeconds: 20,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(anytimersignal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	// Delay for 3 secs and then send the signal
-	time.Sleep(time.Second * 3)
-	signalValue := iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test-data-1"),
-	}
-	req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anytimersignal.SignalName,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	history, data := wfHandler.GetTestResult()
-	assertions := assert.New(t)
-	assertions.Equalf(map[string]int64{
-		"S1_start":  2,
-		"S1_decide": 2,
-		"S2_start":  1,
-		"S2_decide": 1,
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor": 2,
+		"S1_execute": 2,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
 	}, history, "anytimersignal test fail, %v", history)
 
-	assertions.Equal(anytimersignal.SignalName, data["signalChannelName1"])
-	assertions.Equal("signal-cmd-id", data["signalCommandId1"])
-	assertions.Equal(iwfidl.WAITING, data["signalStatus1"])
+	require.Equal(t, anytimersignal.SignalName, data["signalChannelName1"])
+	require.Equal(t, "signal-cmd-id", data["signalCommandId1"])
+	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus1"])
 
-	assertions.Equal(anytimersignal.SignalName, data["signalChannelName2"])
-	assertions.Equal("signal-cmd-id", data["signalCommandId2"])
-	assertions.Equal(iwfidl.RECEIVED, data["signalStatus2"])
-	assertions.Equal(signalValue, data["signalValue2"])
+	require.Equal(t, anytimersignal.SignalName, data["signalChannelName2"])
+	require.Equal(t, "signal-cmd-id", data["signalCommandId2"])
+	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus2"])
+	require.Equal(t, []*iwfpb.Value{signalValue}, data["signalValue2"])
 }

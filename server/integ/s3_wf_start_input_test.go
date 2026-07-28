@@ -22,24 +22,21 @@ package integ
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	s3_start_input "github.com/superdurable/iwf/integ/workflow/s3-start-input"
-
-	"github.com/superdurable/iwf/service/common/ptr"
-
-	"github.com/superdurable/iwf/gen/iwfidl"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestS3WorkflowStartInputTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWorkflowWithS3StartInput(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
@@ -57,71 +54,43 @@ func TestS3WorkflowStartInputCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendType) {
-	// start test workflow server
-	wfHandler := s3_start_input.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
+	workerHandler := s3_start_input.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
 		S3TestThreshold: 10,
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3_start_input.WorkflowType + uuid.NewString()
+	stepInput := objJSONValue(`"12345678901"`)
+
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           s3_start_input.WorkflowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      s3_start_input.State1,
+		StepInput:          stepInput,
 	})
-	wfId := s3_start_input.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"12345678901\""), //11 + 2bytes
-	}
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        s3_start_input.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(s3_start_input.State1),
-		StateInput:             wfInput,
-	}
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp2, err2 := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err2, httpResp2, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
 
-	assertions := assert.New(t)
+	history := workerHandler.GetTestResult().InvokeData
+	s1WaitForInput := history["S1_waitFor_input"].(*iwfpb.Value)
+	s1ExecuteInput := history["S1_execute_input"].(*iwfpb.Value)
 
-	_, history := wfHandler.GetTestResult()
+	require.True(t, proto.Equal(stepInput, s1WaitForInput))
+	require.True(t, proto.Equal(stepInput, s1ExecuteInput))
+	require.Equal(t, int64(1), history["S1_waitFor"])
+	require.Equal(t, int64(1), history["S1_execute"])
 
-	// The handler should receive objects with both the loaded data AND preserved external storage references
-	s1StartInput := history["S1_start_input"].(iwfidl.EncodedObject)
-	s1DecideInput := history["S1_decide_input"].(iwfidl.EncodedObject)
-
-	// Verify the data content is correct
-	assertions.Equal(*s1StartInput.Data, "\"12345678901\"", "S1_start_input data should match")
-	assertions.Equal(*s1StartInput.Encoding, "json", "S1_start_input encoding should match")
-	assertions.Nil(s1StartInput.ExtStoreId)
-	assertions.Nil(s1StartInput.ExtPath)
-
-	assertions.Equal(*s1DecideInput.Data, "\"12345678901\"", "S1_decide_input data should match")
-	assertions.Equal(*s1DecideInput.Encoding, "json", "S1_decide_input encoding should match")
-	assertions.Nil(s1DecideInput.ExtStoreId)
-	assertions.Nil(s1DecideInput.ExtPath)
-
-	assertions.Equal(history["S1_start"], int64(1), "S1_start is not equal")
-	assertions.Equal(history["S1_decide"], int64(1), "S1_decide is not equal")
-
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(context.Background(), wfId)
-	assertions.Nil(err)
-	assertions.Equal(int64(1), objectCount)
+	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), objectCount)
 }

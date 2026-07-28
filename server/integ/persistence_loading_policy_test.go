@@ -22,194 +22,97 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/persistence"
 	"github.com/superdurable/iwf/integ/workflow/persistence_loading_policy"
 	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
-	"testing"
-	"time"
 )
 
-func TestPersistenceLoadingPolicy_ALL(t *testing.T) {
+func TestPersistenceLoadingPolicy(t *testing.T) {
 	for _, backendType := range getBackendTypes() {
 		for i := 0; i < *repeatIntegTest; i++ {
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.ALL_WITHOUT_LOCKING, true)
+			doTestPersistenceLoadingPolicy(t, backendType, false)
 			smallWaitForFastTest()
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.ALL_WITHOUT_LOCKING, false)
-			smallWaitForFastTest()
-		}
-	}
-}
-
-func TestPersistenceLoadingPolicy_PARTIAL_WITHOUT_LOCK(t *testing.T) {
-	for _, backendType := range getBackendTypes() {
-		for i := 0; i < *repeatIntegTest; i++ {
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.PARTIAL_WITHOUT_LOCKING, true)
-			smallWaitForFastTest()
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.PARTIAL_WITHOUT_LOCKING, false)
-			smallWaitForFastTest()
-		}
-	}
-}
-
-func TestPersistenceLoadingPolicy_PARTIAL_WITH_LOCK(t *testing.T) {
-	for _, backendType := range getBackendTypes() {
-		for i := 0; i < *repeatIntegTest; i++ {
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK, true)
-			smallWaitForFastTest()
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK, false)
-			smallWaitForFastTest()
-		}
-	}
-}
-
-func TestPersistenceLoadingPolicy_NONE(t *testing.T) {
-	for _, backendType := range getBackendTypes() {
-		for i := 0; i < *repeatIntegTest; i++ {
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.NONE, true)
-			smallWaitForFastTest()
-			doTestPersistenceLoadingPolicy(t, backendType, iwfidl.NONE, false)
+			doTestPersistenceLoadingPolicy(t, backendType, true)
 			smallWaitForFastTest()
 		}
 	}
 }
 
 func doTestPersistenceLoadingPolicy(
-	t *testing.T, backendType service.BackendType, loadingType iwfidl.PersistenceLoadingType, rpcUseMemo bool,
+	t *testing.T,
+	backendType service.BackendType,
+	useLockingRPC bool,
 ) {
-	assertions := assert.New(t)
+	workerHandler := persistence_loading_policy.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: backendType,
+	})
+	flowClient := runtime.FlowClient
 
-	wfHandler := persistence_loading_policy.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := persistence_loading_policy.WorkflowType + uuid.NewString()
+	flowInput := objJSONValue(`"ALL_WITHOUT_LOCKING"`)
+
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           persistence_loading_policy.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      persistence_loading_policy.State1,
+		StepInput:          flowInput,
+		StepOptions: &iwfpb.StepOptions{
+			SkipWaitFor: true,
 		},
 	})
+	require.NoError(t, err)
 
-	wfId := persistence_loading_policy.WorkflowType + "_" + string(loadingType) + "_" + strconv.Itoa(int(time.Now().UnixNano()))
+	time.Sleep(2 * time.Second)
 
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString(string(loadingType)),
+	rpcRequest := &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        persistence_loading_policy.WorkflowType + "_rpc",
+		Input:          flowInput,
+		TimeoutSeconds: 3,
 	}
-
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        persistence_loading_policy.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(persistence_loading_policy.State1),
-		StateInput:             wfInput,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			UseMemoForDataAttributes: ptr.Any(rpcUseMemo),
-		},
-	}
-
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	if rpcUseMemo && backendType == service.BackendTypeCadence {
-		if err == nil {
-			helpers.FailTestWithErrorMessage("err should not be nil when Memo is not supported with Cadence", t)
+	if useLockingRPC {
+		rpcRequest.LockAttributeKeys = []string{
+			persistence.TestSearchAttributeTextKey,
+			"da_2",
 		}
+	}
+
+	_, err = flowClient.InvokeRPC(ctx, rpcRequest)
+	if useLockingRPC && backendType == service.BackendTypeCadence {
+		require.Error(t, err)
 		return
 	}
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	// Wait for workflow
-	time.Sleep(time.Second * 2)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equal(t, map[string]int64{
+		"S1_execute": 1,
+		"rpc":        1,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
+	}, history)
 
-	rpcReq := iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    persistence_loading_policy.WorkflowType + "_rpc",
-		Input:      wfInput,
-		SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: &loadingType,
-			PartialLoadingKeys: []string{
-				persistence.TestSearchAttributeKeywordKey,
-			},
-			LockingKeys: []string{
-				persistence.TestSearchAttributeTextKey,
-			},
-		},
-		DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: &loadingType,
-			PartialLoadingKeys: []string{
-				"da_1",
-			},
-			LockingKeys: []string{
-				"da_2",
-			},
-		},
-		TimeoutSeconds:           iwfidl.PtrInt32(3),
-		UseMemoForDataAttributes: ptr.Any(rpcUseMemo),
-		SearchAttributes:         getSearchAttributesToGetFromMemo(loadingType),
-	}
-
-	_, httpResp, err = reqRpc.WorkflowRpcRequest(rpcReq).Execute()
-	if loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK && backendType == service.BackendTypeCadence {
-		if err == nil {
-			helpers.FailTestWithErrorMessage("err should not be nil when Locking is not supported with Cadence", t)
-		}
-		return
-	}
-	failTestAtHttpError(err, httpResp, t)
-
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	history, _ := wfHandler.GetTestResult()
-
-	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-		"rpc":       1,
-		"S2_start":  1,
-		"S2_decide": 1,
-	}, history, "persistence loading policy test fail, %v", history)
-
-	// Terminate the workflow once tests completed
-	stopReq := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	_, err = stopReq.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.TERMINATE.Ptr(),
-	}).Execute()
-}
-
-func getSearchAttributesToGetFromMemo(loadingType iwfidl.PersistenceLoadingType) []iwfidl.SearchAttributeKeyAndType {
-	if loadingType == iwfidl.PARTIAL_WITH_EXCLUSIVE_LOCK || loadingType == iwfidl.PARTIAL_WITHOUT_LOCKING {
-		return []iwfidl.SearchAttributeKeyAndType{
-			{
-				Key:       iwfidl.PtrString(persistence.TestSearchAttributeKeywordKey),
-				ValueType: iwfidl.KEYWORD.Ptr(),
-			},
-		}
-	}
-
-	return []iwfidl.SearchAttributeKeyAndType{
-		{
-			Key:       iwfidl.PtrString(persistence.TestSearchAttributeKeywordKey),
-			ValueType: iwfidl.KEYWORD.Ptr(),
-		},
-		{
-			Key:       iwfidl.PtrString(persistence.TestSearchAttributeTextKey),
-			ValueType: iwfidl.TEXT.Ptr(),
-		},
-	}
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
 }

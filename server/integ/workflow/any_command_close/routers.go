@@ -21,26 +21,26 @@
 package anycommandclose
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, using REST controller to implement the workflow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
  * State1:
- *		- WaitUntil wait until a signal is received
+ *		- WaitFor wait until a signal is received
  *      - Execute method will fire the signal and move the State2
  * State2:
  *		- Waits on nothing. Will execute momentarily
- *      - Execute method will gracefully complete workflow
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType = "any_command_close"
@@ -51,125 +51,109 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == State1 {
-			// Proceed after either signal is received
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					SignalCommands: []iwfidl.SignalCommand{
+		if request.GetStepType() == State1 {
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					ChannelConditions: []*iwfpb.ChannelCondition{
 						{
-							CommandId:         ptr.Any("signal-cmd-id1"),
-							SignalChannelName: SignalName1,
+							ConditionId: "signal-cmd-id1",
+							ChannelName: SignalName1,
 						},
 						{
-							CommandId:         ptr.Any("signal-cmd-id2"),
-							SignalChannelName: SignalName2,
+							ConditionId: "signal-cmd-id2",
+							ChannelName: SignalName2,
 						},
 					},
-					CommandWaitingType: ptr.Any(iwfidl.ANY_COMPLETED),
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 				},
-			})
-			return
+			}, nil
 		}
-		if req.GetWorkflowStateId() == State2 {
-			// Go straight to the decide methods without any commands
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
+
+		if request.GetStepType() == State2 {
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
-			})
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == State1 {
-			signalResults := req.GetCommandResults()
-			h.invokeData.Store("signalCommandResultsLength", len(signalResults.SignalResults))
+		if request.GetStepType() == State1 {
+			channelResults := request.GetConditionResults().GetChannelResults()
+			h.invokeData.Store("signalCommandResultsLength", len(channelResults))
 
-			// Trigger signals
-			h.invokeData.Store("signalChannelName0", signalResults.SignalResults[0].GetSignalChannelName())
-			h.invokeData.Store("signalCommandId0", signalResults.SignalResults[0].GetCommandId())
-			h.invokeData.Store("signalStatus0", signalResults.SignalResults[0].GetSignalRequestStatus())
+			h.invokeData.Store("signalChannelName0", channelResults[0].GetChannelName())
+			h.invokeData.Store("signalCommandId0", channelResults[0].GetConditionId())
+			h.invokeData.Store("signalStatus0", channelResults[0].GetConditionStatus())
 
-			h.invokeData.Store("signalChannelName1", signalResults.SignalResults[1].GetSignalChannelName())
-			h.invokeData.Store("signalCommandId1", signalResults.SignalResults[1].GetCommandId())
-			h.invokeData.Store("signalStatus1", signalResults.SignalResults[1].GetSignalRequestStatus())
-			h.invokeData.Store("signalValue1", signalResults.SignalResults[1].GetSignalValue())
+			h.invokeData.Store("signalChannelName1", channelResults[1].GetChannelName())
+			h.invokeData.Store("signalCommandId1", channelResults[1].GetConditionId())
+			h.invokeData.Store("signalStatus1", channelResults[1].GetConditionStatus())
+			h.invokeData.Store("signalValue1", channelResults[1].GetValues())
 
-			// Move to State 2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State2,
-						},
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: State2},
 					},
 				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
+			}, nil
+		} else if request.GetStepType() == State2 {
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: service.GracefulCompletingFlowStepType},
 					},
 				},
-			})
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -180,5 +164,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

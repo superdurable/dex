@@ -21,22 +21,23 @@
 package s3_start_input
 
 import (
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 1 state, using REST controller to implement the workflow directly.
+ * This test flow has 1 step, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method does nothing
- *      - Execute method will gracefully complete workflow
+ * Step1:
+ *		- WaitFor does nothing
+ *      - Execute will gracefully complete flow
  */
 const (
 	WorkflowType = "s3-start-input"
@@ -44,6 +45,7 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -53,80 +55,79 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		// go straight to the decide(execute) without any commands
-		if req.GetWorkflowStateId() == State1 {
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-			}
-
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start_input", req.GetStateInput())
-
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() == WorkflowType && request.GetStepType() == State1 {
+		h.incrementInvokeHistory(State1 + "_waitFor")
+		h.invokeHistory.Store(State1+"_waitFor_input", request.GetStepInput())
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
-	log.Println("received state decide request, ", req)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 
-		h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide_input", req.GetStateInput())
+	h.incrementInvokeHistory(request.GetStepType() + "_execute")
+	h.invokeHistory.Store(request.GetStepType()+"_execute_input", request.GetStepInput())
 
-		if req.GetWorkflowStateId() == State1 {
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    service.GracefulCompletingWorkflowStateId,
-							StateInput: req.StateInput,
-						},
+	if request.GetStepType() == State1 {
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  service.GracefulCompletingFlowStepType,
+						StepInput: request.GetStepInput(),
 					},
 				},
-			})
-			return
-		}
+			},
+		}, nil
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	outInvokehistory := make(map[string]interface{})
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		outInvokehistory[key.(string)] = value
 		return true
 	})
-	return nil, outInvokehistory
+	return common.TestResult{InvokeData: outInvokehistory}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
 }

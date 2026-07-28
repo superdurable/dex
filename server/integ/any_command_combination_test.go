@@ -22,213 +22,252 @@ package integ
 
 import (
 	"context"
-	"encoding/json"
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	anycommandcombination "github.com/superdurable/iwf/integ/workflow/any_command_combination"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestAnyCommandCombinationWorkflowTemporal(t *testing.T) {
+func TestAnyCommandCombinationFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCombinationWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestAnyCommandCombinationFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCombinationWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestAnyCommandCombinationFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		// TODO not sure why using minimumContinueAsNewConfig(true) will fail
-		doTestAnyCommandCombinationWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(false))
+		// TODO not sure why using ASYNC durability will fail
+		doTestAnyCommandCombinationFlow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCombinationWorkflowCadence(t *testing.T) {
+func TestAnyCommandCombinationFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeCadence, nil)
+		doTestAnyCommandCombinationFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCombinationWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestAnyCommandCombinationFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestAnyCommandCombinationFlow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestAnyCommandCombinationWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	assertions := assert.New(t)
-	// start test workflow server
-	wfHandler := anycommandcombination.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestAnyCommandCombinationFlow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := anycommandcombination.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
+	flowId := anycommandcombination.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           anycommandcombination.WorkflowType,
+		FlowTimeoutSeconds: 40,
+		WorkerTarget:       workerTarget,
+		StartStepType:      anycommandcombination.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		},
+	})
+	require.NoError(t, err)
+
+	signalValue := encodedObjectValue("json", []byte("test-data-1"))
+	publishSignal := func() {
+		_, publishErr := flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: anycommandcombination.SignalNameAndId1,
+					Value:       signalValue,
+				},
+			},
+		})
+		require.NoError(t, publishErr)
+	}
+
+	publishSignal()
+	publishSignal()
+
+	time.Sleep(5 * time.Second)
+	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+		FlowId:           flowId,
+		StepExecutionId:  "S1-1",
+		TimerConditionId: anycommandcombination.TimerId1,
+	})
+	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+
+	publishSignal()
+
+	descResp, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_RUNNING, descResp.Status)
+
+	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*iwfpb.ChannelMessage{
 			{
-				URL: "http://localhost:" + testIwfServerPort,
+				ChannelName: anycommandcombination.SignalNameAndId3,
+				Value:       signalValue,
 			},
 		},
 	})
-	wfId := anycommandcombination.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        anycommandcombination.WorkflowType,
-		WorkflowTimeoutSeconds: 40,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(anycommandcombination.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
+	require.NoError(t, err)
+
+	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*iwfpb.ChannelMessage{
+			{
+				ChannelName: anycommandcombination.SignalNameAndId2,
+				Value:       signalValue,
+			},
 		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	})
+	require.NoError(t, err)
 
-	signalValue := iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test-data-1"),
-	}
-
-	// send the signals to S1
-	req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandcombination.SignalNameAndId1,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandcombination.SignalNameAndId1,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Skip the timer for S1
-	time.Sleep(time.Second * 5) // Wait for a few seconds so that timer is ready to be skipped
-	req3 := apiClient.DefaultApi.ApiV1WorkflowTimerSkipPost(context.Background())
-	httpResp, err = req3.WorkflowSkipTimerRequest(iwfidl.WorkflowSkipTimerRequest{
-		WorkflowId:               wfId,
-		WorkflowStateExecutionId: "S1-1",
-		TimerCommandId:           iwfidl.PtrString(anycommandcombination.TimerId1),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Add delay to wait for timer to be skipped
-	time.Sleep(time.Second)
-
-	// now it should be running at S2
-	// Future: we can check it is already done S1
-
-	// send first signal for s2
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandcombination.SignalNameAndId1,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	reqDesc := apiClient.DefaultApi.ApiV1WorkflowGetPost(context.Background())
-	descResp, httpResp, err := reqDesc.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-	assertions.Equal(iwfidl.RUNNING, descResp.GetWorkflowStatus())
-
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandcombination.SignalNameAndId3,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// send 2nd signal for s2
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandcombination.SignalNameAndId2,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Workflow should be completed now
-	if config == nil {
-		// Wait for workflow to move to execution
+	if flowConfig == nil {
 		time.Sleep(time.Second)
-		descResp, httpResp, err = reqDesc.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-			WorkflowId: wfId,
-		}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-		assertions.Equal(iwfidl.COMPLETED, descResp.GetWorkflowStatus())
+		descResp, err = runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+		require.NoError(t, err)
+		require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, descResp.Status)
 	} else {
-		reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-		respWait, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-			WorkflowId: wfId,
-		}).Execute()
-		failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, respWait, t)
+		respWait, waitErr := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+			FlowId:          flowId,
+			WaitTimeSeconds: 30,
+		})
+		require.NoError(t, waitErr)
+		require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
 	}
 
-	history, data := wfHandler.GetTestResult()
-
-	assertions.Equalf(map[string]int64{
-		"S1_start":  2,
-		"S1_decide": 1,
-		"S2_start":  2,
-		"S2_decide": 1,
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor": 2,
+		"S1_execute": 1,
+		"S2_waitFor": 2,
+		"S2_execute": 1,
 	}, history, "anycommandcombination test fail, %v", history)
 
-	var s1CommandResults iwfidl.CommandResults
-	var s2CommandResults iwfidl.CommandResults
-	s1ResultJsonStr := "{\"signalResults\":[" +
-		"{\"commandId\":\"test-signal-name1\",\"signalChannelName\":\"test-signal-name1\",\"signalRequestStatus\":\"RECEIVED\",\"signalValue\":{\"data\":\"test-data-1\",\"encoding\":\"json\"}}, " +
-		"{\"commandId\":\"test-signal-name1\",\"signalChannelName\":\"test-signal-name1\",\"signalRequestStatus\":\"RECEIVED\",\"signalValue\":{\"data\":\"test-data-1\",\"encoding\":\"json\"}}, " +
-		"{\"commandId\":\"test-signal-name2\",\"signalChannelName\":\"test-signal-name2\",\"signalRequestStatus\":\"WAITING\"}," +
-		"{\"commandId\":\"test-signal-name3\",\"signalChannelName\":\"test-signal-name3\",\"signalRequestStatus\":\"WAITING\"}" +
-		"],\"timerResults\":[" +
-		"{\"commandId\":\"test-timer-1\",\"timerStatus\":\"FIRED\"}]," +
-		"\"stateStartApiSucceeded\":true, \"stateWaitUntilFailed\": false}"
-	err = json.Unmarshal([]byte(s1ResultJsonStr), &s1CommandResults)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
-	s2ResultsJsonStr := "{\"signalResults\":[" +
-		"{\"commandId\":\"test-signal-name1\",\"signalChannelName\":\"test-signal-name1\",\"signalRequestStatus\":\"RECEIVED\",\"signalValue\":{\"data\":\"test-data-1\",\"encoding\":\"json\"}}, " +
-		"{\"commandId\":\"test-signal-name1\",\"signalChannelName\":\"test-signal-name1\",\"signalRequestStatus\":\"WAITING\"}," +
-		"{\"commandId\":\"test-signal-name2\",\"signalChannelName\":\"test-signal-name2\",\"signalRequestStatus\":\"RECEIVED\",\"signalValue\":{\"data\":\"test-data-1\",\"encoding\":\"json\"}}," +
-		"{\"commandId\":\"test-signal-name3\",\"signalChannelName\":\"test-signal-name3\",\"signalRequestStatus\":\"RECEIVED\",\"signalValue\":{\"data\":\"test-data-1\",\"encoding\":\"json\"}}" +
-		"],\"timerResults\":[" +
-		"{\"commandId\":\"test-timer-1\",\"timerStatus\":\"SCHEDULED\"}]," +
-		"\"stateStartApiSucceeded\":true , \"stateWaitUntilFailed\": false}"
-	err = json.Unmarshal([]byte(s2ResultsJsonStr), &s2CommandResults)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
 	expectedData := map[string]interface{}{
-		"s1_commandResults": s1CommandResults,
-		"s2_commandResults": s2CommandResults,
+		"s1_commandResults": expectedS1ConditionResults(signalValue),
+		"s2_commandResults": expectedS2ConditionResults(signalValue),
 	}
-	assertions.Equal(expectedData, data)
+	require.True(t, proto.Equal(
+		expectedData["s1_commandResults"].(*iwfpb.ConditionResults),
+		data["s1_commandResults"].(*iwfpb.ConditionResults),
+	))
+	require.True(t, proto.Equal(
+		expectedData["s2_commandResults"].(*iwfpb.ConditionResults),
+		data["s2_commandResults"].(*iwfpb.ConditionResults),
+	))
+}
+
+func expectedS1ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResults {
+	return &iwfpb.ConditionResults{
+		ChannelResults: []*iwfpb.ChannelResult{
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ChannelName:     anycommandcombination.SignalNameAndId1,
+				Values:          []*iwfpb.Value{signalValue},
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ChannelName:     anycommandcombination.SignalNameAndId1,
+				Values:          []*iwfpb.Value{signalValue},
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId2,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ChannelName:     anycommandcombination.SignalNameAndId2,
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId3,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ChannelName:     anycommandcombination.SignalNameAndId3,
+			},
+		},
+		TimerResults: []*iwfpb.TimerResult{
+			{
+				ConditionId:     anycommandcombination.TimerId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+			},
+		},
+	}
+}
+
+func expectedS2ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResults {
+	return &iwfpb.ConditionResults{
+		ChannelResults: []*iwfpb.ChannelResult{
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ChannelName:     anycommandcombination.SignalNameAndId1,
+				Values:          []*iwfpb.Value{signalValue},
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+				ChannelName:     anycommandcombination.SignalNameAndId1,
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId2,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ChannelName:     anycommandcombination.SignalNameAndId2,
+				Values:          []*iwfpb.Value{signalValue},
+			},
+			{
+				ConditionId:     anycommandcombination.SignalNameAndId3,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ChannelName:     anycommandcombination.SignalNameAndId3,
+				Values:          []*iwfpb.Value{signalValue},
+			},
+		},
+		TimerResults: []*iwfpb.TimerResult{
+			{
+				ConditionId:     anycommandcombination.TimerId1,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
+			},
+		},
+	}
 }

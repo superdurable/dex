@@ -22,24 +22,20 @@ package integ
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	s3_upsert_data_objects "github.com/superdurable/iwf/integ/workflow/s3-upsert-data-objects"
-
-	"github.com/superdurable/iwf/service/common/ptr"
-
-	"github.com/superdurable/iwf/gen/iwfidl"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestS3WorkflowUpsertDataObjectsTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWorkflowWithS3UpsertDataObjects(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
@@ -57,73 +53,44 @@ func TestS3WorkflowUpsertDataObjectsCadence(t *testing.T) {
 }
 
 func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.BackendType) {
-	// start test workflow server
-	wfHandler := s3_upsert_data_objects.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
+	workerHandler := s3_upsert_data_objects.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:     backendType,
-		S3TestThreshold: 10, // Set low threshold so our test data gets stored in S3
+		S3TestThreshold: 10,
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := s3_upsert_data_objects.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           s3_upsert_data_objects.WorkflowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      s3_upsert_data_objects.State1,
+		StepInput:          objJSONValue(`"test"`),
 	})
-	wfId := s3_upsert_data_objects.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
+	require.NoError(t, err)
 
-	// Create small input
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("\"test\""),
-	}
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
 
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        s3_upsert_data_objects.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(s3_upsert_data_objects.State1),
-		StateInput:             wfInput,
-	}
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	history := workerHandler.GetTestResult().InvokeData
+	require.Equal(t, int64(1), history["S1_waitFor"])
+	require.Equal(t, int64(1), history["S1_execute"])
+	require.Equal(t, int64(1), history["S2_waitFor"])
+	require.Equal(t, int64(1), history["S2_execute"])
+	require.Equal(t, true, history["S2_received_large_obj1"])
+	require.Equal(t, true, history["S2_received_large_obj2"])
+	require.Equal(t, true, history["S2_received_small_obj3"])
+	require.Equal(t, s3_upsert_data_objects.LargeDataContent1, history["S2_large_obj1_data"])
+	require.Equal(t, s3_upsert_data_objects.LargeDataContent2, history["S2_large_obj2_data"])
+	require.Equal(t, s3_upsert_data_objects.SmallDataContent3, history["S2_small_obj3_data"])
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp2, err2 := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err2, httpResp2, t)
-
-	assertions := assert.New(t)
-
-	_, history := wfHandler.GetTestResult()
-
-	// Verify all states were executed
-	assertions.Equal(history["S1_start"], int64(1), "S1_start should be called once")
-	assertions.Equal(history["S1_decide"], int64(1), "S1_decide should be called once")
-	assertions.Equal(history["S2_start"], int64(1), "S2_start should be called once")
-	assertions.Equal(history["S2_decide"], int64(1), "S2_decide should be called once")
-
-	// Verify State2 received the large data objects that were upserted by State1
-	assertions.Equal(history["S2_received_large_obj1"], true, "S2 should receive large_obj1 from State1's upsert")
-	assertions.Equal(history["S2_received_large_obj2"], true, "S2 should receive large_obj2 from State1's upsert")
-	assertions.Equal(history["S2_received_small_obj3"], true, "S2 should receive small_obj3 from State1's upsert")
-
-	// Verify the data content matches what State1 upserted
-	assertions.Equal(history["S2_large_obj1_data"], s3_upsert_data_objects.LargeDataContent1, "S2 large_obj1 data should match")
-	assertions.Equal(history["S2_large_obj2_data"], s3_upsert_data_objects.LargeDataContent2, "S2 large_obj2 data should match")
-	assertions.Equal(history["S2_small_obj3_data"], s3_upsert_data_objects.SmallDataContent3, "S2 small_obj3 data should match")
-
-	// Verify external storage usage: 2 large objects should be in S3, small one should stay in memory
-	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(context.Background(), wfId)
-	assertions.Nil(err)
-	assertions.Equal(int64(2), objectCount, "Should have 2 objects in S3 (large_obj1 and large_obj2)")
+	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), objectCount)
 }

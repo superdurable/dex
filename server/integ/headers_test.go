@@ -22,101 +22,100 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/headers"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/headers"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"github.com/superdurable/iwf/service/common/ptr"
 )
 
-func TestHeadersWorkflowTemporal(t *testing.T) {
+func TestHeadersFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithHeaders(t, service.BackendTypeTemporal, nil)
+		doTestFlowWithHeaders(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 
-		doTestWorkflowWithHeaders(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestFlowWithHeaders(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 
-		doTestWorkflowWithHeaders(t, service.BackendTypeTemporal, &iwfidl.WorkflowConfig{
-			DisableSystemSearchAttribute: iwfidl.PtrBool(true),
+		doTestFlowWithHeaders(t, service.BackendTypeTemporal, &iwfpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+			),
 		})
 		smallWaitForFastTest()
 	}
 }
 
-func TestHeadersWorkflowCadence(t *testing.T) {
+func TestHeadersFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithHeaders(t, service.BackendTypeCadence, nil)
+		doTestFlowWithHeaders(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestWorkflowWithHeaders(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestFlowWithHeaders(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestWorkflowWithHeaders(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := headers.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
+func doTestFlowWithHeaders(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := headers.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType: backendType,
 		DefaultHeaders: map[string]string{
 			headers.TestHeaderKey: headers.TestHeaderValue,
 		},
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowId := headers.WorkflowType + "-" + uuid.NewString()
+	stepInput := encodedObjectValue("json", []byte("test data"))
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           headers.WorkflowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      headers.State1,
+		StepInput:          stepInput,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := headers.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test data"),
-	}
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        headers.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(headers.State1),
-		StateInput:             wfInput,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp2, err2 := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err2, httpResp2, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	assertions := assert.New(t)
-
-	history, _ := wfHandler.GetTestResult()
-	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor": 1,
+		"S1_execute": 1,
 	}, history, "headers test fail, %v", history)
 }

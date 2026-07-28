@@ -168,23 +168,6 @@ deps-all: ## Check for all dependency updates
 cleanTestCache:
 	$Q go clean -testcache
 
-PHASE5_BASIC_FILES = \
-	integ/basic_test.go \
-	integ/basic_harness_test.go \
-	integ/config.go \
-	integ/crypt.go \
-	integ/encryption_data_converter.go \
-	integ/flag.go \
-	integ/main_test.go
-
-phase5BasicTests: phase5BasicTemporalTests phase5BasicCadenceTests
-
-phase5BasicTemporalTests:
-	$Q GOWORK=off go test -v $(PHASE5_BASIC_FILES) -run '^TestBasicFlowTemporal$$' -timeout 5m -cadence=false
-
-phase5BasicCadenceTests:
-	$Q GOWORK=off go test -v $(PHASE5_BASIC_FILES) -run '^TestBasicFlowCadence$$' -timeout 5m -temporal=false -dependencyWaitSeconds=180
-
 integTestsTemporalWithCover: # for local debugging
 	$Q go test -v -cover ./integ -coverprofile coverage.out -coverpkg ./service/... -cadence=false
 	$Q go tool cover -func coverage.out -o coverage.out
@@ -218,22 +201,6 @@ integTestsNoSearch:
 
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
-
-phase4MatchingTests: ## Run the pure interpreter channel/config unit tests during the Phase 4 stacked rewrite
-	$Q go test -v ./service/interpreter/channel/... ./service/interpreter/config/...
-	$Q cd service/interpreter && go test channelStore.go channelStore_test.go
-
-phase4S2Tests: ## Compile and run the isolated Phase 4 leaf-store tests
-	$Q cd service/interpreter && go test -v persistence.go queryHandler.go stepRequest.go stepRequestQueue.go outputCollector.go stepExecutionCounter.go persistence_test.go queryHandler_test.go stepRequestQueue_test.go outputCollector_test.go stepExecutionCounter_test.go
-
-phase4S3Tests: ## Compile isolated providers and run Phase 4 timer tests
-	$Q cd service/interpreter && go test activityImpl.go workerClients.go activityImpl_test.go
-	$Q cd service/interpreter/temporal && go test workflowProvider.go
-	$Q cd service/interpreter/cadence && go test workflowProvider.go loggerImpl.go
-	$Q go test -v ./service/interpreter/timers/...
-
-phase4S5Tests: ## Run focused Phase 4 update and continue-as-new tests
-	$Q go test -v ./service/interpreter -run 'Test(ContinueAsNew|WaitForAttribute|WaitForStepCompletionOutcome|LockedRPC|LockingRPC)'
 
 help:
 	@# print help first, so it's visible

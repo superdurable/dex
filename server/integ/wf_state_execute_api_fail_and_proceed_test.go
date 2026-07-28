@@ -22,15 +22,14 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/wf_execute_api_fail_and_proceed"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	wf_execute_api_fail_and_proceed "github.com/superdurable/iwf/integ/workflow/wf_execute_api_fail_and_proceed"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestStateExecuteApiFailAndProceedTemporal(t *testing.T) {
@@ -57,73 +56,68 @@ func TestStateExecuteApiFailAndProceedCadence(t *testing.T) {
 	}
 }
 
-func doTestStateExecuteApiFailAndProceed(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := wf_execute_api_fail_and_proceed.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestStateExecuteApiFailAndProceed(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := wf_execute_api_fail_and_proceed.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: backendType,
+	})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
+	flowId := wf_execute_api_fail_and_proceed.FlowType + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wf_execute_api_fail_and_proceed.FlowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wf_execute_api_fail_and_proceed.Step1,
+		StepInput: &iwfpb.Value{
+			Kind: &iwfpb.Value_ObjValue{
+				ObjValue: &iwfpb.EncodedObject{
+					Encoding: wf_execute_api_fail_and_proceed.InputDataEncoding,
+					Payload:  []byte(wf_execute_api_fail_and_proceed.InputData),
+				},
 			},
 		},
-	})
-	wfId := wf_execute_api_fail_and_proceed.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-
-	stateOptions := &iwfidl.WorkflowStateOptions{
-		ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
-			MaximumAttempts: iwfidl.PtrInt32(1),
-		},
-		SkipWaitUntil:                   ptr.Any(true),
-		ExecuteApiFailurePolicy:         iwfidl.PROCEED_TO_CONFIGURED_STATE.Ptr(),
-		ExecuteApiFailureProceedStateId: ptr.Any(wf_execute_api_fail_and_proceed.StateRecover),
-		ExecuteApiFailureProceedStateOptions: &iwfidl.WorkflowStateOptions{
-			SkipWaitUntil: ptr.Any(true),
+		StepOptions: &iwfpb.StepOptions{
+			SkipWaitFor: true,
+			ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+			ExecuteFailurePolicy:          iwfpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+			ExecuteFailureProceedStepType: wf_execute_api_fail_and_proceed.StepRecover,
+			ExecuteFailureProceedStepOptions: &iwfpb.StepOptions{
+				SkipWaitFor: true,
+			},
 		},
 	}
+	if flowConfig != nil {
+		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}
+	}
+	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
 
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startResp, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wf_execute_api_fail_and_proceed.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wf_execute_api_fail_and_proceed.State1),
-		StateOptions:           stateOptions,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-		StateInput: &iwfidl.EncodedObject{
-			Data:     ptr.Any(wf_execute_api_fail_and_proceed.InputData),
-			Encoding: ptr.Any(wf_execute_api_fail_and_proceed.InputDataEncoding),
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equal(t, map[string]int64{
+		"S1_execute":      1,
+		"Recover_execute": 1,
+	}, history)
 
-	history, _ := wfHandler.GetTestResult()
-	assertions := assert.New(t)
-	assertions.Equalf(map[string]int64{
-		"S1_decide":      1,
-		"Recover_decide": 1,
-	}, history, "wf state api fail and proceed test fail, %v", history)
-
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.COMPLETED,
-		// State completions with empty output are ignored
-		Results: []iwfidl.StateCompletionOutput(nil),
-	}, resp, "response not expected")
+	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+	require.Empty(t, resp.GetResults())
 }

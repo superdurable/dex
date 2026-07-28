@@ -23,15 +23,15 @@ package integ
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/wait_until_search_attributes"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"github.com/superdurable/iwf/service/common/ptr"
 )
 
 func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
@@ -39,86 +39,96 @@ func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilSearchAttributes(t, service.BackendTypeTemporal, &iwfidl.WorkflowConfig{
-			ExecutingStateIdMode: ptr.Any(iwfidl.DISABLED),
+		doTestWaitUntilSearchAttributes(t, &iwfpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilSearchAttributes(t, service.BackendTypeTemporal, &iwfidl.WorkflowConfig{
-			ExecutingStateIdMode: ptr.Any(iwfidl.ENABLED_FOR_ALL),
+		doTestWaitUntilSearchAttributes(t, &iwfpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilSearchAttributes(t, service.BackendTypeTemporal, nil) // defaults to ExecutingStateIdMode: ENABLED_FOR_STATES_WITH_WAIT_UNTIL
+		doTestWaitUntilSearchAttributes(t, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestWaitUntilSearchAttributes(
-	t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig,
-) {
-	assertions := assert.New(t)
-	wfHandler := wait_until_search_attributes.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
-		BackendType: backendType,
+func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+	workerHandler := wait_until_search_attributes.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
-	wfId := wait_until_search_attributes.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	reqStart := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	wfReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wait_until_search_attributes.WorkflowType,
-		WorkflowTimeoutSeconds: 20,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wait_until_search_attributes.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
+	flowId := wait_until_search_attributes.WorkflowType + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wait_until_search_attributes.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wait_until_search_attributes.State1,
 	}
-	_, httpResp, err := reqStart.WorkflowStartRequest(wfReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	if flowConfig != nil {
+		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}
+	}
+	_, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
 
-	// Wait for the search attribute index to be ready in ElasticSearch
 	time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
 
-	switch mode := config.GetExecutingStateIdMode(); mode {
-	case iwfidl.ENABLED_FOR_ALL:
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v'", wfId), 1, apiClient, assertions)
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v' AND %v='%v'", wfId, wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey, wait_until_search_attributes.State2), 1, apiClient, assertions)
-	case iwfidl.ENABLED_FOR_STATES_WITH_WAIT_UNTIL:
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v'", wfId), 1, apiClient, assertions)
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v' AND %v='%v'", wfId, wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey, wait_until_search_attributes.State2), 0, apiClient, assertions)
-	case iwfidl.DISABLED:
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v'", wfId), 1, apiClient, assertions)
-		assertSearch(t, fmt.Sprintf("WorkflowId='%v' AND %v='%v'", wfId, wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey, wait_until_search_attributes.State2), 0, apiClient, assertions)
+	mode := iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
+		mode = flowConfig.GetActiveStepSearchMode()
 	}
 
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	switch mode {
+	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
+		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
+		assertSearchFlows(
+			t,
+			flowClient,
+			fmt.Sprintf(
+				"WorkflowId='%v' AND %v='%v'",
+				flowId,
+				wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey,
+				wait_until_search_attributes.State2,
+			),
+			1,
+		)
+	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
+		iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
+		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
+		assertSearchFlows(
+			t,
+			flowClient,
+			fmt.Sprintf(
+				"WorkflowId='%v' AND %v='%v'",
+				flowId,
+				wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey,
+				wait_until_search_attributes.State2,
+			),
+			0,
+		)
+	}
 
-	// wait for workflow to complete
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, resp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }

@@ -21,32 +21,33 @@
 package interstate
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 	"time"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has four states, using REST controller to implement the workflow directly.
+ * This test flow has four steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method does nothing
- * 		- Execute method will move to State21 & State22:
- * State21:
- * 		- WaitUntil will proceed once channel1 has been published to
- * 		- Execute method will move to State31:
- * State22:
- * 		- WaitUntil will delay 2s then publish on channel1
+ * Step1:
+ *		- WaitFor method does nothing
+ * 		- Execute method will move to Step21 & Step22:
+ * Step21:
+ * 		- WaitFor will proceed once channel1 has been published to
+ * 		- Execute method will move to Step31:
+ * Step22:
+ * 		- WaitFor will delay 2s then publish on channel1
  *      - Execute method will delay 2s then publish on channel2 & end in a dead-end
- * State31:
- * 		- WaitUntil will proceed once channel2 has been published to
- *      - Execute method will gracefully complete workflow
+ * Step31:
+ * 		- WaitFor will proceed once channel2 has been published to
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType = "interstate"
@@ -59,17 +60,18 @@ const (
 	channel2 = "channel2"
 )
 
-var TestVal1 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("test-value1"),
+var TestVal1 = &iwfpb.EncodedObject{
+	Encoding: "json",
+	Payload:  []byte("test-value1"),
 }
 
-var TestVal2 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("test-value2"),
+var TestVal2 = &iwfpb.EncodedObject{
+	Encoding: "json",
+	Payload:  []byte("test-value2"),
 }
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -81,179 +83,164 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-		}
-
-		// Go straight to the decide methods without any commands
-		if req.GetWorkflowStateId() == State1 {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
-		// Will proceed once channel 1 has been published to
-		if req.GetWorkflowStateId() == State21 {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					InterStateChannelCommands: []iwfidl.InterStateChannelCommand{
-						{
-							CommandId:   ptr.Any("cmd-1"),
-							ChannelName: channel1,
-						},
-					},
-				},
-			})
-			return
-		}
-		// Will proceed once channel 2 has been published to
-		if req.GetWorkflowStateId() == State31 {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					InterStateChannelCommands: []iwfidl.InterStateChannelCommand{
-						{
-							CommandId:   ptr.Any("cmd-2"),
-							ChannelName: channel2,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		// Wait 2 seconds then publish on channel1
-		if req.GetWorkflowStateId() == State22 {
-			time.Sleep(time.Second * 2)
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-
-				PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
-					{
-						ChannelName: channel1,
-						Value:       &TestVal1,
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
+	}
+
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	case State21:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: "cmd-1", ChannelName: channel1},
+				},
+			},
+		}, nil
+	case State31:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: "cmd-2", ChannelName: channel2},
+				},
+			},
+		}, nil
+	case State22:
+		time.Sleep(time.Second * 2)
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+			PublishToChannel: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: channel1,
+					Value: &iwfpb.Value{
+						Kind: &iwfpb.Value_ObjValue{ObjValue: TestVal1},
+					},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			// State 1 requires no pre-reqs
-			// Move to state 21 & 22:
-			// 21 - Will wait for channel 1
-			// 22 - Will wait 3 seconds then publish to channel 1
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State21,
-						},
-						{
-							StateId: State22,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State21 {
-			results := req.GetCommandResults()
-			h.invokeData.Store(State21+"received", results.GetInterStateChannelResults()[0].GetValue())
-
-			// Move to state 31, which will wait for channel 2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State31,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State31 {
-			results := req.GetCommandResults()
-			h.invokeData.Store(State31+"received", results.GetInterStateChannelResults()[0].GetValue())
-
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State22 {
-			time.Sleep(time.Second * 2)
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				// Move to the dead-end state and publish on channel 2 (to unlock State 31)
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.DeadEndWorkflowStateId,
-						},
-					},
-				},
-				PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
-					{
-						ChannelName: channel2,
-						Value:       &TestVal2,
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
+	}
+
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State21},
+					{StepType: State22},
+				},
+			},
+		}, nil
+	case State21:
+		results := request.GetConditionResults()
+		channelResults := results.GetChannelResults()
+		if len(channelResults) > 0 {
+			values := channelResults[0].GetValues()
+			if len(values) > 0 {
+				h.invokeData.Store(State21+"received", values[0])
+			}
+		}
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State31},
+				},
+			},
+		}, nil
+	case State31:
+		results := request.GetConditionResults()
+		channelResults := results.GetChannelResults()
+		if len(channelResults) > 0 {
+			values := channelResults[0].GetValues()
+			if len(values) > 0 {
+				h.invokeData.Store(State31+"received", values[0])
+			}
+		}
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	case State22:
+		time.Sleep(time.Second * 2)
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.DeadEndFlowStepType},
+				},
+			},
+			PublishToChannel: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: channel2,
+					Value: &iwfpb.Value{
+						Kind: &iwfpb.Value_ObjValue{ObjValue: TestVal2},
+					},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -264,5 +251,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

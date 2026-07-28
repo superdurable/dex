@@ -21,28 +21,27 @@
 package anycommandcombination
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 	"time"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, using REST controller to implement the workflow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
  * State1:
- *		- WaitUntil will fail its first attempt and then retry which will proceed when a combination is completed
+ *		- WaitFor will fail its first attempt and then retry which will proceed when a combination is completed
  *      - Execute method will invoke the combination and move the State2
  * State2:
- *		- WaitUntil will fail its first attempt and then retry which will proceed when a combination is completed
- *      - Execute method will invoke the combination and gracefully complete workflow
+ *		- WaitFor will fail its first attempt and then retry which will proceed when a combination is completed
+ *      - Execute method will invoke the combination and gracefully complete flow
  */
 const (
 	WorkflowType     = "any_command_combination"
@@ -55,6 +54,7 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 	//we want to confirm that the interpreter workflow activity will fail when the commandId is empty with ANY_COMMAND_COMBINATION_COMPLETED
@@ -62,7 +62,7 @@ type handler struct {
 	hasS2RetriedForInvalidCommandId bool
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory:                   sync.Map{},
 		invokeData:                      sync.Map{},
@@ -71,192 +71,168 @@ func NewHandler() common.WorkflowHandler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	invalidTimerCommands := []iwfidl.TimerCommand{
+	invalidTimerConditions := []*iwfpb.TimerCondition{
 		{
-			FiringUnixTimestampSeconds: iwfidl.PtrInt64(time.Now().Unix() + 86400*365), // one year later
+			FiringUnixTimestampSeconds: time.Now().Unix() + 86400*365,
 		},
 	}
-	validTimerCommands := []iwfidl.TimerCommand{
+	validTimerConditions := []*iwfpb.TimerCondition{
 		{
-			CommandId:                  ptr.Any(TimerId1),
-			FiringUnixTimestampSeconds: iwfidl.PtrInt64(time.Now().Unix() + 86400*365), // one year later
+			ConditionId:                TimerId1,
+			FiringUnixTimestampSeconds: time.Now().Unix() + 86400*365,
 		},
 	}
-	invalidSignalCommands := []iwfidl.SignalCommand{
+	invalidChannelConditions := []*iwfpb.ChannelCondition{
 		{
-			SignalChannelName: SignalNameAndId1,
+			ChannelName: SignalNameAndId1,
 		},
 		{
-			CommandId:         ptr.Any(SignalNameAndId2),
-			SignalChannelName: SignalNameAndId2,
+			ConditionId: SignalNameAndId2,
+			ChannelName: SignalNameAndId2,
 		},
 	}
-	validSignalCommands := []iwfidl.SignalCommand{
+	validChannelConditions := []*iwfpb.ChannelCondition{
 		{
-			CommandId:         ptr.Any(SignalNameAndId1),
-			SignalChannelName: SignalNameAndId1,
+			ConditionId: SignalNameAndId1,
+			ChannelName: SignalNameAndId1,
 		},
 		{
-			CommandId:         ptr.Any(SignalNameAndId1),
-			SignalChannelName: SignalNameAndId1,
+			ConditionId: SignalNameAndId1,
+			ChannelName: SignalNameAndId1,
 		},
 		{
-			CommandId:         ptr.Any(SignalNameAndId2),
-			SignalChannelName: SignalNameAndId2,
+			ConditionId: SignalNameAndId2,
+			ChannelName: SignalNameAndId2,
 		},
 		{
-			CommandId:         ptr.Any(SignalNameAndId3),
-			SignalChannelName: SignalNameAndId3,
+			ConditionId: SignalNameAndId3,
+			ChannelName: SignalNameAndId3,
 		},
 	}
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == State1 {
-			// If the state has already retried an invalid command, proceed on combination completed
+		if request.GetStepType() == State1 {
 			if h.hasS1RetriedForInvalidCommandId {
-				startResp := iwfidl.WorkflowStateStartResponse{
-					CommandRequest: &iwfidl.CommandRequest{
-						SignalCommands:     validSignalCommands,
-						TimerCommands:      validTimerCommands,
-						DeciderTriggerType: iwfidl.ANY_COMMAND_COMBINATION_COMPLETED.Ptr(),
-						CommandCombinations: []iwfidl.CommandCombination{
+				return &iwfpb.InvokeWaitForMethodResponse{
+					WaitingCondition: &iwfpb.WaitingCondition{
+						ChannelConditions:    validChannelConditions,
+						TimerConditions:      validTimerConditions,
+						WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+						ConditionCombinations: []*iwfpb.ConditionCombination{
 							{
-								CommandIds: []string{
-									TimerId1, SignalNameAndId1, SignalNameAndId1, // wait for two SignalNameAndId1
+								ConditionIds: []string{
+									TimerId1, SignalNameAndId1, SignalNameAndId1,
 								},
 							},
 							{
-								CommandIds: []string{
+								ConditionIds: []string{
 									TimerId1, SignalNameAndId1, SignalNameAndId2,
 								},
 							},
 						},
 					},
-				}
-
-				c.JSON(http.StatusOK, startResp)
-			} else {
-				// If the state has not already retried an invalid command, return invalid trigger signals, which will fail
-				// and cause a retry
-				startResp := iwfidl.WorkflowStateStartResponse{
-					CommandRequest: &iwfidl.CommandRequest{
-						SignalCommands:     validSignalCommands,
-						TimerCommands:      invalidTimerCommands,
-						DeciderTriggerType: iwfidl.ANY_COMMAND_COMBINATION_COMPLETED.Ptr(),
-					},
-				}
-				h.hasS1RetriedForInvalidCommandId = true
-				c.JSON(http.StatusOK, startResp)
+				}, nil
 			}
-			return
+
+			h.hasS1RetriedForInvalidCommandId = true
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					ChannelConditions:    validChannelConditions,
+					TimerConditions:      invalidTimerConditions,
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+				},
+			}, nil
 		}
 
-		if req.GetWorkflowStateId() == State2 {
-			// If the state has already retried an invalid command, return signals and completion metrics
+		if request.GetStepType() == State2 {
 			if h.hasS2RetriedForInvalidCommandId {
-				startResp := iwfidl.WorkflowStateStartResponse{
-					CommandRequest: &iwfidl.CommandRequest{
-						SignalCommands:     validSignalCommands,
-						TimerCommands:      validTimerCommands,
-						DeciderTriggerType: iwfidl.ANY_COMMAND_COMBINATION_COMPLETED.Ptr(),
-						CommandCombinations: []iwfidl.CommandCombination{
+				return &iwfpb.InvokeWaitForMethodResponse{
+					WaitingCondition: &iwfpb.WaitingCondition{
+						ChannelConditions:    validChannelConditions,
+						TimerConditions:      validTimerConditions,
+						WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+						ConditionCombinations: []*iwfpb.ConditionCombination{
 							{
-								CommandIds: []string{
+								ConditionIds: []string{
 									SignalNameAndId2, SignalNameAndId1,
 								},
 							},
 							{
-								CommandIds: []string{
+								ConditionIds: []string{
 									TimerId1, SignalNameAndId1, SignalNameAndId2,
 								},
 							},
 						},
 					},
-				}
-
-				c.JSON(http.StatusOK, startResp)
-			} else {
-				// If the state has not already retried an invalid command, return invalid trigger signals, which will fail
-				// and cause a retry
-				startResp := iwfidl.WorkflowStateStartResponse{
-					CommandRequest: &iwfidl.CommandRequest{
-						SignalCommands:     invalidSignalCommands,
-						TimerCommands:      validTimerCommands,
-						DeciderTriggerType: iwfidl.ANY_COMMAND_COMBINATION_COMPLETED.Ptr(),
-					},
-				}
-				h.hasS2RetriedForInvalidCommandId = true
-				c.JSON(http.StatusOK, startResp)
+				}, nil
 			}
-			return
+
+			h.hasS2RetriedForInvalidCommandId = true
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					ChannelConditions:    invalidChannelConditions,
+					TimerConditions:      validTimerConditions,
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
+				},
+			}, nil
 		}
 	}
-	helpers.FailTestWithErrorMessage("invalid workflow type", t)
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		panic(err)
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		// Trigger signals and move to State 2
-		if req.GetWorkflowStateId() == State1 {
-			h.invokeData.Store("s1_commandResults", req.GetCommandResults())
+		if request.GetStepType() == State1 {
+			h.invokeData.Store("s1_commandResults", request.GetConditionResults())
 
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State2,
-						},
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: State2},
 					},
 				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			// Trigger data and move to completion
-			h.invokeData.Store("s2_commandResults", req.GetCommandResults())
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
+			}, nil
+		} else if request.GetStepType() == State2 {
+			h.invokeData.Store("s2_commandResults", request.GetConditionResults())
+
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: service.GracefulCompletingFlowStepType},
 					},
 				},
-			})
-			return
+			}, nil
 		}
 	}
 
-	helpers.FailTestWithErrorMessage("invalid workflow type", t)
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -267,5 +243,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

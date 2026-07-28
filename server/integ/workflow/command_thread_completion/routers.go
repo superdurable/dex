@@ -21,39 +21,39 @@
 package command_thread_completion
 
 import (
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow validates that all command threads complete before continue-as-new snapshots state.
+ * This test flow validates that all command threads complete before continue-as-new snapshots state.
  * It tests the fix for the bug where internal channel signals were lost during continue-as-new.
  *
- * Workflow structure:
- * State1:
- *   - WaitUntil: Set up timer, signal, and internal channel commands with ANY_COMMAND_COMPLETED
- *   - Execute: Publish to internal channel, move to State2
- * State2:
- *   - WaitUntil: Wait for the internal channel from State1
- *   - Execute: Complete workflow
+ * Flow structure:
+ * Step1:
+ *   - WaitFor: Set up timer, signal, and internal channel conditions with ALL_COMPLETED
+ *   - Execute: Publish to internal channel, move to Step2
+ * Step2:
+ *   - WaitFor: Wait for the internal channel from Step1
+ *   - Execute: Complete flow
  *
- * The test triggers continue-as-new after State1 execute but before State2 starts.
- * This ensures the internal channel signal published by State1 is captured before continue-as-new.
+ * The test triggers continue-as-new after Step1 execute but before Step2 starts.
+ * This ensures the internal channel signal published by Step1 is captured before continue-as-new.
  */
 const (
 	WorkflowType = "command_thread_completion"
 	State1       = "S1"
 	State2       = "S2"
 	State3       = "S3"
-	StateAnyCmd  = "StateAnyCmd" // Tests ANY_COMMAND_COMPLETED with CAN
+	StateAnyCmd  = "StateAnyCmd" // Tests ANY_COMPLETED with CAN
 
 	testChannel    = "test-channel"
 	testSignal     = "test-signal"
@@ -62,12 +62,13 @@ const (
 	testSignalCmd  = "test-signal-cmd"
 )
 
-var testChannelValue = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("channel-data"),
+var testChannelValue = &iwfpb.EncodedObject{
+	Encoding: "json",
+	Payload:  []byte("channel-data"),
 }
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -79,307 +80,260 @@ func NewHandler() *handler {
 	}
 }
 
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
-	log.Println("received state start request, ", req)
 
-	if req.GetWorkflowType() == WorkflowType {
-		h.recordInvoke(req.GetWorkflowStateId() + "_start")
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 
-		if req.GetWorkflowStateId() == State1 {
-			// State1: Set up all three command types with ALL_COMMAND_COMPLETED
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					TimerCommands: []iwfidl.TimerCommand{
-						{
-							CommandId:                  ptr.Any(testTimerCmd),
-							FiringUnixTimestampSeconds: ptr.Any(time.Now().Add(2 * time.Second).Unix()),
-						},
-					},
-					SignalCommands: []iwfidl.SignalCommand{
-						{
-							CommandId:         ptr.Any(testSignalCmd),
-							SignalChannelName: testSignal,
-						},
-					},
-					InterStateChannelCommands: []iwfidl.InterStateChannelCommand{
-						{
-							CommandId:   ptr.Any(testChannelCmd),
-							ChannelName: testChannel,
-						},
-					},
-				},
-				// Immediately publish to internal channel so it's available for the thread to retrieve
-				PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
+	h.recordInvoke(request.GetStepType() + "_waitFor")
+
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*iwfpb.TimerCondition{
 					{
-						ChannelName: testChannel,
-						Value:       &testChannelValue,
+						ConditionId:                testTimerCmd,
+						FiringUnixTimestampSeconds: time.Now().Add(2 * time.Second).Unix(),
 					},
 				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State2 {
-			// State2: Wait for the channel published by State1's Execute
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					InterStateChannelCommands: []iwfidl.InterStateChannelCommand{
-						{
-							CommandId:   ptr.Any("s2-channel-cmd"),
-							ChannelName: testChannel + "2",
-						},
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: testSignalCmd, ChannelName: testSignal},
+					{ConditionId: testChannelCmd, ChannelName: testChannel},
+				},
+			},
+			PublishToChannel: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: testChannel,
+					Value: &iwfpb.Value{
+						Kind: &iwfpb.Value_ObjValue{ObjValue: testChannelValue},
 					},
 				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State3 {
-			// State3: Only wait for a timer command (tests timer thread in isolation)
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-					TimerCommands: []iwfidl.TimerCommand{
-						{
-							CommandId:                  ptr.Any("s3-timer-cmd"),
-							FiringUnixTimestampSeconds: ptr.Any(time.Now().Add(2 * time.Second).Unix()),
-						},
+			},
+		}, nil
+	case State2:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: "s2-channel-cmd", ChannelName: testChannel + "2"},
+				},
+			},
+		}, nil
+	case State3:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*iwfpb.TimerCondition{
+					{
+						ConditionId:                "s3-timer-cmd",
+						FiringUnixTimestampSeconds: time.Now().Add(2 * time.Second).Unix(),
 					},
 				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == StateAnyCmd {
-			// StateAnyCmd: Tests ANY_COMMAND_COMPLETED with long timer + quick signal
-			// This validates that we don't wait for the timer when signal completes
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ANY_COMMAND_COMPLETED.Ptr(), // ANY, not ALL!
-					TimerCommands: []iwfidl.TimerCommand{
-						{
-							CommandId:                  ptr.Any("any-cmd-timer"),
-							FiringUnixTimestampSeconds: ptr.Any(time.Now().Add(20 * time.Second).Unix()), // Long timer
-						},
-					},
-					SignalCommands: []iwfidl.SignalCommand{
-						{
-							CommandId:         ptr.Any("any-cmd-signal-cmd"),
-							SignalChannelName: "any-cmd-signal",
-						},
+			},
+		}, nil
+	case StateAnyCmd:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+				TimerConditions: []*iwfpb.TimerCondition{
+					{
+						ConditionId:                "any-cmd-timer",
+						FiringUnixTimestampSeconds: time.Now().Add(20 * time.Second).Unix(),
 					},
 				},
-			})
-			return
-		}
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: "any-cmd-signal-cmd", ChannelName: "any-cmd-signal"},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		h.recordInvoke(req.GetWorkflowStateId() + "_decide")
-
-		if req.GetWorkflowStateId() == State1 {
-			// With ALL_COMMAND_COMPLETED, all three command types must complete
-			cmdResults := req.GetCommandResults()
-
-			// Check timer - should be FIRED
-			timerFired := false
-			if cmdResults.HasTimerResults() {
-				for _, tr := range cmdResults.GetTimerResults() {
-					if tr.GetTimerStatus() == iwfidl.FIRED {
-						timerFired = true
-						h.recordData("s1_timer_fired", true)
-					}
-				}
-			}
-			if !timerFired {
-				log.Println("ERROR: Timer should have fired in State1")
-			}
-
-			// Check signal - should be RECEIVED
-			signalReceived := false
-			if cmdResults.HasSignalResults() {
-				for _, sr := range cmdResults.GetSignalResults() {
-					if sr.GetSignalChannelName() == testSignal && sr.GetSignalRequestStatus() == iwfidl.RECEIVED {
-						signalReceived = true
-						h.recordData("s1_signal_received", true)
-					}
-				}
-			}
-			if !signalReceived {
-				log.Println("ERROR: Signal should have been received in State1")
-			}
-
-			// Check internal channel - should be RECEIVED
-			channelReceived := false
-			if cmdResults.HasInterStateChannelResults() {
-				for _, cr := range cmdResults.GetInterStateChannelResults() {
-					if cr.GetChannelName() == testChannel && cr.GetRequestStatus() == iwfidl.RECEIVED {
-						channelReceived = true
-						h.recordData("s1_channel_received", true)
-					}
-				}
-			}
-			if !channelReceived {
-				log.Println("ERROR: Internal channel should have been received in State1")
-			}
-
-			// Move to both State2 and State3 - publish channel for State2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State2,
-						},
-						{
-							StateId: State3,
-						},
-					},
-				},
-				PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
-					{
-						ChannelName: testChannel + "2",
-						Value:       &testChannelValue,
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State2 {
-			// Verify the channel was received (this tests continue-as-new preservation)
-			cmdResults := req.GetCommandResults()
-
-			channelReceived := false
-			if cmdResults.HasInterStateChannelResults() {
-				for _, cr := range cmdResults.GetInterStateChannelResults() {
-					if cr.GetChannelName() == testChannel+"2" && cr.GetRequestStatus() == iwfidl.RECEIVED {
-						channelReceived = true
-						h.recordData("s2_channel_received", true)
-						h.recordData("s2_channel_value", cr.GetValue())
-					}
-				}
-			}
-
-			if !channelReceived {
-				log.Println("ERROR: State2 channel was NOT received! This indicates the bug exists.")
-				h.recordData("s2_channel_received", false)
-			}
-
-			// Dead end - don't complete workflow yet, let State3 complete
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.DeadEndWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == State3 {
-			// Verify the timer fired (tests timer thread in isolation)
-			cmdResults := req.GetCommandResults()
-
-			timerFired := false
-			if cmdResults.HasTimerResults() {
-				for _, tr := range cmdResults.GetTimerResults() {
-					if tr.GetTimerStatus() == iwfidl.FIRED {
-						timerFired = true
-						h.recordData("s3_timer_fired", true)
-					}
-				}
-			}
-
-			if !timerFired {
-				log.Println("ERROR: Timer should have fired in State3")
-				h.recordData("s3_timer_fired", false)
-			}
-
-			// Complete workflow
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
-		}
-
-		if req.GetWorkflowStateId() == StateAnyCmd {
-			// Verify that with ANY_COMMAND_COMPLETED, we proceeded when signal was received
-			// without waiting for the long timer
-			cmdResults := req.GetCommandResults()
-
-			signalReceived := false
-			timerFired := false
-
-			if cmdResults.HasSignalResults() {
-				for _, sr := range cmdResults.GetSignalResults() {
-					if sr.GetSignalChannelName() == "any-cmd-signal" && sr.GetSignalRequestStatus() == iwfidl.RECEIVED {
-						signalReceived = true
-						h.recordData("any_cmd_signal_received", true)
-					}
-				}
-			}
-
-			if cmdResults.HasTimerResults() {
-				for _, tr := range cmdResults.GetTimerResults() {
-					if tr.GetCommandId() == "any-cmd-timer" && tr.GetTimerStatus() == iwfidl.FIRED {
-						timerFired = true
-					}
-				}
-			}
-
-			if !signalReceived {
-				log.Println("ERROR: Signal should have been received in StateAnyCmd (ANY_COMMAND_COMPLETED)")
-				h.recordData("any_cmd_signal_received", false)
-			}
-
-			if timerFired {
-				log.Println("WARNING: Timer fired in StateAnyCmd - this suggests we waited for it instead of proceeding with signal")
-			}
-
-			// Complete workflow
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State3,
-						},
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.recordInvoke(request.GetStepType() + "_execute")
+
+	switch request.GetStepType() {
+	case State1:
+		cmdResults := request.GetConditionResults()
+
+		timerFired := false
+		for _, timerResult := range cmdResults.GetTimerResults() {
+			if timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				timerFired = true
+				h.recordData("s1_timer_fired", true)
+			}
+		}
+		if !timerFired {
+			log.Println("ERROR: Timer should have fired in State1")
+		}
+
+		signalReceived := false
+		for _, channelResult := range cmdResults.GetChannelResults() {
+			if channelResult.GetChannelName() == testSignal &&
+				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				signalReceived = true
+				h.recordData("s1_signal_received", true)
+			}
+		}
+		if !signalReceived {
+			log.Println("ERROR: Signal should have been received in State1")
+		}
+
+		channelReceived := false
+		for _, channelResult := range cmdResults.GetChannelResults() {
+			if channelResult.GetChannelName() == testChannel &&
+				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelReceived = true
+				h.recordData("s1_channel_received", true)
+			}
+		}
+		if !channelReceived {
+			log.Println("ERROR: Internal channel should have been received in State1")
+		}
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State2},
+					{StepType: State3},
+				},
+			},
+			PublishToChannel: []*iwfpb.ChannelMessage{
+				{
+					ChannelName: testChannel + "2",
+					Value: &iwfpb.Value{
+						Kind: &iwfpb.Value_ObjValue{ObjValue: testChannelValue},
+					},
+				},
+			},
+		}, nil
+	case State2:
+		cmdResults := request.GetConditionResults()
+
+		channelReceived := false
+		for _, channelResult := range cmdResults.GetChannelResults() {
+			if channelResult.GetChannelName() == testChannel+"2" &&
+				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				channelReceived = true
+				h.recordData("s2_channel_received", true)
+				if values := channelResult.GetValues(); len(values) > 0 {
+					h.recordData("s2_channel_value", values[0])
+				}
+			}
+		}
+
+		if !channelReceived {
+			log.Println("ERROR: State2 channel was NOT received! This indicates the bug exists.")
+			h.recordData("s2_channel_received", false)
+		}
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.DeadEndFlowStepType},
+				},
+			},
+		}, nil
+	case State3:
+		cmdResults := request.GetConditionResults()
+
+		timerFired := false
+		for _, timerResult := range cmdResults.GetTimerResults() {
+			if timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				timerFired = true
+				h.recordData("s3_timer_fired", true)
+			}
+		}
+
+		if !timerFired {
+			log.Println("ERROR: Timer should have fired in State3")
+			h.recordData("s3_timer_fired", false)
+		}
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	case StateAnyCmd:
+		cmdResults := request.GetConditionResults()
+
+		signalReceived := false
+		timerFired := false
+
+		for _, channelResult := range cmdResults.GetChannelResults() {
+			if channelResult.GetChannelName() == "any-cmd-signal" &&
+				channelResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				signalReceived = true
+				h.recordData("any_cmd_signal_received", true)
+			}
+		}
+
+		for _, timerResult := range cmdResults.GetTimerResults() {
+			if timerResult.GetConditionId() == "any-cmd-timer" &&
+				timerResult.GetConditionStatus() == iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				timerFired = true
+			}
+		}
+
+		if !signalReceived {
+			log.Println("ERROR: Signal should have been received in StateAnyCmd (ANY_COMPLETED)")
+			h.recordData("any_cmd_signal_received", false)
+		}
+
+		if timerFired {
+			log.Println("WARNING: Timer fired in StateAnyCmd - this suggests we waited for it instead of proceeding with signal")
+		}
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State3},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	history := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		history[key.(string)] = value.(int64)
@@ -392,7 +346,7 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		return true
 	})
 
-	return history, data
+	return common.TestResult{InvokeHistory: history, InvokeData: data}
 }
 
 func (h *handler) recordInvoke(key string) {

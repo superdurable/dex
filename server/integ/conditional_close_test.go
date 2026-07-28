@@ -22,14 +22,16 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	conditionalClose "github.com/superdurable/iwf/integ/workflow/conditional_close"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	conditionalClose "github.com/superdurable/iwf/integ/workflow/conditional_close"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporal(t *testing.T) {
@@ -57,8 +59,11 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueA
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		// TODO not sure why using minimumContinueAsNewConfig(true) will fail
-		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(false))
+		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
@@ -68,128 +73,120 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowCadenceContinueAs
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
 func doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
-	t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig,
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
 ) {
-	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, config, false)
-	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, config, true)
+	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, flowConfig, false)
+	doTestConditionalForceCompleteOnChannelEmptyWorkflow(t, backendType, flowConfig, true)
 }
 
 func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
-	t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig, useSignalChannel bool,
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+	useSignalChannel bool,
 ) {
 	assertions := assert.New(t)
-	// start test workflow server
-	wfHandler := conditionalClose.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
 
-	_, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
+	workerHandler := conditionalClose.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	// create client
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// start a workflow
 	channelType := "_internal_channel_"
 	if useSignalChannel {
 		channelType = "_signal_channel_"
 	}
-	wfId := conditionalClose.WorkflowType + channelType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        conditionalClose.WorkflowType,
-		WorkflowTimeoutSeconds: 20,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(conditionalClose.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
+	flowId := conditionalClose.WorkflowType + channelType + uuid.NewString()
+
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           conditionalClose.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		WorkerTarget:       workerTarget,
+		StartStepType:      conditionalClose.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	}
 	if useSignalChannel {
-		startReq.StateInput = &iwfidl.EncodedObject{
-			Data: iwfidl.PtrString("use-signal-channel"),
-		} // this will tell the workflow to use signal
+		startRequest.StepInput = stringValue("use-signal-channel")
 	}
 
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
 
-	// Wait for a second so that query handler is ready for executing PRC
 	time.Sleep(time.Second)
-	// invoke RPC to send 1 messages to the internal channel to unblock the waitUntil
-	// then send another two messages
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	reqSignal := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
 	for i := 0; i < 3; i++ {
 		if useSignalChannel {
-			httpResp, err = reqSignal.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-				WorkflowId:        wfId,
-				SignalChannelName: conditionalClose.TestChannelName,
-			}).Execute()
+			_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+				FlowId: flowId,
+				Messages: []*iwfpb.ChannelMessage{
+					{ChannelName: conditionalClose.TestChannelName},
+				},
+			})
 		} else {
-			_, httpResp, err = reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-				WorkflowId: wfId,
-				RpcName:    conditionalClose.RpcPublishInternalChannel,
-			}).Execute()
+			_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+				FlowId:  flowId,
+				RpcName: conditionalClose.RpcPublishInternalChannel,
+			})
 		}
-
-		failTestAtHttpError(err, httpResp, t)
+		require.NoError(t, err)
 		if i == 0 {
-			// Wait for a second so that the workflow is in execute state
 			time.Sleep(time.Second)
 		}
 	}
 
-	// Wait for the workflow to complete
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp2, httpResp, err := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:       flowId,
+		NeedsResults: true,
+	})
+	require.NoError(t, err)
 
-	history, _ := wfHandler.GetTestResult()
+	history := workerHandler.GetTestResult().InvokeHistory
 
 	expectMap := map[string]int64{
-		"S1_start":  4,
-		"S1_decide": 4,
+		"S1_waitFor": 4,
+		"S1_execute": 4,
 	}
 	if useSignalChannel {
 		expectMap = map[string]int64{
-			"S1_start":  3,
-			"S1_decide": 3,
+			"S1_waitFor": 3,
+			"S1_execute": 3,
 		}
 	}
 	if !useSignalChannel {
 		expectMap[conditionalClose.RpcPublishInternalChannel] = 3
 	}
-	assertions.Equalf(expectMap, history, "rpc test fail, %v", history)
+	assertions.Equalf(expectMap, history, "conditional close test fail, %v", history)
 
-	assertions.Equal(iwfidl.COMPLETED, resp2.GetWorkflowStatus())
-	assertions.Equal(1, len(resp2.GetResults()))
-	expectedOutput := iwfidl.StateCompletionOutput{
-		CompletedStateId:          "S1",
-		CompletedStateExecutionId: "S1-4",
-		CompletedStateOutput:      &conditionalClose.TestInput,
+	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	require.Len(t, response.GetResults(), 1)
+	expectedOutput := &iwfpb.StepCompletionOutput{
+		CompletedStepType:        "S1",
+		CompletedStepExecutionId: "S1-4",
+		CompletedStepOutput:      conditionalClose.TestInput,
 	}
 	if useSignalChannel {
-		expectedOutput = iwfidl.StateCompletionOutput{
-			CompletedStateId:          "S1",
-			CompletedStateExecutionId: "S1-3",
-			CompletedStateOutput:      &conditionalClose.TestInput,
+		expectedOutput = &iwfpb.StepCompletionOutput{
+			CompletedStepType:        "S1",
+			CompletedStepExecutionId: "S1-3",
+			CompletedStepOutput:      conditionalClose.TestInput,
 		}
 	}
-	assertions.Equal(expectedOutput, resp2.GetResults()[0])
+	assertions.True(proto.Equal(expectedOutput, response.GetResults()[0]))
 }

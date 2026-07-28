@@ -21,30 +21,29 @@
 package persistence
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has three states, using REST controller to implement the workflow directly.
+ * This test flow has three steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method will update DA, SA, & SL
- * 		- Execute method will move to State2 with partially loaded data
- * State2:
- * 		- WaitUntil method will store attribute data
- * 		- Execute method will move to State3 with partially loaded data
- * State3:
- * 		- WaitUntil method performs some attribute checks
- * 		- Execute method performs checks on the attribute data and then gracefully completes the workflow
+ * Step1:
+ *		- WaitFor method will update attributes and step exe locals
+ * 		- Execute method will move to Step2
+ * Step2:
+ * 		- WaitFor method will store attribute data
+ * 		- Execute method will move to Step3
+ * Step3:
+ * 		- WaitFor method performs some attribute checks
+ * 		- Execute method performs checks on the attribute data and then gracefully completes the flow
  */
 const (
 	WorkflowType          = "persistence"
@@ -69,411 +68,213 @@ const (
 	TestSearchAttributeIntValue2       = 2
 )
 
-var TestDataAttributeVal1 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("test-data-attribute-value1"),
-}
-
-var TestDataAttributeVal2 = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("test-data-attribute-value2"),
-}
-
-var testStateLocalVal = iwfidl.EncodedObject{
-	Encoding: iwfidl.PtrString("json"),
-	Data:     iwfidl.PtrString("test-state-local-value"),
-}
+var testDataAttributeVal1Payload = "test-data-attribute-value1"
+var testDataAttributeVal2Payload = "test-data-attribute-value2"
+var testStateLocalValPayload = "test-state-local-value"
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	initSas := req.GetSearchAttributes()
-	if len(initSas) < 1 {
-		helpers.FailTestWithErrorMessage("should have at least one init search attribute", t)
-	}
-	for _, sa := range initSas {
-		if sa.GetKey() == "CustomDatetimeField" {
-			if sa.GetValueType() != iwfidl.DATETIME {
-				helpers.FailTestWithErrorMessage("key and value type not match", t)
-			}
-		}
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
 	}
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			var sa []iwfidl.SearchAttribute
-			sa = []iwfidl.SearchAttribute{
-				{
-					Key:         iwfidl.PtrString(TestSearchAttributeKeywordKey),
-					StringValue: iwfidl.PtrString(TestSearchAttributeKeywordValue1),
-					ValueType:   ptr.Any(iwfidl.KEYWORD),
-				},
-				{
-					Key:          iwfidl.PtrString(TestSearchAttributeIntKey),
-					IntegerValue: iwfidl.PtrInt64(TestSearchAttributeIntValue1),
-					ValueType:    ptr.Any(iwfidl.INT),
-				},
-				{
-					Key:       iwfidl.PtrString(TestSearchAttributeBoolKey),
-					ValueType: ptr.Any(iwfidl.BOOL),
-					BoolValue: iwfidl.PtrBool(false),
-				},
+	initAttributes := request.GetAttributes()
+	if len(initAttributes) < 1 {
+		return nil, status.Error(codes.InvalidArgument, "should have at least one init attribute")
+	}
+	for _, attribute := range initAttributes {
+		if attribute.GetKey() == TestSearchAttributeDatetimeKey {
+			if attribute.GetValue().GetStringValue() == "" {
+				return nil, status.Error(codes.InvalidArgument, "key and value type not match")
 			}
-
-			// Go to the decide methods after updating DA, SA, & SL
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-				UpsertDataObjects: []iwfidl.KeyValue{
-					{
-						Key:   iwfidl.PtrString(TestDataAttributeKey),
-						Value: &TestDataAttributeVal1,
-					},
-					{
-						Key:   iwfidl.PtrString(TestDataAttributeKey2),
-						Value: &TestDataAttributeVal1,
-					},
-				},
-				UpsertSearchAttributes: sa,
-				UpsertStateLocals: []iwfidl.KeyValue{
-					{
-						Key:   iwfidl.PtrString(TestStateLocalKey),
-						Value: &testStateLocalVal,
-					},
-				},
-			})
-			return
-		}
-		if req.GetWorkflowStateId() == State2 {
-			sas := req.GetSearchAttributes()
-
-			// Determine how many keywords and ints are found in the search attributes
-			kwSaFounds := 0
-			intSaFounds := 0
-			for _, sa := range sas {
-				if sa.GetKey() == TestSearchAttributeKeywordKey && sa.GetStringValue() == TestSearchAttributeKeywordValue2 &&
-					sa.GetValueType() == iwfidl.KEYWORD {
-					kwSaFounds++
-				}
-				if sa.GetKey() == TestSearchAttributeIntKey && sa.GetIntegerValue() == TestSearchAttributeIntValue2 &&
-					sa.GetValueType() == iwfidl.INT {
-					intSaFounds++
-				}
-			}
-			h.invokeData.Store("S2_start_kwSaFounds", kwSaFounds)
-			h.invokeData.Store("S2_start_intSaFounds", intSaFounds)
-
-			// Determine if the attribute is found in the request
-			queryAttFound := false
-			queryAtts := req.GetDataObjects()
-			for _, queryAtt := range queryAtts {
-				value := queryAtt.GetValue()
-				if queryAtt.GetKey() == TestDataAttributeKey && value.GetData() == TestDataAttributeVal2.GetData() && value.GetEncoding() == TestDataAttributeVal2.GetEncoding() {
-					queryAttFound = true
-				}
-				if queryAtt.GetKey() == TestDataAttributeKey2 {
-					helpers.FailTestWithErrorMessage("should not load key that is not included in partial loading", t)
-				}
-			}
-			h.invokeData.Store("S2_start_queryAttFound", queryAttFound)
-
-			// Go straight to the decide methods without any commands
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
-		if req.GetWorkflowStateId() == State3 {
-			sas := req.GetSearchAttributes()
-
-			// Determine if the INT attribute is found in the request
-			found := false
-			for _, sa := range sas {
-				if sa.GetKey() == TestSearchAttributeKeywordKey {
-					helpers.FailTestWithErrorMessage("should not load key that is not included in partial loading", t)
-				}
-				if sa.GetKey() == TestSearchAttributeIntKey && sa.GetIntegerValue() == TestSearchAttributeIntValue2 &&
-					sa.GetValueType() == iwfidl.INT {
-					found = true
-				}
-			}
-			if !found {
-				helpers.FailTestWithErrorMessage("should see the requested partial loading key", t)
-			}
-
-			queryAttFound := 0
-			queryAtts := req.GetDataObjects()
-			for _, queryAtt := range queryAtts {
-				if queryAtt.GetKey() == TestDataAttributeKey {
-					queryAttFound++
-				}
-				if queryAtt.GetKey() == TestDataAttributeKey2 {
-					queryAttFound++
-				}
-			}
-			if queryAttFound != 2 {
-				helpers.FailTestWithErrorMessage("missing query attribute requested by partial loading keys", t)
-			}
-
-			// Go straight to the decide methods without any commands
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
+
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue1),
+				indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue1),
+				indexedBoolWrite(TestSearchAttributeBoolKey, false),
+				dataObjectWrite(TestDataAttributeKey, testDataAttributeVal1Payload),
+				dataObjectWrite(TestDataAttributeKey2, testDataAttributeVal1Payload),
+			},
+			UpsertStepExeLocals: []*iwfpb.KV{
+				{Key: TestStateLocalKey, Value: jsonObjValue(testStateLocalValPayload)},
+			},
+		}, nil
+	case State2:
+		h.storeKeywordIntCounts("S2_start", request.GetAttributes())
+		queryAttFound := attributePayloadMatches(
+			request.GetAttributes(),
+			TestDataAttributeKey,
+			testDataAttributeVal2Payload,
+		)
+		h.invokeData.Store("S2_start_queryAttFound", queryAttFound)
+
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	case State3:
+		foundInt := attributeIntMatches(
+			request.GetAttributes(),
+			TestSearchAttributeIntKey,
+			TestSearchAttributeIntValue2,
+		)
+		if !foundInt {
+			return nil, status.Error(codes.InvalidArgument, "should see the requested attribute key")
+		}
+
+		queryAttFound := countAttributesWithKeys(
+			request.GetAttributes(),
+			TestDataAttributeKey,
+			TestDataAttributeKey2,
+		)
+		if queryAttFound != 2 {
+			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
+		}
+
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			sas := req.GetSearchAttributes()
-
-			// Determine how many keywords and ints are found in the search attributes
-			kwSaFounds := 0
-			intSaFounds := 0
-			for _, sa := range sas {
-				if sa.GetKey() == TestSearchAttributeKeywordKey && sa.GetStringValue() == TestSearchAttributeKeywordValue1 &&
-					sa.GetValueType() == iwfidl.KEYWORD {
-					kwSaFounds++
-				}
-				if sa.GetKey() == TestSearchAttributeIntKey && sa.GetIntegerValue() == TestSearchAttributeIntValue1 &&
-					sa.GetValueType() == iwfidl.INT {
-					intSaFounds++
-				}
-			}
-			h.invokeData.Store("S1_decide_kwSaFounds", kwSaFounds)
-			h.invokeData.Store("S1_decide_intSaFounds", intSaFounds)
-
-			queryAttFound := 0
-			queryAtts := req.GetDataObjects()
-
-			// Determine how many query attributes are found
-			for _, queryAtt := range queryAtts {
-				value := queryAtt.GetValue()
-				if queryAtt.GetKey() == TestDataAttributeKey && value.GetData() == TestDataAttributeVal1.GetData() && value.GetEncoding() == TestDataAttributeVal1.GetEncoding() {
-					queryAttFound++
-				}
-				if queryAtt.GetKey() == TestDataAttributeKey2 && value.GetData() == TestDataAttributeVal1.GetData() && value.GetEncoding() == TestDataAttributeVal1.GetEncoding() {
-					queryAttFound++
-				}
-			}
-			h.invokeData.Store("S1_decide_queryAttFound", queryAttFound)
-
-			// Determine if local attribute is found
-			localAttFound := false
-			localAtt := req.GetStateLocals()[0]
-			value := localAtt.GetValue()
-			if localAtt.GetKey() == TestStateLocalKey && value.GetData() == testStateLocalVal.GetData() && value.GetEncoding() == testStateLocalVal.GetEncoding() {
-				localAttFound = true
-			}
-			h.invokeData.Store("S1_decide_localAttFound", localAttFound)
-
-			var sa []iwfidl.SearchAttribute
-			sa = []iwfidl.SearchAttribute{
-				{
-					Key:         iwfidl.PtrString(TestSearchAttributeKeywordKey),
-					StringValue: iwfidl.PtrString(TestSearchAttributeKeywordValue2),
-					ValueType:   ptr.Any(iwfidl.KEYWORD),
-				},
-				{
-					Key:          iwfidl.PtrString(TestSearchAttributeIntKey),
-					IntegerValue: iwfidl.PtrInt64(TestSearchAttributeIntValue2),
-					ValueType:    ptr.Any(iwfidl.INT),
-				},
-			}
-
-			// Move to state 2 with set options after updating values
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State2,
-							StateOptions: &iwfidl.WorkflowStateOptions{
-								SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-									PersistenceLoadingType: ptr.Any(iwfidl.PARTIAL_WITHOUT_LOCKING),
-									PartialLoadingKeys: []string{
-										TestSearchAttributeIntKey,
-										TestSearchAttributeKeywordKey,
-									},
-								},
-								DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-									PersistenceLoadingType: ptr.Any(iwfidl.PARTIAL_WITHOUT_LOCKING),
-									PartialLoadingKeys: []string{
-										TestDataAttributeKey,
-									},
-								},
-							},
-						},
-					},
-				},
-				UpsertDataObjects: []iwfidl.KeyValue{
-					{
-						Key:   iwfidl.PtrString(TestDataAttributeKey),
-						Value: &TestDataAttributeVal2,
-					},
-				},
-				UpsertSearchAttributes: sa,
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			sas := req.GetSearchAttributes()
-
-			// Determine how many keywords and ints are found in the search attributes
-			kwSaFounds := 0
-			intSaFounds := 0
-			for _, sa := range sas {
-				if sa.GetKey() == TestSearchAttributeKeywordKey && sa.GetStringValue() == TestSearchAttributeKeywordValue2 &&
-					sa.GetValueType() == iwfidl.KEYWORD {
-					kwSaFounds++
-				}
-				if sa.GetKey() == TestSearchAttributeIntKey && sa.GetIntegerValue() == TestSearchAttributeIntValue2 &&
-					sa.GetValueType() == iwfidl.INT {
-					intSaFounds++
-				}
-			}
-			h.invokeData.Store("S2_decide_kwSaFounds", kwSaFounds)
-			h.invokeData.Store("S2_decide_intSaFounds", intSaFounds)
-
-			queryAttFound := false
-			queryAtts := req.GetDataObjects()
-
-			// Determine how many query attributes are found
-			for _, queryAtt := range queryAtts {
-				value := queryAtt.GetValue()
-				if queryAtt.GetKey() == TestDataAttributeKey && value.GetData() == TestDataAttributeVal2.GetData() && value.GetEncoding() == TestDataAttributeVal2.GetEncoding() {
-					queryAttFound = true
-				}
-				if queryAtt.GetKey() == TestDataAttributeKey2 {
-					helpers.FailTestWithErrorMessage("should not load key that is not included in partial loading", t)
-				}
-			}
-
-			h.invokeData.Store("S2_decide_queryAttFound", queryAttFound)
-
-			// Move to state 3 after with set options
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: State3,
-							StateOptions: &iwfidl.WorkflowStateOptions{
-								SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-									PersistenceLoadingType: ptr.Any(iwfidl.PARTIAL_WITHOUT_LOCKING),
-									PartialLoadingKeys: []string{
-										TestSearchAttributeIntKey,
-									},
-								},
-								DataObjectsLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-									PersistenceLoadingType: ptr.Any(iwfidl.PARTIAL_WITHOUT_LOCKING),
-									PartialLoadingKeys: []string{
-										TestDataAttributeKey,
-										TestDataAttributeKey2,
-									},
-								},
-							},
-						},
-					},
-				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State3 {
-			sas := req.GetSearchAttributes()
-
-			// Determine if the INT attribute is found in the request
-			found := false
-			for _, sa := range sas {
-				if sa.GetKey() == TestSearchAttributeKeywordKey {
-					helpers.FailTestWithErrorMessage("should not load key that is not included in partial loading", t)
-				}
-				if sa.GetKey() == TestSearchAttributeIntKey && sa.GetIntegerValue() == TestSearchAttributeIntValue2 &&
-					sa.GetValueType() == iwfidl.INT {
-					found = true
-				}
-			}
-			if !found {
-				helpers.FailTestWithErrorMessage("should see the requested partial loading key", t)
-			}
-
-			queryAttFound := 0
-			queryAtts := req.GetDataObjects()
-
-			// Determine how many query attributes are found
-			for _, queryAtt := range queryAtts {
-				if queryAtt.GetKey() == TestDataAttributeKey {
-					queryAttFound++
-				}
-				if queryAtt.GetKey() == TestDataAttributeKey2 {
-					queryAttFound++
-				}
-			}
-			if queryAttFound != 2 {
-				helpers.FailTestWithErrorMessage("missing query attribute requested by partial loading keys", t)
-			}
-
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
-		}
-
+	if err := validateStepContext(request.GetContext()); err != nil {
+		return nil, err
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	h.incrementInvokeHistory(request.GetStepType() + "_execute")
+
+	switch request.GetStepType() {
+	case State1:
+		h.storeKeywordIntCounts("S1_decide", request.GetAttributes())
+
+		queryAttFound := 0
+		for _, attribute := range request.GetAttributes() {
+			if attribute.GetKey() == TestDataAttributeKey &&
+				attributeValuePayloadMatches(attribute.GetValue(), testDataAttributeVal1Payload) {
+				queryAttFound++
+			}
+			if attribute.GetKey() == TestDataAttributeKey2 &&
+				attributeValuePayloadMatches(attribute.GetValue(), testDataAttributeVal1Payload) {
+				queryAttFound++
+			}
+		}
+		h.invokeData.Store("S1_decide_queryAttFound", queryAttFound)
+
+		localAttFound := false
+		stepExeLocals := request.GetStepExeLocals()
+		if len(stepExeLocals) > 0 {
+			localAtt := stepExeLocals[0]
+			localAttFound = localAtt.GetKey() == TestStateLocalKey &&
+				attributeValuePayloadMatches(localAtt.GetValue(), testStateLocalValPayload)
+		}
+		h.invokeData.Store("S1_decide_localAttFound", localAttFound)
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State2},
+				},
+			},
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				indexedKeywordWrite(TestSearchAttributeKeywordKey, TestSearchAttributeKeywordValue2),
+				indexedIntWrite(TestSearchAttributeIntKey, TestSearchAttributeIntValue2),
+				dataObjectWrite(TestDataAttributeKey, testDataAttributeVal2Payload),
+			},
+		}, nil
+	case State2:
+		h.storeKeywordIntCounts("S2_decide", request.GetAttributes())
+		queryAttFound := attributePayloadMatches(
+			request.GetAttributes(),
+			TestDataAttributeKey,
+			testDataAttributeVal2Payload,
+		)
+		h.invokeData.Store("S2_decide_queryAttFound", queryAttFound)
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State3},
+				},
+			},
+		}, nil
+	case State3:
+		foundInt := attributeIntMatches(
+			request.GetAttributes(),
+			TestSearchAttributeIntKey,
+			TestSearchAttributeIntValue2,
+		)
+		if !foundInt {
+			return nil, status.Error(codes.InvalidArgument, "should see the requested attribute key")
+		}
+
+		queryAttFound := countAttributesWithKeys(
+			request.GetAttributes(),
+			TestDataAttributeKey,
+			TestDataAttributeKey2,
+		)
+		if queryAttFound != 2 {
+			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
+		}
+
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -484,5 +285,147 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
+}
+
+func (h *handler) storeKeywordIntCounts(prefix string, attributes []*iwfpb.KV) {
+	kwSaFounds := 0
+	intSaFounds := 0
+	for _, attribute := range attributes {
+		if attribute.GetKey() == TestSearchAttributeKeywordKey {
+			if attribute.GetValue().GetStringValue() == TestSearchAttributeKeywordValue1 ||
+				attribute.GetValue().GetStringValue() == TestSearchAttributeKeywordValue2 {
+				kwSaFounds++
+			}
+		}
+		if attribute.GetKey() == TestSearchAttributeIntKey {
+			if attribute.GetValue().GetIntValue() == TestSearchAttributeIntValue1 ||
+				attribute.GetValue().GetIntValue() == TestSearchAttributeIntValue2 {
+				intSaFounds++
+			}
+		}
+	}
+	h.invokeData.Store(prefix+"_kwSaFounds", kwSaFounds)
+	h.invokeData.Store(prefix+"_intSaFounds", intSaFounds)
+}
+
+func validateStepContext(stepContext *iwfpb.Context) error {
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+	return nil
+}
+
+func jsonObjValue(payload string) *iwfpb.Value {
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
+			},
+		},
+	}
+}
+
+func attributeValuePayloadMatches(value *iwfpb.Value, expectedPayload string) bool {
+	payload, ok := objPayloadFromValue(value)
+	return ok && payload == expectedPayload
+}
+
+func attributePayloadMatches(attributes []*iwfpb.KV, key, expectedPayload string) bool {
+	for _, attribute := range attributes {
+		if attribute.GetKey() == key {
+			return attributeValuePayloadMatches(attribute.GetValue(), expectedPayload)
+		}
+	}
+	return false
+}
+
+func attributeIntMatches(attributes []*iwfpb.KV, key string, expected int64) bool {
+	for _, attribute := range attributes {
+		if attribute.GetKey() == key && attribute.GetValue().GetIntValue() == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func countAttributesWithKeys(attributes []*iwfpb.KV, keys ...string) int {
+	found := 0
+	for _, attribute := range attributes {
+		for _, key := range keys {
+			if attribute.GetKey() == key {
+				found++
+			}
+		}
+	}
+	return found
+}
+
+func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	objValue := value.GetObjValue()
+	if objValue == nil {
+		return "", false
+	}
+	return string(objValue.GetPayload()), true
+}
+
+func indexedKeywordWrite(key, value string) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_StringValue{StringValue: value},
+		},
+		IndexConfig: &iwfpb.IndexConfig{
+			Enable: true,
+			Type:   iwfpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	}
+}
+
+func indexedIntWrite(key string, value int64) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_IntValue{IntValue: value},
+		},
+		IndexConfig: &iwfpb.IndexConfig{
+			Enable: true,
+			Type:   iwfpb.IndexType_INDEX_TYPE_INT,
+		},
+	}
+}
+
+func indexedBoolWrite(key string, value bool) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key: key,
+		Value: &iwfpb.Value{
+			Kind: &iwfpb.Value_BoolValue{BoolValue: value},
+		},
+		IndexConfig: &iwfpb.IndexConfig{
+			Enable: true,
+			Type:   iwfpb.IndexType_INDEX_TYPE_BOOL,
+		},
+	}
+}
+
+func dataObjectWrite(key, payload string) *iwfpb.AttributeWrite {
+	return &iwfpb.AttributeWrite{
+		Key:   key,
+		Value: jsonObjValue(payload),
+	}
 }

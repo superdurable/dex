@@ -21,33 +21,35 @@
 package basic
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/service"
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, using REST controller to implement the workflow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
+ * Step1:
  *		- Waits on nothing. Will execute momentarily
- *      - Execute method will move to State2
- * State2:
+ *      - Execute method will move to Step2
+ * Step2:
  *		- Waits on nothing. Will execute momentarily
- *      - Execute method will gracefully complete workflow
+ *      - Execute method will gracefully complete flow
  */
 const (
-	WorkflowType = "basic"
-	State1       = "S1"
-	State2       = "S2"
+	FlowType = "basic"
+	Step1    = "S1"
+	Step2    = "S2"
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -57,112 +59,107 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	context := req.GetContext()
-	if context.GetAttempt() <= 0 || context.GetFirstAttemptTimestamp() <= 0 {
-		helpers.FailTestWithErrorMessage("attempt and firstAttemptTimestamp should be greater than zero", t)
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	if req.GetWorkflowType() == WorkflowType {
-		// Basic workflow go straight to decide methods without any commands
-		if req.GetWorkflowStateId() == State1 || req.GetWorkflowStateId() == State2 {
-			if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
+	if request.GetFlowType() == FlowType {
+		// Basic flow goes straight to execute methods without any conditions
+		if request.GetStepType() == Step1 || request.GetStepType() == Step2 {
+			if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+				h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
 			} else {
-				h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
+				h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 			}
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
+			return &iwfpb.InvokeWaitForMethodResponse{}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
-	context := req.GetContext()
-	if context.GetAttempt() <= 0 || context.GetFirstAttemptTimestamp() <= 0 {
-		helpers.FailTestWithErrorMessage("attempt and firstAttemptTimestamp should be greater than zero", t)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
+	if request.GetFlowType() == FlowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == State1 {
-			// Move to next state
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
+		if request.GetStepType() == Step1 {
+			// Move to next step
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
 						{
-							StateId:    State2,
-							StateInput: req.StateInput,
-							StateOptions: &iwfidl.WorkflowStateOptions{
-								StartApiTimeoutSeconds:   iwfidl.PtrInt32(14),
-								ExecuteApiTimeoutSeconds: iwfidl.PtrInt32(15),
-								StartApiRetryPolicy: &iwfidl.RetryPolicy{
-									InitialIntervalSeconds: iwfidl.PtrInt32(14),
-									BackoffCoefficient:     iwfidl.PtrFloat32(14),
-									MaximumAttempts:        iwfidl.PtrInt32(14),
-									MaximumIntervalSeconds: iwfidl.PtrInt32(14),
+							StepType:  Step2,
+							StepInput: request.GetStepInput(),
+							StepOptions: &iwfpb.StepOptions{
+								WaitForTimeoutSeconds: 14,
+								ExecuteTimeoutSeconds: 15,
+								WaitForRetryPolicy: &iwfpb.RetryPolicy{
+									InitialIntervalSeconds: 14,
+									BackoffCoefficient:     14,
+									MaximumAttempts:        14,
+									MaximumIntervalSeconds: 14,
 								},
-								ExecuteApiRetryPolicy: &iwfidl.RetryPolicy{
-									InitialIntervalSeconds: iwfidl.PtrInt32(15),
-									BackoffCoefficient:     iwfidl.PtrFloat32(15),
-									MaximumAttempts:        iwfidl.PtrInt32(15),
-									MaximumIntervalSeconds: iwfidl.PtrInt32(15),
+								ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+									InitialIntervalSeconds: 15,
+									BackoffCoefficient:     15,
+									MaximumAttempts:        15,
+									MaximumIntervalSeconds: 15,
 								},
 							},
 						},
 					},
 				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
+			}, nil
+		} else if request.GetStepType() == Step2 {
 			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
 						{
-							StateId:    service.GracefulCompletingWorkflowStateId,
-							StateInput: req.StateInput,
+							StepType:  service.GracefulCompletingFlowStepType,
+							StepInput: request.GetStepInput(),
 						},
 					},
 				},
-			})
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
 }

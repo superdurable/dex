@@ -21,100 +21,103 @@
 package wf_execute_api_fail_and_proceed
 
 import (
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/service"
-	"log"
-	"net/http"
-	"sync"
-	"testing"
-
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
+	"log"
+	"sync"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has one state, using REST controller to implement the workflow directly.
+ * This test flow has one step, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil method is skipped
+ * Step1:
+ *		- WaitFor method is skipped
  *      - Execute method will intentionally fail
- * StateRecover:
- *		- Execute method will gracefully complete workflow
+ * StepRecover:
+ *		- Execute method will gracefully complete flow
  */
 const (
-	WorkflowType      = "wf_execute_api_fail_and_proceed"
-	State1            = "S1"
-	StateRecover      = "Recover"
+	FlowType          = "wf_execute_api_fail_and_proceed"
+	Step1             = "S1"
+	StepRecover       = "Recover"
 	InputData         = "test-data"
 	InputDataEncoding = "test-encoding"
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	helpers.FailTestWithErrorMessage("should not get here", t)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	_ *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	panic("should not get here")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
+	if request.GetFlowType() != FlowType {
+		panic("should not get here")
 	}
-	input := req.StateInput
-	if req.WorkflowStateId == State1 {
-		if input.GetData() == InputData && input.GetEncoding() == InputDataEncoding {
-			c.JSON(http.StatusBadRequest, map[string]string{"error": "test-error"})
-		} else {
-			helpers.FailTestWithErrorMessage("input is not correct: "+input.GetData()+", "+input.GetEncoding(), t)
-		}
 
-		return
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 	}
-	if req.WorkflowStateId == StateRecover {
-		if input.GetData() == InputData && input.GetEncoding() == InputDataEncoding {
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
+
+	stepInput := request.GetStepInput()
+	encoding, data := objValueParts(stepInput)
+	if data != InputData || encoding != InputDataEncoding {
+		panic("input is not correct: " + data + ", " + encoding)
+	}
+
+	if request.GetStepType() == Step1 {
+		return nil, status.Error(codes.InvalidArgument, "test-error")
+	}
+	if request.GetStepType() == StepRecover {
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
 				},
-			})
-		} else {
-			helpers.FailTestWithErrorMessage("input is not correct: "+input.GetData()+", "+input.GetEncoding(), t)
-		}
-		return
+			},
+		}, nil
 	}
 
-	helpers.FailTestWithErrorMessage("should not get here", t)
+	panic("should not get here")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func objValueParts(value *iwfpb.Value) (encoding string, data string) {
+	obj := value.GetObjValue()
+	if obj == nil {
+		return "", ""
+	}
+	return obj.GetEncoding(), string(obj.GetPayload())
+}
+
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
 }

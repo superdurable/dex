@@ -21,29 +21,28 @@
 package signal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has two states, using REST controller to implement the workflow directly.
+ * This test flow has two steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- WaitUntil waits until 4 signals are received
- * 		- Execute method publishes the 4 signals & moves to State2
- * State2:
- *		- WaitUntil method does nothing
- *      - Execute method will gracefully complete workflow
+ * Step1:
+ *		- WaitFor waits until 4 signals are received
+ * 		- Execute method publishes the 4 signals & moves to Step2
+ * Step2:
+ *		- WaitFor method does nothing
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType                  = "signal"
@@ -56,178 +55,168 @@ const (
 	RPCNameGetInternalChannelInfo = "RPCNameGetInternalChannelInfo"
 )
 
-var StateOptionsForLargeDataAttributes = iwfidl.WorkflowStateOptions{
-	DataAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-		PersistenceLoadingType: ptr.Any(iwfidl.NONE),
-	},
-}
-
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() common.WorkflowHandlerWithRpc {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if req.RpcName == RPCNameGetSignalChannelInfo {
-		signalInfos := req.SignalChannelInfos
-		data, err := json.Marshal(signalInfos)
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	request *iwfpb.InvokeWorkerRPCRequest,
+) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	if request.GetRpcName() == RPCNameGetSignalChannelInfo {
+		channelInfos := request.GetChannelInfos()
+		data, err := json.Marshal(channelInfos)
 		if err != nil {
-			helpers.FailTestWithError(err, t)
+			return nil, status.Error(codes.Internal, err.Error())
 		}
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			PublishToInterStateChannel: []iwfidl.InterStateChannelPublishing{
-				{
-					ChannelName: InternalChannelName,
-				},
+		return &iwfpb.InvokeWorkerRPCResponse{
+			PublishToChannel: []*iwfpb.ChannelMessage{
+				{ChannelName: InternalChannelName},
 			},
-			Output: &iwfidl.EncodedObject{
-				Data: ptr.Any(string(data)),
-			},
-		})
-		return
-	}
-	if req.RpcName == RPCNameGetInternalChannelInfo {
-		icInfos := req.InternalChannelInfos
-		data, err := json.Marshal(icInfos)
-		if err != nil {
-			helpers.FailTestWithError(err, t)
-		}
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			Output: &iwfidl.EncodedObject{
-				Data: ptr.Any(string(data)),
-			},
-		})
-		return
-	}
-	c.JSON(http.StatusBadRequest, gin.H{})
-	return
-}
-
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
-
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			// Proceed when 4 signals are received
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					SignalCommands: []iwfidl.SignalCommand{
-						{
-							CommandId:         ptr.Any("signal-cmd-id0"),
-							SignalChannelName: SignalName,
-						},
-						{
-							CommandId:         ptr.Any("signal-cmd-id1"),
-							SignalChannelName: SignalName,
-						},
-						{
-							SignalChannelName: SignalName,
-						},
-						{
-							SignalChannelName: SignalName,
-						},
+			Output: &iwfpb.Value{
+				Kind: &iwfpb.Value_ObjValue{
+					ObjValue: &iwfpb.EncodedObject{
+						Encoding: "json",
+						Payload:  data,
 					},
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
 				},
-			})
-			return
-		}
-		if req.GetWorkflowStateId() == State2 {
-			// Go straight to the decide methods without any commands
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
+			},
+		}, nil
 	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetRpcName() == RPCNameGetInternalChannelInfo {
+		channelInfos := request.GetChannelInfos()
+		data, err := json.Marshal(channelInfos)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		return &iwfpb.InvokeWorkerRPCResponse{
+			Output: &iwfpb.Value{
+				Kind: &iwfpb.Value_ObjValue{
+					ObjValue: &iwfpb.EncodedObject{
+						Encoding: "json",
+						Payload:  data,
+					},
+				},
+			},
+		}, nil
+	}
+	return nil, status.Error(codes.InvalidArgument, "unknown rpc name")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
-	log.Println("received state decide request, ", req)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 
-		if req.GetWorkflowStateId() == State1 {
-			signalResults := req.GetCommandResults()
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
+	}
 
-			// Publish 4 signals
-			for i := 0; i < 4; i++ {
-				signalId := signalResults.SignalResults[i].GetCommandId()
-				signalValue := signalResults.SignalResults[i].GetSignalValue()
+	switch request.GetStepType() {
+	case State1:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*iwfpb.ChannelCondition{
+					{ConditionId: "signal-cmd-id0", ChannelName: SignalName},
+					{ConditionId: "signal-cmd-id1", ChannelName: SignalName},
+					{ChannelName: SignalName},
+					{ChannelName: SignalName},
+				},
+			},
+		}, nil
+	case State2:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+}
 
-				h.invokeData.Store(fmt.Sprintf("signalId%v", i), signalId)
-				h.invokeData.Store(fmt.Sprintf("signalValue%v", i), signalValue)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
+	}
+
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
+	}
+
+	switch request.GetStepType() {
+	case State1:
+		channelResults := request.GetConditionResults().GetChannelResults()
+		for i := 0; i < 4; i++ {
+			signalId := channelResults[i].GetConditionId()
+			var signalValue *iwfpb.Value
+			if values := channelResults[i].GetValues(); len(values) > 0 {
+				signalValue = values[0]
 			}
-
-			// Move to State 2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:      State2,
-							StateOptions: &StateOptionsForLargeDataAttributes,
-						},
-					},
-				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
+			h.invokeData.Store(fmt.Sprintf("signalId%v", i), signalId)
+			h.invokeData.Store(fmt.Sprintf("signalValue%v", i), signalValue)
 		}
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State2},
+				},
+			},
+		}, nil
+	case State2:
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -238,5 +227,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

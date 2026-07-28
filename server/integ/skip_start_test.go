@@ -22,116 +22,105 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/skipstart"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/skipstart"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestSkipStartWorkflowTemporal(t *testing.T) {
+func TestSkipStartFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestSkipStartFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestSkipStartWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestSkipStartFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestSkipStartFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func TestSkipStartWorkflowCadence(t *testing.T) {
+func TestSkipStartFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartWorkflow(t, service.BackendTypeCadence, nil)
+		doTestSkipStartFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestSkipStartWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestSkipStartFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestSkipStartFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func doTestSkipStartWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := skipstart.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestSkipStartFlow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := skipstart.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := skipstart.WorkflowType + "-" + uuid.NewString()
+	stepInput := encodedObjectValue("json", []byte("test data"))
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           skipstart.WorkflowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      skipstart.State1,
+		StepInput:          stepInput,
+		StepOptions: &iwfpb.StepOptions{
+			SkipWaitFor: true,
+		},
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := skipstart.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test data"),
-	}
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        skipstart.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(skipstart.State1),
-		StateInput:             wfInput,
-		StateOptions: &iwfidl.WorkflowStateOptions{
-			SkipWaitUntil: iwfidl.PtrBool(true),
-		},
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	assertions := assert.New(t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		NeedsResults:    true,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp2, httpResp, err := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, map[string]int64{
+		"S1_execute": 1,
+		"S2_execute": 1,
+	}, history, "skipstart test fail, %v", history)
 
-	history, _ := wfHandler.GetTestResult()
-	assertions.Equalf(map[string]int64{
-		"S1_decide": 1,
-		"S2_decide": 1,
-	}, history, "skipstart.test fail, %v", history)
-
-	assertions.Equal(iwfidl.COMPLETED, resp2.GetWorkflowStatus())
-	assertions.Equal(1, len(resp2.GetResults()))
-	assertions.Equal(iwfidl.StateCompletionOutput{
-		CompletedStateId:          "S2",
-		CompletedStateExecutionId: "S2-1",
-		CompletedStateOutput:      wfInput,
-	}, resp2.GetResults()[0])
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	require.Len(t, response.GetResults(), 1)
+	result := response.GetResults()[0]
+	require.Equal(t, skipstart.State2, result.GetCompletedStepType())
+	require.Equal(t, skipstart.State2+"-1", result.GetCompletedStepExecutionId())
+	require.True(t, proto.Equal(stepInput, result.GetCompletedStepOutput()))
 }

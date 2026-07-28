@@ -22,15 +22,15 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/wf_state_api_timeout"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/wf_state_api_timeout"
+	"github.com/superdurable/iwf/service"
 )
 
 func TestStateApiTimeoutTemporal(t *testing.T) {
@@ -57,61 +57,64 @@ func TestStateApiTimeoutCadence(t *testing.T) {
 	}
 }
 
-func doTestStateApiTimeout(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := wf_state_api_timeout.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
-
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+func doTestStateApiTimeout(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := wf_state_api_timeout.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: backendType,
 	})
-	wfId := wf_state_api_timeout.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startResp, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wf_state_api_timeout.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wf_state_api_timeout.State1),
-		StateOptions: &iwfidl.WorkflowStateOptions{
-			WaitUntilApiTimeoutSeconds: iwfidl.PtrInt32(1),
-			WaitUntilApiRetryPolicy: &iwfidl.RetryPolicy{
-				MaximumAttempts: iwfidl.PtrInt32(1),
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowId := wf_state_api_timeout.FlowType + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wf_state_api_timeout.FlowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wf_state_api_timeout.Step1,
+		StepOptions: &iwfpb.StepOptions{
+			WaitForTimeoutSeconds: 1,
+			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+				MaximumAttempts: 1,
 			},
 		},
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	}
+	if flowConfig != nil {
+		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}
+	}
+	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	history, _ := wfHandler.GetTestResult()
-	assertions := assert.New(t)
-	assertions.Equalf(map[string]int64{
-		"S1_start": 1,
-	}, history, "wf state api fail test fail, %v", history)
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equal(t, map[string]int64{
+		"S1_waitFor": 1,
+	}, history)
 
-	assertions.True(strings.Contains(resp.GetErrorMessage(), "StartToClose") || strings.Contains(resp.GetErrorMessage(), "START_TO_CLOSE"), resp.GetErrorMessage())
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.FAILED,
-		ErrorType:      ptr.Any(iwfidl.STATE_API_FAIL_ERROR_TYPE),
-		ErrorMessage:   resp.ErrorMessage,
-	}, resp, "response not expected")
+	require.True(
+		t,
+		strings.Contains(resp.GetErrorMessage(), "StartToClose") ||
+			strings.Contains(resp.GetErrorMessage(), "START_TO_CLOSE"),
+		resp.GetErrorMessage(),
+	)
+	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+	require.Equal(
+		t,
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		resp.GetErrorType(),
+	)
 }

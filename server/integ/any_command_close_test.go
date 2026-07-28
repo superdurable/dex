@@ -22,122 +22,124 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	anycommandclose "github.com/superdurable/iwf/integ/workflow/any_command_close"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	anycommandclose "github.com/superdurable/iwf/integ/workflow/any_command_close"
+	"github.com/superdurable/iwf/service"
 )
 
-func TestAnyCommandCloseWorkflowTemporal(t *testing.T) {
+func TestAnyCommandCloseFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestAnyCommandCloseFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCloseWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestAnyCommandCloseFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestAnyCommandCloseFlow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCloseWorkflowCadence(t *testing.T) {
+func TestAnyCommandCloseFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeCadence, nil)
+		doTestAnyCommandCloseFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestAnyCommandCloseWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestAnyCommandCloseFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(true))
+		doTestAnyCommandCloseFlow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestAnyCommandCloseWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := anycommandclose.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestAnyCommandCloseFlow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := anycommandclose.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
+	flowId := anycommandclose.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           anycommandclose.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      anycommandclose.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		},
+	})
+	require.NoError(t, err)
+
+	signalValue := encodedObjectValue("json", []byte("test-data-1"))
+	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*iwfpb.ChannelMessage{
 			{
-				URL: "http://localhost:" + testIwfServerPort,
+				ChannelName: anycommandclose.SignalName2,
+				Value:       signalValue,
 			},
 		},
 	})
-	wfId := anycommandclose.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        anycommandclose.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(anycommandclose.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	signalValue := iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test-data-1"),
-	}
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-	httpResp, err = req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: anycommandclose.SignalName2,
-		SignalValue:       &signalValue,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	history, data := wfHandler.GetTestResult()
-	assertions := assert.New(t)
-	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-		"S2_start":  1,
-		"S2_decide": 1,
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor": 1,
+		"S1_execute": 1,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
 	}, history, "anycommandclose test fail, %v", history)
 
-	assertions.Equal(anycommandclose.SignalName2, data["signalChannelName1"])
-	assertions.Equal("signal-cmd-id2", data["signalCommandId1"])
-	assertions.Equal(signalValue, data["signalValue1"])
-	assertions.Equal(iwfidl.RECEIVED, data["signalStatus1"])
+	require.Equal(t, anycommandclose.SignalName2, data["signalChannelName1"])
+	require.Equal(t, "signal-cmd-id2", data["signalCommandId1"])
+	require.Equal(t, []*iwfpb.Value{signalValue}, data["signalValue1"])
+	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus1"])
 
-	assertions.Equal(anycommandclose.SignalName1, data["signalChannelName0"])
-	assertions.Equal("signal-cmd-id1", data["signalCommandId0"])
-	assertions.Equal(iwfidl.WAITING, data["signalStatus0"])
+	require.Equal(t, anycommandclose.SignalName1, data["signalChannelName0"])
+	require.Equal(t, "signal-cmd-id1", data["signalCommandId0"])
+	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus0"])
 }

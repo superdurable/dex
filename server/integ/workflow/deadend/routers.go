@@ -21,28 +21,28 @@
 package deadend
 
 import (
+	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 3 states, using REST controller to implement the workflow directly.
+ * This test flow has 3 steps, using WorkerServiceServer to implement the flow directly.
  *
  * RPCWriteData:
- *		- WaitUntil will upsert data attributes
+ *		- WaitFor will upsert attributes
  * RPCTriggerState:
- *		- WaitUntil will move to State1
+ *		- WaitFor will move to State1
  * State1:
- *		- WaitUntil is skipped
- *      - Execute method will put the state into a dead-end.
+ *		- WaitFor is skipped
+ *      - Execute method will put the step into a dead-end.
  */
 const (
 	WorkflowType    = "deadend"
@@ -53,105 +53,104 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
-func NewHandler() common.WorkflowHandlerWithRpc {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received workflow worker rpc request, ", req)
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	request *iwfpb.InvokeWorkerRPCRequest,
+) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	log.Println("received worker rpc request, ", request)
 
-	wfCtx := req.Context
-	if wfCtx.WorkflowId == "" || wfCtx.WorkflowRunId == "" {
-		helpers.FailTestWithErrorMessage("invalid context in the request", t)
+	flowContext := request.GetContext()
+	if flowContext.GetFlowId() == "" || flowContext.GetRunId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid context in the request")
 	}
-	if req.WorkflowType != WorkflowType {
-		helpers.FailTestWithErrorMessage("invalid workflow type", t)
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 
-	if req.RpcName == RPCTriggerState {
-		// Move to State 1
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			StateDecision: &iwfidl.StateDecision{NextStates: []iwfidl.StateMovement{
-				{
-					StateId: State1,
-					StateOptions: &iwfidl.WorkflowStateOptions{
-						SkipStartApi: iwfidl.PtrBool(true),
-					},
-				},
-			}},
-		})
-	} else if req.RpcName == RPCWriteData {
-		// Upsert data attributes
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			UpsertDataAttributes: []iwfidl.KeyValue{
-				{
-					Key: iwfidl.PtrString("any key"),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("encoding"),
-						Data:     iwfidl.PtrString("data"),
-					},
-				},
-			},
-		})
-	} else {
-		helpers.FailTestWithErrorMessage(fmt.Sprintf("invalid rpc name: %s", req.RpcName), t)
-	}
-}
-
-// ApiV1WorkflowStateStart - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	helpers.FailTestWithErrorMessage("should not be called", t)
-}
-
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
-
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
-
-		// Move to the dead-end state
-		if req.GetWorkflowStateId() == State1 {
-
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.DeadEndWorkflowStateId,
+	switch request.GetRpcName() {
+	case RPCTriggerState:
+		return &iwfpb.InvokeWorkerRPCResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType: State1,
+						StepOptions: &iwfpb.StepOptions{
+							SkipWaitFor: true,
 						},
 					},
 				},
-			})
-			return
+			},
+		}, nil
+	case RPCWriteData:
+		return &iwfpb.InvokeWorkerRPCResponse{
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				{
+					Key: "any key",
+					Value: &iwfpb.Value{
+						Kind: &iwfpb.Value_ObjValue{
+							ObjValue: &iwfpb.EncodedObject{
+								Encoding: "encoding",
+								Payload:  []byte("data"),
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
+	}
+}
+
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	_ *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	return nil, status.Error(codes.InvalidArgument, "should not be called")
+}
+
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
+
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
+		} else {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
+		}
+
+		if request.GetStepType() == State1 {
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: service.DeadEndFlowStepType},
+					},
+				},
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
 }

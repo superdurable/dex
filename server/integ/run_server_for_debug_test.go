@@ -21,14 +21,17 @@
 package integ
 
 import (
-	"github.com/superdurable/iwf/service"
 	"testing"
 	"time"
+
+	"github.com/superdurable/iwf/service"
 )
 
 // remove the underscore to run
 // nolint
 func _TestNothingButJustRunningTheServiceTemporalWorkerForDebug(t *testing.T) {
-	startIwfServiceWithClient(service.BackendTypeTemporal)
+	startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+	})
 	time.Sleep(time.Hour)
 }

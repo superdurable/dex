@@ -22,145 +22,161 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/parallel"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/parallel"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestParallelWorkflowTemporal(t *testing.T) {
+func TestParallelFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestParallelWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestParallelFlow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestParallelWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestParallelFlow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestParallelWorkflowCadence(t *testing.T) {
+func TestParallelFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestParallelWorkflow(t, service.BackendTypeCadence, nil)
+		doTestParallelFlow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestParallelWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestParallelFlow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestParallelWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := parallel.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestParallelFlow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := parallel.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := parallel.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           parallel.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      parallel.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := parallel.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        parallel.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(parallel.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp2, httpResp, err := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		NeedsResults:    true,
+		WaitTimeSeconds: 30,
+	})
+	require.NoError(t, err)
 
-	history, _ := wfHandler.GetTestResult()
-	assertions := assert.New(t)
-	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-
-		"S11_start":  1,
-		"S11_decide": 1,
-		"S12_start":  1,
-		"S12_decide": 1,
-		"S13_start":  1,
-		"S13_decide": 1,
-
-		"S111_start":  1,
-		"S111_decide": 1,
-
-		"S112_start":  1,
-		"S112_decide": 1,
-
-		"S121_start":  1,
-		"S121_decide": 1,
-
-		"S122_start":  1,
-		"S122_decide": 1,
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, map[string]int64{
+		"S1_waitFor":   1,
+		"S1_execute":   1,
+		"S11_waitFor":  1,
+		"S11_execute":  1,
+		"S12_waitFor":  1,
+		"S12_execute":  1,
+		"S13_waitFor":  1,
+		"S13_execute":  1,
+		"S111_waitFor": 1,
+		"S111_execute": 1,
+		"S112_waitFor": 1,
+		"S112_execute": 1,
+		"S121_waitFor": 1,
+		"S121_execute": 1,
+		"S122_waitFor": 1,
+		"S122_execute": 1,
 	}, history, "parallel test fail, %v", history)
 
-	assertions.Equal(iwfidl.COMPLETED, resp2.GetWorkflowStatus())
-	assertions.ElementsMatch([]iwfidl.StateCompletionOutput{
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	expectedResults := []*iwfpb.StepCompletionOutput{
 		{
-			CompletedStateId:          parallel.State13,
-			CompletedStateExecutionId: parallel.State13 + "-1",
-			CompletedStateOutput: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString("from " + parallel.State13),
-			},
+			CompletedStepType:        parallel.State13,
+			CompletedStepExecutionId: parallel.State13 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State13),
+			),
 		},
 		{
-			CompletedStateId:          parallel.State111,
-			CompletedStateExecutionId: parallel.State111 + "-1",
-			CompletedStateOutput: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString("from " + parallel.State111),
-			},
+			CompletedStepType:        parallel.State111,
+			CompletedStepExecutionId: parallel.State111 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State111),
+			),
 		},
 		{
-			CompletedStateId:          parallel.State112,
-			CompletedStateExecutionId: parallel.State112 + "-1",
-			CompletedStateOutput: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString("from " + parallel.State112),
-			},
+			CompletedStepType:        parallel.State112,
+			CompletedStepExecutionId: parallel.State112 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State112),
+			),
 		},
 		{
-			CompletedStateId:          parallel.State121,
-			CompletedStateExecutionId: parallel.State121 + "-1",
-			CompletedStateOutput: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString("from " + parallel.State121),
-			},
+			CompletedStepType:        parallel.State121,
+			CompletedStepExecutionId: parallel.State121 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State121),
+			),
 		},
 		{
-			CompletedStateId:          parallel.State122,
-			CompletedStateExecutionId: parallel.State122 + "-1",
-			CompletedStateOutput: &iwfidl.EncodedObject{
-				Encoding: iwfidl.PtrString("json"),
-				Data:     iwfidl.PtrString("from " + parallel.State122),
-			},
+			CompletedStepType:        parallel.State122,
+			CompletedStepExecutionId: parallel.State122 + "-1",
+			CompletedStepOutput: encodedObjectValue(
+				"json",
+				[]byte("from "+parallel.State122),
+			),
 		},
-	}, resp2.GetResults())
+	}
+	require.Len(t, response.GetResults(), len(expectedResults))
+	for _, expected := range expectedResults {
+		require.True(t, proto.Equal(expected, findParallelResult(response.GetResults(), expected)))
+	}
+}
+
+func findParallelResult(
+	results []*iwfpb.StepCompletionOutput,
+	expected *iwfpb.StepCompletionOutput,
+) *iwfpb.StepCompletionOutput {
+	for _, result := range results {
+		if result.GetCompletedStepType() == expected.GetCompletedStepType() &&
+			result.GetCompletedStepExecutionId() == expected.GetCompletedStepExecutionId() {
+			return result
+		}
+	}
+	panic(fmt.Sprintf("missing result for step %s", expected.GetCompletedStepType()))
 }

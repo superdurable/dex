@@ -22,79 +22,65 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/basic"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestStartWorkflowNoOptionsTemporal(t *testing.T) {
+func TestStartFlowNoOptionsTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	doTestStartWorkflowWithoutStartOptions(t, service.BackendTypeTemporal)
+	doTestStartFlowWithoutStartOptions(t, service.BackendTypeTemporal)
 }
 
-func TestStartWorkflowNoOptionsCadence(t *testing.T) {
+func TestStartFlowNoOptionsCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	doTestStartWorkflowWithoutStartOptions(t, service.BackendTypeCadence)
+	doTestStartFlowWithoutStartOptions(t, service.BackendTypeCadence)
 }
 
-func doTestStartWorkflowWithoutStartOptions(t *testing.T, backendType service.BackendType) {
-	wfHandler := basic.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.BackendType) {
+	workerTarget := startWorker(t, basic.NewHandler())
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	client, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+	flowId := "TestStartFlowWithoutStartOptions-" + uuid.NewString()
+	stepInput := encodedObjectValue("json", []byte("test data"))
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           basic.FlowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      basic.Step1,
+		StepInput:          stepInput,
 	})
-	wfId := "TestStartWorkflowWithoutStartOptions" + strconv.Itoa(int(time.Now().UnixNano()))
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test data"),
-	}
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        basic.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(basic.State1),
-		StateInput:             wfInput,
-	}
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	requestedSAs := []iwfidl.SearchAttributeKeyAndType{
-		{
-			Key:       ptr.Any(service.SearchAttributeIwfWorkflowType),
-			ValueType: iwfidl.KEYWORD.Ptr(),
+	response, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+		ctx,
+		flowId,
+		"",
+		map[string]iwfpb.IndexType{
+			service.SearchAttributeIwfWorkflowType: iwfpb.IndexType_INDEX_TYPE_KEYWORD,
 		},
-	}
-	response, err := client.DescribeWorkflowExecution(context.Background(), wfId, "", requestedSAs)
-	assertions := assert.New(t)
-	attribute := response.SearchAttributes[service.SearchAttributeIwfWorkflowType]
-	assertions.Equal(basic.WorkflowType, attribute.GetStringValue())
+	)
+	require.NoError(t, err)
+	attribute := response.IndexedAttributes[service.SearchAttributeIwfWorkflowType]
+	require.Equal(t, basic.FlowType, attribute.GetStringValue())
 
-	// Terminate the workflow once tests completed
-	stopReq := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	_, err = stopReq.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.TERMINATE.Ptr(),
-	}).Execute()
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
 }

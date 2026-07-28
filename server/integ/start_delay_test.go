@@ -22,14 +22,14 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/basic"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/basic"
+	"github.com/superdurable/iwf/service"
 )
 
 func TestStartDelayTemporal(t *testing.T) {
@@ -46,83 +46,66 @@ func TestStartDelayCadence(t *testing.T) {
 	doTestStartDelay(t, service.BackendTypeCadence, nil)
 }
 
-func doTestStartDelay(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := basic.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestStartDelay(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerTarget := startWorker(t, basic.NewHandler())
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
-		BackendType: backendType,
-	})
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
-	wfId := basic.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	wfInput := &iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test data"),
-	}
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        basic.WorkflowType,
-		WorkflowTimeoutSeconds: 100,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(basic.State1),
-		StateInput:             wfInput,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowStartDelaySeconds: iwfidl.PtrInt32(10),
-			WorkflowConfigOverride:    config,
-			WorkflowIDReusePolicy:     ptr.Any(iwfidl.REJECT_DUPLICATE),
-			RetryPolicy: &iwfidl.WorkflowRetryPolicy{
-				InitialIntervalSeconds: iwfidl.PtrInt32(11),
-				BackoffCoefficient:     iwfidl.PtrFloat32(11),
-				MaximumAttempts:        iwfidl.PtrInt32(11),
-				MaximumIntervalSeconds: iwfidl.PtrInt32(11),
-			},
-		},
-		StateOptions: &iwfidl.WorkflowStateOptions{
-			StartApiTimeoutSeconds:  iwfidl.PtrInt32(12),
-			DecideApiTimeoutSeconds: iwfidl.PtrInt32(13),
-			StartApiRetryPolicy: &iwfidl.RetryPolicy{
-				InitialIntervalSeconds: iwfidl.PtrInt32(12),
-				BackoffCoefficient:     iwfidl.PtrFloat32(12),
-				MaximumAttempts:        iwfidl.PtrInt32(12),
-				MaximumIntervalSeconds: iwfidl.PtrInt32(12),
-			},
-			DecideApiRetryPolicy: &iwfidl.RetryPolicy{
-				InitialIntervalSeconds: iwfidl.PtrInt32(13),
-				BackoffCoefficient:     iwfidl.PtrFloat32(13),
-				MaximumAttempts:        iwfidl.PtrInt32(13),
-				MaximumIntervalSeconds: iwfidl.PtrInt32(13),
-			},
-		},
-	}
-
+	flowId := basic.FlowType + "-" + uuid.NewString()
+	stepInput := encodedObjectValue("json", []byte("test data"))
 	timeSentReq := time.Now()
-	_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           basic.FlowType,
+		FlowTimeoutSeconds: 100,
+		WorkerTarget:       workerTarget,
+		StartStepType:      basic.Step1,
+		StepInput:          stepInput,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowStartDelaySeconds: 10,
+			FlowConfigOverride:    flowConfig,
+			IdReusePolicy:         iwfpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
+			RetryPolicy: &iwfpb.FlowRetryPolicy{
+				InitialIntervalSeconds: 11,
+				BackoffCoefficient:     11,
+				MaximumAttempts:        11,
+				MaximumIntervalSeconds: 11,
+			},
+		},
+		StepOptions: &iwfpb.StepOptions{
+			WaitForTimeoutSeconds: 12,
+			ExecuteTimeoutSeconds: 13,
+			WaitForRetryPolicy: &iwfpb.RetryPolicy{
+				InitialIntervalSeconds: 12,
+				BackoffCoefficient:     12,
+				MaximumAttempts:        12,
+				MaximumIntervalSeconds: 12,
+			},
+			ExecuteRetryPolicy: &iwfpb.RetryPolicy{
+				InitialIntervalSeconds: 13,
+				BackoffCoefficient:     13,
+				MaximumAttempts:        13,
+				MaximumIntervalSeconds: 13,
+			},
+		},
+	})
+	require.NoError(t, err)
 
-	// The WorkflowStartDelaySeconds is delayed 10s so we need to wait before trying to execute due to timeouts
 	time.Sleep(5 * time.Second)
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	// here the delay is startDelay + execution time period, and the execution time period is negligible
 	delay := time.Since(timeSentReq)
-
-	assertions := assert.New(t)
-	assertions.True(delay.Seconds() > 8, "delay is %v", delay)
-	assertions.True(delay.Seconds() < 12, "delay is %v", delay)
+	require.True(t, delay.Seconds() > 8, "delay is %v", delay)
+	require.True(t, delay.Seconds() < 12, "delay is %v", delay)
 }

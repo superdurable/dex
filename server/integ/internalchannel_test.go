@@ -22,14 +22,16 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/interstate"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/interstate"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestInterStateWorkflowTemporal(t *testing.T) {
@@ -39,7 +41,11 @@ func TestInterStateWorkflowTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestInterStateWorkflow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestInterStateWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestInterStateWorkflow(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
@@ -51,66 +57,69 @@ func TestInterStateWorkflowCadence(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestInterStateWorkflow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestInterStateWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestInterStateWorkflow(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestInterStateWorkflow(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := interstate.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestInterStateWorkflow(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := interstate.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := interstate.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           interstate.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      interstate.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := interstate.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        interstate.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(interstate.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp2, httpResp, err := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	history, data := wfHandler.GetTestResult()
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
 	assertions := assert.New(t)
 	assertions.Equalf(map[string]int64{
-		"S1_start":   1,
-		"S1_decide":  1,
-		"S21_start":  1,
-		"S21_decide": 1,
-		"S22_start":  1,
-		"S22_decide": 1,
-		"S31_start":  1,
-		"S31_decide": 1,
+		"S1_waitFor":  1,
+		"S1_execute":  1,
+		"S21_waitFor": 1,
+		"S21_execute": 1,
+		"S22_waitFor": 1,
+		"S22_execute": 1,
+		"S31_waitFor": 1,
+		"S31_execute": 1,
 	}, history, "interstate test fail, %v", history)
 
-	assertions.Equal(iwfidl.COMPLETED, resp2.GetWorkflowStatus())
-	// State completions with empty output are ignored
-	assertions.Equal(0, len(resp2.GetResults()))
-	assertions.Equal(map[string]interface{}{
-		interstate.State21 + "received": interstate.TestVal1,
-		interstate.State31 + "received": interstate.TestVal2,
-	}, data)
+	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Equal(0, len(response.GetResults()))
+	assertions.True(proto.Equal(
+		&iwfpb.Value{Kind: &iwfpb.Value_ObjValue{ObjValue: interstate.TestVal1}},
+		data[interstate.State21+"received"].(*iwfpb.Value),
+	))
+	assertions.True(proto.Equal(
+		&iwfpb.Value{Kind: &iwfpb.Value_ObjValue{ObjValue: interstate.TestVal2}},
+		data[interstate.State31+"received"].(*iwfpb.Value),
+	))
 }

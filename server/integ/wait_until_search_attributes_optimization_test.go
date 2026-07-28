@@ -23,22 +23,20 @@ package integ
 import (
 	"context"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/integ/helpers"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/wait_until_search_attributes_optimization"
+	"github.com/superdurable/iwf/service"
 	"github.com/superdurable/iwf/service/common/ptr"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
 	history "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/workflowservice/v1"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/service"
 )
 
 func TestWaitUntilSearchAttributesOptimizationWorkflowTemporal(t *testing.T) {
@@ -46,142 +44,127 @@ func TestWaitUntilSearchAttributesOptimizationWorkflowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilHistoryCompleted(t, service.BackendTypeTemporal, &iwfidl.WorkflowConfig{
-			ExecutingStateIdMode: ptr.Any(iwfidl.DISABLED),
+		doTestWaitUntilHistoryCompleted(t, &iwfpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilHistoryCompleted(t, service.BackendTypeTemporal, &iwfidl.WorkflowConfig{
-			ExecutingStateIdMode: ptr.Any(iwfidl.ENABLED_FOR_ALL),
+		doTestWaitUntilHistoryCompleted(t, &iwfpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+			),
 		})
 		smallWaitForFastTest()
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitUntilHistoryCompleted(t, service.BackendTypeTemporal, nil) // defaults to ExecutingStateIdMode: ENABLED_FOR_STATES_WITH_WAIT_UNTIL
+		doTestWaitUntilHistoryCompleted(t, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestWaitUntilHistoryCompleted(
-	t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig,
-) {
-	assertions := assert.New(t)
-	wfHandler := wait_until_search_attributes_optimization.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	uclient, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
-		BackendType: backendType,
+func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+	workerHandler := wait_until_search_attributes_optimization.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
+	unifiedClient := runtime.UnifiedClient
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	flowId := wait_until_search_attributes_optimization.WorkflowType + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wait_until_search_attributes_optimization.WorkflowType,
+		FlowTimeoutSeconds: 15,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wait_until_search_attributes_optimization.State1,
+	}
+	if flowConfig != nil {
+		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}
+	}
+	_, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
+
+	time.Sleep(5 * time.Second)
+
+	_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*iwfpb.ChannelMessage{
 			{
-				URL: "http://localhost:" + testIwfServerPort,
+				ChannelName: wait_until_search_attributes_optimization.SignalName,
+				Value:       objJSONValue(`"test"`),
 			},
 		},
 	})
-	wfId := wait_until_search_attributes_optimization.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
+	require.NoError(t, err)
 
-	reqStart := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	wfReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wait_until_search_attributes_optimization.WorkflowType,
-		WorkflowTimeoutSeconds: 15,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wait_until_search_attributes_optimization.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}
-	_, httpResp, err := reqStart.WorkflowStartRequest(wfReq).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 
-	// Wait before sending the signal that would allow State 4 to proceed.
-	time.Sleep(time.Second * 5)
-
-	signalValue := iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString("test"),
-	}
-
-	reqSignal := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-	httpResp, err = reqSignal.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-		WorkflowId:        wfId,
-		SignalChannelName: wait_until_search_attributes_optimization.SignalName,
-		SignalValue:       &signalValue,
-	}).Execute()
-
-	failTestAtHttpError(err, httpResp, t)
-
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// wait for workflow to complete
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, resp, t)
-
-	api := uclient.GetApiService().(workflowservice.WorkflowServiceClient)
-	reqHistory := &workflowservice.GetWorkflowExecutionHistoryRequest{
-		Namespace: "default",
+	api := unifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	eventHistory, err := api.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: testNamespace,
 		Execution: &common.WorkflowExecution{
-			WorkflowId: wfId,
+			WorkflowId: flowId,
 		},
-	}
-	eventHistory, err := api.GetWorkflowExecutionHistory(context.Background(), reqHistory)
-	if err != nil {
-		helpers.FailTestWithErrorMessage("couldn't load eventHistory", t)
-	}
+	})
+	require.NoError(t, err)
 
 	var upsertSAEvents []*history.HistoryEvent
-
-	for _, e := range eventHistory.History.Events {
-		if e.EventType == enums.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES {
-			upsertSAEvents = append(upsertSAEvents, e)
+	for _, event := range eventHistory.History.Events {
+		if event.EventType == enums.EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES {
+			upsertSAEvents = append(upsertSAEvents, event)
 		}
 	}
 
-	switch mode := config.GetExecutingStateIdMode(); mode {
-	case iwfidl.ENABLED_FOR_ALL:
-		assertions.Equal(10, len(upsertSAEvents))
-		assertions.Equal([]string{"S1"}, historyEventSAs(upsertSAEvents[1]))
-		assertions.Equal([]string{"S2"}, historyEventSAs(upsertSAEvents[2]))
-		assertions.Equal([]string{"S2", "S3"}, historyEventSAs(upsertSAEvents[3]))
-		assertions.Equal([]string{"S3", "S4"}, historyEventSAs(upsertSAEvents[4]))
-		assertions.Equal([]string{"S3", "S5"}, historyEventSAs(upsertSAEvents[5]))
-		assertions.Equal([]string{"S3", "S6", "S7"}, historyEventSAs(upsertSAEvents[6]))
-		assertions.Equal([]string{"S3", "S6"}, historyEventSAs(upsertSAEvents[7]))
-		assertions.Equal([]string{"S3"}, historyEventSAs(upsertSAEvents[8]))
-		assertions.Equal([]string{"null"}, historyEventSAs(upsertSAEvents[9]))
-	case iwfidl.DISABLED:
-		assertions.Equal(1, len(upsertSAEvents))
-	case iwfidl.ENABLED_FOR_STATES_WITH_WAIT_UNTIL:
+	mode := iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
+		mode = flowConfig.GetActiveStepSearchMode()
+	}
+
+	switch mode {
+	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
+		require.Equal(t, 10, len(upsertSAEvents))
+		require.Equal(t, []string{"S1"}, historyEventSAs(upsertSAEvents[1]))
+		require.Equal(t, []string{"S2"}, historyEventSAs(upsertSAEvents[2]))
+		require.Equal(t, []string{"S2", "S3"}, historyEventSAs(upsertSAEvents[3]))
+		require.Equal(t, []string{"S3", "S4"}, historyEventSAs(upsertSAEvents[4]))
+		require.Equal(t, []string{"S3", "S5"}, historyEventSAs(upsertSAEvents[5]))
+		require.Equal(t, []string{"S3", "S6", "S7"}, historyEventSAs(upsertSAEvents[6]))
+		require.Equal(t, []string{"S3", "S6"}, historyEventSAs(upsertSAEvents[7]))
+		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[8]))
+		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[9]))
+	case iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
+		require.Equal(t, 1, len(upsertSAEvents))
 	default:
-		assertions.Equal(9, len(upsertSAEvents))
-		assertions.Equal([]string{"S1"}, historyEventSAs(upsertSAEvents[1]))
-		assertions.Equal([]string{"null"}, historyEventSAs(upsertSAEvents[2]))
-		assertions.Equal([]string{"S3"}, historyEventSAs(upsertSAEvents[3]))
-		assertions.Equal([]string{"S3", "S4"}, historyEventSAs(upsertSAEvents[4]))
-		assertions.Equal([]string{"S3"}, historyEventSAs(upsertSAEvents[5]))
-		assertions.Equal([]string{"S3", "S6"}, historyEventSAs(upsertSAEvents[6]))
-		assertions.Equal([]string{"S3"}, historyEventSAs(upsertSAEvents[7]))
-		assertions.Equal([]string{"null"}, historyEventSAs(upsertSAEvents[8]))
+		require.Equal(t, 9, len(upsertSAEvents))
+		require.Equal(t, []string{"S1"}, historyEventSAs(upsertSAEvents[1]))
+		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[2]))
+		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[3]))
+		require.Equal(t, []string{"S3", "S4"}, historyEventSAs(upsertSAEvents[4]))
+		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[5]))
+		require.Equal(t, []string{"S3", "S6"}, historyEventSAs(upsertSAEvents[6]))
+		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[7]))
+		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[8]))
 	}
 }
 
-func historyEventSAs(e *history.HistoryEvent) []string {
-	attrs := e.GetAttributes().(*history.HistoryEvent_UpsertWorkflowSearchAttributesEventAttributes)
-	data := string(attrs.UpsertWorkflowSearchAttributesEventAttributes.GetSearchAttributes().GetIndexedFields()[service.SearchAttributeActiveStepIds].GetData())
+func historyEventSAs(event *history.HistoryEvent) []string {
+	attrs := event.GetAttributes().(*history.HistoryEvent_UpsertWorkflowSearchAttributesEventAttributes)
+	data := string(attrs.UpsertWorkflowSearchAttributesEventAttributes.GetSearchAttributes().GetIndexedFields()[service.SearchAttributeActiveStepTypes].GetData())
 	data = strings.ReplaceAll(data, "[", "")
 	data = strings.ReplaceAll(data, "]", "")
 	data = strings.ReplaceAll(data, "\"", "")

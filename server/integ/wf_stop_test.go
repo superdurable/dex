@@ -22,15 +22,17 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/signal"
 	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestWorkflowCanceledTemporal(t *testing.T) {
@@ -77,183 +79,147 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 	}
 }
 
-func doTestWorkflowCanceled(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestWorkflowCanceled(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := "wf-cancel-test-" + uuid.NewString()
+	startResponse, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := "wf-cancel-test" + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startResp, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	reqCancel := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	httpResp, err = reqCancel.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.CANCEL.Ptr(),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
 	assertions := assert.New(t)
-
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.CANCELED,
-		ErrorType:      nil,
-		ErrorMessage:   nil,
-	}, resp, "response not expected")
+	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
+	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+	assertions.Equal(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
+	assertions.Empty(response.GetErrorMessage())
 }
 
-func doTestWorkflowTerminated(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestWorkflowTerminated(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
-	wfId := "wf-cancel-test" + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	request := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
+	flowId := "wf-cancel-test-" + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	}
-	startResp, httpResp, err := req.WorkflowStartRequest(request).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	startResponse, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
+
+	_, err = flowClient.StartFlow(ctx, startRequest)
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+
+	startRequest.FlowStartOptions.IdReusePolicy =
+		iwfpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING
+	startResponse, err = flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
+
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	// start it again should return already started error
-	_, _, err = req.WorkflowStartRequest(request).Execute()
-	assertions.NotNil(err)
-
-	// using terminate if running should go through
-	request.WorkflowStartOptions.WorkflowIDReusePolicy = iwfidl.TERMINATE_IF_RUNNING.Ptr()
-	_, httpResp, err = req.WorkflowStartRequest(request).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// using the compatibility
-	request.WorkflowStartOptions.WorkflowIDReusePolicy = nil
-	request.WorkflowStartOptions.IdReusePolicy = iwfidl.ALLOW_TERMINATE_IF_RUNNING.Ptr()
-	startResp, httpResp, err = req.WorkflowStartRequest(request).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	reqCancel := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	httpResp, err = reqCancel.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.TERMINATE.Ptr(),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.TERMINATED,
-		ErrorType:      nil,
-		ErrorMessage:   nil,
-	}, resp, "response not expected")
+	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
+	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_TERMINATED, response.GetFlowStatus())
+	assertions.Equal(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
+	assertions.Empty(response.GetErrorMessage())
 }
 
-func doTestWorkflowFail(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestWorkflowFail(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := "wf-cancel-test-" + uuid.NewString()
+	startResponse, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := "wf-cancel-test" + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startResp, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	reqCancel := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	httpResp, err = reqCancel.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.FAIL.Ptr(),
-		Reason:     iwfidl.PtrString("fail reason"),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_FAIL,
+		Reason:   "fail reason",
+	})
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	response, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
 	assertions := assert.New(t)
-
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.FAILED,
-		ErrorType:      iwfidl.CLIENT_API_FAILING_WORKFLOW_ERROR_TYPE.Ptr(),
-		ErrorMessage:   iwfidl.PtrString("fail reason"),
-	}, resp, "response not expected")
+	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
+	assertions.Equal(iwfpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
+	assertions.Equal(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+		response.GetErrorType(),
+	)
+	assertions.Equal("fail reason", response.GetErrorMessage())
 }

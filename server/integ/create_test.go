@@ -22,127 +22,117 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/integ/workflow/rpc"
-	"github.com/superdurable/iwf/service"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/rpc"
+	"github.com/superdurable/iwf/service"
 )
 
-func TestCreateWorkflowTemporal(t *testing.T) {
+func TestCreateFlowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestCreateWithoutStartingState(t, service.BackendTypeTemporal, nil)
+		doTestCreateWithoutStartingStep(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestCreateWorkflowCadence(t *testing.T) {
+func TestCreateFlowCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestCreateWithoutStartingState(t, service.BackendTypeCadence, nil)
+		doTestCreateWithoutStartingStep(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestCreateWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestCreateFlowTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestCreateWithoutStartingState(t, service.BackendTypeTemporal, minimumContinueAsNewConfig(true))
+		doTestCreateWithoutStartingStep(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_ASYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func TestCreateWorkflowCadenceContinueAsNew(t *testing.T) {
+func TestCreateFlowCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestCreateWithoutStartingState(t, service.BackendTypeCadence, minimumContinueAsNewConfig(false))
+		doTestCreateWithoutStartingStep(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewConfig(iwfpb.StepDurability_STEP_DURABILITY_SYNC),
+		)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestCreateWithoutStartingState(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	assertions := assert.New(t)
-	// start test workflow server
-	wfHandler := rpc.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
+func doTestCreateWithoutStartingStep(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := rpc.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
+	unifiedClient := runtime.UnifiedClient
 
-	uclient, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// create client
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := rpc.WorkflowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           rpc.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
+	require.NoError(t, err)
 
-	// start a workflow
-	wfId := rpc.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        rpc.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	debug := &iwfpb.DebugDumpResponse{}
+	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	require.Equal(t, &iwfpb.StepExecutionCounterInfo{
+		StepTypeStartedCount:            map[string]int32{},
+		StepTypeCurrentlyExecutingCount: map[string]int32{},
+		TotalCurrentlyExecutingCount:    0,
+	}, debug.GetSnapshot().GetCounterInfo())
 
-	// workflow shouldn't executed any state
-	var dump service.DebugDumpResponse
-	err = uclient.QueryWorkflow(context.Background(), &dump, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		helpers.FailTestWithError(err, t)
-	}
-	assertions.Equal(service.StateExecutionCounterInfo{
-		StateIdStartedCount:            make(map[string]int),
-		StateIdCurrentlyExecutingCount: make(map[string]int),
-		TotalCurrentlyExecutingCount:   0,
-	}, dump.Snapshot.StateExecutionCounterInfo)
+	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        rpc.RPCName,
+		Input:          rpc.TestInput,
+		TimeoutSeconds: 2,
+	})
+	require.NoError(t, err)
 
-	// invoke an RPC to trigger the state execution
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	_, httpResp, err = reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    rpc.RPCName,
-		Input:      &rpc.TestInput,
-		SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: iwfidl.PARTIAL_WITHOUT_LOCKING.Ptr(),
-			PartialLoadingKeys: []string{
-				rpc.TestSearchAttributeIntKey,
-			},
-		},
-		TimeoutSeconds: iwfidl.PtrInt32(2),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	respWait, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, respWait.GetFlowStatus())
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	respWait, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, respWait, t)
-
-	history, _ := wfHandler.GetTestResult()
-	assertions.Equalf(map[string]int64{
-		"S2_start":  1,
-		"S2_decide": 1,
-	}, history, "rpc test fail, %v", history)
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, map[string]int64{
+		"S2_waitFor": 1,
+		"S2_execute": 1,
+	}, history, "create test fail, %v", history)
 }

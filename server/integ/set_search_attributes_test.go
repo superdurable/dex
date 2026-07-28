@@ -22,107 +22,97 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/persistence"
 	"github.com/superdurable/iwf/integ/workflow/signal"
 	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"net/http"
-	"strconv"
-	"testing"
-	"time"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSetSearchAttributes(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	assertions := assert.New(t)
 
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceWithClient(service.BackendTypeTemporal)
-	defer closeFunc2()
-
-	wfId := signal.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
 	})
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	flowClient := runtime.FlowClient
 
-	assertions.Equal(httpResp.StatusCode, http.StatusOK)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	var signalVals []iwfidl.SearchAttribute
-	signalVals = append(signalVals, iwfidl.SearchAttribute{
-		Key:          iwfidl.PtrString(persistence.TestSearchAttributeIntKey),
-		ValueType:    ptr.Any(iwfidl.INT),
-		IntegerValue: iwfidl.PtrInt64(persistence.TestSearchAttributeIntValue1),
-	},
-		iwfidl.SearchAttribute{
-			Key:         iwfidl.PtrString(persistence.TestSearchAttributeKeywordKey),
-			ValueType:   ptr.Any(iwfidl.KEYWORD),
-			StringValue: iwfidl.PtrString(persistence.TestSearchAttributeKeywordValue1),
-		},
-		iwfidl.SearchAttribute{
-			Key:              iwfidl.PtrString(persistence.TestSearchAttributeKeywordArrayKey),
-			ValueType:        ptr.Any(iwfidl.KEYWORD_ARRAY),
-			StringArrayValue: []string{persistence.TestSearchAttributeKeywordValue2, persistence.TestSearchAttributeKeywordValue1},
-		})
+	flowId := signal.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+	})
+	require.NoError(t, err)
 
-	setReq := apiClient.DefaultApi.ApiV1WorkflowSearchattributesSetPost(context.Background())
-	httpResp2, err := setReq.WorkflowSetSearchAttributesRequest(iwfidl.WorkflowSetSearchAttributesRequest{
-		WorkflowId:       wfId,
-		SearchAttributes: signalVals,
-	}).Execute()
+	searchAttributes := []*iwfpb.AttributeWrite{
+		indexedIntAttribute(
+			persistence.TestSearchAttributeIntKey,
+			persistence.TestSearchAttributeIntValue1,
+		),
+		indexedKeywordAttribute(
+			persistence.TestSearchAttributeKeywordKey,
+			persistence.TestSearchAttributeKeywordValue1,
+		),
+		indexedKeywordArrayAttribute(
+			persistence.TestSearchAttributeKeywordArrayKey,
+			persistence.TestSearchAttributeKeywordValue2,
+			persistence.TestSearchAttributeKeywordValue1,
+		),
+	}
 
-	failTestAtHttpError(err, httpResp2, t)
+	_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+		FlowId:     flowId,
+		Attributes: searchAttributes,
+	})
+	require.NoError(t, err)
 
-	// Wait for state to store the search attributes
 	time.Sleep(time.Second)
 
-	getReq := apiClient.DefaultApi.ApiV1WorkflowSearchattributesGetPost(context.Background())
-	searchResult, httpRespGet, err := getReq.WorkflowGetSearchAttributesRequest(iwfidl.WorkflowGetSearchAttributesRequest{
-		WorkflowId: wfId,
-		Keys: []iwfidl.SearchAttributeKeyAndType{
-			{
-				Key:       iwfidl.PtrString(persistence.TestSearchAttributeIntKey),
-				ValueType: ptr.Any(iwfidl.INT),
-			},
-			{
-				Key:       iwfidl.PtrString(persistence.TestSearchAttributeKeywordKey),
-				ValueType: ptr.Any(iwfidl.KEYWORD),
-			},
-			{
-				Key:       iwfidl.PtrString(persistence.TestSearchAttributeKeywordArrayKey),
-				ValueType: ptr.Any(iwfidl.KEYWORD_ARRAY),
-			},
-		}}).Execute()
-	failTestAtHttpError(err, httpRespGet, t)
+	searchResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys: []string{
+			persistence.TestSearchAttributeIntKey,
+			persistence.TestSearchAttributeKeywordKey,
+			persistence.TestSearchAttributeKeywordArrayKey,
+		},
+	})
+	require.NoError(t, err)
 
-	assertions.ElementsMatch(signalVals, searchResult.SearchAttributes)
+	expected := []*iwfpb.KV{
+		{Key: persistence.TestSearchAttributeIntKey, Value: searchAttributes[0].GetValue()},
+		{Key: persistence.TestSearchAttributeKeywordKey, Value: searchAttributes[1].GetValue()},
+		{Key: persistence.TestSearchAttributeKeywordArrayKey, Value: searchAttributes[2].GetValue()},
+	}
+	require.Len(t, searchResult.GetAttributes(), len(expected))
+	for _, want := range expected {
+		found := false
+		for _, got := range searchResult.GetAttributes() {
+			if got.GetKey() == want.GetKey() && proto.Equal(got.GetValue(), want.GetValue()) {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "missing attribute %s", want.GetKey())
+	}
 
-	// Terminate the workflow once tests completed
-	stopReq := apiClient.DefaultApi.ApiV1WorkflowStopPost(context.Background())
-	_, err = stopReq.WorkflowStopRequest(iwfidl.WorkflowStopRequest{
-		WorkflowId: wfId,
-		StopType:   iwfidl.TERMINATE.Ptr(),
-	}).Execute()
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
 }

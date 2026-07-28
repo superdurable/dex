@@ -22,17 +22,18 @@ package integ
 
 import (
 	"context"
-	"encoding/json"
-	"log"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/wait_for_state_completion"
 	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestWaitForStateCompletionTemporal(t *testing.T) {
@@ -40,9 +41,9 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitForStateCompletion(t, service.BackendTypeTemporal, nil, false)
+		doTestWaitForStateCompletion(t, service.BackendTypeTemporal, false)
 		smallWaitForFastTest()
-		doTestWaitForStateCompletion(t, service.BackendTypeTemporal, nil, true)
+		doTestWaitForStateCompletion(t, service.BackendTypeTemporal, true)
 		smallWaitForFastTest()
 	}
 }
@@ -52,115 +53,81 @@ func TestWaitForStateCompletionCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWaitForStateCompletion(t, service.BackendTypeCadence, nil, false)
+		doTestWaitForStateCompletion(t, service.BackendTypeCadence, false)
 		smallWaitForFastTest()
-		doTestWaitForStateCompletion(t, service.BackendTypeCadence, nil, true)
+		doTestWaitForStateCompletion(t, service.BackendTypeCadence, true)
 		smallWaitForFastTest()
 	}
 }
 
 func doTestWaitForStateCompletion(
-	t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig, useStateId bool,
+	t *testing.T,
+	backendType service.BackendType,
+	waitByStepType bool,
 ) {
-	// start test workflow server
-	wfHandler := wait_for_state_completion.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
-	wfId := wait_for_state_completion.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
+	flowId := wait_for_state_completion.WorkflowType + uuid.NewString()
 	nowTimestamp := time.Now().Unix()
-	startReq := iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wait_for_state_completion.WorkflowType,
-		WorkflowTimeoutSeconds: 30,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wait_for_state_completion.State1),
-		StateInput: &iwfidl.EncodedObject{
-			Data: iwfidl.PtrString(strconv.Itoa(int(nowTimestamp))),
-		},
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wait_for_state_completion.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wait_for_state_completion.State1,
+		StepInput:          stringValue(strconv.FormatInt(nowTimestamp, 10)),
+	})
+	require.NoError(t, err)
 
 	assertions := assert.New(t)
 
-	if useStateId {
-		startReq.WaitForCompletionStateIds = []string{"S2"}
-
-		_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		req := apiClient.DefaultApi.ApiV1WorkflowWaitForStateCompletionPost(context.Background())
-		_, httpResp, err = req.WorkflowWaitForStateCompletionRequest(
-			iwfidl.WorkflowWaitForStateCompletionRequest{
-				WorkflowId:      wfId,
-				WaitForKey:      ptr.Any("testKey"),
-				StateId:         ptr.Any("S2"),
-				WaitTimeSeconds: iwfidl.PtrInt32(30),
-			}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		assertions.Equal(200, httpResp.StatusCode)
-		// read httpResp body
-		var output iwfidl.WorkflowWaitForStateCompletionResponse
-		defer httpResp.Body.Close()
-		err = json.NewDecoder(httpResp.Body).Decode(&output)
-		if err != nil {
-			log.Fatalf("Failed to decode the response: %v", err)
-		}
+	if backendType == service.BackendTypeCadence {
+		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+			FlowId:              flowId,
+			StepType:            wait_for_state_completion.State2,
+			StepExecutionNumber: "1",
+			WaitTimeSeconds:     30,
+		})
+		require.Equal(t, codes.Unimplemented, status.Code(err))
+	} else if waitByStepType {
+		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+			FlowId:              flowId,
+			StepType:            wait_for_state_completion.State2,
+			StepExecutionNumber: "1",
+			WaitTimeSeconds:     30,
+		})
+		require.NoError(t, err)
 	} else {
-		startReq.WaitForCompletionStateExecutionIds = []string{"S1-1"}
-
-		_, httpResp, err := req.WorkflowStartRequest(startReq).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		req := apiClient.DefaultApi.ApiV1WorkflowWaitForStateCompletionPost(context.Background())
-		_, httpResp, err = req.WorkflowWaitForStateCompletionRequest(
-			iwfidl.WorkflowWaitForStateCompletionRequest{
-				WorkflowId:       wfId,
-				StateExecutionId: ptr.Any("S1-1"),
-				WaitTimeSeconds:  iwfidl.PtrInt32(30),
-			}).Execute()
-		failTestAtHttpError(err, httpResp, t)
-
-		assertions.Equal(200, httpResp.StatusCode)
-		// read httpResp body
-		var output iwfidl.WorkflowWaitForStateCompletionResponse
-		defer httpResp.Body.Close()
-		err = json.NewDecoder(httpResp.Body).Decode(&output)
-		if err != nil {
-			log.Fatalf("Failed to decode the response: %v", err)
-		}
+		_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+			FlowId:              flowId,
+			StepType:            wait_for_state_completion.State1,
+			StepExecutionNumber: "1",
+			WaitTimeSeconds:     30,
+		})
+		require.NoError(t, err)
 	}
 
-	// Wait for the workflow to complete
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err := req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 
-	history, data := wfHandler.GetTestResult()
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
 	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-		"S2_start":  1,
-		"S2_decide": 1,
-	}, history, "timer test fail, %v", history)
-	duration := (data["fired_at"]).(int64) - (data["scheduled_at"]).(int64)
+		"S1_waitFor": 1,
+		"S1_execute": 1,
+		"S2_waitFor": 1,
+		"S2_execute": 1,
+	}, history, "wait for step completion test fail, %v", history)
+	duration := data["fired_at"].(int64) - data["scheduled_at"].(int64)
 	assertions.Equal("timer-cmd-id", data["timer_id"])
 	assertions.True(duration >= 9 && duration <= 11, duration)
 }

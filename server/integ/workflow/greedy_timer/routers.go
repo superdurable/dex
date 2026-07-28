@@ -21,24 +21,23 @@
 package greedy_timer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
 	"github.com/superdurable/iwf/integ/workflow/common"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
 	"log"
-	"net/http"
 	"strconv"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /*
 *
-This workflow will accept an array of integers representing durations and execute a state that waits on a timer corresponding to each duration provided
+This flow will accept an array of integers representing durations and execute a step that waits on a timer corresponding to each duration provided
 */
 const (
 	WorkflowType       = "greedy_timer"
@@ -47,6 +46,7 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -55,131 +55,120 @@ type Input struct {
 	Durations []int64 `json:"durations"`
 }
 
-func NewHandler() common.WorkflowHandlerWithRpc {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowWorkerRpc(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received workflow worker rpc request, ", req)
+func (h *handler) InvokeWorkerRPC(
+	_ context.Context,
+	request *iwfpb.InvokeWorkerRPCRequest,
+) (*iwfpb.InvokeWorkerRPCResponse, error) {
+	log.Println("received worker rpc request, ", request)
 
-	wfCtx := req.Context
-	if wfCtx.WorkflowId == "" || wfCtx.WorkflowRunId == "" {
-		helpers.FailTestWithErrorMessage("invalid context in the request", t)
+	flowContext := request.GetContext()
+	if flowContext.GetFlowId() == "" || flowContext.GetRunId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid context in the request")
 	}
-	if req.WorkflowType != WorkflowType {
-		panic("invalid WorkflowType:" + req.WorkflowType)
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type: "+request.GetFlowType())
 	}
 
-	if req.RpcName == SubmitDurationsRPC {
-
-		c.JSON(http.StatusOK, iwfidl.WorkflowWorkerRpcResponse{
-			StateDecision: &iwfidl.StateDecision{NextStates: []iwfidl.StateMovement{
-				{
-					StateId:    ScheduleTimerState,
-					StateInput: req.Input,
+	if request.GetRpcName() == SubmitDurationsRPC {
+		return &iwfpb.InvokeWorkerRPCResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  ScheduleTimerState,
+						StepInput: request.GetInput(),
+					},
 				},
-			}},
-		})
-		return
+			},
+		}, nil
 	}
 
-	helpers.FailTestWithErrorMessage(fmt.Sprintf("invalid rpc name: %s", req.RpcName), t)
+	return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == ScheduleTimerState {
-
+		if request.GetStepType() == ScheduleTimerState {
 			var input Input
-			err := json.Unmarshal([]byte(req.StateInput.GetData()), &input)
-			if err != nil {
-				panic(err)
+			stepInput := request.GetStepInput()
+			payload := stepInput.GetObjValue().GetPayload()
+			if len(payload) == 0 {
+				payload = []byte(stepInput.GetStringValue())
+			}
+			if err := json.Unmarshal(payload, &input); err != nil {
+				return nil, status.Error(codes.InvalidArgument, err.Error())
 			}
 
-			timers := make([]iwfidl.TimerCommand, len(input.Durations))
+			timers := make([]*iwfpb.TimerCondition, len(input.Durations))
 			for i, duration := range input.Durations {
-				timers[i] = iwfidl.TimerCommand{
-					CommandId:       ptr.Any("duration-" + strconv.FormatInt(duration, 10)),
-					DurationSeconds: iwfidl.PtrInt64(duration),
+				timers[i] = &iwfpb.TimerCondition{
+					ConditionId:     "duration-" + strconv.FormatInt(duration, 10),
+					DurationSeconds: duration,
 				}
 			}
 
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					TimerCommands:      timers,
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					TimerConditions:      timers,
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				},
-			})
-
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == ScheduleTimerState {
-			h.invokeData.Store("completed_state_id", req.GetContext().StateExecutionId)
-			results := req.GetCommandResults()
+		if request.GetStepType() == ScheduleTimerState {
+			h.invokeData.Store("completed_state_id", request.GetContext().GetStepExecutionId())
+			results := request.GetConditionResults()
 			timerResults := results.GetTimerResults()
-			h.invokeData.Store("completed_timer_id", timerResults[0].CommandId)
+			h.invokeData.Store("completed_timer_id", timerResults[0].GetConditionId())
 
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.ForceCompletingWorkflowStateId,
-						},
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{StepType: service.ForceCompletingFlowStepType},
 					},
 				},
-			})
-
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -190,5 +179,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

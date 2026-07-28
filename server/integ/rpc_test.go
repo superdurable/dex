@@ -22,16 +22,18 @@ package integ
 
 import (
 	"context"
-	"encoding/json"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/rpc"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"io/ioutil"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/rpc"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRpcWorkflowTemporal(t *testing.T) {
@@ -39,7 +41,7 @@ func TestRpcWorkflowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, false, false, nil)
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
@@ -49,7 +51,7 @@ func TestRpcWorkflowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, false, false, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
@@ -59,7 +61,7 @@ func TestRpcWorkflowTemporalWithMemo(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, true, false, nil)
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
@@ -69,7 +71,7 @@ func TestRpcWorkflowTemporalWithMemoAndEncryption(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, true, true, nil)
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
@@ -79,7 +81,7 @@ func TestRpcWorkflowTemporalContinueAsNewWithMemo(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, true, false, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
@@ -89,7 +91,7 @@ func TestRpcWorkflowTemporalContinueAsNewWithMemoAndEncryption(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, true, true, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
@@ -99,7 +101,7 @@ func TestRpcWorkflowCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeCadence, false, false, nil)
+		doTestRpcWorkflow(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
@@ -109,251 +111,129 @@ func TestRpcWorkflowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeCadence, false, false, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
 func doTestRpcWorkflow(
-	t *testing.T, backendType service.BackendType, useMemo, memoEncryption bool, config *iwfidl.WorkflowConfig,
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
 ) {
 	assertions := assert.New(t)
-	// start test workflow server
-	wfHandler := rpc.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
 
-	_, closeFunc2 := startIwfServiceByConfig(IwfServiceTestConfig{
+	workerHandler := rpc.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
 		BackendType:    backendType,
-		MemoEncryption: memoEncryption,
+		MemoEncryption: false,
 	})
-	defer closeFunc2()
+	flowClient := runtime.FlowClient
 
-	// create client
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := rpc.WorkflowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           rpc.WorkflowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      rpc.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
+	require.NoError(t, err)
 
-	// start a workflow
-	wfId := rpc.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        rpc.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(rpc.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride:   config,
-			UseMemoForDataAttributes: ptr.Any(useMemo),
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	time.Sleep(time.Second)
 
-	allSearchAttributes := []iwfidl.SearchAttributeKeyAndType{
-		{
-			Key:       iwfidl.PtrString(rpc.TestSearchAttributeKeywordKey),
-			ValueType: iwfidl.KEYWORD.Ptr(),
-		},
-		{
-			Key:       iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-			ValueType: iwfidl.INT.Ptr(),
-		},
-		{
-			Key:       iwfidl.PtrString(rpc.TestSearchAttributeBoolKey),
-			ValueType: iwfidl.BOOL.Ptr(),
-		},
-	}
+	rpcRespReadOnly, err := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        rpc.RPCNameReadOnly,
+		Input:          rpc.TestInput,
+		TimeoutSeconds: 2,
+	})
+	require.NoError(t, err)
 
-	// Wait for state to store the attributes
-	time.Sleep(time.Second * 1)
+	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        rpc.RPCNameError,
+		Input:          rpc.TestInput,
+		TimeoutSeconds: 2,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	workerErr := workerErrorFromStatus(t, err)
+	assertions.Equal(rpc.WorkerApiErrorDetails, workerErr.GetDetail())
+	assertions.Equal(rpc.WorkerApiErrorType, workerErr.GetErrorType())
 
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	rpcRespReadOnly, httpResp, err := reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    rpc.RPCNameReadOnly,
-		Input:      &rpc.TestInput,
-		SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: iwfidl.PARTIAL_WITHOUT_LOCKING.Ptr(),
-			PartialLoadingKeys: []string{
-				rpc.TestSearchAttributeIntKey,
-			},
-		},
-		TimeoutSeconds:           iwfidl.PtrInt32(2),
-		UseMemoForDataAttributes: ptr.Any(useMemo),
-		SearchAttributes:         allSearchAttributes,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	rpcResp, err := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        rpc.RPCName,
+		Input:          rpc.TestInput,
+		TimeoutSeconds: 2,
+	})
+	require.NoError(t, err)
 
-	reqRpc = apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	_, httpResp, err = reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    rpc.RPCNameError,
-		Input:      &rpc.TestInput,
-		SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: iwfidl.PARTIAL_WITHOUT_LOCKING.Ptr(),
-			PartialLoadingKeys: []string{
-				rpc.TestSearchAttributeIntKey,
-			},
-		},
-		TimeoutSeconds:           iwfidl.PtrInt32(2),
-		UseMemoForDataAttributes: ptr.Any(useMemo),
-		SearchAttributes:         allSearchAttributes,
-	}).Execute()
-	assertions.NotNil(err)
-	assertions.Equalf(service.HttpStatusCodeSpecial4xxError1, httpResp.StatusCode, "http code")
-	var errResp iwfidl.ErrorResponse
-	body, err := ioutil.ReadAll(httpResp.Body)
-	assertions.Nil(err)
-	err = json.Unmarshal(body, &errResp)
-	assertions.Equalf(iwfidl.ErrorResponse{
-		Detail:                    ptr.Any("worker API error, status:502, errorType:test-type"),
-		SubStatus:                 iwfidl.WORKER_API_ERROR.Ptr(),
-		OriginalWorkerErrorStatus: iwfidl.PtrInt32(502),
-		OriginalWorkerErrorType:   iwfidl.PtrString("test-type"),
-		OriginalWorkerErrorDetail: iwfidl.PtrString("test-details"),
-	}, errResp, "body")
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	reqRpc = apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	rpcResp, httpResp, err := reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    rpc.RPCName,
-		Input:      &rpc.TestInput,
-		SearchAttributesLoadingPolicy: &iwfidl.PersistenceLoadingPolicy{
-			PersistenceLoadingType: iwfidl.PARTIAL_WITHOUT_LOCKING.Ptr(),
-			PartialLoadingKeys: []string{
-				rpc.TestSearchAttributeIntKey,
-			},
-		},
-		TimeoutSeconds:           iwfidl.PtrInt32(2),
-		UseMemoForDataAttributes: ptr.Any(useMemo),
-		SearchAttributes:         allSearchAttributes,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	respWait, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpErrorOrWorkflowUncompleted(err, httpResp, respWait, t)
-
-	history, data := wfHandler.GetTestResult()
+	result := workerHandler.GetTestResult()
+	history := result.InvokeHistory
+	data := result.InvokeData
 	assertions.Equalf(map[string]int64{
-		"S1_start":  1,
-		"S1_decide": 1,
-		"S2_start":  2,
-		"S2_decide": 2,
+		"S1_waitFor": 1,
+		"S1_execute": 1,
+		"S2_waitFor": 2,
+		"S2_execute": 2,
 	}, history, "rpc test fail, %v", history)
 
-	assertions.Equalf(&iwfidl.WorkflowRpcResponse{
-		Output: &rpc.TestOutput,
-	}, rpcResp, "rpc test fail, %v", rpcResp)
+	assertions.True(proto.Equal(rpc.TestOutput, rpcResp.GetOutput()))
+	assertions.True(proto.Equal(rpc.TestOutput, rpcRespReadOnly.GetOutput()))
 
-	assertions.Equalf(&iwfidl.WorkflowRpcResponse{
-		Output: &rpc.TestOutput,
-	}, rpcResp, "rpc test fail, %v", rpcRespReadOnly)
+	assertions.True(proto.Equal(rpc.TestInput, data[rpc.RPCName+"-input"].(*iwfpb.Value)))
+	assertions.True(proto.Equal(rpc.TestInput, data[rpc.RPCNameReadOnly+"-input"].(*iwfpb.Value)))
+	assertions.True(proto.Equal(rpc.TestInput, data[rpc.RPCNameError+"-input"].(*iwfpb.Value)))
+	assertions.True(proto.Equal(
+		rpc.TestInterstateChannelValue,
+		data[rpc.TestInterStateChannelName].(*iwfpb.Value),
+	))
 
-	assertions.Equalf(map[string]interface{}{
-		rpc.RPCName + "-data-attributes": []iwfidl.KeyValue{
-			{
-				Key:   iwfidl.PtrString(rpc.TestDataAttributeKey),
-				Value: &rpc.TestDataAttributeVal1,
-			},
-		},
-		rpc.RPCName + "-search-attributes": []iwfidl.SearchAttribute{
-			{
-				Key:          iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-				IntegerValue: iwfidl.PtrInt64(rpc.TestSearchAttributeIntValue1),
-				ValueType:    ptr.Any(iwfidl.INT),
-			},
-		},
-		rpc.RPCName + "-input":        &rpc.TestInput,
-		rpc.TestInterStateChannelName: &rpc.TestInterstateChannelValue,
+	attributesResp, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		FlowId:  flowId,
+		AllKeys: true,
+	})
+	require.NoError(t, err)
 
-		rpc.RPCNameReadOnly + "-data-attributes": []iwfidl.KeyValue{
-			{
-				Key:   iwfidl.PtrString(rpc.TestDataAttributeKey),
-				Value: &rpc.TestDataAttributeVal1,
-			},
-		},
-		rpc.RPCNameReadOnly + "-search-attributes": []iwfidl.SearchAttribute{
-			{
-				Key:          iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-				IntegerValue: iwfidl.PtrInt64(rpc.TestSearchAttributeIntValue1),
-				ValueType:    ptr.Any(iwfidl.INT),
-			},
-		},
-		rpc.RPCNameReadOnly + "-input": &rpc.TestInput,
+	attributeMap := attributesToMap(attributesResp.GetAttributes())
+	assertions.True(proto.Equal(rpc.TestDataAttributeVal2, attributeMap[rpc.TestDataAttributeKey]))
+	assertions.Equal(int64(rpc.TestSearchAttributeIntValue2), attributeMap[rpc.TestSearchAttributeIntKey].GetIntValue())
+	assertions.Equal(rpc.TestSearchAttributeKeywordValue2, attributeMap[rpc.TestSearchAttributeKeywordKey].GetStringValue())
+	assertions.Equal(false, attributeMap[rpc.TestSearchAttributeBoolKey].GetBoolValue())
+}
 
-		rpc.RPCNameError + "-data-attributes": []iwfidl.KeyValue{
-			{
-				Key:   iwfidl.PtrString(rpc.TestDataAttributeKey),
-				Value: &rpc.TestDataAttributeVal1,
-			},
-		},
-		rpc.RPCNameError + "-search-attributes": []iwfidl.SearchAttribute{
-			{
-				Key:          iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-				IntegerValue: iwfidl.PtrInt64(rpc.TestSearchAttributeIntValue1),
-				ValueType:    ptr.Any(iwfidl.INT),
-			},
-		},
-		rpc.RPCNameError + "-input": &rpc.TestInput,
-	}, data, "rpc test fail, %v", data)
+func workerErrorFromStatus(t *testing.T, err error) *iwfpb.WorkerErrorResponse {
+	t.Helper()
+	statusError, ok := status.FromError(err)
+	require.True(t, ok)
+	for _, detail := range statusError.Details() {
+		if workerErr, ok := detail.(*iwfpb.WorkerErrorResponse); ok {
+			return workerErr
+		}
+	}
+	require.FailNow(t, "gRPC error has no WorkerErrorResponse details", err)
+	return nil
+}
 
-	reqQry := apiClient.DefaultApi.ApiV1WorkflowDataobjectsGetPost(context.Background())
-	allDos, httpResp, err := reqQry.WorkflowGetDataObjectsRequest(iwfidl.WorkflowGetDataObjectsRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	reqSearch := apiClient.DefaultApi.ApiV1WorkflowSearchattributesGetPost(context.Background())
-	allSAs, httpResp, err := reqSearch.WorkflowGetSearchAttributesRequest(iwfidl.WorkflowGetSearchAttributesRequest{
-		WorkflowId: wfId,
-		Keys: []iwfidl.SearchAttributeKeyAndType{
-			{
-				Key:       iwfidl.PtrString(rpc.TestSearchAttributeKeywordKey),
-				ValueType: ptr.Any(iwfidl.KEYWORD),
-			},
-			{
-				Key:       iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-				ValueType: ptr.Any(iwfidl.INT),
-			},
-			{
-				Key:       iwfidl.PtrString(rpc.TestSearchAttributeBoolKey),
-				ValueType: ptr.Any(iwfidl.BOOL),
-			},
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	assertions.Equalf([]iwfidl.KeyValue{
-		{
-			Key:   iwfidl.PtrString(rpc.TestDataAttributeKey),
-			Value: &rpc.TestDataAttributeVal2,
-		},
-	}, allDos.Objects, "rpc test fail")
-
-	assertions.ElementsMatchf([]iwfidl.SearchAttribute{
-		{
-			Key:         iwfidl.PtrString(rpc.TestSearchAttributeKeywordKey),
-			StringValue: iwfidl.PtrString(rpc.TestSearchAttributeKeywordValue2),
-			ValueType:   ptr.Any(iwfidl.KEYWORD),
-		},
-		{
-			Key:          iwfidl.PtrString(rpc.TestSearchAttributeIntKey),
-			IntegerValue: iwfidl.PtrInt64(rpc.TestSearchAttributeIntValue2),
-			ValueType:    ptr.Any(iwfidl.INT),
-		},
-		{
-			Key:       iwfidl.PtrString(rpc.TestSearchAttributeBoolKey),
-			ValueType: ptr.Any(iwfidl.BOOL),
-			BoolValue: iwfidl.PtrBool(false),
-		},
-	}, allSAs.SearchAttributes, "rpc test fail")
+func attributesToMap(attributes []*iwfpb.KV) map[string]*iwfpb.Value {
+	result := make(map[string]*iwfpb.Value, len(attributes))
+	for _, attribute := range attributes {
+		result[attribute.GetKey()] = attribute.GetValue()
+	}
+	return result
 }

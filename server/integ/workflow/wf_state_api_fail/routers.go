@@ -21,71 +21,73 @@
 package wf_state_api_fail
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
+	"context"
 	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has one state, using REST controller to implement the workflow directly.
+ * This test flow has one step, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- The state will fail and exit
+ * Step1:
+ *		- The step will fail and exit
  */
 const (
-	WorkflowType = "wf_state_api_fail"
-	State1       = "S1"
+	FlowType = "wf_state_api_fail"
+	Step1    = "S1"
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 	}
 }
 
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			// Bad Request response
-			c.JSON(http.StatusBadRequest, iwfidl.WorkflowStateStartResponse{})
-			return
-		}
+	if request.GetFlowType() != FlowType {
+		panic("should not get here")
 	}
 
-	helpers.FailTestWithErrorMessage("should not get here", t)
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
+	}
+
+	if request.GetStepType() == Step1 {
+		return nil, status.Error(codes.InvalidArgument, "waitFor API failure")
+	}
+
+	panic("should not get here")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	helpers.FailTestWithErrorMessage("should not get here", t)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	_ *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	panic("should not get here")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
 }

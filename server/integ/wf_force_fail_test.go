@@ -22,90 +22,93 @@ package integ
 
 import (
 	"context"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/wf_force_fail"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/wf_force_fail"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestWorkflowForceFailTemporal(t *testing.T) {
+func TestFlowForceFailTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowForceFail(t, service.BackendTypeTemporal, nil)
+		doTestFlowForceFail(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestWorkflowForceFail(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestFlowForceFail(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func TestWorkflowForceFailCadence(t *testing.T) {
+func TestFlowForceFailCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowForceFail(t, service.BackendTypeCadence, nil)
+		doTestFlowForceFail(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestWorkflowForceFail(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestFlowForceFail(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func doTestWorkflowForceFail(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	// start test workflow server
-	wfHandler := wf_force_fail.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+func doTestFlowForceFail(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerHandler := wf_force_fail.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := "wf-force-fail-test-" + uuid.NewString()
+	startResp, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wf_force_fail.FlowType,
+		FlowTimeoutSeconds: 10,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wf_force_fail.Step1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := "wf-force-fail-test" + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	startResp, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        wf_force_fail.WorkflowType,
-		WorkflowTimeoutSeconds: 10,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(wf_force_fail.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	resp, httpResp, err := reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		NeedsResults:    true,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
 
-	assertions := assert.New(t)
-
-	assertions.Equalf(&iwfidl.WorkflowGetResponse{
-		WorkflowRunId:  startResp.GetWorkflowRunId(),
-		WorkflowStatus: iwfidl.FAILED,
-		ErrorType:      ptr.Any(iwfidl.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE),
-		Results: []iwfidl.StateCompletionOutput{
-			{
-				CompletedStateId:          "S1",
-				CompletedStateExecutionId: "S1-1",
-				CompletedStateOutput:      wf_force_fail.TestData,
+	expectedStepOutput := &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "test-encoding",
+				Payload:  []byte("test-data"),
 			},
 		},
-	}, resp, "response not expected")
+	}
+
+	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+	require.Equal(
+		t,
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+		resp.GetErrorType(),
+	)
+	require.Len(t, resp.GetResults(), 1)
+	result := resp.GetResults()[0]
+	require.Equal(t, wf_force_fail.Step1, result.GetCompletedStepType())
+	require.Equal(t, wf_force_fail.Step1+"-1", result.GetCompletedStepExecutionId())
+	require.True(t, proto.Equal(expectedStepOutput, result.GetCompletedStepOutput()))
 }

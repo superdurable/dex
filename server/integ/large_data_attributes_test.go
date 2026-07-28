@@ -23,16 +23,15 @@ package integ
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/signal"
+	"github.com/superdurable/iwf/service"
 )
 
 func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
@@ -40,100 +39,70 @@ func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestLargeQueryAttributes(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestLargeQueryAttributes(t, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func doTestLargeQueryAttributes(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	if !*temporalIntegTest {
-		t.Skip()
-	}
-	assertions := assert.New(t)
-
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
-
-	_, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
-
-	wfId := signal.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
+func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
+	workerHandler := signal.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
 	})
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 86400,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		// this is necessary for large DAs
-		// otherwise the workflow task will fail when trying to execute a stateAPI with data attributes >4MB
-		StateOptions: &signal.StateOptionsForLargeDataAttributes,
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	flowClient := runtime.FlowClient
 
-	assertions.Equal(httpResp.StatusCode, http.StatusOK)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
-	// Define the size of the string in bytes (1 MB = 1024 * 1024 bytes)
+	flowId := signal.WorkflowType + uuid.NewString()
+	startRequest := &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 86400,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+	}
+	if flowConfig != nil {
+		startRequest.FlowStartOptions = &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}
+	}
+	_, err := flowClient.StartFlow(ctx, startRequest)
+	require.NoError(t, err)
+
 	const size = 1024 * 1024
+	oneMbPayload := strings.Repeat("a", size)
 
-	OneMbDataAttribute := iwfidl.EncodedObject{
-		Encoding: iwfidl.PtrString("json"),
-		Data:     iwfidl.PtrString(strings.Repeat("a", size)),
+	for i := 0; i < 5; i++ {
+		_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
+			FlowId: flowId,
+			Attributes: []*iwfpb.AttributeWrite{
+				dataObjectAttribute(
+					"large-data-attribute-"+fmt.Sprintf("%d", i),
+					`"`+oneMbPayload+`"`,
+				),
+			},
+		})
+		require.NoError(t, err)
 	}
 
-	// setting a large data attribute to test, especially continueAsNew
-	// because there is a 4MB limit for GRPC in temporal
-	setReq := apiClient.DefaultApi.ApiV1WorkflowDataobjectsSetPost(context.Background())
-	for i := 0; i < 5; i++ {
-
-		httpResp2, err := setReq.WorkflowSetDataObjectsRequest(iwfidl.WorkflowSetDataObjectsRequest{
-			WorkflowId: wfId,
-			Objects: []iwfidl.KeyValue{
+	for i := 0; i < 4; i++ {
+		_, err = flowClient.PublishToChannel(ctx, &iwfpb.PublishToChannelRequest{
+			FlowId: flowId,
+			Messages: []*iwfpb.ChannelMessage{
 				{
-					Key:   iwfidl.PtrString("large-data-attribute-" + strconv.Itoa(i)),
-					Value: &OneMbDataAttribute,
+					ChannelName: signal.SignalName,
+					Value:       objJSONValue(`"` + fmt.Sprintf("test-data-%v", i) + `"`),
 				},
 			},
-		}).Execute()
-
-		failTestAtHttpError(err, httpResp2, t)
+		})
+		require.NoError(t, err)
 	}
 
-	// signal the workflow to complete
-	for i := 0; i < 4; i++ {
-		signalVal := iwfidl.EncodedObject{
-			Encoding: iwfidl.PtrString("json"),
-			Data:     iwfidl.PtrString(fmt.Sprintf("test-data-%v", i)),
-		}
-
-		req2 := apiClient.DefaultApi.ApiV1WorkflowSignalPost(context.Background())
-		httpResp2, err := req2.WorkflowSignalRequest(iwfidl.WorkflowSignalRequest{
-			WorkflowId:        wfId,
-			SignalChannelName: signal.SignalName,
-			SignalValue:       &signalVal,
-		}).Execute()
-
-		failTestAtHttpError(err, httpResp2, t)
-	}
-
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 }

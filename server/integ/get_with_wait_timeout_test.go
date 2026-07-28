@@ -22,89 +22,81 @@ package integ
 
 import (
 	"context"
-	"encoding/json"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/signal"
-	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
-	"github.com/stretchr/testify/assert"
-	"io/ioutil"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/signal"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-func TestWorkflowGetWithWaitTimeoutTemporal(t *testing.T) {
+func TestFlowWaitForTimeoutTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithWaitTimeout(t, service.BackendTypeTemporal, nil)
+		doTestFlowWithWaitTimeout(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func TestWorkflowWithWaitTimeoutCadence(t *testing.T) {
+func TestFlowWaitForTimeoutCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowWithWaitTimeout(t, service.BackendTypeCadence, nil)
+		doTestFlowWithWaitTimeout(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 	}
 }
 
-func doTestWorkflowWithWaitTimeout(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
-	assertions := assert.New(t)
+func doTestFlowWithWaitTimeout(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
+	workerTarget := startWorker(t, signal.NewHandler())
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
 
-	// start test workflow server
-	wfHandler := signal.NewHandler()
-	closeFunc1 := startWorkflowWorker(wfHandler, t)
-	defer closeFunc1()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-	closeFunc2 := startIwfService(backendType)
-	defer closeFunc2()
-
-	// start a workflow
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
+	flowId := "wf-wait-timeout-test-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 15,
+		WorkerTarget:       workerTarget,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
 	})
-	wfId := "wf-wait-timeout-test" + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        signal.WorkflowType,
-		WorkflowTimeoutSeconds: 15,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(signal.State1),
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	reqWait := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
 	startTimeUnix := time.Now().Unix()
-	_, httpResp, err = reqWait.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
 	elapsedSeconds := time.Now().Unix() - startTimeUnix
 
-	assertions.NotNil(err)
-	assertions.Equalf(service.HttpStatusCodeSpecial4xxError1, httpResp.StatusCode, "http code")
-	var errResp iwfidl.ErrorResponse
-	body, err := ioutil.ReadAll(httpResp.Body)
-	assertions.Nil(err)
-	err = json.Unmarshal(body, &errResp)
-	assertions.Equalf(iwfidl.ErrorResponse{
-		Detail:    ptr.Any("workflow is still running, waiting has exceeded timeout limit, please retry"),
-		SubStatus: iwfidl.LONG_POLL_TIME_OUT_SUB_STATUS.Ptr(),
-	}, errResp, "body")
-
-	assertions.True(elapsedSeconds >= 5 && elapsedSeconds <= 12, "expect to poll for ~8 seconds, actual value is ", elapsedSeconds)
+	require.Error(t, err)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Equal(
+		t,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		grpcErrorResponse(t, err).GetSubStatus(),
+	)
+	require.Contains(
+		t,
+		grpcErrorResponse(t, err).GetDetail(),
+		"flow is still running",
+	)
+	require.True(t, elapsedSeconds >= 5 && elapsedSeconds <= 12,
+		"expect to poll for ~12 seconds, actual value is %d", elapsedSeconds)
 }

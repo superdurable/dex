@@ -23,189 +23,162 @@ package integ
 import (
 	"context"
 	"encoding/json"
-	"github.com/superdurable/iwf/integ/workflow/greedy_timer"
-	uclient "github.com/superdurable/iwf/service/client"
-	"github.com/stretchr/testify/assert"
-	"log"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/greedy_timer"
 	"github.com/superdurable/iwf/service"
-	"github.com/superdurable/iwf/service/common/ptr"
+	uclient "github.com/superdurable/iwf/service/client"
 )
 
-func TestGreedyTimerWorkflowBaseTemporal(t *testing.T) {
+func TestGreedyTimerFlowBaseTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerWorkflow(t, service.BackendTypeTemporal)
+		doTestGreedyTimerFlow(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyTimerWorkflowBaseCadence(t *testing.T) {
+func TestGreedyTimerFlowBaseCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerWorkflow(t, service.BackendTypeCadence)
+		doTestGreedyTimerFlow(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyTimerWorkflowBaseTemporalContinueAsNew(t *testing.T) {
+func TestGreedyTimerFlowBaseTemporalContinueAsNew(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerWorkflowCustomConfig(t, service.BackendTypeTemporal, greedyTimerConfig(true))
+		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func TestGreedyTimerWorkflowBaseCadenceContinueAsNew(t *testing.T) {
+func TestGreedyTimerFlowBaseCadenceContinueAsNew(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerWorkflowCustomConfig(t, service.BackendTypeCadence, greedyTimerConfig(true))
+		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
 		smallWaitForFastTest()
 	}
 }
 
-func doTestGreedyTimerWorkflow(t *testing.T, backendType service.BackendType) {
-	doTestGreedyTimerWorkflowCustomConfig(t, backendType, minimumGreedyTimerConfig())
+func doTestGreedyTimerFlow(t *testing.T, backendType service.BackendType) {
+	doTestGreedyTimerFlowCustomConfig(t, backendType, nil)
 }
 
-func doTestGreedyTimerWorkflowCustomConfig(t *testing.T, backendType service.BackendType, config *iwfidl.WorkflowConfig) {
+func doTestGreedyTimerFlowCustomConfig(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *iwfpb.FlowConfig,
+) {
 	assertions := assert.New(t)
-	// start test workflow server
-	wfHandler := greedy_timer.NewHandler()
-	closeFunc1 := startWorkflowWorkerWithRpc(wfHandler, t)
-	defer closeFunc1()
+	workerHandler := greedy_timer.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
+	unifiedClient := runtime.UnifiedClient
 
-	uClient, closeFunc2 := startIwfServiceWithClient(backendType)
-	defer closeFunc2()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
-	apiClient := iwfidl.NewAPIClient(&iwfidl.Configuration{
-		Servers: []iwfidl.ServerConfiguration{
-			{
-				URL: "http://localhost:" + testIwfServerPort,
-			},
-		},
-	})
-
-	// start a workflow
 	durations := []int64{15, 30}
 	input := greedy_timer.Input{Durations: durations}
+	flowId := greedy_timer.WorkflowType + "-" + uuid.NewString()
+	inputData, err := json.Marshal(input)
+	require.NoError(t, err)
 
-	wfId := greedy_timer.WorkflowType + strconv.Itoa(int(time.Now().UnixNano()))
-	req := apiClient.DefaultApi.ApiV1WorkflowStartPost(context.Background())
-	inputData, _ := json.Marshal(input)
-
-	//schedule-1
-	_, httpResp, err := req.WorkflowStartRequest(iwfidl.WorkflowStartRequest{
-		WorkflowId:             wfId,
-		IwfWorkflowType:        greedy_timer.WorkflowType,
-		WorkflowTimeoutSeconds: 30,
-		IwfWorkerUrl:           "http://localhost:" + testWorkflowServerPort,
-		StartStateId:           ptr.Any(greedy_timer.ScheduleTimerState),
-		StateInput: &iwfidl.EncodedObject{
-			Encoding: iwfidl.PtrString("json"),
-			Data:     iwfidl.PtrString(string(inputData)),
+	_, err = flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           greedy_timer.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		WorkerTarget:       workerTarget,
+		StartStepType:      greedy_timer.ScheduleTimerState,
+		StepInput:          encodedObjectValue("json", inputData),
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
 		},
-		WorkflowStartOptions: &iwfidl.WorkflowStartOptions{
-			WorkflowConfigOverride: config,
-		},
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	})
+	require.NoError(t, err)
 
-	// Short wait for ApiV1WorkflowStateStart to complete so the timers have been started
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second)
 
-	// assertions
-	debug := service.DebugDumpResponse{}
-	err = uClient.QueryWorkflow(context.Background(), &debug, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		log.Fatalf("Fail to invoke query %v", err)
-	}
-	assertions.Equal(1, len(debug.FiringTimersUnixTimestamps))
-	singleTimerScheduled := debug.FiringTimersUnixTimestamps[0]
+	debug := &iwfpb.DebugDumpResponse{}
+	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	assertions.Equal(1, len(debug.GetFiringTimersUnixTimestamps()))
+	singleTimerScheduled := debug.GetFiringTimersUnixTimestamps()[0]
 
-	scheduleTimerAndAssertExpectedScheduled(t, apiClient, uClient, wfId, 20, 1)
+	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 20, 1)
 
-	// skip next timer for state: schedule-1
-	skipReq := apiClient.DefaultApi.ApiV1WorkflowTimerSkipPost(context.Background())
-	httpResp, err = skipReq.WorkflowSkipTimerRequest(iwfidl.WorkflowSkipTimerRequest{
-		WorkflowId:               wfId,
-		WorkflowStateExecutionId: greedy_timer.ScheduleTimerState + "-1",
-		TimerCommandId:           iwfidl.PtrString("duration-15"),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	_, err = flowClient.SkipTimer(ctx, &iwfpb.SkipTimerRequest{
+		FlowId:           flowId,
+		StepExecutionId:  greedy_timer.ScheduleTimerState + "-1",
+		TimerConditionId: "duration-15",
+	})
+	require.NoError(t, err)
 
-	// Short wait for signal to be received and timer to be skipped
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second)
 
-	err = uClient.QueryWorkflow(context.Background(), &debug, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		log.Fatalf("Fail to invoke query %v", err)
-	}
+	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	assertions.Equal(1, len(debug.GetFiringTimersUnixTimestamps()))
+	assertions.LessOrEqual(singleTimerScheduled, debug.GetFiringTimersUnixTimestamps()[0])
+	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 5, 2)
 
-	// no second timer started
-	assertions.Equal(1, len(debug.FiringTimersUnixTimestamps))
-	// LessOrEqual due to continue as new workflow scheduling the next, not skipped timer
-	assertions.LessOrEqual(singleTimerScheduled, debug.FiringTimersUnixTimestamps[0])
-	scheduleTimerAndAssertExpectedScheduled(t, apiClient, uClient, wfId, 5, 2)
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId:          flowId,
+		WaitTimeSeconds: 30,
+	})
+	require.NoError(t, err)
 
-	// Wait for the workflow to complete
-	req2 := apiClient.DefaultApi.ApiV1WorkflowGetWithWaitPost(context.Background())
-	_, httpResp, err = req2.WorkflowGetRequest(iwfidl.WorkflowGetRequest{
-		WorkflowId: wfId,
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
-
-	history, _ := wfHandler.GetTestResult()
+	history := workerHandler.GetTestResult().InvokeHistory
 	assertions.Equalf(map[string]int64{
-		"schedule_start":  3,
-		"schedule_decide": 1,
+		"schedule_waitFor": 3,
+		"schedule_execute": 1,
 	}, history, "history does not match expected")
 }
 
 func scheduleTimerAndAssertExpectedScheduled(
 	t *testing.T,
-	apiClient *iwfidl.APIClient,
-	uClient uclient.UnifiedClient,
-	wfId string,
+	flowClient iwfpb.FlowServiceClient,
+	unifiedClient uclient.UnifiedClient,
+	flowId string,
 	duration int64,
-	noMoreThan int) {
-
+	noMoreThan int,
+) {
 	assertions := assert.New(t)
 	input := greedy_timer.Input{Durations: []int64{duration}}
-	inputData, _ := json.Marshal(input)
+	inputData, err := json.Marshal(input)
+	require.NoError(t, err)
 
-	reqRpc := apiClient.DefaultApi.ApiV1WorkflowRpcPost(context.Background())
-	_, httpResp, err := reqRpc.WorkflowRpcRequest(iwfidl.WorkflowRpcRequest{
-		WorkflowId: wfId,
-		RpcName:    greedy_timer.SubmitDurationsRPC,
-		Input: &iwfidl.EncodedObject{
-			Encoding: iwfidl.PtrString("json"),
-			Data:     iwfidl.PtrString(string(inputData)),
-		},
-		TimeoutSeconds: iwfidl.PtrInt32(2),
-	}).Execute()
-	failTestAtHttpError(err, httpResp, t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Short wait for RPC request to complete
-	time.Sleep(time.Second * 1)
+	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:         flowId,
+		RpcName:        greedy_timer.SubmitDurationsRPC,
+		Input:          encodedObjectValue("json", inputData),
+		TimeoutSeconds: 2,
+	})
+	require.NoError(t, err)
 
-	debug := service.DebugDumpResponse{}
-	err = uClient.QueryWorkflow(context.Background(), &debug, wfId, "", service.DebugDumpQueryType)
-	if err != nil {
-		log.Fatalf("Fail to invoke query %v", err)
-	}
+	time.Sleep(time.Second)
 
-	assertions.LessOrEqual(len(debug.FiringTimersUnixTimestamps), noMoreThan)
+	debug := &iwfpb.DebugDumpResponse{}
+	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+	require.NoError(t, err)
+	assertions.LessOrEqual(len(debug.GetFiringTimersUnixTimestamps()), noMoreThan)
 }

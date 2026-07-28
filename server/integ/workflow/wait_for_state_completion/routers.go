@@ -21,30 +21,28 @@
 package wait_for_state_completion
 
 import (
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/service/common/ptr"
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"strconv"
 	"sync"
-	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/workflow/common"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, using REST controller to implement the workflow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
- * State1:
- *		- 10-second delay is added before executing state
- *      - Execute method will go to State2
- * State2:
+ * Step1:
+ *		- 10-second delay is added before executing step
+ *      - Execute method will go to Step2
+ * Step2:
  *		- Waits on nothing. Will execute momentarily
- *      - Execute method will gracefully complete workflow
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType = "wait_for_state_completion"
@@ -53,121 +51,139 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
 
-func NewHandler() common.WorkflowHandler {
+func NewHandler() *handler {
 	return &handler{
 		invokeHistory: sync.Map{},
 		invokeData:    sync.Map{},
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
+
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
-	log.Println("received state start request, ", req)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_start"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_start", int64(1))
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
+	}
+
+	switch request.GetStepType() {
+	case State1:
+		nowInt, err := strconv.Atoi(stepInputString(request.GetStepInput()))
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-
-		if req.GetWorkflowStateId() == State1 {
-			nowInt, err := strconv.Atoi(req.StateInput.GetData())
-			if err != nil {
-				helpers.FailTestWithError(err, t)
-			}
-			now := int64(nowInt)
-			h.invokeData.Store("scheduled_at", now)
-			// Proceed after 10s
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					TimerCommands: []iwfidl.TimerCommand{
-						{
-							CommandId:                  ptr.Any("timer-cmd-id"),
-							FiringUnixTimestampSeconds: iwfidl.PtrInt64(now + 10), // fire after 10s
-						},
+		now := int64(nowInt)
+		h.invokeData.Store("scheduled_at", now)
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				TimerConditions: []*iwfpb.TimerCondition{
+					{
+						ConditionId:                "timer-cmd-id",
+						FiringUnixTimestampSeconds: now + 10,
 					},
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
 				},
-			})
-			return
-		}
-
-		// Go straight to the decide methods without any commands
-		if req.GetWorkflowStateId() == State2 {
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
+			},
+		}, nil
+	case State2:
+		return &iwfpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &iwfpb.WaitingCondition{
+				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 	}
-
-	c.JSON(http.StatusBadRequest, struct{}{})
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
-		}
-
-		if req.GetWorkflowStateId() == State1 {
-			now := time.Now().Unix()
-			h.invokeData.Store("fired_at", now)
-			timerResults := req.GetCommandResults()
-			timerId := timerResults.GetTimerResults()[0].GetCommandId()
-			h.invokeData.Store("timer_id", timerId)
-			// Move to State 2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    State2,
-							WaitForKey: ptr.Any("testKey"),
-						},
-					},
-				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			// Move to completion
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId: service.GracefulCompletingWorkflowStateId,
-						},
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
+	} else {
+		h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
+	}
+
+	switch request.GetStepType() {
+	case State1:
+		now := time.Now().Unix()
+		h.invokeData.Store("fired_at", now)
+		timerResults := request.GetConditionResults().GetTimerResults()
+		timerId := timerResults[0].GetConditionId()
+		h.invokeData.Store("timer_id", timerId)
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: State2},
+				},
+			},
+		}, nil
+	case State2:
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{StepType: service.GracefulCompletingFlowStepType},
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func stepInputString(stepInput *iwfpb.Value) string {
+	if stepInput == nil {
+		return ""
+	}
+	if stringValue, ok := stepInput.Kind.(*iwfpb.Value_StringValue); ok {
+		return stringValue.StringValue
+	}
+	if objValue, ok := stepInput.Kind.(*iwfpb.Value_ObjValue); ok {
+		if objValue.ObjValue.GetEncoding() == "json" {
+			return string(objValue.ObjValue.GetPayload())
+		}
+	}
+	return ""
+}
+
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
@@ -178,5 +194,5 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		invokeData[key.(string)] = value
 		return true
 	})
-	return invokeHistory, invokeData
+	return common.TestResult{InvokeHistory: invokeHistory, InvokeData: invokeData}
 }

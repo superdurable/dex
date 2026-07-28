@@ -21,25 +21,26 @@
 package skipstart
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
-	"github.com/superdurable/iwf/integ/helpers"
-	"github.com/superdurable/iwf/service"
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
+
+	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, using REST controller to implement the workflow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
  * State1:
- *		- Wait until is skipped.
+ *		- WaitFor is skipped.
  *      - Execute method will go to State2
  * State2:
- *		- Wait until is skipped.
- *      - Execute method will gracefully complete workflow
+ *		- WaitFor is skipped.
+ *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType = "skipstart"
@@ -48,6 +49,7 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 }
 
@@ -57,66 +59,60 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStateStart - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	helpers.FailTestWithErrorMessage("start API should be skipped", t)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	_ *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	return nil, status.Error(codes.InvalidArgument, "waitFor API should be skipped")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		if value, ok := h.invokeHistory.Load(req.GetWorkflowStateId() + "_decide"); ok {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", value.(int64)+1)
+	if request.GetFlowType() == WorkflowType {
+		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {
+			h.invokeHistory.Store(request.GetStepType()+"_execute", value.(int64)+1)
 		} else {
-			h.invokeHistory.Store(req.GetWorkflowStateId()+"_decide", int64(1))
+			h.invokeHistory.Store(request.GetStepType()+"_execute", int64(1))
 		}
 
-		if req.GetWorkflowStateId() == State1 {
-			// Move to State 2 with the provided input & options
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
+		if request.GetStepType() == State1 {
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
 						{
-							StateId:    State2,
-							StateInput: req.StateInput,
-							StateOptions: &iwfidl.WorkflowStateOptions{
-								SkipStartApi: iwfidl.PtrBool(true),
-							},
+							StepType:    State2,
+							StepInput:   request.GetStepInput(),
+							StepOptions: &iwfpb.StepOptions{SkipWaitFor: true},
 						},
 					},
 				},
-			})
-			return
-		} else if req.GetWorkflowStateId() == State2 {
-			// Move to completion with the provided input
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
+			}, nil
+		} else if request.GetStepType() == State2 {
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
 						{
-							StateId:    service.GracefulCompletingWorkflowStateId,
-							StateInput: req.StateInput,
+							StepType:  service.GracefulCompletingFlowStepType,
+							StepInput: request.GetStepInput(),
 						},
 					},
 				},
-			})
-			return
+			}, nil
 		}
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	invokeHistory := make(map[string]int64)
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		invokeHistory[key.(string)] = value.(int64)
 		return true
 	})
-	return invokeHistory, nil
+	return common.TestResult{InvokeHistory: invokeHistory}
 }

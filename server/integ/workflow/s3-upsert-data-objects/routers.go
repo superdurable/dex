@@ -21,26 +21,27 @@
 package s3_upsert_data_objects
 
 import (
+	"context"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
-	"net/http"
 	"sync"
-	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/iwf/gen/iwfidl"
+	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 /**
- * This test workflow has 2 states, testing S3 upsert data objects functionality.
+ * This test flow has 2 steps, testing S3 upsert data objects functionality.
  *
- * State1:
- *		- WaitUntil method does nothing
- *      - Execute method upserts large data objects that should go to S3, then transitions to State2
+ * Step1:
+ *		- WaitFor does nothing
+ *      - Execute upserts large data objects that should go to S3, then transitions to Step2
  *
- * State2:
- *		- WaitUntil method validates it receives the upserted data objects from S3
- *      - Execute method completes workflow
+ * Step2:
+ *		- WaitFor validates it receives the upserted data objects from S3
+ *      - Execute completes flow
  */
 const (
 	WorkflowType      = "s3-upsert-data-objects"
@@ -55,6 +56,7 @@ const (
 )
 
 type handler struct {
+	iwfpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
 	invokeData    sync.Map
 }
@@ -66,180 +68,105 @@ func NewHandler() *handler {
 	}
 }
 
-// ApiV1WorkflowStartPost - for a workflow
-func (h *handler) ApiV1WorkflowStateStart(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateStartRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state start request, ", req)
+func (h *handler) InvokeWaitForMethod(
+	_ context.Context,
+	request *iwfpb.InvokeWaitForMethodRequest,
+) (*iwfpb.InvokeWaitForMethodResponse, error) {
+	log.Println("received waitFor request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		stateId := req.GetWorkflowStateId()
-
-		// Increment invoke count
-		if value, ok := h.invokeHistory.Load(stateId + "_start"); ok {
-			h.invokeHistory.Store(stateId+"_start", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(stateId+"_start", int64(1))
-		}
-
-		if stateId == State1 {
-			// State1 waitUntil doesn't need to do anything
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
-
-		if stateId == State2 {
-			// State2 waitUntil should validate data objects received from State1's upsert
-			queryAtts := req.GetDataObjects()
-			log.Printf("S2 WaitUntil: Received %d data objects, validating they match upserted values", len(queryAtts))
-
-			foundLargeObj1 := false
-			foundLargeObj2 := false
-			foundSmallObj3 := false
-
-			for _, queryAtt := range queryAtts {
-				if queryAtt.GetKey() == TestDataObjKey1 {
-					expectedData := "\"" + LargeDataContent1 + "\""
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundLargeObj1 = true
-						h.invokeData.Store("S2_large_obj1_data", LargeDataContent1)
-						log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey1, len(receivedData))
-					} else {
-						log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey1, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataObjKey2 {
-					expectedData := "\"" + LargeDataContent2 + "\""
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundLargeObj2 = true
-						h.invokeData.Store("S2_large_obj2_data", LargeDataContent2)
-						log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey2, len(receivedData))
-					} else {
-						log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey2, expectedData, receivedData)
-					}
-				}
-				if queryAtt.GetKey() == TestDataObjKey3 {
-					expectedData := "\"" + SmallDataContent3 + "\""
-					receivedData := *queryAtt.GetValue().Data
-					if receivedData == expectedData {
-						foundSmallObj3 = true
-						h.invokeData.Store("S2_small_obj3_data", SmallDataContent3)
-						log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey3, len(receivedData))
-					} else {
-						log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey3, expectedData, receivedData)
-					}
-				}
-			}
-
-			h.invokeData.Store("S2_received_large_obj1", foundLargeObj1)
-			h.invokeData.Store("S2_received_large_obj2", foundLargeObj2)
-			h.invokeData.Store("S2_received_small_obj3", foundSmallObj3)
-
-			log.Printf("S2 WaitUntil: Data object validation complete - found large_obj1: %t, large_obj2: %t, small_obj3: %t",
-				foundLargeObj1, foundLargeObj2, foundSmallObj3)
-
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateStartResponse{
-				CommandRequest: &iwfidl.CommandRequest{
-					DeciderTriggerType: iwfidl.ALL_COMMAND_COMPLETED.Ptr(),
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	stepType := request.GetStepType()
+	h.incrementInvokeHistory(stepType + "_waitFor")
+
+	if stepType == State1 {
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	if stepType == State2 {
+		h.validateUpsertedAttributes(request.GetAttributes())
+		return &iwfpb.InvokeWaitForMethodResponse{}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) ApiV1WorkflowStateDecide(c *gin.Context, t *testing.T) {
-	var req iwfidl.WorkflowStateDecideRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Println("received state decide request, ", req)
+func (h *handler) InvokeExecuteMethod(
+	_ context.Context,
+	request *iwfpb.InvokeExecuteMethodRequest,
+) (*iwfpb.InvokeExecuteMethodResponse, error) {
+	log.Println("received execute request, ", request)
 
-	if req.GetWorkflowType() == WorkflowType {
-		stateId := req.GetWorkflowStateId()
-
-		// Increment invoke count
-		if value, ok := h.invokeHistory.Load(stateId + "_decide"); ok {
-			h.invokeHistory.Store(stateId+"_decide", value.(int64)+1)
-		} else {
-			h.invokeHistory.Store(stateId+"_decide", int64(1))
-		}
-
-		if stateId == State1 {
-			// State1 Execute: Upsert large data objects that should go to S3
-			log.Printf("S1 Execute: Upserting data objects - 2 large (should go to S3), 1 small (should stay in memory)")
-
-			upsertDataObjects := []iwfidl.KeyValue{
-				{
-					Key: iwfidl.PtrString(TestDataObjKey1),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("json"),
-						Data:     iwfidl.PtrString("\"" + LargeDataContent1 + "\""), // Large - should go to S3
-					},
-				},
-				{
-					Key: iwfidl.PtrString(TestDataObjKey2),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("json"),
-						Data:     iwfidl.PtrString("\"" + LargeDataContent2 + "\""), // Large - should go to S3
-					},
-				},
-				{
-					Key: iwfidl.PtrString(TestDataObjKey3),
-					Value: &iwfidl.EncodedObject{
-						Encoding: iwfidl.PtrString("json"),
-						Data:     iwfidl.PtrString("\"" + SmallDataContent3 + "\""), // Small - should stay in memory
-					},
-				},
-			}
-
-			// Transition to State2
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    State2,
-							StateInput: req.StateInput,
-						},
-					},
-				},
-				UpsertDataObjects: upsertDataObjects,
-			})
-			return
-		}
-
-		if stateId == State2 {
-			// State2 Execute: Complete workflow
-			c.JSON(http.StatusOK, iwfidl.WorkflowStateDecideResponse{
-				StateDecision: &iwfidl.StateDecision{
-					NextStates: []iwfidl.StateMovement{
-						{
-							StateId:    service.GracefulCompletingWorkflowStateId,
-							StateInput: req.StateInput,
-						},
-					},
-				},
-			})
-			return
-		}
+	stepContext := request.GetContext()
+	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"attempt and firstAttemptTimestamp should be greater than zero",
+		)
 	}
 
-	c.JSON(http.StatusBadRequest, struct{}{})
+	if request.GetFlowType() != WorkflowType {
+		return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+	}
+
+	stepType := request.GetStepType()
+	h.incrementInvokeHistory(stepType + "_execute")
+
+	if stepType == State1 {
+		log.Printf("S1 Execute: Upserting data objects - 2 large (should go to S3), 1 small (should stay in memory)")
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  State2,
+						StepInput: request.GetStepInput(),
+					},
+				},
+			},
+			UpsertAttributes: []*iwfpb.AttributeWrite{
+				{
+					Key:   TestDataObjKey1,
+					Value: jsonObjValue("\"" + LargeDataContent1 + "\""),
+				},
+				{
+					Key:   TestDataObjKey2,
+					Value: jsonObjValue("\"" + LargeDataContent2 + "\""),
+				},
+				{
+					Key:   TestDataObjKey3,
+					Value: jsonObjValue("\"" + SmallDataContent3 + "\""),
+				},
+			},
+		}, nil
+	}
+
+	if stepType == State2 {
+		return &iwfpb.InvokeExecuteMethodResponse{
+			StepDecision: &iwfpb.StepDecision{
+				NextSteps: []*iwfpb.StepMovement{
+					{
+						StepType:  service.GracefulCompletingFlowStepType,
+						StepInput: request.GetStepInput(),
+					},
+				},
+			},
+		}, nil
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
 }
 
-func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
+func (h *handler) GetTestResult() common.TestResult {
 	outInvokehistory := make(map[string]interface{})
 	h.invokeHistory.Range(func(key, value interface{}) bool {
 		outInvokehistory[key.(string)] = value
@@ -252,10 +179,104 @@ func (h *handler) GetTestResult() (map[string]int64, map[string]interface{}) {
 		return true
 	})
 
-	// Merge both maps
-	for k, v := range outInvokeData {
-		outInvokehistory[k] = v
+	for key, value := range outInvokeData {
+		outInvokehistory[key] = value
 	}
 
-	return nil, outInvokehistory
+	return common.TestResult{InvokeData: outInvokehistory}
+}
+
+func (h *handler) incrementInvokeHistory(key string) {
+	if value, ok := h.invokeHistory.Load(key); ok {
+		h.invokeHistory.Store(key, value.(int64)+1)
+		return
+	}
+	h.invokeHistory.Store(key, int64(1))
+}
+
+func (h *handler) validateUpsertedAttributes(attributes []*iwfpb.KV) {
+	log.Printf("S2 WaitUntil: Received %d data objects, validating they match upserted values", len(attributes))
+
+	foundLargeObj1 := false
+	foundLargeObj2 := false
+	foundSmallObj3 := false
+
+	for _, attribute := range attributes {
+		receivedData, ok := objPayloadFromValue(attribute.GetValue())
+		if !ok {
+			if blobId := blobIdFromValue(attribute.GetValue()); blobId != "" {
+				log.Printf("S2 WaitUntil: attribute %s still has blob id %q", attribute.GetKey(), blobId)
+			}
+			continue
+		}
+
+		switch attribute.GetKey() {
+		case TestDataObjKey1:
+			expectedData := "\"" + LargeDataContent1 + "\""
+			if receivedData == expectedData {
+				foundLargeObj1 = true
+				h.invokeData.Store("S2_large_obj1_data", LargeDataContent1)
+				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey1, len(receivedData))
+			} else {
+				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey1, expectedData, receivedData)
+			}
+		case TestDataObjKey2:
+			expectedData := "\"" + LargeDataContent2 + "\""
+			if receivedData == expectedData {
+				foundLargeObj2 = true
+				h.invokeData.Store("S2_large_obj2_data", LargeDataContent2)
+				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey2, len(receivedData))
+			} else {
+				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey2, expectedData, receivedData)
+			}
+		case TestDataObjKey3:
+			expectedData := "\"" + SmallDataContent3 + "\""
+			if receivedData == expectedData {
+				foundSmallObj3 = true
+				h.invokeData.Store("S2_small_obj3_data", SmallDataContent3)
+				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey3, len(receivedData))
+			} else {
+				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey3, expectedData, receivedData)
+			}
+		}
+	}
+
+	h.invokeData.Store("S2_received_large_obj1", foundLargeObj1)
+	h.invokeData.Store("S2_received_large_obj2", foundLargeObj2)
+	h.invokeData.Store("S2_received_small_obj3", foundSmallObj3)
+
+	log.Printf("S2 WaitUntil: Data object validation complete - found large_obj1: %t, large_obj2: %t, small_obj3: %t",
+		foundLargeObj1, foundLargeObj2, foundSmallObj3)
+}
+
+func jsonObjValue(payload string) *iwfpb.Value {
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_ObjValue{
+			ObjValue: &iwfpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(payload),
+			},
+		},
+	}
+}
+
+func objPayloadFromValue(value *iwfpb.Value) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	objValue := value.GetObjValue()
+	if objValue == nil {
+		return "", false
+	}
+	return string(objValue.GetPayload()), true
+}
+
+func blobIdFromValue(value *iwfpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
+		return blobId
+	}
+	return value.GetInternalBlobIdForStringValue()
 }
