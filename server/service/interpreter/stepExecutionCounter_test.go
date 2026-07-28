@@ -71,7 +71,7 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 		NewStepStartRequest(skipStep),
 	}))
 	require.Equal(t, int32(2), counter.GetTotalCurrentlyExecutingCount())
-	require.Equal(t, []string{"wait"}, provider.upserts[0][service.SearchAttributeActiveStepIds])
+	require.Equal(t, []string{"wait"}, provider.upserts[0][service.SearchAttributeActiveStepTypes])
 
 	require.Equal(t, "wait-1", counter.CreateNextExecutionId("wait"))
 	require.Equal(t, "skip-1", counter.CreateNextExecutionId("skip"))
@@ -83,7 +83,7 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 	require.NoError(t, counter.MarkStepExecutionCompleted(waitStep, "wait-1", nil))
 	require.True(t, counter.IsStepExecutionCompleted("wait", 1))
 	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
-	require.Empty(t, provider.upserts[1][service.SearchAttributeActiveStepIds])
+	require.Empty(t, provider.upserts[1][service.SearchAttributeActiveStepTypes])
 }
 
 func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {

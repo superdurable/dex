@@ -12,11 +12,9 @@ fi
 echo "now trying to register iWF system search attributes..."
 for run in {1..120}; do
   sleep 1
-  temporal  operator search-attribute  create --name IwfWorkflowType --type Keyword
+  temporal  operator search-attribute  create --name FlowType --type Keyword
   sleep 0.1
-  temporal  operator search-attribute  create --name IwfGlobalWorkflowVersion --type Int
-  sleep 0.1 
-  temporal  operator search-attribute  create --name IwfExecutingStateIds --type KeywordList
+  temporal  operator search-attribute  create --name ActiveStepTypes --type KeywordList
   sleep 0.1
   temporal  operator search-attribute  create --name CustomKeywordField --type Keyword
   sleep 0.1
@@ -35,7 +33,7 @@ for run in {1..120}; do
   temporal  operator search-attribute  create --name CustomTextField --type Text
   sleep 0.1
 
-  if checkExists "IwfWorkflowType" && checkExists "IwfGlobalWorkflowVersion" && checkExists "IwfExecutingStateIds" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomStringField" && checkExists "CustomKeywordArrayField" ; then
+  if checkExists "FlowType" && checkExists "ActiveStepTypes" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomStringField" && checkExists "CustomKeywordArrayField" ; then
     echo "All search attributes are registered"
     break
   fi

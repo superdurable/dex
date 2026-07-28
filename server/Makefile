@@ -168,6 +168,23 @@ deps-all: ## Check for all dependency updates
 cleanTestCache:
 	$Q go clean -testcache
 
+PHASE5_BASIC_FILES = \
+	integ/basic_test.go \
+	integ/basic_harness_test.go \
+	integ/config.go \
+	integ/crypt.go \
+	integ/encryption_data_converter.go \
+	integ/flag.go \
+	integ/main_test.go
+
+phase5BasicTests: phase5BasicTemporalTests phase5BasicCadenceTests
+
+phase5BasicTemporalTests:
+	$Q GOWORK=off go test -v $(PHASE5_BASIC_FILES) -run '^TestBasicFlowTemporal$$' -timeout 5m -cadence=false
+
+phase5BasicCadenceTests:
+	$Q GOWORK=off go test -v $(PHASE5_BASIC_FILES) -run '^TestBasicFlowCadence$$' -timeout 5m -temporal=false -dependencyWaitSeconds=180
+
 integTestsTemporalWithCover: # for local debugging
 	$Q go test -v -cover ./integ -coverprofile coverage.out -coverpkg ./service/... -cadence=false
 	$Q go tool cover -func coverage.out -o coverage.out

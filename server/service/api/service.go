@@ -71,8 +71,11 @@ func NewApiService(
 	if apiCfg == nil || extStore == nil || interpreterCfg == nil {
 		panic("API service requires non-nil config sections")
 	}
-	if client == nil || logger == nil || store == nil || taskQueue == "" {
+	if client == nil || logger == nil || taskQueue == "" {
 		panic("API service requires non-nil dependencies and a task queue")
+	}
+	if extStore.Enabled && store == nil {
+		panic("API service requires a blob store when external storage is enabled")
 	}
 	activityCfg := &interpreterCfg.InterpreterActivityConfig
 	workerPool, err := workerclient.NewPool(workerclient.Config{

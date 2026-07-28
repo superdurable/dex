@@ -41,7 +41,7 @@ const (
 	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"
 	WaitForAttributeUpdateType            = "WaitForAttribute"
 
-	SearchAttributeActiveStepIds   = "ActiveStepIds"
+	SearchAttributeActiveStepTypes = "ActiveStepTypes"
 	SearchAttributeIwfWorkflowType = "FlowType"
 
 	BackendTypeCadence  BackendType = "cadence"

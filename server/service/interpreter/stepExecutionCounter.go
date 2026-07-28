@@ -42,7 +42,7 @@ type StepExecutionCounter struct {
 
 	// For creating stepExecutionId: count the stepId for how many times that have been started
 	stepTypeStartedCounts map[string]int32
-	// For system search attribute ActiveStepId: keep counting the stateIds that are executing based on the ExecutingStateIdMode
+	// For system search attribute ActiveStepTypes: keep counting the step types that are executing based on ActiveStepSearchMode
 	stepTypeActiveCounts map[string]int32
 	// For waitForStepExecution features, works together with stepTypeStartedCounts:
 	// 1. if waitForStepExecutionId number > startedCount, it means that the step is not started yet
@@ -76,13 +76,21 @@ func RebuildStepExecutionCounter(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	counterInfo *iwfpb.StepExecutionCounterInfo,
 ) *StepExecutionCounter {
+	stepTypeStartedCounts := counterInfo.GetStepTypeStartedCount()
+	if stepTypeStartedCounts == nil {
+		stepTypeStartedCounts = map[string]int32{}
+	}
+	stepTypeActiveCounts := counterInfo.GetStepTypeCurrentlyExecutingCount()
+	if stepTypeActiveCounts == nil {
+		stepTypeActiveCounts = map[string]int32{}
+	}
 	return &StepExecutionCounter{
 		ctx:                   ctx,
 		provider:              provider,
 		configer:              configer,
 		continueAsNewCounter:  continueAsNewCounter,
-		stepTypeStartedCounts: counterInfo.GetStepTypeStartedCount(),
-		stepTypeActiveCounts:  counterInfo.GetStepTypeCurrentlyExecutingCount(),
+		stepTypeStartedCounts: stepTypeStartedCounts,
+		stepTypeActiveCounts:  stepTypeActiveCounts,
 		stepActiveExecutionNums: stepActiveExecutionNumsFromProto(
 			counterInfo.GetStepActiveExecutionNums(),
 		),
@@ -152,7 +160,7 @@ func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 	e.totalActiveCount += numOfNew
 
 	if needsUpdateSA {
-		return e.refreshActiveStepIdSearchAttribute()
+		return e.refreshActiveStepTypeSearchAttribute()
 	}
 
 	return nil
@@ -185,7 +193,7 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 	if shouldSkipRefresh {
 		return nil
 	}
-	return e.refreshActiveStepIdSearchAttribute()
+	return e.refreshActiveStepTypeSearchAttribute()
 }
 
 func (e *StepExecutionCounter) removeStepActiveExecutionNum(
@@ -278,27 +286,27 @@ func (e *StepExecutionCounter) GetTotalCurrentlyExecutingCount() int32 {
 	return e.totalActiveCount
 }
 
-func (e *StepExecutionCounter) refreshActiveStepIdSearchAttribute() error {
+func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute() error {
 	// Optimization: don't upsert SAs if currentSAsValues == stepTypeActiveCounts keys
 	currentSAsValues, err := e.provider.GetSearchAttributeKeywordArray(
 		e.ctx,
-		service.SearchAttributeActiveStepIds,
+		service.SearchAttributeActiveStepTypes,
 	)
 	if err != nil {
 		e.provider.GetLogger(e.ctx).Error("error for GetSearchAttributes", err)
 		return err
 	}
 
-	activeStepIds := DeterministicKeys(e.stepTypeActiveCounts)
+	activeStepTypes := DeterministicKeys(e.stepTypeActiveCounts)
 
 	slices.Sort(currentSAsValues)
-	slices.Sort(activeStepIds)
-	if reflect.DeepEqual(currentSAsValues, activeStepIds) {
+	slices.Sort(activeStepTypes)
+	if reflect.DeepEqual(currentSAsValues, activeStepTypes) {
 		return nil
 	}
 
 	return e.provider.UpsertSearchAttributes(e.ctx, map[string]interface{}{
-		service.SearchAttributeActiveStepIds: activeStepIds,
+		service.SearchAttributeActiveStepTypes: activeStepTypes,
 	})
 }
 

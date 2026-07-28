@@ -67,11 +67,11 @@ func NewServer(
 	if logger == nil {
 		panic("logger must not be nil")
 	}
-	if store == nil {
-		panic("store must not be nil")
-	}
 	if extStore == nil {
 		panic("extStore must not be nil")
+	}
+	if extStore.Enabled && store == nil {
+		panic("store must not be nil when external storage is enabled")
 	}
 	if interpreterCfg == nil {
 		panic("interpreterCfg must not be nil")
@@ -116,7 +116,12 @@ func (s *Server) Run() error {
 	if err != nil {
 		return err
 	}
-	s.logger.Info("FlowService gRPC listening", tag.Value(lis.Addr().String()))
+	return s.Serve(lis)
+}
+
+// Serve hosts the gRPC services on listener.
+func (s *Server) Serve(listener net.Listener) error {
+	s.logger.Info("FlowService gRPC listening", tag.Value(listener.Addr().String()))
 
 	if err := s.readyCheck(context.Background()); err != nil {
 		s.logger.Error("initial readiness check failed", tag.Error(err))
@@ -124,7 +129,7 @@ func (s *Server) Run() error {
 		s.setServing(true)
 	}
 
-	return s.grpcServer.Serve(lis)
+	return s.grpcServer.Serve(listener)
 }
 
 // GracefulStop stops accepting requests before closing dependencies.
