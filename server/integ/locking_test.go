@@ -22,7 +22,6 @@ package integ
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -136,7 +135,7 @@ func doTestLockingWorkflow(
 			rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
 				FlowId:         flowId,
 				RpcName:        locking.RPCName,
-				Input:          jsonObjValue("data"),
+				Input:          objJSONValue("data"),
 				TimeoutSeconds: 2,
 				LockAttributeKeys: []string{
 					locking.TestSearchAttributeIntKey,
@@ -157,7 +156,7 @@ func doTestLockingWorkflow(
 				require.NoError(t, rpcErr)
 			}
 			rpcIncrease++
-			assertions.True(proto.Equal(jsonObjValue("data"), rpcResp.GetOutput()))
+			assertions.True(proto.Equal(objJSONValue("data"), rpcResp.GetOutput()))
 		}
 		assertions.True(rpcIncrease > 0)
 		assertions.True(rpcLockingFailure > 0)
@@ -167,7 +166,7 @@ func doTestLockingWorkflow(
 	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
 		FlowId:  flowId,
 		RpcName: locking.RPCName,
-		Input:   jsonObjValue(locking.ShouldUnblockStateWaiting),
+		Input:   objJSONValue(locking.ShouldUnblockStateWaiting),
 	})
 	require.NoError(t, err)
 
@@ -199,11 +198,8 @@ func doTestLockingWorkflow(
 	require.NoError(t, err)
 	attributeMap := attributesToMap(attributesResp.GetAttributes())
 	assertions.Equal(finalCounterValue, attributeMap[locking.TestSearchAttributeIntKey].GetIntValue())
-
-	expectedPayload, err := json.Marshal(fmt.Sprintf("%v", finalCounterValue))
-	require.NoError(t, err)
 	assertions.Equal(
-		string(expectedPayload),
+		fmt.Sprintf("%v", finalCounterValue),
 		string(attributeMap[locking.TestDataAttributeKey1].GetObjValue().GetPayload()),
 	)
 

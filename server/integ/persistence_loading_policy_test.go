@@ -109,10 +109,4 @@ func doTestPersistenceLoadingPolicy(
 		"S2_waitFor": 1,
 		"S2_execute": 1,
 	}, history)
-
-	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
-		FlowId:   flowId,
-		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
-	})
-	require.NoError(t, err)
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/integ/workflow/rpc"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCreateFlowTemporal(t *testing.T) {
@@ -109,11 +110,11 @@ func doTestCreateWithoutStartingStep(
 	debug := &iwfpb.DebugDumpResponse{}
 	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	require.Equal(t, &iwfpb.StepExecutionCounterInfo{
+	require.True(t, proto.Equal(&iwfpb.StepExecutionCounterInfo{
 		StepTypeStartedCount:            map[string]int32{},
 		StepTypeCurrentlyExecutingCount: map[string]int32{},
 		TotalCurrentlyExecutingCount:    0,
-	}, debug.GetSnapshot().GetCounterInfo())
+	}, debug.GetSnapshot().GetCounterInfo()))
 
 	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
 		FlowId:         flowId,

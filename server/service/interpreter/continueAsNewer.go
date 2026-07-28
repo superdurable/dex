@@ -24,6 +24,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/superdurable/iwf/config"
@@ -270,7 +271,7 @@ func (c *ContinueAsNewer) DecreaseInflightOperation() {
 // the key is runId, the value is how many times it has been called in this worker
 // Using this in memory counter sot hat we don't have to use AwaitWithTimeout which will consume a timer
 // TODO add TTL support because we don't have to keep the value in memory forever(likely a few hours or a day is enough)
-var inMemoryContinueAsNewMonitor = make(map[string]time.Time)
+var inMemoryContinueAsNewMonitor sync.Map // runId -> time.Time
 
 const warnThreshold = time.Second * 5
 const errThreshold = time.Second * 15
@@ -280,32 +281,32 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 
 	remainingThreadCount := c.provider.GetThreadCount()
 	if remainingThreadCount == 0 && c.inflightUpdateOperations == 0 {
-		delete(inMemoryContinueAsNewMonitor, runId)
+		inMemoryContinueAsNewMonitor.Delete(runId)
 		return true
 	}
 
+	initTimeValue, ok := inMemoryContinueAsNewMonitor.Load(runId)
 	c.provider.GetLogger(ctx).Debug("continueAsNew is in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
-		remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
+		remainingThreadCount, initTimeValue, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 
-	// TODO using a flag to control this debugging info
-	initTime, ok := inMemoryContinueAsNewMonitor[runId]
 	if !ok {
-		inMemoryContinueAsNewMonitor[runId] = time.Now()
+		inMemoryContinueAsNewMonitor.Store(runId, time.Now())
 		return false
 	}
+	initTime := initTimeValue.(time.Time)
 
 	elapsed := time.Since(initTime)
 
 	if elapsed >= errThreshold {
 		c.provider.GetLogger(ctx).Warn(
 			"continueAsNew is likely stuck (unless worker API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
-			remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
+			remainingThreadCount, initTime, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 		return false
 	}
 	if elapsed >= warnThreshold {
 		c.provider.GetLogger(ctx).Warn(
 			"continueAsNew may be stuck (unless worker API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
-			remainingThreadCount, inMemoryContinueAsNewMonitor[runId], c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
+			remainingThreadCount, initTime, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 	}
 	return false
 }

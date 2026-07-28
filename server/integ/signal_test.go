@@ -156,12 +156,13 @@ func doTestSignalWorkflow(
 		})
 		require.NoError(t, rpcErr)
 		infos := channelInfosFromOutput(t, rpcResp.GetOutput())
-		assertions.Equal(
-			map[string]*iwfpb.ChannelInfo{
-				signal.UnhandledSignalName: {Size: int32(i + 1)},
-			},
-			infos,
-		)
+		expectedInfos := map[string]*iwfpb.ChannelInfo{
+			signal.UnhandledSignalName: {Size: int32(i + 1)},
+		}
+		if i > 0 {
+			expectedInfos[signal.InternalChannelName] = &iwfpb.ChannelInfo{Size: int32(i)}
+		}
+		assertions.Equal(expectedInfos, infos)
 	}
 	if *cadenceIntegTest {
 		time.Sleep(100 * time.Millisecond)
@@ -175,7 +176,8 @@ func doTestSignalWorkflow(
 	infos := channelInfosFromOutput(t, rpcResp.GetOutput())
 	assertions.Equal(
 		map[string]*iwfpb.ChannelInfo{
-			signal.InternalChannelName: {Size: 10},
+			signal.UnhandledSignalName: {Size: 10},
+			signal.InternalChannelName:  {Size: 10},
 		},
 		infos,
 	)

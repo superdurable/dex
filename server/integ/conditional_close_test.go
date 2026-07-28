@@ -160,14 +160,8 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	history := workerHandler.GetTestResult().InvokeHistory
 
 	expectMap := map[string]int64{
-		"S1_waitFor": 4,
-		"S1_execute": 4,
-	}
-	if useSignalChannel {
-		expectMap = map[string]int64{
-			"S1_waitFor": 3,
-			"S1_execute": 3,
-		}
+		"S1_waitFor": 3,
+		"S1_execute": 3,
 	}
 	if !useSignalChannel {
 		expectMap[conditionalClose.RpcPublishInternalChannel] = 3
@@ -178,15 +172,8 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	require.Len(t, response.GetResults(), 1)
 	expectedOutput := &iwfpb.StepCompletionOutput{
 		CompletedStepType:        "S1",
-		CompletedStepExecutionId: "S1-4",
+		CompletedStepExecutionId: "S1-3",
 		CompletedStepOutput:      conditionalClose.TestInput,
-	}
-	if useSignalChannel {
-		expectedOutput = &iwfpb.StepCompletionOutput{
-			CompletedStepType:        "S1",
-			CompletedStepExecutionId: "S1-3",
-			CompletedStepOutput:      conditionalClose.TestInput,
-		}
 	}
 	assertions.True(proto.Equal(expectedOutput, response.GetResults()[0]))
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	anycommandclose "github.com/superdurable/iwf/integ/workflow/any_command_close"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAnyCommandCloseFlowTemporal(t *testing.T) {
@@ -136,10 +137,20 @@ func doTestAnyCommandCloseFlow(
 
 	require.Equal(t, anycommandclose.SignalName2, data["signalChannelName1"])
 	require.Equal(t, "signal-cmd-id2", data["signalCommandId1"])
-	require.Equal(t, []*iwfpb.Value{signalValue}, data["signalValue1"])
+	requireProtoValuesEqual(t, []*iwfpb.Value{signalValue}, data["signalValue1"])
 	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus1"])
 
 	require.Equal(t, anycommandclose.SignalName1, data["signalChannelName0"])
 	require.Equal(t, "signal-cmd-id1", data["signalCommandId0"])
 	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_WAITING, data["signalStatus0"])
+}
+
+func requireProtoValuesEqual(t *testing.T, expected []*iwfpb.Value, actual any) {
+	t.Helper()
+	got, ok := actual.([]*iwfpb.Value)
+	require.True(t, ok, "expected []*iwfpb.Value, got %T", actual)
+	require.Len(t, got, len(expected))
+	for i := range expected {
+		require.True(t, proto.Equal(expected[i], got[i]), "value mismatch at index %d", i)
+	}
 }

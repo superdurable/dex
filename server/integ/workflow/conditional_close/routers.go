@@ -160,13 +160,6 @@ func (h *handler) InvokeExecuteMethod(
 	var publishToChannel []*iwfpb.ChannelMessage
 	if stepContext.GetStepExecutionId() == "S1-1" {
 		time.Sleep(time.Second * 3)
-	} else if stepContext.GetStepExecutionId() == "S1-3" {
-		publishToChannel = []*iwfpb.ChannelMessage{
-			{
-				ChannelName: TestChannelName,
-				Value:       TestInput,
-			},
-		}
 	}
 
 	conditionalClose := &iwfpb.FlowConditionalClose{

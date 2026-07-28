@@ -392,9 +392,11 @@ func (s *serviceImpl) PublishToChannel(
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
 	for _, message := range req.GetMessages() {
-		if message == nil || message.GetChannelName() == "" || message.GetValue() == nil ||
-			message.GetValue().GetKind() == nil {
-			return nil, makeInvalidRequestError("channel name and value are required")
+		if message == nil || message.GetChannelName() == "" {
+			return nil, makeInvalidRequestError("channel name is required")
+		}
+		if message.GetValue() == nil {
+			message.Value = &iwfpb.Value{}
 		}
 		if err := workerclient.RejectWorkerBlobIDs(message.GetValue()); err != nil {
 			return nil, makeInvalidRequestError(err.Error())
@@ -460,8 +462,12 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *iwfpb.StopFlowRequest) 
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
+	stopType := req.GetStopType()
+	if stopType == iwfpb.StopType_STOP_TYPE_UNSPECIFIED {
+		stopType = iwfpb.StopType_STOP_TYPE_CANCEL
+	}
 	var err error
-	switch req.GetStopType() {
+	switch stopType {
 	case iwfpb.StopType_STOP_TYPE_CANCEL:
 		err = s.client.CancelWorkflow(ctx, req.GetFlowId(), req.GetRunId())
 	case iwfpb.StopType_STOP_TYPE_TERMINATE:
@@ -623,13 +629,13 @@ func (s *serviceImpl) WaitForFlow(
 		}
 		return response, nil
 	}
-	if getCtx.Err() != nil {
-		return nil, waitContextStatus(getCtx.Err())
-	}
-	if s.client.IsRequestTimeoutError(getErr) {
+	if errors.Is(getCtx.Err(), context.DeadlineExceeded) || s.client.IsRequestTimeoutError(getErr) {
 		return nil, serviceerrors.DeadlineExceededLongPoll(
 			"flow is still running and waiting exceeded the timeout",
 		).ToGRPCError()
+	}
+	if getCtx.Err() != nil {
+		return nil, waitContextStatus(getCtx.Err())
 	}
 
 	errorType := s.client.GetApplicationErrorTypeIfIsApplicationError(getErr)

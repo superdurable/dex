@@ -73,8 +73,7 @@ func (h *handler) InvokeWorkerRPC(
 	request *iwfpb.InvokeWorkerRPCRequest,
 ) (*iwfpb.InvokeWorkerRPCResponse, error) {
 	if request.GetRpcName() == RPCNameGetSignalChannelInfo {
-		channelInfos := request.GetChannelInfos()
-		data, err := json.Marshal(channelInfos)
+		data, err := json.Marshal(request.GetChannelInfos())
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
@@ -93,8 +92,7 @@ func (h *handler) InvokeWorkerRPC(
 		}, nil
 	}
 	if request.GetRpcName() == RPCNameGetInternalChannelInfo {
-		channelInfos := request.GetChannelInfos()
-		data, err := json.Marshal(channelInfos)
+		data, err := json.Marshal(request.GetChannelInfos())
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}

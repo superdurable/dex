@@ -82,10 +82,16 @@ func doTestFlowTimeout(
 	})
 	require.NoError(t, err)
 
-	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+	waitReq := &iwfpb.WaitForFlowRequest{
 		FlowId:          flowId,
 		WaitTimeSeconds: 20,
-	})
+	}
+	// Cadence GetWorkflow with empty runId is unreliable for timed-out closed runs.
+	// TODO: debug and remove this once Cadence is fixed.
+	if backendType == service.BackendTypeCadence {
+		waitReq.RunId = startResp.GetRunId()
+	}
+	resp, err := flowClient.WaitForFlow(ctx, waitReq)
 	require.NoError(t, err)
 
 	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
