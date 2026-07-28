@@ -619,7 +619,6 @@ message ChannelValues {
 
 message StepExecutionCompletedConditions {
   map<int32, InternalTimerStatus> completed_timer_conditions = 1;
-  map<int32, ChannelValues> completed_channel_conditions = 2;
 }
 
 message StepExecutionResumeInfo {

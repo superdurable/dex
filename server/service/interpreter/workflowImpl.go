@@ -611,13 +611,11 @@ func (i *Interpreter) processStepExecution(
 		StartToCloseTimeout: 30 * time.Second,
 	}
 
-	var errWaitForApi error
-	var waitForResponse *iwfpb.InvokeWaitForMethodResponse
+	var errWaitForMethod error
 	var stepExeLocals []*iwfpb.KV
 	var waitingCondition *iwfpb.WaitingCondition
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]iwfpb.InternalTimerStatus{}
-	completedTimerIndexes := map[int]bool{}
 
 	step := stepRequest.GetStepMovement()
 	isResumeFromContinueAsNew := stepRequest.IsResumeRequest()
@@ -646,12 +644,6 @@ func (i *Interpreter) processStepExecution(
 		waitingCondition = resumeRequest.GetWaitingCondition()
 		if completed := resumeRequest.GetCompletedConditions(); completed != nil {
 			completedTimerConditions = completed.GetCompletedTimerConditions()
-			for timerIndex, status := range completedTimerConditions {
-				if status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
-					status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
-					completedTimerIndexes[int(timerIndex)] = true
-				}
-			}
 		}
 	} else {
 		if step.StepOptions != nil {
@@ -675,7 +667,7 @@ func (i *Interpreter) processStepExecution(
 		}
 
 		var activityOutput iwfpb.InvokeWaitForMethodActivityOutput
-		errWaitForApi = provider.ExecuteActivity(
+		errWaitForMethod = provider.ExecuteActivity(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
@@ -692,30 +684,24 @@ func (i *Interpreter) processStepExecution(
 			},
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
-		if errWaitForApi == nil {
-			if (activityOutput.GetResponse() == nil) == (activityOutput.GetError() == nil) {
-				errWaitForApi = fmt.Errorf("WaitFor activity returned an invalid result envelope")
-			} else if activityOutput.GetError() != nil {
-				errWaitForApi = interpreterError(activityOutput.GetError())
+
+		var waitForResponse *iwfpb.InvokeWaitForMethodResponse
+		if errWaitForMethod == nil {
+			if activityOutput.GetError() != nil {
+				errWaitForMethod = interpreterError(activityOutput.GetError())
 			} else {
 				waitForResponse = activityOutput.GetResponse()
 			}
 		}
-		if errWaitForApi != nil && !shouldProceedOnWaitForApiError(step) {
+
+		if errWaitForMethod != nil && !shouldProceedOnWaitForApiError(step) {
 			return nil, service.FailureStepExecutionStatus, provider.NewWorkflowError(
 				iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL,
-				errWaitForApi.Error(),
+				errWaitForMethod.Error(),
 			)
 		}
 
-		if errWaitForApi == nil {
-			waitingCondition = waitForResponse.GetWaitingCondition()
-			if waitingCondition != nil {
-				waitingCondition = timers.FixTimerConditionFromActivityOutput(
-					provider.Now(ctx),
-					waitingCondition,
-				)
-			}
+		if errWaitForMethod == nil {
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
 				waitForResponse.GetUpsertAttributes(),
@@ -723,6 +709,13 @@ func (i *Interpreter) processStepExecution(
 				return nil, service.FailureStepExecutionStatus, err
 			}
 			channelStore.ProcessPublishing(waitForResponse.GetPublishToChannel())
+			waitingCondition = waitForResponse.GetWaitingCondition()
+			if waitingCondition != nil {
+				waitingCondition = timers.FixTimerConditionFromActivityOutput(
+					provider.Now(ctx),
+					waitingCondition,
+				)
+			}
 			stepExeLocals = waitForResponse.GetUpsertStepExeLocals()
 		}
 	}
@@ -738,17 +731,17 @@ func (i *Interpreter) processStepExecution(
 			waitingCondition.GetTimerConditions(),
 			completedTimerConditions,
 		)
-		for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
-			if completedTimerIndexes[timerIndex] {
+		for idx, timerCondition := range waitingCondition.GetTimerConditions() {
+			if _, ok := completedTimerConditions[int32(idx)]; ok {
 				// skip the completed timers(from continueAsNew)
 				continue
 			}
-			timerCtx := provider.ExtendContextWithValue(ctx, "timerIndex", timerIndex)
+			timerCtx := provider.ExtendContextWithValue(ctx, "timerIndex", idx)
 			//Start timer in a new thread
 			threadName := fmt.Sprintf(
 				"%s-timer-%d-%s",
 				stepExeId,
-				timerIndex,
+				idx,
 				timerCondition.GetConditionId(),
 			)
 			waitForThreads[threadName] = false
@@ -770,12 +763,40 @@ func (i *Interpreter) processStepExecution(
 				if status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
 					status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 					completedTimerConditions[int32(index)] = status
-					completedTimerIndexes[index] = true
 				}
 				waitForThreads[threadName] = true
 			})
 		}
 	}
+
+	var matchPlan *channel.MatchPlan
+	var conditionMet bool
+	threadName := fmt.Sprintf(
+		"%s-match-plan-thread",
+		stepExeId,
+	)
+
+	provider.GoNamed(ctx, threadName, func(ctx interfaces.UnifiedContext) {
+		waitForThreads[threadName] = false
+
+		// Wait for condition trigger (ANY/ALL condition completed) OR continue-as-new threshold
+		_ = provider.Await(ctx, func() bool {
+			plan, matched := channel.Plan(
+				waitingCondition,
+				channelStore.Availability(),
+				completedTimerConditions,
+			)
+			if matched {
+				matchPlan = plan
+				conditionMet = matched
+			}
+			// Note that waitingConditionDoneOrCanceled is needed for two cases:
+			// 1. will be true when trigger type of the waitingCondition is completed(e.g. AnyCompleted) so we don't need to wait for all conditions. Returning the thread to avoid thread leakage.
+			// 2. will be true to cancel the wait for unblocking continueAsNew(continueAsNew will wait for all threads to complete)
+			return matched || waitingConditionDoneOrCanceled
+		})
+		waitForThreads[threadName] = true
+	})
 
 	//Passing a map of references of completed or soon to be completed conditions (once the above threads are complete) and the step execution variables to the continueAsNewer.
 	//After this method completes and if continueAsNewCounter.IsThresholdMet() is true, this snapshot will be used to start a new continueAsNew flow while preserving the state of the flow at the end of this method.
@@ -785,34 +806,21 @@ func (i *Interpreter) processStepExecution(
 			StepExecutionId: stepExeId,
 			Step:            step,
 			CompletedConditions: &iwfpb.StepExecutionCompletedConditions{
-				CompletedTimerConditions:   completedTimerConditions,
-				CompletedChannelConditions: map[int32]*iwfpb.ChannelValues{},
+				CompletedTimerConditions: completedTimerConditions,
 			},
 			WaitingCondition: waitingCondition,
 			StepExeLocals:    stepExeLocals,
 		},
 	)
 
-	var matchPlan *channel.MatchPlan
-	// Wait for condition trigger (ANY/ALL condition completed) OR continue-as-new threshold
-	err := provider.Await(ctx, func() bool {
-		plan, matched := channel.Plan(
-			waitingCondition,
-			channelStore.Availability(),
-			completedTimerIndexes,
-		)
-		if matched {
-			matchPlan = plan
-		}
-		return matched || continueAsNewCounter.IsThresholdMet()
+	// Wait for condition met OR continue-as-new threshold
+	_ = provider.Await(ctx, func() bool {
+		return conditionMet || continueAsNewCounter.IsThresholdMet()
 	})
 
 	//This variable tells all condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	//In both cases, the trigger condition has been met or the continue-as-new threshold has been reached we want the above condition threads to stop waiting.
 	waitingConditionDoneOrCanceled = true
-	if err != nil {
-		return nil, service.WaitingConditionsStepExecutionStatus, err
-	}
 
 	// Wait for condition threads to drain. After the waiting condition await completes, condition threads
 	// may still be in the process of storing retrieved data into completed condition maps.
@@ -831,20 +839,6 @@ func (i *Interpreter) processStepExecution(
 		return nil, service.WaitingConditionsStepExecutionStatus, err
 	}
 
-	if plan, matched := channel.Plan(
-		waitingCondition,
-		channelStore.Availability(),
-		completedTimerIndexes,
-	); matched {
-		matchPlan = plan
-	}
-	if matchPlan == nil {
-		// this means continueAsNewCounter.IsThresholdMet == true
-		// not using continueAsNewCounter.IsThresholdMet because condition trigger is higher prioritized
-		// it won't continueAsNew when a condition and continueAsNew are both met
-		return nil, service.WaitingConditionsStepExecutionStatus, nil
-	}
-
 	if len(waitingCondition.GetTimerConditions()) > 0 {
 		timerProcessor.RemovePendingTimersOfStep(stepExeId)
 	}
@@ -852,10 +846,10 @@ func (i *Interpreter) processStepExecution(
 	consumed := channelStore.CommitMatch(matchPlan)
 	conditionResults := channel.BuildConditionResults(
 		waitingCondition,
-		completedTimerIndexes,
+		completedTimerConditions,
 		consumed,
 	)
-	if errWaitForApi != nil {
+	if errWaitForMethod != nil {
 		conditionResults.WaitForFailed = true
 	}
 

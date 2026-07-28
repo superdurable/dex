@@ -44,7 +44,7 @@ type MatchPlan struct {
 func Plan(
 	waitingCondition *iwfpb.WaitingCondition,
 	availability ChannelAvailability,
-	completedTimers map[int]bool,
+	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
 ) (*MatchPlan, bool) {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
@@ -56,6 +56,14 @@ func Plan(
 	normalizedConditions := make([]normalizedChannelCondition, len(channels))
 	for i, channelCondition := range channels {
 		normalizedConditions[i] = normalizeChannel(channelCondition)
+	}
+
+	completedTimers := make(map[int]bool, len(completedTimerConditions))
+	for idx, status := range completedTimerConditions {
+		if status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
+			status == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
+			completedTimers[int(idx)] = true
+		}
 	}
 
 	for _, matchCandidate := range buildTriggerCandidates(waitingCondition) {
@@ -251,13 +259,13 @@ func normalizeChannel(condition *iwfpb.ChannelCondition) normalizedChannelCondit
 // BuildConditionResults reports timer states and consumed channel values.
 func BuildConditionResults(
 	waitingCondition *iwfpb.WaitingCondition,
-	completedTimers map[int]bool,
+	completedTimerConditions map[int32]iwfpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*iwfpb.Value,
 ) *iwfpb.ConditionResults {
 	results := &iwfpb.ConditionResults{}
 	for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
 		status := iwfpb.ConditionStatus_CONDITION_STATUS_WAITING
-		if completedTimers[timerIndex] {
+		if _, ok := completedTimerConditions[int32(timerIndex)]; ok {
 			status = iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED
 		}
 		results.TimerResults = append(results.TimerResults, &iwfpb.TimerResult{
