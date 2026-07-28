@@ -21,6 +21,7 @@
 package interpreter
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -141,6 +142,7 @@ func (a *Activities) InvokeExecuteMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
+	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
 		return nil, composeInternalActivityError(provider, err)
@@ -172,7 +174,13 @@ func (a *Activities) InvokeExecuteMethod(
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
 	}
-	if err := a.offloadNextStepInputs(ctx, resp.GetStepDecision(), activityInfo.WorkflowExecution.ID); err != nil {
+	if err := a.reuseOrOffloadNextStepInputs(
+		ctx,
+		resp.GetStepDecision(),
+		originalStepInputBlob,
+		req.GetStepInput(),
+		activityInfo.WorkflowExecution.ID,
+	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
 	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
@@ -307,8 +315,14 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	)
 }
 
-func (a *Activities) offloadNextStepInputs(
-	ctx context.Context, decision *iwfpb.StepDecision, flowId string,
+// reuseOrOffloadNextStepInputs keeps the original blob id when the worker
+// echoes the same hydrated step input, otherwise offloads new large values.
+func (a *Activities) reuseOrOffloadNextStepInputs(
+	ctx context.Context,
+	decision *iwfpb.StepDecision,
+	originalStepInputBlob stepInputBlob,
+	hydratedStepInput *iwfpb.Value,
+	flowId string,
 ) error {
 	if decision == nil || !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
@@ -317,11 +331,19 @@ func (a *Activities) offloadNextStepInputs(
 		if step == nil || step.GetStepInput() == nil {
 			continue
 		}
+		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, step.GetStepInput()) {
+			step.StepInput = originalStepInputBlob.toValue()
+			continue
+		}
 		if err := a.offloadStepInput(ctx, step.StepInput, flowId); err != nil {
 			return err
 		}
 	}
 	if closeInput := decision.GetConditionalClose().GetCloseInput(); closeInput != nil {
+		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, closeInput) {
+			decision.ConditionalClose.CloseInput = originalStepInputBlob.toValue()
+			return nil
+		}
 		if err := a.offloadStepInput(ctx, closeInput, flowId); err != nil {
 			return err
 		}
@@ -340,6 +362,58 @@ func (a *Activities) offloadStepInput(
 		a.blobStore,
 		true,
 	)
+}
+
+type stepInputBlob struct {
+	id    string
+	isObj bool
+}
+
+func stepInputBlobRef(value *iwfpb.Value) stepInputBlob {
+	if value == nil {
+		return stepInputBlob{}
+	}
+	if blobId := value.GetInternalBlobIdForObjValue(); blobId != "" {
+		return stepInputBlob{id: blobId, isObj: true}
+	}
+	return stepInputBlob{id: value.GetInternalBlobIdForStringValue()}
+}
+
+func (blob stepInputBlob) toValue() *iwfpb.Value {
+	if blob.id == "" {
+		return nil
+	}
+	if blob.isObj {
+		return &iwfpb.Value{
+			Kind: &iwfpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blob.id},
+		}
+	}
+	return &iwfpb.Value{
+		Kind: &iwfpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blob.id},
+	}
+}
+
+func shouldReuseStepInputBlob(original stepInputBlob, hydrated, next *iwfpb.Value) bool {
+	if original.id == "" || next == nil {
+		return false
+	}
+	return valuePayloadEqual(hydrated, next)
+}
+
+func valuePayloadEqual(left, right *iwfpb.Value) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	if left.GetStringValue() != "" || right.GetStringValue() != "" {
+		return left.GetStringValue() == right.GetStringValue()
+	}
+	leftObj := left.GetObjValue()
+	rightObj := right.GetObjValue()
+	if leftObj == nil || rightObj == nil {
+		return leftObj == rightObj
+	}
+	return leftObj.GetEncoding() == rightObj.GetEncoding() &&
+		bytes.Equal(leftObj.GetPayload(), rightObj.GetPayload())
 }
 
 func validateWorkerWaitForResponse(resp *iwfpb.InvokeWaitForMethodResponse) error {

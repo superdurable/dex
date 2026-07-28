@@ -47,8 +47,10 @@ func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
 func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
 	workerHandler := signal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
+	// Offload each 1MiB attribute so Temporal history/CAN stays under payload limits.
 	runtime := startIwfService(t, IwfServiceTestConfig{
-		BackendType: service.BackendTypeTemporal,
+		BackendType:     service.BackendTypeTemporal,
+		S3TestThreshold: 100 * 1024,
 	})
 	flowClient := runtime.FlowClient
 
@@ -74,14 +76,13 @@ func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
 	const size = 1024 * 1024
 	oneMbPayload := strings.Repeat("a", size)
 
+	keys := make([]string, 5)
 	for i := 0; i < 5; i++ {
+		keys[i] = "large-data-attribute-" + fmt.Sprintf("%d", i)
 		_, err = flowClient.SetAttributes(ctx, &iwfpb.SetAttributesRequest{
 			FlowId: flowId,
 			Attributes: []*iwfpb.AttributeWrite{
-				dataObjectAttribute(
-					"large-data-attribute-"+fmt.Sprintf("%d", i),
-					`"`+oneMbPayload+`"`,
-				),
+				dataObjectAttribute(keys[i], `"`+oneMbPayload+`"`),
 			},
 		})
 		require.NoError(t, err)
@@ -105,4 +106,32 @@ func doTestLargeQueryAttributes(t *testing.T, flowConfig *iwfpb.FlowConfig) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, iwfpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+
+	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys:   keys,
+	})
+	require.NoError(t, err)
+	require.Len(t, getResult.GetAttributes(), 5)
+
+	retrieved := attributeMap(getResult.GetAttributes())
+	blobIds := make([]string, 0, 5)
+	for _, key := range keys {
+		blobId := blobIdFromValue(retrieved[key])
+		require.NotEmpty(t, blobId, key)
+		blobIds = append(blobIds, blobId)
+	}
+
+	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), objectCount)
+
+	requireTemporalHistoryStoresBlobIdsNotPayloads(
+		t,
+		ctx,
+		runtime.UnifiedClient,
+		flowId,
+		blobIds,
+		[]string{oneMbPayload},
+	)
 }

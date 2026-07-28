@@ -116,4 +116,34 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), objectCount)
+
+	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys: []string{
+			s3_init_data_attributes.TestDataAttrKey1,
+			s3_init_data_attributes.TestDataAttrKey2,
+			s3_init_data_attributes.TestDataAttrKey3,
+		},
+	})
+	require.NoError(t, err)
+	retrieved := attributeMap(getResult.GetAttributes())
+	blobId1 := blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey1])
+	blobId2 := blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey2])
+	require.NotEmpty(t, blobId1)
+	require.NotEmpty(t, blobId2)
+	require.Empty(t, blobIdFromValue(retrieved[s3_init_data_attributes.TestDataAttrKey3]))
+
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			flowId,
+			[]string{blobId1, blobId2},
+			[]string{
+				s3_init_data_attributes.LargeDataContent1,
+				s3_init_data_attributes.LargeDataContent2,
+			},
+		)
+	}
 }

@@ -73,7 +73,10 @@ func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(
+		grpc.MaxRecvMsgSize(integGrpcMaxMessageBytes),
+		grpc.MaxSendMsgSize(integGrpcMaxMessageBytes),
+	)
 	iwfpb.RegisterWorkerServiceServer(server, handler)
 	serveError := make(chan error, 1)
 	go func() {

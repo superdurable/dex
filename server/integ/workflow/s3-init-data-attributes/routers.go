@@ -220,7 +220,7 @@ func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, s
 			expectedData := string(TestDataAttributeVal1.GetObjValue().GetPayload())
 			if receivedData == expectedData {
 				foundAttr1 = true
-				h.invokeData.Store(storePrefix+"_attr1_data", receivedData)
+				h.invokeData.Store(storePrefix+"_attr1_data", LargeDataContent1)
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey1, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr1 mismatch")
@@ -230,7 +230,7 @@ func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, s
 			expectedData := string(TestDataAttributeVal2.GetObjValue().GetPayload())
 			if receivedData == expectedData {
 				foundAttr2 = true
-				h.invokeData.Store(storePrefix+"_attr2_data", receivedData)
+				h.invokeData.Store(storePrefix+"_attr2_data", LargeDataContent2)
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey2, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr2 mismatch")
@@ -240,7 +240,7 @@ func (h *handler) validateInitialAttributes(attributes []*iwfpb.KV, logPrefix, s
 			expectedData := string(TestDataAttributeVal3.GetObjValue().GetPayload())
 			if receivedData == expectedData {
 				foundAttr3 = true
-				h.invokeData.Store(storePrefix+"_attr3_data", receivedData)
+				h.invokeData.Store(storePrefix+"_attr3_data", SmallDataContent3)
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey3, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr3 mismatch")

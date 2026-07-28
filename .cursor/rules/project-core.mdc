@@ -45,6 +45,11 @@ module map.
   should favor complete operational semantics.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
+- Do not defensively `proto.Clone` / deep-copy messages "just in case". Passing a
+  message transfers ownership unless the API says otherwise. Workflow inputs,
+  signals, and activity payloads are freshly deserialized and single-threaded.
+  Prefer capturing a small id/string or building a new tiny value over cloning.
+  Copy only when an algorithm must mutate a distinct shared value in place.
 
 ## License Headers
 

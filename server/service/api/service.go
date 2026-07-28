@@ -131,10 +131,8 @@ func (s *serviceImpl) StartFlow(
 	searchAttributes := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
 	searchAttributes[service.SearchAttributeIwfWorkflowType] = req.GetFlowType()
 
-	if s.extStore.Enabled {
-		if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
-			return nil, makeInvalidRequestError(err.Error())
-		}
+	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := blobstore.OffloadLargeValue(
 		ctx,
@@ -519,12 +517,23 @@ func (s *serviceImpl) SetAttributes(
 	if err := validateAttributeWrites(req.GetAttributes()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
+	attributes := req.GetAttributes()
+	if err := blobstore.OffloadLargeAttributeWrites(
+		ctx,
+		attributes,
+		req.GetFlowId(),
+		s.extStore.ThresholdInBytes,
+		s.store,
+		s.extStore.Enabled,
+	); err != nil {
+		return nil, s.handleError(err)
+	}
 	if err := s.client.SignalWorkflow(
 		ctx,
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
-		&iwfpb.ExecuteRpcSignalRequest{UpsertAttributes: req.GetAttributes()},
+		&iwfpb.ExecuteRpcSignalRequest{UpsertAttributes: attributes},
 	); err != nil {
 		return nil, s.handleError(err)
 	}

@@ -137,11 +137,11 @@ is also read or mutated elsewhere.
 
 ### No Defensive Cloning (Go)
 
-Do not call `proto.Clone` or copy messages merely to guard against caller
-mutation. Passing a message transfers ownership unless the API says otherwise.
-Workflow inputs, signals, and activity payloads are freshly deserialized and
-single-threaded. Prefer immutable use. Copy only when an algorithm requires a
-distinct value that it will mutate.
+Do not call `proto.Clone` or deep-copy messages "just in case". Passing a
+message transfers ownership unless the API says otherwise. Workflow inputs,
+signals, and activity payloads are freshly deserialized and single-threaded.
+Prefer capturing a small id/string or building a new tiny value over cloning.
+Copy only when an algorithm must mutate a distinct shared value in place.
 
 ### Update Ignore Files When Producing Binaries
 

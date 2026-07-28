@@ -25,9 +25,9 @@ import (
 	"github.com/superdurable/iwf/service"
 )
 
-const testWorkflowServerPort = "9714"
-const testIwfServerPort = "9715"
 const testNamespace = "default"
+
+// Api.Port / fixed worker ports are unused: startWorker and startIwfService bind 127.0.0.1:0.
 
 type IwfServiceTestConfig struct {
 	BackendType     service.BackendType
@@ -36,11 +36,15 @@ type IwfServiceTestConfig struct {
 	S3TestThreshold int
 }
 
+// integGrpcMaxMessageBytes must fit several hydrated 1MiB attributes on worker
+// Invoke* RPCs (default gRPC 4MiB is too small for large_data_attributes_test).
+const integGrpcMaxMessageBytes = 32 * 1024 * 1024
+
 func createTestConfig(testCfg IwfServiceTestConfig) config.Config {
 	cfg := config.Config{
 		Api: config.ApiConfig{
-			Port:           9715,
-			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
+			MaxWaitSeconds:      12, // use 12 so that we can test it in the waiting test
+			GrpcMaxMessageBytes: integGrpcMaxMessageBytes,
 			QueryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicy{
 				InitialIntervalSeconds: 1,
 				MaximumAttempts:        10,

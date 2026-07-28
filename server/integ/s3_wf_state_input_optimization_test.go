@@ -94,4 +94,15 @@ func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType servic
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), objectCount)
+
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			flowId,
+			[]string{"s3-store-id|"},
+			[]string{"this-is-a-large-input-that-exceeds-threshold"},
+		)
+	}
 }

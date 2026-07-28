@@ -29,10 +29,10 @@ import (
 
 var reservedCharacters = []string{"/", "$"}
 
-func ValidateWorkflowId(workflowId string) error {
+func ValidateWorkflowId(fowId string) error {
 	for _, reservedCharacter := range reservedCharacters {
-		if strings.Contains(workflowId, reservedCharacter) {
-			return fmt.Errorf("workflowId contains reserved character: %s", reservedCharacter)
+		if strings.Contains(fowId, reservedCharacter) {
+			return fmt.Errorf("fowId contains reserved character: %s", reservedCharacter)
 		}
 	}
 	return nil

@@ -97,7 +97,22 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys: []string{
+				s3GetSetDataAttributes.SmallDataKey,
+				s3GetSetDataAttributes.LargeDataKey,
+				s3GetSetDataAttributes.AnotherLargeDataKey,
+			},
+		})
+		if getErr != nil || len(getResult.GetAttributes()) != 3 {
+			return false
+		}
+		retrieved := attributeMap(getResult.GetAttributes())
+		return blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]) != "" &&
+			blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]) != ""
+	}, 10*time.Second, 100*time.Millisecond)
 
 	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
 		FlowId: flowId,
@@ -112,10 +127,27 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 
 	retrieved := attributeMap(getResult.GetAttributes())
 	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved[s3GetSetDataAttributes.SmallDataKey]))
-	require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved[s3GetSetDataAttributes.LargeDataKey]))
-	require.True(t, proto.Equal(s3GetSetDataAttributes.AnotherLargeDataValue, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
-	require.NotEmpty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey]))
-	require.NotEmpty(t, blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey]))
+	largeBlobId := blobIdFromValue(retrieved[s3GetSetDataAttributes.LargeDataKey])
+	anotherBlobId := blobIdFromValue(retrieved[s3GetSetDataAttributes.AnotherLargeDataKey])
+	require.NotEmpty(t, largeBlobId)
+	require.NotEmpty(t, anotherBlobId)
+	require.Nil(t, retrieved[s3GetSetDataAttributes.LargeDataKey].GetObjValue())
+	require.Nil(t, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey].GetObjValue())
+
+	requireLoadedBlobPayload(
+		t,
+		ctx,
+		flowClient,
+		largeBlobId,
+		string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+	)
+	requireLoadedBlobPayload(
+		t,
+		ctx,
+		flowClient,
+		anotherBlobId,
+		string(s3GetSetDataAttributes.AnotherLargeDataValue.GetObjValue().GetPayload()),
+	)
 
 	getSpecific, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
 		FlowId: flowId,
@@ -124,11 +156,25 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType)
 	require.NoError(t, err)
 	require.Len(t, getSpecific.GetAttributes(), 1)
 	require.Equal(t, s3GetSetDataAttributes.LargeDataKey, getSpecific.GetAttributes()[0].GetKey())
-	require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, getSpecific.GetAttributes()[0].GetValue()))
+	require.Equal(t, largeBlobId, blobIdFromValue(getSpecific.GetAttributes()[0].GetValue()))
 
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), objectCount)
+
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			flowId,
+			[]string{largeBlobId, anotherBlobId},
+			[]string{
+				s3GetSetDataAttributes.LargeDataContent,
+				s3GetSetDataAttributes.AnotherLargeDataContent,
+			},
+		)
+	}
 
 	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
@@ -163,7 +209,17 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		getResult, getErr := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{"initial-small", "initial-large"},
+		})
+		if getErr != nil || len(getResult.GetAttributes()) != 2 {
+			return false
+		}
+		retrieved := attributeMap(getResult.GetAttributes())
+		return blobIdFromValue(retrieved["initial-large"]) != ""
+	}, 10*time.Second, 100*time.Millisecond)
 
 	getResult, err := flowClient.GetAttributes(ctx, &iwfpb.GetAttributesRequest{
 		FlowId: flowId,
@@ -174,12 +230,31 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 
 	retrieved := attributeMap(getResult.GetAttributes())
 	require.True(t, proto.Equal(s3GetSetDataAttributes.SmallDataValue, retrieved["initial-small"]))
-	require.True(t, proto.Equal(s3GetSetDataAttributes.LargeDataValue, retrieved["initial-large"]))
-	require.NotEmpty(t, blobIdFromValue(retrieved["initial-large"]))
+	largeBlobId := blobIdFromValue(retrieved["initial-large"])
+	require.NotEmpty(t, largeBlobId)
+	require.Nil(t, retrieved["initial-large"].GetObjValue())
+	requireLoadedBlobPayload(
+		t,
+		ctx,
+		flowClient,
+		largeBlobId,
+		string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
+	)
 
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), objectCount)
+
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			flowId,
+			[]string{largeBlobId},
+			[]string{s3GetSetDataAttributes.LargeDataContent},
+		)
+	}
 
 	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
@@ -201,4 +276,22 @@ func blobIdFromValue(value *iwfpb.Value) string {
 		return blobId
 	}
 	return value.GetInternalBlobIdForStringValue()
+}
+
+func requireLoadedBlobPayload(
+	t *testing.T,
+	ctx context.Context,
+	flowClient iwfpb.FlowServiceClient,
+	blobId string,
+	expectedPayload string,
+) {
+	t.Helper()
+	loadResult, err := flowClient.LoadBlobs(ctx, &iwfpb.LoadBlobsRequest{
+		BlobIds: []string{blobId},
+	})
+	require.NoError(t, err)
+	loaded := loadResult.GetValues()[blobId]
+	require.NotNil(t, loaded)
+	// LoadBlobs hydrates via the string arm; compare raw stored bytes.
+	require.Equal(t, expectedPayload, loaded.GetStringValue())
 }

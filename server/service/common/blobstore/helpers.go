@@ -70,7 +70,7 @@ func offloadValue(ctx context.Context, value *iwfpb.Value, flowId string, thresh
 		if err != nil {
 			return err
 		}
-		blobId := formatBlobId(storeId, path)
+		blobId := formatStringBlobId(storeId, path)
 		value.Kind = &iwfpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blobId}
 		return nil
 	case *iwfpb.Value_ObjValue:
@@ -81,10 +81,7 @@ func offloadValue(ctx context.Context, value *iwfpb.Value, flowId string, thresh
 		if err != nil {
 			return err
 		}
-		// Preserve encoding alongside blob id by storing "storeId|path|encoding" is avoided;
-		// encoding stays only if we keep obj metadata — mint blob id and drop payload.
-		_ = kind.ObjValue.GetEncoding()
-		blobId := formatBlobId(storeId, path)
+		blobId := formatObjBlobId(storeId, path, kind.ObjValue.GetEncoding())
 		value.Kind = &iwfpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobId}
 		return nil
 	default:
@@ -135,7 +132,7 @@ func HydrateValue(ctx context.Context, value *iwfpb.Value, blobStore BlobStore) 
 	}
 	switch kind := value.GetKind().(type) {
 	case *iwfpb.Value_InternalBlobIdForStringValue:
-		storeId, path, err := parseBlobId(kind.InternalBlobIdForStringValue)
+		storeId, path, _, err := parseBlobId(kind.InternalBlobIdForStringValue)
 		if err != nil {
 			return err
 		}
@@ -146,7 +143,7 @@ func HydrateValue(ctx context.Context, value *iwfpb.Value, blobStore BlobStore) 
 		value.Kind = &iwfpb.Value_StringValue{StringValue: data}
 		return nil
 	case *iwfpb.Value_InternalBlobIdForObjValue:
-		storeId, path, err := parseBlobId(kind.InternalBlobIdForObjValue)
+		storeId, path, encoding, err := parseBlobId(kind.InternalBlobIdForObjValue)
 		if err != nil {
 			return err
 		}
@@ -154,22 +151,46 @@ func HydrateValue(ctx context.Context, value *iwfpb.Value, blobStore BlobStore) 
 		if err != nil {
 			return err
 		}
-		value.Kind = &iwfpb.Value_ObjValue{ObjValue: &iwfpb.EncodedObject{Payload: []byte(data)}}
+		value.Kind = &iwfpb.Value_ObjValue{ObjValue: &iwfpb.EncodedObject{
+			Encoding: encoding,
+			Payload:  []byte(data),
+		}}
 		return nil
 	default:
 		return nil
 	}
 }
 
-func formatBlobId(storeId, path string) string {
+func formatStringBlobId(storeId, path string) string {
 	return storeId + "|" + path
 }
 
-func parseBlobId(blobId string) (storeId, path string, err error) {
+func formatObjBlobId(storeId, path, encoding string) string {
+	return storeId + "|" + path + "|" + encoding
+}
+
+func parseBlobId(blobId string) (storeId, path, encoding string, err error) {
+	first := -1
 	for i := 0; i < len(blobId); i++ {
 		if blobId[i] == '|' {
-			return blobId[:i], blobId[i+1:], nil
+			first = i
+			break
 		}
 	}
-	return "", "", fmt.Errorf("invalid blob id %q", blobId)
+	if first < 0 {
+		return "", "", "", fmt.Errorf("invalid blob id %q", blobId)
+	}
+	storeId = blobId[:first]
+	rest := blobId[first+1:]
+	second := -1
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '|' {
+			second = i
+			break
+		}
+	}
+	if second < 0 {
+		return storeId, rest, "", nil
+	}
+	return storeId, rest[:second], rest[second+1:], nil
 }

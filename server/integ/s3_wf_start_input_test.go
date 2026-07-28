@@ -66,7 +66,8 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	defer cancel()
 
 	flowId := s3_start_input.WorkflowType + uuid.NewString()
-	stepInput := objJSONValue(`"12345678901"`)
+	const largeInputPayload = `"12345678901"`
+	stepInput := objJSONValue(largeInputPayload)
 
 	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
 		FlowId:             flowId,
@@ -93,4 +94,15 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), objectCount)
+
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			flowId,
+			[]string{"s3-store-id|"},
+			[]string{"12345678901"},
+		)
+	}
 }
