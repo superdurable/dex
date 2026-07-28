@@ -95,6 +95,33 @@ func AbortedLockFailure(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.Aborted, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, details)
 }
 
+// WorkerAPIFailure maps a WorkerService gRPC failure to FailedPrecondition.
+// OriginalWorker* preserves the worker's code, detail, and type.
+func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
+	grpcStatus, ok := status.FromError(err)
+	if !ok {
+		return nil, false
+	}
+	workerDetail := ""
+	workerType := ""
+	for _, detail := range grpcStatus.Details() {
+		workerError, ok := detail.(*iwfpb.WorkerErrorResponse)
+		if !ok {
+			continue
+		}
+		workerDetail = workerError.GetDetail()
+		workerType = workerError.GetErrorType()
+	}
+	return NewErrorAndStatusWithWorkerError(
+		codes.FailedPrecondition,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		grpcStatus.Message(),
+		workerDetail,
+		workerType,
+		int32(grpcStatus.Code()),
+	), true
+}
+
 // DeadlineExceededLongPoll is returned when a wait RPC hits its effective deadline.
 func DeadlineExceededLongPoll(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.DeadlineExceeded, iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT, details)

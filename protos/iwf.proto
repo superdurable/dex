@@ -29,6 +29,54 @@ option java_multiple_files = true;
 option java_package = "io.superdurable.gen";
 option java_outer_classname = "IwfProto";
 
+// ---------------------------------------------------------------------------
+// FlowService error handling
+//
+// Failures return a gRPC status with iwfpb.ErrorResponse in status details
+// (see ErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
+// and ErrorResponse.sub_status / detail / original_worker_error_*.
+//
+// Common gRPC codes (all RPCs unless noted):
+//   InvalidArgument   — bad request / invalid Value / empty lock keys, etc.
+//                       sub_status usually UNCATEGORIZED
+//   AlreadyExists     — StartFlow when ID already running
+//                       sub_status FLOW_ALREADY_STARTED
+//   NotFound          — unknown flow/run
+//                       sub_status FLOW_NOT_EXISTS
+//   FailedPrecondition — closed/invalid flow state; blob-backed WaitForAttribute;
+//                       iWF application WorkerService failures (business errors
+//                       and unreachable/dial/transport to the app worker). These
+//                       must not use Unavailable so they do not count against
+//                       server SLA/SLO. sub_status WORKER_API_ERROR when from
+//                       WorkerService; raw worker code/detail/type in
+//                       original_worker_error_* when available
+//   Aborted           — locking RPC attribute lock contention
+//                       sub_status WORKER_API_ERROR
+//   ResourceExhausted — worker connection pool / message size limits
+//   DeadlineExceeded  — wait past effective deadline (WaitForFlow,
+//                       WaitForStepCompletion, WaitForAttribute)
+//                       sub_status LONG_POLL_TIME_OUT
+//   Canceled          — caller canceled the RPC context
+//   Unavailable       — Temporal/Cadence backend (workflow engine) unavailable
+//                       only — never iWF application WorkerService
+//   Internal          — unexpected / violated trusted invariant
+//   Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
+//                       locking InvokeRPC (Temporal sync update required)
+//
+// Notable per-RPC behavior:
+//   InvokeRPC — empty LockAttributeKeys: API calls WorkerService then may signal;
+//     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
+//     WORKER_API_ERROR + OriginalWorker* when present.
+//     non-empty LockAttributeKeys: Temporal sync update; same worker mapping via
+//     handleError; Cadence → Unimplemented.
+//   WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
+//     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Timeout →
+//     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
+//     blob-backed stored attributes with FailedPrecondition.
+//   WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
+//     LONG_POLL_TIME_OUT.
+// ---------------------------------------------------------------------------
+
 // Hosted by iWF server; SDKs call these RPCs.
 service FlowService {
   rpc StartFlow(StartFlowRequest) returns (StartFlowResponse);

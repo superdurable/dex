@@ -89,6 +89,14 @@ func NewInterpreterWorker(
 	}
 }
 
+// NewWorkerForReplay builds a worker that can register Engine for Temporal history replay.
+// Activity results come from history; Activities is never invoked for real.
+func NewWorkerForReplay() *InterpreterWorker {
+	return &InterpreterWorker{
+		workflow: interpreter.NewInterpreter(&config.Config{}, &interpreter.Activities{}),
+	}
+}
+
 func (iw *InterpreterWorker) Close() {
 	if iw.worker != nil {
 		iw.worker.Stop()

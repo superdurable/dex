@@ -727,7 +727,10 @@ func (s *serviceImpl) InvokeRPC(
 		s.extStore,
 	)
 	if err != nil {
-		return nil, err
+		if mapped, ok := serviceerrors.WorkerAPIFailure(err); ok {
+			return nil, mapped.ToGRPCError()
+		}
+		return nil, s.handleError(err)
 	}
 	decision := workerResponse.GetStepDecision()
 	if len(workerResponse.GetUpsertAttributes()) > 0 ||
@@ -1002,7 +1005,7 @@ func (s *serviceImpl) handleError(err error) error {
 			}
 			grpcCode := codes.Internal
 			if flowErrorType == iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
-				grpcCode = codes.Code(errorResponse.GetOriginalWorkerErrorStatus())
+				grpcCode = codes.FailedPrecondition
 			}
 			return serviceerrors.NewErrorAndStatusWithWorkerError(
 				grpcCode,

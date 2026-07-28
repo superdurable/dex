@@ -140,7 +140,7 @@ iwf-server:
 	@echo "compiling iwf-server with OS: $(GOOS), ARCH: $(GOARCH)"
 	@go build -o $@ cmd/server/main.go
 
-.PHONY: bins release clean
+.PHONY: bins release clean replayTests
 
 idl-code-gen: # regenerate protobuf stubs from protos/iwf.proto into server + SDKs
 	$(MAKE) -C ../protos proto
@@ -201,6 +201,9 @@ integTestsNoSearch:
 
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
+
+replayTests:
+	@GOWORK=off go test -v ./replayTests -timeout 10m
 
 help:
 	@# print help first, so it's visible

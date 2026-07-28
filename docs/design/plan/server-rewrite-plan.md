@@ -362,15 +362,18 @@ always-on, no version gate:
   | connection-pool capacity or gRPC message limit exceeded | `ResourceExhausted` |
   | wait exceeds its effective deadline | `DeadlineExceeded` |
   | caller cancels | `Canceled` |
-  | Temporal/Cadence/worker transport unavailable | `Unavailable` |
+  | Temporal/Cadence backend unavailable | `Unavailable` |
+  | iWF application WorkerService failure or unreachable | `FailedPrecondition` |
   | violated trusted invariant or unexpected failure | `Internal` |
 
   Attach `iwfpb.ErrorResponse` via `status.WithDetails`, preserving
-  `ErrorSubStatus`. WorkerService failures attach `iwfpb.WorkerErrorResponse`; the
-  server copies its detail/type and the numeric gRPC worker code into
-  `original_worker_error_*`. Add helpers in
-  [`service/common/errors`](../../../server/service/common/errors), remove the
-  `HttpStatusCodeSpecial4xx*` sentinels, and cover detail round-trips in integ.
+  `ErrorSubStatus`. WorkerService failures (business or transport-to-worker)
+  map to `FailedPrecondition` + `WORKER_API_ERROR` — never `Unavailable`, so they
+  do not count against server SLA/SLO. Copy detail/type and the numeric gRPC
+  worker code into `original_worker_error_*` when present. Add helpers in
+  [`service/common/errors`](../../../server/service/common/errors),
+  remove the `HttpStatusCodeSpecial4xx*` sentinels, and cover detail round-trips
+  in integ.
 
 - **`StartFlow` specifics:** keep `worker_target` in Memo
   (`service.WorkerTargetMemoKey`) — still the dial target; keep `requestId` memo

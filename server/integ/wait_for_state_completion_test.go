@@ -45,6 +45,10 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForStateCompletion(t, service.BackendTypeTemporal, true)
 		smallWaitForFastTest()
+		doTestWaitForStateCompletionTimeout(t)
+		smallWaitForFastTest()
+		doTestWaitForStateCompletionAcrossContinueAsNew(t)
+		smallWaitForFastTest()
 	}
 }
 
@@ -130,4 +134,84 @@ func doTestWaitForStateCompletion(
 	duration := data["fired_at"].(int64) - data["scheduled_at"].(int64)
 	assertions.Equal("timer-cmd-id", data["timer_id"])
 	assertions.True(duration >= 9 && duration <= 11, duration)
+}
+
+func doTestWaitForStateCompletionTimeout(t *testing.T) {
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := wait_for_state_completion.WorkflowType + "-timeout-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wait_for_state_completion.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wait_for_state_completion.State1,
+		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+		FlowId:              flowId,
+		StepType:            wait_for_state_completion.State1,
+		StepExecutionNumber: "999",
+		WaitTimeSeconds:     0,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	errResp := grpcErrorResponse(t, err)
+	require.Equal(
+		t,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		errResp.GetSubStatus(),
+	)
+	require.Equal(t, "step completion wait timed out", errResp.GetDetail())
+
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+}
+
+func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := wait_for_state_completion.WorkflowType + "-can-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           wait_for_state_completion.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		WorkerTarget:       workerTarget,
+		StartStepType:      wait_for_state_completion.State1,
+		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: &iwfpb.FlowStartOptions{
+			FlowConfigOverride: minimumContinueAsNewConfigV0(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.WaitForStepCompletion(ctx, &iwfpb.WaitForStepCompletionRequest{
+		FlowId:              flowId,
+		StepType:            wait_for_state_completion.State2,
+		StepExecutionNumber: "1",
+		WaitTimeSeconds:     30,
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
 }

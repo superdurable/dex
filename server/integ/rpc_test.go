@@ -164,10 +164,15 @@ func doTestRpcWorkflow(
 		TimeoutSeconds: 2,
 	})
 	require.Error(t, err)
-	require.Equal(t, codes.Unavailable, status.Code(err))
-	workerErr := workerErrorFromStatus(t, err)
-	assertions.Equal(rpc.WorkerApiErrorDetails, workerErr.GetDetail())
-	assertions.Equal(rpc.WorkerApiErrorType, workerErr.GetErrorType())
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	errResp := grpcErrorResponse(t, err)
+	assertions.Equal(
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		errResp.GetSubStatus(),
+	)
+	assertions.Equal(rpc.WorkerApiErrorDetails, errResp.GetOriginalWorkerErrorDetail())
+	assertions.Equal(rpc.WorkerApiErrorType, errResp.GetOriginalWorkerErrorType())
+	assertions.Equal(int32(codes.Unavailable), errResp.GetOriginalWorkerErrorStatus())
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
 		FlowId:         flowId,
@@ -217,17 +222,80 @@ func doTestRpcWorkflow(
 	assertions.Equal(false, attributeMap[rpc.TestSearchAttributeBoolKey].GetBoolValue())
 }
 
-func workerErrorFromStatus(t *testing.T, err error) *iwfpb.WorkerErrorResponse {
-	t.Helper()
-	statusError, ok := status.FromError(err)
-	require.True(t, ok)
-	for _, detail := range statusError.Details() {
-		if workerErr, ok := detail.(*iwfpb.WorkerErrorResponse); ok {
-			return workerErr
-		}
+func TestRpcLockingErrorMappingTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
 	}
-	require.FailNow(t, "gRPC error has no WorkerErrorResponse details", err)
-	return nil
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestRpcLockingErrorMapping(t)
+		smallWaitForFastTest()
+	}
+}
+
+func doTestRpcLockingErrorMapping(t *testing.T) {
+	assertions := assert.New(t)
+
+	workerHandler := rpc.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startIwfService(t, IwfServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+	})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := rpc.WorkflowType + "-locking-err-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &iwfpb.StartFlowRequest{
+		FlowId:             flowId,
+		FlowType:           rpc.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		WorkerTarget:       workerTarget,
+		StartStepType:      rpc.State1,
+	})
+	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+
+	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:            flowId,
+		RpcName:           rpc.RPCNameError,
+		Input:             rpc.TestInput,
+		TimeoutSeconds:    2,
+		LockAttributeKeys: []string{"unused-lock-key"},
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	workerFail := grpcErrorResponse(t, err)
+	assertions.Equal(
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		workerFail.GetSubStatus(),
+	)
+	assertions.Equal(rpc.WorkerApiErrorDetails, workerFail.GetOriginalWorkerErrorDetail())
+	assertions.Equal(rpc.WorkerApiErrorType, workerFail.GetOriginalWorkerErrorType())
+	assertions.Equal(int32(codes.Unavailable), workerFail.GetOriginalWorkerErrorStatus())
+
+	_, err = flowClient.InvokeRPC(ctx, &iwfpb.InvokeRPCRequest{
+		FlowId:            flowId,
+		RpcName:           rpc.RPCNameReadOnly,
+		Input:             rpc.TestInput,
+		TimeoutSeconds:    2,
+		LockAttributeKeys: []string{""},
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	invalidArg := grpcErrorResponse(t, err)
+	assertions.Equal(
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		invalidArg.GetSubStatus(),
+	)
+	assertions.Equal("lock attribute key is empty", invalidArg.GetDetail())
+
+	_, err = flowClient.StopFlow(ctx, &iwfpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: iwfpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
 }
 
 func attributesToMap(attributes []*iwfpb.KV) map[string]*iwfpb.Value {
