@@ -162,6 +162,15 @@ Always tee output: `make -C server unitTests 2>&1 | tee /tmp/test-<scope>.log`
 Fix all failures before moving on. If stuck after multiple attempts, pause and
 ask the user with: (1) the failure, (2) what you tried, (3) where you're blocked.
 
+### Do Not Casually Skip Failing Tests
+
+Never skip/gate/early-return around a failing assertion just to green the suite
+(e.g. `if backend == Cadence { return }` or `t.Skip` for a known flake) unless
+the user explicitly asks. On failure: add targeted logs, dump Temporal/Cadence
+workflow history (plus describe/query output), find the root cause, then fix
+product code or the expectation. Backend-specific skips need a proven platform
+limit and user agreement.
+
 ## Go-Specific Rules
 
 ### Config Field Comments

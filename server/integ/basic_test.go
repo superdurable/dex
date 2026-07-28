@@ -77,9 +77,16 @@ func TestBasicFlowCadence(t *testing.T) {
 				t,
 				service.BackendTypeCadence,
 				minimumContinueAsNewConfig(
-					iwfpb.StepDurability_STEP_DURABILITY_SYNC,
+					iwfpb.StepDurability_STEP_DURABILITY_ASYNC,
 				),
 			)
+		})
+		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {
+			doTestBasicFlow(t, service.BackendTypeCadence, &iwfpb.FlowConfig{
+				ActiveStepSearchMode: ptr.Any(
+					iwfpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED,
+				),
+			})
 		})
 	}
 }

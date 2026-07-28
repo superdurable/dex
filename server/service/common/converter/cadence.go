@@ -56,6 +56,10 @@ func NewCadenceDataConverter() encoded.DataConverter {
 }
 
 func (c *cadenceDataConverter) ToData(values ...interface{}) ([]byte, error) {
+	// Cadence query handlers with no args encode/decode empty payloads.
+	if len(values) == 0 {
+		return nil, nil
+	}
 	if len(values) == 1 {
 		if raw, ok := values[0].([]byte); ok {
 			return raw, nil
@@ -100,6 +104,14 @@ func (c *cadenceDataConverter) FromData(input []byte, valuePtrs ...interface{}) 
 	if len(valuePtrs) == 1 && isByteSlicePtr(valuePtrs[0]) {
 		reflect.ValueOf(valuePtrs[0]).Elem().SetBytes(input)
 		return nil
+	}
+
+	// No-arg Cadence queries pass an empty payload.
+	if len(input) == 0 {
+		if len(valuePtrs) == 0 {
+			return nil
+		}
+		return fmt.Errorf("cadence converter: truncated header (0 bytes)")
 	}
 
 	if len(input) < cadenceHeaderLen {

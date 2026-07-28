@@ -105,7 +105,7 @@ services:
       timeout: 60s
       retries: 60
   cadence:
-    image: ubercadence/server:v1.2.16-auto-setup
+    image: ubercadence/server:v1.4.1-auto-setup
     ports:
       - "8000:8000"
       - "8001:8001"
@@ -119,11 +119,13 @@ services:
       - "7936:7936"
     environment:
       - "CASSANDRA_SEEDS=cassandra"
-      - "DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development_es.yaml"
+      - "DYNAMIC_CONFIG_FILE_PATH=dynamicconfig/cadence_development_es.yaml"
       - "ENABLE_ES=true"
       - "ES_SEEDS=elasticsearch"
       - "ES_VERSION=v7"
       - "KAFKA_SEEDS=kafka"
+    volumes:
+      - ./dynamicconfig:/etc/cadence/dynamicconfig
     depends_on:
       cassandra:
         condition: service_healthy
@@ -139,7 +141,7 @@ services:
       - cadence
     environment:
       - CADENCE_CLI_ADDRESS=cadence:7933
-    image: ubercadence/cli:v1.2.16
+    image: ubercadence/cli:v1.4.1
     networks:
       - testing-network
     stdin_open: true

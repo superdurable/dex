@@ -43,8 +43,10 @@ func ConvertCadenceWorkflowRetryPolicy(policy *iwfpb.FlowRetryPolicy) *workflow.
 }
 
 func ConvertCadenceActivityRetryPolicy(policy *iwfpb.RetryPolicy) *workflow.RetryPolicy {
+	// Cadence has no server-side default; Temporal does when RetryPolicy is omitted.
+	// Match Temporal's defaults so waitFor/execute keep infinite backoff without options.
 	if policy == nil {
-		return nil
+		policy = &iwfpb.RetryPolicy{}
 	}
 	initial, maxInterval, maxAttempts, backoff, totalDuration := activityRetryDefaults(policy)
 

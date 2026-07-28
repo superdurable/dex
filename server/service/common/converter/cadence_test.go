@@ -117,6 +117,16 @@ func TestCadenceMapOneofRoundTrip(t *testing.T) {
 	require.True(t, proto.Equal(in, out))
 }
 
+func TestCadenceEmptyNoArgRoundTrip(t *testing.T) {
+	dc := NewCadenceDataConverter()
+	data, err := dc.ToData()
+	require.NoError(t, err)
+	require.Empty(t, data)
+	require.NoError(t, dc.FromData(nil))
+	require.NoError(t, dc.FromData([]byte{}))
+	require.Error(t, dc.FromData(nil, new(iwfpb.Value)))
+}
+
 func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	dc := NewCadenceDataConverter()
 	var out *iwfpb.Value

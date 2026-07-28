@@ -134,11 +134,13 @@ func (t *GreedyTimerProcessor) WaitForTimerFiredOrSkipped(
 		timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 		return timer.GetStatus()
 	}
-	skippedByStaleSkip := t.RetryStaleSkipTimer()
-	if skippedByStaleSkip {
-		t.logger.Warn("timer skipped by stale skip signal", stepExeId, timerIdx)
-		timer.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
-		return iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	// RetryStaleSkipTimer may skip a different timer; only return if this one changed.
+	if t.RetryStaleSkipTimer() {
+		if timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED ||
+			timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED {
+			t.logger.Warn("timer skipped by stale skip signal", stepExeId, timerIdx)
+			return timer.GetStatus()
+		}
 	}
 
 	// Await cancellation is handled by the status checks below.
@@ -201,4 +203,6 @@ func (t *GreedyTimerProcessor) AddTimers(
 		timers[idx] = &timer
 	}
 	t.stepExecutionCurrentTimerInfos[stepExeId] = timers
+	for t.RetryStaleSkipTimer() {
+	}
 }

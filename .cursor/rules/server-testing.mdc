@@ -17,6 +17,17 @@ alwaysApply: false
 - Fix all failures. After multiple unsuccessful attempts, report the failure,
   attempted fixes, and exact blocker.
 
+## Do Not Casually Skip Failing Tests
+
+- Never skip, gate, or early-return around a failing assertion just to make the
+  suite green (e.g. `if backend == Cadence { return }` / `t.Skip` for a known
+  flake) unless the user explicitly asks to skip.
+- When a test fails: add targeted logs, dump Temporal/Cadence workflow history
+  (and relevant query/describe output), identify the root cause, then fix
+  product code or the test expectation.
+- Backend-specific skips need a proven platform limitation plus user agreement;
+  prefer fixing Reset/query/retry behavior over hiding the path.
+
 ## Isolation and Async
 
 - Prefer package-level isolation so tests can run in parallel across packages.

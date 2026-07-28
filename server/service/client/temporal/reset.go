@@ -56,6 +56,14 @@ func getResetEventIDByType(ctx context.Context, resetType iwfpb.FlowResetType,
 			return
 		}
 	case iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
+		firstRunID, firstRunErr := getTemporalFirstExecutionRunID(ctx, namespace, wid, rid, frontendClient)
+		if firstRunErr != nil {
+			err = firstRunErr
+			return
+		}
+		if firstRunID != "" {
+			rid = firstRunID
+		}
 		resetBaseRunID, workflowTaskFinishID, err = getFirstWorkflowTaskEventID(ctx, namespace, wid, rid, frontendClient)
 		if err != nil {
 			return
@@ -110,6 +118,33 @@ func getFirstWorkflowTaskEventID(ctx context.Context, namespace, wid, rid string
 		return
 	}
 	return
+}
+
+func getTemporalFirstExecutionRunID(
+	ctx context.Context,
+	namespace, wid, rid string,
+	frontendClient workflowservice.WorkflowServiceClient,
+) (string, error) {
+	resp, err := frontendClient.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: namespace,
+		Execution: &common.WorkflowExecution{
+			WorkflowId: wid,
+			RunId:      rid,
+		},
+		MaximumPageSize: 1,
+	})
+	if err != nil {
+		return "", err
+	}
+	events := resp.GetHistory().GetEvents()
+	if len(events) == 0 {
+		return "", nil
+	}
+	attrs := events[0].GetWorkflowExecutionStartedEventAttributes()
+	if attrs == nil {
+		return "", nil
+	}
+	return attrs.GetFirstExecutionRunId(), nil
 }
 
 func getEarliestDecisionEventID(

@@ -295,7 +295,9 @@ func (w *workflowProvider) ExecuteLocalActivity(
 	if !ok {
 		panic("cannot convert to cadence workflow context")
 	}
-	return workflow.ExecuteLocalActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+	// Cadence local activities that call back into Cadence (DumpFlow query) can
+	// stall decision tasks; use a regular activity so CAN resume stays healthy.
+	return workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
 }
 
 func (w *workflowProvider) Now(ctx interfaces.UnifiedContext) time.Time {

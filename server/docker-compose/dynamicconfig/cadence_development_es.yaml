@@ -1,0 +1,70 @@
+frontend.enableActiveClusterSelectionPolicyInStartWorkflow:
+- value: true
+  constraints: {}
+frontend.enableClientVersionCheck:
+- value: true
+  constraints: {}
+frontend.validSearchAttributes:
+- value:
+    ActiveStepTypes: 1
+    BinaryChecksums: 1
+    CadenceChangeVersion: 1
+    CadenceScheduleBackfillID: 1
+    CadenceScheduleCron: 1
+    CadenceScheduleID: 1
+    CadenceScheduleIsBackfill: 4
+    CadenceScheduleState: 1
+    CadenceScheduleTime: 5
+    CadenceScheduleWorkflowType: 1
+    CloseStatus: 2
+    CloseTime: 2
+    ClusterAttributeName: 1
+    ClusterAttributeScope: 1
+    CronSchedule: 1
+    CustomBoolField: 4
+    CustomDatetimeField: 5
+    CustomDomain: 1
+    CustomDoubleField: 3
+    CustomIntField: 2
+    CustomKeywordField: 1
+    CustomStringField: 0
+    DomainID: 1
+    ExecutionStatus: 2
+    ExecutionTime: 2
+    FlowType: 1
+    HistoryLength: 2
+    IsCron: 4
+    NumClusters: 2
+    Operator: 1
+    Passed: 4
+    RolloutID: 1
+    RunID: 1
+    ScheduledExecutionTime: 2
+    ShardID: 2
+    StartTime: 2
+    TaskList: 1
+    UpdateTime: 2
+    WorkflowID: 1
+    WorkflowType: 1
+    addon: 1
+    addon-type: 1
+    environment: 1
+    project: 1
+    service: 1
+    user: 1
+  constraints: {}
+history.EnableConsistentQueryByDomain:
+- value: true
+  constraints: {}
+system.minRetentionDays:
+- value: 0
+  constraints: {}
+system.readVisibilityStoreName:
+- value: es
+  constraints: {}
+system.writeVisibilityStoreName:
+- value: es
+  constraints: {}
+worker.enableScheduler:
+- value: true
+  constraints: {}

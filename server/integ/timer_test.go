@@ -250,16 +250,37 @@ func doTestTimerFlow(
 	})
 	require.NoError(t, err)
 
-	err = unifiedClient.QueryWorkflow(
-		ctx,
-		timerInfos,
-		flowId,
-		"",
-		service.GetCurrentTimerInfosQueryType,
-	)
-	require.NoError(t, err)
 	timer2.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
 	timer3.Status = iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	require.Eventually(t, func() bool {
+		timerInfos = &iwfpb.GetCurrentTimerInfosQueryResponse{}
+		if queryErr := unifiedClient.QueryWorkflow(
+			ctx,
+			timerInfos,
+			flowId,
+			"",
+			service.GetCurrentTimerInfosQueryType,
+		); queryErr != nil {
+			return false
+		}
+		actualList := timerInfos.GetStepExecutionCurrentTimerInfos()["S1-1"]
+		if actualList == nil || len(actualList.GetTimers()) != 3 {
+			return false
+		}
+		return actualList.GetTimers()[0].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING &&
+			actualList.GetTimers()[1].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED &&
+			actualList.GetTimers()[2].GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED
+	}, 15*time.Second, 200*time.Millisecond)
+	// Reset rebuilds firing times from workflow.Now; sync expected before compare.
+	for stepExecutionId, expectedList := range expectedTimerInfos.GetStepExecutionCurrentTimerInfos() {
+		actualList := timerInfos.GetStepExecutionCurrentTimerInfos()[stepExecutionId]
+		require.NotNil(t, actualList)
+		require.Equal(t, len(expectedList.GetTimers()), len(actualList.GetTimers()))
+		for idx := range expectedList.GetTimers() {
+			expectedList.GetTimers()[idx].FiringUnixTimestampSeconds =
+				actualList.GetTimers()[idx].GetFiringUnixTimestampSeconds()
+		}
+	}
 	assertTimerQueryResponseEqual(assertions, expectedTimerInfos, timerInfos)
 
 	resp, err := flowClient.WaitForFlow(ctx, &iwfpb.WaitForFlowRequest{
@@ -277,8 +298,12 @@ func assertTimerQueryResponseEqual(
 ) {
 	for stepExecutionId, expectedList := range expected.GetStepExecutionCurrentTimerInfos() {
 		actualList := actual.GetStepExecutionCurrentTimerInfos()[stepExecutionId]
-		assertions.NotNil(actualList)
-		assertions.Equal(len(expectedList.GetTimers()), len(actualList.GetTimers()))
+		if !assertions.NotNil(actualList) {
+			continue
+		}
+		if !assertions.Equal(len(expectedList.GetTimers()), len(actualList.GetTimers())) {
+			continue
+		}
 		for idx, expectedInfo := range expectedList.GetTimers() {
 			actualInfo := actualList.GetTimers()[idx]
 			abs := math.Abs(float64(

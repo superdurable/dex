@@ -48,7 +48,7 @@ const (
 	DefaultApiPort = 8801
 	// DefaultMaxWaitSeconds caps WaitForFlow / WaitForStepCompletion / WaitForAttribute when MaxWaitSeconds is 0.
 	DefaultMaxWaitSeconds int64 = 60
-	// DefaultGrpcMaxMessageBytes is 16 MiB; must exceed a CAN dump page plus protobuf overhead.
+	// DefaultGrpcMaxMessageBytes is 16 MiB so that large attributes can be transported.
 	DefaultGrpcMaxMessageBytes = 16 * 1024 * 1024
 	// DefaultWorkerConnectionIdleTimeout is how long an idle WorkerService conn may sit unused before eviction.
 	DefaultWorkerConnectionIdleTimeout = 10 * time.Minute
@@ -64,18 +64,25 @@ type (
 		Api ApiConfig `yaml:"api"`
 		// Interpreter selects Temporal or Cadence and worker activity settings. Exactly one of Temporal/Cadence must be set.
 		Interpreter Interpreter `yaml:"interpreter"`
-		// ExternalStorage offloads large Value payloads (string/object) above ThresholdInBytes.
+		// ExternalStorage offloads large Attribute payloads (string/object) above ThresholdInBytes.
 		ExternalStorage ExternalStorageConfig `yaml:"externalStorage"`
 	}
 
 	ExternalStorageConfig struct {
 		// Enabled turns external blob offload on or off. Default false.
 		Enabled bool `yaml:"enabled"`
+		// LazyLoading turns lazy loading on or off.
+		// When on, server will only send blobIDs to worker for worker APIs(invoke waitFor/execute/RPC) and GetAttribute API.
+		// Worker wil call LoadBlobs API to get the actual values.
+		// So that worker & server can minimize the data transfer, and worker can cache the values if needed.
+		// Default true.
+		LazyLoading bool `yaml:"lazyLoading"`
 		// ThresholdInBytes is the payload size that triggers writing a blob id onto Value instead of inline data. Default 0 (never offload when Enabled is false).
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStorageConfig `yaml:"supportedStorages"`
-		// MinAgeForCleanupCheckInDays stops cleanup scans for objects newer than now minus this many days. Align with Temporal/Cadence retention. Default 0 means no age gate when unset by operator.
+		// MinAgeForCleanupCheckInDays stops cleanup scans for objects newer than now minus this many days. Align with Temporal/Cadence retention.
+		// Default 0 means no age gate. Need to manually set as it needs to align with Temporal/Cadence retention.
 		MinAgeForCleanupCheckInDays int `yaml:"minAgeForCleanupCheckInDays"`
 	}
 

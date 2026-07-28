@@ -22,6 +22,7 @@ package cadence
 
 import (
 	"context"
+	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service/interpreter/interfaces"
@@ -47,10 +48,15 @@ func (a *activityProvider) NewActivityError(
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {
 	info := activity.GetInfo(ctx)
+	// Cadence LocalActivity leaves ScheduledTimestamp unset (zero).
+	scheduled := info.ScheduledTimestamp
+	if scheduled.IsZero() {
+		scheduled = time.Now()
+	}
 	return interfaces.ActivityInfo{
-		ScheduledTime:   info.ScheduledTimestamp,
-		Attempt:         info.Attempt + 1, // NOTE increase by one to match Temporal
-		IsLocalActivity: false,            // TODO cadence doesn't support this yet
+		ScheduledTime:   scheduled,
+		Attempt:         info.Attempt + 1, // Cadence attempts are 0-based; Temporal is 1-based.
+		IsLocalActivity: len(info.TaskToken) == 0,
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,

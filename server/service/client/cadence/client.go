@@ -349,7 +349,7 @@ func (t *cadenceClient) decodeMemo(memo *shared.Memo) (map[string]*iwfpb.Value, 
 	out := map[string]*iwfpb.Value{}
 	for k, payload := range memo.GetFields() {
 		var value iwfpb.EncodedObject
-		err := encoded.GetDefaultDataConverter().FromData(payload, &value)
+		err := t.converter.FromData(payload, &value)
 		if err != nil {
 			return nil, err
 		}
@@ -494,7 +494,6 @@ func (t *cadenceClient) ResetWorkflow(
 		RequestId:             &requestId,
 		SkipSignalReapply:     ptr.Any(request.GetSkipChannelMessagesReapply()),
 	}
-
 	resp, err := t.serviceClient.ResetWorkflowExecution(ctx, resetReq)
 	if err != nil {
 		return "", err

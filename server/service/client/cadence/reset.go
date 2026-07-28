@@ -47,6 +47,15 @@ func getResetIDsByType(
 		decisionFinishID = int64(historyEventId)
 		return
 	case iwfpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
+		firstRunID, firstRunErr := getCadenceFirstExecutionRunID(ctx, domain, wid, rid, frontendClient)
+		if firstRunErr != nil {
+			err = firstRunErr
+			return
+		}
+		if firstRunID != "" {
+			rid = firstRunID
+			resetBaseRunID = firstRunID
+		}
 		decisionFinishID, err = getFirstDecisionTaskByType(ctx, domain, wid, rid, frontendClient, shared.EventTypeDecisionTaskCompleted)
 		if err != nil {
 			return
@@ -115,6 +124,33 @@ func getFirstDecisionTaskByType(
 		return 0, composeErrorWithMessage("Get historyEventId failed", fmt.Errorf("no historyEventId"))
 	}
 	return
+}
+
+func getCadenceFirstExecutionRunID(
+	ctx context.Context,
+	domain, wid, rid string,
+	frontendClient workflowserviceclient.Interface,
+) (string, error) {
+	resp, err := frontendClient.GetWorkflowExecutionHistory(ctx, &shared.GetWorkflowExecutionHistoryRequest{
+		Domain: &domain,
+		Execution: &shared.WorkflowExecution{
+			WorkflowId: &wid,
+			RunId:      &rid,
+		},
+		MaximumPageSize: ptr.Any(int32(1)),
+	})
+	if err != nil {
+		return "", composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
+	}
+	events := resp.GetHistory().GetEvents()
+	if len(events) == 0 {
+		return "", nil
+	}
+	attrs := events[0].GetWorkflowExecutionStartedEventAttributes()
+	if attrs == nil {
+		return "", nil
+	}
+	return attrs.GetFirstExecutionRunId(), nil
 }
 
 func getEarliestDecisionID(
