@@ -100,8 +100,8 @@ func (h *handler) InvokeWaitForMethod(
 				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				TimerConditions: []*iwfpb.TimerCondition{
 					{
-						ConditionId:                "timer-cmd-id",
-						FiringUnixTimestampSeconds: now + 10,
+						ConditionId:     "timer-cmd-id",
+						DurationSeconds: 10,
 					},
 				},
 			},

@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/iwf/gen/iwfpb"
 	anytimersignal "github.com/superdurable/iwf/integ/workflow/any_timer_signal"
 	"github.com/superdurable/iwf/service"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAnyTimerSignalFlowTemporal(t *testing.T) {
@@ -182,5 +183,8 @@ func doTestAnyTimerSignalFlow(
 	require.Equal(t, anytimersignal.SignalName, data["signalChannelName2"])
 	require.Equal(t, "signal-cmd-id", data["signalCommandId2"])
 	require.Equal(t, iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED, data["signalStatus2"])
-	require.Equal(t, []*iwfpb.Value{signalValue}, data["signalValue2"])
+	actualValues, ok := data["signalValue2"].([]*iwfpb.Value)
+	require.True(t, ok)
+	require.Len(t, actualValues, 1)
+	require.True(t, proto.Equal(signalValue, actualValues[0]))
 }

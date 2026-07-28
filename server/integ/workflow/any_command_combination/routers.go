@@ -22,12 +22,11 @@ package anycommandcombination
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -51,6 +50,9 @@ const (
 	SignalNameAndId1 = "test-signal-name1"
 	SignalNameAndId2 = "test-signal-name2"
 	SignalNameAndId3 = "test-signal-name3"
+	// Two waits on the same channel need distinct condition ids.
+	SignalCond1a = "test-signal-cond1a"
+	SignalCond1b = "test-signal-cond1b"
 )
 
 type handler struct {
@@ -79,13 +81,13 @@ func (h *handler) InvokeWaitForMethod(
 
 	invalidTimerConditions := []*iwfpb.TimerCondition{
 		{
-			FiringUnixTimestampSeconds: time.Now().Unix() + 86400*365,
+			DurationSeconds: 86400 * 365,
 		},
 	}
 	validTimerConditions := []*iwfpb.TimerCondition{
 		{
-			ConditionId:                TimerId1,
-			FiringUnixTimestampSeconds: time.Now().Unix() + 86400*365,
+			ConditionId:     TimerId1,
+			DurationSeconds: 86400 * 365,
 		},
 	}
 	invalidChannelConditions := []*iwfpb.ChannelCondition{
@@ -99,11 +101,11 @@ func (h *handler) InvokeWaitForMethod(
 	}
 	validChannelConditions := []*iwfpb.ChannelCondition{
 		{
-			ConditionId: SignalNameAndId1,
+			ConditionId: SignalCond1a,
 			ChannelName: SignalNameAndId1,
 		},
 		{
-			ConditionId: SignalNameAndId1,
+			ConditionId: SignalCond1b,
 			ChannelName: SignalNameAndId1,
 		},
 		{
@@ -133,12 +135,12 @@ func (h *handler) InvokeWaitForMethod(
 						ConditionCombinations: []*iwfpb.ConditionCombination{
 							{
 								ConditionIds: []string{
-									TimerId1, SignalNameAndId1, SignalNameAndId1,
+									TimerId1, SignalCond1a, SignalCond1b,
 								},
 							},
 							{
 								ConditionIds: []string{
-									TimerId1, SignalNameAndId1, SignalNameAndId2,
+									TimerId1, SignalCond1a, SignalNameAndId2,
 								},
 							},
 						},
@@ -166,12 +168,12 @@ func (h *handler) InvokeWaitForMethod(
 						ConditionCombinations: []*iwfpb.ConditionCombination{
 							{
 								ConditionIds: []string{
-									SignalNameAndId2, SignalNameAndId1,
+									SignalNameAndId2, SignalCond1a,
 								},
 							},
 							{
 								ConditionIds: []string{
-									TimerId1, SignalNameAndId1, SignalNameAndId2,
+									TimerId1, SignalCond1a, SignalNameAndId2,
 								},
 							},
 						},

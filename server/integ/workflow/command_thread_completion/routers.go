@@ -22,12 +22,11 @@ package command_thread_completion
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -107,8 +106,8 @@ func (h *handler) InvokeWaitForMethod(
 				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				TimerConditions: []*iwfpb.TimerCondition{
 					{
-						ConditionId:                testTimerCmd,
-						FiringUnixTimestampSeconds: time.Now().Add(2 * time.Second).Unix(),
+						ConditionId:     testTimerCmd,
+						DurationSeconds: 2,
 					},
 				},
 				ChannelConditions: []*iwfpb.ChannelCondition{
@@ -140,8 +139,8 @@ func (h *handler) InvokeWaitForMethod(
 				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				TimerConditions: []*iwfpb.TimerCondition{
 					{
-						ConditionId:                "s3-timer-cmd",
-						FiringUnixTimestampSeconds: time.Now().Add(2 * time.Second).Unix(),
+						ConditionId:     "s3-timer-cmd",
+						DurationSeconds: 2,
 					},
 				},
 			},
@@ -152,8 +151,8 @@ func (h *handler) InvokeWaitForMethod(
 				WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 				TimerConditions: []*iwfpb.TimerCondition{
 					{
-						ConditionId:                "any-cmd-timer",
-						FiringUnixTimestampSeconds: time.Now().Add(20 * time.Second).Unix(),
+						ConditionId:     "any-cmd-timer",
+						DurationSeconds: 20,
 					},
 				},
 				ChannelConditions: []*iwfpb.ChannelCondition{

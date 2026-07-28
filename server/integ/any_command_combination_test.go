@@ -205,13 +205,13 @@ func expectedS1ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResult
 	return &iwfpb.ConditionResults{
 		ChannelResults: []*iwfpb.ChannelResult{
 			{
-				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionId:     anycommandcombination.SignalCond1a,
 				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
 				Values:          []*iwfpb.Value{signalValue},
 			},
 			{
-				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionId:     anycommandcombination.SignalCond1b,
 				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
 				Values:          []*iwfpb.Value{signalValue},
@@ -240,13 +240,13 @@ func expectedS2ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResult
 	return &iwfpb.ConditionResults{
 		ChannelResults: []*iwfpb.ChannelResult{
 			{
-				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionId:     anycommandcombination.SignalCond1a,
 				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
 				Values:          []*iwfpb.Value{signalValue},
 			},
 			{
-				ConditionId:     anycommandcombination.SignalNameAndId1,
+				ConditionId:     anycommandcombination.SignalCond1b,
 				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId1,
 			},
@@ -258,9 +258,8 @@ func expectedS2ConditionResults(signalValue *iwfpb.Value) *iwfpb.ConditionResult
 			},
 			{
 				ConditionId:     anycommandcombination.SignalNameAndId3,
-				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_COMPLETED,
+				ConditionStatus: iwfpb.ConditionStatus_CONDITION_STATUS_WAITING,
 				ChannelName:     anycommandcombination.SignalNameAndId3,
-				Values:          []*iwfpb.Value{signalValue},
 			},
 		},
 		TimerResults: []*iwfpb.TimerResult{

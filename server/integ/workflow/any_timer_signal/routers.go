@@ -22,12 +22,11 @@ package anytimersignal
 
 import (
 	"context"
-	"github.com/superdurable/iwf/integ/workflow/common"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/superdurable/iwf/gen/iwfpb"
+	"github.com/superdurable/iwf/integ/workflow/common"
 	"github.com/superdurable/iwf/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -81,10 +80,9 @@ func (h *handler) InvokeWaitForMethod(
 			stepContext := request.GetContext()
 
 			if stepContext.GetStepExecutionId() == State1+"-"+"1" {
-				now := time.Now().Unix()
 				timerConditions = []*iwfpb.TimerCondition{
 					{
-						FiringUnixTimestampSeconds: now + 1,
+						DurationSeconds: 1,
 					},
 				}
 			}
