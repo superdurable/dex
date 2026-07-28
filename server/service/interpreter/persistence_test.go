@@ -62,8 +62,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 	provider := &s2WorkflowProvider{}
 	attributeB := stringKV("b", "two")
 	attributeA := stringKV("a", "one")
-	manager, err := NewPersistenceManager(provider, []*iwfpb.KV{attributeB, attributeA})
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, []*iwfpb.KV{attributeB, attributeA})
 
 	all := manager.GetAllAttributes()
 	require.Equal(t, []string{"a", "b"}, []string{all[0].GetKey(), all[1].GetKey()})
@@ -87,8 +86,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 
 func TestPersistenceBatchSerializedEquality(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager, err := NewPersistenceManager(provider, nil)
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, nil)
 
 	object := &iwfpb.AttributeWrite{
 		Key: "object",
@@ -97,7 +95,7 @@ func TestPersistenceBatchSerializedEquality(t *testing.T) {
 			Payload:  []byte(`{"value":1}`),
 		}}},
 	}
-	err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{object})
+	err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{object})
 	require.NoError(t, err)
 
 	equalSerializedObject := &iwfpb.AttributeWrite{
@@ -123,12 +121,11 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 		IndexKey: "CustomKeywordField",
 	}
 	initial := stringKV("indexed", "old")
-	manager, err := NewPersistenceManager(provider, []*iwfpb.KV{initial})
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, []*iwfpb.KV{initial})
 
 	provider.upsertErr = errors.New("backend unavailable")
 	replacement := stringAttribute("indexed", "new", indexConfig)
-	err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{replacement})
+	err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{replacement})
 	require.ErrorContains(t, err, "backend unavailable")
 	stored, exists := manager.GetAttribute("indexed")
 	require.True(t, exists)
@@ -143,8 +140,7 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 
 func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager, err := NewPersistenceManager(provider, []*iwfpb.KV{stringKV("indexed", "old")})
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, []*iwfpb.KV{stringKV("indexed", "old")})
 
 	deletion := &iwfpb.AttributeWrite{
 		Key: "indexed",
@@ -153,7 +149,7 @@ func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 		}},
 		IndexConfig: &iwfpb.IndexConfig{Enable: true, IndexKey: "CurrentIndexKey"},
 	}
-	err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{deletion})
+	err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{deletion})
 	require.NoError(t, err)
 	require.Contains(t, provider.upserts[0], "CurrentIndexKey")
 	require.Nil(t, provider.upserts[0]["CurrentIndexKey"])
@@ -167,15 +163,14 @@ func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager, err := NewPersistenceManager(provider, []*iwfpb.KV{stringKV("indexed", "old")})
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, []*iwfpb.KV{stringKV("indexed", "old")})
 
 	moved := stringAttribute("indexed", "new", &iwfpb.IndexConfig{
 		Enable:   true,
 		Type:     iwfpb.IndexType_INDEX_TYPE_KEYWORD,
 		IndexKey: "NewIndexKey",
 	})
-	err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{moved})
+	err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{moved})
 	require.NoError(t, err)
 	require.NotContains(t, provider.upserts[0], "OldIndexKey")
 	require.Equal(t, "new", provider.upserts[0]["NewIndexKey"])
@@ -200,10 +195,9 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager, err := NewPersistenceManager(provider, nil)
-	require.NoError(t, err)
+	manager := NewPersistenceManager(provider, nil)
 
-	err = manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{
+	err := manager.ApplyAttributeWrites(nil, []*iwfpb.AttributeWrite{
 		stringAttribute("first", "new-first", &iwfpb.IndexConfig{
 			Enable:   true,
 			Type:     iwfpb.IndexType_INDEX_TYPE_KEYWORD,

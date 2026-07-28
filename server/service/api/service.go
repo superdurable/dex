@@ -895,35 +895,79 @@ func (s *serviceImpl) handleError(err error) error {
 	if s.client.IsWorkflowAlreadyStartedError(err) {
 		return serviceerrors.AlreadyExists(err.Error()).ToGRPCError()
 	}
-	errorType := s.client.GetApplicationErrorTypeIfIsApplicationError(err)
-	if errorType == "" {
+	errorTypeName := s.client.GetApplicationErrorTypeIfIsApplicationError(err)
+	if errorTypeName == "" {
 		s.logger.Error("encountered API server error", tag.Error(err))
 		return serviceerrors.Internal(err.Error()).ToGRPCError()
 	}
-	_, details := s.client.GetApplicationErrorTypeAndDetails(err)
-	switch errorType {
-	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT.String():
-		return serviceerrors.InvalidArgument(
-			iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
-			details,
-		).ToGRPCError()
-	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION.String():
-		return serviceerrors.NewErrorAndStatus(
-			codes.FailedPrecondition,
-			iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
-			details,
-		).ToGRPCError()
-	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED.String():
-		return serviceerrors.DeadlineExceededLongPoll(details).ToGRPCError()
-	case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE.String():
-		return serviceerrors.AbortedLockFailure(details).ToGRPCError()
-	default:
-		_, ok := status.FromError(err)
-		if !ok {
-			return err
+	errorTypeValue, known := iwfpb.UpdateErrorType_value[errorTypeName]
+	if known {
+		var details string
+		if detailsErr := s.client.GetApplicationErrorDetails(err, &details); detailsErr != nil {
+			s.logger.Error("failed to decode update error details", tag.Error(detailsErr))
+			return serviceerrors.Internal(err.Error()).ToGRPCError()
 		}
-		return serviceerrors.Internal(details).ToGRPCError()
+		switch iwfpb.UpdateErrorType(errorTypeValue) {
+		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT:
+			return serviceerrors.InvalidArgument(
+				iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				details,
+			).ToGRPCError()
+		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION:
+			return serviceerrors.NewErrorAndStatus(
+				codes.FailedPrecondition,
+				iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+				details,
+			).ToGRPCError()
+		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:
+			return serviceerrors.DeadlineExceededLongPoll(details).ToGRPCError()
+		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE:
+			return serviceerrors.AbortedLockFailure(details).ToGRPCError()
+		case iwfpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:
+			return serviceerrors.Internal(details).ToGRPCError()
+		default:
+			return serviceerrors.Internal(details).ToGRPCError()
+		}
 	}
+
+	flowErrorTypeValue, known := iwfpb.FlowErrorType_value[errorTypeName]
+	if known {
+		flowErrorType := iwfpb.FlowErrorType(flowErrorTypeValue)
+		switch flowErrorType {
+		case iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL:
+			var errorResponse iwfpb.ErrorResponse
+			if detailsErr := s.client.GetApplicationErrorDetails(
+				err,
+				&errorResponse,
+			); detailsErr != nil {
+				s.logger.Error("failed to decode flow error details", tag.Error(detailsErr))
+				return serviceerrors.Internal(err.Error()).ToGRPCError()
+			}
+			if errorResponse.GetDetail() == "" &&
+				errorResponse.GetSubStatus() == iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED &&
+				errorResponse.GetOriginalWorkerErrorDetail() == "" &&
+				errorResponse.GetOriginalWorkerErrorType() == "" &&
+				errorResponse.GetOriginalWorkerErrorStatus() == 0 {
+				return serviceerrors.Internal(err.Error()).ToGRPCError()
+			}
+			grpcCode := codes.Internal
+			if flowErrorType == iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
+				grpcCode = codes.Code(errorResponse.GetOriginalWorkerErrorStatus())
+			}
+			return serviceerrors.NewErrorAndStatusWithWorkerError(
+				grpcCode,
+				errorResponse.GetSubStatus(),
+				errorResponse.GetDetail(),
+				errorResponse.GetOriginalWorkerErrorDetail(),
+				errorResponse.GetOriginalWorkerErrorType(),
+				errorResponse.GetOriginalWorkerErrorStatus(),
+			).ToGRPCError()
+		}
+	}
+
+	s.logger.Error("encountered unknown application error", tag.Error(err))
+	return serviceerrors.Internal(err.Error()).ToGRPCError()
 }
 
 func waitContextStatus(err error) error {

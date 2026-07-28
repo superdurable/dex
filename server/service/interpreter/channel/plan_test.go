@@ -164,10 +164,20 @@ func TestPlan_ANY_TimerCandidate(t *testing.T) {
 		ChannelConditions:    []*iwfpb.ChannelCondition{chCond("c1", "ch", ptr.Any(int32(5)), ptr.Any(int32(5)))},
 	}
 
-	_, ok := Plan(waitingCondition, ChannelAvailability{"ch": 0}, map[int]bool{})
+	_, ok := Plan(
+		waitingCondition,
+		ChannelAvailability{"ch": 0},
+		map[int32]iwfpb.InternalTimerStatus{},
+	)
 	assert.False(t, ok, "timer pending and channel unmet -> no trigger")
 
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 0}, map[int]bool{0: true})
+	plan, ok := Plan(
+		waitingCondition,
+		ChannelAvailability{"ch": 0},
+		map[int32]iwfpb.InternalTimerStatus{
+			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		},
+	)
 	require.True(t, ok, "fired timer satisfies ANY")
 	assert.Empty(t, plan.Consumes)
 }
@@ -178,9 +188,19 @@ func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
 		TimerConditions:      []*iwfpb.TimerCondition{timerCond("t1")},
 		ChannelConditions:    []*iwfpb.ChannelCondition{chCond("c1", "ch", nil, nil)},
 	}
-	_, ok := Plan(waitingCondition, ChannelAvailability{"ch": 3}, map[int]bool{})
+	_, ok := Plan(
+		waitingCondition,
+		ChannelAvailability{"ch": 3},
+		map[int32]iwfpb.InternalTimerStatus{},
+	)
 	assert.False(t, ok, "ALL requires the timer to have fired")
-	_, ok = Plan(waitingCondition, ChannelAvailability{"ch": 3}, map[int]bool{0: true})
+	_, ok = Plan(
+		waitingCondition,
+		ChannelAvailability{"ch": 3},
+		map[int32]iwfpb.InternalTimerStatus{
+			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		},
+	)
 	assert.True(t, ok)
 }
 
@@ -196,7 +216,9 @@ func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
 	plan, ok := Plan(
 		waitingCondition,
 		ChannelAvailability{"first": 1, "second": 1},
-		map[int]bool{0: true},
+		map[int32]iwfpb.InternalTimerStatus{
+			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		},
 	)
 	require.True(t, ok)
 	require.Equal(t, map[int]int32{0: 1, 1: 1}, consumeByConditionIndex(plan))
@@ -271,7 +293,9 @@ func TestBuildConditionResults(t *testing.T) {
 	values := []*iwfpb.Value{{Kind: &iwfpb.Value_StringValue{StringValue: "m1"}}}
 	results := BuildConditionResults(
 		waitingCondition,
-		map[int]bool{0: true},
+		map[int32]iwfpb.InternalTimerStatus{
+			0: iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
+		},
 		map[int][]*iwfpb.Value{0: values},
 	)
 

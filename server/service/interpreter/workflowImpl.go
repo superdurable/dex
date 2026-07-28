@@ -904,8 +904,7 @@ func (i *Interpreter) invokeExecuteMethod(
 
 	if exeMethErr != nil {
 		if shouldProceedOnExecuteMethodError(step) {
-			// NOTE: also return error so that the recover step can read it
-			return nil, service.StepExecutionStatusFailedAndProceed, exeMethErr
+			return nil, service.StepExecutionStatusFailedAndProceed, nil
 		}
 		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
 	}

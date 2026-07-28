@@ -90,12 +90,12 @@ func (a *Activities) InvokeWaitForMethod(
 
 	if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 
 	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
 	if err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 	defer release()
 
@@ -118,7 +118,7 @@ func (a *Activities) InvokeWaitForMethod(
 		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
 	}
 	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 
 	a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_SUCC")
@@ -143,15 +143,15 @@ func (a *Activities) InvokeExecuteMethod(
 
 	if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 	if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 
 	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
 	if err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 	defer release()
 
@@ -173,10 +173,10 @@ func (a *Activities) InvokeExecuteMethod(
 		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
 	}
 	if err := a.offloadNextStepInputs(ctx, resp.GetStepDecision(), activityInfo.WorkflowExecution.ID); err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_SUCC")
@@ -193,11 +193,11 @@ func (a *Activities) DumpFlowForContinueAsNew(
 
 	client, callCtx, err := a.internalClient.Client(ctx)
 	if err != nil {
-		return nil, err
+		return nil, composeInternalActivityError(provider, err)
 	}
 	resp, err := client.DumpFlowForContinueAsNew(callCtx, input.GetRequest())
 	if err != nil {
-		return nil, composeActivityError(provider, err)
+		return nil, composeInternalActivityError(provider, err)
 	}
 	return &iwfpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
 }
@@ -589,15 +589,9 @@ func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {
 }
 
 func composeActivityError(provider interfaces.ActivityProvider, err error) error {
-
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
-		return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			&iwfpb.ErrorResponse{
-				Detail:    err.Error(),
-				SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
-			},
-		)
+		return composeInternalActivityError(provider, err)
 	}
 
 	errorResponse := &iwfpb.ErrorResponse{
@@ -613,7 +607,20 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 	}
-	return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_API_FAIL, errorResponse)
+	return provider.NewActivityError(iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
+}
+
+func composeInternalActivityError(
+	provider interfaces.ActivityProvider,
+	err error,
+) error {
+	return provider.NewActivityError(
+		iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+		&iwfpb.ErrorResponse{
+			Detail:    err.Error(),
+			SubStatus: iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		},
+	)
 }
 
 func (a *Activities) logLocalActivityWarn(

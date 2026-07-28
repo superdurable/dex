@@ -142,7 +142,7 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 	var resp iwfpb.ContinueAsNewDump
 	if err := proto.Unmarshal(wholeData, &resp); err != nil {
 		return nil, provider.NewWorkflowError(
-			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_SERVER_INTERNAL,
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			fmt.Errorf("unmarshal continue-as-new dump: %w", err))
 	}
 	return &resp, nil

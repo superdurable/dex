@@ -255,25 +255,6 @@ func (u *WorkflowUpdater) effectiveRPCBudget(requestedSeconds int32) time.Durati
 	return time.Duration(maximumSeconds) * time.Second
 }
 
-func validateLockedRPCWrites(
-	writes []*iwfpb.AttributeWrite,
-	sortedLockKeys []string,
-) error {
-	allowed := make(map[string]struct{}, len(sortedLockKeys))
-	for _, key := range sortedLockKeys {
-		allowed[key] = struct{}{}
-	}
-	for _, write := range writes {
-		if write == nil {
-			return fmt.Errorf("RPC returned a nil attribute write")
-		}
-		if _, ok := allowed[write.GetKey()]; !ok {
-			return fmt.Errorf("RPC wrote unlocked attribute key %q", write.GetKey())
-		}
-	}
-	return nil
-}
-
 func normalizeLockKeys(keys []string) ([]string, error) {
 	for _, key := range keys {
 		if key == "" {

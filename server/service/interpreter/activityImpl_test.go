@@ -24,9 +24,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/iwf/gen/iwfpb"
 	"github.com/superdurable/iwf/service/common/ptr"
+	"github.com/superdurable/iwf/service/interpreter/interfaces"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -260,14 +262,35 @@ func newChannelCondition(
 	}
 }
 
-func TestIsTransientWorkerError(t *testing.T) {
-	require.False(t, isTransientWorkerError(nil))
-	require.True(t, isTransientWorkerError(errors.New("dial failed")))
-	require.True(t, isTransientWorkerError(status.Error(codes.Unavailable, "worker down")))
-	require.False(t, isTransientWorkerError(status.Error(codes.InvalidArgument, "bad input")))
+func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
+	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
+	inputError := errors.New("dial failed")
+	activityError := errors.New("activity error")
+	var errorResponse *iwfpb.ErrorResponse
+	provider.EXPECT().
+		NewActivityError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			gomock.Any(),
+		).
+		DoAndReturn(func(
+			_ iwfpb.FlowErrorType,
+			response *iwfpb.ErrorResponse,
+		) error {
+			errorResponse = response
+			return activityError
+		})
+
+	require.ErrorIs(t, composeActivityError(provider, inputError), activityError)
+	require.Equal(t, "dial failed", errorResponse.GetDetail())
+	require.Equal(
+		t,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		errorResponse.GetSubStatus(),
+	)
 }
 
-func TestWorkerErrorDetailIsExpectedFailure(t *testing.T) {
+func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
+	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
 		&iwfpb.WorkerErrorResponse{
 			Detail:    "worker detail",
@@ -276,11 +299,56 @@ func TestWorkerErrorDetailIsExpectedFailure(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	workerError := grpcStatus.Err()
-	require.False(t, isTransientWorkerError(workerError))
+	activityError := errors.New("activity error")
+	var errorResponse *iwfpb.ErrorResponse
+	provider.EXPECT().
+		NewActivityError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			gomock.Any(),
+		).
+		DoAndReturn(func(
+			_ iwfpb.FlowErrorType,
+			response *iwfpb.ErrorResponse,
+		) error {
+			errorResponse = response
+			return activityError
+		})
 
-	interpreterError := composeActivityError(workerError)
-	require.Equal(t, int32(codes.Internal), interpreterError.GetGrpcCode())
-	require.Equal(t, "worker detail", interpreterError.GetError().GetOriginalWorkerErrorDetail())
-	require.Equal(t, "worker type", interpreterError.GetError().GetOriginalWorkerErrorType())
+	require.ErrorIs(t, composeActivityError(provider, grpcStatus.Err()), activityError)
+	require.Equal(t, "worker failure", errorResponse.GetDetail())
+	require.Equal(
+		t,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		errorResponse.GetSubStatus(),
+	)
+	require.Equal(t, int32(codes.Internal), errorResponse.GetOriginalWorkerErrorStatus())
+	require.Equal(t, "worker detail", errorResponse.GetOriginalWorkerErrorDetail())
+	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
+}
+
+func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
+	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
+	inputError := status.Error(codes.Unavailable, "internal service unavailable")
+	activityError := errors.New("activity error")
+	var errorResponse *iwfpb.ErrorResponse
+	provider.EXPECT().
+		NewActivityError(
+			iwfpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			gomock.Any(),
+		).
+		DoAndReturn(func(
+			_ iwfpb.FlowErrorType,
+			response *iwfpb.ErrorResponse,
+		) error {
+			errorResponse = response
+			return activityError
+		})
+
+	require.ErrorIs(t, composeInternalActivityError(provider, inputError), activityError)
+	require.Contains(t, errorResponse.GetDetail(), "internal service unavailable")
+	require.Equal(
+		t,
+		iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		errorResponse.GetSubStatus(),
+	)
 }

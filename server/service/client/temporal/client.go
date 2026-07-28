@@ -141,6 +141,16 @@ func (t *temporalClient) GetApplicationErrorDetails(err error, detailsPtr interf
 func (t *temporalClient) GetApplicationErrorTypeAndDetails(err error) (string, string) {
 	errType := t.GetApplicationErrorTypeIfIsApplicationError(err)
 
+	var errorResponse iwfpb.ErrorResponse
+	if detailsErr := t.GetApplicationErrorDetails(err, &errorResponse); detailsErr == nil &&
+		(errorResponse.GetDetail() != "" ||
+			errorResponse.GetSubStatus() != iwfpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED ||
+			errorResponse.GetOriginalWorkerErrorDetail() != "" ||
+			errorResponse.GetOriginalWorkerErrorType() != "" ||
+			errorResponse.GetOriginalWorkerErrorStatus() != 0) {
+		return errType, errorResponse.GetDetail()
+	}
+
 	var errDetailsPtr interface{}
 	var errDetails string
 
