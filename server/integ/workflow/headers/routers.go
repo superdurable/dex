@@ -34,15 +34,19 @@ import (
 )
 
 /**
- * This test flow has 1 step, using WorkerServiceServer to implement the flow directly.
+ * This test flow has 2 steps, using WorkerServiceServer to implement the flow directly.
  *
  * State1:
+ *		- WaitFor method does nothing
+ *      - Execute method goes to State2
+ * State2:
  *		- WaitFor method does nothing
  *      - Execute method will gracefully complete flow
  */
 const (
 	WorkflowType = "headers"
 	State1       = "S1"
+	State2       = "S2"
 
 	TestHeaderKey   = "integration-test-header"
 	TestHeaderValue = "integration-test-value"
@@ -95,6 +99,19 @@ func (h *handler) InvokeWaitForMethod(
 				},
 			}, nil
 		}
+		if request.GetStepType() == State2 {
+			if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
+				h.invokeHistory.Store(request.GetStepType()+"_waitFor", value.(int64)+1)
+			} else {
+				h.invokeHistory.Store(request.GetStepType()+"_waitFor", int64(1))
+			}
+
+			return &iwfpb.InvokeWaitForMethodResponse{
+				WaitingCondition: &iwfpb.WaitingCondition{
+					WaitingConditionType: iwfpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				},
+			}, nil
+		}
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
@@ -118,6 +135,18 @@ func (h *handler) InvokeExecuteMethod(
 		}
 
 		if request.GetStepType() == State1 {
+			return &iwfpb.InvokeExecuteMethodResponse{
+				StepDecision: &iwfpb.StepDecision{
+					NextSteps: []*iwfpb.StepMovement{
+						{
+							StepType:  State2,
+							StepInput: request.GetStepInput(),
+						},
+					},
+				},
+			}, nil
+		}
+		if request.GetStepType() == State2 {
 			return &iwfpb.InvokeExecuteMethodResponse{
 				StepDecision: &iwfpb.StepDecision{
 					NextSteps: []*iwfpb.StepMovement{

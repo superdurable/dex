@@ -113,9 +113,23 @@ func doTestFlowWithHeaders(
 	})
 	require.NoError(t, err)
 
-	history := workerHandler.GetTestResult().InvokeHistory
-	require.Equalf(t, map[string]int64{
+	if flowConfig != nil && flowConfig.ContinueAsNewThreshold != nil {
+		require.Eventually(t, func() bool {
+			return len(runtime.internalDumpCapture.snapshot()) > 0
+		}, 30*time.Second, 100*time.Millisecond, "expected DumpFlowForContinueAsNew call")
+		runtime.requireInternalDumpHeaders(
+			t,
+			headers.TestHeaderKey,
+			headers.TestHeaderValue,
+		)
+	}
+
+	expectedHistory := map[string]int64{
 		"S1_waitFor": 1,
 		"S1_execute": 1,
-	}, history, "headers test fail, %v", history)
+		"S2_waitFor": 1,
+		"S2_execute": 1,
+	}
+	history := workerHandler.GetTestResult().InvokeHistory
+	require.Equalf(t, expectedHistory, history, "headers test fail, %v", history)
 }

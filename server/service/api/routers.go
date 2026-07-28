@@ -57,6 +57,7 @@ func NewServer(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	readyCheck func(context.Context) error,
+	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) *Server {
 	if apiCfg == nil {
 		panic("apiCfg must not be nil")
@@ -87,10 +88,15 @@ func NewServer(
 	healthSrv.SetServingStatus(iwfpb.FlowService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
 	healthSrv.SetServingStatus(iwfpb.InternalService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_NOT_SERVING)
 
+	unaryInterceptors := append(
+		extraUnaryInterceptors,
+		unaryRecover(logger),
+		unaryLog(logger),
+	)
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMsg),
 		grpc.MaxSendMsgSize(maxMsg),
-		grpc.ChainUnaryInterceptor(unaryRecover(logger), unaryLog(logger)),
+		grpc.ChainUnaryInterceptor(unaryInterceptors...),
 	)
 	iwfpb.RegisterFlowServiceServer(grpcServer, handler)
 	iwfpb.RegisterInternalServiceServer(grpcServer, handler)

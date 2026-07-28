@@ -32,6 +32,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+// DumpFlowForContinueAsNewHeaderObserver is set by integration tests to capture
+// incoming metadata on InternalService dump calls.
+var DumpFlowForContinueAsNewHeaderObserver func(context.Context)
+
 type handler struct {
 	iwfpb.UnimplementedFlowServiceServer
 	iwfpb.UnimplementedInternalServiceServer
@@ -186,5 +190,8 @@ func (h *handler) DumpFlowForContinueAsNew(
 	ctx context.Context,
 	req *iwfpb.ContinueAsNewDumpRequest,
 ) (*iwfpb.ContinueAsNewDumpResponse, error) {
+	if DumpFlowForContinueAsNewHeaderObserver != nil {
+		DumpFlowForContinueAsNewHeaderObserver(ctx)
+	}
 	return h.svc.DumpFlowForContinueAsNew(ctx, req)
 }

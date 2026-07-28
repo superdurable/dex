@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +50,7 @@ import (
 	"go.temporal.io/sdk/converter"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -58,6 +60,45 @@ type integRuntime struct {
 	FlowClient    iwfpb.FlowServiceClient
 	UnifiedClient uclient.UnifiedClient
 	BlobStore     blobstore.BlobStore
+
+	internalDumpCapture *internalDumpHeaderCapture
+}
+
+type internalDumpHeaderCapture struct {
+	mu      sync.Mutex
+	headers []metadata.MD
+}
+
+func (capture *internalDumpHeaderCapture) append(incoming metadata.MD) {
+	capture.mu.Lock()
+	capture.headers = append(capture.headers, incoming)
+	capture.mu.Unlock()
+}
+
+func (capture *internalDumpHeaderCapture) snapshot() []metadata.MD {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return append([]metadata.MD(nil), capture.headers...)
+}
+
+func newInternalDumpHeaderCaptureInterceptor(
+	capture *internalDumpHeaderCapture,
+) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		if info.FullMethod == iwfpb.InternalService_DumpFlowForContinueAsNew_FullMethodName {
+			captured := metadata.MD{}
+			if incomingMetadata, ok := metadata.FromIncomingContext(ctx); ok {
+				captured = incomingMetadata.Copy()
+			}
+			capture.append(captured)
+		}
+		return handler(ctx, req)
+	}
 }
 
 type interpreterWorker interface {
@@ -96,7 +137,7 @@ func startWorker(t *testing.T, handler iwfpb.WorkerServiceServer) string {
 }
 
 // startIwfService starts API + interpreter against Temporal or Cadence and returns clients.
-func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) integRuntime {
+func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) *integRuntime {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -181,7 +222,27 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) integRuntime
 		require.FailNow(t, "unsupported backend", testConfig.BackendType)
 	}
 	startInterpreter(worker)
-	startApiServer(t, listener, &cfg, unifiedClient, logger, store, worker.Close)
+	internalDumpCapture := &internalDumpHeaderCapture{}
+	runtime := &integRuntime{internalDumpCapture: internalDumpCapture}
+	previousDumpObserver := api.DumpFlowForContinueAsNewHeaderObserver
+	api.DumpFlowForContinueAsNewHeaderObserver = func(ctx context.Context) {
+		if incomingMetadata, ok := metadata.FromIncomingContext(ctx); ok {
+			internalDumpCapture.append(incomingMetadata.Copy())
+		}
+	}
+	t.Cleanup(func() {
+		api.DumpFlowForContinueAsNewHeaderObserver = previousDumpObserver
+	})
+	startApiServer(
+		t,
+		listener,
+		&cfg,
+		unifiedClient,
+		logger,
+		store,
+		worker.Close,
+		newInternalDumpHeaderCaptureInterceptor(internalDumpCapture),
+	)
 
 	connection, err := grpc.NewClient(
 		listener.Addr().String(),
@@ -197,11 +258,37 @@ func startIwfService(t *testing.T, testConfig IwfServiceTestConfig) integRuntime
 	})
 
 	globalBlobStore = store
-	return integRuntime{
-		FlowClient:    iwfpb.NewFlowServiceClient(connection),
-		UnifiedClient: unifiedClient,
-		BlobStore:     store,
+	runtime.FlowClient = iwfpb.NewFlowServiceClient(connection)
+	runtime.UnifiedClient = unifiedClient
+	runtime.BlobStore = store
+	return runtime
+}
+
+func (runtime *integRuntime) requireInternalDumpHeaders(
+	t *testing.T,
+	headerKey string,
+	headerValue string,
+) {
+	t.Helper()
+	captured := runtime.internalDumpCapture.snapshot()
+
+	require.NotEmpty(t, captured, "expected at least one DumpFlowForContinueAsNew call")
+	found := false
+	for _, capturedMetadata := range captured {
+		values := capturedMetadata.Get(headerKey)
+		if len(values) > 0 && values[0] == headerValue {
+			found = true
+			break
+		}
 	}
+	require.True(
+		t,
+		found,
+		"DumpFlowForContinueAsNew metadata missing %q=%q, captured: %v",
+		headerKey,
+		headerValue,
+		captured,
+	)
 }
 
 // globalBlobStore is set by startIwfService for S3 cleanup tests that need the store.
@@ -223,6 +310,7 @@ func startApiServer(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	closeInterpreter func(),
+	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) {
 	t.Helper()
 
@@ -234,6 +322,7 @@ func startApiServer(
 		logger,
 		store,
 		func(context.Context) error { return nil },
+		extraUnaryInterceptors...,
 	)
 	serveError := make(chan error, 1)
 	go func() {
