@@ -229,6 +229,11 @@ func (e *StepExecutionCounter) IsStepExecutionCompleted(
 	)
 }
 
+func (e *StepExecutionCounter) IsStepExecutionActive(stepExeId string) bool {
+	stepType, stepExecutionNumber := splitStepExecutionId(stepExeId)
+	return !e.IsStepExecutionCompleted(stepType, stepExecutionNumber)
+}
+
 func (e *StepExecutionCounter) increaseStepIdActiveCounts(s *iwfpb.StepMovement) bool {
 	e.stepTypeActiveCounts[s.StepType]++
 	// first time the stateId show up
@@ -312,6 +317,15 @@ func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute() error {
 
 func formatStepExecutionId(stepType string, stepExecutionNumber int32) string {
 	return fmt.Sprintf("%v-%v", stepType, stepExecutionNumber)
+}
+
+func splitStepExecutionId(stepExeId string) (stepType string, stepExecutionNumber int32) {
+	idx := strings.LastIndex(stepExeId, "-")
+	if idx <= 0 || idx == len(stepExeId)-1 {
+		panic("step execution ID has an invalid format")
+	}
+	stepType = stepExeId[:idx]
+	return stepType, parseStepExecutionNumber(stepType, stepExeId)
 }
 
 func parseStepExecutionNumber(stepType, stepExecutionId string) int32 {

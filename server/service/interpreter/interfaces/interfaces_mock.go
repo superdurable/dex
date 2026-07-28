@@ -279,17 +279,17 @@ func (mr *MockTimerProcessorMockRecorder) AddTimers(stepExeId, timerConditions, 
 }
 
 // Dump mocks base method.
-func (m *MockTimerProcessor) Dump() []*iwfpb.StaleSkipTimer {
+func (m *MockTimerProcessor) Dump(isStepExecutionActive func(stepExeId string) bool) []*iwfpb.StaleSkipTimer {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Dump")
+	ret := m.ctrl.Call(m, "Dump", isStepExecutionActive)
 	ret0, _ := ret[0].([]*iwfpb.StaleSkipTimer)
 	return ret0
 }
 
 // Dump indicates an expected call of Dump.
-func (mr *MockTimerProcessorMockRecorder) Dump() *gomock.Call {
+func (mr *MockTimerProcessorMockRecorder) Dump(isStepExecutionActive interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Dump", reflect.TypeOf((*MockTimerProcessor)(nil).Dump))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Dump", reflect.TypeOf((*MockTimerProcessor)(nil).Dump), isStepExecutionActive)
 }
 
 // GetTimerInfos mocks base method.
@@ -332,18 +332,18 @@ func (mr *MockTimerProcessorMockRecorder) RemovePendingTimersOfStep(stepExeId in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePendingTimersOfStep", reflect.TypeOf((*MockTimerProcessor)(nil).RemovePendingTimersOfStep), stepExeId)
 }
 
-// RetryStaleSkipTimer mocks base method.
-func (m *MockTimerProcessor) RetryStaleSkipTimer() bool {
+// ReapplyStaleSkipTimer mocks base method.
+func (m *MockTimerProcessor) ReapplyStaleSkipTimer() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RetryStaleSkipTimer")
+	ret := m.ctrl.Call(m, "ReapplyStaleSkipTimer")
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
-// RetryStaleSkipTimer indicates an expected call of RetryStaleSkipTimer.
-func (mr *MockTimerProcessorMockRecorder) RetryStaleSkipTimer() *gomock.Call {
+// ReapplyStaleSkipTimer indicates an expected call of ReapplyStaleSkipTimer.
+func (mr *MockTimerProcessorMockRecorder) ReapplyStaleSkipTimer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryStaleSkipTimer", reflect.TypeOf((*MockTimerProcessor)(nil).RetryStaleSkipTimer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapplyStaleSkipTimer", reflect.TypeOf((*MockTimerProcessor)(nil).ReapplyStaleSkipTimer))
 }
 
 // SkipTimer mocks base method.

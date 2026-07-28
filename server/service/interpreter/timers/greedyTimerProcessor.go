@@ -56,8 +56,20 @@ func NewGreedyTimerProcessor(
 	return tp
 }
 
-func (t *GreedyTimerProcessor) Dump() []*iwfpb.StaleSkipTimer {
-	return t.staleSkipTimers
+func (t *GreedyTimerProcessor) Dump(
+	isStepExecutionActive func(stepExeId string) bool,
+) []*iwfpb.StaleSkipTimer {
+	if isStepExecutionActive == nil {
+		panic("isStepExecutionActive is required")
+	}
+	kept := make([]*iwfpb.StaleSkipTimer, 0, len(t.staleSkipTimers))
+	for _, staleSkip := range t.staleSkipTimers {
+		if isStepExecutionActive(staleSkip.GetStepExecutionId()) {
+			kept = append(kept, staleSkip)
+		}
+	}
+	t.staleSkipTimers = kept
+	return kept
 }
 
 func (t *GreedyTimerProcessor) GetTimerInfos() map[string][]*iwfpb.TimerInfo {
@@ -98,7 +110,7 @@ func (t *GreedyTimerProcessor) SkipTimer(
 	return true
 }
 
-func (t *GreedyTimerProcessor) RetryStaleSkipTimer() bool {
+func (t *GreedyTimerProcessor) ReapplyStaleSkipTimer() bool {
 	for i, staleSkip := range t.staleSkipTimers {
 		found := t.SkipTimer(
 			staleSkip.GetStepExecutionId(),
@@ -134,8 +146,8 @@ func (t *GreedyTimerProcessor) WaitForTimerFiredOrSkipped(
 		timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 		return timer.GetStatus()
 	}
-	// RetryStaleSkipTimer may skip a different timer; only return if this one changed.
-	if t.RetryStaleSkipTimer() {
+	// ReapplyStaleSkipTimer may skip a different timer; only return if this one changed.
+	if t.ReapplyStaleSkipTimer() {
 		if timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED ||
 			timer.GetStatus() == iwfpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED {
 			t.logger.Warn("timer skipped by stale skip signal", stepExeId, timerIdx)
@@ -203,6 +215,6 @@ func (t *GreedyTimerProcessor) AddTimers(
 		timers[idx] = &timer
 	}
 	t.stepExecutionCurrentTimerInfos[stepExeId] = timers
-	for t.RetryStaleSkipTimer() {
+	for t.ReapplyStaleSkipTimer() {
 	}
 }

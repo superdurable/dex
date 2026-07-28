@@ -171,7 +171,9 @@ func (c *ContinueAsNewer) GetSnapshot() *iwfpb.ContinueAsNewDump {
 		StepsToStartFromBeginning: c.stepRequestQueue.GetAllStepStartRequests(),
 		StepExecutionsToResume:    stepExecutionsToResume,
 		StepOutputs:               c.outputCollector.GetAll(),
-		StaleSkipTimers:           c.timerProcessor.Dump(),
+		StaleSkipTimers: c.timerProcessor.Dump(
+			c.stepExecutionCounter.IsStepExecutionActive,
+		),
 	}
 }
 

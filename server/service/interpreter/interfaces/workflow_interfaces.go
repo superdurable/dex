@@ -90,9 +90,10 @@ func NewUnifiedContext(ctx interface{}) UnifiedContext {
 }
 
 type TimerProcessor interface {
-	Dump() []*iwfpb.StaleSkipTimer
+	// Callback avoids importing StepExecutionCounter (timers↔interpreter cycle).
+	Dump(isStepExecutionActive func(stepExeId string) bool) []*iwfpb.StaleSkipTimer
 	SkipTimer(stepExeId string, timerConditionId string, timerIdx int) bool
-	RetryStaleSkipTimer() bool
+	ReapplyStaleSkipTimer() bool
 	WaitForTimerFiredOrSkipped(ctx UnifiedContext, stepExeId string, timerIdx int, cancelWaiting *bool) iwfpb.InternalTimerStatus
 	RemovePendingTimersOfStep(stepExeId string)
 	AddTimers(stepExeId string, timerConditions []*iwfpb.TimerCondition, completedTimerConditions map[int32]iwfpb.InternalTimerStatus)
