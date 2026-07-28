@@ -382,7 +382,7 @@ class JSONPlainPayloadConverter(EncodingPayloadConverter):
         if hasattr(value, "parse_obj"):
             warnings.warn(
                 "If you're using pydantic model, refer to "
-                "https://github.com/temporalio/samples-python/tree/main/pydantic_converter for better support",
+                "https://github.com/temporalio/examples/python/tree/main/pydantic_converter for better support",
             )
         # We let JSON conversion errors be thrown to caller
         return (
