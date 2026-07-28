@@ -10,8 +10,8 @@
 
 * [User sign-up/registry in Python/Java](case-study/Use-case-study-%E2%80%90%E2%80%90-user-signup-workflow.md)
 * [Abstracted microservice orchestration in Java/Golang](case-study/Use-case-study-%E2%80%90%E2%80%90-Microservice-Orchestration.md)
-* Employer & JobSeeker engagement in [Java](../samples-java/src/main/java/io/iworkflow/workflow/engagement) or [Golang](../samples-go/workflows/engagement)
-* Subscription Workflow in [Java](../samples-java/src/main/java/io/iworkflow/workflow/subscription) or [Golang](../samples-go/workflows/subscription)
+* Employer & JobSeeker engagement in [Java](../examples/java/src/main/java/io/iworkflow/workflow/engagement) or [Golang](../examples/go/workflows/engagement)
+* Subscription Workflow in [Java](../examples/java/src/main/java/io/iworkflow/workflow/subscription) or [Golang](../examples/go/workflows/subscription)
 
 ## Wiki
 

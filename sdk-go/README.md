@@ -11,7 +11,7 @@ Golang SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
 go get github.com/superdurable/iwf/sdk-go@latest
 ```
 
-See [samples](../samples-go) for how to use this SDK.
+See [samples](../examples/go) for how to use this SDK.
 
 ## Contribution
 

@@ -2,7 +2,7 @@
 
 Java SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
 
-See [samples](../samples-java) for how to use this SDK to build your workflow.
+See [samples](../examples/java) for how to use this SDK to build your workflow.
 
 Maven coordinates: `io.superdurable:iwf-sdk` (namespace for domain [superdurable.io](https://superdurable.io)).
 
@@ -64,7 +64,7 @@ Edit [`protos/iwf.proto`](../protos/iwf.proto), then run `make -C ../protos prot
 
 ### Local testing
 
-If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/iwf-java-samples) repo, 
+If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/iwf/tree/main/examples/java) repo, 
 use the local publishing command:
 
 1. Run:
@@ -72,7 +72,7 @@ use the local publishing command:
   ./gradlew publishToMavenLocal -x signMavenJavaPublication
   ```
 
-2. In the [samples](https://github.com/superdurable/iwf-java-samples) repo, make sure your `build.gradle` depends on the same version you just published. To find which version you published, open the SDK's `build.gradle` file and look for the `version = "x.y.z"` line near the bottom of the file. Then run:
+2. In the [samples](https://github.com/superdurable/iwf/tree/main/examples/java) repo, make sure your `build.gradle` depends on the same version you just published. To find which version you published, open the SDK's `build.gradle` file and look for the `version = "x.y.z"` line near the bottom of the file. Then run:
   ```
    ./gradlew --refresh-dependencies build
   ```

@@ -3,18 +3,18 @@
 ## Prerequisites
 
 - Go 1.24+ (see `server/go.mod`; root `go.work` pins the workspace)
-- Java 8+ and Gradle wrapper (for `sdk-java` / `samples-java`)
-- Python 3.9+ and Poetry (for `sdk-python` / `samples-python`)
+- Java 8+ and Gradle wrapper (for `sdk-java` / `examples/java`)
+- Python 3.9+ and Poetry (for `sdk-python` / `examples/python`)
 - Docker (for integration tests / local Temporal+Cadence stacks)
 
 ## Go workspace
 
-Root [`go.work`](go.work) includes `sdk-go` and `samples-go` (local `replace` for the SDK).
+Root [`go.work`](go.work) includes `sdk-go` and `examples/go` (local `replace` for the SDK).
 
 ```bash
 go work sync
 go build ./sdk-go/...
-go build ./samples-go/...
+go build ./examples/go/...
 ```
 
 ### Server
@@ -58,20 +58,20 @@ in `server/service/common/converter` (see `server/CONTRIBUTING.md`).
 
 ```bash
 cd sdk-java && ./gradlew build
-cd ../samples-java && ./gradlew build
+cd ../examples/java && ./gradlew build
 ```
 
 ## Python
 
 ```bash
 cd sdk-python && poetry install && poetry run pytest   # if tests are configured
-cd ../samples-python && poetry install
+cd ../examples/python && poetry install
 ```
 
 ## License headers
 
 Source files use per-directory license headers (MIT under `server/` and
-`samples-go/`; Apache-2.0 under the SDKs and Java/Python samples; dual MIT +
+`examples/go/`; Apache-2.0 under the SDKs and Java/Python samples; dual MIT +
 Apache-2.0 under `protos/`). Templates and the directory mapping live in
 [`script/licenseheaders/`](script/licenseheaders/).
 

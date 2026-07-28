@@ -1,10 +1,10 @@
 # Longest-prefix match: first path segment(s) under the repo root → template id.
 # Template files live alongside this mapping as <id>.txt.
 server: mit
-samples-go: mit
+examples/go: mit
 sdk-go: apache-2.0
 sdk-java: apache-2.0
 sdk-python: apache-2.0
-samples-java: apache-2.0
-samples-python: apache-2.0
+examples/java: apache-2.0
+examples/python: apache-2.0
 protos: mit

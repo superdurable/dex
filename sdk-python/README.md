@@ -7,7 +7,7 @@ Python SDK for [iWF workflow engine](https://github.com/superdurable/iwf)
 pip install iwf-sdk==0.0.1
 ```
 
-See [samples](../samples-python) for use case examples.
+See [samples](../examples/python) for use case examples.
 
 ## Requirements
 

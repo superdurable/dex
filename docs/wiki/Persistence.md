@@ -100,7 +100,7 @@ import TabItem from '@theme/TabItem';
 ### Java
 <!--- ## END-GITHUB-ONLY ## --->
 
-An [example](../../samples-java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java) of Java workflow definition with persistence:
+An [example](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java) of Java workflow definition with persistence:
 ```java
 public class UserSignupWorkflow implements ObjectWorkflow {
 
@@ -148,7 +148,7 @@ client.setSearchAttributes(...)
 ### Python
 <!--- ## END-GITHUB-ONLY ## --->
 
-[Example](../../samples-python/signup/signup_workflow.py) in Python with persistence:
+[Example](../../examples/python/signup/signup_workflow.py) in Python with persistence:
 ```python
 class UserSignupWorkflow(ObjectWorkflow):
 
@@ -175,7 +175,7 @@ persistence.set_data_attribute(data_attribute_status, "verified")
 
 Due to the limitation of Golang, the Golang SDK doesn't let you define "type" of an attribute. So there is no type checking in the SDK.
 
-This is an [example](../../samples-go/workflows/microservices/workflow.go) of a Golang workflow definition with persistence:
+This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Golang workflow definition with persistence:
 ```go
 type OrchestrationWorkflow struct {
 	iwf.WorkflowDefaults

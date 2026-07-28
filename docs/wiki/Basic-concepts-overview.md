@@ -24,14 +24,14 @@ Above Workflow/WorkflowState concepts will have their instance as "Definitions" 
 | StateExecutionID| Given a WorkflowExecution, the same StateDefinition(StateID) can be executed multiple times. The StateExecutionID is to identifier the different StateExecutions. It's in a format of "StateID-<number>", where "<number>" is incremental counter maintained by iWF server. This is not an UUID |
 | RPCName| The identifier of an RPC definition within a WorkflowDefinition. By default it's the method name in the code|
 
-For example of this [UserSignupWorkflow](../../samples-java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java): 
+For example of this [UserSignupWorkflow](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java): 
 
 * UserSignupWorkflow is the WorkflowType, which identify the definition of the workflow
-* This [startWorkflow](../../samples-java/src/main/java/io/iworkflow/controller/SignupWorkflowController.java#L38) API will start a workflowExecution, by providing a workflowID as business identifier. The API will return a workflowRunID (UUID) as internal identifier.
+* This [startWorkflow](../../examples/java/src/main/java/io/iworkflow/controller/SignupWorkflowController.java#L38) API will start a workflowExecution, by providing a workflowID as business identifier. The API will return a workflowRunID (UUID) as internal identifier.
 * The startingState is SubmitState, which is also the StateID.
 * The first execution of the State will be `SubmitState-1`. 
-* The Another State is VerifyState, and it could run as a [loop](../../samples-java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java#L136). Hence the StateExecutionIDs will be VerifyState-1, VerifyState-2, ... etc. 
-* An RPCName is [verify](../../samples-java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java#L72).
+* The Another State is VerifyState, and it could run as a [loop](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java#L136). Hence the StateExecutionIDs will be VerifyState-1, VerifyState-2, ... etc. 
+* An RPCName is [verify](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java#L72).
 
 More notes:
 * WorkflowType & StateID & RPCName are key elements in SDK. A StateExecution API callback from iWF server contains WorkflowType+StateID for SDK to invoke the associate StateDefinition. A RPC API call back from iWF server contains WorkflowType + RPCName. 
@@ -47,16 +47,16 @@ A user application defines an ObjectWorkflow by implementing:
 Once workflow is implemented, register the workflows into `Registry` of SDK, and expose an RESTful endpoint for iWF server to call using `WorkerService` of the SDK.
 
 Underneath, SDK will invoke the corresponding Workflow/WorkflowState/RPC code when being called by iWF server:
-* Java Example to use [Spring to register workflow beans](../../samples-java/src/main/java/io/iworkflow/config/IwfConfig.java), and set up [WorkerControllers](../../samples-java/src/main/java/io/iworkflow/controller/IwfWorkerApiController.java)
-* Golang Example to [register workflows](../../samples-go/workflows/registry.go), and use [Golang Gin server to start worker controller](../../samples-go/cmd/server/iwf/iwf.go#L72).
-* Python example to [register workflows](../../samples-python/signup/iwf_config.py), and use Flask to set up [WorkerControllers](../../samples-python/signup/main.py#L54).
+* Java Example to use [Spring to register workflow beans](../../examples/java/src/main/java/io/iworkflow/config/IwfConfig.java), and set up [WorkerControllers](../../examples/java/src/main/java/io/iworkflow/controller/IwfWorkerApiController.java)
+* Golang Example to [register workflows](../../examples/go/workflows/registry.go), and use [Golang Gin server to start worker controller](../../examples/go/cmd/server/iwf/iwf.go#L72).
+* Python example to [register workflows](../../examples/python/signup/iwf_config.py), and use Flask to set up [WorkerControllers](../../examples/python/signup/main.py#L54).
 
 #### Java
 
 The Java interface has default implementation of all methods. So you can skip if you don't need any of them.
 For example, if a workflow doesn't need persistence, then just skip the persistenceSchema.
 
-An [example](../../samples-java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java) of Java workflow definition:
+An [example](../../examples/java/src/main/java/io/iworkflow/workflow/signup/UserSignupWorkflow.java) of Java workflow definition:
 ```java
 public class UserSignupWorkflow implements ObjectWorkflow {
 
@@ -112,7 +112,7 @@ public class UserSignupWorkflow implements ObjectWorkflow {
 The Python base class has default implementation of all methods. So you can skip if you don't need any of them.
 For example, if a workflow doesn't need persistence, then just skip the persistenceSchema.
 
-[Example](../../samples-python/signup/signup_workflow.py) in Python:
+[Example](../../examples/python/signup/signup_workflow.py) in Python:
 ```python
 class UserSignupWorkflow(ObjectWorkflow):
     def get_workflow_states(self) -> StateSchema:
@@ -153,7 +153,7 @@ type MyWorkflow struct {
 
 Also, Golang doesn't have equivalence to Java's annotation or Python's decorator. An RPC must be registered under CommunicationSchema.
 
-This is an [example](../../samples-go/workflows/microservices/workflow.go) of a Golang workflow definition:
+This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Golang workflow definition:
 ```golang
 type OrchestrationWorkflow struct {
 	iwf.WorkflowDefaults

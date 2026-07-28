@@ -1,7 +1,7 @@
 go 1.24.0
 
 use (
-	./samples-go
+	./examples/go
 	./sdk-go
 	./server
 )

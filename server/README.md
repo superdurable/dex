@@ -26,11 +26,11 @@ and persisting state over long durations. With iWF, developers can build scalabl
 
 ## Use case study/examples
 * [SAGA pattern](https://medium.com/@qlong/saga-pattern-deep-dive-with-indeed-workflow-engine-b7e82c59e51f?sk=672abd70b0e092d4cda7788276c5a241)
-  * [Java samples](https://github.com/superdurable/iwf-java-samples/tree/main/src/main/java/io/iworkflow/workflow/money/transfer), [Golang samples](https://github.com/superdurable/iwf-golang-samples/tree/main/workflows/moneytransfer), [Python samples](https://github.com/superdurable/iwf-python-samples/tree/main/moneytransfer)
+  * [Java samples](https://github.com/superdurable/iwf/tree/main/examples/java/src/main/java/io/iworkflow/workflow/money/transfer), [Golang samples](https://github.com/superdurable/iwf/tree/main/examples/go/workflows/moneytransfer), [Python samples](https://github.com/superdurable/iwf/tree/main/examples/python/moneytransfer)
 * [User sign-up/registry in Python/Java](https://github.com/superdurable/iwf/wiki/Use-case-study-%E2%80%90%E2%80%90-user-signup-workflow)
 * [Abstracted microservice orchestration in Java/Golang](https://github.com/superdurable/iwf/wiki/Use-case-study-%E2%80%90%E2%80%90-Microservice-Orchestration)
-* Employer & JobSeeker engagement in [Java](https://github.com/superdurable/iwf-java-samples/tree/main/src/main/java/io/iworkflow/workflow/engagement) or [Golang](https://github.com/superdurable/iwf-golang-samples/blob/main/workflows/engagement)
-* Subscription Workflow in [Java](https://github.com/superdurable/iwf-java-samples/tree/main/src/main/java/io/iworkflow/workflow/subscription) or [Golang](https://github.com/superdurable/iwf-golang-samples/blob/main/workflows/subscription)
+* Employer & JobSeeker engagement in [Java](https://github.com/superdurable/iwf/tree/main/examples/java/src/main/java/io/iworkflow/workflow/engagement) or [Golang](https://github.com/superdurable/iwf/blob/main/examples/go/workflows/engagement)
+* Subscription Workflow in [Java](https://github.com/superdurable/iwf/tree/main/examples/java/src/main/java/io/iworkflow/workflow/subscription) or [Golang](https://github.com/superdurable/iwf/blob/main/examples/go/workflows/subscription)
 * [Design Patterns](https://medium.com/@qlong/iwf-design-patterns-936a48336766)
 
 ## Basic concepts
@@ -45,9 +45,9 @@ See more in [iWF wiki](https://github.com/superdurable/iwf/wiki).
 
 As a coding framework, iWF provides three SDKs to use with:
 
-* [iWF Java SDK](https://github.com/superdurable/iwf-java-sdk) and [samples](https://github.com/superdurable/iwf-java-samples)
-* [iWF Golang SDK](https://github.com/superdurable/iwf/tree/main/sdk-go) and [samples](https://github.com/superdurable/iwf/tree/main/samples-go)
-* [iWF Python SDK](https://github.com/superdurable/iwf-python-sdk) and [samples](https://github.com/superdurable/iwf-python-samples)
+* [iWF Java SDK](https://github.com/superdurable/iwf-java-sdk) and [samples](https://github.com/superdurable/iwf/tree/main/examples/java)
+* [iWF Golang SDK](https://github.com/superdurable/iwf/tree/main/sdk-go) and [samples](https://github.com/superdurable/iwf/tree/main/examples/go)
+* [iWF Python SDK](https://github.com/superdurable/iwf-python-sdk) and [samples](https://github.com/superdurable/iwf/tree/main/examples/python)
 
 The iWF SDKs required a server to run against. See below options to run the server locally. See [iWF wiki](https://github.com/superdurable/iwf/wiki) for production 
 

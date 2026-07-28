@@ -7,15 +7,15 @@ Summary:
 
 MIT License
   - server/
-  - samples-go/
+  - examples/go/
   - protos/ (also available under Apache-2.0; see protos/LICENSE and protos/LICENSE.md)
 
 Apache License 2.0
   - sdk-go/
   - sdk-java/
   - sdk-python/
-  - samples-java/
-  - samples-python/
+  - examples/java/
+  - examples/python/
   - protos/ (dual-licensed; see above)
 
 New contributions to this monorepo should retain the license of the directory

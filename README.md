@@ -12,11 +12,11 @@ This repository combines the former [indeedeng/iwf](https://github.com/indeedeng
 | [protos/](protos/) | Protobuf IDL ([`iwf.proto`](protos/iwf.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
 | [docs/](docs/) | Docs: [`design/`](docs/design/), [`case-study/`](docs/case-study/), [`wiki/`](docs/wiki/) (start at [README.md](docs/README.md)) |
 | [sdk-go/](sdk-go/) | Go SDK |
-| [samples-go/](samples-go/) | Go samples |
+| [examples/go/](examples/go/) | Go examples |
 | [sdk-java/](sdk-java/) | Java SDK |
-| [samples-java/](samples-java/) | Java samples |
+| [examples/java/](examples/java/) | Java examples |
 | [sdk-python/](sdk-python/) | Python SDK |
-| [samples-python/](samples-python/) | Python samples |
+| [examples/python/](examples/python/) | Python examples |
 
 Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 

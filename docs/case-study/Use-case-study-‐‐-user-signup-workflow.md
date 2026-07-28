@@ -34,9 +34,9 @@ The solution with iWF:
 * Natural to represent business
 * Builtin & rich support for operation tooling
 
-It's so simple & easy to do that the [business logic code](../../samples-python/signup/signup_workflow.py) can be shown here!
+It's so simple & easy to do that the [business logic code](../../examples/python/signup/signup_workflow.py) can be shown here!
 
-Also see the [implementation in Java here](../../samples-java/src/main/java/io/iworkflow/workflow/signup).
+Also see the [implementation in Java here](../../examples/java/src/main/java/io/iworkflow/workflow/signup).
 
 ```python
 class SubmitState(WorkflowState[Form]):
@@ -103,7 +103,7 @@ class UserSignupWorkflow(ObjectWorkflow):
         return "done"
 ```
 
-And the [application code](../../samples-python/signup/main.py#L20) will be simply interacting with the workflow like below:
+And the [application code](../../examples/python/signup/main.py#L20) will be simply interacting with the workflow like below:
 
 ```python
 @flask_app.route("/signup/submit")
