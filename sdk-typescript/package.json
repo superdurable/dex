@@ -1,0 +1,34 @@
+{
+  "name": "@superdurable/dex-sdk",
+  "version": "0.0.1",
+  "description": "Placeholder for the Dex workflow SDK (TypeScript). Not for production use yet.",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "sdk-typescript"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/sdk-typescript",
+  "keywords": [
+    "dex",
+    "workflow",
+    "orchestration"
+  ],
+  "author": "SuperDurable",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

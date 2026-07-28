@@ -41,3 +41,14 @@ dist/
 # Logs / local
 *.log
 test.log
+
+# Placeholder SDK build artifacts
+**/target/
+**/*.gem
+**/bin/
+**/obj/
+**/*.nupkg
+**/node_modules/
+**/vendor/bundle/
+**/composer.lock
+sdk-typescript/dist/

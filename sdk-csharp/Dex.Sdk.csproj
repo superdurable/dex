@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SuperDurable.Dex</RootNamespace>
+    <AssemblyName>Dex.Sdk</AssemblyName>
+    <PackageId>Dex.Sdk</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>SuperDurable</Authors>
+    <Company>SuperDurable</Company>
+    <Description>Placeholder for the Dex workflow SDK (.NET). Not for production use yet.</Description>
+    <PackageProjectUrl>https://github.com/superdurable/dex/tree/main/sdk-csharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/superdurable/dex</RepositoryUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>dex;workflow;orchestration</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+</Project>

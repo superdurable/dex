@@ -1,0 +1,26 @@
+{
+  "name": "superdurable/dex-sdk",
+  "description": "Placeholder for the Dex workflow SDK (PHP). Not for production use yet.",
+  "type": "library",
+  "license": "Apache-2.0",
+  "version": "0.0.1",
+  "authors": [
+    {
+      "name": "SuperDurable",
+      "email": "hello@superdurable.io"
+    }
+  ],
+  "homepage": "https://github.com/superdurable/dex/tree/main/sdk-php",
+  "support": {
+    "source": "https://github.com/superdurable/dex"
+  },
+  "require": {
+    "php": ">=7.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "SuperDurable\\Dex\\": "src/"
+    }
+  },
+  "minimum-stability": "stable"
+}

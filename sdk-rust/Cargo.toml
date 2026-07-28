@@ -1,0 +1,15 @@
+[package]
+name = "dex-sdk"
+version = "0.0.1"
+edition = "2021"
+description = "Placeholder for the Dex workflow SDK (Rust). Not for production use yet."
+license = "Apache-2.0"
+repository = "https://github.com/superdurable/dex"
+homepage = "https://github.com/superdurable/dex/tree/main/sdk-rust"
+readme = "README.md"
+keywords = ["dex", "workflow", "orchestration"]
+categories = ["asynchronous"]
+
+[lib]
+name = "dex_sdk"
+path = "src/lib.rs"
