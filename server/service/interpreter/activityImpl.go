@@ -23,6 +23,7 @@ package interpreter
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -91,7 +92,7 @@ func (a *Activities) InvokeWaitForMethod(
 
 	if !a.cfg.ExternalStorage.EffectiveLazyLoading() {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
+			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, composeInternalActivityError(provider, err)
 		}
 	}
@@ -110,7 +111,7 @@ func (a *Activities) InvokeWaitForMethod(
 	printDebugMsg(logger, err, input.GetWorkerTarget().GetAddress())
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), err)
+		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
@@ -121,8 +122,9 @@ func (a *Activities) InvokeWaitForMethod(
 		return nil, composeActivityError(provider, err)
 	}
 
+	resp.LocalActivityInput = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
+		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
 	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
 		return nil, composeInternalActivityError(provider, err)
@@ -152,7 +154,7 @@ func (a *Activities) InvokeExecuteMethod(
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
+			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, composeInternalActivityError(provider, err)
 		}
 		if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
@@ -174,7 +176,7 @@ func (a *Activities) InvokeExecuteMethod(
 	printDebugMsg(logger, err, input.GetWorkerTarget().GetAddress())
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), err)
+		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, composeActivityError(provider, err)
 	}
 	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
@@ -184,8 +186,13 @@ func (a *Activities) InvokeExecuteMethod(
 		return nil, composeActivityError(provider, err)
 	}
 
+	service.SetFromStepExecutionID(
+		resp.GetStepDecision(),
+		req.GetContext().GetStepExecutionId(),
+	)
+	resp.LocalActivityInput = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
+		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
 	if err := a.reuseOrOffloadNextStepInputs(
 		ctx,
@@ -248,11 +255,11 @@ func (a *Activities) InvokeWorkerRPC(
 	}
 	out := &dexpb.InvokeWorkerRPCActivityOutput{Response: resp}
 	if activityInfo.IsLocalActivity {
-		payload := log.ToJsonAndTruncateForLogging(out)
-		if threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes; threshold > 0 && len(payload) >= threshold {
+		payloadSize, sized := jsonPayloadSize(logger, out)
+		if threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes; sized && threshold > 0 && payloadSize >= threshold {
 			logger.Warn("InvokeWorkerRpc local activity return",
 				"workflowId", activityInfo.WorkflowExecution.ID,
-				"payloadSize", len(payload))
+				"payloadSize", payloadSize)
 		}
 	}
 	return out, nil
@@ -656,8 +663,11 @@ func validateWaitingConditionCombinations(
 	return nil
 }
 
-func composeInputForDebug(stepExeId string) string {
-	return fmt.Sprintf("stepExeId: %s", stepExeId)
+func composeLocalActivityInput(ctx *dexpb.Context) *dexpb.LocalActivityInput {
+	return &dexpb.LocalActivityInput{
+		CurrentStepExecutionId: ctx.GetStepExecutionId(),
+		FromStepExecutionId:    ctx.GetFromStepExecutionId(),
+	}
 }
 
 func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {
@@ -708,15 +718,30 @@ func composeInternalActivityError(
 
 func (a *Activities) logLocalActivityWarn(
 	logger interfaces.UnifiedLogger,
-	activityInfo interfaces.ActivityInfo, name, stepExeId string, err error,
+	activityInfo interfaces.ActivityInfo, name, stepExeId string, payload any, err error,
 ) {
-	if !activityInfo.IsLocalActivity || a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes <= 0 {
+	threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes
+	if !activityInfo.IsLocalActivity || threshold <= 0 {
+		return
+	}
+	payloadSize, sized := jsonPayloadSize(logger, payload)
+	if !sized || payloadSize < threshold {
 		return
 	}
 	logger.Warn(name+" local activity return on error",
 		"workflowId", activityInfo.WorkflowExecution.ID,
 		"stepExecutionId", stepExeId,
+		"payloadSize", payloadSize,
 		"error", err)
+}
+
+func jsonPayloadSize(logger interfaces.UnifiedLogger, payload any) (int, bool) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		logger.Error("Failed to serialize local activity payload", "error", err)
+		return 0, false
+	}
+	return len(payloadBytes), true
 }
 
 func (a *Activities) emitStepWaitForMethodEvent(

@@ -69,12 +69,14 @@ func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
 		"single",
 		&dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "input"}},
 		&dexpb.StepOptions{SkipWaitFor: true},
+		"source",
 	)
 
 	starts := queue.GetAllStepStartRequests()
 	require.Len(t, starts, 2)
 	require.Same(t, start, starts[0])
 	require.Equal(t, "single", starts[1].GetStepType())
+	require.Equal(t, "source", starts[1].GetFromStepExecutionIdInternalOnly())
 	require.Same(t, resume, queue.GetAllStepResumeRequests()["resume-1"])
 }
 

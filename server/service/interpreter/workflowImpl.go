@@ -244,6 +244,7 @@ func (i *Interpreter) StartEngineFlow(
 				input.GetStartStepType(),
 				input.GetStepInput(),
 				input.GetStepOptions(),
+				service.StartingStepFromStepExecutionId,
 			)
 		}
 
@@ -382,7 +383,12 @@ func (i *Interpreter) StartEngineFlow(
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
-						stepRequestQueue.AddSingleStepStartRequest(options.GetExecuteFailureProceedStepType(), step.StepInput, options.ExecuteFailureProceedStepOptions)
+						stepRequestQueue.AddSingleStepStartRequest(
+							options.GetExecuteFailureProceedStepType(),
+							step.StepInput,
+							options.ExecuteFailureProceedStepOptions,
+							stepExeId,
+						)
 						// finally, mark state completed and may also update activeStepType search attribute
 						err := stepExecutionCounter.MarkStepExecutionCompleted(
 							step,
@@ -625,11 +631,13 @@ func (i *Interpreter) processStepExecution(
 	flowConfiger *interpreterconfig.FlowConfiger,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
+	step := stepRequest.GetStepMovement()
 	executionContext := &dexpb.Context{
 		FlowId:               info.WorkflowExecution.ID,
 		RunId:                info.FirstRunID,
 		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
 		StepExecutionId:      stepExeId,
+		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
 	}
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -642,7 +650,6 @@ func (i *Interpreter) processStepExecution(
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
 
-	step := stepRequest.GetStepMovement()
 	isResumeFromContinueAsNew := stepRequest.IsResumeRequest()
 
 	options := step.GetStepOptions()

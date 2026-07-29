@@ -171,6 +171,13 @@ message Context {
   string step_execution_id = 4;
   int64 first_attempt_timestamp = 5;
   int32 attempt = 6;
+  // Step execution that scheduled this execution, or a reserved source.
+  string from_step_execution_id = 7;
+}
+
+message LocalActivityInput {
+  string current_step_execution_id = 1;
+  string from_step_execution_id = 2;
 }
 
 message RetryPolicy {
@@ -525,7 +532,8 @@ message InvokeWaitForMethodRequest {
 }
 
 message InvokeWaitForMethodResponse {
-  string local_activity_input = 1;
+  // Server-populated lineage input for local activity history.
+  LocalActivityInput local_activity_input = 1;
   repeated AttributeWrite upsert_attributes = 2;
   WaitingCondition waiting_condition = 3;
   repeated KV upsert_step_exe_locals = 4;
@@ -544,7 +552,8 @@ message InvokeExecuteMethodRequest {
 }
 
 message InvokeExecuteMethodResponse {
-  string local_activity_input = 1;
+  // Server-populated lineage input for local activity history.
+  LocalActivityInput local_activity_input = 1;
   StepDecision step_decision = 2;
   repeated AttributeWrite upsert_attributes = 3;
   repeated KV record_events = 4;
@@ -593,6 +602,8 @@ message StepMovement {
   // other Value kinds are ignored.
   Value step_input = 2;
   StepOptions step_options = 3;
+  // Server-owned scheduling source; workers must leave this empty.
+  string from_step_execution_id_internal_only = 4;
 }
 
 enum WaitingConditionType {

@@ -125,8 +125,8 @@ type (
 		MaxWaitSeconds int64 `yaml:"maxWaitSeconds"`
 		// GrpcMaxMessageBytes is MaxRecv/MaxSend for FlowService, InternalService, and WorkerService clients. Default 16 MiB. Must be positive and larger than continue-as-new page size plus overhead.
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
-		// OmitRpcInputOutputInHistory omits RPC input/output from Temporal/Cadence history when true. Default nil/false keeps I/O for debugging.
-		OmitRpcInputOutputInHistory *bool `yaml:"omitRpcInputOutputInHistory"`
+		// IncludeRPCInputOutputIntoHistory stores RPC input/output in Temporal/Cadence history for debugging. Default false.
+		IncludeRPCInputOutputIntoHistory bool `yaml:"includeRPCInputOutputIntoHistory"`
 		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls against the backend.
 		QueryWorkflowFailedRetryPolicy QueryWorkflowFailedRetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
 	}
