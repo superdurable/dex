@@ -1,19 +1,6 @@
 name: Go SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-go/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-go-ci.yml"
-  pull_request:
-    paths:
-      - "sdk-go/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-go-ci.yml"
   workflow_dispatch:
 
 jobs:
