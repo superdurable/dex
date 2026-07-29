@@ -1,19 +1,6 @@
 name: Python SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-python/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-python-ci.yml"
-  pull_request:
-    paths:
-      - "sdk-python/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-python-ci.yml"
   workflow_dispatch:
 
 jobs:

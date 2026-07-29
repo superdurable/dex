@@ -1,19 +1,6 @@
 name: Java SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-java/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-java-ci.yml"
-  pull_request:
-    paths:
-      - "sdk-java/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/sdk-java-ci.yml"
   workflow_dispatch:
 
 jobs:
