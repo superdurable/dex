@@ -6,11 +6,13 @@ on:
     paths:
       - "sdk-python/**"
       - "protos/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/sdk-python-ci.yml"
   pull_request:
     paths:
       - "sdk-python/**"
       - "protos/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/sdk-python-ci.yml"
   workflow_dispatch:
 
@@ -21,8 +23,8 @@ jobs:
       run:
         working-directory: sdk-python
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.9"
       - name: Install Poetry
@@ -42,7 +44,7 @@ jobs:
       run:
         working-directory: sdk-python
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start Dex environment
         working-directory: sdk-python/dex/tests/dex-service-env
         env:
@@ -92,7 +94,7 @@ jobs:
           echo "Timed out waiting for Dex server"
           docker logs dex-server 2>&1 | tail -80 || true
           exit 1
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.9"
       - name: Install Poetry
@@ -106,4 +108,4 @@ jobs:
           poetry run pytest -vv --cov-config=.coveragerc --cov="dex/" .
       - name: Dump docker logs
         if: always()
-        uses: jwalton/gh-docker-logs@v2
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

@@ -6,11 +6,13 @@ on:
     paths:
       - "server/**"
       - "protos/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-ci.yml"
   pull_request:
     paths:
       - "server/**"
       - "protos/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-ci.yml"
   workflow_dispatch:
 
@@ -22,8 +24,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -33,15 +35,19 @@ jobs:
         run: make unitTests
 
   temporal-integ:
-    name: Temporal integration
+    name: Temporal integration (partition ${{ matrix.partition }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1, 2, 3, 4]
     defaults:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -64,21 +70,25 @@ jobs:
       - name: Temporal integ tests
         env:
           GOWORK: "off"
-        run: make ci-temporal-integ-test
+        run: make ci-temporal-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }}
       - name: Dump docker logs
         if: always()
-        uses: jwalton/gh-docker-logs@v2
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
 
   cadence-integ:
-    name: Cadence integration
+    name: Cadence integration (partition ${{ matrix.partition }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1, 2, 3, 4]
     defaults:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -87,7 +97,7 @@ jobs:
       - name: Cadence integ tests
         env:
           GOWORK: "off"
-        run: make ci-cadence-integ-test
+        run: make ci-cadence-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }}
       - name: Dump docker logs
         if: always()
-        uses: jwalton/gh-docker-logs@v2
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

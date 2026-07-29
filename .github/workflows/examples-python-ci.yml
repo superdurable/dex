@@ -6,11 +6,13 @@ on:
     paths:
       - "examples/python/**"
       - "sdk-python/dex/tests/dex-service-env/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/examples-python-ci.yml"
   pull_request:
     paths:
       - "examples/python/**"
       - "sdk-python/dex/tests/dex-service-env/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/examples-python-ci.yml"
   workflow_dispatch:
 
@@ -22,7 +24,7 @@ jobs:
       run:
         working-directory: examples/python
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start Dex environment
         working-directory: sdk-python/dex/tests/dex-service-env
         env:
@@ -72,7 +74,7 @@ jobs:
           echo "Timed out waiting for Dex server"
           docker logs dex-server 2>&1 | tail -80 || true
           exit 1
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.9"
       - name: Install Poetry
@@ -86,4 +88,4 @@ jobs:
         run: poetry run pytest -vv tests/
       - name: Dump docker logs
         if: always()
-        uses: jwalton/gh-docker-logs@v2
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

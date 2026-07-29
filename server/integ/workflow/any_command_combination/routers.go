@@ -22,7 +22,6 @@ package anycommandcombination
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -77,7 +76,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	invalidTimerConditions := []*dexpb.TimerCondition{
 		{
@@ -199,7 +198,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	if request.GetFlowType() == WorkflowType {
 		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {

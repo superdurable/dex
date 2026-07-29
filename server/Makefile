@@ -181,14 +181,21 @@ temporalIntegTests:
 cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 
+totalPartitions ?= 1
+partitionNum ?= 0
+
 ci-cadence-integ-test:
-	$Q go test -v ./integ -timeout 20m -search=false -temporal=false -dependencyWaitSeconds=180
+	$Q set -e; \
+		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)")"; \
+		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -temporal=false -dependencyWaitSeconds=180
 
 ci-cadence-integ-test-disable-sticky:
 	$Q go test -v ./integ -run "(?i)^Test[${startsWith}]" -search=false -temporal=false -dependencyWaitSeconds=180 -disableStickyCache
 
 ci-temporal-integ-test:
-	$Q go test -v ./integ -timeout 20m -search=false -cadence=false -dependencyWaitSeconds=60
+	$Q set -e; \
+		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)")"; \
+		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dependencyWaitSeconds=60
 
 ci-temporal-integ-test-disable-sticky:
 	$Q go test -v ./integ -timeout 20m -run "(?i)^Test[${startsWith}]" -search=false -cadence=false -dependencyWaitSeconds=60 -disableStickyCache

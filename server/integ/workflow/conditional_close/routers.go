@@ -23,7 +23,6 @@ package conditional_close
 import (
 	"context"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 	"time"
 
@@ -75,7 +74,7 @@ func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
-	log.Println("received worker rpc request, ", request)
+	common.LogRequest("received worker rpc request, ", request)
 	if value, ok := h.invokeHistory.Load(request.GetRpcName()); ok {
 		h.invokeHistory.Store(request.GetRpcName(), value.(int64)+1)
 	} else {
@@ -93,7 +92,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -137,7 +136,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {

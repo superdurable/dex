@@ -169,4 +169,16 @@ this [issue](https://github.com/uber/cadence/issues/5076).
 * To run the whole suite for Cadence only `make cadenceIntegTests`
 * To run a specify test case or a test file, you can utilize the IDE or `go test` command.
 
+CI integration tests are partitioned by top-level test name. Dynamic subtests run
+in the same partition as their parent. Reproduce a CI partition locally with:
+
+```shell
+make ci-temporal-integ-test totalPartitions=5 partitionNum=0
+make ci-cadence-integ-test totalPartitions=5 partitionNum=0
+```
+
+`totalPartitions` defaults to `1` and `partitionNum` defaults to `0`, which runs
+the complete suite. Each CI partition uses an independent runner and backend
+stack.
+
 To debug the failed test, search for `--- FAIL` in the output logs (in GitHub Action, click "view raw logs"") 

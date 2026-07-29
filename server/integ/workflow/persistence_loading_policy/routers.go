@@ -86,7 +86,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("persistence_loading_policy: received waitFor request, ", request)
+	common.LogRequest("persistence_loading_policy: received waitFor request, ", request)
 
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
@@ -111,7 +111,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("persistence_loading_policy: received execute request, ", request)
+	common.LogRequest("persistence_loading_policy: received execute request, ", request)
 
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")

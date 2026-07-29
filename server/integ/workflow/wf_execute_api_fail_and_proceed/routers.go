@@ -23,7 +23,6 @@ package wf_execute_api_fail_and_proceed
 import (
 	"context"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -71,7 +70,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	if request.GetFlowType() != FlowType {
 		panic("should not get here")

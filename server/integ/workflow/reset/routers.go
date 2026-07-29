@@ -73,7 +73,7 @@ func (h *handler) InvokeExecuteMethod(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
 	log.Println("start of execute")
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {

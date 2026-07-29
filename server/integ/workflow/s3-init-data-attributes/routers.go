@@ -83,7 +83,7 @@ func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -119,7 +119,7 @@ func (h *handler) InvokeExecuteMethod(
 	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -223,7 +223,13 @@ func (h *handler) validateInitialAttributes(
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey1, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr1 mismatch")
-				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey1, expectedData, receivedData)
+				log.Printf(
+					"%s: ❌ %s value mismatch - expected: %s, received: %s",
+					logPrefix,
+					TestDataAttrKey1,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		case TestDataAttrKey2:
 			expectedData := string(TestDataAttributeVal2.GetObjValue().GetPayload())
@@ -233,7 +239,13 @@ func (h *handler) validateInitialAttributes(
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey2, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr2 mismatch")
-				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey2, expectedData, receivedData)
+				log.Printf(
+					"%s: ❌ %s value mismatch - expected: %s, received: %s",
+					logPrefix,
+					TestDataAttrKey2,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		case TestDataAttrKey3:
 			expectedData := string(TestDataAttributeVal3.GetObjValue().GetPayload())
@@ -243,7 +255,13 @@ func (h *handler) validateInitialAttributes(
 				log.Printf("%s: ✅ %s value matches initial data (length: %d)", logPrefix, TestDataAttrKey3, len(receivedData))
 			} else {
 				validationErrors = append(validationErrors, "attr3 mismatch")
-				log.Printf("%s: ❌ %s value mismatch - expected: %s, received: %s", logPrefix, TestDataAttrKey3, expectedData, receivedData)
+				log.Printf(
+					"%s: ❌ %s value mismatch - expected: %s, received: %s",
+					logPrefix,
+					TestDataAttrKey3,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		}
 	}

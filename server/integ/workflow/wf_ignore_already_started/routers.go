@@ -23,7 +23,6 @@ package wf_ignore_already_started
 import (
 	"context"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -59,7 +58,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	if request.GetFlowType() == FlowType {
 		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {
@@ -90,7 +89,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	if request.GetFlowType() == FlowType {
 		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_execute"); ok {

@@ -23,7 +23,6 @@ package wf_state_api_fail_and_proceed
 import (
 	"context"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -59,7 +58,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	if request.GetFlowType() != FlowType {
 		panic("should not get here")
@@ -82,7 +81,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	if request.GetFlowType() != FlowType {
 		panic("should not get here")

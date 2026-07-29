@@ -23,7 +23,6 @@ package wf_state_options_data_attributes_loading
 import (
 	"context"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -76,7 +75,7 @@ func (h *handler) InvokeWaitForMethod(
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 
-	log.Println("state_options_data_attributes_loading: received waitFor request, ", request)
+	common.LogRequest("state_options_data_attributes_loading: received waitFor request, ", request)
 
 	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
 
@@ -101,7 +100,7 @@ func (h *handler) InvokeExecuteMethod(
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 
-	log.Println("state_options_data_attributes_loading: received execute request, ", request)
+	common.LogRequest("state_options_data_attributes_loading: received execute request, ", request)
 
 	h.incrementInvokeHistory(request.GetStepType() + "_execute")
 

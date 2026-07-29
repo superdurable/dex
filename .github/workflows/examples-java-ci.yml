@@ -6,11 +6,13 @@ on:
     paths:
       - "examples/java/**"
       - "sdk-java/script/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/examples-java-ci.yml"
   pull_request:
     paths:
       - "examples/java/**"
       - "sdk-java/script/**"
+      - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/examples-java-ci.yml"
   workflow_dispatch:
 
@@ -22,13 +24,13 @@ jobs:
       run:
         working-directory: examples/java
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
         with:
           distribution: zulu
           java-version: "17"
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
       - name: Build and unit tests
         run: ./gradlew test --tests 'io.superdurable.dex.workflow.*' --refresh-dependencies
       - name: Verify published SDK coordinate
@@ -43,7 +45,7 @@ jobs:
       run:
         working-directory: examples/java
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start Dex environment
         working-directory: sdk-java
         env:
@@ -93,14 +95,14 @@ jobs:
           echo "Timed out waiting for Dex server"
           docker logs dex-server 2>&1 | tail -80 || true
           exit 1
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: zulu
           java-version: "17"
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
       - name: Integration tests
         run: ./gradlew test --tests 'io.superdurable.dex.integ.*' --info
       - name: Dump docker logs
         if: always()
-        uses: jwalton/gh-docker-logs@v2
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

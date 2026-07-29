@@ -77,7 +77,7 @@ func (h *handler) InvokeWaitForMethod(
 	ctx context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -112,7 +112,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -222,7 +222,12 @@ func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*
 				h.invokeData.Store("S2_large_obj1_data", LargeDataContent1)
 				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey1, len(receivedData))
 			} else {
-				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey1, expectedData, receivedData)
+				log.Printf(
+					"S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s",
+					TestDataObjKey1,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		case TestDataObjKey2:
 			expectedData := "\"" + LargeDataContent2 + "\""
@@ -231,7 +236,12 @@ func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*
 				h.invokeData.Store("S2_large_obj2_data", LargeDataContent2)
 				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey2, len(receivedData))
 			} else {
-				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey2, expectedData, receivedData)
+				log.Printf(
+					"S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s",
+					TestDataObjKey2,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		case TestDataObjKey3:
 			expectedData := "\"" + SmallDataContent3 + "\""
@@ -240,7 +250,12 @@ func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*
 				h.invokeData.Store("S2_small_obj3_data", SmallDataContent3)
 				log.Printf("S2 WaitUntil: ✅ %s value matches upserted data (length: %d)", TestDataObjKey3, len(receivedData))
 			} else {
-				log.Printf("S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s", TestDataObjKey3, expectedData, receivedData)
+				log.Printf(
+					"S2 WaitUntil: ❌ %s value mismatch - expected: %s, received: %s",
+					TestDataObjKey3,
+					common.FormatForLogging(expectedData),
+					common.FormatForLogging(receivedData),
+				)
 			}
 		}
 	}

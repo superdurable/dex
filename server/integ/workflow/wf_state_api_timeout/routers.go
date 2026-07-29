@@ -24,7 +24,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 	"time"
 
@@ -60,7 +59,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	if request.GetFlowType() == FlowType {
 		if value, ok := h.invokeHistory.Load(request.GetStepType() + "_waitFor"); ok {

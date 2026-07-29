@@ -24,7 +24,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/superdurable/dex/integ/workflow/common"
-	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -96,7 +95,7 @@ func (h *handler) InvokeWorkerRPC(
 	_ context.Context,
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
-	log.Println("received worker rpc request, ", request)
+	common.LogRequest("received worker rpc request, ", request)
 
 	flowContext := request.GetContext()
 	if flowContext.GetFlowId() == "" || flowContext.GetRunId() == "" {
@@ -158,7 +157,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	common.LogRequest("received waitFor request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
 		return nil, err
@@ -201,7 +200,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	common.LogRequest("received execute request, ", request)
 
 	if err := validateStepContext(request.GetContext()); err != nil {
 		return nil, err
