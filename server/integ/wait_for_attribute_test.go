@@ -356,7 +356,7 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 		ctx,
 		flowClient,
 		workerTarget,
-		minimumContinueAsNewConfigV0(),
+		minimumContinueAsNewSyncDurabilityConfig(),
 	)
 	expectedValue := stringValue("wait-for-attribute-can")
 

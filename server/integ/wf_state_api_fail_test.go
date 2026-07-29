@@ -37,12 +37,20 @@ func TestStateApiFailTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateApiFail(t, service.BackendTypeTemporal, nil)
+		doTestStateApiFail(t, service.BackendTypeTemporal, nil, dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED)
 		smallWaitForFastTest()
 		doTestStateApiFail(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
+		smallWaitForFastTest()
+		doTestStateApiFail(
+			t,
+			service.BackendTypeTemporal,
+			asyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_SYNC,
 		)
 		smallWaitForFastTest()
 	}
@@ -53,9 +61,14 @@ func TestStateApiFailCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateApiFail(t, service.BackendTypeCadence, nil)
+		doTestStateApiFail(t, service.BackendTypeCadence, nil, dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED)
 		smallWaitForFastTest()
-		doTestStateApiFail(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestStateApiFail(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewSyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
 		smallWaitForFastTest()
 	}
 }
@@ -64,6 +77,7 @@ func doTestStateApiFail(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
+	waitForDurabilityOverride dexpb.StepDurability,
 ) {
 	workerHandler := wf_state_api_fail.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
@@ -83,6 +97,7 @@ func doTestStateApiFail(
 		WorkerTarget:       workerTarget,
 		StartStepType:      wf_state_api_fail.Step1,
 		StepOptions: &dexpb.StepOptions{
+			WaitForDurabilityOverride: waitForDurabilityOverride,
 			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				TotalDurationSeconds: 1,
 			},
@@ -104,7 +119,8 @@ func doTestStateApiFail(
 	history := workerHandler.GetTestResult().InvokeHistory
 	expectedWaitFor := int64(1)
 	if flowConfig != nil &&
-		flowConfig.GetStepDurability() == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+		flowConfig.GetStepDurability() == dexpb.StepDurability_STEP_DURABILITY_ASYNC &&
+		waitForDurabilityOverride != dexpb.StepDurability_STEP_DURABILITY_SYNC {
 		expectedWaitFor = 4
 	}
 	require.Equal(t, map[string]int64{

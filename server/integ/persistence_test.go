@@ -64,7 +64,7 @@ func TestPersistenceWorkflowTemporalContinueAsNew(t *testing.T) {
 			t,
 			service.BackendTypeTemporal,
 			false,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -79,7 +79,7 @@ func TestPersistenceWorkflowTemporalContinueAsNewWithEncryption(t *testing.T) {
 			t,
 			service.BackendTypeTemporal,
 			true,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -104,7 +104,7 @@ func TestPersistenceWorkflowCadenceContinueAsNew(t *testing.T) {
 			t,
 			service.BackendTypeCadence,
 			false,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

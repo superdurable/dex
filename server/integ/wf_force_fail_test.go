@@ -39,7 +39,7 @@ func TestFlowForceFailTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestFlowForceFail(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestFlowForceFail(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestFlowForceFail(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -51,7 +51,7 @@ func TestFlowForceFailCadence(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestFlowForceFail(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestFlowForceFail(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestFlowForceFail(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

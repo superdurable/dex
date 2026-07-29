@@ -62,7 +62,7 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueA
 		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -76,7 +76,7 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowCadenceContinueAs
 		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

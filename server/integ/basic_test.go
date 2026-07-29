@@ -49,9 +49,7 @@ func TestBasicFlowTemporal(t *testing.T) {
 			doTestBasicFlow(
 				t,
 				service.BackendTypeTemporal,
-				minimumContinueAsNewConfig(
-					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
-				),
+				minimumContinueAsNewAsyncDurabilityConfig(),
 			)
 		})
 		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {
@@ -76,9 +74,7 @@ func TestBasicFlowCadence(t *testing.T) {
 			doTestBasicFlow(
 				t,
 				service.BackendTypeCadence,
-				minimumContinueAsNewConfig(
-					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
-				),
+				minimumContinueAsNewAsyncDurabilityConfig(),
 			)
 		})
 		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {

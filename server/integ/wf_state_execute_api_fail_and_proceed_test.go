@@ -37,9 +37,26 @@ func TestStateExecuteApiFailAndProceedTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateExecuteApiFailAndProceed(t, service.BackendTypeTemporal, nil)
+		doTestStateExecuteApiFailAndProceed(
+			t,
+			service.BackendTypeTemporal,
+			nil,
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
 		smallWaitForFastTest()
-		doTestStateExecuteApiFailAndProceed(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestStateExecuteApiFailAndProceed(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewSyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
+		smallWaitForFastTest()
+		doTestStateExecuteApiFailAndProceed(
+			t,
+			service.BackendTypeTemporal,
+			syncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+		)
 		smallWaitForFastTest()
 	}
 }
@@ -49,9 +66,19 @@ func TestStateExecuteApiFailAndProceedCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateExecuteApiFailAndProceed(t, service.BackendTypeCadence, nil)
+		doTestStateExecuteApiFailAndProceed(
+			t,
+			service.BackendTypeCadence,
+			nil,
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
 		smallWaitForFastTest()
-		doTestStateExecuteApiFailAndProceed(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestStateExecuteApiFailAndProceed(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewSyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
 		smallWaitForFastTest()
 	}
 }
@@ -60,6 +87,7 @@ func doTestStateExecuteApiFailAndProceed(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
+	executeDurabilityOverride dexpb.StepDurability,
 ) {
 	workerHandler := wf_execute_api_fail_and_proceed.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
@@ -87,7 +115,8 @@ func doTestStateExecuteApiFailAndProceed(
 			},
 		},
 		StepOptions: &dexpb.StepOptions{
-			SkipWaitFor: true,
+			SkipWaitFor:               true,
+			ExecuteDurabilityOverride: executeDurabilityOverride,
 			ExecuteRetryPolicy: &dexpb.RetryPolicy{
 				MaximumAttempts: 1,
 			},
@@ -112,8 +141,12 @@ func doTestStateExecuteApiFailAndProceed(
 	require.NoError(t, err)
 
 	history := workerHandler.GetTestResult().InvokeHistory
+	expectedExecute := int64(1)
+	if executeDurabilityOverride == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+		expectedExecute = 2
+	}
 	require.Equal(t, map[string]int64{
-		"S1_execute":      1,
+		"S1_execute":      expectedExecute,
 		"Recover_execute": 1,
 	}, history)
 

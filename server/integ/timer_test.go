@@ -61,7 +61,7 @@ func TestTimerFlowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestTimerFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestTimerFlow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -71,7 +71,7 @@ func TestTimerFlowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestTimerFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestTimerFlow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -102,7 +102,7 @@ func TestGreedyTimerFlowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestTimerFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestTimerFlow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -112,7 +112,7 @@ func TestGreedyTimerFlowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestTimerFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestTimerFlow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

@@ -60,7 +60,7 @@ func TestGreedyTimerFlowBaseTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -70,7 +70,7 @@ func TestGreedyTimerFlowBaseCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestGreedyTimerFlowCustomConfig(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

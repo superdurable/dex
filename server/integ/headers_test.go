@@ -45,7 +45,7 @@ func TestHeadersFlowTemporal(t *testing.T) {
 		doTestFlowWithHeaders(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 
@@ -68,7 +68,7 @@ func TestHeadersFlowCadence(t *testing.T) {
 		doTestFlowWithHeaders(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

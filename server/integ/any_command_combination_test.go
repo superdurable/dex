@@ -52,7 +52,7 @@ func TestAnyCommandCombinationFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyCommandCombinationFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -76,7 +76,7 @@ func TestAnyCommandCombinationFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyCommandCombinationFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

@@ -81,7 +81,7 @@ func TestAnyTimerSignalFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyTimerSignalFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -92,7 +92,7 @@ func TestGreedyAnyTimerSignalFlowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestAnyTimerSignalFlow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -105,7 +105,7 @@ func TestAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyTimerSignalFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -116,7 +116,7 @@ func TestGreedyAnyTimerSignalFlowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyTimerSignalFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestAnyTimerSignalFlow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

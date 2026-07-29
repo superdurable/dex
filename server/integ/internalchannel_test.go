@@ -44,7 +44,7 @@ func TestInterStateWorkflowTemporal(t *testing.T) {
 		doTestInterStateWorkflow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -60,7 +60,7 @@ func TestInterStateWorkflowCadence(t *testing.T) {
 		doTestInterStateWorkflow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

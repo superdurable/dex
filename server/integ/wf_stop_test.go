@@ -42,17 +42,17 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWorkflowCanceled(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestWorkflowCanceled(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestWorkflowCanceled(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestWorkflowTerminated(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestWorkflowTerminated(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 
 		doTestWorkflowFail(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestWorkflowFail(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestWorkflowFail(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -64,17 +64,17 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWorkflowCanceled(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestWorkflowCanceled(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestWorkflowCanceled(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestWorkflowTerminated(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestWorkflowTerminated(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 
 		doTestWorkflowFail(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestWorkflowFail(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestWorkflowFail(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
