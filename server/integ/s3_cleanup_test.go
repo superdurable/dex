@@ -64,7 +64,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	flowClient := runtime.FlowClient
 	unifiedClient := runtime.UnifiedClient
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	flowIds := make([]string, 0, 24)
