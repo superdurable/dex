@@ -170,7 +170,6 @@ func NewSignalReceiver(
 			continueAsNewCounter.TriggerByAPI()
 			return
 		}
-		return
 	})
 
 	//The thread waits until a ExecuteRpcSignalChannelName signal has been

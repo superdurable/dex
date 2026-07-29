@@ -24,12 +24,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/superdurable/dex/integ/workflow/common"
 	"log"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/service"
+	commonlog "github.com/superdurable/dex/service/common/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -114,7 +115,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	log.Println("received waitFor request, ", request)
+	log.Println("received waitFor request, ", commonlog.ToJsonAndTruncateForLogging(request))
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
@@ -162,7 +163,7 @@ func (h *handler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	log.Println("received execute request, ", request)
+	log.Println("received execute request, ", commonlog.ToJsonAndTruncateForLogging(request))
 
 	stepContext := request.GetContext()
 	if stepContext.GetAttempt() <= 0 || stepContext.GetFirstAttemptTimestamp() <= 0 {
