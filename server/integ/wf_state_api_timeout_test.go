@@ -76,19 +76,20 @@ func doTestStateApiTimeout(
 		FlowId:             flowId,
 		FlowType:           wf_state_api_timeout.FlowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_state_api_timeout.Step1,
+
+		StartStepType: wf_state_api_timeout.Step1,
 		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 1,
 			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				MaximumAttempts: 1,
 			},
 		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

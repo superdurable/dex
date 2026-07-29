@@ -139,11 +139,11 @@ func doTestRpcWorkflow(
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      rpc.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: rpc.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -250,8 +250,9 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      rpc.State1,
+
+		StartStepType:    rpc.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

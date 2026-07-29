@@ -80,9 +80,10 @@ func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType servic
 		FlowId:             flowId,
 		FlowType:           s3_state_input_optimization.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3_state_input_optimization.State1,
-		StepInput:          objJSONValue(`"this-is-a-large-input-that-exceeds-threshold"`),
+
+		StartStepType:    s3_state_input_optimization.State1,
+		StepInput:        objJSONValue(`"this-is-a-large-input-that-exceeds-threshold"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

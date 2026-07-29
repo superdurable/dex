@@ -27,29 +27,19 @@ import (
 	"github.com/superdurable/dex/service/common/workerclient"
 )
 
-// NewWorkerClients builds activity clients.
-func NewWorkerClients(cfg *config.Config) (*workerclient.Pool, *workerclient.InternalService) {
+// NewInternalServiceClient builds the continue-as-new dump client.
+func NewInternalServiceClient(cfg *config.Config) *workerclient.InternalServiceClient {
 	if cfg == nil {
-		panic("NewWorkerClients requires non-nil config sections")
+		panic("NewInternalServiceClient requires non-nil config sections")
 	}
-	poolCfg := workerclient.Config{
-		IdleTimeout:     cfg.Interpreter.InterpreterActivityConfig.EffectiveWorkerConnectionIdleTimeout(),
-		MaxConnections:  cfg.Interpreter.InterpreterActivityConfig.EffectiveMaxWorkerConnections(),
-		MaxMessageBytes: cfg.Api.EffectiveGrpcMaxMessageBytes(),
-		DefaultHeaders:  cfg.Interpreter.InterpreterActivityConfig.DefaultHeaders,
-	}
-	pool, err := workerclient.NewPool(poolCfg, nil)
-	if err != nil {
-		panic(fmt.Sprintf("create worker client pool: %v", err))
-	}
-	internalService, err := workerclient.NewInternalService(
+	internalService, err := workerclient.NewInternalServiceClient(
 		internalServiceTarget(&cfg.Api, &cfg.Interpreter.InterpreterActivityConfig),
-		poolCfg, nil)
+		cfg,
+	)
 	if err != nil {
-		pool.Close()
 		panic(fmt.Sprintf("create internal service client: %v", err))
 	}
-	return pool, internalService
+	return internalService
 }
 
 func internalServiceTarget(

@@ -71,13 +71,14 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *dexpb.FlowConfig, 
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 86400,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

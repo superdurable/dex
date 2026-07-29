@@ -26,8 +26,7 @@ import (
 
 // BasicInfo contains non-serialized flow identity.
 type BasicInfo struct {
-	FlowType     string
-	WorkerTarget string
+	FlowType string
 }
 
 // StepExecutionStatus is the interpreter's internal per-step-execution outcome.

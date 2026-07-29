@@ -81,9 +81,10 @@ func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.Bac
 		FlowId:             flowId,
 		FlowType:           s3_upsert_data_objects.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3_upsert_data_objects.State1,
-		StepInput:          objJSONValue(`"test"`),
+
+		StartStepType:    s3_upsert_data_objects.State1,
+		StepInput:        objJSONValue(`"test"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

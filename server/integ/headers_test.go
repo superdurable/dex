@@ -98,12 +98,12 @@ func doTestFlowWithHeaders(
 		FlowId:             flowId,
 		FlowType:           headers.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      headers.State1,
-		StepInput:          stepInput,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: headers.State1,
+		StepInput:     stepInput,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

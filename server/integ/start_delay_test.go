@@ -65,10 +65,10 @@ func doTestStartDelay(
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      basic.Step1,
-		StepInput:          stepInput,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: basic.Step1,
+		StepInput:     stepInput,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowStartDelaySeconds: 10,
 			FlowConfigOverride:    flowConfig,
 			IdReusePolicy:         dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
@@ -78,7 +78,8 @@ func doTestStartDelay(
 				MaximumAttempts:        11,
 				MaximumIntervalSeconds: 11,
 			},
-		},
+		}, workerTarget),
+
 		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 12,
 			ExecuteTimeoutSeconds: 13,

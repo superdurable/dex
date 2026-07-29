@@ -101,8 +101,9 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -399,8 +400,9 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -439,7 +441,7 @@ func startParkedWaitForAttributeFlow(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
-	workerTarget string,
+	workerTarget *dexpb.WorkerTarget,
 	flowConfig *dexpb.FlowConfig,
 ) string {
 	t.Helper()
@@ -449,13 +451,14 @@ func startParkedWaitForAttributeFlow(
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

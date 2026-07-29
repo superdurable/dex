@@ -23,8 +23,10 @@ package workerclient
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
+	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"google.golang.org/grpc"
@@ -32,76 +34,78 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// InternalService holds a single reusable InternalService connection (CAN dump activity).
-type InternalService struct {
+// InternalServiceClient owns the reusable continue-as-new dump connection.
+type InternalServiceClient struct {
 	mu     sync.Mutex
 	conn   *grpc.ClientConn
 	client dexpb.InternalServiceClient
 	header metadata.MD
-	target string
-	cfg    Config
-	dial   DialFunc
 	closed bool
 }
 
-// NewInternalService dials InternalService once. target is normalized like worker targets.
-func NewInternalService(target string, cfg Config, dial DialFunc) (*InternalService, error) {
-	if cfg.MaxMessageBytes <= 0 {
-		return nil, fmt.Errorf("workerclient: MaxMessageBytes must be positive, got %d", cfg.MaxMessageBytes)
+// NewInternalServiceClient creates the continue-as-new dump client.
+func NewInternalServiceClient(target string, cfg *config.Config) (*InternalServiceClient, error) {
+	if cfg == nil {
+		panic("workerclient: config must not be nil")
 	}
-	if err := ValidateDefaultHeaders(cfg.DefaultHeaders); err != nil {
+	maxMessageBytes := cfg.Api.EffectiveGrpcMaxMessageBytes()
+	if maxMessageBytes <= 0 {
+		return nil, fmt.Errorf("workerclient: GrpcMaxMessageBytes must be positive, got %d", cfg.Api.GrpcMaxMessageBytes)
+	}
+	if err := ValidateDefaultHeaders(cfg.Worker.DefaultHeaders); err != nil {
 		return nil, err
 	}
-	normalized, err := grpctarget.NormalizeWorkerTarget(target)
+	normalized, err := grpctarget.NormalizeAddress(target)
 	if err != nil {
 		return nil, err
 	}
-	if dial == nil {
-		dial = defaultDial
-	}
-	opts := []grpc.DialOption{
+	conn, err := grpc.NewClient(
+		normalized,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(cfg.MaxMessageBytes),
-			grpc.MaxCallSendMsgSize(cfg.MaxMessageBytes),
+			grpc.MaxCallRecvMsgSize(maxMessageBytes),
+			grpc.MaxCallSendMsgSize(maxMessageBytes),
 		),
-	}
-	conn, err := dial(context.Background(), normalized, opts...)
+	)
 	if err != nil {
 		return nil, err
 	}
-	return &InternalService{
+	return &InternalServiceClient{
 		conn:   conn,
 		client: dexpb.NewInternalServiceClient(conn),
-		header: metadata.New(cfg.DefaultHeaders),
-		target: normalized,
-		cfg:    cfg,
-		dial:   dial,
+		header: metadata.New(cfg.Worker.DefaultHeaders),
 	}, nil
 }
 
-// Client returns the InternalService client and a context with default headers.
-func (i *InternalService) Client(ctx context.Context) (dexpb.InternalServiceClient, context.Context, error) {
+// Client returns the generated client with default headers.
+func (i *InternalServiceClient) Client(
+	ctx context.Context,
+) (dexpb.InternalServiceClient, context.Context, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.closed || i.client == nil {
 		return nil, ctx, fmt.Errorf("workerclient: internal client closed")
 	}
-	outCtx := ctx
-	if len(i.header) > 0 {
-		outCtx = metadata.NewOutgoingContext(ctx, i.header)
+	if len(i.header) == 0 {
+		return i.client, ctx, nil
 	}
-	return i.client, outCtx, nil
+	return i.client, metadata.NewOutgoingContext(ctx, i.header), nil
 }
 
 // Close closes the InternalService connection.
-func (i *InternalService) Close() {
+func (i *InternalServiceClient) Close() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	i.closed = true
-	if i.conn != nil {
-		_ = i.conn.Close()
-		i.conn = nil
-		i.client = nil
+	if i.closed {
+		return
 	}
+	i.closed = true
+	if i.conn == nil {
+		return
+	}
+	if err := i.conn.Close(); err != nil {
+		log.Printf("workerclient: close internal connection: %v", err)
+	}
+	i.conn = nil
+	i.client = nil
 }

@@ -94,9 +94,10 @@ func doTestWaitForStateCompletion(
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(nowTimestamp, 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(nowTimestamp, 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -161,9 +162,10 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -204,12 +206,12 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: wait_for_state_completion.State1,
+		StepInput:     stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: minimumContinueAsNewSyncDurabilityConfig(),
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -241,9 +243,10 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -315,9 +318,10 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -351,9 +355,10 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -400,9 +405,10 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_for_state_completion.State1,
-		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

@@ -95,9 +95,10 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3GetSetDataAttributes.State1,
-		StepInput:          objJSONValue(`"test-input"`),
+
+		StartStepType:    s3GetSetDataAttributes.State1,
+		StepInput:        objJSONValue(`"test-input"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -227,15 +228,15 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3GetSetDataAttributes.State1,
-		StepInput:          objJSONValue(`"test-input"`),
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: s3GetSetDataAttributes.State1,
+		StepInput:     objJSONValue(`"test-input"`),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			Attributes: []*dexpb.AttributeWrite{
 				{Key: "initial-small", Value: s3GetSetDataAttributes.SmallDataValue},
 				{Key: "initial-large", Value: s3GetSetDataAttributes.LargeDataValue},
 			},
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

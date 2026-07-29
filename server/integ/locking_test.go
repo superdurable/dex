@@ -103,11 +103,11 @@ func doTestLockingWorkflow(
 		FlowId:             flowId,
 		FlowType:           locking.WorkflowType,
 		FlowTimeoutSeconds: 300,
-		WorkerTarget:       workerTarget,
-		StartStepType:      locking.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: locking.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

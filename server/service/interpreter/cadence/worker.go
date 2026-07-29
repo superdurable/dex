@@ -42,8 +42,7 @@ type InterpreterWorker struct {
 	domain         string
 	worker         worker.Worker
 	tasklist       string
-	workerPool     *workerclient.Pool
-	internalClient *workerclient.InternalService
+	internalClient *workerclient.InternalServiceClient
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
 	workflow       *interpreter.Interpreter
@@ -60,21 +59,23 @@ func NewInterpreterWorker(
 	dataConverter encoded.DataConverter,
 	unifiedClient uclient.UnifiedClient,
 	store blobstore.BlobStore,
+	workerPool *workerclient.WorkerClientPool,
 ) *InterpreterWorker {
 	if cfg == nil {
 		panic("requires non-nil config sections")
 	}
-	if serviceClient == nil || closeFunc == nil || dataConverter == nil || unifiedClient == nil {
+	if serviceClient == nil || closeFunc == nil || dataConverter == nil ||
+		unifiedClient == nil || workerPool == nil {
 		panic("Cadence InterpreterWorker requires non-nil dependencies")
 	}
 	if domain == "" || tasklist == "" {
 		panic("Cadence InterpreterWorker requires domain and task list")
 	}
-	pool, internal := interpreter.NewWorkerClients(cfg)
+	internal := interpreter.NewInternalServiceClient(cfg)
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
-		pool,
+		workerPool,
 		internal,
 		unifiedClient,
 		store,
@@ -87,7 +88,6 @@ func NewInterpreterWorker(
 		domain:         domain,
 		tasklist:       tasklist,
 		closeFunc:      closeFunc,
-		workerPool:     pool,
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
@@ -100,9 +100,6 @@ func NewInterpreterWorker(
 func (iw *InterpreterWorker) Close() {
 	if iw.worker != nil {
 		iw.worker.Stop()
-	}
-	if iw.workerPool != nil {
-		iw.workerPool.Close()
 	}
 	if iw.internalClient != nil {
 		iw.internalClient.Close()

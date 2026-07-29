@@ -139,11 +139,11 @@ func doTestAnyTimerSignalFlow(
 		FlowId:             flowId,
 		FlowType:           anytimersignal.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      anytimersignal.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: anytimersignal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

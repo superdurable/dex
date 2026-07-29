@@ -60,9 +60,10 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      basic.Step1,
-		StepInput:          stepInput,
+
+		StartStepType:    basic.Step1,
+		StepInput:        stepInput,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

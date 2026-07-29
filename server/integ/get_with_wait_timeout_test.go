@@ -71,11 +71,11 @@ func doTestFlowWithWaitTimeout(
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 15,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: signal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

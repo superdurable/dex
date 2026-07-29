@@ -35,7 +35,7 @@ import (
 // InvokeWorkerRpc calls WorkerService.InvokeWorkerRPC using the shared worker pool.
 func InvokeWorkerRpc(
 	ctx context.Context,
-	pool *workerclient.Pool,
+	pool *workerclient.WorkerClientPool,
 	rpcPrep *dexpb.PrepareRpcQueryResponse,
 	req *dexpb.InvokeRPCRequest,
 	apiMaxSeconds int64,
@@ -60,7 +60,11 @@ func InvokeWorkerRpc(
 	rpcCtx, cancel := utils.TrimContextByTimeoutWithCappedDDL(ctx, timeoutPtr, apiMaxSeconds)
 	defer cancel()
 
-	client, callCtx, release, err := pool.Acquire(rpcCtx, rpcPrep.GetWorkerTarget())
+	client, callCtx, release, err := pool.Acquire(
+		rpcCtx,
+		rpcPrep.GetWorkerTarget(),
+		req.GetFlowId(),
+	)
 	if err != nil {
 		return nil, err
 	}

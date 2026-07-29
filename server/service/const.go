@@ -55,8 +55,8 @@ const (
 	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
 	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
 
-	WorkerTargetMemoKey = DexSystemConstPrefix + "WorkerTarget"
-	WorkflowRequestId   = DexSystemConstPrefix + "WorkflowRequestId"
+	WorkerAddressMemoKey = DexSystemConstPrefix + "WorkerAddress"
+	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"
 )
 
 const (

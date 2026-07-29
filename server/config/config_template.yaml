@@ -5,6 +5,13 @@ api:
   queryWorkflowFailedRetryPolicy:
     initialIntervalSeconds: 1
     maximumAttempts: 5
+worker:
+  # Refresh individual endpoints behind headless WorkerService DNS.
+  headlessAddressRefreshInterval: 60s
+  # Bound remembered flow-to-endpoint routes.
+  maxStickyRoutingEntries: 100000
+  # Includes the first transport attempt within one activity attempt.
+  workerServiceRequestMaxAttempts: 3
 interpreter:
   defaultWorkflowConfig:
     continueAsNewThreshold: 100

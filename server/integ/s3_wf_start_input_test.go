@@ -84,9 +84,10 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 		FlowId:             flowId,
 		FlowType:           s3_start_input.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3_start_input.State1,
-		StepInput:          stepInput,
+
+		StartStepType:    s3_start_input.State1,
+		StepInput:        stepInput,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

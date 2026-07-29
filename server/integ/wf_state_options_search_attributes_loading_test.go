@@ -55,9 +55,10 @@ func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType servi
 		FlowId:             flowId,
 		FlowType:           wf_state_options_search_attributes_loading.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_state_options_search_attributes_loading.State1,
-		StepInput:          objJSONValue(`"PARTIAL_WITHOUT_LOCKING"`),
+
+		StartStepType:    wf_state_options_search_attributes_loading.State1,
+		StepInput:        objJSONValue(`"PARTIAL_WITHOUT_LOCKING"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

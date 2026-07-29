@@ -84,13 +84,14 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *dexpb.FlowConfig)
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes_optimization.WorkflowType,
 		FlowTimeoutSeconds: 15,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_until_search_attributes_optimization.State1,
+
+		StartStepType:    wait_until_search_attributes_optimization.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

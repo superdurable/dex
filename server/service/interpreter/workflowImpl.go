@@ -92,8 +92,7 @@ func (i *Interpreter) StartEngineFlow(
 	NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
 	basicInfo := service.BasicInfo{
-		FlowType:     input.GetFlowType(),
-		WorkerTarget: input.GetWorkerTarget(),
+		FlowType: input.GetFlowType(),
 	}
 
 	var channelStore *ChannelStore
@@ -210,6 +209,7 @@ func (i *Interpreter) StartEngineFlow(
 		channelStore,
 		signalReceiver,
 		stepExecutionCounter,
+		flowConfiger,
 		basicInfo,
 	)
 	if updateErr != nil {
@@ -699,7 +699,7 @@ func (i *Interpreter) processStepExecution(
 			ctx,
 			i.activities.InvokeWaitForMethod,
 			&dexpb.InvokeWaitForMethodActivityInput{
-				WorkerTarget: basicInfo.WorkerTarget,
+				WorkerTarget: flowConfiger.GetWorkerTarget(),
 				Request: &dexpb.InvokeWaitForMethodRequest{
 					Context:    executionContext,
 					FlowType:   basicInfo.FlowType,
@@ -908,7 +908,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		i.activities.InvokeExecuteMethod,
 		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget: basicInfo.WorkerTarget,
+			WorkerTarget: flowConfiger.GetWorkerTarget(),
 			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,

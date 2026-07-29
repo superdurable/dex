@@ -71,16 +71,16 @@ func doTestResetByStatIdWorkflow(
 		FlowId:             flowId,
 		FlowType:           reset.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      reset.State1,
-		StepInput:          stringValue("1"),
+
+		StartStepType: reset.State1,
+		StepInput:     stringValue("1"),
 		StepOptions: &dexpb.StepOptions{
 			SkipWaitFor: true,
 		},
-		FlowStartOptions: &dexpb.FlowStartOptions{
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 			IdReusePolicy:      dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

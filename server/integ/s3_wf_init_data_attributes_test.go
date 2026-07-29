@@ -81,10 +81,10 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 		FlowId:             flowId,
 		FlowType:           s3_init_data_attributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      s3_init_data_attributes.State1,
-		StepInput:          objJSONValue(`"test"`),
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: s3_init_data_attributes.State1,
+		StepInput:     objJSONValue(`"test"`),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			Attributes: []*dexpb.AttributeWrite{
 				{
 					Key:   s3_init_data_attributes.TestDataAttrKey1,
@@ -99,7 +99,7 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 					Value: s3_init_data_attributes.TestDataAttributeVal3,
 				},
 			},
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

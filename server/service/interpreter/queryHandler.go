@@ -75,7 +75,7 @@ func SetQueryHandlers(
 			RunId:                info.WorkflowExecution.RunID,
 			FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
 			FlowType:             basicInfo.FlowType,
-			WorkerTarget:         basicInfo.WorkerTarget,
+			WorkerTarget:         flowConfiger.GetWorkerTarget(),
 			ChannelInfos:         channelStore.GetInfos(),
 		}, nil
 	})

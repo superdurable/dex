@@ -66,12 +66,13 @@ func doTestPersistenceLoadingPolicy(
 		FlowId:             flowId,
 		FlowType:           persistence_loading_policy.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      persistence_loading_policy.State1,
-		StepInput:          flowInput,
+
+		StartStepType: persistence_loading_policy.State1,
+		StepInput:     flowInput,
 		StepOptions: &dexpb.StepOptions{
 			SkipWaitFor: true,
 		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

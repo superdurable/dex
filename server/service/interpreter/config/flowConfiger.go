@@ -25,6 +25,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/grpctarget"
 )
 
 // FlowConfiger holds one execution's effective configuration.
@@ -63,12 +64,20 @@ func (fc *FlowConfiger) UpdateByAPI(config *dexpb.FlowConfig) error {
 	if config.StepDurability != nil {
 		fc.config.StepDurability = config.StepDurability
 	}
+	if config.WorkerTarget != nil {
+		fc.config.WorkerTarget = config.WorkerTarget
+	}
 	return nil
 }
 
 // Get returns the immutable configuration.
 func (fc *FlowConfiger) Get() *dexpb.FlowConfig {
 	return fc.config
+}
+
+// GetWorkerTarget returns the current WorkerService target.
+func (fc *FlowConfiger) GetWorkerTarget() *dexpb.WorkerTarget {
+	return fc.config.GetWorkerTarget()
 }
 
 // EffectiveContinueAsNewThreshold returns the raw threshold. Zero disables
@@ -127,6 +136,11 @@ func ValidateFlowConfig(c *dexpb.FlowConfig) error {
 	}
 	if _, ok := dexpb.ActiveStepSearchMode_name[int32(c.GetActiveStepSearchMode())]; !ok {
 		return fmt.Errorf("unknown active_step_search_mode enum value %d", c.GetActiveStepSearchMode())
+	}
+	if c.GetWorkerTarget() != nil {
+		if _, err := grpctarget.NormalizeWorkerTarget(c.GetWorkerTarget()); err != nil {
+			return err
+		}
 	}
 	return nil
 }

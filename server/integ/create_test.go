@@ -100,10 +100,10 @@ func doTestCreateWithoutStartingStep(
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

@@ -95,13 +95,13 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
-		WorkerTarget:       workerTarget,
-		StartStepType:      command_thread_completion.StateAnyCmd,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: command_thread_completion.StateAnyCmd,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
 			},
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -173,11 +173,11 @@ func doTestCommandThreadCompletion(
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      command_thread_completion.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: command_thread_completion.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

@@ -100,11 +100,11 @@ func doTestAnyCommandCombinationFlow(
 		FlowId:             flowId,
 		FlowType:           anycommandcombination.WorkflowType,
 		FlowTimeoutSeconds: 40,
-		WorkerTarget:       workerTarget,
-		StartStepType:      anycommandcombination.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: anycommandcombination.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

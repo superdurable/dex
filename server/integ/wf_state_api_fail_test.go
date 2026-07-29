@@ -94,19 +94,20 @@ func doTestStateApiFail(
 		FlowId:             flowId,
 		FlowType:           wf_state_api_fail.FlowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_state_api_fail.Step1,
+
+		StartStepType: wf_state_api_fail.Step1,
 		StepOptions: &dexpb.StepOptions{
 			WaitForDurabilityOverride: waitForDurabilityOverride,
 			WaitForRetryPolicy: &dexpb.RetryPolicy{
 				TotalDurationSeconds: 1,
 			},
 		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

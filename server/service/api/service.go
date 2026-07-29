@@ -56,7 +56,7 @@ type serviceImpl struct {
 	apiCfg         *config.ApiConfig
 	extStore       *config.ExternalStorageConfig
 	interpreterCfg *config.Interpreter
-	workerPool     *workerclient.Pool
+	workerPool     *workerclient.WorkerClientPool
 }
 
 func NewApiService(
@@ -67,25 +67,16 @@ func NewApiService(
 	taskQueue string,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	workerPool *workerclient.WorkerClientPool,
 ) (ApiService, error) {
 	if apiCfg == nil || extStore == nil || interpreterCfg == nil {
 		panic("API service requires non-nil config sections")
 	}
-	if client == nil || logger == nil || taskQueue == "" {
+	if client == nil || logger == nil || workerPool == nil || taskQueue == "" {
 		panic("API service requires non-nil dependencies and a task queue")
 	}
 	if extStore.Enabled && store == nil {
 		panic("API service requires a blob store when external storage is enabled")
-	}
-	activityCfg := &interpreterCfg.InterpreterActivityConfig
-	workerPool, err := workerclient.NewPool(workerclient.Config{
-		IdleTimeout:     activityCfg.EffectiveWorkerConnectionIdleTimeout(),
-		MaxConnections:  activityCfg.EffectiveMaxWorkerConnections(),
-		MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes(),
-		DefaultHeaders:  activityCfg.DefaultHeaders,
-	}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create API worker client pool: %w", err)
 	}
 	return &serviceImpl{
 		apiCfg:         apiCfg,
@@ -100,7 +91,6 @@ func NewApiService(
 }
 
 func (s *serviceImpl) Close() {
-	s.workerPool.Close()
 	s.client.Close()
 }
 
@@ -113,10 +103,6 @@ func (s *serviceImpl) StartFlow(
 	}
 	if req.GetFlowTimeoutSeconds() <= 0 {
 		return nil, makeInvalidRequestError("flow timeout must be positive")
-	}
-	workerTarget, err := grpctarget.NormalizeWorkerTarget(req.GetWorkerTarget())
-	if err != nil {
-		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := workerclient.RejectWorkerBlobIDs(req.GetStepInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
@@ -178,6 +164,11 @@ func (s *serviceImpl) StartFlow(
 	if err := interpreterconfig.ValidateFlowConfig(&workflowConfig); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
+	workerTarget, err := grpctarget.NormalizeWorkerTarget(workflowConfig.GetWorkerTarget())
+	if err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	workflowConfig.WorkerTarget = workerTarget
 
 	workflowOptions := uclient.StartWorkflowOptions{
 		ID:                       req.GetFlowId(),
@@ -185,8 +176,8 @@ func (s *serviceImpl) StartFlow(
 		WorkflowExecutionTimeout: time.Duration(req.GetFlowTimeoutSeconds()) * time.Second,
 		SearchAttributes:         searchAttributes,
 		Memo: map[string]interface{}{
-			service.WorkerTargetMemoKey: &dexpb.EncodedObject{
-				Payload: []byte(workerTarget),
+			service.WorkerAddressMemoKey: &dexpb.EncodedObject{
+				Payload: []byte(workerTarget.GetAddress()),
 			},
 		},
 	}
@@ -224,7 +215,6 @@ func (s *serviceImpl) StartFlow(
 
 	input := &dexpb.InterpreterWorkflowInput{
 		FlowType:       req.GetFlowType(),
-		WorkerTarget:   workerTarget,
 		StartStepType:  req.GetStartStepType(),
 		StepInput:      req.GetStepInput(),
 		StepOptions:    req.GetStepOptions(),
@@ -276,6 +266,9 @@ func overrideWorkflowConfig(configOverride dexpb.FlowConfig, workflowConfig *dex
 	}
 	if configOverride.StepDurability != nil {
 		workflowConfig.StepDurability = configOverride.StepDurability
+	}
+	if configOverride.WorkerTarget != nil {
+		workflowConfig.WorkerTarget = configOverride.WorkerTarget
 	}
 }
 
@@ -426,6 +419,13 @@ func (s *serviceImpl) UpdateFlowConfig(
 	}
 	if err := interpreterconfig.ValidateFlowConfig(req.GetFlowConfig()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
+	}
+	if req.GetFlowConfig().GetWorkerTarget() != nil {
+		workerTarget, err := grpctarget.NormalizeWorkerTarget(req.GetFlowConfig().GetWorkerTarget())
+		if err != nil {
+			return nil, makeInvalidRequestError(err.Error())
+		}
+		req.GetFlowConfig().WorkerTarget = workerTarget
 	}
 	if err := s.client.SignalWorkflow(
 		ctx,

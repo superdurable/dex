@@ -155,17 +155,17 @@ func doIgnoreAlreadyStartedFlow(
 
 func createStartFlowRequest(
 	flowId string,
-	workerTarget string,
+	workerTarget *dexpb.WorkerTarget,
 	options *dexpb.FlowAlreadyStartedOptions,
 ) *dexpb.StartFlowRequest {
 	return &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_ignore_already_started.FlowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_ignore_already_started.Step1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: wf_ignore_already_started.Step1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowAlreadyStartedOptions: options,
-		},
+		}, workerTarget),
 	}
 }

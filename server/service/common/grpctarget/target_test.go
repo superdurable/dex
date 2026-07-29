@@ -20,31 +20,35 @@
 
 package grpctarget
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/superdurable/dex/gen/dexpb"
+)
 
 func TestNormalizeWorkerTargetRejectsHTTP(t *testing.T) {
-	_, err := NormalizeWorkerTarget("http://localhost:8080")
+	_, err := NormalizeWorkerTarget(&dexpb.WorkerTarget{Address: "http://localhost:8080"})
 	if err == nil {
 		t.Fatal("expected error for http URL")
 	}
-	_, err = NormalizeWorkerTarget("https://worker.example:443")
+	_, err = NormalizeWorkerTarget(&dexpb.WorkerTarget{Address: "https://worker.example:443"})
 	if err == nil {
 		t.Fatal("expected error for https URL")
 	}
 }
 
 func TestNormalizeWorkerTargetAcceptsHostPort(t *testing.T) {
-	got, err := NormalizeWorkerTarget("  127.0.0.1:9000  ")
+	got, err := NormalizeWorkerTarget(&dexpb.WorkerTarget{Address: "  127.0.0.1:9000  "})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "127.0.0.1:9000" {
+	if got.GetAddress() != "127.0.0.1:9000" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestNormalizeWorkerTargetEmpty(t *testing.T) {
-	_, err := NormalizeWorkerTarget("   ")
+	_, err := NormalizeWorkerTarget(&dexpb.WorkerTarget{Address: "   "})
 	if err == nil {
 		t.Fatal("expected empty error")
 	}
