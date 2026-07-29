@@ -82,7 +82,8 @@ func (h *handler) InvokeWorkerRPC(
 			StepDecision: &dexpb.StepDecision{
 				NextSteps: []*dexpb.StepMovement{
 					{
-						StepType: State1,
+						StepType:                        State1,
+						FromStepExecutionIdInternalOnly: "worker-provided-source",
 						StepOptions: &dexpb.StepOptions{
 							SkipWaitFor: true,
 						},

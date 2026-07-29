@@ -266,20 +266,30 @@ class IndexConfig(_message.Message):
     def __init__(self, enable: _Optional[bool] = ..., type: _Optional[_Union[IndexType, str]] = ..., index_key: _Optional[str] = ...) -> None: ...
 
 class Context(_message.Message):
-    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt")
+    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt", "from_step_execution_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     flow_started_timestamp: int
     step_execution_id: str
     first_attempt_timestamp: int
     attempt: int
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ...) -> None: ...
+    from_step_execution_id: str
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ...) -> None: ...
+
+class LocalActivityInput(_message.Message):
+    __slots__ = ("current_step_execution_id", "from_step_execution_id")
+    CURRENT_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
+    FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
+    current_step_execution_id: str
+    from_step_execution_id: str
+    def __init__(self, current_step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ...) -> None: ...
 
 class RetryPolicy(_message.Message):
     __slots__ = ("initial_interval_seconds", "backoff_coefficient", "maximum_interval_seconds", "maximum_attempts", "total_duration_seconds")
@@ -724,13 +734,13 @@ class InvokeWaitForMethodResponse(_message.Message):
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    local_activity_input: str
+    local_activity_input: LocalActivityInput
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     waiting_condition: WaitingCondition
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, local_activity_input: _Optional[str] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    def __init__(self, local_activity_input: _Optional[_Union[LocalActivityInput, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class InvokeExecuteMethodRequest(_message.Message):
     __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results")
@@ -758,13 +768,13 @@ class InvokeExecuteMethodResponse(_message.Message):
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    local_activity_input: str
+    local_activity_input: LocalActivityInput
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, local_activity_input: _Optional[str] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    def __init__(self, local_activity_input: _Optional[_Union[LocalActivityInput, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class InvokeWorkerRPCRequest(_message.Message):
     __slots__ = ("context", "flow_type", "rpc_name", "input", "attributes", "channel_infos")
@@ -822,14 +832,16 @@ class FlowConditionalClose(_message.Message):
     def __init__(self, conditional_close_type: _Optional[_Union[FlowConditionalCloseType, str]] = ..., channel_names: _Optional[_Iterable[str]] = ..., close_input: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class StepMovement(_message.Message):
-    __slots__ = ("step_type", "step_input", "step_options")
+    __slots__ = ("step_type", "step_input", "step_options", "from_step_execution_id_internal_only")
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    FROM_STEP_EXECUTION_ID_INTERNAL_ONLY_FIELD_NUMBER: _ClassVar[int]
     step_type: str
     step_input: Value
     step_options: StepOptions
-    def __init__(self, step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ...) -> None: ...
+    from_step_execution_id_internal_only: str
+    def __init__(self, step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., from_step_execution_id_internal_only: _Optional[str] = ...) -> None: ...
 
 class ConditionCombination(_message.Message):
     __slots__ = ("condition_ids",)

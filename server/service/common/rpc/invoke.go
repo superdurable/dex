@@ -92,6 +92,10 @@ func InvokeWorkerRpc(
 	if err := validateWorkerRpcResponse(resp); err != nil {
 		return nil, err
 	}
+	service.StampStepDecisionSource(
+		resp.GetStepDecision(),
+		service.RPCStepSource(req.GetRpcName()),
+	)
 
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx, resp.GetUpsertAttributes(), req.GetFlowId(),

@@ -117,8 +117,9 @@ func (a *Activities) InvokeWaitForMethod(
 		return nil, composeActivityError(provider, err)
 	}
 
+	resp.LocalActivityInput = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
+		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
 	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
 		return nil, composeInternalActivityError(provider, err)
@@ -176,8 +177,13 @@ func (a *Activities) InvokeExecuteMethod(
 		return nil, composeActivityError(provider, err)
 	}
 
+	service.StampStepDecisionSource(
+		resp.GetStepDecision(),
+		req.GetContext().GetStepExecutionId(),
+	)
+	resp.LocalActivityInput = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeInputForDebug(req.GetContext().GetStepExecutionId())
+		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
 	if err := a.reuseOrOffloadNextStepInputs(
 		ctx,
@@ -648,8 +654,11 @@ func validateWaitingConditionCombinations(
 	return nil
 }
 
-func composeInputForDebug(stepExeId string) string {
-	return fmt.Sprintf("stepExeId: %s", stepExeId)
+func composeLocalActivityInput(ctx *dexpb.Context) *dexpb.LocalActivityInput {
+	return &dexpb.LocalActivityInput{
+		CurrentStepExecutionId: ctx.GetStepExecutionId(),
+		FromStepExecutionId:    ctx.GetFromStepExecutionId(),
+	}
 }
 
 func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {

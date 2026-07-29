@@ -97,10 +97,12 @@ func (srq *StepRequestQueue) AddSingleStepStartRequest(
 	stepType string,
 	input *dexpb.Value,
 	options *dexpb.StepOptions,
+	source string,
 ) {
 	srq.queue = append(srq.queue, NewStepStartRequest(&dexpb.StepMovement{
-		StepType:    stepType,
-		StepInput:   input,
-		StepOptions: options,
+		StepType:                        stepType,
+		StepInput:                       input,
+		StepOptions:                     options,
+		FromStepExecutionIdInternalOnly: source,
 	}))
 }
