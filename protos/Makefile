@@ -41,9 +41,9 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-go proto-server-go proto-java proto-python clean ensure-tools
+.PHONY: proto proto-server-go clean ensure-tools
 
-proto: proto-go proto-java proto-python
+proto: proto-server-go
 
 # Server-only codegen for the server rewrite. Does not touch SDK trees.
 proto-server-go: ensure-tools
@@ -59,59 +59,60 @@ proto-server-go: ensure-tools
 		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		$(PROTO_FILE)
 
-proto-go: ensure-tools
-	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
-	mkdir -p $(SERVER_GO_OUT) $(SDK_GO_OUT)
-	protoc \
-		-I $(PROTO_DIR) \
-		--go_out=$(SERVER_GO_OUT) \
-		--go_opt=paths=source_relative \
-		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
-		--go-grpc_out=$(SERVER_GO_OUT) \
-		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
-		$(PROTO_FILE)
-	protoc \
-		-I $(PROTO_DIR) \
-		--go_out=$(SDK_GO_OUT) \
-		--go_opt=paths=source_relative \
-		--go_opt=Mdex.proto=$(SDK_GO_PKG) \
-		--go-grpc_out=$(SDK_GO_OUT) \
-		--go-grpc_opt=paths=source_relative \
-		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
-		$(PROTO_FILE)
-
-proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
-	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
-	mkdir -p $(SDK_JAVA_OUT)
-	protoc \
-		-I $(PROTO_DIR) \
-		--java_out=$(SDK_JAVA_OUT) \
-		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
-		--grpc-java_out=$(SDK_JAVA_OUT) \
-		$(PROTO_FILE)
-
-proto-python: ensure-tools
-	rm -rf $(SDK_PYTHON_OUT)
-	mkdir -p $(SDK_PYTHON_OUT)
-	$(PYTHON) -m grpc_tools.protoc \
-		-I $(PROTO_DIR) \
-		--python_out=$(SDK_PYTHON_OUT) \
-		--grpc_python_out=$(SDK_PYTHON_OUT) \
-		--pyi_out=$(SDK_PYTHON_OUT) \
-		$(PROTO_FILE)
-	printf '%s\n' '# Generated package for Dex protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
-	# grpc stubs import "dex_pb2"; fix to relative for package layout.
-	@if [ -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py ]; then \
-		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
-	fi
+# SDK codegen is disabled while development is focused on the server.
+# proto-go: ensure-tools
+# 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
+# 	mkdir -p $(SERVER_GO_OUT) $(SDK_GO_OUT)
+# 	protoc \
+# 		-I $(PROTO_DIR) \
+# 		--go_out=$(SERVER_GO_OUT) \
+# 		--go_opt=paths=source_relative \
+# 		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
+# 		--go-grpc_out=$(SERVER_GO_OUT) \
+# 		--go-grpc_opt=paths=source_relative \
+# 		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
+# 		$(PROTO_FILE)
+# 	protoc \
+# 		-I $(PROTO_DIR) \
+# 		--go_out=$(SDK_GO_OUT) \
+# 		--go_opt=paths=source_relative \
+# 		--go_opt=Mdex.proto=$(SDK_GO_PKG) \
+# 		--go-grpc_out=$(SDK_GO_OUT) \
+# 		--go-grpc_opt=paths=source_relative \
+# 		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
+# 		$(PROTO_FILE)
+#
+# proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
+# 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
+# 	mkdir -p $(SDK_JAVA_OUT)
+# 	protoc \
+# 		-I $(PROTO_DIR) \
+# 		--java_out=$(SDK_JAVA_OUT) \
+# 		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
+# 		--grpc-java_out=$(SDK_JAVA_OUT) \
+# 		$(PROTO_FILE)
+#
+# proto-python: ensure-tools
+# 	rm -rf $(SDK_PYTHON_OUT)
+# 	mkdir -p $(SDK_PYTHON_OUT)
+# 	$(PYTHON) -m grpc_tools.protoc \
+# 		-I $(PROTO_DIR) \
+# 		--python_out=$(SDK_PYTHON_OUT) \
+# 		--grpc_python_out=$(SDK_PYTHON_OUT) \
+# 		--pyi_out=$(SDK_PYTHON_OUT) \
+# 		$(PROTO_FILE)
+# 	printf '%s\n' '# Generated package for Dex protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
+# 	# grpc stubs import "dex_pb2"; fix to relative for package layout.
+# 	@if [ -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py ]; then \
+# 		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
+# 	fi
 
 clean:
 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
 	rm -rf $(SDK_PYTHON_OUT)
 
-ensure-tools: $(PYTHON_VENV)/.grpcio-tools
+ensure-tools:
 	@which protoc > /dev/null 2>&1 || (echo "protoc not found. Install protoc $(PROTOC_VERSION)" && exit 1)
 	@which protoc-gen-go > /dev/null 2>&1 || go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	@which protoc-gen-go-grpc > /dev/null 2>&1 || go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
