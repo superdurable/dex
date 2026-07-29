@@ -22,17 +22,17 @@ package service
 
 import "github.com/superdurable/dex/gen/dexpb"
 
-const StartingStepSource = "__start__"
+const StartingStepFromStepExecutionId = "__start__"
 
 const rpcStepSourcePrefix = "__rpc/"
 
-// RPCStepSource returns the reserved source for an RPC.
-func RPCStepSource(rpcName string) string {
+// GetFromStepExecutionIdForRPC returns the reserved source for an RPC.
+func GetFromStepExecutionIdForRPC(rpcName string) string {
 	return rpcStepSourcePrefix + rpcName
 }
 
-// StampStepDecisionSource overwrites worker-provided movement sources.
-func StampStepDecisionSource(decision *dexpb.StepDecision, source string) {
+// SetFromStepExecutionID overwrites worker-provided movement sources.
+func SetFromStepExecutionID(decision *dexpb.StepDecision, source string) {
 	for _, movement := range decision.GetNextSteps() {
 		if movement != nil {
 			movement.FromStepExecutionIdInternalOnly = source

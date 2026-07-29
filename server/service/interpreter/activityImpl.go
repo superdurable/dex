@@ -177,7 +177,7 @@ func (a *Activities) InvokeExecuteMethod(
 		return nil, composeActivityError(provider, err)
 	}
 
-	service.StampStepDecisionSource(
+	service.SetFromStepExecutionID(
 		resp.GetStepDecision(),
 		req.GetContext().GetStepExecutionId(),
 	)

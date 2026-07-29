@@ -123,7 +123,7 @@ func testStepLineageAcrossContinueAsNew(
 		flowID,
 		startResponse.GetRunId(),
 	)
-	require.Equal(t, service.StartingStepSource, lineage[basic.Step1+"-1"])
+	require.Equal(t, service.StartingStepFromStepExecutionId, lineage[basic.Step1+"-1"])
 	require.Equal(t, basic.Step1+"-1", lineage[basic.Step2+"-1"])
 }
 
@@ -177,7 +177,7 @@ func testRPCStepLineageAcrossContinueAsNew(
 	)
 	require.Equal(
 		t,
-		service.RPCStepSource(deadend.RPCTriggerState),
+		service.GetFromStepExecutionIdForRPC(deadend.RPCTriggerState),
 		lineage[deadend.State1+"-1"],
 	)
 }

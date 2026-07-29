@@ -244,7 +244,7 @@ func (i *Interpreter) StartEngineFlow(
 				input.GetStartStepType(),
 				input.GetStepInput(),
 				input.GetStepOptions(),
-				service.StartingStepSource,
+				service.StartingStepFromStepExecutionId,
 			)
 		}
 
