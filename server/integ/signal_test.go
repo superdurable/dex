@@ -30,7 +30,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	config2 "github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
@@ -110,7 +109,7 @@ func doTestSignalWorkflow(
 	var debugDump dexpb.DebugDumpResponse
 	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	expectedConfig := proto.Clone(config2.DefaultWorkflowConfig).(*dexpb.FlowConfig)
+	expectedConfig := proto.Clone(syncDurabilityConfig()).(*dexpb.FlowConfig)
 	if flowConfig != nil {
 		expectedConfig = proto.Clone(flowConfig).(*dexpb.FlowConfig)
 	}

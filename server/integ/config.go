@@ -49,7 +49,8 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 			},
 		},
 		Interpreter: config.Interpreter{
-			VerboseDebug: false,
+			DefaultWorkflowConfig: syncDurabilityConfig(),
+			VerboseDebug:          false,
 			InterpreterActivityConfig: config.InterpreterActivityConfig{
 				DefaultHeaders: testCfg.DefaultHeaders,
 			},
