@@ -43,6 +43,8 @@ const (
 	ScenarioExactN           = "exact_n"
 	ScenarioOneToAll         = "one_to_all"
 	ScenarioZeroToAllEmpty   = "zero_to_all_empty"
+	ScenarioAtMostEmpty      = "at_most_empty"
+	ScenarioAtMostCapped     = "at_most_capped"
 	ScenarioRange            = "range"
 	ScenarioSameChannelExact = "same_channel_exact2x2"
 	ScenarioExact2PlusZero   = "exact2_plus_zero_to_all"
@@ -82,9 +84,20 @@ func (h *handler) InvokeWaitForMethod(
 	scenario := stepInputString(request.GetStepInput())
 	switch request.GetStepType() {
 	case State1:
-		return &dexpb.InvokeWaitForMethodResponse{
+		response := &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: waitingConditionForScenario(scenario),
-		}, nil
+		}
+		if scenario == ScenarioAtMostCapped {
+			response.PublishToChannel = stringChannelMessages(
+				ChannelName,
+				"m0",
+				"m1",
+				"m2",
+				"m3",
+				"m4",
+			)
+		}
+		return response, nil
 	case State2:
 		return &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: &dexpb.WaitingCondition{
@@ -198,6 +211,17 @@ func waitingConditionForScenario(scenario string) *dexpb.WaitingCondition {
 					ConditionId: "c1",
 					ChannelName: ChannelName,
 					AtLeast:     ptr.Any(int32(0)),
+				},
+			},
+		}
+	case ScenarioAtMostEmpty, ScenarioAtMostCapped:
+		return &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
+				{
+					ConditionId: "c1",
+					ChannelName: ChannelName,
+					AtMost:      ptr.Any(int32(3)),
 				},
 			},
 		}
@@ -318,4 +342,17 @@ func cloneChannelResults(results []*dexpb.ChannelResult) []*dexpb.ChannelResult 
 		out = append(out, cloned)
 	}
 	return out
+}
+
+func stringChannelMessages(channelName string, values ...string) []*dexpb.ChannelMessage {
+	messages := make([]*dexpb.ChannelMessage, 0, len(values))
+	for _, value := range values {
+		messages = append(messages, &dexpb.ChannelMessage{
+			ChannelName: channelName,
+			Value: &dexpb.Value{
+				Kind: &dexpb.Value_StringValue{StringValue: value},
+			},
+		})
+	}
+	return messages
 }

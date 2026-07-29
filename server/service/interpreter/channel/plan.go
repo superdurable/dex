@@ -233,21 +233,21 @@ func remainingForChannel(
 	return availability[channelName]
 }
 
-// normalizeChannel applies Exact N, OneToAll, and ZeroToAll semantics.
+// normalizeChannel applies exact and bounded consumption semantics.
 func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondition {
 	normalized := normalizedChannelCondition{
 		channelName: condition.GetChannelName(),
 	}
 	hasAtLeast := condition.AtLeast != nil
 	atLeast := condition.GetAtLeast()
-	hasAtMost := condition.AtMost != nil && condition.GetAtMost() > 0
+	hasAtMost := condition.AtMost != nil
 	atMost := condition.GetAtMost()
 
 	switch {
 	case !hasAtLeast && !hasAtMost:
-		normalized.min, normalized.max = 1, 1 // both unset (or at_most=0) → Exact 1
+		normalized.min, normalized.max = 1, 1 // Both unset means Exact 1.
 	case !hasAtLeast && hasAtMost:
-		normalized.min, normalized.max = atMost, atMost // only at_most>0 → Exact N
+		normalized.max = atMost
 	case hasAtLeast && !hasAtMost:
 		normalized.min, normalized.unboundedMax = atLeast, true
 	default:

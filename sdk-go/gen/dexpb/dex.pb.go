@@ -4501,7 +4501,9 @@ type StepMovement struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	StepType    string       `protobuf:"bytes,1,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
+	StepType string `protobuf:"bytes,1,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
+	// For _SYS_FORCE_FAILING_FLOW, only string_value is used as ErrorResponse.detail;
+	// other Value kinds are ignored.
 	StepInput   *Value       `protobuf:"bytes,2,opt,name=step_input,json=stepInput,proto3" json:"step_input,omitempty"`
 	StepOptions *StepOptions `protobuf:"bytes,3,opt,name=step_options,json=stepOptions,proto3" json:"step_options,omitempty"`
 }
@@ -4743,7 +4745,7 @@ type ChannelCondition struct {
 	// Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED.
 	ConditionId string `protobuf:"bytes,1,opt,name=condition_id,json=conditionId,proto3" json:"condition_id,omitempty"`
 	ChannelName string `protobuf:"bytes,2,opt,name=channel_name,json=channelName,proto3" json:"channel_name,omitempty"`
-	// Omit vs 0 must be distinguishable (ZeroToAll needs explicit 0).
+	// Both omitted means exact one. Omitted at_least means zero; omitted at_most means unbounded.
 	AtLeast *int32 `protobuf:"varint,3,opt,name=at_least,json=atLeast,proto3,oneof" json:"at_least,omitempty"`
 	AtMost  *int32 `protobuf:"varint,4,opt,name=at_most,json=atMost,proto3,oneof" json:"at_most,omitempty"`
 }

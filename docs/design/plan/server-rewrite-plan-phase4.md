@@ -186,7 +186,7 @@ slices share it.
 ### Decider / matching
 
 - Input: `*dexpb.WaitingCondition`.
-- Normalize AtLeast/AtMost per Phase 0 (Exact N / OneToAll / ZeroToAll /
+- Normalize AtLeast/AtMost per Phase 0 (Exact N / AtMost N / OneToAll / ZeroToAll /
   defaults).
 - Put normalization and planning in a pure `interpreter/channel` subpackage so its
   table tests run before the root interpreter package is green.
@@ -206,7 +206,7 @@ slices share it.
      first. The candidate is infeasible if the sum of minima for a shared channel
      exceeds its available count.
   4. In a second declaration-order pass, allocate remaining messages up to each
-     condition's positive `at_most`; an omitted/zero `at_most` consumes all remaining
+     condition's present `at_most`; an omitted `at_most` consumes all remaining
      capacity. This prevents ZeroToAll/OneToAll from stealing another condition's
      required minimum.
   5. Select the first feasible candidate and return a `MatchPlan` containing only
@@ -643,7 +643,7 @@ workflow decision depends on unsorted map iteration. Full integration remains Ph
 - Add narrow `phase4MatchingTests` and `phase4S2Tests` Make targets during S2 so the
   pure matching/store code can run while the stacked root package is temporarily
   broken.
-- **S2 matching:** Exact N, OneToAll, ZeroToAll, omitted vs explicit zero,
+- **S2 matching:** Exact N, AtMost N, OneToAll, ZeroToAll, omitted vs explicit zero,
   shared-channel ALL/ANY/combination, competing minima, ZeroToAll beside Exact N,
   multiple feasible combinations, optional ids for ALL/ANY, declaration-index
   identity, deterministic tie-break, FIFO results, and plan-without-commit/

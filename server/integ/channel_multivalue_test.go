@@ -46,6 +46,8 @@ func TestChannelMultivalueTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestChannelMultivalueZeroToAllEmpty(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
+		doTestChannelMultivalueAtMostEmpty(t, service.BackendTypeTemporal, nil)
+		doTestChannelMultivalueAtMostCapped(t, service.BackendTypeTemporal, nil)
 		doTestChannelMultivalueRange(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
 		doTestChannelMultivalueSameChannelExact(t, service.BackendTypeTemporal, nil)
@@ -74,6 +76,8 @@ func TestChannelMultivalueCadence(t *testing.T) {
 		smallWaitForFastTest()
 		doTestChannelMultivalueZeroToAllEmpty(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
+		doTestChannelMultivalueAtMostEmpty(t, service.BackendTypeCadence, nil)
+		doTestChannelMultivalueAtMostCapped(t, service.BackendTypeCadence, nil)
 		doTestChannelMultivalueRange(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 		doTestChannelMultivalueSameChannelExact(t, service.BackendTypeCadence, nil)
@@ -137,6 +141,41 @@ func doTestChannelMultivalueZeroToAllEmpty(
 	require.Len(t, results, 1)
 	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
 	require.Empty(t, results[0].GetValues())
+}
+
+func doTestChannelMultivalueAtMostEmpty(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *dexpb.FlowConfig,
+) {
+	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
+		t, backendType, channel_multivalue.ScenarioAtMostEmpty, flowConfig,
+	)
+	waitChannelMultivalueComplete(t, ctx, runtime.FlowClient, flowId)
+
+	results := channelResultsFromData(t, workerHandler.GetTestResult(), channel_multivalue.ScenarioAtMostEmpty)
+	require.Len(t, results, 1)
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
+	require.Empty(t, results[0].GetValues())
+}
+
+func doTestChannelMultivalueAtMostCapped(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *dexpb.FlowConfig,
+) {
+	workerHandler, runtime, flowId, ctx := startChannelMultivalueFlow(
+		t, backendType, channel_multivalue.ScenarioAtMostCapped, flowConfig,
+	)
+	waitChannelMultivalueComplete(t, ctx, runtime.FlowClient, flowId)
+
+	results := channelResultsFromData(t, workerHandler.GetTestResult(), channel_multivalue.ScenarioAtMostCapped)
+	require.Len(t, results, 1)
+	require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, results[0].GetConditionStatus())
+	requireStringValues(t, results[0].GetValues(), "m0", "m1", "m2")
+
+	leftover := channelReceivedFromDump(t, runtime, flowId, channel_multivalue.ChannelName)
+	requireStringValues(t, leftover, "m3", "m4")
 }
 
 func doTestChannelMultivalueRange(

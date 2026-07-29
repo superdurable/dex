@@ -140,6 +140,13 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 			),
 			"at_most 2 < at_least 3",
 		},
+		{
+			"explicit_zero_at_most_less_than_at_least",
+			waitingConditionWithChannel(
+				newChannelCondition("condition", "channel", ptr.Any(int32(1)), ptr.Any(int32(0))),
+			),
+			"at_most 0 < at_least 1",
+		},
 		{"negative_timer_duration", negativeTimer, "negative duration_seconds"},
 		{"worker_sets_absolute_timer", absoluteTimer, "server-owned firing_unix_timestamp_seconds"},
 		{"combinations_on_all", combinationsOnAll, "only valid for ANY_COMBINATION_COMPLETED"},

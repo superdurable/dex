@@ -220,15 +220,17 @@ serialized twice. Replace with proto:
 always-on, no version gate:
 
 - **Exact N:** `at_least=N, at_most=N` — wait until N available, consume exactly N.
-- **OneToAll:** `at_least=1`, `at_most` unset/0 — wait for ≥1, then consume all
+- **AtMost N:** `at_least` unset, `at_most=N` — do not wait; consume up to N
+  currently available.
+- **OneToAll:** `at_least=1`, `at_most` unset — wait for ≥1, then consume all
   currently available (capped only by queue size).
-- **ZeroToAll:** `at_least=0`, `at_most` unset/0 — do not wait; consume all
+- **ZeroToAll:** `at_least=0`, `at_most` unset — do not wait; consume all
   currently available (empty `values` + `COMPLETED` is valid).
-- **Defaults:** both unset → Exact 1; only `at_most` set → Exact N
-  (`at_least = at_most`); only `at_least` set → OneToAll / ZeroToAll as above.
+- **Defaults:** both unset → Exact 1; an omitted `at_least` means zero; an omitted
+  `at_most` means unbounded.
 - Reject invalid pairs when validating the untrusted `WorkerService` response
   (`at_least < 0`, `at_most < 0`, or
-  `at_most > 0 && at_most < at_least`). The interpreter treats a post-validation
+  `at_most < at_least` when both are present). The interpreter treats a post-validation
   violation as an invariant failure.
 - Matching is two-phase: normalize/peek without mutation, deterministically choose
   the winning ALL/ANY/combination set while reserving shared-channel capacity, then

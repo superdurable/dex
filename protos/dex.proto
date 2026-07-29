@@ -621,7 +621,7 @@ message ChannelCondition {
   // Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED.
   string condition_id = 1;
   string channel_name = 2;
-  // Omit vs 0 must be distinguishable (ZeroToAll needs explicit 0).
+  // Both omitted means exact one. Omitted at_least means zero; omitted at_most means unbounded.
   optional int32 at_least = 3;
   optional int32 at_most = 4;
 }

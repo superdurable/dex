@@ -568,7 +568,7 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 				channelCondition.GetAtMost(),
 			)
 		}
-		if channelCondition.GetAtMost() > 0 &&
+		if channelCondition.AtMost != nil &&
 			channelCondition.GetAtMost() < channelCondition.GetAtLeast() {
 			return fmt.Errorf(
 				"channel condition %q has at_most %d < at_least %d",
