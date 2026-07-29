@@ -108,7 +108,7 @@ func (a *Activities) InvokeWaitForMethod(
 	defer release()
 
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
-	printDebugMsg(logger, err, input.GetWorkerTarget().GetAddress())
+	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
@@ -173,7 +173,7 @@ func (a *Activities) InvokeExecuteMethod(
 	defer release()
 
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
-	printDebugMsg(logger, err, input.GetWorkerTarget().GetAddress())
+	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
@@ -668,6 +668,17 @@ func composeLocalActivityInput(ctx *dexpb.Context) *dexpb.LocalActivityInput {
 		CurrentStepExecutionId: ctx.GetStepExecutionId(),
 		FromStepExecutionId:    ctx.GetFromStepExecutionId(),
 	}
+}
+
+func workerAddressForLogging(ctx context.Context, workerTarget *dexpb.WorkerTarget) string {
+	if !workerTarget.GetIsHeadlessAddress() {
+		return workerTarget.GetAddress()
+	}
+	resolvedAddress := workerclient.ResolvedWorkerAddressFromContext(ctx)
+	if resolvedAddress == "" {
+		return workerTarget.GetAddress()
+	}
+	return resolvedAddress
 }
 
 func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {

@@ -31,6 +31,7 @@ import (
 	"github.com/uber-go/tally/v4/prometheus"
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
+	"google.golang.org/grpc/codes"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,7 +63,11 @@ const (
 	DefaultWorkerServiceRequestMaxAttempts = 3
 )
 
-var defaultHeadlessFailoverStatusCodes = [...]int{14, 4, 2}
+var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
+	codes.Unavailable,
+	codes.DeadlineExceeded,
+	codes.Unknown,
+}
 
 type (
 	Config struct {
@@ -144,17 +149,18 @@ type (
 		// DefaultHeaders are forwarded as outgoing gRPC metadata on WorkerService calls. Empty means none.
 		// Default empty.
 		DefaultHeaders map[string]string `yaml:"defaultHeaders"`
-		// WorkerConnectionIdleTimeout evicts idle, unreferenced WorkerService connections. Zero defaults to 10m. Immutable after startup.
+		// WorkerConnectionIdleTimeout evicts idle, unreferenced WorkerService connections. Non-positive defaults to 10m. Immutable after startup.
 		WorkerConnectionIdleTimeout time.Duration `yaml:"workerConnectionIdleTimeout"`
-		// MaxWorkerConnections caps the WorkerService connection pool. Zero defaults to 1000. Immutable after startup.
+		// MaxWorkerConnections caps the WorkerService connection pool. Non-positive defaults to 1000. Immutable after startup.
 		MaxWorkerConnections int `yaml:"maxWorkerConnections"`
-		// HeadlessAddressRefreshInterval refreshes headless WorkerService DNS addresses. Zero defaults to 60s. Immutable after startup.
+		// HeadlessAddressRefreshInterval refreshes headless WorkerService DNS addresses. Non-positive defaults to 60s. Immutable after startup.
 		HeadlessAddressRefreshInterval time.Duration `yaml:"headlessAddressRefreshInterval"`
-		// MaxStickyRoutingEntries caps remembered flow routes. Zero defaults to 100000. Immutable after startup.
+		// MaxStickyRoutingEntries caps remembered flow routes. Non-positive defaults to 100000. Immutable after startup.
 		MaxStickyRoutingEntries int `yaml:"maxStickyRoutingEntries"`
-		// WorkerServiceRequestMaxAttempts includes the first headless transport attempt. Zero defaults to 3. Activity retries are independent.
+		// WorkerServiceRequestMaxAttempts includes the first headless transport attempt. Non-positive defaults to 3. Activity retries are independent.
 		WorkerServiceRequestMaxAttempts int `yaml:"workerServiceRequestMaxAttempts"`
-		// HeadlessFailoverStatusCodes trigger endpoint failover. Empty defaults to Unavailable (14), DeadlineExceeded (4), and Unknown (2). Immutable after startup.
+		// HeadlessFailoverStatusCodes trigger endpoint failover. Empty defaults to Unavailable (14), DeadlineExceeded (4), and Unknown (2).
+		// See https://grpc.io/docs/guides/status-codes/. Immutable after startup.
 		HeadlessFailoverStatusCodes []int `yaml:"headlessFailoverStatusCodes"`
 	}
 
@@ -305,7 +311,7 @@ func (c WorkerConfig) EffectiveMaxWorkerConnections() int {
 
 // EffectiveHeadlessAddressRefreshInterval returns the headless DNS refresh interval.
 func (c WorkerConfig) EffectiveHeadlessAddressRefreshInterval() time.Duration {
-	if c.HeadlessAddressRefreshInterval == 0 {
+	if c.HeadlessAddressRefreshInterval <= 0 {
 		return DefaultHeadlessAddressRefreshInterval
 	}
 	return c.HeadlessAddressRefreshInterval
@@ -313,7 +319,7 @@ func (c WorkerConfig) EffectiveHeadlessAddressRefreshInterval() time.Duration {
 
 // EffectiveMaxStickyRoutingEntries returns the sticky routing LRU capacity.
 func (c WorkerConfig) EffectiveMaxStickyRoutingEntries() int {
-	if c.MaxStickyRoutingEntries == 0 {
+	if c.MaxStickyRoutingEntries <= 0 {
 		return DefaultMaxStickyRoutingEntries
 	}
 	return c.MaxStickyRoutingEntries
@@ -321,18 +327,22 @@ func (c WorkerConfig) EffectiveMaxStickyRoutingEntries() int {
 
 // EffectiveWorkerServiceRequestMaxAttempts returns total attempts per WorkerService request.
 func (c WorkerConfig) EffectiveWorkerServiceRequestMaxAttempts() int {
-	if c.WorkerServiceRequestMaxAttempts == 0 {
+	if c.WorkerServiceRequestMaxAttempts <= 0 {
 		return DefaultWorkerServiceRequestMaxAttempts
 	}
 	return c.WorkerServiceRequestMaxAttempts
 }
 
 // EffectiveHeadlessFailoverStatusCodes returns configured gRPC codes or defaults.
-func (c WorkerConfig) EffectiveHeadlessFailoverStatusCodes() []int {
+func (c WorkerConfig) EffectiveHeadlessFailoverStatusCodes() []codes.Code {
 	if len(c.HeadlessFailoverStatusCodes) == 0 {
-		return append([]int(nil), defaultHeadlessFailoverStatusCodes[:]...)
+		return append([]codes.Code(nil), defaultHeadlessFailoverStatusCodes[:]...)
 	}
-	return c.HeadlessFailoverStatusCodes
+	statusCodes := make([]codes.Code, len(c.HeadlessFailoverStatusCodes))
+	for index, statusCode := range c.HeadlessFailoverStatusCodes {
+		statusCodes[index] = codes.Code(statusCode)
+	}
+	return statusCodes
 }
 
 // QueryWorkflowFailedRetryPolicyWithDefaults fills zero fields with defaults (1s / 5 attempts).

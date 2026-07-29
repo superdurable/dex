@@ -37,16 +37,41 @@ const (
 	maxFailoverBackoff     = time.Second
 )
 
+type resolvedWorkerAddressContextKey struct{}
+
+type resolvedWorkerAddressState struct {
+	mu      sync.RWMutex
+	address string
+}
+
 type routedWorkerClient struct {
 	pool       *WorkerClientPool
 	target     string
 	isHeadless bool
 	flowID     string
+	routeState *resolvedWorkerAddressState
 
 	mu       sync.Mutex
 	address  string
 	conn     *grpc.ClientConn
 	released bool
+}
+
+func newResolvedWorkerAddressContext(
+	ctx context.Context,
+	address string,
+) (context.Context, *resolvedWorkerAddressState) {
+	state := &resolvedWorkerAddressState{address: address}
+	return context.WithValue(ctx, resolvedWorkerAddressContextKey{}, state), state
+}
+
+// ResolvedWorkerAddressFromContext returns the endpoint used by the acquired client.
+func ResolvedWorkerAddressFromContext(ctx context.Context) string {
+	state, ok := ctx.Value(resolvedWorkerAddressContextKey{}).(*resolvedWorkerAddressState)
+	if !ok {
+		return ""
+	}
+	return state.get()
 }
 
 func (c *routedWorkerClient) InvokeWaitForMethod(
@@ -152,6 +177,7 @@ func (c *routedWorkerClient) switchAddress(address string) error {
 	}
 	c.address = address
 	c.conn = conn
+	c.routeState.set(address)
 	return nil
 }
 
@@ -172,8 +198,20 @@ func (p *WorkerClientPool) isFailoverWorkerServiceError(ctx context.Context, err
 	if ctx.Err() != nil {
 		return false
 	}
-	_, ok := p.failoverStatusCodes[int(status.Code(err))]
+	_, ok := p.failoverStatusCodes[status.Code(err)]
 	return ok
+}
+
+func (s *resolvedWorkerAddressState) set(address string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.address = address
+}
+
+func (s *resolvedWorkerAddressState) get() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.address
 }
 
 func failoverBackoff(failover int) time.Duration {

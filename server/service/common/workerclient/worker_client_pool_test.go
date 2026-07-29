@@ -284,9 +284,10 @@ func TestWorkerClientPoolFailsOverAndUpdatesStickyRoute(t *testing.T) {
 		IsHeadlessAddress: true,
 	}
 
-	invokeTestWorker(t, pool, target, "flow-one")
+	resolvedAddress := invokeTestWorkerAndGetResolvedAddress(t, pool, target, "flow-one")
 	require.Equal(t, 1, firstHandler.callCount())
 	require.Equal(t, 1, secondHandler.callCount())
+	require.Equal(t, secondHandlerAddress(firstServer), resolvedAddress)
 	requireStickyAddress(t, pool, target.GetAddress(), "flow-one", secondHandlerAddress(firstServer))
 
 	invokeTestWorker(t, pool, target, "flow-one")
@@ -403,9 +404,9 @@ func TestWorkerClientPoolHeadlessFailoverStatusCodeDefaultsAndValidation(t *test
 	pool, err := newWorkerClientPool(testPoolConfig(), &fakeHostResolver{})
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	require.Contains(t, pool.failoverStatusCodes, int(codes.Unavailable))
-	require.Contains(t, pool.failoverStatusCodes, int(codes.DeadlineExceeded))
-	require.Contains(t, pool.failoverStatusCodes, int(codes.Unknown))
+	require.Contains(t, pool.failoverStatusCodes, codes.Unavailable)
+	require.Contains(t, pool.failoverStatusCodes, codes.DeadlineExceeded)
+	require.Contains(t, pool.failoverStatusCodes, codes.Unknown)
 
 	cfg := testPoolConfig()
 	cfg.Worker.HeadlessFailoverStatusCodes = []int{0}
@@ -435,11 +436,22 @@ func invokeTestWorker(
 	flowID string,
 ) {
 	t.Helper()
+	invokeTestWorkerAndGetResolvedAddress(t, pool, target, flowID)
+}
+
+func invokeTestWorkerAndGetResolvedAddress(
+	t *testing.T,
+	pool *WorkerClientPool,
+	target *dexpb.WorkerTarget,
+	flowID string,
+) string {
+	t.Helper()
 	client, callCtx, release, err := pool.Acquire(context.Background(), target, flowID)
 	require.NoError(t, err)
 	defer release()
 	_, err = client.InvokeWorkerRPC(callCtx, &dexpb.InvokeWorkerRPCRequest{})
 	require.NoError(t, err)
+	return ResolvedWorkerAddressFromContext(callCtx)
 }
 
 func requireStickyRoute(t *testing.T, pool *WorkerClientPool, target, flowID string) {

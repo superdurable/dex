@@ -35,6 +35,7 @@ import (
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
@@ -70,7 +71,7 @@ type WorkerClientPool struct {
 	cfg                 *config.Config
 	header              metadata.MD
 	resolver            hostResolver
-	failoverStatusCodes map[int]struct{}
+	failoverStatusCodes map[codes.Code]struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -98,33 +99,6 @@ func newWorkerClientPool(cfg *config.Config, resolver hostResolver) (*WorkerClie
 		panic("workerclient: resolver must not be nil")
 	}
 	workerCfg := &cfg.Worker
-	if workerCfg.EffectiveMaxWorkerConnections() <= 0 {
-		return nil, fmt.Errorf("workerclient: MaxConnections must be positive, got %d", workerCfg.MaxWorkerConnections)
-	}
-	if workerCfg.EffectiveWorkerConnectionIdleTimeout() <= 0 {
-		return nil, fmt.Errorf("workerclient: ConnectionIdleTimeout must be positive, got %v", workerCfg.WorkerConnectionIdleTimeout)
-	}
-	if workerCfg.EffectiveHeadlessAddressRefreshInterval() <= 0 {
-		return nil, fmt.Errorf(
-			"workerclient: HeadlessAddressRefreshInterval must be positive, got %v",
-			workerCfg.HeadlessAddressRefreshInterval,
-		)
-	}
-	if cfg.Api.EffectiveGrpcMaxMessageBytes() <= 0 {
-		return nil, fmt.Errorf("workerclient: GrpcMaxMessageBytes must be positive, got %d", cfg.Api.GrpcMaxMessageBytes)
-	}
-	if workerCfg.EffectiveMaxStickyRoutingEntries() <= 0 {
-		return nil, fmt.Errorf(
-			"workerclient: MaxStickyRoutingEntries must be positive, got %d",
-			workerCfg.MaxStickyRoutingEntries,
-		)
-	}
-	if workerCfg.EffectiveWorkerServiceRequestMaxAttempts() <= 0 {
-		return nil, fmt.Errorf(
-			"workerclient: RequestMaxAttempts must be positive, got %d",
-			workerCfg.WorkerServiceRequestMaxAttempts,
-		)
-	}
 	if err := ValidateDefaultHeaders(workerCfg.DefaultHeaders); err != nil {
 		return nil, err
 	}
@@ -147,11 +121,11 @@ func newWorkerClientPool(cfg *config.Config, resolver hostResolver) (*WorkerClie
 	}, nil
 }
 
-func newHeadlessFailoverStatusCodes(workerCfg *config.WorkerConfig) (map[int]struct{}, error) {
+func newHeadlessFailoverStatusCodes(workerCfg *config.WorkerConfig) (map[codes.Code]struct{}, error) {
 	statusCodes := workerCfg.EffectiveHeadlessFailoverStatusCodes()
-	result := make(map[int]struct{}, len(statusCodes))
+	result := make(map[codes.Code]struct{}, len(statusCodes))
 	for _, statusCode := range statusCodes {
-		if statusCode <= 0 || statusCode > 16 {
+		if statusCode <= codes.OK || statusCode > codes.Unauthenticated {
 			return nil, fmt.Errorf("workerclient: invalid headless failover gRPC status code %d", statusCode)
 		}
 		result[statusCode] = struct{}{}
@@ -186,15 +160,17 @@ func (p *WorkerClientPool) Acquire(
 	if err != nil {
 		return nil, ctx, nil, err
 	}
+	callCtx, routeState := newResolvedWorkerAddressContext(p.withHeaders(ctx), address)
 	client := &routedWorkerClient{
 		pool:       p,
 		target:     logicalTarget,
 		isHeadless: normalized.GetIsHeadlessAddress(),
 		flowID:     flowID,
+		routeState: routeState,
 		address:    address,
 		conn:       conn,
 	}
-	return client, p.withHeaders(ctx), client.release, nil
+	return client, callCtx, client.release, nil
 }
 
 func (p *WorkerClientPool) ensureHeadlessTarget(ctx context.Context, target string) error {
