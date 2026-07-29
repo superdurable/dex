@@ -248,8 +248,9 @@ func (t *cadenceClient) ListWorkflow(
 	var executions []*dexpb.SearchFlowsResponseEntry
 	for _, exe := range resp.GetExecutions() {
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
-			FlowId: *exe.Execution.WorkflowId,
-			RunId:  *exe.Execution.RunId,
+			FlowId:           *exe.Execution.WorkflowId,
+			RunId:            *exe.Execution.RunId,
+			SearchAttributes: index.MapCadenceSearchAttributeFieldsToKVs(exe.GetSearchAttributes()),
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{

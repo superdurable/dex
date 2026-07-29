@@ -400,6 +400,7 @@ message SearchFlowsResponse {
 message SearchFlowsResponseEntry {
   string flow_id = 1;
   string run_id = 2;
+  repeated KV search_attributes = 3;
 }
 
 enum FlowResetType {

@@ -19,6 +19,16 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
 change the target for subsequent WorkerService calls while the flow is running.
 
+## Search flows
+
+`SearchFlows` returns each execution's flow ID, run ID, and all search
+attributes supplied by the backend visibility API. Search attribute values use
+the `Value` oneof; the response does not expose backend index types.
+
+Temporal type metadata preserves numeric types. Cadence visibility payloads do
+not include index types, so Dex infers numbers from JSON: integral JSON numbers
+become `int_value`, and other numbers become `double_value`.
+
 ## Codegen
 
 Regenerate checked-in stubs into server and SDK trees:

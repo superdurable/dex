@@ -65,12 +65,21 @@ Write the data or search attributes of a workflow execution
 * Known Error handling
   * No running workflow 
 
-### SearchWorkflow
-Finds workflow executions given a search attribute query
+### SearchFlows
+Finds flow executions given a search attribute query.
+
 * Parameters
   * query
-  * pageSize
-  * paginationToken 
+  * page size
+  * pagination token
+* Returns
+  * flow ID and run ID
+  * all search attributes returned by the backend visibility API as key/value entries
+
+Search attribute values use the Dex `Value` variants. Temporal preserves
+numeric types from payload metadata. Cadence does not return index types from
+its list API, so integral JSON numbers are returned as integers and all other
+numbers as doubles.
 
 ### InvokeRPC
 Invokes an RPC of a workflow execution 
@@ -128,5 +137,4 @@ ClientOptions allows customize a Client for communicating with server, including
 * LongPollTimeout
 * RequestHeaders
 * RetryConfig -- for local retry on calling server API
-
 

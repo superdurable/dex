@@ -294,9 +294,14 @@ func (t *temporalClient) ListWorkflow(
 	}
 	var executions []*dexpb.SearchFlowsResponseEntry
 	for _, exe := range resp.GetExecutions() {
+		searchAttributes, err := index.MapTemporalSearchAttributeFieldsToKVs(exe.GetSearchAttributes())
+		if err != nil {
+			return nil, err
+		}
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
-			FlowId: exe.Execution.WorkflowId,
-			RunId:  exe.Execution.RunId,
+			FlowId:           exe.Execution.WorkflowId,
+			RunId:            exe.Execution.RunId,
+			SearchAttributes: searchAttributes,
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{
