@@ -96,6 +96,7 @@ func TrimContextByTimeoutWithCappedDDL(parent context.Context, reqWaitSeconds *i
 		maxWaitSeconds = int64(*reqWaitSeconds)
 	}
 
+	// Preserve sub-second precision so short waits are not truncated near second boundaries.
 	maxWaitDeadline := time.Now().Add(time.Duration(maxWaitSeconds) * time.Second)
 
 	// then capped by context
