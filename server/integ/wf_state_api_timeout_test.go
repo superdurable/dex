@@ -113,7 +113,15 @@ func doTestStateApiTimeout(
 	case service.BackendTypeTemporal:
 		require.Contains(t, resp.GetErrorMessage(), "activity StartToClose timeout")
 	case service.BackendTypeCadence:
-		require.Equal(t, "TimeoutType: START_TO_CLOSE", resp.GetErrorMessage())
+		// Cadence may surface StartToClose or cancel the in-flight gRPC as RST_STREAM.
+		msg := resp.GetErrorMessage()
+		require.Truef(
+			t,
+			msg == "TimeoutType: START_TO_CLOSE" ||
+				msg == "stream terminated by RST_STREAM with error code: CANCEL",
+			"unexpected Cadence timeout message: %q",
+			msg,
+		)
 	default:
 		t.Fatalf("unexpected backend type %v", backendType)
 	}
