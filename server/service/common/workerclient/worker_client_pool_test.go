@@ -100,6 +100,12 @@ func (h *testWorkerHandler) callCount() int {
 	return h.calls
 }
 
+func (h *testWorkerHandler) setPermanentStatus(statusCode codes.Code) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.permanentStatus = statusCode
+}
+
 type testWorkerServer struct {
 	t          *testing.T
 	listener   net.Listener
@@ -210,11 +216,11 @@ func TestWorkerClientPoolRetriesSameAddressWithBackoff(t *testing.T) {
 
 	started := time.Now()
 	invokeTestWorker(t, pool, target, "flow-one")
-	require.GreaterOrEqual(t, time.Since(started), initialRequestBackoff/2)
+	require.GreaterOrEqual(t, time.Since(started), initialFailoverBackoff/2)
 	require.Equal(t, 2, handler.callCount())
 }
 
-func TestWorkerClientPoolRetriesServerDeadlineExceeded(t *testing.T) {
+func TestWorkerClientPoolFailsOverOnServerDeadlineExceeded(t *testing.T) {
 	handler := &testWorkerHandler{
 		failuresLeft:  1,
 		failureStatus: codes.DeadlineExceeded,
@@ -232,10 +238,34 @@ func TestWorkerClientPoolRetriesServerDeadlineExceeded(t *testing.T) {
 	invokeTestWorker(
 		t,
 		pool,
-		&dexpb.WorkerTarget{Address: server.listener.Addr().String()},
+		&dexpb.WorkerTarget{
+			Address:           net.JoinHostPort("workers.test", server.port()),
+			IsHeadlessAddress: true,
+		},
 		"flow-one",
 	)
 	require.Equal(t, 2, handler.callCount())
+}
+
+func TestWorkerClientPoolDoesNotRetryNonHeadlessTarget(t *testing.T) {
+	handler := &testWorkerHandler{permanentStatus: codes.Unavailable}
+	server := newTestWorkerServer(t, "127.0.0.1:0", handler)
+	cfg := testPoolConfig()
+	cfg.Worker.WorkerServiceRequestMaxAttempts = 3
+	pool, err := newWorkerClientPool(cfg, &fakeHostResolver{})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	client, callCtx, release, err := pool.Acquire(
+		context.Background(),
+		&dexpb.WorkerTarget{Address: server.listener.Addr().String()},
+		"flow-one",
+	)
+	require.NoError(t, err)
+	defer release()
+	_, err = client.InvokeWorkerRPC(callCtx, &dexpb.InvokeWorkerRPCRequest{})
+	require.Error(t, err)
+	require.Equal(t, 1, handler.callCount())
 }
 
 func TestWorkerClientPoolFailsOverAndUpdatesStickyRoute(t *testing.T) {
@@ -294,7 +324,10 @@ func TestWorkerClientPoolStopsAfterMaxAttempts(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	target := &dexpb.WorkerTarget{Address: server.listener.Addr().String()}
+	target := &dexpb.WorkerTarget{
+		Address:           net.JoinHostPort("workers.test", server.port()),
+		IsHeadlessAddress: true,
+	}
 
 	client, callCtx, release, err := pool.Acquire(context.Background(), target, "flow-one")
 	require.NoError(t, err)
@@ -302,6 +335,82 @@ func TestWorkerClientPoolStopsAfterMaxAttempts(t *testing.T) {
 	_, err = client.InvokeWorkerRPC(callCtx, &dexpb.InvokeWorkerRPCRequest{})
 	require.Error(t, err)
 	require.Equal(t, 3, handler.callCount())
+}
+
+func TestWorkerClientPoolUsesConfiguredHeadlessFailoverStatusCodes(t *testing.T) {
+	handler := &testWorkerHandler{
+		failuresLeft:  1,
+		failureStatus: codes.ResourceExhausted,
+	}
+	server := newTestWorkerServer(t, "127.0.0.1:0", handler)
+	cfg := testPoolConfig()
+	cfg.Worker.WorkerServiceRequestMaxAttempts = 2
+	cfg.Worker.HeadlessFailoverStatusCodes = []int{int(codes.ResourceExhausted)}
+	pool, err := newWorkerClientPool(
+		cfg,
+		&fakeHostResolver{addresses: []string{"127.0.0.1"}},
+	)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	invokeTestWorker(
+		t,
+		pool,
+		&dexpb.WorkerTarget{
+			Address:           net.JoinHostPort("workers.test", server.port()),
+			IsHeadlessAddress: true,
+		},
+		"flow-one",
+	)
+	require.Equal(t, 2, handler.callCount())
+}
+
+func TestWorkerClientPoolClearsFailedStickyRouteAfterFinalAttempt(t *testing.T) {
+	firstHandler := &testWorkerHandler{}
+	firstServer := newTestWorkerServer(t, "127.0.0.1:0", firstHandler)
+	secondHandler := &testWorkerHandler{}
+	newTestWorkerServer(t, net.JoinHostPort("::1", firstServer.port()), secondHandler)
+	cfg := testPoolConfig()
+	cfg.Worker.WorkerServiceRequestMaxAttempts = 1
+	pool, err := newWorkerClientPool(
+		cfg,
+		&fakeHostResolver{addresses: []string{"127.0.0.1", "::1"}},
+	)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	target := &dexpb.WorkerTarget{
+		Address:           net.JoinHostPort("workers.test", firstServer.port()),
+		IsHeadlessAddress: true,
+	}
+
+	invokeTestWorker(t, pool, target, "flow-one")
+	requireStickyRoute(t, pool, target.GetAddress(), "flow-one")
+	firstHandler.setPermanentStatus(codes.Unavailable)
+
+	client, callCtx, release, err := pool.Acquire(context.Background(), target, "flow-one")
+	require.NoError(t, err)
+	_, err = client.InvokeWorkerRPC(callCtx, &dexpb.InvokeWorkerRPCRequest{})
+	release()
+	require.Error(t, err)
+	requireNoStickyRoute(t, pool, target.GetAddress(), "flow-one")
+
+	invokeTestWorker(t, pool, target, "flow-one")
+	require.Equal(t, 2, firstHandler.callCount())
+	require.Equal(t, 1, secondHandler.callCount())
+}
+
+func TestWorkerClientPoolHeadlessFailoverStatusCodeDefaultsAndValidation(t *testing.T) {
+	pool, err := newWorkerClientPool(testPoolConfig(), &fakeHostResolver{})
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	require.Contains(t, pool.failoverStatusCodes, int(codes.Unavailable))
+	require.Contains(t, pool.failoverStatusCodes, int(codes.DeadlineExceeded))
+	require.Contains(t, pool.failoverStatusCodes, int(codes.Unknown))
+
+	cfg := testPoolConfig()
+	cfg.Worker.HeadlessFailoverStatusCodes = []int{0}
+	_, err = newWorkerClientPool(cfg, &fakeHostResolver{})
+	require.ErrorContains(t, err, "invalid headless failover gRPC status code 0")
 }
 
 func testPoolConfig() *config.Config {

@@ -58,9 +58,11 @@ const (
 	DefaultHeadlessAddressRefreshInterval = time.Minute
 	// DefaultMaxStickyRoutingEntries caps remembered flow-to-worker routes.
 	DefaultMaxStickyRoutingEntries = 100000
-	// DefaultWorkerServiceRequestMaxAttempts includes the first WorkerService request.
+	// DefaultWorkerServiceRequestMaxAttempts includes the first headless WorkerService request.
 	DefaultWorkerServiceRequestMaxAttempts = 3
 )
+
+var defaultHeadlessFailoverStatusCodes = [...]int{14, 4, 2}
 
 type (
 	Config struct {
@@ -150,8 +152,10 @@ type (
 		HeadlessAddressRefreshInterval time.Duration `yaml:"headlessAddressRefreshInterval"`
 		// MaxStickyRoutingEntries caps remembered flow routes. Zero defaults to 100000. Immutable after startup.
 		MaxStickyRoutingEntries int `yaml:"maxStickyRoutingEntries"`
-		// WorkerServiceRequestMaxAttempts includes the first transport attempt. Zero defaults to 3. Activity retries are independent.
+		// WorkerServiceRequestMaxAttempts includes the first headless transport attempt. Zero defaults to 3. Activity retries are independent.
 		WorkerServiceRequestMaxAttempts int `yaml:"workerServiceRequestMaxAttempts"`
+		// HeadlessFailoverStatusCodes trigger endpoint failover. Empty defaults to Unavailable (14), DeadlineExceeded (4), and Unknown (2). Immutable after startup.
+		HeadlessFailoverStatusCodes []int `yaml:"headlessFailoverStatusCodes"`
 	}
 
 	Interpreter struct {
@@ -321,6 +325,14 @@ func (c WorkerConfig) EffectiveWorkerServiceRequestMaxAttempts() int {
 		return DefaultWorkerServiceRequestMaxAttempts
 	}
 	return c.WorkerServiceRequestMaxAttempts
+}
+
+// EffectiveHeadlessFailoverStatusCodes returns configured gRPC codes or defaults.
+func (c WorkerConfig) EffectiveHeadlessFailoverStatusCodes() []int {
+	if len(c.HeadlessFailoverStatusCodes) == 0 {
+		return append([]int(nil), defaultHeadlessFailoverStatusCodes[:]...)
+	}
+	return c.HeadlessFailoverStatusCodes
 }
 
 // QueryWorkflowFailedRetryPolicyWithDefaults fills zero fields with defaults (1s / 5 attempts).

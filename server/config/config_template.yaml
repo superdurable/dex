@@ -10,8 +10,10 @@ worker:
   headlessAddressRefreshInterval: 60s
   # Bound remembered flow-to-endpoint routes.
   maxStickyRoutingEntries: 100000
-  # Includes the first transport attempt within one activity attempt.
+  # Includes the first headless transport attempt within one activity attempt.
   workerServiceRequestMaxAttempts: 3
+  # gRPC status codes that trigger failover between resolved headless endpoints.
+  headlessFailoverStatusCodes: [14, 4, 2]
 interpreter:
   defaultWorkflowConfig:
     continueAsNewThreshold: 100

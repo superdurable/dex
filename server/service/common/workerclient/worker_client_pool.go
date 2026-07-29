@@ -25,7 +25,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"net"
 	"sort"
 	"sync"
@@ -36,15 +35,8 @@ import (
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
-)
-
-const (
-	initialRequestBackoff = 100 * time.Millisecond
-	maxRequestBackoff     = time.Second
 )
 
 type hostResolver interface {
@@ -75,9 +67,10 @@ type stickyRoute struct {
 
 // WorkerClientPool shares WorkerService connections and routing state.
 type WorkerClientPool struct {
-	cfg      *config.Config
-	header   metadata.MD
-	resolver hostResolver
+	cfg                 *config.Config
+	header              metadata.MD
+	resolver            hostResolver
+	failoverStatusCodes map[int]struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -135,18 +128,35 @@ func newWorkerClientPool(cfg *config.Config, resolver hostResolver) (*WorkerClie
 	if err := ValidateDefaultHeaders(workerCfg.DefaultHeaders); err != nil {
 		return nil, err
 	}
+	failoverStatusCodes, err := newHeadlessFailoverStatusCodes(workerCfg)
+	if err != nil {
+		return nil, err
+	}
 	poolCtx, cancel := context.WithCancel(context.Background())
 	return &WorkerClientPool{
-		cfg:       cfg,
-		header:    metadata.New(workerCfg.DefaultHeaders),
-		resolver:  resolver,
-		ctx:       poolCtx,
-		cancel:    cancel,
-		conns:     make(map[string]*pooledConn),
-		headless:  make(map[string]*headlessTarget),
-		sticky:    make(map[stickyKey]*list.Element),
-		stickyLRU: list.New(),
+		cfg:                 cfg,
+		header:              metadata.New(workerCfg.DefaultHeaders),
+		resolver:            resolver,
+		failoverStatusCodes: failoverStatusCodes,
+		ctx:                 poolCtx,
+		cancel:              cancel,
+		conns:               make(map[string]*pooledConn),
+		headless:            make(map[string]*headlessTarget),
+		sticky:              make(map[stickyKey]*list.Element),
+		stickyLRU:           list.New(),
 	}, nil
+}
+
+func newHeadlessFailoverStatusCodes(workerCfg *config.WorkerConfig) (map[int]struct{}, error) {
+	statusCodes := workerCfg.EffectiveHeadlessFailoverStatusCodes()
+	result := make(map[int]struct{}, len(statusCodes))
+	for _, statusCode := range statusCodes {
+		if statusCode <= 0 || statusCode > 16 {
+			return nil, fmt.Errorf("workerclient: invalid headless failover gRPC status code %d", statusCode)
+		}
+		result[statusCode] = struct{}{}
+	}
+	return result, nil
 }
 
 // Acquire returns a flow-routed WorkerService client.
@@ -367,6 +377,19 @@ func (p *WorkerClientPool) rememberSticky(target, flowID, address string) {
 	}
 }
 
+func (p *WorkerClientPool) forgetSticky(target, flowID, address string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	element, ok := p.sticky[stickyKey{target: target, flowID: flowID}]
+	if !ok {
+		return
+	}
+	route := element.Value.(*stickyRoute)
+	if route.address == address {
+		p.removeStickyLocked(element)
+	}
+}
+
 func (p *WorkerClientPool) removeStickyLocked(element *list.Element) {
 	if element == nil {
 		return
@@ -376,9 +399,8 @@ func (p *WorkerClientPool) removeStickyLocked(element *list.Element) {
 	p.stickyLRU.Remove(element)
 }
 
-func (p *WorkerClientPool) nextRetryAddress(
+func (p *WorkerClientPool) nextFailoverAddress(
 	target string,
-	isHeadless bool,
 	current string,
 	failed map[string]struct{},
 ) (string, error) {
@@ -386,9 +408,6 @@ func (p *WorkerClientPool) nextRetryAddress(
 	defer p.mu.Unlock()
 	if p.closed {
 		return "", fmt.Errorf("workerclient: pool closed")
-	}
-	if !isHeadless {
-		return target, nil
 	}
 	resolved, ok := p.headless[target]
 	if !ok || len(resolved.addresses) == 0 {
@@ -513,162 +532,4 @@ func (p *WorkerClientPool) closeConn(conn *grpc.ClientConn) {
 	if err := conn.Close(); err != nil {
 		log.Printf("workerclient: close connection: %v", err)
 	}
-}
-
-type routedWorkerClient struct {
-	pool       *WorkerClientPool
-	target     string
-	isHeadless bool
-	flowID     string
-
-	mu       sync.Mutex
-	address  string
-	conn     *grpc.ClientConn
-	released bool
-}
-
-func (c *routedWorkerClient) InvokeWaitForMethod(
-	ctx context.Context,
-	req *dexpb.InvokeWaitForMethodRequest,
-	opts ...grpc.CallOption,
-) (*dexpb.InvokeWaitForMethodResponse, error) {
-	response, err := c.invoke(ctx, func(client dexpb.WorkerServiceClient) (interface{}, error) {
-		return client.InvokeWaitForMethod(ctx, req, opts...)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return response.(*dexpb.InvokeWaitForMethodResponse), nil
-}
-
-func (c *routedWorkerClient) InvokeExecuteMethod(
-	ctx context.Context,
-	req *dexpb.InvokeExecuteMethodRequest,
-	opts ...grpc.CallOption,
-) (*dexpb.InvokeExecuteMethodResponse, error) {
-	response, err := c.invoke(ctx, func(client dexpb.WorkerServiceClient) (interface{}, error) {
-		return client.InvokeExecuteMethod(ctx, req, opts...)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return response.(*dexpb.InvokeExecuteMethodResponse), nil
-}
-
-func (c *routedWorkerClient) InvokeWorkerRPC(
-	ctx context.Context,
-	req *dexpb.InvokeWorkerRPCRequest,
-	opts ...grpc.CallOption,
-) (*dexpb.InvokeWorkerRPCResponse, error) {
-	response, err := c.invoke(ctx, func(client dexpb.WorkerServiceClient) (interface{}, error) {
-		return client.InvokeWorkerRPC(ctx, req, opts...)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return response.(*dexpb.InvokeWorkerRPCResponse), nil
-}
-
-func (c *routedWorkerClient) invoke(
-	ctx context.Context,
-	call func(dexpb.WorkerServiceClient) (interface{}, error),
-) (interface{}, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.released || c.conn == nil {
-		return nil, fmt.Errorf("workerclient: acquired client released")
-	}
-	failed := make(map[string]struct{})
-	var lastErr error
-	for attempt := 0; attempt < c.pool.cfg.Worker.EffectiveWorkerServiceRequestMaxAttempts(); attempt++ {
-		if attempt > 0 {
-			if err := waitForRetry(ctx, requestBackoff(attempt)); err != nil {
-				return nil, err
-			}
-			nextAddress, err := c.pool.nextRetryAddress(
-				c.target,
-				c.isHeadless,
-				c.address,
-				failed,
-			)
-			if err != nil {
-				return nil, err
-			}
-			if err := c.switchAddress(nextAddress); err != nil {
-				return nil, err
-			}
-		}
-		response, err := call(dexpb.NewWorkerServiceClient(c.conn))
-		if err == nil {
-			if c.isHeadless {
-				c.pool.rememberSticky(c.target, c.flowID, c.address)
-			}
-			return response, nil
-		}
-		lastErr = err
-		failed[c.address] = struct{}{}
-		if !isRetryableWorkerServiceError(ctx, err) {
-			return nil, err
-		}
-	}
-	return nil, lastErr
-}
-
-func (c *routedWorkerClient) switchAddress(address string) error {
-	if address == c.address {
-		return nil
-	}
-	c.pool.releaseConn(c.address)
-	c.conn = nil
-	conn, err := c.pool.acquireConn(address)
-	if err != nil {
-		return err
-	}
-	c.address = address
-	c.conn = conn
-	return nil
-}
-
-func (c *routedWorkerClient) release() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.released {
-		return
-	}
-	c.released = true
-	if c.conn != nil {
-		c.pool.releaseConn(c.address)
-		c.conn = nil
-	}
-}
-
-func requestBackoff(retry int) time.Duration {
-	backoff := initialRequestBackoff
-	for index := 1; index < retry && backoff < maxRequestBackoff; index++ {
-		backoff *= 2
-		if backoff > maxRequestBackoff {
-			backoff = maxRequestBackoff
-		}
-	}
-	half := backoff / 2
-	return half + time.Duration(rand.Int64N(int64(half)+1))
-}
-
-func waitForRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func isRetryableWorkerServiceError(ctx context.Context, err error) bool {
-	if ctx.Err() != nil {
-		return false
-	}
-	code := status.Code(err)
-	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }

@@ -55,10 +55,12 @@ endpoints round-robin. `maxStickyRoutingEntries` bounds this LRU state and
 defaults to `100000`.
 
 `workerServiceRequestMaxAttempts` defaults to `3` and includes the first
-WorkerService transport attempt. Retries use exponential backoff and may switch
-resolved endpoints. These attempts occur inside one Temporal/Cadence activity
-attempt; the activity retry policy is independent, so the two limits can
-multiply.
+headless WorkerService transport attempt. Failovers use exponential backoff and
+may switch resolved endpoints. Non-headless targets are attempted once.
+`headlessFailoverStatusCodes` defaults to gRPC `Unavailable` (14),
+`DeadlineExceeded` (4), and `Unknown` (2). These attempts occur inside one
+Temporal/Cadence activity attempt; the activity retry policy is independent, so
+the two limits can multiply.
 
 # Suggested Monitors and Runbook
 
