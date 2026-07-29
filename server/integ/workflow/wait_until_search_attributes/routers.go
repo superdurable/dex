@@ -49,8 +49,6 @@ const (
 	WorkflowType = "wait_until_search_attributes"
 	State1       = "S1"
 	State2       = "S2"
-
-	TestSearchAttributeExecutingStateIdsKey = "DexExecutingStateIds"
 )
 
 type handler struct {

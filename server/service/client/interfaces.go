@@ -60,9 +60,10 @@ type UnifiedClient interface {
 }
 
 type errorHandler interface {
-	GetApplicationErrorTypeIfIsApplicationError(err error) string
-	GetApplicationErrorDetails(err error, detailsPtr interface{}) error
-	GetApplicationErrorTypeAndDetails(err error) (string, string)
+	// Returns false if err is not an update application error.
+	GetIfUpdateError(err error, detail *string) (dexpb.UpdateErrorType, bool)
+	// Returns false if err is not a flow application error. resp must be non-nil; filled on success.
+	GetIfFlowError(err error, resp *dexpb.ErrorResponse) (dexpb.FlowErrorType, bool)
 	IsWorkflowAlreadyStartedError(error) bool
 	GetRunIdFromWorkflowAlreadyStartedError(error) (string, bool)
 	IsNotFoundError(error) bool

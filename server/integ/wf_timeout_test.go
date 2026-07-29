@@ -94,7 +94,6 @@ func doTestFlowTimeout(
 	resp, err := flowClient.WaitForFlow(ctx, waitReq)
 	require.NoError(t, err)
 
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, resp.GetFlowStatus())
 	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, resp.GetErrorType())
 	require.Empty(t, resp.GetErrorMessage())

@@ -93,7 +93,7 @@ func doTestWorkflowCanceled(
 	defer cancel()
 
 	flowId := "wf-cancel-test-" + uuid.NewString()
-	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -117,7 +117,6 @@ func doTestWorkflowCanceled(
 	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
 	assertions.Equal(dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
 	assertions.Empty(response.GetErrorMessage())
@@ -147,7 +146,7 @@ func doTestWorkflowTerminated(
 			FlowConfigOverride: flowConfig,
 		},
 	}
-	startResponse, err := flowClient.StartFlow(ctx, startRequest)
+	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	_, err = flowClient.StartFlow(ctx, startRequest)
@@ -155,7 +154,7 @@ func doTestWorkflowTerminated(
 
 	startRequest.FlowStartOptions.IdReusePolicy =
 		dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING
-	startResponse, err = flowClient.StartFlow(ctx, startRequest)
+	_, err = flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
@@ -170,7 +169,6 @@ func doTestWorkflowTerminated(
 	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_TERMINATED, response.GetFlowStatus())
 	assertions.Equal(dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
 	assertions.Empty(response.GetErrorMessage())
@@ -190,7 +188,7 @@ func doTestWorkflowFail(
 	defer cancel()
 
 	flowId := "wf-cancel-test-" + uuid.NewString()
-	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -215,7 +213,6 @@ func doTestWorkflowFail(
 	require.NoError(t, err)
 
 	assertions := assert.New(t)
-	assertions.Equal(startResponse.GetRunId(), response.GetRunId())
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
 	assertions.Equal(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,

@@ -105,7 +105,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 			fmt.Sprintf(
 				"WorkflowId='%v' AND %v='%v'",
 				flowId,
-				wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey,
+				service.SearchAttributeActiveStepTypes,
 				wait_until_search_attributes.State2,
 			),
 			1,
@@ -119,7 +119,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 			fmt.Sprintf(
 				"WorkflowId='%v' AND %v='%v'",
 				flowId,
-				wait_until_search_attributes.TestSearchAttributeExecutingStateIdsKey,
+				service.SearchAttributeActiveStepTypes,
 				wait_until_search_attributes.State2,
 			),
 			0,

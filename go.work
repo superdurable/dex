@@ -5,3 +5,11 @@ use (
 	./sdk-go
 	./server
 )
+
+// Cadence still pulls the old monorepo module google.golang.org/genproto, while
+// Temporal/gRPC use the split modules google.golang.org/genproto/googleapis/{api,rpc}.
+// go.work merges those graphs, so the same package path can appear in two modules
+// (ambiguous import). Pinning genproto here keeps the workspace build/IDE clean
+// without putting a tidy-fragile require in server/go.mod. GOWORK=off builds are
+// unaffected. Drop or bump this replace if Cadence/Temporal deps stop overlapping.
+replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20230526161137-0005af68ea54

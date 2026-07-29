@@ -78,17 +78,14 @@ func TestForceFailWorkflow(t *testing.T) {
 
 	wErr, ok := dex.AsWorkflowUncompletedError(err)
 	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE), nil, wErr.StateResults, dex.GetDefaultObjectEncoder()), wErr)
+	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
 
 	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
 	assert.Nil(t, out)
 	assert.Equal(t, err, err2)
-	assert.Equal(t, "workflow is not completed successfully, closedStatus: FAILED, failedErrorType(applies if failed as closedStatus):STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE, error message:<nil>", err.Error())
-
-	var output string
-	err = wErr.GetStateResult(0, &output)
-	assert.Nil(t, err)
-	assert.Equal(t, "a failing message", output)
+	assert.NotNil(t, wErr.ErrorMessage)
+	assert.True(t, strings.Contains(*wErr.ErrorMessage, "a failing message"), "must contain failing message")
+	assert.True(t, strings.Contains(err.Error(), "a failing message"))
 }
 
 func TestStateApiFailWorkflow(t *testing.T) {

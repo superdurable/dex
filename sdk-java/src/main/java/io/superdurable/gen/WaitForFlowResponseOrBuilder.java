@@ -11,70 +11,58 @@ public interface WaitForFlowResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string run_id = 1;</code>
-   * @return The runId.
-   */
-  java.lang.String getRunId();
-  /**
-   * <code>string run_id = 1;</code>
-   * @return The bytes for runId.
-   */
-  com.google.protobuf.ByteString
-      getRunIdBytes();
-
-  /**
-   * <code>.dex.FlowStatus flow_status = 2;</code>
+   * <code>.dex.FlowStatus flow_status = 1;</code>
    * @return The enum numeric value on the wire for flowStatus.
    */
   int getFlowStatusValue();
   /**
-   * <code>.dex.FlowStatus flow_status = 2;</code>
+   * <code>.dex.FlowStatus flow_status = 1;</code>
    * @return The flowStatus.
    */
   io.superdurable.gen.FlowStatus getFlowStatus();
 
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getResultsList();
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   io.superdurable.gen.StepCompletionOutput getResults(int index);
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   int getResultsCount();
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getResultsOrBuilderList();
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   io.superdurable.gen.StepCompletionOutputOrBuilder getResultsOrBuilder(
       int index);
 
   /**
-   * <code>.dex.FlowErrorType error_type = 4;</code>
+   * <code>.dex.FlowErrorType error_type = 3;</code>
    * @return The enum numeric value on the wire for errorType.
    */
   int getErrorTypeValue();
   /**
-   * <code>.dex.FlowErrorType error_type = 4;</code>
+   * <code>.dex.FlowErrorType error_type = 3;</code>
    * @return The errorType.
    */
   io.superdurable.gen.FlowErrorType getErrorType();
 
   /**
-   * <code>string error_message = 5;</code>
+   * <code>string error_message = 4;</code>
    * @return The errorMessage.
    */
   java.lang.String getErrorMessage();
   /**
-   * <code>string error_message = 5;</code>
+   * <code>string error_message = 4;</code>
    * @return The bytes for errorMessage.
    */
   com.google.protobuf.ByteString

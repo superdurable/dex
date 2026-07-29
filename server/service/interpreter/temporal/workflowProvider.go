@@ -48,18 +48,21 @@ func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 	}
 }
 
-func (w *workflowProvider) NewWorkflowError(
+func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	details interface{},
+	resp *dexpb.ErrorResponse,
 ) error {
-	return temporal.NewApplicationError("", errType.String(), details)
+	if resp == nil {
+		panic("resp required")
+	}
+	return temporal.NewApplicationError("", errType.String(), resp)
 }
 
 func (w *workflowProvider) NewUpdateError(
 	errType dexpb.UpdateErrorType,
-	details interface{},
+	detail string,
 ) error {
-	return temporal.NewApplicationError("", errType.String(), details)
+	return temporal.NewApplicationError("", errType.String(), detail)
 }
 
 func (w *workflowProvider) IsApplicationError(err error) bool {

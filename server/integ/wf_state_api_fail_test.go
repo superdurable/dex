@@ -93,7 +93,7 @@ func doTestStateApiFail(
 			FlowConfigOverride: flowConfig,
 		}
 	}
-	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -111,12 +111,11 @@ func doTestStateApiFail(
 		"S1_waitFor": expectedWaitFor,
 	}, history)
 
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 	require.Equal(
 		t,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 		resp.GetErrorType(),
 	)
-	require.Contains(t, resp.GetErrorMessage(), "400 Bad Request")
+	require.Contains(t, resp.GetErrorMessage(), "waitFor API failure")
 }

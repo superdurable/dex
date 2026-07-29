@@ -299,9 +299,9 @@ func (i *Interpreter) StartEngineFlow(
 						"stepRequest",
 					).(StepRequest)
 					if !ok {
-						errToFailWf = provider.NewWorkflowError(
+						errToFailWf = provider.NewFlowError(
 							dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-							"cannot read step request from workflow context",
+							&dexpb.ErrorResponse{Detail: "cannot read step request from workflow context"},
 						)
 						return
 					}
@@ -328,7 +328,7 @@ func (i *Interpreter) StartEngineFlow(
 					)
 					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
-						errToFailWf = stepExeErr
+						errToFailWf = normalizeStepFailureError(provider, stepExeErr)
 						// step execution fail should fail the flow, no more processing
 						return
 					}
@@ -350,16 +350,21 @@ func (i *Interpreter) StartEngineFlow(
 						if gracefulComplete {
 							shouldGracefulComplete = true
 						}
-						if (gracefulComplete || forceComplete || forceFail) && output != nil {
+						if (gracefulComplete || forceComplete) && output != nil {
 							outputCollector.Add(output)
 						}
 						if forceComplete {
 							forceCompleteWf = true
 						}
 						if forceFail {
-							errToFailWf = provider.NewWorkflowError(
+							detail := ""
+							if output != nil {
+								detail = getFlowFailedDetailFromValue(output.GetCompletedStepOutput())
+							}
+							errToFailWf = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
-								outputCollector.GetAll())
+								&dexpb.ErrorResponse{Detail: detail},
+							)
 						}
 						if canGoNext {
 							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
@@ -370,9 +375,9 @@ func (i *Interpreter) StartEngineFlow(
 							stepExeId,
 							decision.GetNextSteps(),
 						); err != nil {
-							errToFailWf = provider.NewWorkflowError(
+							errToFailWf = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-								err,
+								&dexpb.ErrorResponse{Detail: err.Error()},
 							)
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
@@ -483,6 +488,23 @@ func (i *Interpreter) StartEngineFlow(
 	}, errToFailWf
 }
 
+func normalizeStepFailureError(
+	provider interfaces.WorkflowProvider,
+	err error,
+) error {
+	if err == nil || provider.IsApplicationError(err) {
+		return err
+	}
+	// Non-application activity failures (timeout, cancel, etc.) as worker API fail.
+	return provider.NewFlowError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		&dexpb.ErrorResponse{
+			Detail:    err.Error(),
+			SubStatus: dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		},
+	)
+}
+
 func checkClosingWorkflow(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
@@ -501,8 +523,8 @@ func checkClosingWorkflow(
 	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
 		if conditionalClose.ConditionalCloseType !=
 			dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
-			err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-				"invalid step decisions. Unsupported ConditionalCloseType ")
+			err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+				&dexpb.ErrorResponse{Detail: "invalid step decisions. Unsupported ConditionalCloseType "})
 			return
 		}
 		// trigger a signal draining so that all the channel messages are processed
@@ -538,8 +560,8 @@ func checkClosingWorkflow(
 		}
 		for _, st := range decision.GetNextSteps() {
 			if service.ValidClosingFlowStepType[st.GetStepType()] {
-				err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-					"invalid ConditionUnmetDecision with stepType: "+st.GetStepType())
+				err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+					&dexpb.ErrorResponse{Detail: "invalid ConditionUnmetDecision with stepType: " + st.GetStepType()})
 				return
 			}
 		}
@@ -583,8 +605,8 @@ func checkClosingWorkflow(
 
 	if !canGoNext && len(decision.NextSteps) > 1 {
 		// Illegal decision
-		err = provider.NewWorkflowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			"invalid step decisions. Closing workflow decision cannot be combined with other state decisions")
+		err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			&dexpb.ErrorResponse{Detail: "invalid step decisions. Closing workflow decision cannot be combined with other state decisions"})
 	}
 	return
 }
@@ -954,4 +976,11 @@ func (i *Interpreter) BlobStoreCleanup(
 		return 0, err
 	}
 	return int(output.GetTotalDeleted()), nil
+}
+
+func getFlowFailedDetailFromValue(value *dexpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	return value.GetStringValue()
 }

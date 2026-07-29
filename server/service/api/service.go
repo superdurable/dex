@@ -315,8 +315,8 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 		if err == nil {
 			return &response, nil
 		}
-		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
+		if updateType, ok := s.client.GetIfUpdateError(err, nil); !ok ||
+			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -366,8 +366,8 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAt
 		if err == nil {
 			return &response, nil
 		}
-		if s.client.GetApplicationErrorTypeIfIsApplicationError(err) !=
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED.String() {
+		if updateType, ok := s.client.GetIfUpdateError(err, nil); !ok ||
+			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -613,14 +613,13 @@ func (s *serviceImpl) WaitForFlow(
 	)
 	defer cancel()
 	var output dexpb.InterpreterWorkflowOutput
-	runId, flowStatus, getErr := s.client.GetWorkflowResult(
+	_, flowStatus, getErr := s.client.GetWorkflowResult(
 		getCtx,
 		&output,
 		req.GetFlowId(),
 		req.GetRunId(),
 	)
 	response := &dexpb.WaitForFlowResponse{
-		RunId:      runId,
 		FlowStatus: flowStatus,
 	}
 	if getErr == nil {
@@ -638,16 +637,11 @@ func (s *serviceImpl) WaitForFlow(
 		return nil, waitContextStatus(getCtx.Err())
 	}
 
-	errorType := s.client.GetApplicationErrorTypeIfIsApplicationError(getErr)
-	if errorType != "" {
-		errorTypeValue, known := dexpb.FlowErrorType_value[errorType]
-		if !known {
-			return nil, s.handleError(getErr)
-		}
-		_, errorMessage := s.client.GetApplicationErrorTypeAndDetails(getErr)
+	var errorResponse dexpb.ErrorResponse
+	if errorType, ok := s.client.GetIfFlowError(getErr, &errorResponse); ok {
 		response.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
-		response.ErrorType = dexpb.FlowErrorType(errorTypeValue)
-		response.ErrorMessage = errorMessage
+		response.ErrorType = errorType
+		response.ErrorMessage = errorResponse.GetDetail()
 		return response, nil
 	}
 
@@ -947,19 +941,9 @@ func (s *serviceImpl) handleError(err error) error {
 	if s.client.IsWorkflowAlreadyStartedError(err) {
 		return serviceerrors.AlreadyExists(err.Error()).ToGRPCError()
 	}
-	errorTypeName := s.client.GetApplicationErrorTypeIfIsApplicationError(err)
-	if errorTypeName == "" {
-		s.logger.Error("encountered API server error", tag.Error(err))
-		return serviceerrors.Internal(err.Error()).ToGRPCError()
-	}
-	errorTypeValue, known := dexpb.UpdateErrorType_value[errorTypeName]
-	if known {
-		var details string
-		if detailsErr := s.client.GetApplicationErrorDetails(err, &details); detailsErr != nil {
-			s.logger.Error("failed to decode update error details", tag.Error(detailsErr))
-			return serviceerrors.Internal(err.Error()).ToGRPCError()
-		}
-		switch dexpb.UpdateErrorType(errorTypeValue) {
+	var details string
+	if updateType, ok := s.client.GetIfUpdateError(err, &details); ok {
+		switch updateType {
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT:
 			return serviceerrors.InvalidArgument(
 				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
@@ -982,20 +966,11 @@ func (s *serviceImpl) handleError(err error) error {
 		}
 	}
 
-	flowErrorTypeValue, known := dexpb.FlowErrorType_value[errorTypeName]
-	if known {
-		flowErrorType := dexpb.FlowErrorType(flowErrorTypeValue)
+	var errorResponse dexpb.ErrorResponse
+	if flowErrorType, ok := s.client.GetIfFlowError(err, &errorResponse); ok {
 		switch flowErrorType {
 		case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL:
-			var errorResponse dexpb.ErrorResponse
-			if detailsErr := s.client.GetApplicationErrorDetails(
-				err,
-				&errorResponse,
-			); detailsErr != nil {
-				s.logger.Error("failed to decode flow error details", tag.Error(detailsErr))
-				return serviceerrors.Internal(err.Error()).ToGRPCError()
-			}
 			if errorResponse.GetDetail() == "" &&
 				errorResponse.GetSubStatus() == dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED &&
 				errorResponse.GetOriginalWorkerErrorDetail() == "" &&

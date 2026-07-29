@@ -76,15 +76,7 @@ func doTestStateApiFailAndProceed(
 		WaitForRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttempts: 1,
 		},
-		WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE,
-	}
-	if flowConfig != nil {
-		stepOptions = &dexpb.StepOptions{
-			WaitForRetryPolicy: &dexpb.RetryPolicy{
-				MaximumAttempts: 1,
-			},
-			WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE,
-		}
+		WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE,
 	}
 
 	startRequest := &dexpb.StartFlowRequest{
@@ -100,7 +92,7 @@ func doTestStateApiFailAndProceed(
 			FlowConfigOverride: flowConfig,
 		}
 	}
-	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -114,7 +106,6 @@ func doTestStateApiFailAndProceed(
 		"S1_execute": 1,
 	}, history)
 
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 	require.Empty(t, resp.GetResults())
 }

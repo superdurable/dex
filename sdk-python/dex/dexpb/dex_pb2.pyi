@@ -501,18 +501,16 @@ class StepCompletionOutput(_message.Message):
     def __init__(self, completed_step_type: _Optional[str] = ..., completed_step_execution_id: _Optional[str] = ..., completed_step_output: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class WaitForFlowResponse(_message.Message):
-    __slots__ = ("run_id", "flow_status", "results", "error_type", "error_message")
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("flow_status", "results", "error_type", "error_message")
     FLOW_STATUS_FIELD_NUMBER: _ClassVar[int]
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    run_id: str
     flow_status: FlowStatus
     results: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
     error_type: FlowErrorType
     error_message: str
-    def __init__(self, run_id: _Optional[str] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class SearchFlowsRequest(_message.Message):
     __slots__ = ("query", "page_size", "next_page_token")

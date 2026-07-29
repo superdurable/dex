@@ -47,18 +47,21 @@ func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 	}
 }
 
-func (w *workflowProvider) NewWorkflowError(
+func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	details interface{},
+	resp *dexpb.ErrorResponse,
 ) error {
-	return cadence.NewCustomError(errType.String(), details)
+	if resp == nil {
+		panic("resp required")
+	}
+	return cadence.NewCustomError(errType.String(), resp)
 }
 
 func (w *workflowProvider) NewUpdateError(
 	errType dexpb.UpdateErrorType,
-	details interface{},
+	detail string,
 ) error {
-	return cadence.NewCustomError(errType.String(), details)
+	return cadence.NewCustomError(errType.String(), detail)
 }
 
 func (w *workflowProvider) IsApplicationError(err error) bool {

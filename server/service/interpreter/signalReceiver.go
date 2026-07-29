@@ -294,9 +294,9 @@ func (sr *SignalReceiver) IsFailWorkFlowRequested() (bool, error) {
 		reason = *sr.reasonFailFlowByClient
 	}
 	if sr.failFlowByClient {
-		return true, sr.provider.NewWorkflowError(
+		return true, sr.provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-			reason,
+			&dexpb.ErrorResponse{Detail: reason},
 		)
 	}
 

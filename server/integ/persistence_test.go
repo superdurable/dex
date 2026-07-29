@@ -149,7 +149,7 @@ func doTestPersistenceWorkflow(
 			FlowConfigOverride: flowConfig,
 		},
 	}
-	_, err := flowClient.StartFlow(ctx, startRequest)
+	startResp, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	queryResult, err := getFlowAttributes(ctx, flowClient, flowId, []string{
@@ -171,11 +171,11 @@ func doTestPersistenceWorkflow(
 	require.NoError(t, err)
 	requireAttributePresent(t, queryResult.GetAttributes(), expectedDataAttribute)
 
-	waitResp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	runId := waitResp.GetRunId()
+	runId := startResp.GetRunId()
 
 	queryResult1, err := getFlowAttributes(ctx, flowClient, flowId, []string{
 		persistence.TestDataAttributeKey,

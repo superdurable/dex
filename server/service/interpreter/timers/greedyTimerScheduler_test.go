@@ -36,11 +36,11 @@ type fakeWorkflowProvider struct {
 	awaitErr       error
 }
 
-func (p *fakeWorkflowProvider) NewWorkflowError(dexpb.FlowErrorType, interface{}) error {
+func (p *fakeWorkflowProvider) NewFlowError(dexpb.FlowErrorType, *dexpb.ErrorResponse) error {
 	return nil
 }
 
-func (p *fakeWorkflowProvider) NewUpdateError(dexpb.UpdateErrorType, interface{}) error {
+func (p *fakeWorkflowProvider) NewUpdateError(dexpb.UpdateErrorType, string) error {
 	return nil
 }
 

@@ -664,8 +664,13 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		return composeInternalActivityError(provider, err)
 	}
 
+	// Error() is "rpc error: code=… desc=<Message>"; do not concat both.
+	detail := grpcStatus.Message()
+	if detail == "" {
+		detail = err.Error()
+	}
 	errorResponse := &dexpb.ErrorResponse{
-		Detail:                    grpcStatus.Message(),
+		Detail:                    detail,
 		SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		OriginalWorkerErrorStatus: int32(grpcStatus.Code()),
 	}
@@ -677,14 +682,14 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 	}
-	return provider.NewActivityError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
+	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
 }
 
 func composeInternalActivityError(
 	provider interfaces.ActivityProvider,
 	err error,
 ) error {
-	return provider.NewActivityError(
+	return provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 		&dexpb.ErrorResponse{
 			Detail:    err.Error(),

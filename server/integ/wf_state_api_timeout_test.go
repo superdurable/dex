@@ -22,7 +22,6 @@ package integ
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -91,7 +90,7 @@ func doTestStateApiTimeout(
 			FlowConfigOverride: flowConfig,
 		}
 	}
-	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -104,17 +103,18 @@ func doTestStateApiTimeout(
 		"S1_waitFor": 1,
 	}, history)
 
-	require.True(
-		t,
-		strings.Contains(resp.GetErrorMessage(), "StartToClose") ||
-			strings.Contains(resp.GetErrorMessage(), "START_TO_CLOSE"),
-		resp.GetErrorMessage(),
-	)
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 	require.Equal(
 		t,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 		resp.GetErrorType(),
 	)
+	switch backendType {
+	case service.BackendTypeTemporal:
+		require.Contains(t, resp.GetErrorMessage(), "activity StartToClose timeout")
+	case service.BackendTypeCadence:
+		require.Equal(t, "TimeoutType: START_TO_CLOSE", resp.GetErrorMessage())
+	default:
+		t.Fatalf("unexpected backend type %v", backendType)
+	}
 }

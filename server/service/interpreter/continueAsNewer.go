@@ -142,9 +142,10 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 
 	var resp dexpb.ContinueAsNewDump
 	if err := proto.Unmarshal(wholeData, &resp); err != nil {
-		return nil, provider.NewWorkflowError(
+		return nil, provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			fmt.Errorf("unmarshal continue-as-new dump: %w", err))
+			&dexpb.ErrorResponse{Detail: fmt.Sprintf("unmarshal continue-as-new dump: %v", err)},
+		)
 	}
 	return &resp, nil
 }

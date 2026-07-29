@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private WaitForFlowResponse() {
-    runId_ = "";
     flowStatus_ = 0;
     results_ = java.util.Collections.emptyList();
     errorType_ = 0;
@@ -53,56 +52,17 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.WaitForFlowResponse.class, io.superdurable.gen.WaitForFlowResponse.Builder.class);
   }
 
-  public static final int RUN_ID_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object runId_ = "";
-  /**
-   * <code>string run_id = 1;</code>
-   * @return The runId.
-   */
-  @java.lang.Override
-  public java.lang.String getRunId() {
-    java.lang.Object ref = runId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      runId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string run_id = 1;</code>
-   * @return The bytes for runId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRunIdBytes() {
-    java.lang.Object ref = runId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      runId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int FLOW_STATUS_FIELD_NUMBER = 2;
+  public static final int FLOW_STATUS_FIELD_NUMBER = 1;
   private int flowStatus_ = 0;
   /**
-   * <code>.dex.FlowStatus flow_status = 2;</code>
+   * <code>.dex.FlowStatus flow_status = 1;</code>
    * @return The enum numeric value on the wire for flowStatus.
    */
   @java.lang.Override public int getFlowStatusValue() {
     return flowStatus_;
   }
   /**
-   * <code>.dex.FlowStatus flow_status = 2;</code>
+   * <code>.dex.FlowStatus flow_status = 1;</code>
    * @return The flowStatus.
    */
   @java.lang.Override public io.superdurable.gen.FlowStatus getFlowStatus() {
@@ -110,18 +70,18 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.FlowStatus.UNRECOGNIZED : result;
   }
 
-  public static final int RESULTS_FIELD_NUMBER = 3;
+  public static final int RESULTS_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.StepCompletionOutput> results_;
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.StepCompletionOutput> getResultsList() {
     return results_;
   }
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
@@ -129,21 +89,21 @@ private static final long serialVersionUID = 0L;
     return results_;
   }
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
   public int getResultsCount() {
     return results_.size();
   }
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.StepCompletionOutput getResults(int index) {
     return results_.get(index);
   }
   /**
-   * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+   * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.StepCompletionOutputOrBuilder getResultsOrBuilder(
@@ -151,17 +111,17 @@ private static final long serialVersionUID = 0L;
     return results_.get(index);
   }
 
-  public static final int ERROR_TYPE_FIELD_NUMBER = 4;
+  public static final int ERROR_TYPE_FIELD_NUMBER = 3;
   private int errorType_ = 0;
   /**
-   * <code>.dex.FlowErrorType error_type = 4;</code>
+   * <code>.dex.FlowErrorType error_type = 3;</code>
    * @return The enum numeric value on the wire for errorType.
    */
   @java.lang.Override public int getErrorTypeValue() {
     return errorType_;
   }
   /**
-   * <code>.dex.FlowErrorType error_type = 4;</code>
+   * <code>.dex.FlowErrorType error_type = 3;</code>
    * @return The errorType.
    */
   @java.lang.Override public io.superdurable.gen.FlowErrorType getErrorType() {
@@ -169,11 +129,11 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.FlowErrorType.UNRECOGNIZED : result;
   }
 
-  public static final int ERROR_MESSAGE_FIELD_NUMBER = 5;
+  public static final int ERROR_MESSAGE_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private volatile java.lang.Object errorMessage_ = "";
   /**
-   * <code>string error_message = 5;</code>
+   * <code>string error_message = 4;</code>
    * @return The errorMessage.
    */
   @java.lang.Override
@@ -190,7 +150,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string error_message = 5;</code>
+   * <code>string error_message = 4;</code>
    * @return The bytes for errorMessage.
    */
   @java.lang.Override
@@ -222,31 +182,25 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, runId_);
-    }
     if (flowStatus_ != io.superdurable.gen.FlowStatus.FLOW_STATUS_UNSPECIFIED.getNumber()) {
-      output.writeEnum(2, flowStatus_);
+      output.writeEnum(1, flowStatus_);
     }
     for (int i = 0; i < results_.size(); i++) {
-      output.writeMessage(3, results_.get(i));
+      output.writeMessage(2, results_.get(i));
     }
     if (errorType_ != io.superdurable.gen.FlowErrorType.FLOW_ERROR_TYPE_UNSPECIFIED.getNumber()) {
-      output.writeEnum(4, errorType_);
+      output.writeEnum(3, errorType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, errorMessage_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, errorMessage_);
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, runId_);
-    }
     if (flowStatus_ != io.superdurable.gen.FlowStatus.FLOW_STATUS_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(2, flowStatus_);
+        .computeEnumSize(1, flowStatus_);
     }
 
         {
@@ -259,10 +213,10 @@ private static final long serialVersionUID = 0L;
         }
     if (errorType_ != io.superdurable.gen.FlowErrorType.FLOW_ERROR_TYPE_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(4, errorType_);
+        .computeEnumSize(3, errorType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, errorMessage_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, errorMessage_);
     }
     return size;
   }
@@ -288,8 +242,6 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.WaitForFlowResponse other = (io.superdurable.gen.WaitForFlowResponse) obj;
 
-    if (!getRunId()
-        .equals(other.getRunId())) return false;
     if (flowStatus_ != other.flowStatus_) return false;
     if (!getResultsList()
         .equals(other.getResultsList())) return false;
@@ -307,8 +259,6 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getRunId().hashCode();
     hash = (37 * hash) + FLOW_STATUS_FIELD_NUMBER;
     hash = (53 * hash) + flowStatus_;
     if (getResultsCount() > 0) {
@@ -450,7 +400,6 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      runId_ = "";
       flowStatus_ = 0;
       if (resultsBuilder_ == null) {
         results_ = java.util.Collections.emptyList();
@@ -458,7 +407,7 @@ private static final long serialVersionUID = 0L;
         results_ = null;
         resultsBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       errorType_ = 0;
       errorMessage_ = "";
       return this;
@@ -495,9 +444,9 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(io.superdurable.gen.WaitForFlowResponse result) {
       if (resultsBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0)) {
+        if (((bitField0_ & 0x00000002) != 0)) {
           results_ = java.util.Collections.unmodifiableList(results_);
-          bitField0_ = (bitField0_ & ~0x00000004);
+          bitField0_ = (bitField0_ & ~0x00000002);
         }
         result.results_ = results_;
       } else {
@@ -508,15 +457,12 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.WaitForFlowResponse result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.runId_ = runId_;
-      }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.flowStatus_ = flowStatus_;
       }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.errorType_ = errorType_;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.errorMessage_ = errorMessage_;
       }
     }
@@ -533,11 +479,6 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.WaitForFlowResponse other) {
       if (other == io.superdurable.gen.WaitForFlowResponse.getDefaultInstance()) return this;
-      if (!other.getRunId().isEmpty()) {
-        runId_ = other.runId_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
       if (other.flowStatus_ != 0) {
         setFlowStatusValue(other.getFlowStatusValue());
       }
@@ -545,7 +486,7 @@ private static final long serialVersionUID = 0L;
         if (!other.results_.isEmpty()) {
           if (results_.isEmpty()) {
             results_ = other.results_;
-            bitField0_ = (bitField0_ & ~0x00000004);
+            bitField0_ = (bitField0_ & ~0x00000002);
           } else {
             ensureResultsIsMutable();
             results_.addAll(other.results_);
@@ -558,7 +499,7 @@ private static final long serialVersionUID = 0L;
             resultsBuilder_.dispose();
             resultsBuilder_ = null;
             results_ = other.results_;
-            bitField0_ = (bitField0_ & ~0x00000004);
+            bitField0_ = (bitField0_ & ~0x00000002);
             resultsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetResultsFieldBuilder() : null;
@@ -572,7 +513,7 @@ private static final long serialVersionUID = 0L;
       }
       if (!other.getErrorMessage().isEmpty()) {
         errorMessage_ = other.errorMessage_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -601,17 +542,12 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
-            case 10: {
-              runId_ = input.readStringRequireUtf8();
+            case 8: {
+              flowStatus_ = input.readEnum();
               bitField0_ |= 0x00000001;
               break;
-            } // case 10
-            case 16: {
-              flowStatus_ = input.readEnum();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
-            case 26: {
+            } // case 8
+            case 18: {
               io.superdurable.gen.StepCompletionOutput m =
                   input.readMessage(
                       io.superdurable.gen.StepCompletionOutput.parser(),
@@ -623,17 +559,17 @@ private static final long serialVersionUID = 0L;
                 resultsBuilder_.addMessage(m);
               }
               break;
-            } // case 26
-            case 32: {
+            } // case 18
+            case 24: {
               errorType_ = input.readEnum();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 24
+            case 34: {
+              errorMessage_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000008;
               break;
-            } // case 32
-            case 42: {
-              errorMessage_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000010;
-              break;
-            } // case 42
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -651,99 +587,27 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object runId_ = "";
-    /**
-     * <code>string run_id = 1;</code>
-     * @return The runId.
-     */
-    public java.lang.String getRunId() {
-      java.lang.Object ref = runId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        runId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string run_id = 1;</code>
-     * @return The bytes for runId.
-     */
-    public com.google.protobuf.ByteString
-        getRunIdBytes() {
-      java.lang.Object ref = runId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        runId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string run_id = 1;</code>
-     * @param value The runId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRunId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      runId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string run_id = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRunId() {
-      runId_ = getDefaultInstance().getRunId();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string run_id = 1;</code>
-     * @param value The bytes for runId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRunIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      runId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
     private int flowStatus_ = 0;
     /**
-     * <code>.dex.FlowStatus flow_status = 2;</code>
+     * <code>.dex.FlowStatus flow_status = 1;</code>
      * @return The enum numeric value on the wire for flowStatus.
      */
     @java.lang.Override public int getFlowStatusValue() {
       return flowStatus_;
     }
     /**
-     * <code>.dex.FlowStatus flow_status = 2;</code>
+     * <code>.dex.FlowStatus flow_status = 1;</code>
      * @param value The enum numeric value on the wire for flowStatus to set.
      * @return This builder for chaining.
      */
     public Builder setFlowStatusValue(int value) {
       flowStatus_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowStatus flow_status = 2;</code>
+     * <code>.dex.FlowStatus flow_status = 1;</code>
      * @return The flowStatus.
      */
     @java.lang.Override
@@ -752,24 +616,24 @@ private static final long serialVersionUID = 0L;
       return result == null ? io.superdurable.gen.FlowStatus.UNRECOGNIZED : result;
     }
     /**
-     * <code>.dex.FlowStatus flow_status = 2;</code>
+     * <code>.dex.FlowStatus flow_status = 1;</code>
      * @param value The flowStatus to set.
      * @throws IllegalArgumentException if UNRECOGNIZED is provided.
      * @return This builder for chaining.
      */
     public Builder setFlowStatus(io.superdurable.gen.FlowStatus value) {
       if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       flowStatus_ = value.getNumber();
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowStatus flow_status = 2;</code>
+     * <code>.dex.FlowStatus flow_status = 1;</code>
      * @return This builder for chaining.
      */
     public Builder clearFlowStatus() {
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000001);
       flowStatus_ = 0;
       onChanged();
       return this;
@@ -778,9 +642,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.StepCompletionOutput> results_ =
       java.util.Collections.emptyList();
     private void ensureResultsIsMutable() {
-      if (!((bitField0_ & 0x00000004) != 0)) {
+      if (!((bitField0_ & 0x00000002) != 0)) {
         results_ = new java.util.ArrayList<io.superdurable.gen.StepCompletionOutput>(results_);
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
        }
     }
 
@@ -788,7 +652,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder> resultsBuilder_;
 
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public java.util.List<io.superdurable.gen.StepCompletionOutput> getResultsList() {
       if (resultsBuilder_ == null) {
@@ -798,7 +662,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public int getResultsCount() {
       if (resultsBuilder_ == null) {
@@ -808,7 +672,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public io.superdurable.gen.StepCompletionOutput getResults(int index) {
       if (resultsBuilder_ == null) {
@@ -818,7 +682,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder setResults(
         int index, io.superdurable.gen.StepCompletionOutput value) {
@@ -835,7 +699,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder setResults(
         int index, io.superdurable.gen.StepCompletionOutput.Builder builderForValue) {
@@ -849,7 +713,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder addResults(io.superdurable.gen.StepCompletionOutput value) {
       if (resultsBuilder_ == null) {
@@ -865,7 +729,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder addResults(
         int index, io.superdurable.gen.StepCompletionOutput value) {
@@ -882,7 +746,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder addResults(
         io.superdurable.gen.StepCompletionOutput.Builder builderForValue) {
@@ -896,7 +760,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder addResults(
         int index, io.superdurable.gen.StepCompletionOutput.Builder builderForValue) {
@@ -910,7 +774,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder addAllResults(
         java.lang.Iterable<? extends io.superdurable.gen.StepCompletionOutput> values) {
@@ -925,12 +789,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder clearResults() {
       if (resultsBuilder_ == null) {
         results_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000004);
+        bitField0_ = (bitField0_ & ~0x00000002);
         onChanged();
       } else {
         resultsBuilder_.clear();
@@ -938,7 +802,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public Builder removeResults(int index) {
       if (resultsBuilder_ == null) {
@@ -951,14 +815,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public io.superdurable.gen.StepCompletionOutput.Builder getResultsBuilder(
         int index) {
       return internalGetResultsFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public io.superdurable.gen.StepCompletionOutputOrBuilder getResultsOrBuilder(
         int index) {
@@ -968,7 +832,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
          getResultsOrBuilderList() {
@@ -979,14 +843,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public io.superdurable.gen.StepCompletionOutput.Builder addResultsBuilder() {
       return internalGetResultsFieldBuilder().addBuilder(
           io.superdurable.gen.StepCompletionOutput.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public io.superdurable.gen.StepCompletionOutput.Builder addResultsBuilder(
         int index) {
@@ -994,7 +858,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.StepCompletionOutput.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.StepCompletionOutput results = 3;</code>
+     * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
     public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder> 
          getResultsBuilderList() {
@@ -1007,7 +871,7 @@ private static final long serialVersionUID = 0L;
         resultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder>(
                 results_,
-                ((bitField0_ & 0x00000004) != 0),
+                ((bitField0_ & 0x00000002) != 0),
                 getParentForChildren(),
                 isClean());
         results_ = null;
@@ -1017,25 +881,25 @@ private static final long serialVersionUID = 0L;
 
     private int errorType_ = 0;
     /**
-     * <code>.dex.FlowErrorType error_type = 4;</code>
+     * <code>.dex.FlowErrorType error_type = 3;</code>
      * @return The enum numeric value on the wire for errorType.
      */
     @java.lang.Override public int getErrorTypeValue() {
       return errorType_;
     }
     /**
-     * <code>.dex.FlowErrorType error_type = 4;</code>
+     * <code>.dex.FlowErrorType error_type = 3;</code>
      * @param value The enum numeric value on the wire for errorType to set.
      * @return This builder for chaining.
      */
     public Builder setErrorTypeValue(int value) {
       errorType_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowErrorType error_type = 4;</code>
+     * <code>.dex.FlowErrorType error_type = 3;</code>
      * @return The errorType.
      */
     @java.lang.Override
@@ -1044,24 +908,24 @@ private static final long serialVersionUID = 0L;
       return result == null ? io.superdurable.gen.FlowErrorType.UNRECOGNIZED : result;
     }
     /**
-     * <code>.dex.FlowErrorType error_type = 4;</code>
+     * <code>.dex.FlowErrorType error_type = 3;</code>
      * @param value The errorType to set.
      * @throws IllegalArgumentException if UNRECOGNIZED is provided.
      * @return This builder for chaining.
      */
     public Builder setErrorType(io.superdurable.gen.FlowErrorType value) {
       if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       errorType_ = value.getNumber();
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowErrorType error_type = 4;</code>
+     * <code>.dex.FlowErrorType error_type = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearErrorType() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       errorType_ = 0;
       onChanged();
       return this;
@@ -1069,7 +933,7 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object errorMessage_ = "";
     /**
-     * <code>string error_message = 5;</code>
+     * <code>string error_message = 4;</code>
      * @return The errorMessage.
      */
     public java.lang.String getErrorMessage() {
@@ -1085,7 +949,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string error_message = 5;</code>
+     * <code>string error_message = 4;</code>
      * @return The bytes for errorMessage.
      */
     public com.google.protobuf.ByteString
@@ -1102,7 +966,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string error_message = 5;</code>
+     * <code>string error_message = 4;</code>
      * @param value The errorMessage to set.
      * @return This builder for chaining.
      */
@@ -1110,22 +974,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       errorMessage_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>string error_message = 5;</code>
+     * <code>string error_message = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearErrorMessage() {
       errorMessage_ = getDefaultInstance().getErrorMessage();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
     /**
-     * <code>string error_message = 5;</code>
+     * <code>string error_message = 4;</code>
      * @param value The bytes for errorMessage to set.
      * @return This builder for chaining.
      */
@@ -1134,7 +998,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       errorMessage_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }

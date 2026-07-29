@@ -268,7 +268,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 	activityError := errors.New("activity error")
 	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
-		NewActivityError(
+		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 		).
@@ -302,7 +302,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	activityError := errors.New("activity error")
 	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
-		NewActivityError(
+		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
 		).
@@ -326,13 +326,41 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
 }
 
+func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
+	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
+	inputError := status.Error(codes.Canceled, "")
+	activityError := errors.New("activity error")
+	var errorResponse *dexpb.ErrorResponse
+	provider.EXPECT().
+		NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			gomock.Any(),
+		).
+		DoAndReturn(func(
+			_ dexpb.FlowErrorType,
+			response *dexpb.ErrorResponse,
+		) error {
+			errorResponse = response
+			return activityError
+		})
+
+	require.ErrorIs(t, composeActivityError(provider, inputError), activityError)
+	require.Equal(t, inputError.Error(), errorResponse.GetDetail())
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		errorResponse.GetSubStatus(),
+	)
+	require.Equal(t, int32(codes.Canceled), errorResponse.GetOriginalWorkerErrorStatus())
+}
+
 func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := status.Error(codes.Unavailable, "internal service unavailable")
 	activityError := errors.New("activity error")
 	var errorResponse *dexpb.ErrorResponse
 	provider.EXPECT().
-		NewActivityError(
+		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 		).

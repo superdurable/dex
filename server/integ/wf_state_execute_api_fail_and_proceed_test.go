@@ -103,7 +103,7 @@ func doTestStateExecuteApiFailAndProceed(
 			FlowConfigOverride: flowConfig,
 		}
 	}
-	startResp, err := flowClient.StartFlow(ctx, startRequest)
+	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
 	resp, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -117,7 +117,6 @@ func doTestStateExecuteApiFailAndProceed(
 		"Recover_execute": 1,
 	}, history)
 
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 	require.Empty(t, resp.GetResults())
 }

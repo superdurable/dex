@@ -368,11 +368,10 @@ message StepCompletionOutput {
 }
 
 message WaitForFlowResponse {
-  string run_id = 1;
-  FlowStatus flow_status = 2;
-  repeated StepCompletionOutput results = 3;
-  FlowErrorType error_type = 4;
-  string error_message = 5;
+  FlowStatus flow_status = 1;
+  repeated StepCompletionOutput results = 2;
+  FlowErrorType error_type = 3;
+  string error_message = 4;
 }
 
 message SearchFlowsRequest {
@@ -585,6 +584,8 @@ message FlowConditionalClose {
 
 message StepMovement {
   string step_type = 1;
+  // For _SYS_FORCE_FAILING_FLOW, only string_value is used as ErrorResponse.detail;
+  // other Value kinds are ignored.
   Value step_input = 2;
   StepOptions step_options = 3;
 }

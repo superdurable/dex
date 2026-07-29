@@ -48,12 +48,7 @@ type handler struct {
 }
 
 var testStepInput = &dexpb.Value{
-	Kind: &dexpb.Value_ObjValue{
-		ObjValue: &dexpb.EncodedObject{
-			Encoding: "test-encoding",
-			Payload:  []byte("test-data"),
-		},
-	},
+	Kind: &dexpb.Value_StringValue{StringValue: "test-data"},
 }
 
 func NewHandler() *handler {

@@ -35,7 +35,7 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 	return activity.GetLogger(ctx)
 }
 
-func (a *activityProvider) NewActivityError(
+func (a *activityProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
 	errorResponse *dexpb.ErrorResponse,
 ) error {

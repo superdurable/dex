@@ -22,7 +22,6 @@ package temporal
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -117,61 +116,53 @@ func (t *temporalClient) IsWorkflowTimeoutError(err error) bool {
 	return realtemporal.IsTimeoutError(err)
 }
 
-func (t *temporalClient) GetApplicationErrorTypeIfIsApplicationError(err error) string {
+func (t *temporalClient) GetIfUpdateError(err error, detail *string) (dexpb.UpdateErrorType, bool) {
+	typeName := t.extractAppErrType(err)
+	value, ok := dexpb.UpdateErrorType_value[typeName]
+	if !ok {
+		return 0, false
+	}
+	var decoded string
+	if decodeErr := t.decodeAppErrDetails(err, &decoded); decodeErr == nil && detail != nil {
+		*detail = decoded
+	}
+	return dexpb.UpdateErrorType(value), true
+}
+
+func (t *temporalClient) GetIfFlowError(err error, resp *dexpb.ErrorResponse) (dexpb.FlowErrorType, bool) {
+	typeName := t.extractAppErrType(err)
+	value, ok := dexpb.FlowErrorType_value[typeName]
+	if !ok {
+		return 0, false
+	}
+	if resp == nil {
+		panic("resp required")
+	}
+	if decodeErr := t.decodeAppErrDetails(err, resp); decodeErr != nil {
+		if resp.Detail == "" {
+			resp.Detail = err.Error()
+		}
+	}
+	return dexpb.FlowErrorType(value), true
+}
+
+func (t *temporalClient) extractAppErrType(err error) string {
 	var applicationError *realtemporal.ApplicationError
-	isAppErr := errors.As(err, &applicationError)
-	if isAppErr {
+	if errors.As(err, &applicationError) {
 		return applicationError.Type()
 	}
 	return ""
 }
 
-func (t *temporalClient) GetApplicationErrorDetails(err error, detailsPtr interface{}) error {
+func (t *temporalClient) decodeAppErrDetails(err error, detailsPtr interface{}) error {
 	var applicationError *realtemporal.ApplicationError
-	isAppErr := errors.As(err, &applicationError)
-	if !isAppErr {
-		return fmt.Errorf("not an application error. Critical code bug")
+	if !errors.As(err, &applicationError) {
+		return fmt.Errorf("not an application error")
 	}
-	if applicationError.HasDetails() {
-		return applicationError.Details(detailsPtr)
+	if !applicationError.HasDetails() {
+		return fmt.Errorf("application error doesn't have details")
 	}
-	return fmt.Errorf("application error doesn't have details. Critical code bug")
-}
-
-func (t *temporalClient) GetApplicationErrorTypeAndDetails(err error) (string, string) {
-	errType := t.GetApplicationErrorTypeIfIsApplicationError(err)
-
-	var errorResponse dexpb.ErrorResponse
-	if detailsErr := t.GetApplicationErrorDetails(err, &errorResponse); detailsErr == nil &&
-		(errorResponse.GetDetail() != "" ||
-			errorResponse.GetSubStatus() != dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED ||
-			errorResponse.GetOriginalWorkerErrorDetail() != "" ||
-			errorResponse.GetOriginalWorkerErrorType() != "" ||
-			errorResponse.GetOriginalWorkerErrorStatus() != 0) {
-		return errType, errorResponse.GetDetail()
-	}
-
-	var errDetailsPtr interface{}
-	var errDetails string
-
-	err2 := t.GetApplicationErrorDetails(err, &errDetailsPtr)
-	if err2 != nil {
-		errDetails = err2.Error()
-	} else {
-		errDetailsString, ok := errDetailsPtr.(string)
-		if ok {
-			errDetails = errDetailsString
-		} else {
-			// All other types, e.g. dexpb.StepCompletionOutput, try to Marshal the object to JSON
-			var err error
-			jsonBytes, err := json.Marshal(errDetailsPtr)
-			if err == nil {
-				errDetails = string(jsonBytes)
-			}
-		}
-	}
-
-	return errType, errDetails
+	return applicationError.Details(detailsPtr)
 }
 
 func (t *temporalClient) StartInterpreterWorkflow(

@@ -30,7 +30,6 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/wf_force_fail"
 	"github.com/superdurable/dex/service"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestFlowForceFailTemporal(t *testing.T) {
@@ -71,7 +70,7 @@ func doTestFlowForceFail(
 	defer cancel()
 
 	flowId := "wf-force-fail-test-" + uuid.NewString()
-	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId:             flowId,
 		FlowType:           wf_force_fail.FlowType,
 		FlowTimeoutSeconds: 10,
@@ -90,25 +89,12 @@ func doTestFlowForceFail(
 	})
 	require.NoError(t, err)
 
-	expectedStepOutput := &dexpb.Value{
-		Kind: &dexpb.Value_ObjValue{
-			ObjValue: &dexpb.EncodedObject{
-				Encoding: "test-encoding",
-				Payload:  []byte("test-data"),
-			},
-		},
-	}
-
-	require.Equal(t, startResp.GetRunId(), resp.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 	require.Equal(
 		t,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
 		resp.GetErrorType(),
 	)
-	require.Len(t, resp.GetResults(), 1)
-	result := resp.GetResults()[0]
-	require.Equal(t, wf_force_fail.Step1, result.GetCompletedStepType())
-	require.Equal(t, wf_force_fail.Step1+"-1", result.GetCompletedStepExecutionId())
-	require.True(t, proto.Equal(expectedStepOutput, result.GetCompletedStepOutput()))
+	require.Equal(t, "test-data", resp.GetErrorMessage())
+	require.Empty(t, resp.GetResults())
 }

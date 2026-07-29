@@ -146,28 +146,35 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *dexpb.FlowConfig)
 		require.Equal(t, []string{"S3", "S6", "S7"}, historyEventSAs(upsertSAEvents[6]))
 		require.Equal(t, []string{"S3", "S6"}, historyEventSAs(upsertSAEvents[7]))
 		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[8]))
-		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[9]))
+		require.Empty(t, historyEventSAs(upsertSAEvents[9]))
 	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
 		require.Equal(t, 1, len(upsertSAEvents))
 	default:
 		require.Equal(t, 9, len(upsertSAEvents))
 		require.Equal(t, []string{"S1"}, historyEventSAs(upsertSAEvents[1]))
-		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[2]))
+		require.Empty(t, historyEventSAs(upsertSAEvents[2]))
 		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[3]))
 		require.Equal(t, []string{"S3", "S4"}, historyEventSAs(upsertSAEvents[4]))
 		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[5]))
 		require.Equal(t, []string{"S3", "S6"}, historyEventSAs(upsertSAEvents[6]))
 		require.Equal(t, []string{"S3"}, historyEventSAs(upsertSAEvents[7]))
-		require.Equal(t, []string{"null"}, historyEventSAs(upsertSAEvents[8]))
+		require.Empty(t, historyEventSAs(upsertSAEvents[8]))
 	}
 }
 
 func historyEventSAs(event *history.HistoryEvent) []string {
 	attrs := event.GetAttributes().(*history.HistoryEvent_UpsertWorkflowSearchAttributesEventAttributes)
 	data := string(attrs.UpsertWorkflowSearchAttributesEventAttributes.GetSearchAttributes().GetIndexedFields()[service.SearchAttributeActiveStepTypes].GetData())
+	data = strings.TrimSpace(data)
+	if data == "" || data == "null" || data == "[]" {
+		return nil
+	}
 	data = strings.ReplaceAll(data, "[", "")
 	data = strings.ReplaceAll(data, "]", "")
 	data = strings.ReplaceAll(data, "\"", "")
+	if data == "" || data == "null" {
+		return nil
+	}
 	dataSlice := strings.Split(data, ",")
 	slices.Sort(dataSlice)
 	return dataSlice

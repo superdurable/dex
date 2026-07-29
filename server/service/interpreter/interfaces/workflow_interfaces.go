@@ -30,7 +30,7 @@ import (
 
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
-	NewActivityError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
+	NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})
 }
@@ -102,8 +102,8 @@ type TimerProcessor interface {
 }
 
 type WorkflowProvider interface {
-	NewWorkflowError(errType dexpb.FlowErrorType, details interface{}) error
-	NewUpdateError(errType dexpb.UpdateErrorType, details interface{}) error
+	NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error
+	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

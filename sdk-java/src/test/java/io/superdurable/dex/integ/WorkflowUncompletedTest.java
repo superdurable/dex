@@ -204,10 +204,9 @@ public class WorkflowUncompletedTest {
             Assertions.assertEquals(runId, e.getRunId());
             Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
             Assertions.assertEquals(WorkflowErrorType.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertNull(e.getErrorMessage());
-            Assertions.assertEquals(1, e.getStateResultsSize());
-            String out = e.getStateResult(0, String.class);
-            Assertions.assertEquals("a failing message", out);
+            Assertions.assertNotNull(e.getErrorMessage());
+            Assertions.assertTrue(e.getErrorMessage().contains("a failing message"));
+            Assertions.assertEquals(0, e.getStateResultsSize());
             return;
         }
         Assertions.fail("no exception caught");
