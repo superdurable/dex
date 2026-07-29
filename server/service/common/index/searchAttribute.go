@@ -21,8 +21,10 @@
 package index
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -30,9 +32,11 @@ import (
 	"github.com/superdurable/dex/service/common/timeparser"
 	"github.com/superdurable/dex/service/common/utils"
 	"go.temporal.io/api/common/v1"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/cadence/.gen/go/shared"
 	"go.uber.org/cadence/client"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // ConvertAttributeWritesToSearchAttributeUpsertMap encodes indexed AttributeWrites for Temporal/Cadence upsert.
@@ -178,6 +182,152 @@ func resolveNonNilIndexValue(value *dexpb.Value, indexType dexpb.IndexType) inte
 	default:
 		return nil
 	}
+}
+
+// MapTemporalSearchAttributeFieldsToKVs decodes all Temporal search attributes returned by visibility.
+func MapTemporalSearchAttributeFieldsToKVs(
+	searchAttributes *common.SearchAttributes,
+) ([]*dexpb.KV, error) {
+	if searchAttributes == nil {
+		return nil, nil
+	}
+	keys := sortedKeys(searchAttributes.GetIndexedFields())
+	result := make([]*dexpb.KV, 0, len(keys))
+	for _, key := range keys {
+		value, err := temporalSearchAttributePayloadToValue(searchAttributes.GetIndexedFields()[key])
+		if err != nil {
+			return nil, fmt.Errorf("decode search attribute %q: %w", key, err)
+		}
+		result = append(result, &dexpb.KV{Key: key, Value: value})
+	}
+	return result, nil
+}
+
+// MapCadenceSearchAttributeFieldsToKVs decodes all Cadence search attributes returned by visibility.
+func MapCadenceSearchAttributeFieldsToKVs(searchAttributes *shared.SearchAttributes) []*dexpb.KV {
+	if searchAttributes == nil {
+		return nil
+	}
+	keys := sortedKeys(searchAttributes.GetIndexedFields())
+	result := make([]*dexpb.KV, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, &dexpb.KV{
+			Key:   key,
+			Value: jsonPayloadToBestEffortValue(searchAttributes.GetIndexedFields()[key], "json"),
+		})
+	}
+	return result
+}
+
+func sortedKeys[Value any](values map[string]Value) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func temporalSearchAttributePayloadToValue(payload *common.Payload) (*dexpb.Value, error) {
+	if payload == nil {
+		return rawPayloadValue(nil, ""), nil
+	}
+	if indexType, ok := temporalPayloadIndexType(payload); ok {
+		var object interface{}
+		if err := converter.GetDefaultDataConverter().FromPayload(payload, &object); err != nil {
+			return rawTemporalPayloadValue(payload), nil
+		}
+		if object == nil {
+			return nullValue(), nil
+		}
+		value, err := backendObjectToValue(object, indexType, false)
+		if err != nil {
+			return rawTemporalPayloadValue(payload), nil
+		}
+		return value, nil
+	}
+	return jsonPayloadToBestEffortValue(payload.GetData(), temporalPayloadEncoding(payload)), nil
+}
+
+func temporalPayloadIndexType(payload *common.Payload) (dexpb.IndexType, bool) {
+	valueType, err := enums.IndexedValueTypeFromString(string(payload.GetMetadata()["type"]))
+	if err != nil {
+		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED, false
+	}
+	switch valueType {
+	case enums.INDEXED_VALUE_TYPE_KEYWORD:
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD, true
+	case enums.INDEXED_VALUE_TYPE_TEXT:
+		return dexpb.IndexType_INDEX_TYPE_TEXT, true
+	case enums.INDEXED_VALUE_TYPE_KEYWORD_LIST:
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY, true
+	case enums.INDEXED_VALUE_TYPE_INT:
+		return dexpb.IndexType_INDEX_TYPE_INT, true
+	case enums.INDEXED_VALUE_TYPE_DOUBLE:
+		return dexpb.IndexType_INDEX_TYPE_DOUBLE, true
+	case enums.INDEXED_VALUE_TYPE_BOOL:
+		return dexpb.IndexType_INDEX_TYPE_BOOL, true
+	case enums.INDEXED_VALUE_TYPE_DATETIME:
+		return dexpb.IndexType_INDEX_TYPE_DATETIME, true
+	default:
+		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED, false
+	}
+}
+
+func jsonPayloadToBestEffortValue(payload []byte, encoding string) *dexpb.Value {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var object interface{}
+	if err := decoder.Decode(&object); err != nil {
+		return rawPayloadValue(payload, encoding)
+	}
+	return jsonObjectToValue(object, payload, encoding)
+}
+
+func jsonObjectToValue(object interface{}, payload []byte, encoding string) *dexpb.Value {
+	switch value := object.(type) {
+	case nil:
+		return nullValue()
+	case string:
+		return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}}
+	case json.Number:
+		if intValue, err := value.Int64(); err == nil {
+			return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: intValue}}
+		}
+		if doubleValue, err := value.Float64(); err == nil {
+			return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: doubleValue}}
+		}
+		return rawPayloadValue(payload, encoding)
+	case bool:
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: value}}
+	default:
+		return rawPayloadValue(payload, encoding)
+	}
+}
+
+func nullValue() *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
+	}
+}
+
+func rawPayloadValue(payload []byte, encoding string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
+				Encoding: encoding,
+				Payload:  payload,
+			},
+		},
+	}
+}
+
+func rawTemporalPayloadValue(payload *common.Payload) *dexpb.Value {
+	return rawPayloadValue(payload.GetData(), temporalPayloadEncoding(payload))
+}
+
+func temporalPayloadEncoding(payload *common.Payload) string {
+	return string(payload.GetMetadata()[converter.MetadataEncoding])
 }
 
 // MapCadenceSearchAttributeFieldsToAttrValues decodes requested Cadence indexed fields into Values.
