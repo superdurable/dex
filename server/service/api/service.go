@@ -189,6 +189,7 @@ func (s *serviceImpl) StartFlow(
 				Payload: []byte(workerTarget),
 			},
 		},
+		IdReusePolicy: ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING),
 	}
 	ignoreAlreadyStartedError := false
 	requestId := ""
@@ -733,16 +734,14 @@ func (s *serviceImpl) InvokeRPC(
 		len(decision.GetNextSteps()) > 0 ||
 		decision.GetConditionalClose() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
-			RpcInput:         req.GetInput(),
-			RpcOutput:        workerResponse.GetOutput(),
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),
 			RecordEvents:     workerResponse.GetRecordEvents(),
 			PublishToChannel: workerResponse.GetPublishToChannel(),
 		}
-		if s.apiCfg.OmitRpcInputOutputInHistory != nil && *s.apiCfg.OmitRpcInputOutputInHistory {
-			signalRequest.RpcInput = nil
-			signalRequest.RpcOutput = nil
+		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
+			signalRequest.RpcInput = req.GetInput()
+			signalRequest.RpcOutput = workerResponse.GetOutput()
 		}
 		if err := s.client.SignalWorkflow(
 			ctx,
