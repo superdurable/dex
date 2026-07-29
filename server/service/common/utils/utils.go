@@ -96,19 +96,15 @@ func TrimContextByTimeoutWithCappedDDL(parent context.Context, reqWaitSeconds *i
 		maxWaitSeconds = int64(*reqWaitSeconds)
 	}
 
-	maxWaitTimestamp := time.Now().Unix() + maxWaitSeconds
+	maxWaitDeadline := time.Now().Add(time.Duration(maxWaitSeconds) * time.Second)
 
 	// then capped by context
 	ddl, ok := parent.Deadline()
-	if ok {
-		maxDdlUnix := ddl.Unix()
-		if maxDdlUnix < maxWaitTimestamp {
-			maxWaitTimestamp = maxDdlUnix
-		}
+	if ok && ddl.Before(maxWaitDeadline) {
+		maxWaitDeadline = ddl
 	}
 
-	newDdl := time.Unix(maxWaitTimestamp, 0)
-	return context.WithDeadline(parent, newDdl)
+	return context.WithDeadline(parent, maxWaitDeadline)
 }
 
 func CheckHttpError(err error, httpResp *http.Response) bool {
