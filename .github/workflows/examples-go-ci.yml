@@ -1,19 +1,6 @@
 name: Go examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/go/**"
-      - "sdk-go/integ/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-go-ci.yml"
-  pull_request:
-    paths:
-      - "examples/go/**"
-      - "sdk-go/integ/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
 
 jobs:

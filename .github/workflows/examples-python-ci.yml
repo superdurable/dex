@@ -1,19 +1,6 @@
 name: Python examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/python/**"
-      - "sdk-python/dex/tests/dex-service-env/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-python-ci.yml"
-  pull_request:
-    paths:
-      - "examples/python/**"
-      - "sdk-python/dex/tests/dex-service-env/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-python-ci.yml"
   workflow_dispatch:
 
 jobs:

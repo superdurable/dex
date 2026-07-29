@@ -1,19 +1,6 @@
 name: Java examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/java/**"
-      - "sdk-java/script/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-java-ci.yml"
-  pull_request:
-    paths:
-      - "examples/java/**"
-      - "sdk-java/script/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/examples-java-ci.yml"
   workflow_dispatch:
 
 jobs:
