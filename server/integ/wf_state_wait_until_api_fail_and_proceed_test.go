@@ -83,14 +83,15 @@ func doTestStateApiFailAndProceed(
 		FlowId:             flowId,
 		FlowType:           wf_state_api_fail_and_proceed.FlowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_state_api_fail_and_proceed.Step1,
-		StepOptions:        stepOptions,
+
+		StartStepType:    wf_state_api_fail_and_proceed.Step1,
+		StepOptions:      stepOptions,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

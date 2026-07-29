@@ -11,6 +11,14 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - **FlowService** — hosted by the server; SDKs call these RPCs
 - **WorkerService** — hosted by the worker; the server calls `WaitFor`, `Execute`, and `WorkerRpc`
 
+## Worker targets
+
+`WorkerTarget.address` is a plaintext gRPC target. Set `is_headless_address` for a
+`host:port` whose DNS records represent individual WorkerService endpoints.
+
+Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
+change the target for subsequent WorkerService calls while the flow is running.
+
 ## Codegen
 
 Regenerate checked-in stubs into server and SDK trees:

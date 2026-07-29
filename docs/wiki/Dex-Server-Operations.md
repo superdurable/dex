@@ -39,6 +39,29 @@ For old cluster, use instruction [here](https://github.com/indeedeng/iwf/release
 
 In the near future, we will make a breaking change to switch the default to "new".
 
+## Headless WorkerService routing
+
+Set `WorkerTarget.is_headless_address` when its `address` is a `host:port` whose
+DNS A/AAAA records identify individual WorkerService endpoints. Dex refreshes
+each headless target every `headlessAddressRefreshInterval` (default `60s`).
+Failed or empty refreshes retain the last successful address set.
+These settings live under the top-level `worker` config section.
+
+Each flow stores its target in `FlowConfig.worker_target`. Calling
+`UpdateFlowConfig` changes the target used by subsequent worker calls.
+
+Dex remembers the last successful endpoint for each flow and otherwise assigns
+endpoints round-robin. `maxStickyRoutingEntries` bounds this LRU state and
+defaults to `100000`.
+
+`workerServiceRequestMaxAttempts` defaults to `3` and includes the first
+headless WorkerService transport attempt. Failovers use exponential backoff and
+may switch resolved endpoints. Non-headless targets are attempted once.
+`headlessFailoverStatusCodes` defaults to gRPC `Unavailable` (14),
+`DeadlineExceeded` (4), and `Unknown` (2). These attempts occur inside one
+Temporal/Cadence activity attempt; the activity retry policy is independent, so
+the two limits can multiply.
+
 # Suggested Monitors and Runbook
 
 ## Scale up horizontally
@@ -102,4 +125,3 @@ Contact Cadence/Temporal need to scale up their cluster to process more tasks in
   * Check if CPU/memory is too hot. If so scale up the worker fleet
   * Check logs to see if we can find the workflow tasks that have high latency
   * Check if there is high latency in the Cadence/Temporal API. Executing workflow tasks may need to pull the history to replay. If workflow history is too large, it could take more time for workflow to get the history from Cadence/Temporal. See above instructions for "workflow task execution failure".
-

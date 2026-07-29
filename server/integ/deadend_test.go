@@ -98,10 +98,10 @@ func doTestDeadEndFlow(
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

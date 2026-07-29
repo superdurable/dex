@@ -349,13 +349,13 @@ func startChannelMultivalueFlowWithStepOptions(
 		FlowId:             flowId,
 		FlowType:           channel_multivalue.WorkflowType,
 		FlowTimeoutSeconds: 40,
-		WorkerTarget:       workerTarget,
-		StartStepType:      channel_multivalue.State1,
-		StepInput:          stringValue(scenario),
-		StepOptions:        stepOptions,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: channel_multivalue.State1,
+		StepInput:     stringValue(scenario),
+		StepOptions:   stepOptions,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 	return workerHandler, runtime, flowId, ctx

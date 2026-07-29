@@ -42,8 +42,8 @@ import (
 
 type Activities struct {
 	activityProvider interfaces.ActivityProvider
-	workerPool       *workerclient.Pool
-	internalClient   *workerclient.InternalService
+	workerPool       *workerclient.WorkerClientPool
+	internalClient   *workerclient.InternalServiceClient
 	unifiedClient    uclient.UnifiedClient
 	blobStore        blobstore.BlobStore
 	eventHandler     event.HandleEventFunc
@@ -52,8 +52,8 @@ type Activities struct {
 
 func NewActivities(
 	activityProvider interfaces.ActivityProvider,
-	workerPool *workerclient.Pool,
-	internalClient *workerclient.InternalService,
+	workerPool *workerclient.WorkerClientPool,
+	internalClient *workerclient.InternalServiceClient,
 	unifiedClient uclient.UnifiedClient,
 	blobStore blobstore.BlobStore,
 	eventHandler event.HandleEventFunc,
@@ -97,14 +97,18 @@ func (a *Activities) InvokeWaitForMethod(
 		}
 	}
 
-	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
+	client, callCtx, release, err := a.workerPool.Acquire(
+		ctx,
+		input.GetWorkerTarget(),
+		activityInfo.WorkflowExecution.ID,
+	)
 	if err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
 	defer release()
 
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
-	printDebugMsg(logger, err, input.GetWorkerTarget())
+	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
@@ -158,14 +162,18 @@ func (a *Activities) InvokeExecuteMethod(
 		}
 	}
 
-	client, callCtx, release, err := a.workerPool.Acquire(ctx, input.GetWorkerTarget())
+	client, callCtx, release, err := a.workerPool.Acquire(
+		ctx,
+		input.GetWorkerTarget(),
+		activityInfo.WorkflowExecution.ID,
+	)
 	if err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
 	defer release()
 
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
-	printDebugMsg(logger, err, input.GetWorkerTarget())
+	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
@@ -660,6 +668,17 @@ func composeLocalActivityInput(ctx *dexpb.Context) *dexpb.LocalActivityInput {
 		CurrentStepExecutionId: ctx.GetStepExecutionId(),
 		FromStepExecutionId:    ctx.GetFromStepExecutionId(),
 	}
+}
+
+func workerAddressForLogging(ctx context.Context, workerTarget *dexpb.WorkerTarget) string {
+	if !workerTarget.GetIsHeadlessAddress() {
+		return workerTarget.GetAddress()
+	}
+	resolvedAddress := workerclient.ResolvedWorkerAddressFromContext(ctx)
+	if resolvedAddress == "" {
+		return workerTarget.GetAddress()
+	}
+	return resolvedAddress
 }
 
 func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {

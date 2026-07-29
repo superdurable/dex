@@ -99,11 +99,11 @@ func doTestAnyCommandCloseFlow(
 		FlowId:             flowId,
 		FlowType:           anycommandclose.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      anycommandclose.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: anycommandclose.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

@@ -84,11 +84,11 @@ func doTestParallelFlow(
 		FlowId:             flowId,
 		FlowType:           parallel.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      parallel.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: parallel.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

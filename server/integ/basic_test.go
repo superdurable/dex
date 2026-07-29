@@ -115,10 +115,10 @@ func doTestBasicFlow(
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      basic.Step1,
-		StepInput:          flowInput,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: basic.Step1,
+		StepInput:     flowInput,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 			IdReusePolicy:      dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
 			// TODO: need more work to write integ test for cron
@@ -130,7 +130,8 @@ func doTestBasicFlow(
 				MaximumAttempts:        11,
 				MaximumIntervalSeconds: 11,
 			},
-		},
+		}, workerTarget),
+
 		StepOptions: &dexpb.StepOptions{
 			WaitForTimeoutSeconds: 12,
 			ExecuteTimeoutSeconds: 13,

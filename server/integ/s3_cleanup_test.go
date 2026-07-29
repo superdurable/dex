@@ -75,9 +75,10 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 			FlowId:             flowId,
 			FlowType:           s3_start_input.WorkflowType,
 			FlowTimeoutSeconds: 100,
-			WorkerTarget:       workerTarget,
-			StartStepType:      s3_start_input.State1,
-			StepInput:          objJSONValue(`"12345678901"`),
+
+			StartStepType:    s3_start_input.State1,
+			StepInput:        objJSONValue(`"12345678901"`),
+			FlowStartOptions: withWorkerTarget(nil, workerTarget),
 		})
 		require.NoError(t, err)
 	}

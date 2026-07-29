@@ -104,12 +104,12 @@ func doTestGreedyTimerFlowCustomConfig(
 		FlowId:             flowId,
 		FlowType:           greedy_timer.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      greedy_timer.ScheduleTimerState,
-		StepInput:          encodedObjectValue("json", inputData),
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: greedy_timer.ScheduleTimerState,
+		StepInput:     encodedObjectValue("json", inputData),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

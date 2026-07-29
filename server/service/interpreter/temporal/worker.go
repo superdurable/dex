@@ -40,8 +40,7 @@ type InterpreterWorker struct {
 	temporalClient client.Client
 	worker         worker.Worker
 	taskQueue      string
-	workerPool     *workerclient.Pool
-	internalClient *workerclient.InternalService
+	internalClient *workerclient.InternalServiceClient
 	unifiedClient  uclient.UnifiedClient
 	activities     *interpreter.Activities
 	workflow       *interpreter.Interpreter
@@ -56,18 +55,20 @@ func NewInterpreterWorker(
 	dataConverter converter.DataConverter,
 	unifiedClient uclient.UnifiedClient,
 	store blobstore.BlobStore,
+	workerPool *workerclient.WorkerClientPool,
 ) *InterpreterWorker {
 	if cfg == nil {
 		panic("Temporal InterpreterWorker requires non-nil config sections")
 	}
-	if temporalClient == nil || dataConverter == nil || unifiedClient == nil || taskQueue == "" {
+	if temporalClient == nil || dataConverter == nil || unifiedClient == nil ||
+		workerPool == nil || taskQueue == "" {
 		panic("Temporal InterpreterWorker requires non-nil dependencies and task queue")
 	}
-	pool, internal := interpreter.NewWorkerClients(cfg)
+	internal := interpreter.NewInternalServiceClient(cfg)
 	eventHandler := event.Handle
 	activities := interpreter.NewActivities(
 		&activityProvider{},
-		pool,
+		workerPool,
 		internal,
 		unifiedClient,
 		store,
@@ -79,7 +80,6 @@ func NewInterpreterWorker(
 	return &InterpreterWorker{
 		temporalClient: temporalClient,
 		taskQueue:      taskQueue,
-		workerPool:     pool,
 		internalClient: internal,
 		unifiedClient:  unifiedClient,
 		activities:     activities,
@@ -100,9 +100,6 @@ func NewWorkerForReplay() *InterpreterWorker {
 func (iw *InterpreterWorker) Close() {
 	if iw.worker != nil {
 		iw.worker.Stop()
-	}
-	if iw.workerPool != nil {
-		iw.workerPool.Close()
 	}
 	if iw.internalClient != nil {
 		iw.internalClient.Close()

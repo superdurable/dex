@@ -84,11 +84,11 @@ func doTestInterStateWorkflow(
 		FlowId:             flowId,
 		FlowType:           interstate.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      interstate.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: interstate.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

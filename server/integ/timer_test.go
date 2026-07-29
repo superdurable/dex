@@ -137,12 +137,12 @@ func doTestTimerFlow(
 		FlowId:             flowId,
 		FlowType:           timer.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      timer.State1,
-		StepInput:          stringValue(strconv.FormatInt(nowTimestamp, 10)),
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: timer.State1,
+		StepInput:     stringValue(strconv.FormatInt(nowTimestamp, 10)),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

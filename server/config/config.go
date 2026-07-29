@@ -31,6 +31,7 @@ import (
 	"github.com/uber-go/tally/v4/prometheus"
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
+	"google.golang.org/grpc/codes"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,7 +55,19 @@ const (
 	DefaultWorkerConnectionIdleTimeout = 10 * time.Minute
 	// DefaultMaxWorkerConnections caps the WorkerService dial pool; positive required at runtime.
 	DefaultMaxWorkerConnections = 1000
+	// DefaultHeadlessAddressRefreshInterval controls headless WorkerService DNS refresh.
+	DefaultHeadlessAddressRefreshInterval = time.Minute
+	// DefaultMaxStickyRoutingEntries caps remembered flow-to-worker routes.
+	DefaultMaxStickyRoutingEntries = 100000
+	// DefaultWorkerServiceRequestMaxAttempts includes the first headless WorkerService request.
+	DefaultWorkerServiceRequestMaxAttempts = 3
 )
+
+var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
+	codes.Unavailable,
+	codes.DeadlineExceeded,
+	codes.Unknown,
+}
 
 type (
 	Config struct {
@@ -62,6 +75,8 @@ type (
 		Log Logger `yaml:"log"`
 		// Api is the public FlowService and internal InternalService gRPC server config.
 		Api ApiConfig `yaml:"api"`
+		// Worker configures shared WorkerService clients. Immutable after startup.
+		Worker WorkerConfig `yaml:"worker"`
 		// Interpreter selects Temporal or Cadence and worker activity settings. Exactly one of Temporal/Cadence must be set.
 		Interpreter Interpreter `yaml:"interpreter"`
 		// ExternalStorage offloads large Attribute payloads (string/object) above ThresholdInBytes.
@@ -130,6 +145,25 @@ type (
 		MaximumAttempts int `yaml:"maximumAttempts"`
 	}
 
+	WorkerConfig struct {
+		// DefaultHeaders are forwarded as outgoing gRPC metadata on WorkerService calls. Empty means none.
+		// Default empty.
+		DefaultHeaders map[string]string `yaml:"defaultHeaders"`
+		// WorkerConnectionIdleTimeout evicts idle, unreferenced WorkerService connections. Non-positive defaults to 10m. Immutable after startup.
+		WorkerConnectionIdleTimeout time.Duration `yaml:"workerConnectionIdleTimeout"`
+		// MaxWorkerConnections caps the WorkerService connection pool. Non-positive defaults to 1000. Immutable after startup.
+		MaxWorkerConnections int `yaml:"maxWorkerConnections"`
+		// HeadlessAddressRefreshInterval refreshes headless WorkerService DNS addresses. Non-positive defaults to 60s. Immutable after startup.
+		HeadlessAddressRefreshInterval time.Duration `yaml:"headlessAddressRefreshInterval"`
+		// MaxStickyRoutingEntries caps remembered flow routes. Non-positive defaults to 100000. Immutable after startup.
+		MaxStickyRoutingEntries int `yaml:"maxStickyRoutingEntries"`
+		// WorkerServiceRequestMaxAttempts includes the first headless transport attempt. Non-positive defaults to 3. Activity retries are independent.
+		WorkerServiceRequestMaxAttempts int `yaml:"workerServiceRequestMaxAttempts"`
+		// HeadlessFailoverStatusCodes trigger endpoint failover. Empty defaults to Unavailable (14), DeadlineExceeded (4), and Unknown (2).
+		// See https://grpc.io/docs/guides/status-codes/. Immutable after startup.
+		HeadlessFailoverStatusCodes []int `yaml:"headlessFailoverStatusCodes"`
+	}
+
 	Interpreter struct {
 		// Temporal connects the interpreter to a Temporal cluster. Mutually exclusive with Cadence.
 		Temporal *TemporalConfig `yaml:"temporal"`
@@ -170,12 +204,6 @@ type (
 		InternalServiceTarget string `yaml:"internalServiceTarget"`
 		// DumpWorkflowInternalActivityConfig tunes the CAN dump activity timeouts/retries. Nil uses activity defaults.
 		DumpWorkflowInternalActivityConfig *DumpWorkflowInternalActivityConfig `yaml:"dumpWorkflowInternalActivityConfig"`
-		// DefaultHeaders are forwarded as outgoing gRPC metadata on WorkerService calls. Empty means none.
-		DefaultHeaders map[string]string `yaml:"defaultHeaders"`
-		// WorkerConnectionIdleTimeout evicts idle, unreferenced WorkerService connections. Zero uses DefaultWorkerConnectionIdleTimeout (10m).
-		WorkerConnectionIdleTimeout time.Duration `yaml:"workerConnectionIdleTimeout"`
-		// MaxWorkerConnections caps the WorkerService connection pool. Zero uses DefaultMaxWorkerConnections (1000). Must be positive after defaults.
-		MaxWorkerConnections int `yaml:"maxWorkerConnections"`
 		// LogLocalActivityThresholdBytes logs local-activity I/O at warn when serialized size >= this. Zero disables. Default 0.
 		LogLocalActivityThresholdBytes int `yaml:"logLocalActivityThresholdBytes"`
 	}
@@ -266,7 +294,7 @@ func (c ApiConfig) EffectiveGrpcMaxMessageBytes() int {
 }
 
 // EffectiveWorkerConnectionIdleTimeout returns the idle eviction timeout for WorkerService conns.
-func (c InterpreterActivityConfig) EffectiveWorkerConnectionIdleTimeout() time.Duration {
+func (c WorkerConfig) EffectiveWorkerConnectionIdleTimeout() time.Duration {
 	if c.WorkerConnectionIdleTimeout <= 0 {
 		return DefaultWorkerConnectionIdleTimeout
 	}
@@ -274,11 +302,47 @@ func (c InterpreterActivityConfig) EffectiveWorkerConnectionIdleTimeout() time.D
 }
 
 // EffectiveMaxWorkerConnections returns the WorkerService pool size cap.
-func (c InterpreterActivityConfig) EffectiveMaxWorkerConnections() int {
+func (c WorkerConfig) EffectiveMaxWorkerConnections() int {
 	if c.MaxWorkerConnections <= 0 {
 		return DefaultMaxWorkerConnections
 	}
 	return c.MaxWorkerConnections
+}
+
+// EffectiveHeadlessAddressRefreshInterval returns the headless DNS refresh interval.
+func (c WorkerConfig) EffectiveHeadlessAddressRefreshInterval() time.Duration {
+	if c.HeadlessAddressRefreshInterval <= 0 {
+		return DefaultHeadlessAddressRefreshInterval
+	}
+	return c.HeadlessAddressRefreshInterval
+}
+
+// EffectiveMaxStickyRoutingEntries returns the sticky routing LRU capacity.
+func (c WorkerConfig) EffectiveMaxStickyRoutingEntries() int {
+	if c.MaxStickyRoutingEntries <= 0 {
+		return DefaultMaxStickyRoutingEntries
+	}
+	return c.MaxStickyRoutingEntries
+}
+
+// EffectiveWorkerServiceRequestMaxAttempts returns total attempts per WorkerService request.
+func (c WorkerConfig) EffectiveWorkerServiceRequestMaxAttempts() int {
+	if c.WorkerServiceRequestMaxAttempts <= 0 {
+		return DefaultWorkerServiceRequestMaxAttempts
+	}
+	return c.WorkerServiceRequestMaxAttempts
+}
+
+// EffectiveHeadlessFailoverStatusCodes returns configured gRPC codes or defaults.
+func (c WorkerConfig) EffectiveHeadlessFailoverStatusCodes() []codes.Code {
+	if len(c.HeadlessFailoverStatusCodes) == 0 {
+		return append([]codes.Code(nil), defaultHeadlessFailoverStatusCodes[:]...)
+	}
+	statusCodes := make([]codes.Code, len(c.HeadlessFailoverStatusCodes))
+	for index, statusCode := range c.HeadlessFailoverStatusCodes {
+		statusCodes[index] = codes.Code(statusCode)
+	}
+	return statusCodes
 }
 
 // QueryWorkflowFailedRetryPolicyWithDefaults fills zero fields with defaults (1s / 5 attempts).

@@ -98,11 +98,11 @@ func doTestSignalWorkflow(
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: signal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -113,6 +113,7 @@ func doTestSignalWorkflow(
 	if flowConfig != nil {
 		expectedConfig = proto.Clone(flowConfig).(*dexpb.FlowConfig)
 	}
+	expectedConfig.WorkerTarget = workerTarget
 	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
 
 	_, err = flowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{

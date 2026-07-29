@@ -45,6 +45,7 @@ import (
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/log/tag"
+	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter/cadence"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"github.com/uber-go/tally/v4"
@@ -116,6 +117,11 @@ func start(c *cli.Context) {
 	logger := loggerimpl.NewLogger(zapLogger)
 
 	services := getServices(c)
+	workerPool, err := workerclient.NewWorkerClientPool(config)
+	if err != nil {
+		rawLog.Fatalf("Unable to create WorkerService client pool: %v", err)
+	}
+	defer workerPool.Close()
 
 	// The client is a heavyweight object that should be created once per process.
 	var unifiedClient uclient.UnifiedClient
@@ -176,7 +182,16 @@ func start(c *cli.Context) {
 		)
 
 		for _, svcName := range services {
-			go launchTemporalService(svcName, *config, unifiedClient, temporalClient, dataConverter, logger, metrics)
+			go launchTemporalService(
+				svcName,
+				*config,
+				unifiedClient,
+				temporalClient,
+				dataConverter,
+				logger,
+				metrics,
+				workerPool,
+			)
 		}
 	} else if config.Interpreter.Cadence != nil {
 		hostPort := DefaultCadenceHostPort
@@ -216,6 +231,7 @@ func start(c *cli.Context) {
 				closeFunc,
 				dataConverter,
 				logger,
+				workerPool,
 			)
 		}
 	} else {
@@ -231,6 +247,7 @@ func start(c *cli.Context) {
 func launchTemporalService(
 	svcName string, cfg config.Config, unifiedClient uclient.UnifiedClient, temporalClient client.Client,
 	dataConverter converter.DataConverter, logger log.Logger, metrics client.MetricsHandler,
+	workerPool *workerclient.WorkerClientPool,
 ) {
 	s3Client := CreateS3Client(cfg, context.Background())
 	blobStore := blobstore.NewBlobStore(
@@ -252,6 +269,7 @@ func launchTemporalService(
 			func(ctx context.Context) error {
 				return nil
 			},
+			workerPool,
 		)
 		rawLog.Fatal(svc.Run())
 	case serviceInterpreter:
@@ -262,6 +280,7 @@ func launchTemporalService(
 			dataConverter,
 			unifiedClient,
 			blobStore,
+			workerPool,
 		)
 		interpreter.Start()
 	default:
@@ -278,6 +297,7 @@ func launchCadenceService(
 	closeFunc func(),
 	dataConverter encoded.DataConverter,
 	logger log.Logger,
+	workerPool *workerclient.WorkerClientPool,
 ) {
 	s3Client := CreateS3Client(cfg, context.Background())
 	blobStore := blobstore.NewBlobStore(
@@ -299,6 +319,7 @@ func launchCadenceService(
 			func(ctx context.Context) error {
 				return nil
 			},
+			workerPool,
 		)
 		rawLog.Fatal(svc.Run())
 	case serviceInterpreter:
@@ -311,6 +332,7 @@ func launchCadenceService(
 			dataConverter,
 			unifiedClient,
 			blobStore,
+			workerPool,
 		)
 		interpreter.Start()
 	default:

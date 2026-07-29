@@ -86,9 +86,10 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 		FlowId:             flowId,
 		FlowType:           rpcStorage.WorkflowType,
 		FlowTimeoutSeconds: 30,
-		WorkerTarget:       workerTarget,
-		StartStepType:      rpcStorage.State1,
-		StepInput:          objJSONValue(`"start-input"`),
+
+		StartStepType:    rpcStorage.State1,
+		StepInput:        objJSONValue(`"start-input"`),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

@@ -30,6 +30,7 @@ import (
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/utils"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/protobuf/proto"
@@ -48,6 +49,7 @@ type WorkflowUpdater struct {
 	signalReceiver       *SignalReceiver
 	stepRequestQueue     *StepRequestQueue
 	stepExecutionCounter *StepExecutionCounter
+	flowConfiger         *interpreterconfig.FlowConfiger
 	basicInfo            service.BasicInfo
 }
 
@@ -63,13 +65,14 @@ func NewWorkflowUpdater(
 	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
 	stepExecutionCounter *StepExecutionCounter,
+	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {
 	if apiCfg == nil || activities == nil || provider == nil ||
 		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || stepExecutionCounter == nil {
+		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -84,6 +87,7 @@ func NewWorkflowUpdater(
 		signalReceiver:       signalReceiver,
 		stepRequestQueue:     stepRequestQueue,
 		stepExecutionCounter: stepExecutionCounter,
+		flowConfiger:         flowConfiger,
 		basicInfo:            basicInfo,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
@@ -166,7 +170,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		RunId:                info.WorkflowExecution.RunID,
 		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
 		FlowType:             u.basicInfo.FlowType,
-		WorkerTarget:         u.basicInfo.WorkerTarget,
+		WorkerTarget:         u.flowConfiger.GetWorkerTarget(),
 		ChannelInfos:         u.channelStore.GetInfos(),
 	}
 	budget := u.effectiveRPCBudget(input.GetTimeoutSeconds())

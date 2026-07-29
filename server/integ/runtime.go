@@ -44,6 +44,7 @@ import (
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter/cadence"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/sdk/client"
@@ -107,8 +108,8 @@ type interpreterWorker interface {
 	Close()
 }
 
-// startWorker serves a WorkerServiceServer on 127.0.0.1:0 and returns the dial target.
-func startWorker(t *testing.T, handler dexpb.WorkerServiceServer) string {
+// startWorker serves a WorkerServiceServer and returns its dial target.
+func startWorker(t *testing.T, handler dexpb.WorkerServiceServer) *dexpb.WorkerTarget {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -133,7 +134,21 @@ func startWorker(t *testing.T, handler dexpb.WorkerServiceServer) string {
 			require.NoError(t, err)
 		}
 	})
-	return listener.Addr().String()
+	return &dexpb.WorkerTarget{Address: listener.Addr().String()}
+}
+
+func withWorkerTarget(
+	options *dexpb.FlowStartOptions,
+	workerTarget *dexpb.WorkerTarget,
+) *dexpb.FlowStartOptions {
+	if options == nil {
+		options = &dexpb.FlowStartOptions{}
+	}
+	if options.FlowConfigOverride == nil {
+		options.FlowConfigOverride = &dexpb.FlowConfig{}
+	}
+	options.FlowConfigOverride.WorkerTarget = workerTarget
+	return options
 }
 
 // startDexService starts API + interpreter against Temporal or Cadence and returns clients.
@@ -145,6 +160,9 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 
 	cfg := createTestConfig(testConfig)
 	cfg.Interpreter.InterpreterActivityConfig.InternalServiceTarget = listener.Addr().String()
+	workerPool, err := workerclient.NewWorkerClientPool(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(workerPool.Close)
 	logger, err := loggerimpl.NewDevelopment()
 	require.NoError(t, err)
 	s3Client := dex.CreateS3Client(cfg, context.Background())
@@ -180,6 +198,7 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 			dataConverter,
 			unifiedClient,
 			store,
+			workerPool,
 		)
 	case service.BackendTypeCadence:
 		serviceClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
@@ -217,6 +236,7 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 			dataConverter,
 			unifiedClient,
 			store,
+			workerPool,
 		)
 	default:
 		require.FailNow(t, "unsupported backend", testConfig.BackendType)
@@ -241,6 +261,7 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 		logger,
 		store,
 		worker.Close,
+		workerPool,
 		newInternalDumpHeaderCaptureInterceptor(internalDumpCapture),
 	)
 
@@ -310,6 +331,7 @@ func startApiServer(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	closeInterpreter func(),
+	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) {
 	t.Helper()
@@ -322,6 +344,7 @@ func startApiServer(
 		logger,
 		store,
 		func(context.Context) error { return nil },
+		workerPool,
 		extraUnaryInterceptors...,
 	)
 	serveError := make(chan error, 1)

@@ -92,15 +92,15 @@ func doTestSkipStartFlow(
 		FlowId:             flowId,
 		FlowType:           skipstart.WorkflowType,
 		FlowTimeoutSeconds: 100,
-		WorkerTarget:       workerTarget,
-		StartStepType:      skipstart.State1,
-		StepInput:          stepInput,
+
+		StartStepType: skipstart.State1,
+		StepInput:     stepInput,
 		StepOptions: &dexpb.StepOptions{
 			SkipWaitFor: true,
 		},
-		FlowStartOptions: &dexpb.FlowStartOptions{
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

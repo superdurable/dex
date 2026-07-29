@@ -48,12 +48,12 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 				MaximumAttempts:        10,
 			},
 		},
+		Worker: config.WorkerConfig{
+			DefaultHeaders: testCfg.DefaultHeaders,
+		},
 		Interpreter: config.Interpreter{
 			DefaultWorkflowConfig: syncDurabilityConfig(),
 			VerboseDebug:          false,
-			InterpreterActivityConfig: config.InterpreterActivityConfig{
-				DefaultHeaders: testCfg.DefaultHeaders,
-			},
 		},
 	}
 	switch testCfg.BackendType {

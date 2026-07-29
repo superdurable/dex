@@ -22,31 +22,53 @@ package grpctarget
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
+
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // NormalizeWorkerTarget validates a plaintext gRPC worker_target and applies optional host rewrites.
-// Rejects HTTP(S) URLs. Accepts host:port and other native gRPC dial targets (e.g. dns:///...).
-func NormalizeWorkerTarget(target string) (string, error) {
-	target = strings.TrimSpace(target)
-	if target == "" {
+func NormalizeWorkerTarget(target *dexpb.WorkerTarget) (*dexpb.WorkerTarget, error) {
+	if target == nil {
+		return nil, fmt.Errorf("worker_target is required")
+	}
+	address, err := NormalizeAddress(target.GetAddress())
+	if err != nil {
+		return nil, err
+	}
+	if target.GetIsHeadlessAddress() {
+		if _, _, err := net.SplitHostPort(address); err != nil {
+			return nil, fmt.Errorf("headless worker_target %q must use host:port: %w", address, err)
+		}
+	}
+	return &dexpb.WorkerTarget{
+		Address:           address,
+		IsHeadlessAddress: target.GetIsHeadlessAddress(),
+	}, nil
+}
+
+// NormalizeAddress validates a plaintext gRPC address and applies optional host rewrites.
+func NormalizeAddress(address string) (string, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
 		return "", fmt.Errorf("worker_target is empty")
 	}
-	lower := strings.ToLower(target)
+	lower := strings.ToLower(address)
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		return "", fmt.Errorf("HTTP(S) worker_target %q rejected; use a plaintext gRPC target (host:port)", target)
+		return "", fmt.Errorf("HTTP(S) worker_target %q rejected; use a plaintext gRPC target (host:port)", address)
 	}
 
 	autofixHost := os.Getenv("AUTO_FIX_WORKER_URL")
 	if autofixHost != "" {
-		target = strings.Replace(target, "localhost", autofixHost, 1)
-		target = strings.Replace(target, "127.0.0.1", autofixHost, 1)
+		address = strings.Replace(address, "localhost", autofixHost, 1)
+		address = strings.Replace(address, "127.0.0.1", autofixHost, 1)
 	}
 	autofixPortEnv := os.Getenv("AUTO_FIX_WORKER_PORT_FROM_ENV")
 	if autofixPortEnv != "" {
 		envVal := os.Getenv(autofixPortEnv)
-		target = strings.Replace(target, "$"+autofixPortEnv+"$", envVal, 1)
+		address = strings.Replace(address, "$"+autofixPortEnv+"$", envVal, 1)
 	}
-	return target, nil
+	return address, nil
 }

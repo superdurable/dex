@@ -265,14 +265,19 @@ message FlowConfig {
   optional int32 continue_as_new_threshold = 2;
   optional int32 continue_as_new_page_size_in_bytes = 3;
   optional StepDurability step_durability = 4;
+  WorkerTarget worker_target = 5;
+}
+
+message WorkerTarget {
+  // Plaintext gRPC dial target, not an HTTP URL.
+  string address = 1;
+  bool is_headless_address = 2;
 }
 
 message StartFlowRequest {
   string flow_id = 1;
   string flow_type = 2;
   int32 flow_timeout_seconds = 3;
-  // Plaintext gRPC dial target (host:port), not an HTTP URL.
-  string worker_target = 4;
   string start_step_type = 5;
   Value step_input = 8;
   StepOptions step_options = 9;
@@ -745,7 +750,6 @@ message ContinueAsNewInput {
 
 message InterpreterWorkflowInput {
   string flow_type = 1;
-  string worker_target = 2;
   string start_step_type = 3;
   Value step_input = 6;
   StepOptions step_options = 7;
@@ -770,7 +774,7 @@ message BlobStoreCleanupWorkflowOutput {
 }
 
 message InvokeWaitForMethodActivityInput {
-  string worker_target = 1;
+  WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
 }
 
@@ -779,7 +783,7 @@ message InvokeWaitForMethodActivityOutput {
 }
 
 message InvokeExecuteMethodActivityInput {
-  string worker_target = 1;
+  WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
 }
 
@@ -849,7 +853,7 @@ message PrepareRpcQueryResponse {
   string run_id = 2;
   int64 flow_started_timestamp = 3;
   string flow_type = 4;
-  string worker_target = 5;
+  WorkerTarget worker_target = 5;
   map<string, ChannelInfo> channel_infos = 6;
 }
 

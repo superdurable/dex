@@ -78,13 +78,14 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wait_until_search_attributes.State1,
+
+		StartStepType:    wait_until_search_attributes.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	}
 	if flowConfig != nil {
-		startRequest.FlowStartOptions = &dexpb.FlowStartOptions{
+		startRequest.FlowStartOptions = withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		}
+		}, workerTarget)
 	}
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)

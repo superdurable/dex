@@ -117,11 +117,11 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 		FlowId:             flowId,
 		FlowType:           conditionalClose.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      conditionalClose.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: conditionalClose.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	}
 	if useSignalChannel {
 		startRequest.StepInput = stringValue("use-signal-channel")

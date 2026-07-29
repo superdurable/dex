@@ -32,6 +32,7 @@ import (
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
+	"github.com/superdurable/dex/service/common/workerclient"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -57,6 +58,7 @@ func NewServer(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	readyCheck func(context.Context) error,
+	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) *Server {
 	if apiCfg == nil {
@@ -77,11 +79,14 @@ func NewServer(
 	if interpreterCfg == nil {
 		panic("interpreterCfg must not be nil")
 	}
+	if workerPool == nil {
+		panic("workerPool must not be nil")
+	}
 	if readyCheck == nil {
 		readyCheck = func(context.Context) error { return nil }
 	}
 
-	handler := newHandler(apiCfg, extStore, interpreterCfg, client, logger, store)
+	handler := newHandler(apiCfg, extStore, interpreterCfg, client, logger, store, workerPool)
 	maxMsg := apiCfg.EffectiveGrpcMaxMessageBytes()
 	healthSrv := health.NewServer()
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)

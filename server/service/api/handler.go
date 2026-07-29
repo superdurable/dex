@@ -29,6 +29,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/workerclient"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -51,6 +52,7 @@ func newHandler(
 	client uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	workerPool *workerclient.WorkerClientPool,
 ) *handler {
 	svc, err := NewApiService(
 		apiCfg,
@@ -60,6 +62,7 @@ func newHandler(
 		service.TaskQueue,
 		logger,
 		store,
+		workerPool,
 	)
 	if err != nil {
 		panic(err)

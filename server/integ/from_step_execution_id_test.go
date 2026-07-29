@@ -101,12 +101,12 @@ func testStepLineageAcrossContinueAsNew(
 		FlowId:             flowID,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 60,
-		WorkerTarget:       workerTarget,
 		StartStepType:      basic.Step1,
 		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
 				StepDurability:         ptr.Any(durability),
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
+				WorkerTarget:           workerTarget,
 			},
 		},
 	})
@@ -143,13 +143,13 @@ func testRPCStepLineageAcrossContinueAsNew(
 		FlowId:             flowID,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 60,
-		WorkerTarget:       workerTarget,
 		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
 				StepDurability: ptr.Any(
 					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 				),
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
+				WorkerTarget:           workerTarget,
 			},
 		},
 	})

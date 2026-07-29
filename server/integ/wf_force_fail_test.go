@@ -74,11 +74,11 @@ func doTestFlowForceFail(
 		FlowId:             flowId,
 		FlowType:           wf_force_fail.FlowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      wf_force_fail.Step1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: wf_force_fail.Step1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 

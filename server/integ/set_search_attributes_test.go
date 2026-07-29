@@ -54,8 +54,9 @@ func TestSetSearchAttributes(t *testing.T) {
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
-		WorkerTarget:       workerTarget,
-		StartStepType:      signal.State1,
+
+		StartStepType:    signal.State1,
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
 

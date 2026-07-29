@@ -139,15 +139,15 @@ func doTestPersistenceWorkflow(
 		FlowId:             flowId,
 		FlowType:           persistence.WorkflowType,
 		FlowTimeoutSeconds: 20,
-		WorkerTarget:       workerTarget,
-		StartStepType:      persistence.State1,
-		FlowStartOptions: &dexpb.FlowStartOptions{
+
+		StartStepType: persistence.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			Attributes: []*dexpb.AttributeWrite{
 				expectedDatetimeSearchAttribute,
 				expectedDataAttribute,
 			},
 			FlowConfigOverride: flowConfig,
-		},
+		}, workerTarget),
 	}
 	startResp, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
@@ -280,12 +280,12 @@ func doTestPersistenceWorkflow(
 				FlowId:             id,
 				FlowType:           persistence.WorkflowType,
 				FlowTimeoutSeconds: 20,
-				WorkerTarget:       workerTarget,
-				StartStepType:      persistence.State1,
-				FlowStartOptions: &dexpb.FlowStartOptions{
+
+				StartStepType: persistence.State1,
+				FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 					Attributes:         attrs,
 					FlowConfigOverride: flowConfig,
-				},
+				}, workerTarget),
 			})
 			require.NoError(t, startErr)
 		}

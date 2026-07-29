@@ -37,9 +37,11 @@ func TestTemporalProtoPayloadIsBinaryProtobuf(t *testing.T) {
 	dc := NewTemporalDataConverter()
 
 	in := &dexpb.InterpreterWorkflowInput{
-		FlowType:     "order",
-		WorkerTarget: "127.0.0.1:9000",
-		StepInput:    &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "hi"}},
+		FlowType:  "order",
+		StepInput: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "hi"}},
+		Config: &dexpb.FlowConfig{
+			WorkerTarget: &dexpb.WorkerTarget{Address: "127.0.0.1:9000"},
+		},
 		InitAttributes: []*dexpb.KV{
 			{Key: "k", Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 7}}},
 		},
@@ -76,7 +78,7 @@ func TestTemporalMapOneofRoundTrip(t *testing.T) {
 	in := &dexpb.PrepareRpcQueryResponse{
 		RunId:        "run-1",
 		FlowType:     "ft",
-		WorkerTarget: "host:1",
+		WorkerTarget: &dexpb.WorkerTarget{Address: "host:1"},
 		ChannelInfos: map[string]*dexpb.ChannelInfo{
 			"ch": {Size: 2},
 		},
