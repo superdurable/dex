@@ -204,6 +204,7 @@ type (
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
 var DefaultWorkflowConfig = &dexpb.FlowConfig{
 	ContinueAsNewThreshold: ptr.Any(int32(100)),
+	StepDurability:         ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 }
 
 // NewConfig returns a new decoded Config struct.

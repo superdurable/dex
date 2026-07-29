@@ -55,7 +55,7 @@ func TestLockingWorkflowTemporalContinueAsNew(t *testing.T) {
 		doTestLockingWorkflow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -79,7 +79,7 @@ func TestLockingWorkflowCadenceContinueAsNew(t *testing.T) {
 		doTestLockingWorkflow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

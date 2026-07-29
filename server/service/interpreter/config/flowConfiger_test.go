@@ -71,6 +71,10 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 	waitOverride := &dexpb.StepOptions{WaitForDurabilityOverride: dexpb.StepDurability_STEP_DURABILITY_SYNC}
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveWaitForDurability(waitOverride))
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(waitOverride))
+
+	executeOverride := &dexpb.StepOptions{ExecuteDurabilityOverride: dexpb.StepDurability_STEP_DURABILITY_SYNC}
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(executeOverride))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(executeOverride))
 }
 
 func TestFlowConfiger_UpdateByAPIPartialOverride(t *testing.T) {

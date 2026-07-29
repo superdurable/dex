@@ -61,7 +61,7 @@ func TestCreateFlowTemporalContinueAsNew(t *testing.T) {
 		doTestCreateWithoutStartingStep(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -75,7 +75,7 @@ func TestCreateFlowCadenceContinueAsNew(t *testing.T) {
 		doTestCreateWithoutStartingStep(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

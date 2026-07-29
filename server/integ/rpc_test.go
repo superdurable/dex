@@ -51,7 +51,7 @@ func TestRpcWorkflowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -81,7 +81,7 @@ func TestRpcWorkflowTemporalContinueAsNewWithMemo(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -91,7 +91,7 @@ func TestRpcWorkflowTemporalContinueAsNewWithMemoAndEncryption(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -111,7 +111,7 @@ func TestRpcWorkflowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestRpcWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

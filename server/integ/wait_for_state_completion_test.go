@@ -208,7 +208,7 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 		StartStepType:      wait_for_state_completion.State1,
 		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
 		FlowStartOptions: &dexpb.FlowStartOptions{
-			FlowConfigOverride: minimumContinueAsNewConfigV0(),
+			FlowConfigOverride: minimumContinueAsNewSyncDurabilityConfig(),
 		},
 	})
 	require.NoError(t, err)

@@ -39,7 +39,7 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestFlowTimeout(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestFlowTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestFlowTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -51,7 +51,7 @@ func TestFlowTimeoutCadence(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestFlowTimeout(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestFlowTimeout(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestFlowTimeout(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

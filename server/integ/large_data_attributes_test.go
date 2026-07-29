@@ -40,7 +40,7 @@ func TestLargeDataAttributesTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestLargeQueryAttributes(t, minimumContinueAsNewConfigV0())
+		doTestLargeQueryAttributes(t, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

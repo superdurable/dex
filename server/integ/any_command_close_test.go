@@ -51,7 +51,7 @@ func TestAnyCommandCloseFlowTemporalContinueAsNew(t *testing.T) {
 		doTestAnyCommandCloseFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -75,7 +75,7 @@ func TestAnyCommandCloseFlowCadenceContinueAsNew(t *testing.T) {
 		doTestAnyCommandCloseFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

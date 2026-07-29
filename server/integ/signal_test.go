@@ -53,7 +53,7 @@ func TestSignalWorkflowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSignalWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestSignalWorkflow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -73,7 +73,7 @@ func TestSignalWorkflowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSignalWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestSignalWorkflow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -177,7 +177,7 @@ func doTestSignalWorkflow(
 	assertions.Equal(
 		map[string]*dexpb.ChannelInfo{
 			signal.UnhandledSignalName: {Size: 10},
-			signal.InternalChannelName:  {Size: 10},
+			signal.InternalChannelName: {Size: 10},
 		},
 		infos,
 	)

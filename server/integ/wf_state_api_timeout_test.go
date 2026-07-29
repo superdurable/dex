@@ -39,7 +39,7 @@ func TestStateApiTimeoutTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestStateApiTimeout(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
-		doTestStateApiTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestStateApiTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -51,7 +51,7 @@ func TestStateApiTimeoutCadence(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestStateApiTimeout(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
-		doTestStateApiTimeout(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestStateApiTimeout(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

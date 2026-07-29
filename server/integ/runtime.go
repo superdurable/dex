@@ -376,15 +376,28 @@ func smallWaitForFastTest() {
 	time.Sleep(duration)
 }
 
-func minimumContinueAsNewConfig(durability dexpb.StepDurability) *dexpb.FlowConfig {
+func minimumContinueAsNewAsyncDurabilityConfig() *dexpb.FlowConfig {
+	config := asyncDurabilityConfig()
+	config.ContinueAsNewThreshold = ptr.Any(int32(1))
+	return config
+}
+
+func minimumContinueAsNewSyncDurabilityConfig() *dexpb.FlowConfig {
+	config := syncDurabilityConfig()
+	config.ContinueAsNewThreshold = ptr.Any(int32(1))
+	return config
+}
+
+func asyncDurabilityConfig() *dexpb.FlowConfig {
 	return &dexpb.FlowConfig{
-		ContinueAsNewThreshold: ptr.Any(int32(1)),
-		StepDurability:         ptr.Any(durability),
+		StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
 	}
 }
 
-func minimumContinueAsNewConfigV0() *dexpb.FlowConfig {
-	return minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC)
+func syncDurabilityConfig() *dexpb.FlowConfig {
+	return &dexpb.FlowConfig{
+		StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+	}
 }
 
 func encodedObjectValue(encoding string, payload []byte) *dexpb.Value {

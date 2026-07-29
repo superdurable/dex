@@ -48,7 +48,7 @@ func TestSkipStartFlowTemporalContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartFlow(t, service.BackendTypeTemporal, minimumContinueAsNewConfigV0())
+		doTestSkipStartFlow(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -68,7 +68,7 @@ func TestSkipStartFlowCadenceContinueAsNew(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestSkipStartFlow(t, service.BackendTypeCadence, minimumContinueAsNewConfigV0())
+		doTestSkipStartFlow(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

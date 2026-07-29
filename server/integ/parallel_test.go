@@ -44,7 +44,7 @@ func TestParallelFlowTemporal(t *testing.T) {
 		doTestParallelFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -60,7 +60,7 @@ func TestParallelFlowCadence(t *testing.T) {
 		doTestParallelFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

@@ -60,7 +60,7 @@ func TestDeadEndFlowTemporalContinueAsNew(t *testing.T) {
 		doTestDeadEndFlow(
 			t,
 			service.BackendTypeTemporal,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			minimumContinueAsNewAsyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
@@ -74,7 +74,7 @@ func TestDeadEndFlowCadenceContinueAsNew(t *testing.T) {
 		doTestDeadEndFlow(
 			t,
 			service.BackendTypeCadence,
-			minimumContinueAsNewConfig(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			minimumContinueAsNewSyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}
