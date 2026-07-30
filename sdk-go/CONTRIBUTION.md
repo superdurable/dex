@@ -15,6 +15,7 @@ Here is the repository layout if you are interested to learn about it:
     * `xyz_workflow_state_*` the test workflow states for a test xyz
 * IDL source lives in monorepo `protos/dex.proto` (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * `dex` the main directory
+  * `blobcache/` the independently tested disk blob cache
   * `*_impl.go` these are implementation for SDK. Ideally we should put them in separate folder, but Golang doesn't allow circular dependency, and we hate to use alias across packages
   * `internal_*.go` these are implementation for SDK
   * `_test.go` the unit test
@@ -23,6 +24,17 @@ Here is the repository layout if you are interested to learn about it:
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
 2. Run `make idl-code-gen` (or `make -C ../protos proto`) to refresh stubs in server + SDKs
+
+## Blob cache tests
+
+Run the disk-cache component and race suite through the Makefile:
+
+```text
+make blobCacheTests
+```
+
+The suite uses temporary directories and constructor-injected filesystem fault
+seams. Do not replace race or failure-path coverage with sleeps.
 
 ### Coding convention 
 There are lots of convention that we love here that we haven't summarized all of them. So you may get some code review feedback about more than just below:
