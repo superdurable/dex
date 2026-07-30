@@ -208,6 +208,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		)
 	}
 
+	publishS3GetSetDataAttributesCompletion(t, ctx, flowClient, flowId)
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 }
@@ -300,7 +301,24 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		)
 	}
 
+	publishS3GetSetDataAttributesCompletion(t, ctx, flowClient, flowId)
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+}
+
+func publishS3GetSetDataAttributesCompletion(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowId string,
+) {
+	t.Helper()
+	_, err := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: s3GetSetDataAttributes.CompletionChannelName},
+		},
+	})
 	require.NoError(t, err)
 }
 
