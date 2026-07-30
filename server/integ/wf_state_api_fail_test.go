@@ -91,6 +91,7 @@ func doTestStateApiFail(
 
 	flowId := wf_state_api_fail.FlowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_state_api_fail.FlowType,
 		FlowTimeoutSeconds: 10,

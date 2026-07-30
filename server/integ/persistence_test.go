@@ -142,6 +142,7 @@ func doTestPersistenceWorkflow(
 	expectedDatetimeSearchAttribute := indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr)
 
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           persistence.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -314,6 +315,7 @@ func doTestPersistenceWorkflow(
 		startedRunIds := make(map[string]string)
 		startMore := func(id string, attrs []*dexpb.AttributeWrite) {
 			startResponse, startErr := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+				RequestId:          newRequestID(),
 				FlowId:             id,
 				FlowType:           persistence.WorkflowType,
 				FlowTimeoutSeconds: 20,

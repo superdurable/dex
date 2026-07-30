@@ -232,8 +232,10 @@ enum IdReusePolicy {
 }
 
 message FlowAlreadyStartedOptions {
+  reserved 2;
+  reserved "request_id";
+
   bool ignore_already_started_error = 1;
-  string request_id = 2;
 }
 
 message FlowStartOptions {
@@ -282,6 +284,7 @@ message StartFlowRequest {
   Value step_input = 8;
   StepOptions step_options = 9;
   FlowStartOptions flow_start_options = 10;
+  string request_id = 11;
 }
 
 message StartFlowResponse {
@@ -329,6 +332,7 @@ message SetAttributesRequest {
   string flow_id = 1;
   string run_id = 2;
   repeated AttributeWrite attributes = 3;
+  string request_id = 4;
 }
 
 message LoadBlobsRequest {
@@ -438,6 +442,7 @@ message InvokeRPCRequest {
   // Acquire exclusive lock on these attribute keys for the RPC's
   // read-modify-write. Empty = non-locking RPC.
   repeated string lock_attribute_keys = 6;
+  string request_id = 7;
 }
 
 message InvokeRPCResponse {

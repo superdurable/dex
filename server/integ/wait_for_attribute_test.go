@@ -98,6 +98,7 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 
 	flowId := "wait-for-attribute-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -109,7 +110,8 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 
 	largeValue := stringValue(strings.Repeat("x", 120))
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-		FlowId: flowId,
+		RequestId: newRequestID(),
+		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeBlobKey, Value: largeValue},
 		},
@@ -154,7 +156,8 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	expectedValue := stringValue("wait-for-attribute-success")
 
 	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-		FlowId: flowId,
+		RequestId: newRequestID(),
+		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
 		},
@@ -329,7 +332,8 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-		FlowId: flowId,
+		RequestId: newRequestID(),
+		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
 		},
@@ -364,7 +368,8 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		_, setErr := flowClient.SetAttributes(context.Background(), &dexpb.SetAttributesRequest{
-			FlowId: flowId,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
 			Attributes: []*dexpb.AttributeWrite{
 				{Key: waitForAttributeKey, Value: expectedValue},
 			},
@@ -397,6 +402,7 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 
 	flowId := "wait-for-attribute-cadence-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -448,6 +454,7 @@ func startParkedWaitForAttributeFlow(
 
 	flowId := "wait-for-attribute-" + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 30,

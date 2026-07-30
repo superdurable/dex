@@ -32,6 +32,7 @@ func OffloadLargeAttributeWrites(
 	ctx context.Context,
 	writes []*dexpb.AttributeWrite,
 	flowId string,
+	invocationId string,
 	threshold int,
 	blobStore BlobStore,
 	enabled bool,
@@ -43,7 +44,7 @@ func OffloadLargeAttributeWrites(
 		if write == nil || write.GetValue() == nil {
 			continue
 		}
-		if err := offloadValue(ctx, write.Value, flowId, threshold, blobStore); err != nil {
+		if err := offloadValue(ctx, write.Value, flowId, invocationId, threshold, blobStore); err != nil {
 			return err
 		}
 	}
@@ -52,21 +53,34 @@ func OffloadLargeAttributeWrites(
 
 // OffloadLargeValue offloads a single Value when over threshold.
 func OffloadLargeValue(
-	ctx context.Context, value *dexpb.Value, flowId string, threshold int, blobStore BlobStore, enabled bool,
+	ctx context.Context,
+	value *dexpb.Value,
+	flowId string,
+	invocationId string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
 ) error {
 	if !enabled || threshold <= 0 || value == nil {
 		return nil
 	}
-	return offloadValue(ctx, value, flowId, threshold, blobStore)
+	return offloadValue(ctx, value, flowId, invocationId, threshold, blobStore)
 }
 
-func offloadValue(ctx context.Context, value *dexpb.Value, flowId string, threshold int, blobStore BlobStore) error {
+func offloadValue(
+	ctx context.Context,
+	value *dexpb.Value,
+	flowId string,
+	invocationId string,
+	threshold int,
+	blobStore BlobStore,
+) error {
 	switch kind := value.GetKind().(type) {
 	case *dexpb.Value_StringValue:
 		if len(kind.StringValue) <= threshold {
 			return nil
 		}
-		storeId, path, err := blobStore.WriteObject(ctx, flowId, kind.StringValue)
+		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, []byte(kind.StringValue))
 		if err != nil {
 			return err
 		}
@@ -77,7 +91,7 @@ func offloadValue(ctx context.Context, value *dexpb.Value, flowId string, thresh
 		if kind.ObjValue == nil || len(kind.ObjValue.GetPayload()) <= threshold {
 			return nil
 		}
-		storeId, path, err := blobStore.WriteObject(ctx, flowId, string(kind.ObjValue.GetPayload()))
+		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, kind.ObjValue.GetPayload())
 		if err != nil {
 			return err
 		}
@@ -140,7 +154,7 @@ func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) 
 		if err != nil {
 			return err
 		}
-		value.Kind = &dexpb.Value_StringValue{StringValue: data}
+		value.Kind = &dexpb.Value_StringValue{StringValue: string(data)}
 		return nil
 	case *dexpb.Value_InternalBlobIdForObjValue:
 		storeId, path, encoding, err := parseBlobId(kind.InternalBlobIdForObjValue)
@@ -153,7 +167,7 @@ func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) 
 		}
 		value.Kind = &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
 			Encoding: encoding,
-			Payload:  []byte(data),
+			Payload:  data,
 		}}
 		return nil
 	default:

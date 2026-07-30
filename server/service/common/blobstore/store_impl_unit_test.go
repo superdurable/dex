@@ -18,44 +18,32 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package temporal
+package blobstore
 
 import (
-	"context"
+	"testing"
 
-	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/interpreter/interfaces"
-	"go.temporal.io/sdk/activity"
-	"go.temporal.io/sdk/temporal"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
-type activityProvider struct{}
-
-func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogger {
-	return activity.GetLogger(ctx)
+func TestDeterministicBlobUUIDStableVector(t *testing.T) {
+	objectID, err := deterministicBlobUUID("run-123activity-456", []byte("payload"))
+	require.NoError(t, err)
+	require.Equal(t, "d3333fb9-f46d-8815-8359-9892fd394a6e", objectID.String())
 }
 
-func (a *activityProvider) NewFlowError(
-	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
-) error {
-	return temporal.NewApplicationError("", errType.String(), errorResponse)
+func TestDeterministicBlobUUIDVersionAndVariant(t *testing.T) {
+	objectID, err := deterministicBlobUUID("request", []byte("payload"))
+	require.NoError(t, err)
+	require.Equal(t, uuid.Version(8), objectID.Version())
+	require.Equal(t, uuid.RFC4122, objectID.Variant())
 }
 
-func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {
-	info := activity.GetInfo(ctx)
-	return interfaces.ActivityInfo{
-		ScheduledTime:   info.ScheduledTime,
-		ActivityID:      info.ActivityID,
-		Attempt:         info.Attempt,
-		IsLocalActivity: info.IsLocalActivity,
-		WorkflowExecution: interfaces.WorkflowExecution{
-			ID:    info.WorkflowExecution.ID,
-			RunID: info.WorkflowExecution.RunID,
-		},
-	}
-}
-
-func (a *activityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
-	activity.RecordHeartbeat(ctx, details...)
+func TestDeterministicBlobUUIDFramesComponents(t *testing.T) {
+	firstID, err := deterministicBlobUUID("ab", []byte("c"))
+	require.NoError(t, err)
+	secondID, err := deterministicBlobUUID("a", []byte("bc"))
+	require.NoError(t, err)
+	require.NotEqual(t, firstID, secondID)
 }

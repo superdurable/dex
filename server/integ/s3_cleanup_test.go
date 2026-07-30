@@ -72,6 +72,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		flowId := fmt.Sprintf("test-user-wf-%d-%s", i, uuid.NewString())
 		flowIds = append(flowIds, flowId)
 		_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:          newRequestID(),
 			FlowId:             flowId,
 			FlowType:           s3_start_input.WorkflowType,
 			FlowTimeoutSeconds: 100,
@@ -93,7 +94,8 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 			_, _, err := globalBlobStore.WriteObject(
 				ctx,
 				flowId,
-				fmt.Sprintf("test-data-workflow-%d-object-%d", i, j),
+				fmt.Sprintf("cleanup-%d", j),
+				[]byte(fmt.Sprintf("test-data-workflow-%d-object-%d", i, j)),
 			)
 			require.NoError(t, err)
 		}
@@ -127,7 +129,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		continuationToken = output.ContinuationToken
 	}
 
-	todayPrefix := time.Now().Format("20060102")
+	todayPrefix := time.Now().UTC().Format("20060102")
 	foundCount := 0
 	for _, flowId := range flowIds {
 		expectedPath := fmt.Sprintf("%s$%s", todayPrefix, flowId)

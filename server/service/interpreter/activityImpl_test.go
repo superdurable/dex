@@ -33,6 +33,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestActivityInvocationIdStableAcrossRetries(t *testing.T) {
+	activityInfo := interfaces.ActivityInfo{
+		ActivityID: "activity-456",
+		Attempt:    1,
+		WorkflowExecution: interfaces.WorkflowExecution{
+			ID:    "flow-123",
+			RunID: "run-123",
+		},
+	}
+	firstInvocationId := activityInvocationId(activityInfo)
+	activityInfo.Attempt = 7
+	retryInvocationId := activityInvocationId(activityInfo)
+
+	require.Equal(t, firstInvocationId, retryInvocationId)
+}
+
 func TestInvalidAnyConditionCombination(t *testing.T) {
 	timers, channels := createConditions()
 	waiting := &dexpb.WaitingCondition{

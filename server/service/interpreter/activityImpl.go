@@ -126,7 +126,12 @@ func (a *Activities) InvokeWaitForMethod(
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
-	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
+	if err := a.offloadWorkerAttributeWrites(
+		ctx,
+		resp.GetUpsertAttributes(),
+		activityInfo.WorkflowExecution.ID,
+		activityInvocationId(activityInfo),
+	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
 
@@ -200,10 +205,16 @@ func (a *Activities) InvokeExecuteMethod(
 		originalStepInputBlob,
 		req.GetStepInput(),
 		activityInfo.WorkflowExecution.ID,
+		activityInvocationId(activityInfo),
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
-	if err := a.offloadWorkerAttributeWrites(ctx, resp.GetUpsertAttributes(), activityInfo.WorkflowExecution.ID); err != nil {
+	if err := a.offloadWorkerAttributeWrites(
+		ctx,
+		resp.GetUpsertAttributes(),
+		activityInfo.WorkflowExecution.ID,
+		activityInvocationId(activityInfo),
+	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
 
@@ -248,6 +259,7 @@ func (a *Activities) InvokeWorkerRPC(
 		input.GetRequest(),
 		a.cfg.Api.EffectiveMaxWaitSeconds(),
 		a.blobStore,
+		input.GetRequest().GetRequestId(),
 		&a.cfg.ExternalStorage,
 	)
 	if err != nil {
@@ -325,14 +337,21 @@ func (a *Activities) hydrateWorkerRequestValues(
 }
 
 func (a *Activities) offloadWorkerAttributeWrites(
-	ctx context.Context, writes []*dexpb.AttributeWrite, flowId string,
+	ctx context.Context,
+	writes []*dexpb.AttributeWrite,
+	flowId string,
+	invocationId string,
 ) error {
 	if !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
 	}
 	return blobstore.OffloadLargeAttributeWrites(
-		ctx, writes, flowId, a.cfg.ExternalStorage.ThresholdInBytes, a.blobStore, true,
+		ctx, writes, flowId, invocationId, a.cfg.ExternalStorage.ThresholdInBytes, a.blobStore, true,
 	)
+}
+
+func activityInvocationId(activityInfo interfaces.ActivityInfo) string {
+	return activityInfo.WorkflowExecution.RunID + activityInfo.ActivityID
 }
 
 // reuseOrOffloadNextStepInputs accepts worker-echoed blob ids as-is, reuses the
@@ -343,6 +362,7 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 	originalStepInputBlob stepInputBlob,
 	hydratedStepInput *dexpb.Value,
 	flowId string,
+	invocationId string,
 ) error {
 	if decision == nil || !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
 		return nil
@@ -358,7 +378,12 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 			step.StepInput = originalStepInputBlob.toValue()
 			continue
 		}
-		if err := a.offloadStepInput(ctx, step.StepInput, flowId); err != nil {
+		if err := a.offloadStepInput(
+			ctx,
+			step.StepInput,
+			flowId,
+			invocationId,
+		); err != nil {
 			return err
 		}
 	}
@@ -370,7 +395,12 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 			decision.ConditionalClose.CloseInput = originalStepInputBlob.toValue()
 			return nil
 		}
-		if err := a.offloadStepInput(ctx, closeInput, flowId); err != nil {
+		if err := a.offloadStepInput(
+			ctx,
+			closeInput,
+			flowId,
+			invocationId,
+		); err != nil {
 			return err
 		}
 	}
@@ -378,12 +408,16 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 }
 
 func (a *Activities) offloadStepInput(
-	ctx context.Context, stepInput *dexpb.Value, flowId string,
+	ctx context.Context,
+	stepInput *dexpb.Value,
+	flowId string,
+	invocationId string,
 ) error {
 	return blobstore.OffloadLargeValue(
 		ctx,
 		stepInput,
 		flowId,
+		invocationId,
 		a.cfg.ExternalStorage.ThresholdInBytes,
 		a.blobStore,
 		true,

@@ -40,6 +40,7 @@ func InvokeWorkerRpc(
 	req *dexpb.InvokeRPCRequest,
 	apiMaxSeconds int64,
 	blobStore blobstore.BlobStore,
+	invocationId string,
 	externalStorageConfig *config.ExternalStorageConfig,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 
@@ -102,13 +103,13 @@ func InvokeWorkerRpc(
 	)
 
 	if err := blobstore.OffloadLargeAttributeWrites(
-		ctx, resp.GetUpsertAttributes(), req.GetFlowId(),
+		ctx, resp.GetUpsertAttributes(), req.GetFlowId(), invocationId,
 		externalStorageConfig.ThresholdInBytes, blobStore, externalStorageConfig.Enabled,
 	); err != nil {
 		return nil, err
 	}
 	if err := blobstore.OffloadLargeValue(
-		ctx, resp.GetOutput(), req.GetFlowId(),
+		ctx, resp.GetOutput(), req.GetFlowId(), invocationId,
 		externalStorageConfig.ThresholdInBytes, blobStore, externalStorageConfig.Enabled,
 	); err != nil {
 		return nil, err

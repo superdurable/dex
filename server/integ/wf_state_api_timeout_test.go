@@ -73,6 +73,7 @@ func doTestStateApiTimeout(
 
 	flowId := wf_state_api_timeout.FlowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_state_api_timeout.FlowType,
 		FlowTimeoutSeconds: 10,

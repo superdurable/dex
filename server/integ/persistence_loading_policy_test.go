@@ -63,6 +63,7 @@ func doTestPersistenceLoadingPolicy(
 	flowInput := objJSONValue(`"ALL_WITHOUT_LOCKING"`)
 
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           persistence_loading_policy.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -79,6 +80,7 @@ func doTestPersistenceLoadingPolicy(
 	time.Sleep(2 * time.Second)
 
 	rpcRequest := &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        persistence_loading_policy.WorkflowType + "_rpc",
 		Input:          flowInput,

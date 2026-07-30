@@ -101,6 +101,9 @@ func (s *serviceImpl) StartFlow(
 	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" {
 		return nil, makeInvalidRequestError("flow ID and flow type are required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
 	if req.GetFlowTimeoutSeconds() <= 0 {
 		return nil, makeInvalidRequestError("flow timeout must be positive")
 	}
@@ -124,6 +127,7 @@ func (s *serviceImpl) StartFlow(
 		ctx,
 		req.GetStepInput(),
 		req.GetFlowId(),
+		req.GetRequestId(),
 		s.extStore.ThresholdInBytes,
 		s.store,
 		s.extStore.Enabled,
@@ -134,6 +138,7 @@ func (s *serviceImpl) StartFlow(
 		ctx,
 		attributes,
 		req.GetFlowId(),
+		req.GetRequestId(),
 		s.extStore.ThresholdInBytes,
 		s.store,
 		s.extStore.Enabled,
@@ -179,11 +184,13 @@ func (s *serviceImpl) StartFlow(
 			service.WorkerAddressMemoKey: &dexpb.EncodedObject{
 				Payload: []byte(workerTarget.GetAddress()),
 			},
+			service.WorkflowRequestId: &dexpb.EncodedObject{
+				Payload: []byte(req.GetRequestId()),
+			},
 		},
 		IdReusePolicy: ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING),
 	}
 	ignoreAlreadyStartedError := false
-	requestId := ""
 	if startOptions != nil {
 		if startOptions.GetIdReusePolicy() != dexpb.IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED {
 			if _, known := dexpb.IdReusePolicy_name[int32(startOptions.GetIdReusePolicy())]; !known {
@@ -205,12 +212,6 @@ func (s *serviceImpl) StartFlow(
 		}
 		if alreadyStartedOptions := startOptions.GetFlowAlreadyStartedOptions(); alreadyStartedOptions != nil {
 			ignoreAlreadyStartedError = alreadyStartedOptions.GetIgnoreAlreadyStartedError()
-			requestId = alreadyStartedOptions.GetRequestId()
-			if requestId != "" {
-				workflowOptions.Memo[service.WorkflowRequestId] = &dexpb.EncodedObject{
-					Payload: []byte(requestId),
-				}
-			}
 		}
 	}
 
@@ -227,23 +228,16 @@ func (s *serviceImpl) StartFlow(
 	if err != nil {
 		shouldReturnError := true
 		if s.client.IsWorkflowAlreadyStartedError(err) && ignoreAlreadyStartedError {
-			alreadyRunningRunId, hasRunId := s.client.GetRunIdFromWorkflowAlreadyStartedError(err)
+			alreadyRunningRunId, _ := s.client.GetRunIdFromWorkflowAlreadyStartedError(err)
 			runId = alreadyRunningRunId
-			if requestId == "" {
+			response, descErr := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), runId, nil)
+			if descErr != nil {
+				return nil, s.handleError(descErr)
+			}
+			requestMemo := response.Memos[service.WorkflowRequestId]
+			if requestMemo.GetObjValue() != nil &&
+				string(requestMemo.GetObjValue().GetPayload()) == req.GetRequestId() {
 				shouldReturnError = false
-			} else {
-				if !hasRunId {
-					runId = ""
-				}
-				response, descErr := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), runId, nil)
-				if descErr != nil {
-					return nil, s.handleError(descErr)
-				}
-				requestMemo := response.Memos[service.WorkflowRequestId]
-				if requestMemo.GetObjValue() != nil &&
-					string(requestMemo.GetObjValue().GetPayload()) == requestId {
-					shouldReturnError = false
-				}
 			}
 		}
 		if shouldReturnError {
@@ -527,6 +521,9 @@ func (s *serviceImpl) SetAttributes(
 	if req == nil || req.GetFlowId() == "" {
 		return nil, makeInvalidRequestError("flow ID is required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
 	if err := validateAttributeWrites(req.GetAttributes()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
@@ -535,6 +532,7 @@ func (s *serviceImpl) SetAttributes(
 		ctx,
 		attributes,
 		req.GetFlowId(),
+		req.GetRequestId(),
 		s.extStore.ThresholdInBytes,
 		s.store,
 		s.extStore.Enabled,
@@ -691,6 +689,9 @@ func (s *serviceImpl) InvokeRPC(
 	if req == nil || req.GetFlowId() == "" || req.GetRpcName() == "" {
 		return nil, makeInvalidRequestError("flow ID and RPC name are required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
 	if req.GetTimeoutSeconds() < 0 {
 		return nil, makeInvalidRequestError("RPC timeout must be non-negative")
 	}
@@ -719,6 +720,7 @@ func (s *serviceImpl) InvokeRPC(
 		req,
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 		s.store,
+		req.GetRequestId(),
 		s.extStore,
 	)
 	if err != nil {

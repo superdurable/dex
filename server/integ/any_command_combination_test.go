@@ -97,6 +97,7 @@ func doTestAnyCommandCombinationFlow(
 
 	flowId := anycommandcombination.WorkflowType + "-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           anycommandcombination.WorkflowType,
 		FlowTimeoutSeconds: 40,

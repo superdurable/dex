@@ -62,6 +62,7 @@ func doTestStartDelay(
 	stepInput := encodedObjectValue("json", []byte("test data"))
 	timeSentReq := time.Now()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,

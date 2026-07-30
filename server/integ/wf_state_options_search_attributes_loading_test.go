@@ -52,6 +52,7 @@ func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType servi
 
 	flowId := wf_state_options_search_attributes_loading.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_state_options_search_attributes_loading.WorkflowType,
 		FlowTimeoutSeconds: 10,

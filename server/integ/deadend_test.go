@@ -95,6 +95,7 @@ func doTestDeadEndFlow(
 
 	flowId := deadend.WorkflowType + "-" + uuid.NewString()
 	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 100,
@@ -108,8 +109,9 @@ func doTestDeadEndFlow(
 	for range 3 {
 		time.Sleep(2 * time.Second)
 		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:  flowId,
-			RpcName: deadend.RPCWriteData,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   deadend.RPCWriteData,
 		})
 		require.NoError(t, err)
 	}
@@ -123,8 +125,9 @@ func doTestDeadEndFlow(
 	for range 3 {
 		time.Sleep(2 * time.Second)
 		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:  flowId,
-			RpcName: deadend.RPCTriggerState,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   deadend.RPCTriggerState,
 		})
 		require.NoError(t, err)
 	}

@@ -100,6 +100,7 @@ func doTestLockingWorkflow(
 
 	flowId := locking.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           locking.WorkflowType,
 		FlowTimeoutSeconds: 300,
@@ -133,6 +134,7 @@ func doTestLockingWorkflow(
 		for i := 0; i < 25; i++ {
 			time.Sleep(2 * time.Second)
 			rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+				RequestId:      newRequestID(),
 				FlowId:         flowId,
 				RpcName:        locking.RPCName,
 				Input:          objJSONValue("data"),
@@ -164,9 +166,10 @@ func doTestLockingWorkflow(
 
 	time.Sleep(time.Second)
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId:  flowId,
-		RpcName: locking.RPCName,
-		Input:   objJSONValue(locking.ShouldUnblockStateWaiting),
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		RpcName:   locking.RPCName,
+		Input:     objJSONValue(locking.ShouldUnblockStateWaiting),
 	})
 	require.NoError(t, err)
 
