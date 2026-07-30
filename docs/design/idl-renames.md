@@ -67,7 +67,7 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | StateDecision | StepDecision |
 | StateMovement | StepMovement |
 | StateCompletionOutput | StepCompletionOutput |
-| WorkflowConditionalClose | FlowConditionalClose |
+| WorkflowConditionalClose | CloseDecision |
 | WorkflowConfig | FlowConfig |
 | optimize_activity (bool) | **step_durability** (`SYNC` / `ASYNC`; was false/true) |
 | optimize_timer | **deleted** (server always optimizes timers) |
@@ -101,8 +101,12 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | start_step_id / completed_step_id / … | start_step_type / completed_step_type / … |
 | FLOW_RESET_TYPE_STEP_ID | FLOW_RESET_TYPE_STEP_TYPE |
 | FORCE_COMPLETE_ON_INTERNAL_CHANNEL_EMPTY / …_SIGNAL_… | FORCE_COMPLETE_ON_CHANNELS_EMPTY |
-| GRACEFUL_COMPLETE_ON_ALL_CHANNELS_EMPTY | GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY |
-| channel_name (FlowConditionalClose) | channel_names (repeated) |
+| conditional_close | close_decision |
+| channel_name (WorkflowConditionalClose) | conditional_channel_names (repeated) |
+| `_SYS_GRACEFUL_COMPLETING_*` movement | `CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE` |
+| `_SYS_FORCE_COMPLETING_*` movement | `CLOSE_DECISION_TYPE_FORCE_COMPLETE` |
+| `_SYS_FORCE_FAILING_*` movement | `CLOSE_DECISION_TYPE_FORCE_FAIL` |
+| `_SYS_DEAD_END` movement | `CLOSE_DECISION_TYPE_DEAD_END` |
 | ALLOW_IF_PREVIOUS_EXITS_ABNORMALLY | ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY |
 | waitUntilApi* / startApi* / decideApi* dual fields | wait_for_* / execute_* only |
 | skipWaitUntil | skip_wait_for |

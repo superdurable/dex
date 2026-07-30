@@ -161,10 +161,10 @@ func (h *handler) InvokeExecuteMethod(
 		time.Sleep(time.Second * 3)
 	}
 
-	conditionalClose := &dexpb.FlowConditionalClose{
-		ConditionalCloseType: dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
-		ChannelNames:         []string{TestChannelName},
-		CloseInput:           TestInput,
+	closeDecision := &dexpb.CloseDecision{
+		CloseDecisionType:       dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+		ConditionalChannelNames: []string{TestChannelName},
+		CloseInput:              TestInput,
 	}
 
 	return &dexpb.InvokeExecuteMethodResponse{
@@ -176,7 +176,7 @@ func (h *handler) InvokeExecuteMethod(
 					StepInput: request.GetStepInput(),
 				},
 			},
-			ConditionalClose: conditionalClose,
+			CloseDecision: closeDecision,
 		},
 	}, nil
 }

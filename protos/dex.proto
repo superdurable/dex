@@ -580,26 +580,26 @@ message InvokeWorkerRPCResponse {
 
 message StepDecision {
   repeated StepMovement next_steps = 1;
-  FlowConditionalClose conditional_close = 2;
+  CloseDecision close_decision = 2;
 }
 
-enum FlowConditionalCloseType {
-  FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED = 0;
-  FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;
-  // TODO implement this in the future
-  // FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY = 2;
+enum CloseDecisionType {
+  CLOSE_DECISION_TYPE_UNSPECIFIED = 0;
+  CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;
+  CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE = 2;
+  CLOSE_DECISION_TYPE_FORCE_COMPLETE = 3;
+  CLOSE_DECISION_TYPE_FORCE_FAIL = 4;
+  CLOSE_DECISION_TYPE_DEAD_END = 5;
 }
 
-message FlowConditionalClose {
-  FlowConditionalCloseType conditional_close_type = 1;
-  repeated string channel_names = 2;
+message CloseDecision {
+  CloseDecisionType close_decision_type = 1;
+  repeated string conditional_channel_names = 2;
   Value close_input = 3;
 }
 
 message StepMovement {
   string step_type = 1;
-  // For _SYS_FORCE_FAILING_FLOW, only string_value is used as ErrorResponse.detail;
-  // other Value kinds are ignored.
   Value step_input = 2;
   StepOptions step_options = 3;
   // Server-owned scheduling source; workers must leave this empty.

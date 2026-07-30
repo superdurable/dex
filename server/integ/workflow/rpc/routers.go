@@ -27,7 +27,6 @@ import (
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -234,9 +233,7 @@ func (h *handler) InvokeExecuteMethod(
 	case State2:
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: []*dexpb.StepMovement{
-					{StepType: service.GracefulCompletingFlowStepType},
-				},
+				CloseDecision: common.GracefulCompleteDecision(nil),
 			},
 		}, nil
 	default:

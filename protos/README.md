@@ -19,6 +19,18 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
 change the target for subsequent WorkerService calls while the flow is running.
 
+## Step close decisions
+
+`StepDecision.close_decision` explicitly ends a step thread or flow. Graceful
+completion waits for other active steps; force completion and force failure end
+the flow immediately; dead end ends only the current step thread.
+
+`FORCE_COMPLETE_ON_CHANNELS_EMPTY` atomically completes when every named channel
+is empty. It requires unique, non-empty `conditional_channel_names` and at least
+one `next_steps` fallback. Other close types cannot include channel names or
+next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
+accepts no input.
+
 ## Codegen
 
 Regenerate checked-in stubs into server and SDK trees:

@@ -28,7 +28,6 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/persistence"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -132,18 +131,22 @@ func (h *handler) InvokeExecuteMethod(
 		upsertAttributes = expectedAllAttributes()
 	}
 
-	var nextStepType string
+	var stepDecision *dexpb.StepDecision
 	switch request.GetStepType() {
 	case State1:
-		nextStepType = service.DeadEndFlowStepType
+		stepDecision = &dexpb.StepDecision{
+			CloseDecision: common.DeadEndDecision(),
+		}
 	case State2:
-		nextStepType = service.GracefulCompletingFlowStepType
+		stepDecision = &dexpb.StepDecision{
+			CloseDecision: common.GracefulCompleteDecision(loadingTypeInput),
+		}
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid step type")
 	}
 
 	return &dexpb.InvokeExecuteMethodResponse{
-		StepDecision:     getStepDecision(nextStepType, loadingTypeInput),
+		StepDecision:     stepDecision,
 		UpsertAttributes: upsertAttributes,
 	}, nil
 }
