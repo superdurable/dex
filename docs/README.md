@@ -7,6 +7,7 @@
 * [Transient step movement](design/transient-step-movement.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
 * [Multi-language Rust SDK Core](design/multi-language-rust-sdk-core.md)
+* [Go SDK rewrite plan](design/plan/go-sdk-rewrite.md)
 
 ## Case studies / examples
 

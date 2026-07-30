@@ -7,19 +7,27 @@ Any contribution is welcome. Even just a fix for typo in a code comment, or READ
 Here is the repository layout if you are interested to learn about it:
 
 * `gen/dexpb/` the generated protobuf/gRPC stubs from [`protos/dex.proto`](../protos/dex.proto)
-* `integ/` the end to end integration tests.
-    * `init.go` the initiation & registration of workflows. It's using global variables just for convenience
-    * `main_test` the setup + tear down for running local in-memory Dex worker with GoSDK
-    * `xyz_test` the test for a test case xyz
-    * `xyz_workflow.go` the test workflow for a test xyz
-    * `xyz_workflow_state_*` the test workflow states for a test xyz
 * IDL source lives in monorepo `protos/dex.proto` (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * `dex` the main directory
   * `blobcache/` the independently tested disk blob cache
-  * `*_impl.go` these are implementation for SDK. Ideally we should put them in separate folder, but Golang doesn't allow circular dependency, and we hate to use alias across packages
-  * `internal_*.go` these are implementation for SDK
-  * `_test.go` the unit test
-  * other `.go` the interfaces defined in this SDK for user to use
+  * root `.go` files contain the Phase 1 public contracts
+  * `contracts_test.go` compiles the API from an external application package
+* `examples/` contains compilable authoring examples
+* `integ/` is retained for migration when the runtime and client phases land
+
+Application packages must import `dex`, not `gen/dexpb`.
+
+## Phase 1 verification
+
+Run the contract tests and examples through the Makefile:
+
+```text
+make unitTests 2>&1 | tee /tmp/test-go-sdk-phase1.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase1-copyright.log
+```
+
+Phase 1 does not run the legacy integration suite because registration, worker,
+codec, and transport are outside this phase.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
