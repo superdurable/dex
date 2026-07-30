@@ -118,16 +118,8 @@ func doTestLockingWorkflow(
 		Input:             objJSONValue("data"),
 		LockAttributeKeys: []string{locking.TestSearchAttributeIntKey},
 	})
-	if backendType == service.BackendTypeCadence {
-		require.Equal(t, codes.Unimplemented, status.Code(err))
-	} else {
-		require.Equal(t, codes.InvalidArgument, status.Code(err))
-		require.Equal(
-			t,
-			"request ID is required for locking RPC",
-			grpcErrorResponse(t, err).GetDetail(),
-		)
-	}
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
 
 	for i := 0; i < locking.NumUnusedSignals; i++ {
 		_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{

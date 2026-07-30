@@ -773,9 +773,6 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
-	if req.GetRequestId() == "" {
-		return nil, makeInvalidRequestError("request ID is required for locking RPC")
-	}
 	var result dexpb.InvokeRpcUpdateResult
 	if err := s.client.SynchronousUpdateWorkflow(
 		ctx,

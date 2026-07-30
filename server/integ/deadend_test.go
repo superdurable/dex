@@ -107,6 +107,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 
 	flowId := deadend.WorkflowType + "-request-id-" + uuid.NewString()
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -120,7 +121,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 		LockAttributeKeys: []string{"any key"},
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required for locking RPC", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
 	require.Zero(t, workerHandler.GetRPCInvokes())
 	require.Eventually(t, func() bool {
 		var dump dexpb.DebugDumpResponse
