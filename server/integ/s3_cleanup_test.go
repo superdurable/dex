@@ -87,8 +87,13 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	}
 
 	const storeId = "s3-store-id"
+	objectCounts := make([]int, len(flowIds))
 	for i, flowId := range flowIds {
-		objectCount := (i + 1) * 100
+		objectCount := 1
+		if i == len(flowIds)-1 {
+			objectCount = 1001
+		}
+		objectCounts[i] = objectCount
 		for j := 0; j < objectCount; j++ {
 			_, _, err := globalBlobStore.WriteObject(
 				ctx,
@@ -100,7 +105,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	}
 
 	for i, flowId := range flowIds {
-		expectedCount := int64((i + 1) * 100)
+		expectedCount := int64(objectCounts[i])
 		if i < 12 {
 			expectedCount++
 		}
@@ -156,7 +161,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		count, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, flowId)
 		require.NoError(t, err)
 		if i < 12 {
-			expectedCount := int64((i+1)*100) + 1
+			expectedCount := int64(objectCounts[i]) + 1
 			if expectedCount > 1000 {
 				expectedCount = 1000
 			}
