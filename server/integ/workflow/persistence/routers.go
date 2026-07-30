@@ -153,13 +153,11 @@ func (h *handler) InvokeWaitForMethod(
 			return nil, status.Error(codes.InvalidArgument, "should see the requested attribute key")
 		}
 
-		queryAttFound := countAttributesWithKeys(
-			request.GetAttributes(),
-			TestDataAttributeKey,
-			TestDataAttributeKey2,
-		)
-		if queryAttFound != 2 {
-			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
+		if countAttributesWithKeys(request.GetAttributes(), TestDataAttributeKey) != 1 {
+			return nil, status.Error(codes.InvalidArgument, "missing query attribute key")
+		}
+		if countAttributesWithKeys(request.GetAttributes(), TestDataAttributeKey2) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "deleted query attribute key is still present")
 		}
 
 		return &dexpb.InvokeWaitForMethodResponse{
@@ -241,6 +239,9 @@ func (h *handler) InvokeExecuteMethod(
 					{StepType: State3},
 				},
 			},
+			UpsertAttributes: []*dexpb.AttributeWrite{
+				deleteAttribute(TestDataAttributeKey2),
+			},
 		}, nil
 	case State3:
 		foundInt := attributeIntMatches(
@@ -252,13 +253,11 @@ func (h *handler) InvokeExecuteMethod(
 			return nil, status.Error(codes.InvalidArgument, "should see the requested attribute key")
 		}
 
-		queryAttFound := countAttributesWithKeys(
-			request.GetAttributes(),
-			TestDataAttributeKey,
-			TestDataAttributeKey2,
-		)
-		if queryAttFound != 2 {
-			return nil, status.Error(codes.InvalidArgument, "missing query attribute keys")
+		if countAttributesWithKeys(request.GetAttributes(), TestDataAttributeKey) != 1 {
+			return nil, status.Error(codes.InvalidArgument, "missing query attribute key")
+		}
+		if countAttributesWithKeys(request.GetAttributes(), TestDataAttributeKey2) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "deleted query attribute key is still present")
 		}
 
 		return &dexpb.InvokeExecuteMethodResponse{
@@ -426,5 +425,14 @@ func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
 	return &dexpb.AttributeWrite{
 		Key:   key,
 		Value: jsonObjValue(payload),
+	}
+}
+
+func deleteAttribute(key string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key: key,
+		Value: &dexpb.Value{
+			Kind: &dexpb.Value_NullValue{},
+		},
 	}
 }

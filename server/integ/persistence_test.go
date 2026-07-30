@@ -236,7 +236,6 @@ func doTestPersistenceWorkflow(
 	}, data)
 
 	expectedVal1 := dataObjectAttribute(persistence.TestDataAttributeKey, "test-data-attribute-value2")
-	expectedVal2 := dataObjectAttribute(persistence.TestDataAttributeKey2, "test-data-attribute-value1")
 
 	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
@@ -244,9 +243,9 @@ func doTestPersistenceWorkflow(
 	}, queryResult1.GetAttributes())
 	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
-		expectedVal2,
 		expectedDataAttribute,
 	}, queryResult2.GetAttributes())
+	requireAttributeAbsent(t, queryResult2.GetAttributes(), persistence.TestDataAttributeKey2)
 
 	expectedSearchKeyword := indexedKeywordAttribute(
 		persistence.TestSearchAttributeKeywordKey,
@@ -440,6 +439,13 @@ func requireAttributePresent(t *testing.T, attributes []*dexpb.KV, expected *dex
 		}
 	}
 	require.Fail(t, "expected attribute not found", expected.GetKey())
+}
+
+func requireAttributeAbsent(t *testing.T, attributes []*dexpb.KV, key string) {
+	t.Helper()
+	for _, attribute := range attributes {
+		require.NotEqual(t, key, attribute.GetKey(), "unexpected attribute found")
+	}
 }
 
 func requireSearchAttributesMatch(
