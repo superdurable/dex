@@ -516,10 +516,11 @@ func (t *temporalClient) GetWorkflowResult(
 }
 
 func (t *temporalClient) SynchronousUpdateWorkflow(
-	ctx context.Context, valuePtr interface{}, workflowID, runID, updateType string, input interface{},
+	ctx context.Context, valuePtr interface{}, workflowID, runID, updateID, updateType string, input interface{},
 ) error {
 	args := []interface{}{input}
 	options := client.UpdateWorkflowOptions{
+		UpdateID:   updateID,
 		WorkflowID: workflowID,
 		RunID:      runID,
 		UpdateName: updateType,

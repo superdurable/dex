@@ -438,6 +438,8 @@ message InvokeRPCRequest {
   // Acquire exclusive lock on these attribute keys for the RPC's
   // read-modify-write. Empty = non-locking RPC.
   repeated string lock_attribute_keys = 6;
+  // Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+  string request_id = 7;
 }
 
 message InvokeRPCResponse {
@@ -464,6 +466,8 @@ message WaitForStepCompletionRequest {
   string step_type = 2;
   string step_execution_number = 3;
   int32 wait_time_seconds = 5;
+  // Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+  string request_id = 6;
 }
 
 message WaitForStepCompletionResponse {}
@@ -474,6 +478,8 @@ message WaitForAttributeRequest {
   WaitForAttributeCondition condition = 3;
   // Zero/omit checks once; positive waits until match or timeout.
   int32 wait_time_seconds = 4;
+  // Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+  string request_id = 5;
 }
 
 message WaitForAttributeCondition {

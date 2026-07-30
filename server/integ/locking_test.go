@@ -111,6 +111,23 @@ func doTestLockingWorkflow(
 	})
 	require.NoError(t, err)
 
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		FlowId:            flowId,
+		RpcName:           locking.RPCName,
+		Input:             objJSONValue("data"),
+		LockAttributeKeys: []string{locking.TestSearchAttributeIntKey},
+	})
+	if backendType == service.BackendTypeCadence {
+		require.Equal(t, codes.Unimplemented, status.Code(err))
+	} else {
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.Equal(
+			t,
+			"request ID is required for locking RPC",
+			grpcErrorResponse(t, err).GetDetail(),
+		)
+	}
+
 	for i := 0; i < locking.NumUnusedSignals; i++ {
 		_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowId,
@@ -137,6 +154,7 @@ func doTestLockingWorkflow(
 				RpcName:        locking.RPCName,
 				Input:          objJSONValue("data"),
 				TimeoutSeconds: 2,
+				RequestId:      uuid.NewString(),
 				LockAttributeKeys: []string{
 					locking.TestSearchAttributeIntKey,
 					locking.TestDataAttributeKey1,

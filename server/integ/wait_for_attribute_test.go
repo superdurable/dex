@@ -123,6 +123,7 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 			stringValue("anything"),
 		),
 		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
@@ -153,7 +154,18 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-success")
 
-	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+		FlowId: flowId,
+		Condition: waitForAttributeEqualCondition(
+			waitForAttributeKey,
+			expectedValue,
+		),
+		WaitTimeSeconds: 0,
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId: flowId,
 		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
@@ -168,6 +180,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 			expectedValue,
 		),
 		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)
 
@@ -191,6 +204,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 			stringValue("never-set"),
 		),
 		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
@@ -224,6 +238,7 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 				stringValue("never-set"),
 			),
 			WaitTimeSeconds: 30,
+			RequestId:       uuid.NewString(),
 		})
 		done <- waitErr
 	}()
@@ -255,6 +270,7 @@ func doTestWaitForAttributeNotFound(t *testing.T) {
 			stringValue("anything"),
 		),
 		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
 	})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(
@@ -287,6 +303,7 @@ func doTestWaitForAttributeClosed(t *testing.T) {
 			stringValue("anything"),
 		),
 		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -307,6 +324,9 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-concurrent")
+	requestId := uuid.NewString()
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
 
 	var waitGroup sync.WaitGroup
 	errors := make([]error, 2)
@@ -321,6 +341,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 					expectedValue,
 				),
 				WaitTimeSeconds: 30,
+				RequestId:       requestId,
 			})
 			errors[resultIndex] = waitErr
 		}(index)
@@ -328,7 +349,7 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		FlowId: flowId,
 		Attributes: []*dexpb.AttributeWrite{
 			{Key: waitForAttributeKey, Value: expectedValue},
@@ -340,6 +361,16 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	for _, waitErr := range errors {
 		require.NoError(t, waitErr)
 	}
+	accepted, completed := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		requestId,
+	)
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 1, completed)
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -381,6 +412,7 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 			expectedValue,
 		),
 		WaitTimeSeconds: 30,
+		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)
 

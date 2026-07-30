@@ -263,6 +263,7 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 		RpcName:           rpc.RPCNameError,
 		Input:             rpc.TestInput,
 		TimeoutSeconds:    2,
+		RequestId:         uuid.NewString(),
 		LockAttributeKeys: []string{"unused-lock-key"},
 	})
 	require.Error(t, err)
@@ -281,6 +282,7 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 		RpcName:           rpc.RPCNameReadOnly,
 		Input:             rpc.TestInput,
 		TimeoutSeconds:    2,
+		RequestId:         uuid.NewString(),
 		LockAttributeKeys: []string{""},
 	})
 	require.Error(t, err)
