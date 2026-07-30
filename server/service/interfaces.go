@@ -35,6 +35,7 @@ type StepExecutionStatus string
 
 const StepExecutionStatusCompleted StepExecutionStatus = "Completed"
 const StepExecutionStatusFailedNoProceed StepExecutionStatus = "Failure"
+const StepExecutionStatusInternalError StepExecutionStatus = "InternalError"
 const StepExecutionStatusWaitingAborted StepExecutionStatus = "WaitingConditions"
 const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteMethodFailedAndProceed"
 

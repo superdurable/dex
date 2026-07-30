@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -596,9 +595,6 @@ func validateTransientStepMovement(movement *dexpb.StepMovement) error {
 	}
 	if movement.GetStepType() == "" {
 		return fmt.Errorf("transient step type is empty")
-	}
-	if strings.HasPrefix(movement.GetStepType(), "_SYS_") {
-		return fmt.Errorf("transient step cannot target system step %q", movement.GetStepType())
 	}
 	options := movement.GetStepOptions()
 	if !options.GetSkipWaitFor() {

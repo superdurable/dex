@@ -336,14 +336,6 @@ func TestValidateTransientStepMovement(t *testing.T) {
 		errorContains string
 	}{
 		{"empty_step_type", &dexpb.StepMovement{}, "step type is empty"},
-		{
-			"system_step",
-			&dexpb.StepMovement{
-				StepType:    "_SYS_DEAD_END",
-				StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
-			},
-			"cannot target system step",
-		},
 		{"does_not_skip_wait_for", &dexpb.StepMovement{StepType: "transient"}, "must skip WaitFor"},
 		{
 			"wait_for_proceed",

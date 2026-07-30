@@ -110,6 +110,28 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 	require.Equal(t, int32(1), counter.Dump().GetStepTypeCurrentlyExecutingCount()["step"])
 }
 
+func TestStepExecutionCounterCompletionBackendFailureIsInternal(t *testing.T) {
+	provider := &stepExecutionCounterWorkflowProvider{}
+	configer := config.NewFlowConfiger(&dexpb.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
+	})
+	counter := NewStepExecutionCounter(
+		nil,
+		provider,
+		configer,
+		cont.NewContinueAsCounter(configer, nil, provider),
+	)
+	step := &dexpb.StepMovement{StepType: "step"}
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+		NewStepStartRequest(step),
+	}))
+	stepExecutionID := counter.CreateNextExecutionId(step.GetStepType())
+	provider.upsertErr = errors.New("backend unavailable")
+
+	err := counter.MarkStepExecutionCompleted(step, stepExecutionID, nil)
+	require.ErrorContains(t, err, "backend unavailable")
+}
+
 func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	disabledProvider := &stepExecutionCounterWorkflowProvider{}
 	disabledConfiger := config.NewFlowConfiger(&dexpb.FlowConfig{

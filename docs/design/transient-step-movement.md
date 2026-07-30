@@ -20,7 +20,7 @@ lineage source is the WaitFor step execution.
 The movement must:
 
 - set `skip_wait_for`;
-- target a non-system step;
+- target a non-empty step type;
 - omit WaitFor and Execute failure-proceed behavior; and
 - return a DeadEnd close decision from Execute without next steps.
 

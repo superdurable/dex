@@ -328,6 +328,10 @@ func (i *Interpreter) StartEngineFlow(
 						stepExecutionCounter,
 						flowConfiger,
 					)
+					if stepExecutionStatus == service.StepExecutionStatusInternalError {
+						errToFailWf = stepExeErr
+						return
+					}
 					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
 						errToFailWf = normalizeStepFailureError(provider, stepExeErr)
@@ -377,10 +381,7 @@ func (i *Interpreter) StartEngineFlow(
 							stepExeId,
 							decision.GetNextSteps(),
 						); err != nil {
-							errToFailWf = provider.NewFlowError(
-								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-								&dexpb.ErrorResponse{Detail: err.Error()},
-							)
+							errToFailWf = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
@@ -672,7 +673,7 @@ func (i *Interpreter) processStepExecution(
 		if len(lockAttributeKeys) > 0 {
 			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 			if err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			attributes = loadedAttributes
 		}
@@ -706,7 +707,7 @@ func (i *Interpreter) processStepExecution(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
 			); err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			waitingCondition = activityOutput.Response.GetWaitingCondition()
@@ -882,7 +883,7 @@ func (i *Interpreter) processTransientStepExecution(
 	if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
 		[]StepRequest{stepRequest},
 	); err != nil {
-		return service.StepExecutionStatusFailedNoProceed, err
+		return service.StepExecutionStatusInternalError, err
 	}
 
 	stepExecutionId := stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
@@ -917,7 +918,7 @@ func (i *Interpreter) processTransientStepExecution(
 		stepExecutionId,
 		decision.GetNextSteps(),
 	); err != nil {
-		return service.StepExecutionStatusFailedNoProceed, err
+		return service.StepExecutionStatusInternalError, err
 	}
 	return service.StepExecutionStatusCompleted, nil
 }
@@ -956,7 +957,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	if len(lockAttributeKeys) > 0 {
 		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
-			return nil, service.StepExecutionStatusFailedNoProceed, err
+			return nil, service.StepExecutionStatusInternalError, err
 		}
 	}
 
@@ -995,7 +996,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		executeResponse.GetUpsertAttributes(),
 	); err != nil {
-		return nil, service.StepExecutionStatusFailedNoProceed, err
+		return nil, service.StepExecutionStatusInternalError, err
 	}
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
