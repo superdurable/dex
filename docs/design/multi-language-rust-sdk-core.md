@@ -5,9 +5,9 @@ Status: draft.
 ## Decision
 
 Dex SDKs will share an embedded Rust Core. Core owns worker transport,
-invocation lifecycle, backpressure, shutdown, and protocol-level telemetry.
-Each language layer owns its public API, type conversion, registry, and user
-code execution.
+invocation lifecycle, backpressure, shutdown, protocol-level telemetry, and
+the shared disk blob cache. Each language layer owns its public API, type
+conversion, registry, and user code execution.
 
 Core will not invoke user functions directly from Rust runtime threads. A
 language worker polls Core for an invocation, executes the registered function,
@@ -25,6 +25,7 @@ asynchronous step methods.
 - Keep language runtimes and object models outside Core.
 - Preserve the canonical `WorkerService` contract in `protos/dex.proto`.
 - Apply bounded backpressure before invoking user code.
+- Share one blob-cache contract across non-Go language SDKs.
 - Make shutdown, cancellation, deadlines, and error propagation explicit.
 - Test Core independently from every language bridge.
 
@@ -57,6 +58,7 @@ The Rust workspace is split by responsibility:
 | Component | Responsibility |
 | --- | --- |
 | `dex-core` | Invocation lifecycle, bounded queue, completion routing, shutdown |
+| `dex-core::BlobCache` | Disk persistence, admission, eviction, recovery, integrity |
 | `dex-core-protocol` | Generated internal poll/completion protobuf messages |
 | `dex-worker-grpc` | `WorkerService` implementation using canonical Dex IDL |
 | `dex-sdk` | Native Rust public SDK |
@@ -65,6 +67,53 @@ The Rust workspace is split by responsibility:
 
 Only `dex-core` is implemented in the first phase. The other crates will be
 added when their contracts are exercised.
+
+## Blob cache
+
+Rust Core provides the disk blob cache used by Python, TypeScript, Java, C#,
+PHP, Ruby, and the native Rust SDK. The Go SDK keeps its existing independent
+implementation and does not link Rust Core.
+
+The Rust and Go implementations share the same behavioral and disk-format
+contract:
+
+- blob IDs are immutable content identifiers;
+- payloads remain opaque bytes outside language heaps;
+- a miss, oversized value, or policy rejection is not an application failure;
+- capacity counts the 24-byte header, blob ID, and payload;
+- reads are concurrent while mutations and lifecycle changes are serialized;
+- committed files survive `close`, while `delete_all` leaves an open cache
+  empty and reusable;
+- startup removes interrupted writes and corrupt files, then reconciles the
+  configured capacity newest-first; and
+- one directory is exclusively owned by one process.
+
+Files use the Go cache's `DXBC` version 1 format:
+
+```text
+magic[4] = "DXBC"
+version uint8 = 1
+reserved uint24 = 0
+blob_id_length uint32 little-endian
+payload_length uint64 little-endian
+crc32c uint32 little-endian
+blob_id bytes
+payload bytes
+```
+
+CRC32C covers the blob ID and payload. The path is
+`blobs/ab/cd/<sha256(blob-id)>.blob`; temporary files are committed by atomic
+rename. Unknown versions, invalid lengths, nonzero reserved bytes, path-hash
+mismatches, and checksum failures are recoverable corruption.
+
+The in-memory policy stores metadata only. Rust Core uses a bounded frequency
+sketch with LFU/LRU victim selection, providing TinyLFU-style scan resistance.
+Exact admission and victim choices are intentionally not portable because the
+Go implementation uses an approximate asynchronous Ristretto policy.
+
+The cross-language bridge exposes owned byte buffers and opaque cache handles.
+Cache filesystem calls are synchronous and must run on a bridge blocking
+executor when invoked from an event-loop language.
 
 ## Two protocol boundaries
 
@@ -248,13 +297,14 @@ logging and data-handling policies.
 ## Implementation phases
 
 1. Build and test the language-neutral invocation engine.
-2. Generate the internal Core protocol crate.
-3. Implement `WorkerService` with tonic.
-4. Add the native Rust SDK layer.
-5. Add the Java 8 JNI bridge and JVM execution adapter.
-6. Replace the Python HTTP worker with PyO3 and asyncio/thread-pool dispatch.
-7. Add Node-API and the shared C ABI bridge.
-8. Add packaging, compatibility, and cross-language conformance suites.
+2. Implement the shared disk blob cache.
+3. Generate the internal Core protocol crate.
+4. Implement `WorkerService` with tonic.
+5. Add the native Rust SDK layer.
+6. Add the Java 8 JNI bridge and JVM execution adapter.
+7. Replace the Python HTTP worker with PyO3 and asyncio/thread-pool dispatch.
+8. Add Node-API and the shared C ABI bridge.
+9. Add packaging, compatibility, and cross-language conformance suites.
 
 ## Tests
 
@@ -263,6 +313,10 @@ logging and data-handling policies.
 - Integration: reject duplicate and unknown completions.
 - Integration: wake blocked pollers and requests during shutdown.
 - Integration: prove queue capacity applies backpressure before dispatch.
+- Integration: round-trip opaque blob bytes and enforce immutable IDs.
+- Integration: enforce the logical byte budget under concurrent cache access.
+- Integration: preserve valid files and reconcile corruption across restart.
+- Integration: verify Rust reads Go-compatible `DXBC` version 1 fixtures.
 - E2E: run each bridge against the same `WorkerService` conformance suite.
 - E2E: exercise sync and async user methods, cancellation, and worker shutdown.
 - E2E: verify Java 8 JNI loading, `CompletableFuture`, and `ExecutorService`.

@@ -10,4 +10,5 @@ repository = "https://github.com/superdurable/dex"
 rust-version = "1.85"
 
 [workspace.dependencies]
+sha2 = "0.10"
 tokio = { version = "1", features = ["sync"] }

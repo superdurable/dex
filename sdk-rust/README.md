@@ -7,6 +7,8 @@ The first implemented crate is:
 
 - `dex-core`: bounded invocation dispatch, polling, completion routing, and
   shutdown.
+- `dex-core::BlobCache`: shared disk-backed blob caching for all language SDKs
+  except the independent Go SDK.
 
 The architecture is defined in
 [Multi-language Rust SDK Core](../docs/design/multi-language-rust-sdk-core.md).

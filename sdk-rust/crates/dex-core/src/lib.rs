@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod blob_cache;
 mod error;
 mod invocation;
 mod worker;
 
+pub use blob_cache::{BlobCache, BlobCacheConfig, BlobCacheError};
 pub use error::CoreError;
 pub use invocation::{
     CORE_PROTOCOL_VERSION, Invocation, InvocationFailure, InvocationId, InvocationKind,
