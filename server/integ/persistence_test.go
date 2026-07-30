@@ -23,6 +23,8 @@ package integ
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +36,8 @@ import (
 	"github.com/superdurable/dex/service/common/timeparser"
 	"google.golang.org/protobuf/proto"
 )
+
+var persistenceSearchTimeSequence atomic.Int64
 
 func TestPersistenceWorkflowTemporal(t *testing.T) {
 	if !*temporalIntegTest {
@@ -128,7 +132,9 @@ func doTestPersistenceWorkflow(
 	defer cancel()
 
 	flowId := persistence.WorkflowType + uuid.NewString()
-	nowTime := time.Now()
+	nowTime := time.Now().Add(
+		time.Duration(persistenceSearchTimeSequence.Add(1)) * time.Hour,
+	)
 	notTimeNanoStr := fmt.Sprintf("%v", nowTime.UnixNano())
 	nowTimeStr := nowTime.Format(timeparser.DateTimeFormat)
 
@@ -230,7 +236,6 @@ func doTestPersistenceWorkflow(
 	}, data)
 
 	expectedVal1 := dataObjectAttribute(persistence.TestDataAttributeKey, "test-data-attribute-value2")
-	expectedVal2 := dataObjectAttribute(persistence.TestDataAttributeKey2, "test-data-attribute-value1")
 
 	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
@@ -238,9 +243,9 @@ func doTestPersistenceWorkflow(
 	}, queryResult1.GetAttributes())
 	requireAttributesMatch(t, []*dexpb.AttributeWrite{
 		expectedVal1,
-		expectedVal2,
 		expectedDataAttribute,
 	}, queryResult2.GetAttributes())
+	requireAttributeAbsent(t, queryResult2.GetAttributes(), persistence.TestDataAttributeKey2)
 
 	expectedSearchKeyword := indexedKeywordAttribute(
 		persistence.TestSearchAttributeKeywordKey,
@@ -266,17 +271,48 @@ func doTestPersistenceWorkflow(
 		},
 	})
 	require.NoError(t, err)
-	requireAttributesMatch(t, []*dexpb.AttributeWrite{
+	expectedIndexedAttributes := []*dexpb.AttributeWrite{
 		expectedDatetimeSearchAttribute,
 		expectedSearchKeyword,
 		expectedSearchInt,
 		expectedSearchBool,
-	}, allIndexed.GetAttributes())
+	}
+	requireAttributesMatch(t, expectedIndexedAttributes, allIndexed.GetAttributes())
 
 	if *testSearchIntegTest {
+		var searchFlow *dexpb.SearchFlowsResponseEntry
+		expectedFlowType := &dexpb.KV{
+			Key: service.SearchAttributeDexWorkflowType,
+			Value: &dexpb.Value{
+				Kind: &dexpb.Value_StringValue{StringValue: persistence.WorkflowType},
+			},
+		}
+		require.Eventually(t, func() bool {
+			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
+				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize: 100,
+			})
+			if searchErr != nil {
+				return false
+			}
+			for _, flowRun := range searchResponse.GetFlowRuns() {
+				if flowRun.GetRunId() == runId &&
+					searchAttributeWritesPresent(expectedIndexedAttributes, flowRun.GetSearchAttributes()) &&
+					searchAttributePresent(flowRun.GetSearchAttributes(), expectedFlowType) {
+					searchFlow = flowRun
+					return true
+				}
+			}
+			return false
+		}, 30*time.Second, 100*time.Millisecond)
+		require.Equal(t, flowId, searchFlow.GetFlowId())
+		requireSearchAttributesMatch(t, expectedIndexedAttributes, searchFlow.GetSearchAttributes())
+		requireSearchAttributePresent(t, searchFlow.GetSearchAttributes(), expectedFlowType)
+
 		firstFlowId := flowId
+		startedRunIds := make(map[string]string)
 		startMore := func(id string, attrs []*dexpb.AttributeWrite) {
-			_, startErr := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			startResponse, startErr := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 				FlowId:             id,
 				FlowType:           persistence.WorkflowType,
 				FlowTimeoutSeconds: 20,
@@ -288,6 +324,7 @@ func doTestPersistenceWorkflow(
 				}, workerTarget),
 			})
 			require.NoError(t, startErr)
+			startedRunIds[id] = startResponse.GetRunId()
 		}
 
 		startMore(firstFlowId+"-1", []*dexpb.AttributeWrite{
@@ -309,6 +346,10 @@ func doTestPersistenceWorkflow(
 			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		}
+		expectedExtraSearchAttributes := []*dexpb.AttributeWrite{
+			indexedDoubleAttribute("CustomDoubleField", 0.01),
+			indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"),
+		}
 		// Cadence has no KeywordList search attribute registration.
 		if backendType == service.BackendTypeTemporal {
 			keywordArray := indexedKeywordArrayAttribute(
@@ -318,6 +359,7 @@ func doTestPersistenceWorkflow(
 			)
 			attrs3 = append(attrs3, keywordArray)
 			attrs4 = append(attrs4, keywordArray)
+			expectedExtraSearchAttributes = append(expectedExtraSearchAttributes, keywordArray)
 		}
 		attrs4 = append(attrs4, indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"))
 		startMore(firstFlowId+"-3", attrs3)
@@ -330,6 +372,29 @@ func doTestPersistenceWorkflow(
 			require.NoError(t, waitErr)
 			require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 		}
+
+		extraFlowId := firstFlowId + "-4"
+		var extraSearchFlow *dexpb.SearchFlowsResponseEntry
+		require.Eventually(t, func() bool {
+			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
+				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize: 100,
+			})
+			if searchErr != nil {
+				return false
+			}
+			for _, flowRun := range searchResponse.GetFlowRuns() {
+				if flowRun.GetRunId() == startedRunIds[extraFlowId] &&
+					searchAttributeWritesPresent(expectedExtraSearchAttributes, flowRun.GetSearchAttributes()) &&
+					searchAttributePresent(flowRun.GetSearchAttributes(), expectedFlowType) {
+					extraSearchFlow = flowRun
+					return true
+				}
+			}
+			return false
+		}, 30*time.Second, 100*time.Millisecond)
+		requireSearchAttributesMatch(t, expectedExtraSearchAttributes, extraSearchFlow.GetSearchAttributes())
+		requireSearchAttributePresent(t, extraSearchFlow.GetSearchAttributes(), expectedFlowType)
 
 		time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
 
@@ -374,6 +439,64 @@ func requireAttributePresent(t *testing.T, attributes []*dexpb.KV, expected *dex
 		}
 	}
 	require.Fail(t, "expected attribute not found", expected.GetKey())
+}
+
+func requireAttributeAbsent(t *testing.T, attributes []*dexpb.KV, key string) {
+	t.Helper()
+	for _, attribute := range attributes {
+		require.NotEqual(t, key, attribute.GetKey(), "unexpected attribute found")
+	}
+}
+
+func requireSearchAttributesMatch(
+	t *testing.T,
+	expected []*dexpb.AttributeWrite,
+	actual []*dexpb.KV,
+) {
+	t.Helper()
+	keys := make([]string, 0, len(actual))
+	for _, attribute := range actual {
+		keys = append(keys, attribute.GetKey())
+	}
+	sortedKeys := append([]string(nil), keys...)
+	sort.Strings(sortedKeys)
+	require.Equal(t, sortedKeys, keys)
+
+	for _, attribute := range expected {
+		requireSearchAttributePresent(t, actual, &dexpb.KV{
+			Key:   attribute.GetKey(),
+			Value: attribute.GetValue(),
+		})
+	}
+}
+
+func searchAttributeWritesPresent(expected []*dexpb.AttributeWrite, actual []*dexpb.KV) bool {
+	for _, attribute := range expected {
+		if !searchAttributePresent(actual, &dexpb.KV{
+			Key:   attribute.GetKey(),
+			Value: attribute.GetValue(),
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+func requireSearchAttributePresent(t *testing.T, attributes []*dexpb.KV, expected *dexpb.KV) {
+	t.Helper()
+	if searchAttributePresent(attributes, expected) {
+		return
+	}
+	require.Fail(t, "expected search attribute not found", expected.GetKey())
+}
+
+func searchAttributePresent(attributes []*dexpb.KV, expected *dexpb.KV) bool {
+	for _, attribute := range attributes {
+		if proto.Equal(attribute, expected) {
+			return true
+		}
+	}
+	return false
 }
 
 func requireAttributesMatch(t *testing.T, expected []*dexpb.AttributeWrite, actual []*dexpb.KV) {
