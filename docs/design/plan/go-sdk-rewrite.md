@@ -1,7 +1,7 @@
 # Go SDK rewrite plan
 
-Status: Phase 3 design. Phases 1 and 2 are implemented. Later phases are
-boundaries only and require their own design review before implementation.
+Status: Phase 3 implementation. Phases 1 and 2 are implemented. Later phases
+are boundaries only and require their own design review before implementation.
 
 ## Current source of truth
 
@@ -230,9 +230,9 @@ static attribute's empty `IndexKey` resolves to its attribute name. An
 attribute map with an empty `IndexKey` continues to index each concrete physical
 key independently.
 
-Index keys are server visibility names, so a non-empty shared key must use one
-index type throughout the registry. Definitions in different flows may share
-that key only when their index types agree.
+Index keys are server visibility names, so each effective key must use one index
+type throughout the registry. Definitions in different flows may share that key
+only when their index types agree.
 
 ### Generic step erasure
 

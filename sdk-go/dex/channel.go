@@ -87,6 +87,10 @@ func (c Channel[T]) ChannelName() string {
 
 func (Channel[T]) channelDefinition() {}
 
+func (c Channel[T]) channelMetadata() channelDefMetadata {
+	return channelDefMetadata{name: c.name}
+}
+
 type ChannelMap[T any] struct {
 	name string
 }
@@ -190,6 +194,10 @@ func (c ChannelMap[T]) ChannelName() string {
 }
 
 func (ChannelMap[T]) channelDefinition() {}
+
+func (c ChannelMap[T]) channelMetadata() channelDefMetadata {
+	return channelDefMetadata{name: c.name, isMap: true}
+}
 
 type channelInvocation interface {
 	publishChannel(name string, value any) error

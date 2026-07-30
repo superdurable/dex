@@ -14,6 +14,8 @@
 
 package dex
 
+import "reflect"
+
 type RPC[IN, OUT any] func(
 	ctx Context,
 	input IN,
@@ -36,4 +38,22 @@ func ReplyAndMove[OUT any](
 		Output:    output,
 		NextSteps: movements,
 	}
+}
+
+type rpcResult interface {
+	rpcOutput() any
+	rpcOutputType() reflect.Type
+	rpcMovements() []StepMovement
+}
+
+func (result RPCResult[OUT]) rpcOutput() any {
+	return result.Output
+}
+
+func (RPCResult[OUT]) rpcOutputType() reflect.Type {
+	return reflect.TypeFor[OUT]()
+}
+
+func (result RPCResult[OUT]) rpcMovements() []StepMovement {
+	return result.NextSteps
 }

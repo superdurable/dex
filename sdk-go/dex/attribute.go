@@ -57,6 +57,10 @@ func (a Attribute[T]) AttributeName() string {
 
 func (Attribute[T]) attributeDefinition() {}
 
+func (a Attribute[T]) attributeMetadata() attributeDefMetadata {
+	return attributeDefMetadata{name: a.name, index: a.index}
+}
+
 type AttributeMap[T any] struct {
 	name  string
 	index *AttributeIndex
@@ -100,6 +104,10 @@ func (a AttributeMap[T]) AttributeName() string {
 }
 
 func (AttributeMap[T]) attributeDefinition() {}
+
+func (a AttributeMap[T]) attributeMetadata() attributeDefMetadata {
+	return attributeDefMetadata{name: a.name, index: a.index, isMap: true}
+}
 
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)

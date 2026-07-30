@@ -10,26 +10,28 @@ Here is the repository layout if you are interested to learn about it:
 * IDL source lives in monorepo `protos/dex.proto` (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * `dex` the main directory
   * `blobcache/` the independently tested disk blob cache
-  * root `.go` files contain public contracts and Phase 2 internal mappers
+  * root `.go` files contain public contracts and private registration/mapping
   * `contracts_test.go` compiles the API from an external application package
-  * package-internal tests cover value, protobuf, error, and hydration mapping
+  * package-internal tests cover registration, value, protobuf, errors, and
+    hydration
 * `examples/` contains compilable authoring examples
 * `integ/` is retained for migration when the runtime and client phases land
 
 Application packages must import `dex`, not `gen/dexpb`.
 
-## Phase 2 verification
+## Phase 3 verification
 
-Run codec, mapper, contract, example, and cache tests through the Makefile:
+Run registry, codec, mapper, contract, example, and cache tests through the
+Makefile:
 
 ```text
-make unitTests 2>&1 | tee /tmp/test-go-sdk-phase2.log
-make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase2-blobcache.log
-make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase2-copyright.log
+make unitTests 2>&1 | tee /tmp/test-go-sdk-phase3.log
+make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase3-blobcache.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase3-copyright.log
 ```
 
-Phase 2 does not run the legacy integration suite because registration, worker,
-and transport are outside this phase.
+Phase 3 does not run the legacy integration suite because WorkerService and
+transport remain outside this phase.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)

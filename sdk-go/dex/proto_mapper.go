@@ -26,11 +26,6 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
-type stepMetadata interface {
-	GetStepType() string
-	GetStepOptions() *StepOptions
-}
-
 func mapInitialAttributes(
 	attributes []InitialAttribute,
 ) ([]*dexpb.AttributeWrite, error) {
@@ -232,8 +227,7 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, nil
 	}
-	step, ok := failure.step.(stepMetadata)
-	if !ok || step.GetStepType() == "" {
+	if !validStepReference(failure.step) {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
@@ -243,7 +237,7 @@ func mapExecuteFailure(
 			"", nil, err
 	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		step.GetStepType(), options, nil
+		failure.step.stepType(), options, nil
 }
 
 func mapRetryPolicy(policy *RetryPolicy) (*dexpb.RetryPolicy, error) {
@@ -562,8 +556,7 @@ func mapStepMovements(
 }
 
 func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
-	step, ok := movement.step.(stepMetadata)
-	if !ok || step.GetStepType() == "" {
+	if !validStepReference(movement.step) {
 		return nil, fmt.Errorf("dex: movement target is invalid")
 	}
 	input, err := encodeValue(movement.input)
@@ -571,13 +564,13 @@ func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
 		return nil, err
 	}
 	options, err := mapStepOptions(
-		mergeStepOptions(step.GetStepOptions(), movement.options),
+		mergeStepOptions(movement.step.stepOptions(), movement.options),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &dexpb.StepMovement{
-		StepType:    step.GetStepType(),
+		StepType:    movement.step.stepType(),
 		StepInput:   input,
 		StepOptions: options,
 	}, nil

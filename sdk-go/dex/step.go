@@ -14,6 +14,11 @@
 
 package dex
 
+import (
+	"fmt"
+	"reflect"
+)
+
 type Step[IN any] interface {
 	GetStepType() string
 	GetStepOptions() *StepOptions
@@ -22,16 +27,23 @@ type Step[IN any] interface {
 }
 
 type StepDef struct {
-	step     any
+	handler  stepHandler
 	starting bool
 }
 
 func DefineStep[IN any](step Step[IN]) StepDef {
-	return StepDef{step: step}
+	return newStepDef(step, false)
 }
 
 func DefineStepAsStart[IN any](step Step[IN]) StepDef {
-	return StepDef{step: step, starting: true}
+	return newStepDef(step, true)
+}
+
+func newStepDef[IN any](step Step[IN], starting bool) StepDef {
+	return StepDef{
+		handler:  typedStepHandler[IN]{step: step},
+		starting: starting,
+	}
 }
 
 type NoWaitFor[IN any] struct{}
@@ -51,4 +63,115 @@ func (NoWaitFor[IN]) noWaitFor() {}
 
 func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
+}
+
+type stepReference interface {
+	stepType() string
+	stepInputType() reflect.Type
+	stepOptions() *StepOptions
+	stepValue() any
+}
+
+type stepHandler interface {
+	stepReference
+	skipWaitFor() bool
+	waitFor(Context, any) (Wait, error)
+	execute(Context, any) (StepDecision, error)
+}
+
+type typedStepHandler[IN any] struct {
+	step Step[IN]
+}
+
+func (handler typedStepHandler[IN]) stepType() string {
+	return handler.step.GetStepType()
+}
+
+func (typedStepHandler[IN]) stepInputType() reflect.Type {
+	return reflect.TypeFor[IN]()
+}
+
+func (handler typedStepHandler[IN]) stepOptions() *StepOptions {
+	return handler.step.GetStepOptions()
+}
+
+func (handler typedStepHandler[IN]) stepValue() any {
+	return handler.step
+}
+
+func (handler typedStepHandler[IN]) skipWaitFor() bool {
+	_, skip := any(handler.step).(noWaitForStep)
+	return skip
+}
+
+func (handler typedStepHandler[IN]) waitFor(
+	ctx Context,
+	input any,
+) (Wait, error) {
+	typedInput, err := stepInput[IN](input)
+	if err != nil {
+		return Wait{}, err
+	}
+	return handler.step.WaitFor(ctx, typedInput)
+}
+
+func (handler typedStepHandler[IN]) execute(
+	ctx Context,
+	input any,
+) (StepDecision, error) {
+	typedInput, err := stepInput[IN](input)
+	if err != nil {
+		return StepDecision{}, err
+	}
+	return handler.step.Execute(ctx, typedInput)
+}
+
+type noWaitForStep interface {
+	noWaitFor()
+}
+
+func stepInput[IN any](input any) (IN, error) {
+	var zero IN
+	if input == nil {
+		inputType := reflect.TypeFor[IN]()
+		if isNilableType(inputType) {
+			return zero, nil
+		}
+		return zero, fmt.Errorf(
+			"dex: nil input is not assignable to step input %s",
+			inputType,
+		)
+	}
+	typedInput, ok := input.(IN)
+	if !ok {
+		return zero, fmt.Errorf(
+			"dex: input type %T is not assignable to step input %s",
+			input,
+			reflect.TypeFor[IN](),
+		)
+	}
+	return typedInput, nil
+}
+
+func validStepReference(reference stepReference) bool {
+	if reference == nil {
+		return false
+	}
+	value := reflect.ValueOf(reference.stepValue())
+	return value.IsValid() &&
+		!isNilValue(value) &&
+		reference.stepType() != ""
+}
+
+func isNilableType(valueType reflect.Type) bool {
+	if valueType == nil {
+		return true
+	}
+	switch valueType.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map,
+		reflect.Pointer, reflect.Slice:
+		return true
+	default:
+		return false
+	}
 }
