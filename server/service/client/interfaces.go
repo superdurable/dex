@@ -52,7 +52,7 @@ type UnifiedClient interface {
 		ctx context.Context, valuePtr interface{}, workflowID string, runID string,
 	) (resolvedRunID string, status dexpb.FlowStatus, err error)
 	SynchronousUpdateWorkflow(
-		ctx context.Context, valuePtr interface{}, workflowID, runID, updateType string, input interface{},
+		ctx context.Context, valuePtr interface{}, workflowID, runID, updateID, updateType string, input interface{},
 	) error
 	ResetWorkflow(ctx context.Context, request *dexpb.ResetFlowRequest) (runId string, err error)
 	GetBackendType() (backendType service.BackendType)
