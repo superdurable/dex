@@ -13,6 +13,25 @@ The first implemented crate is:
 The architecture is defined in
 [Multi-language Rust SDK Core](../docs/design/multi-language-rust-sdk-core.md).
 
+## Blob cache
+
+The shared cache keeps opaque payload bytes on disk and uses Stretto only for
+metadata admission and eviction:
+
+```rust
+use dex_core::{BlobCache, BlobCacheConfig};
+
+let config = BlobCacheConfig::new("./blob-cache", 256 * 1024 * 1024, 10_000)?;
+let cache = BlobCache::open(config)?;
+cache.put("server-minted-blob-id", b"opaque bytes")?;
+let payload = cache.get("server-minted-blob-id")?;
+cache.close()?;
+```
+
+The calls are synchronous. Event-loop bridges must dispatch them through a
+bounded blocking executor. `close` preserves committed files for warm restart;
+use `delete_all` before `close` for ephemeral storage.
+
 ## Development
 
 Format and test the workspace:

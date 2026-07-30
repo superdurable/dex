@@ -9,6 +9,7 @@ description = "Language-neutral worker core for Dex SDKs"
 
 [dependencies]
 sha2.workspace = true
+stretto.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

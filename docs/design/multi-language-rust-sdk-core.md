@@ -106,14 +106,25 @@ CRC32C covers the blob ID and payload. The path is
 rename. Unknown versions, invalid lengths, nonzero reserved bytes, path-hash
 mismatches, and checksum failures are recoverable corruption.
 
-The in-memory policy stores metadata only. Rust Core uses a bounded frequency
-sketch with LFU/LRU victim selection, providing TinyLFU-style scan resistance.
-Exact admission and victim choices are intentionally not portable because the
-Go implementation uses an approximate asynchronous Ristretto policy.
+The in-memory policy stores metadata only. Rust Core pins Stretto 0.9 for
+TinyLFU admission and SampledLFU eviction. Stretto is a Rust implementation of
+Ristretto, the policy used by the Go cache. Exact admission and victim choices
+remain timing-dependent and are not a portable contract.
+
+The public Rust operations map directly to bridge operations:
+
+| Rust operation | Result |
+| --- | --- |
+| `get(id)` | owned bytes on hit, `None` on miss |
+| `put(id, bytes)` | `true` when retained, `false` when rejected |
+| `delete(id)` | removes one cache entry |
+| `delete_all()` | purges storage and keeps the cache reusable |
+| `close()` | joins policy threads and preserves committed files |
 
 The cross-language bridge exposes owned byte buffers and opaque cache handles.
 Cache filesystem calls are synchronous and must run on a bridge blocking
-executor when invoked from an event-loop language.
+executor when invoked from an event-loop language. Each open cache owns
+Stretto's two synchronous policy threads until `close` or drop.
 
 ## Two protocol boundaries
 
