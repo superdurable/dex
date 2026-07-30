@@ -23,8 +23,11 @@ package blobstore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"strings"
 	"time"
@@ -99,13 +102,21 @@ func NewBlobStore(
 	}
 }
 
-func (b *blobStoreImpl) WriteObject(ctx context.Context, workflowId, data string) (storeId, path string, err error) {
+func (b *blobStoreImpl) WriteObject(
+	ctx context.Context,
+	workflowId string,
+	invocationId string,
+	data []byte,
+) (storeId, path string, err error) {
 	storeId = b.activeStorage.StorageId
-	randomUuid := uuid.New().String()
-	yyyymmdd := time.Now().Format("20060102")
+	objectID, err := deterministicBlobUUID(invocationId, data)
+	if err != nil {
+		return "", "", err
+	}
+	yyyymmdd := time.Now().UTC().Format("20060102")
 	// yyyymmdd$workflowId/uuid
 	// Note: using $ here so that the listing can be much easier to implement for pagination
-	path = fmt.Sprintf("%s$%s/%s", yyyymmdd, workflowId, randomUuid)
+	path = fmt.Sprintf("%s$%s/%s", yyyymmdd, workflowId, objectID)
 
 	err = putObject(ctx, b.s3Client, b.activeStorage.S3Bucket, b.pathPrefix+path, data)
 	if err != nil {
@@ -133,11 +144,52 @@ func (b *blobStoreImpl) WriteObject(ctx context.Context, workflowId, data string
 	return
 }
 
-func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) (string, error) {
+func deterministicBlobUUID(invocationId string, data []byte) (uuid.UUID, error) {
+	hasher := sha256.New()
+	components := [][]byte{
+		[]byte("dex-blob-v1"),
+		[]byte(invocationId),
+		data,
+	}
+	for _, component := range components {
+		if err := writeHashComponent(hasher, component); err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	digest := hasher.Sum(nil)
+	var objectID uuid.UUID
+	copy(objectID[:], digest[:16])
+	objectID[6] = (objectID[6] & 0x0f) | 0x80
+	objectID[8] = (objectID[8] & 0x3f) | 0x80
+	return objectID, nil
+}
+
+func writeHashComponent(hasher hash.Hash, component []byte) error {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(component)))
+	if err := writeHashBytes(hasher, length[:]); err != nil {
+		return err
+	}
+	return writeHashBytes(hasher, component)
+}
+
+func writeHashBytes(hasher hash.Hash, data []byte) error {
+	written, err := hasher.Write(data)
+	if err != nil {
+		return err
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
+
+func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([]byte, error) {
 	storeConfig, ok := b.supportedStore[storeId]
 	if !ok {
 		b.readObjectErrorCounter.Inc(1)
-		return "", errors.New("store not found for " + storeId)
+		return nil, errors.New("store not found for " + storeId)
 	}
 	data, err := getObject(ctx, b.s3Client, storeConfig.S3Bucket, b.pathPrefix+path)
 	if err != nil {
@@ -151,7 +203,7 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) (s
 				tag.Key("path"), tag.Value(path),
 				tag.Key("storeId"), tag.Value(storeId),
 				tag.Error(err))
-			return "", fmt.Errorf("failed to read object (requestId=%s, hostId=%s): %w",
+			return nil, fmt.Errorf("failed to read object (requestId=%s, hostId=%s): %w",
 				re.ServiceRequestID(), re.ServiceHostID(), err)
 		}
 		b.logger.Error("GetObject error",
@@ -159,44 +211,45 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) (s
 			tag.Key("path"), tag.Value(path),
 			tag.Key("storeId"), tag.Value(storeId),
 			tag.Error(err))
-		return "", fmt.Errorf("failed to read object: %w", err)
+		return nil, fmt.Errorf("failed to read object: %w", err)
 	}
 	b.readObjectSuccessHistogram.Record(time.Duration(len(data)))
 	return data, nil
 }
 
-func putObject(ctx context.Context, client *s3.Client, bucketName string, key, content string) error {
+func putObject(ctx context.Context, client *s3.Client, bucketName string, key string, content []byte) error {
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(bucketName),
 		Key:         aws.String(key),
-		Body:        strings.NewReader(content),
+		Body:        bytes.NewReader(content),
 		ContentType: aws.String("application/json"),
 	})
 	return err
 }
 
-func getObject(ctx context.Context, client *s3.Client, bucketName, key string) (string, error) {
+func getObject(ctx context.Context, client *s3.Client, bucketName, key string) ([]byte, error) {
 	result, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return "", err
-	}
-	defer func() { _ = result.Body.Close() }()
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, result.Body)
-	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return buf.String(), nil
+	data, readErr := io.ReadAll(result.Body)
+	closeErr := result.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return data, nil
 }
 
 func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, workflowId string) (int64, error) {
 	// Create the prefix to match objects for this workflowId for today
-	yyyymmdd := time.Now().Format("20060102")
+	yyyymmdd := time.Now().UTC().Format("20060102")
 	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yyyymmdd, workflowId)
 
 	// List objects with the prefix (limited to 1000 objects as documented)

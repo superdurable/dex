@@ -92,6 +92,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	flowId := "any_cmd_can_test_" + uuid.NewString()
 	startTime := time.Now()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
@@ -170,6 +171,7 @@ func doTestCommandThreadCompletion(
 
 	flowId := command_thread_completion.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           command_thread_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,

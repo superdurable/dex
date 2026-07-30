@@ -51,6 +51,7 @@ func TestSetSearchAttributes(t *testing.T) {
 
 	flowId := signal.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -77,6 +78,7 @@ func TestSetSearchAttributes(t *testing.T) {
 	}
 
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
 		FlowId:     flowId,
 		Attributes: searchAttributes,
 	})

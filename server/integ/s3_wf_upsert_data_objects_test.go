@@ -78,6 +78,7 @@ func doTestWorkflowWithS3UpsertDataObjects(t *testing.T, backendType service.Bac
 
 	flowId := s3_upsert_data_objects.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3_upsert_data_objects.WorkflowType,
 		FlowTimeoutSeconds: 100,

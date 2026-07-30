@@ -101,6 +101,7 @@ func doTestStateExecuteMethodFailAndProceed(
 
 	flowId := wf_execute_method_fail_and_proceed.FlowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_execute_method_fail_and_proceed.FlowType,
 		FlowTimeoutSeconds: 10,

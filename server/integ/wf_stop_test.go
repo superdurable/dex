@@ -94,6 +94,7 @@ func doTestWorkflowCanceled(
 
 	flowId := "wf-cancel-test-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -137,6 +138,7 @@ func doTestWorkflowTerminated(
 
 	flowId := "wf-cancel-test-" + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -189,6 +191,7 @@ func doTestWorkflowFail(
 
 	flowId := "wf-cancel-test-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,

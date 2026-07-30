@@ -97,6 +97,7 @@ func doTestCreateWithoutStartingStep(
 
 	flowId := rpc.WorkflowType + "-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -117,6 +118,7 @@ func doTestCreateWithoutStartingStep(
 	}, debug.GetSnapshot().GetCounterInfo()))
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        rpc.RPCName,
 		Input:          rpc.TestInput,

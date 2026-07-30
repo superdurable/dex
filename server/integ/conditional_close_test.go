@@ -114,6 +114,7 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 	flowId := conditionalClose.WorkflowType + channelType + uuid.NewString()
 
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           conditionalClose.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -141,8 +142,9 @@ func doTestConditionalForceCompleteOnChannelEmptyWorkflow(
 			})
 		} else {
 			_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-				FlowId:  flowId,
-				RpcName: conditionalClose.RpcPublishInternalChannel,
+				RequestId: newRequestID(),
+				FlowId:    flowId,
+				RpcName:   conditionalClose.RpcPublishInternalChannel,
 			})
 		}
 		require.NoError(t, err)

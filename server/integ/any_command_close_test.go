@@ -96,6 +96,7 @@ func doTestAnyCommandCloseFlow(
 
 	flowId := anycommandclose.WorkflowType + "-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           anycommandclose.WorkflowType,
 		FlowTimeoutSeconds: 10,

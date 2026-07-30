@@ -37,8 +37,9 @@ type ActivityProvider interface {
 
 type ActivityInfo struct {
 	ScheduledTime     time.Time // Time of activity scheduled by a workflow
-	Attempt           int32     // Attempt starts from 1, and increased by 1 for every retry if retry policy is specified.
-	IsLocalActivity   bool      // Whether the activity is at local activity
+	ActivityID        string
+	Attempt           int32 // Attempt starts from 1, and increased by 1 for every retry if retry policy is specified.
+	IsLocalActivity   bool  // Whether the activity is at local activity
 	WorkflowExecution WorkflowExecution
 }
 

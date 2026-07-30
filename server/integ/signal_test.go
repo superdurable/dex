@@ -95,6 +95,7 @@ func doTestSignalWorkflow(
 
 	flowId := signal.WorkflowType + "-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
@@ -151,8 +152,9 @@ func doTestSignalWorkflow(
 		}
 
 		rpcResp, rpcErr := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:  flowId,
-			RpcName: signal.RPCNameGetSignalChannelInfo,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   signal.RPCNameGetSignalChannelInfo,
 		})
 		require.NoError(t, rpcErr)
 		infos := channelInfosFromOutput(t, rpcResp.GetOutput())
@@ -169,8 +171,9 @@ func doTestSignalWorkflow(
 	}
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId:  flowId,
-		RpcName: signal.RPCNameGetInternalChannelInfo,
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		RpcName:   signal.RPCNameGetInternalChannelInfo,
 	})
 	require.NoError(t, err)
 	infos := channelInfosFromOutput(t, rpcResp.GetOutput())

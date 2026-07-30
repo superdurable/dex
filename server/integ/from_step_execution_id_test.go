@@ -98,6 +98,7 @@ func testStepLineageAcrossContinueAsNew(
 
 	flowID := basic.FlowType + "-lineage-" + uuid.NewString()
 	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 60,
@@ -140,6 +141,7 @@ func testRPCStepLineageAcrossContinueAsNew(
 
 	flowID := deadend.WorkflowType + "-lineage-" + uuid.NewString()
 	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 60,
@@ -156,8 +158,9 @@ func testRPCStepLineageAcrossContinueAsNew(
 	require.NoError(t, err)
 
 	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId:  flowID,
-		RpcName: deadend.RPCTriggerState,
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		RpcName:   deadend.RPCTriggerState,
 	})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {

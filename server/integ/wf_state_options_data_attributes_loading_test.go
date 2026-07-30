@@ -52,6 +52,7 @@ func doTestWfStateOptionsDataAttributesLoading(t *testing.T, backendType service
 
 	flowId := wf_state_options_data_attributes_loading.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_state_options_data_attributes_loading.WorkflowType,
 		FlowTimeoutSeconds: 10,

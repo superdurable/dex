@@ -101,6 +101,7 @@ func doTestGreedyTimerFlowCustomConfig(
 	require.NoError(t, err)
 
 	_, err = flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           greedy_timer.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -168,6 +169,7 @@ func scheduleTimerAndAssertExpectedScheduled(
 	defer cancel()
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        greedy_timer.SubmitDurationsRPC,
 		Input:          encodedObjectValue("json", inputData),
