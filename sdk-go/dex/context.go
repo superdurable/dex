@@ -14,9 +14,27 @@
 
 package dex
 
-import "github.com/superdurable/dex/sdk-go/gen/dexpb"
+import (
+	"context"
+	"time"
+)
 
-type WorkflowStopOptions struct {
-	StopType dexpb.WorkflowStopType
-	Reason   string
+type Context interface {
+	context.Context
+
+	FlowID() string
+	RunID() string
+	FlowStartedAt() time.Time
+	StepExecutionID() string
+	FromStepExecutionID() string
+	FirstAttemptAt() time.Time
+	Attempt() int32
+
+	HasTimerFired() bool
+	HasTimerFiredByIndex(index int) bool
+	WaitForMethodFailed() bool
+
+	SetStepExecutionLocal(key string, value any) error
+	GetStepExecutionLocal(key string, valuePtr any) (found bool, err error)
+	RecordEvent(name string, value any) error
 }
