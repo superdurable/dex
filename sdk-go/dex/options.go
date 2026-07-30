@@ -116,7 +116,6 @@ type FlowRetryPolicy struct {
 
 type AlreadyStartedOptions struct {
 	IgnoreError bool
-	RequestID   string
 }
 
 type InvokeOptions struct {

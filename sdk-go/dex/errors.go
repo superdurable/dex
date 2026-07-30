@@ -18,12 +18,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
 	errInvalidInvocationContext = errors.New("dex: invalid invocation context")
-	errPhaseNotImplemented      = errors.New("dex: operation is not implemented in phase 1")
+	errPhaseNotImplemented      = errors.New("dex: operation is not implemented")
 )
 
 type Error struct {
@@ -58,3 +60,54 @@ const (
 	ErrorWorkerAPI
 	ErrorLongPollTimeout
 )
+
+func convertRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+	rpcStatus, ok := status.FromError(err)
+	if !ok {
+		return err
+	}
+	dexError := &Error{
+		Code:      rpcStatus.Code(),
+		SubStatus: ErrorUncategorized,
+		Detail:    rpcStatus.Message(),
+	}
+	for _, detail := range rpcStatus.Details() {
+		response, isDexError := detail.(*dexpb.ErrorResponse)
+		if !isDexError {
+			continue
+		}
+		dexError.SubStatus = mapErrorSubStatus(response.SubStatus)
+		if response.Detail != "" {
+			dexError.Detail = response.Detail
+		}
+		if response.OriginalWorkerErrorDetail != "" ||
+			response.OriginalWorkerErrorType != "" ||
+			response.OriginalWorkerErrorStatus != 0 {
+			dexError.OriginalWorkerError = &WorkerError{
+				Code:   codes.Code(response.OriginalWorkerErrorStatus),
+				Type:   response.OriginalWorkerErrorType,
+				Detail: response.OriginalWorkerErrorDetail,
+			}
+		}
+		break
+	}
+	return dexError
+}
+
+func mapErrorSubStatus(subStatus dexpb.ErrorSubStatus) ErrorSubStatus {
+	switch subStatus {
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED:
+		return ErrorFlowAlreadyStarted
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS:
+		return ErrorFlowNotFound
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR:
+		return ErrorWorkerAPI
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT:
+		return ErrorLongPollTimeout
+	default:
+		return ErrorUncategorized
+	}
+}

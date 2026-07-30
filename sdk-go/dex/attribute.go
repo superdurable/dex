@@ -14,6 +14,8 @@
 
 package dex
 
+import "github.com/superdurable/dex/sdk-go/gen/dexpb"
+
 type Attribute[T any] struct {
 	name  string
 	index *AttributeIndex
@@ -147,10 +149,16 @@ func Initial[T any](
 	attribute Attribute[T],
 	value T,
 ) (InitialAttribute, error) {
+	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
+	if err != nil {
+		return nil, err
+	}
 	return initialAttribute{
-		name:  attribute.name,
-		value: value,
-		index: attribute.index,
+		name:        attribute.name,
+		value:       value,
+		index:       attribute.index,
+		encoded:     encoded,
+		indexConfig: indexConfig,
 	}, nil
 }
 
@@ -159,12 +167,18 @@ func InitialMapValue[T any](
 	instance string,
 	value T,
 ) (InitialAttribute, error) {
+	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
+	if err != nil {
+		return nil, err
+	}
 	return initialAttribute{
-		name:     attribute.name,
-		instance: instance,
-		value:    value,
-		index:    attribute.index,
-		isMap:    true,
+		name:        attribute.name,
+		instance:    instance,
+		value:       value,
+		index:       attribute.index,
+		isMap:       true,
+		encoded:     encoded,
+		indexConfig: indexConfig,
 	}, nil
 }
 
@@ -207,11 +221,13 @@ type attributeLock struct {
 func (attributeLock) attributeLock() {}
 
 type initialAttribute struct {
-	name     string
-	instance string
-	value    any
-	index    *AttributeIndex
-	isMap    bool
+	name        string
+	instance    string
+	value       any
+	index       *AttributeIndex
+	isMap       bool
+	encoded     *dexpb.Value
+	indexConfig *dexpb.IndexConfig
 }
 
 func (initialAttribute) initialAttribute() {}

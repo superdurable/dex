@@ -41,7 +41,7 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-server-go clean ensure-tools
+.PHONY: proto proto-server-go proto-sdk-go clean ensure-tools
 
 proto: proto-server-go
 
@@ -59,29 +59,19 @@ proto-server-go: ensure-tools
 		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
 		$(PROTO_FILE)
 
-# SDK codegen is disabled while development is focused on the server.
-# proto-go: ensure-tools
-# 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
-# 	mkdir -p $(SERVER_GO_OUT) $(SDK_GO_OUT)
-# 	protoc \
-# 		-I $(PROTO_DIR) \
-# 		--go_out=$(SERVER_GO_OUT) \
-# 		--go_opt=paths=source_relative \
-# 		--go_opt=Mdex.proto=$(SERVER_GO_PKG) \
-# 		--go-grpc_out=$(SERVER_GO_OUT) \
-# 		--go-grpc_opt=paths=source_relative \
-# 		--go-grpc_opt=Mdex.proto=$(SERVER_GO_PKG) \
-# 		$(PROTO_FILE)
-# 	protoc \
-# 		-I $(PROTO_DIR) \
-# 		--go_out=$(SDK_GO_OUT) \
-# 		--go_opt=paths=source_relative \
-# 		--go_opt=Mdex.proto=$(SDK_GO_PKG) \
-# 		--go-grpc_out=$(SDK_GO_OUT) \
-# 		--go-grpc_opt=paths=source_relative \
-# 		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
-# 		$(PROTO_FILE)
-#
+proto-sdk-go: ensure-tools
+	rm -rf $(SDK_GO_OUT)
+	mkdir -p $(SDK_GO_OUT)
+	protoc \
+		-I $(PROTO_DIR) \
+		--go_out=$(SDK_GO_OUT) \
+		--go_opt=paths=source_relative \
+		--go_opt=Mdex.proto=$(SDK_GO_PKG) \
+		--go-grpc_out=$(SDK_GO_OUT) \
+		--go-grpc_opt=paths=source_relative \
+		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
+		$(PROTO_FILE)
+
 # proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
 # 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
 # 	mkdir -p $(SDK_JAVA_OUT)

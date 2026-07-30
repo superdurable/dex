@@ -84,7 +84,6 @@ func startOrder(
 			},
 			AlreadyStarted: &dex.AlreadyStartedOptions{
 				IgnoreError: true,
-				RequestID:   "start-order-request",
 			},
 		},
 	)
