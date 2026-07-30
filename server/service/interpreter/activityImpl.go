@@ -110,12 +110,12 @@ func (a *Activities) InvokeWaitForMethod(
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
-		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
+		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
-		a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_FAIL")
+		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, composeActivityError(provider, err)
 	}
 	if err := validateWorkerWaitForResponse(resp); err != nil {
@@ -130,7 +130,7 @@ func (a *Activities) InvokeWaitForMethod(
 		return nil, composeInternalActivityError(provider, err)
 	}
 
-	a.emitStepWaitForMethodEvent(req, activityInfo, "WAIT_FOR_ATTEMPT_SUCC")
+	a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptSucc)
 	return &dexpb.InvokeWaitForMethodActivityOutput{Response: resp}, nil
 }
 
@@ -175,7 +175,7 @@ func (a *Activities) InvokeExecuteMethod(
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
-		a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_FAIL")
+		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, composeActivityError(provider, err)
 	}
@@ -207,7 +207,7 @@ func (a *Activities) InvokeExecuteMethod(
 		return nil, composeInternalActivityError(provider, err)
 	}
 
-	a.emitStepExecuteMethodEvent(req, activityInfo, "EXECUTE_ATTEMPT_SUCC")
+	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
 	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
 }
 
@@ -781,7 +781,7 @@ func jsonPayloadSize(logger interfaces.UnifiedLogger, payload any) (int, bool) {
 }
 
 func (a *Activities) emitStepWaitForMethodEvent(
-	req *dexpb.InvokeWaitForMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
+	req *dexpb.InvokeWaitForMethodRequest, activityInfo interfaces.ActivityInfo, eventType event.EventType,
 ) {
 	a.eventHandler(event.Event{
 		FlowId:          activityInfo.WorkflowExecution.ID,
@@ -794,7 +794,7 @@ func (a *Activities) emitStepWaitForMethodEvent(
 }
 
 func (a *Activities) emitStepExecuteMethodEvent(
-	req *dexpb.InvokeExecuteMethodRequest, activityInfo interfaces.ActivityInfo, eventType string,
+	req *dexpb.InvokeExecuteMethodRequest, activityInfo interfaces.ActivityInfo, eventType event.EventType,
 ) {
 	a.eventHandler(event.Event{
 		FlowId:          activityInfo.WorkflowExecution.ID,

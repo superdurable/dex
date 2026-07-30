@@ -36,7 +36,7 @@ type StepExecutionStatus string
 const StepExecutionStatusCompleted StepExecutionStatus = "Completed"
 const StepExecutionStatusFailedNoProceed StepExecutionStatus = "Failure"
 const StepExecutionStatusWaitingAborted StepExecutionStatus = "WaitingConditions"
-const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteApiFailedAndProceed"
+const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteMethodFailedAndProceed"
 
 // ValidateTimerSkipRequest validates a pending timer by condition ID or index.
 func ValidateTimerSkipRequest(

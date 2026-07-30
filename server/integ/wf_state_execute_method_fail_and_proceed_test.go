@@ -28,30 +28,30 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
-	wf_execute_api_fail_and_proceed "github.com/superdurable/dex/integ/workflow/wf_execute_api_fail_and_proceed"
+	"github.com/superdurable/dex/integ/workflow/wf_execute_method_fail_and_proceed"
 	"github.com/superdurable/dex/service"
 )
 
-func TestStateExecuteApiFailAndProceedTemporal(t *testing.T) {
+func TestStateExecuteMethodFailAndProceedTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateExecuteApiFailAndProceed(
+		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeTemporal,
 			nil,
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()
-		doTestStateExecuteApiFailAndProceed(
+		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeTemporal,
 			minimumContinueAsNewSyncDurabilityConfig(),
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()
-		doTestStateExecuteApiFailAndProceed(
+		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeTemporal,
 			syncDurabilityConfig(),
@@ -61,19 +61,19 @@ func TestStateExecuteApiFailAndProceedTemporal(t *testing.T) {
 	}
 }
 
-func TestStateExecuteApiFailAndProceedCadence(t *testing.T) {
+func TestStateExecuteMethodFailAndProceedCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestStateExecuteApiFailAndProceed(
+		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeCadence,
 			nil,
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()
-		doTestStateExecuteApiFailAndProceed(
+		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeCadence,
 			minimumContinueAsNewSyncDurabilityConfig(),
@@ -83,13 +83,13 @@ func TestStateExecuteApiFailAndProceedCadence(t *testing.T) {
 	}
 }
 
-func doTestStateExecuteApiFailAndProceed(
+func doTestStateExecuteMethodFailAndProceed(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
 	executeDurabilityOverride dexpb.StepDurability,
 ) {
-	workerHandler := wf_execute_api_fail_and_proceed.NewHandler()
+	workerHandler := wf_execute_method_fail_and_proceed.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: backendType,
@@ -99,18 +99,18 @@ func doTestStateExecuteApiFailAndProceed(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	flowId := wf_execute_api_fail_and_proceed.FlowType + uuid.NewString()
+	flowId := wf_execute_method_fail_and_proceed.FlowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
 		FlowId:             flowId,
-		FlowType:           wf_execute_api_fail_and_proceed.FlowType,
+		FlowType:           wf_execute_method_fail_and_proceed.FlowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: wf_execute_api_fail_and_proceed.Step1,
+		StartStepType: wf_execute_method_fail_and_proceed.Step1,
 		StepInput: &dexpb.Value{
 			Kind: &dexpb.Value_ObjValue{
 				ObjValue: &dexpb.EncodedObject{
-					Encoding: wf_execute_api_fail_and_proceed.InputDataEncoding,
-					Payload:  []byte(wf_execute_api_fail_and_proceed.InputData),
+					Encoding: wf_execute_method_fail_and_proceed.InputDataEncoding,
+					Payload:  []byte(wf_execute_method_fail_and_proceed.InputData),
 				},
 			},
 		},
@@ -120,8 +120,8 @@ func doTestStateExecuteApiFailAndProceed(
 			ExecuteRetryPolicy: &dexpb.RetryPolicy{
 				MaximumAttempts: 1,
 			},
-			ExecuteFailurePolicy:          dexpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-			ExecuteFailureProceedStepType: wf_execute_api_fail_and_proceed.StepRecover,
+			ExecuteFailurePolicy:          dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+			ExecuteFailureProceedStepType: wf_execute_method_fail_and_proceed.StepRecover,
 			ExecuteFailureProceedStepOptions: &dexpb.StepOptions{
 				SkipWaitFor: true,
 			},

@@ -31,6 +31,16 @@ one `next_steps` fallback. Other close types cannot include channel names or
 next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
 accepts no input.
 
+## Search flows
+
+`SearchFlows` returns each execution's flow ID, run ID, and all search
+attributes supplied by the backend visibility API. Search attribute values use
+the `Value` oneof; the response does not expose backend index types.
+
+Temporal type metadata preserves numeric types. Cadence visibility payloads do
+not include index types, so Dex infers numbers from JSON: integral JSON numbers
+become `int_value`, and other numbers become `double_value`.
+
 ## Codegen
 
 Regenerate checked-in stubs into server and SDK trees:

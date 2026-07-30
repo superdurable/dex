@@ -146,7 +146,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 				RunId:              info.WorkflowExecution.RunID,
 				FlowType:           u.basicInfo.FlowType,
 				RpcName:            input.GetRpcName(),
-				EventType:          "RPC_EXECUTION",
+				EventType:          event.EventTypeRPCExecution,
 				StartTimestampInMs: rpcExecutionStartTime,
 				Attributes:         u.persistenceManager.GetAllAttributes(),
 			})

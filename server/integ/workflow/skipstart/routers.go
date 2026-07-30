@@ -61,7 +61,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	_ *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	return nil, status.Error(codes.InvalidArgument, "waitFor API should be skipped")
+	return nil, status.Error(codes.InvalidArgument, "waitFor method should be skipped")
 }
 
 func (h *handler) InvokeExecuteMethod(

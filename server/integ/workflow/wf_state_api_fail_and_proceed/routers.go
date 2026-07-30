@@ -70,7 +70,7 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if request.GetStepType() == Step1 {
-		return nil, status.Error(codes.InvalidArgument, "waitFor API failure")
+		return nil, status.Error(codes.InvalidArgument, "waitFor method failure")
 	}
 
 	panic("should not get here")

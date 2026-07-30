@@ -608,6 +608,9 @@ func assertSearchFlows(
 		})
 		require.NoError(t, err)
 
+		for _, flowRun := range searchResp.GetFlowRuns() {
+			assertions.NotEmpty(flowRun.GetSearchAttributes())
+		}
 		currentCount += len(searchResp.GetFlowRuns())
 		if currentCount < expectedCount {
 			assertions.Equal(2, len(searchResp.GetFlowRuns()))
