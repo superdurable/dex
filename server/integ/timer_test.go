@@ -134,6 +134,7 @@ func doTestTimerFlow(
 	flowId := timer.WorkflowType + "-" + uuid.NewString()
 	nowTimestamp := time.Now().Unix()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           timer.WorkflowType,
 		FlowTimeoutSeconds: 30,

@@ -61,6 +61,7 @@ func doTestTransientStep(t *testing.T, backendType service.BackendType) {
 
 	flowID := transient_step.FlowType + "-" + uuid.NewString()
 	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           transient_step.FlowType,
 		FlowTimeoutSeconds: 60,

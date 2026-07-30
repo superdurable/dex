@@ -107,6 +107,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 
 	flowId := deadend.WorkflowType + "-request-id-" + uuid.NewString()
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -120,7 +121,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 		LockAttributeKeys: []string{"any key"},
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required for locking RPC", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
 	require.Zero(t, workerHandler.GetRPCInvokes())
 	require.Eventually(t, func() bool {
 		var dump dexpb.DebugDumpResponse
@@ -198,6 +199,7 @@ func doTestDeadEndFlow(
 
 	flowId := deadend.WorkflowType + "-" + uuid.NewString()
 	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           deadend.WorkflowType,
 		FlowTimeoutSeconds: 100,
@@ -211,8 +213,9 @@ func doTestDeadEndFlow(
 	for range 3 {
 		time.Sleep(2 * time.Second)
 		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:  flowId,
-			RpcName: deadend.RPCWriteData,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   deadend.RPCWriteData,
 		})
 		require.NoError(t, err)
 	}
@@ -226,8 +229,9 @@ func doTestDeadEndFlow(
 	for range 3 {
 		time.Sleep(2 * time.Second)
 		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-			FlowId:  flowId,
-			RpcName: deadend.RPCTriggerState,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   deadend.RPCTriggerState,
 		})
 		require.NoError(t, err)
 	}

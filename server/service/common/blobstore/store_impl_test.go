@@ -31,9 +31,10 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/stretchr/testify/assert"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"go.temporal.io/sdk/client"
 )
 
@@ -124,7 +125,12 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(0), count)
 
 		// Write first object
-		storeId1, path1, err := blobStore.WriteObject(ctx, workflowId1, testData)
+		storeId1, path1, err := blobStore.WriteObject(
+			ctx,
+			workflowId1,
+			"write-1",
+			[]byte(testData),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, testStorageId, storeId1)
 		assert.NotEmpty(t, path1)
@@ -135,7 +141,12 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(1), count)
 
 		// Write second object for same workflow
-		storeId2, path2, err := blobStore.WriteObject(ctx, workflowId1, testData+"2")
+		storeId2, path2, err := blobStore.WriteObject(
+			ctx,
+			workflowId1,
+			"write-2",
+			[]byte(testData+"2"),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, testStorageId, storeId2)
 		assert.NotEmpty(t, path2)
@@ -147,7 +158,12 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(2), count)
 
 		// Write object for different workflow
-		storeId3, path3, err := blobStore.WriteObject(ctx, workflowId2, testData+"3")
+		storeId3, path3, err := blobStore.WriteObject(
+			ctx,
+			workflowId2,
+			"write-3",
+			[]byte(testData+"3"),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, testStorageId, storeId3)
 		assert.NotEmpty(t, path3)
@@ -165,20 +181,35 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 	t.Run("ReadObjects", func(t *testing.T) {
 		// Write an object
-		storeId, path, err := blobStore.WriteObject(ctx, workflowId1, testData)
+		storeId, path, err := blobStore.WriteObject(
+			ctx,
+			workflowId1,
+			"read",
+			[]byte(testData),
+		)
 		assert.NoError(t, err)
 
 		// Read it back
 		retrievedData, err := blobStore.ReadObject(ctx, storeId, path)
 		assert.NoError(t, err)
-		assert.Equal(t, testData, retrievedData)
+		assert.Equal(t, []byte(testData), retrievedData)
 	})
 
 	t.Run("ListWorkflowPaths", func(t *testing.T) {
 		// Write objects for multiple workflows
-		_, _, err := blobStore.WriteObject(ctx, workflowId1, testData)
+		_, _, err := blobStore.WriteObject(
+			ctx,
+			workflowId1,
+			"list-1",
+			[]byte(testData),
+		)
 		assert.NoError(t, err)
-		_, _, err = blobStore.WriteObject(ctx, workflowId2, testData)
+		_, _, err = blobStore.WriteObject(
+			ctx,
+			workflowId2,
+			"list-2",
+			[]byte(testData),
+		)
 		assert.NoError(t, err)
 
 		// List workflow paths
@@ -193,7 +224,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.True(t, len(output.WorkflowPaths) >= 2)
 
 		// Verify workflow paths contain expected patterns
-		todayPrefix := time.Now().Format("20060102")
+		todayPrefix := time.Now().UTC().Format("20060102")
 		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, workflowId1)
 		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, workflowId2)
 
@@ -216,11 +247,26 @@ func TestBlobStoreIntegration(t *testing.T) {
 		deleteTestWorkflowId := "delete-test-workflow-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
 		// Write multiple objects for the workflow
-		_, _, err := blobStore.WriteObject(ctx, deleteTestWorkflowId, "test data 1")
+		_, _, err := blobStore.WriteObject(
+			ctx,
+			deleteTestWorkflowId,
+			"delete-1",
+			[]byte("test data 1"),
+		)
 		assert.NoError(t, err)
-		_, _, err = blobStore.WriteObject(ctx, deleteTestWorkflowId, "test data 2")
+		_, _, err = blobStore.WriteObject(
+			ctx,
+			deleteTestWorkflowId,
+			"delete-2",
+			[]byte("test data 2"),
+		)
 		assert.NoError(t, err)
-		_, _, err = blobStore.WriteObject(ctx, deleteTestWorkflowId, "test data 3")
+		_, _, err = blobStore.WriteObject(
+			ctx,
+			deleteTestWorkflowId,
+			"delete-3",
+			[]byte("test data 3"),
+		)
 		assert.NoError(t, err)
 
 		// Verify objects exist
@@ -229,7 +275,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(3), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := time.Now().Format("20060102")
+		todayPrefix := time.Now().UTC().Format("20060102")
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, deleteTestWorkflowId)
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
@@ -248,7 +294,12 @@ func TestBlobStoreIntegration(t *testing.T) {
 		numObjects := 10
 		for i := 0; i < numObjects; i++ {
 			data := fmt.Sprintf("test data %d", i)
-			_, _, err := blobStore.WriteObject(ctx, multiDeleteWorkflowId, data)
+			_, _, err := blobStore.WriteObject(
+				ctx,
+				multiDeleteWorkflowId,
+				"multi-delete-"+strconv.Itoa(i),
+				[]byte(data),
+			)
 			assert.NoError(t, err)
 		}
 
@@ -258,7 +309,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(numObjects), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := time.Now().Format("20060102")
+		todayPrefix := time.Now().UTC().Format("20060102")
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, multiDeleteWorkflowId)
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
@@ -271,7 +322,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 	t.Run("DeleteWorkflowObjectsNonExistent", func(t *testing.T) {
 		// Try to delete objects for a workflow that doesn't exist
-		todayPrefix := time.Now().Format("20060102")
+		todayPrefix := time.Now().UTC().Format("20060102")
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, "non-existent-workflow")
 		err := blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err) // Should succeed even if no objects to delete
@@ -300,5 +351,63 @@ func TestBlobStoreIntegration(t *testing.T) {
 		_, err = blobStore.ReadObject(ctx, testStorageId, "nonexistent/path/that/does/not/exist")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read object")
+	})
+
+	t.Run("DeterministicObjectIdentity", func(t *testing.T) {
+		workflowID := "deterministic-workflow-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		payload := []byte("payload")
+
+		_, firstPath, err := blobStore.WriteObject(ctx, workflowID, "request-1", payload)
+		assert.NoError(t, err)
+		_, retryPath, err := blobStore.WriteObject(ctx, workflowID, "request-1", payload)
+		assert.NoError(t, err)
+		assert.Equal(t, firstPath, retryPath)
+
+		count, err := blobStore.CountWorkflowObjectsForTesting(ctx, workflowID)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), count)
+
+		distinctInputs := []struct {
+			invocationId string
+			data         []byte
+		}{
+			{invocationId: "request-1", data: []byte("other-payload")},
+			{invocationId: "request-2", data: payload},
+		}
+		for _, input := range distinctInputs {
+			_, path, writeErr := blobStore.WriteObject(ctx, workflowID, input.invocationId, input.data)
+			assert.NoError(t, writeErr)
+			assert.NotEqual(t, firstPath, path)
+		}
+
+		count, err = blobStore.CountWorkflowObjectsForTesting(ctx, workflowID)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(3), count)
+	})
+
+	t.Run("ValueRoundTrip", func(t *testing.T) {
+		workflowID := "round-trip-workflow-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		stringValue := &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: "large string value"},
+		}
+		objectPayload := []byte{0x00, 0x01, 0xfe, 0xff}
+		objectValue := &dexpb.Value{
+			Kind: &dexpb.Value_ObjValue{
+				ObjValue: &dexpb.EncodedObject{Encoding: "binary", Payload: objectPayload},
+			},
+		}
+
+		err := OffloadLargeValue(ctx, stringValue, workflowID, "round-trip", 1, blobStore, true)
+		assert.NoError(t, err)
+		err = OffloadLargeValue(ctx, objectValue, workflowID, "round-trip", 1, blobStore, true)
+		assert.NoError(t, err)
+		err = HydrateValue(ctx, stringValue, blobStore)
+		assert.NoError(t, err)
+		err = HydrateValue(ctx, objectValue, blobStore)
+		assert.NoError(t, err)
+
+		assert.Equal(t, "large string value", stringValue.GetStringValue())
+		assert.Equal(t, "binary", objectValue.GetObjValue().GetEncoding())
+		assert.Equal(t, objectPayload, objectValue.GetObjValue().GetPayload())
 	})
 }

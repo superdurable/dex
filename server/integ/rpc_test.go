@@ -136,6 +136,7 @@ func doTestRpcWorkflow(
 
 	flowId := rpc.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 10,
@@ -150,6 +151,7 @@ func doTestRpcWorkflow(
 	time.Sleep(time.Second)
 
 	rpcRespReadOnly, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        rpc.RPCNameReadOnly,
 		Input:          rpc.TestInput,
@@ -158,6 +160,7 @@ func doTestRpcWorkflow(
 	require.NoError(t, err)
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        rpc.RPCNameError,
 		Input:          rpc.TestInput,
@@ -175,6 +178,7 @@ func doTestRpcWorkflow(
 	assertions.Equal(int32(codes.Unavailable), errResp.GetOriginalWorkerErrorStatus())
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        rpc.RPCName,
 		Input:          rpc.TestInput,
@@ -247,6 +251,7 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 
 	flowId := rpc.WorkflowType + "-locking-err-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           rpc.WorkflowType,
 		FlowTimeoutSeconds: 20,

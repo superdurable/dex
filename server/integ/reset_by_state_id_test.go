@@ -68,6 +68,7 @@ func doTestResetByStatIdWorkflow(
 
 	flowId := reset.WorkflowType + uuid.NewString()
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           reset.WorkflowType,
 		FlowTimeoutSeconds: 100,

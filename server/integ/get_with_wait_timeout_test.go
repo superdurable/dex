@@ -68,6 +68,7 @@ func doTestFlowWithWaitTimeout(
 
 	flowId := "wf-wait-timeout-test-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 15,

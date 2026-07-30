@@ -68,6 +68,7 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *dexpb.FlowConfig, 
 
 	flowId := signal.WorkflowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 86400,
@@ -90,7 +91,8 @@ func doTestLargeQueryAttributesLazy(t *testing.T, flowConfig *dexpb.FlowConfig, 
 	for i := 0; i < 5; i++ {
 		keys[i] = "large-data-attribute-" + fmt.Sprintf("%d", i)
 		_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-			FlowId: flowId,
+			RequestId: newRequestID(),
+			FlowId:    flowId,
 			Attributes: []*dexpb.AttributeWrite{
 				dataObjectAttribute(keys[i], `"`+oneMbPayload+`"`),
 			},

@@ -81,6 +81,7 @@ func doTestWaitUntilHistoryCompleted(t *testing.T, flowConfig *dexpb.FlowConfig)
 
 	flowId := wait_until_search_attributes_optimization.WorkflowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes_optimization.WorkflowType,
 		FlowTimeoutSeconds: 15,

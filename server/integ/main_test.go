@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/cmd/server/dex"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
@@ -147,4 +148,8 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	fmt.Println("finished running integ test with status code", code)
 	os.Exit(code)
+}
+
+func newRequestID() string {
+	return uuid.NewString()
 }

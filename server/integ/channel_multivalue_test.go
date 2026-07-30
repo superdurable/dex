@@ -346,6 +346,7 @@ func startChannelMultivalueFlowWithStepOptions(
 
 	flowId := channel_multivalue.WorkflowType + "-" + scenario + "-" + uuid.NewString()
 	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           channel_multivalue.WorkflowType,
 		FlowTimeoutSeconds: 40,

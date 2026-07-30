@@ -80,10 +80,10 @@ type BlobStore interface {
 	// returns the active storeId
 	// The final path pattern is pathPrefix + yyyymmdd$workflowId/uuid
 	// But the returned path doesn't include pathPrefix, only yymmdd$workflowId/uuid
-	WriteObject(ctx context.Context, workflowId, data string) (storeId, path string, err error)
+	WriteObject(ctx context.Context, workflowId, invocationId string, data []byte) (storeId, path string, err error)
 	// ReadObject will read from the store by storeId and path
 	// The path should be the one returned from WriteObject, in format of yyyymmdd$workflowId/uuid
-	ReadObject(ctx context.Context, storeId, path string) (string, error)
+	ReadObject(ctx context.Context, storeId, path string) ([]byte, error)
 	// DeleteWorkflowObjects will delete all the objects of the workflowId
 	// workflowPath is yyyymmdd$workflowId, where yymmdd is needed to compose the path
 	DeleteWorkflowObjects(ctx context.Context, storeId, workflowPath string) error

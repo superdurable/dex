@@ -81,6 +81,7 @@ func doTestWorkflowWithS3StartInput(t *testing.T, backendType service.BackendTyp
 	stepInput := objJSONValue(largeInputPayload)
 
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3_start_input.WorkflowType,
 		FlowTimeoutSeconds: 100,

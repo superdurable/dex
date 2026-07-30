@@ -81,6 +81,7 @@ func doTestInterStateWorkflow(
 
 	flowId := interstate.WorkflowType + "-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           interstate.WorkflowType,
 		FlowTimeoutSeconds: 10,

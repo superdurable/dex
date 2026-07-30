@@ -92,6 +92,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 
 	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
@@ -108,6 +109,7 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		{Key: s3GetSetDataAttributes.AnotherLargeDataKey, Value: s3GetSetDataAttributes.AnotherLargeDataValue},
 	}
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
 		FlowId:     flowId,
 		Attributes: testAttributes,
 	})
@@ -225,6 +227,7 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 
 	flowId := s3GetSetDataAttributes.WorkflowType + uuid.NewString() + "-initial"
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3GetSetDataAttributes.WorkflowType,
 		FlowTimeoutSeconds: 100,
