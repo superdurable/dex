@@ -118,7 +118,7 @@ Phase 1 owns these conceptual files under `sdk-go/dex/`:
 
 ```text
 flow.go             Flow and persistence declaration
-step.go             Step, NoWaitFor, StepDefaults
+step.go             Step, StepDef, NoWaitFor, StepDefaults
 context.go          Context, invocation metadata, locals, and events
 attribute.go        Attribute, AttributeMap, indexing, invocation operations
 channel.go          Channel, ChannelMap, publish, size, bounded conditions
@@ -140,17 +140,19 @@ Application code implements a minimal flow interface:
 ```go
 type Flow interface {
 	GetFlowType() string
+	GetSteps() []StepDef
 	GetPersistenceSchema() PersistenceSchema
 }
 ```
 
 `GetFlowType` must return a non-empty, explicit durable name. Registration of a
-flow together with its heterogeneous steps and RPCs belongs to Phase 3. Its
-generic adapters and erased interfaces are internal implementation details, not
-public Phase 1 API.
+flow together with its heterogeneous steps and RPCs belongs to Phase 3.
+`GetSteps` supplies every step through an opaque `StepDef`. Generic handler
+adapters remain internal implementation details, not public Phase 1 API.
 
-There is no required default starting step. `StartFlowAt` chooses one, while
-`StartFlow` starts a flow with no step, matching the current server contract.
+A flow declares at most one starting step with `DefineStepAsStart`. Other
+steps use `DefineStep`. A flow without a starting step starts with no step,
+matching dex-base and the current server contract.
 
 ### Step handlers
 
@@ -163,6 +165,13 @@ type Step[IN any] interface {
 	WaitFor(ctx Context, input IN) (Wait, error)
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
+
+type StepDef struct {
+	// unexported
+}
+
+func DefineStep[IN any](step Step[IN]) StepDef
+func DefineStepAsStart[IN any](step Step[IN]) StepDef
 
 type NoWaitFor[IN any] struct{}
 
@@ -194,6 +203,10 @@ A step that waits implements `WaitFor` and may implement `GetStepOptions`
 directly. It must not embed `NoWaitFor` or `StepDefaults`. `GetStepType` must
 return a non-empty, explicit durable name.
 
+`DefineStep` and `DefineStepAsStart` retain the handler's input type while
+building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step
+types and rejects flows with multiple starting steps.
+
 `GetStepOptions() == nil` uses server defaults. A non-nil value supplies
 immutable defaults whenever the step is scheduled; explicit start or movement
 options override those defaults field by field.
@@ -215,7 +228,10 @@ func (ApproveOrderStep) WaitFor(
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		ApprovalChannel.ForOne(),
-		dex.Timer("approval-timeout", input.Timeout),
+		dex.Timer(
+			input.Timeout,
+			dex.WithConditionID("approval-timeout"),
+		),
 	), nil
 }
 
@@ -328,23 +344,23 @@ belong to `PersistenceSchema`.
 Persistence remains the combination of attributes and channels:
 
 ```go
-type AttributeDefinition interface {
+type AttributeDef interface {
 	AttributeName() string
 	attributeDefinition()
 }
 
-type ChannelDefinition interface {
+type ChannelDef interface {
 	ChannelName() string
 	channelDefinition()
 }
 
 type PersistenceSchema struct {
-	Attributes []AttributeDefinition
-	Channels   []ChannelDefinition
+	Attributes []AttributeDef
+	Channels   []ChannelDef
 }
 ```
 
-`AttributeDefinition` and `ChannelDefinition` are sealed, erased interfaces
+`AttributeDef` and `ChannelDef` are sealed, erased interfaces
 implemented by the generic definitions below. A flow declares both static and
 map definitions in this schema.
 
@@ -451,40 +467,40 @@ Publishing uses invocation state, while wait construction does not:
 func (c Channel[T]) Publish(ctx Context, value T) error
 func (c ChannelMap[T]) Publish(ctx Context, instance string, value T) error
 
-func (c Channel[T]) ForOne(options ...Condition) Condition
-func (c Channel[T]) ForN(count int, options ...Condition) Condition
-func (c Channel[T]) AtLeast(count int, options ...Condition) Condition
-func (c Channel[T]) AtMost(count int, options ...Condition) Condition
+func (c Channel[T]) ForOne(options ...ConditionOption) Condition
+func (c Channel[T]) ForN(count int, options ...ConditionOption) Condition
+func (c Channel[T]) AtLeast(count int, options ...ConditionOption) Condition
+func (c Channel[T]) AtMost(count int, options ...ConditionOption) Condition
 func (c Channel[T]) AtLeastAtMost(
 	atLeast int,
 	atMost int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 
 func (c ChannelMap[T]) ForOne(
 	instance string,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 func (c ChannelMap[T]) ForN(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 func (c ChannelMap[T]) AtLeast(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 func (c ChannelMap[T]) AtMost(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 func (c ChannelMap[T]) AtLeastAtMost(
 	instance string,
 	atLeast int,
 	atMost int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition
 ```
 
@@ -535,7 +551,7 @@ their values are concatenated in channel-condition declaration order. The raw
 proto-shaped condition result types remain internal.
 
 Conditional close decisions take `Channel[T]` values directly through the
-erased `[]ChannelDefinition` slice. Callers do not construct physical channel
+erased `[]ChannelDef` slice. Callers do not construct physical channel
 references.
 
 ### Waiting conditions
@@ -549,24 +565,31 @@ type Condition interface {
 	condition()
 }
 
+type ConditionOption interface {
+	conditionOption()
+}
+
 func ExecuteImmediately() Wait
 func AllOf(conditions ...Condition) Wait
 func AnyOf(conditions ...Condition) Wait
 func Combo(conditions ...Condition) ConditionCombination
 func AnyComboOf(combinations ...ConditionCombination) Wait
 func Timer(
-	conditionID string,
 	duration time.Duration,
+	options ...ConditionOption,
 ) Condition
 ```
 
 Channel condition IDs are optional for `AllOf` and `AnyOf`:
 
 ```go
-func WithConditionID(conditionID string) Condition
+func WithConditionID(conditionID string) ConditionOption
 ```
 
-`WithConditionID` is valid only as an option to a channel count constructor.
+`Condition` is an actual wait condition. `ConditionOption` only configures a
+timer or channel condition, so an option cannot be passed directly to `AllOf`,
+`AnyOf`, or `Combo`.
+
 The SDK assigns internal IDs to unnamed conditions when serializing one `Wait`.
 `AnyComboOf` refers to the actual condition values supplied to `Combo`, so the
 application does not manually duplicate IDs. Explicit IDs remain useful for
@@ -615,7 +638,7 @@ func DeadEnd() StepDecision
 
 func ForceCompleteOnChannelsEmpty(
 	output any,
-	channels []ChannelDefinition,
+	channels []ChannelDef,
 	otherwise ...StepMovement,
 ) StepDecision
 ```
@@ -765,14 +788,6 @@ func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
 	flowID string,
-	options StartFlowOptions,
-) (runID string, err error)
-
-func (client *Client) StartFlowAt(
-	ctx context.Context,
-	flow Flow,
-	flowID string,
-	step any,
 	input any,
 	options StartFlowOptions,
 ) (runID string, err error)
@@ -873,11 +888,11 @@ func (client *Client) WaitForAttributeMapEqual(
 ) error
 ```
 
-`StartFlowAt` and `InvokeRPC` accept application step and RPC values as `any`.
-Phase 3 registration resolves them and validates their handler signatures.
-`valuePtr` and `outputPtr` must be non-nil pointers. Map methods take the
-definition name and instance separately; physical key construction remains
-internal.
+`StartFlow` sends `input` to the Flow's starting step. Phase 3 registration
+resolves that step and validates its handler signature. `InvokeRPC` accepts an
+application RPC value as `any`. `valuePtr` and `outputPtr` must be non-nil
+pointers. Map methods take the definition name and instance separately;
+physical key construction remains internal.
 
 Batch attribute methods are also non-generic:
 
@@ -918,8 +933,8 @@ The remaining FlowService operations use non-generic public types:
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
 
 `runID` may be empty for operations where the server permits targeting the
-current run. `StartFlow` and `StartFlowAt` return only the created run ID because
-the caller already supplied the flow ID.
+current run. `StartFlow` returns only the created run ID because the caller
+already supplied the flow ID.
 
 `WaitForAttributeEqual` compares the encoded server value. Waiting on a
 blob-backed stored value may return `FailedPrecondition`; SDK hydration does not
@@ -1236,7 +1251,10 @@ func (WaitForCommandStep) WaitFor(
 
 	return dex.AnyOf(
 		Commands.ForOne(dex.WithConditionID("command")),
-		dex.Timer("timeout", 30*time.Minute),
+		dex.Timer(
+			30*time.Minute,
+			dex.WithConditionID("timeout"),
+		),
 	), nil
 }
 
@@ -1274,10 +1292,16 @@ func (OrderFlow) GetFlowType() string {
 	return "order"
 }
 
+func (OrderFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(WaitForCommand),
+	}
+}
+
 func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDefinition{OrderStatus},
-		Channels:   []dex.ChannelDefinition{Commands},
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{Commands},
 	}
 }
 
@@ -1293,7 +1317,7 @@ style; they only satisfy Go's return rules.
 1. Approve this public API shape.
 2. Add the public declarations with unexported runtime fields.
 3. Add compile-time example coverage for generic interfaces and signatures.
-4. Keep registration-only generic adapters and erased interfaces unexported.
+4. Keep registration-only generic handler adapters unexported.
 5. Keep raw condition results and transient-step machinery unexported.
 6. Delete old public API files only when their replacements compile in the same
    change; do not add compatibility aliases.
@@ -1311,7 +1335,8 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    channels, and RPCs without importing `dexpb`.
 2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
    embeds `NoWaitFor[IN]`.
-3. `GoTo`, `MovementOf`, and `GoToMulti` preserve target step input types.
+3. `DefineStep`, `DefineStepAsStart`, `GoTo`, `MovementOf`, and `GoToMulti`
+   preserve target step input types.
 4. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
    `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.
 5. Static and map attributes expose typed Get/Set/Delete methods that take

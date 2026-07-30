@@ -86,7 +86,7 @@ func DeadEnd() StepDecision {
 
 func ForceCompleteOnChannelsEmpty(
 	output any,
-	channels []ChannelDefinition,
+	channels []ChannelDef,
 	otherwise ...StepMovement,
 ) StepDecision {
 	return StepDecision{
@@ -110,7 +110,7 @@ type CloseDecision struct {
 	kind     closeKind
 	output   any
 	reason   string
-	channels []ChannelDefinition
+	channels []ChannelDef
 }
 
 type StepMoveOption interface {

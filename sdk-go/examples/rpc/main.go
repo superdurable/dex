@@ -30,6 +30,10 @@ func (BillingFlow) GetFlowType() string {
 	return "billing"
 }
 
+func (BillingFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
 func (BillingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }

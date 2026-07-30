@@ -69,7 +69,10 @@ func (WaitForCommandStep) WaitFor(
 
 	return dex.AnyOf(
 		Commands.ForOne(dex.WithConditionID("command")),
-		dex.Timer("timeout", 30*time.Minute),
+		dex.Timer(
+			30*time.Minute,
+			dex.WithConditionID("timeout"),
+		),
 	), nil
 }
 
@@ -109,10 +112,16 @@ func (OrderFlow) GetFlowType() string {
 	return "order"
 }
 
+func (OrderFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(WaitForCommand),
+	}
+}
+
 func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDefinition{OrderStatus},
-		Channels:   []dex.ChannelDefinition{Commands},
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{Commands},
 	}
 }
 

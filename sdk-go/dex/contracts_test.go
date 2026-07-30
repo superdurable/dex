@@ -61,7 +61,10 @@ func (waitingStep) WaitFor(
 	return dex.AnyComboOf(
 		dex.Combo(
 			commandChannel.ForOne(dex.WithConditionID("command")),
-			dex.Timer("timeout", time.Minute),
+			dex.Timer(
+				time.Minute,
+				dex.WithConditionID("timeout"),
+			),
 		),
 	), nil
 }
@@ -112,13 +115,20 @@ func (contractFlow) GetFlowType() string {
 	return "contract"
 }
 
+func (contractFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(waitForCommand),
+		dex.DefineStep(executeOnly),
+	}
+}
+
 func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDefinition{
+		Attributes: []dex.AttributeDef{
 			statusAttribute,
 			itemsAttribute,
 		},
-		Channels: []dex.ChannelDefinition{
+		Channels: []dex.ChannelDef{
 			commandChannel,
 			commandByOrder,
 		},
@@ -242,15 +252,21 @@ func compileContextOperations(ctx dex.Context) error {
 	return nil
 }
 
-var _ = dex.AllOf(commandChannel.ForOne(), dex.Timer("all", time.Minute))
-var _ = dex.AnyOf(commandChannel.ForOne(), dex.Timer("any", time.Minute))
+var _ = dex.AllOf(
+	commandChannel.ForOne(),
+	dex.Timer(time.Minute, dex.WithConditionID("all")),
+)
+var _ = dex.AnyOf(
+	commandChannel.ForOne(),
+	dex.Timer(time.Minute, dex.WithConditionID("any")),
+)
 var _ = dex.ForceComplete("done")
 var _ = dex.GracefulComplete("done")
 var _ = dex.ForceFail("failed")
 var _ = dex.DeadEnd()
 var _ = dex.ForceCompleteOnChannelsEmpty(
 	"done",
-	[]dex.ChannelDefinition{commandChannel},
+	[]dex.ChannelDef{commandChannel},
 	dex.MovementOf(executeOnly, stepInput{}),
 )
 
@@ -259,18 +275,9 @@ var _ func(
 	context.Context,
 	dex.Flow,
 	string,
+	any,
 	dex.StartFlowOptions,
 ) (string, error) = (*dex.Client).StartFlow
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	dex.Flow,
-	string,
-	any,
-	any,
-	dex.StartFlowOptions,
-) (string, error) = (*dex.Client).StartFlowAt
 
 var _ func(
 	*dex.Client,

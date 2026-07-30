@@ -37,7 +37,10 @@ func (WaitForCommandStep) WaitFor(
 	}
 	return dex.AnyOf(
 		Commands.ForOne(dex.WithConditionID("command")),
-		dex.Timer("timeout", 30*time.Minute),
+		dex.Timer(
+			30*time.Minute,
+			dex.WithConditionID("timeout"),
+		),
 	), nil
 }
 
@@ -54,7 +57,31 @@ func (WaitForCommandStep) Execute(
 	}
 	return dex.GracefulComplete(commands), nil
 }
+
+var WaitForCommand = WaitForCommandStep{}
+
+type OrderFlow struct{}
+
+func (OrderFlow) GetFlowType() string {
+	return "order"
+}
+
+func (OrderFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(WaitForCommand),
+	}
+}
+
+func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{Commands},
+	}
+}
 ```
+
+Flows use `dex.DefineStepAsStart` for at most one starting step and
+`dex.DefineStep` for every non-starting step.
 
 Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
 `dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.

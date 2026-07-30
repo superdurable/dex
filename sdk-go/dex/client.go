@@ -24,16 +24,6 @@ func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
 	flowID string,
-	options StartFlowOptions,
-) (runID string, err error) {
-	return "", errPhaseNotImplemented
-}
-
-func (client *Client) StartFlowAt(
-	ctx context.Context,
-	flow Flow,
-	flowID string,
-	step any,
 	input any,
 	options StartFlowOptions,
 ) (runID string, err error) {

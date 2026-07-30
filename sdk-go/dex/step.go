@@ -21,6 +21,19 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
+type StepDef struct {
+	step     any
+	starting bool
+}
+
+func DefineStep[IN any](step Step[IN]) StepDef {
+	return StepDef{step: step}
+}
+
+func DefineStepAsStart[IN any](step Step[IN]) StepDef {
+	return StepDef{step: step, starting: true}
+}
+
 type NoWaitFor[IN any] struct{}
 
 type DefaultStepOptions struct{}

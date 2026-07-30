@@ -49,7 +49,10 @@ func (ApproveOrderStep) WaitFor(
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		ApprovalChannel.ForOne(),
-		dex.Timer("approval-timeout", input.Timeout),
+		dex.Timer(
+			input.Timeout,
+			dex.WithConditionID("approval-timeout"),
+		),
 	), nil
 }
 
@@ -92,5 +95,27 @@ func (ShipOrderStep) Execute(
 
 var ShipOrder = ShipOrderStep{}
 var _ dex.Step[ShipOrderInput] = ShipOrder
+
+type OrderFlow struct{}
+
+func (OrderFlow) GetFlowType() string {
+	return "order-transitions"
+}
+
+func (OrderFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(ApproveOrder),
+		dex.DefineStep(ShipOrder),
+	}
+}
+
+func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Channels: []dex.ChannelDef{ApprovalChannel},
+	}
+}
+
+var Orders = OrderFlow{}
+var _ dex.Flow = Orders
 
 func main() {}

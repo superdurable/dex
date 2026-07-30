@@ -45,19 +45,21 @@ type Condition interface {
 	condition()
 }
 
-func Timer(conditionID string, duration time.Duration) Condition {
-	return conditionValue{
-		kind:        conditionTimer,
-		conditionID: conditionID,
-		duration:    duration,
+func Timer(duration time.Duration, options ...ConditionOption) Condition {
+	condition := conditionValue{
+		kind:     conditionTimer,
+		duration: duration,
 	}
+	applyConditionOptions(&condition, options)
+	return condition
 }
 
-func WithConditionID(conditionID string) Condition {
-	return conditionValue{
-		kind:        conditionIDOption,
-		conditionID: conditionID,
-	}
+type ConditionOption interface {
+	conditionOption()
+}
+
+func WithConditionID(conditionID string) ConditionOption {
+	return conditionIDOption{conditionID: conditionID}
 }
 
 type ConditionCombination struct {
@@ -82,7 +84,6 @@ type conditionKind uint8
 const (
 	conditionChannel conditionKind = iota + 1
 	conditionTimer
-	conditionIDOption
 )
 
 type conditionValue struct {
@@ -103,7 +104,7 @@ func newChannelCondition(
 	isMap bool,
 	atLeast *int,
 	atMost *int,
-	options []Condition,
+	options []ConditionOption,
 ) Condition {
 	condition := conditionValue{
 		kind:        conditionChannel,
@@ -114,15 +115,20 @@ func newChannelCondition(
 		atMost:      atMost,
 	}
 	condition.err = validateChannelBounds(atLeast, atMost)
-	for _, option := range options {
-		value, ok := option.(conditionValue)
-		if !ok || value.kind != conditionIDOption {
-			condition.err = fmt.Errorf("dex: invalid channel condition option")
-			continue
-		}
-		condition.conditionID = value.conditionID
-	}
+	applyConditionOptions(&condition, options)
 	return condition
+}
+
+func applyConditionOptions(
+	condition *conditionValue,
+	options []ConditionOption,
+) {
+	for _, option := range options {
+		switch value := option.(type) {
+		case conditionIDOption:
+			condition.conditionID = value.conditionID
+		}
+	}
 }
 
 func validateChannelBounds(atLeast *int, atMost *int) error {
@@ -139,3 +145,9 @@ func validateChannelBounds(atLeast *int, atMost *int) error {
 }
 
 func (conditionValue) condition() {}
+
+type conditionIDOption struct {
+	conditionID string
+}
+
+func (conditionIDOption) conditionOption() {}

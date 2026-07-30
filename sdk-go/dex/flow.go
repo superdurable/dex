@@ -16,20 +16,21 @@ package dex
 
 type Flow interface {
 	GetFlowType() string
+	GetSteps() []StepDef
 	GetPersistenceSchema() PersistenceSchema
 }
 
-type AttributeDefinition interface {
+type AttributeDef interface {
 	AttributeName() string
 	attributeDefinition()
 }
 
-type ChannelDefinition interface {
+type ChannelDef interface {
 	ChannelName() string
 	channelDefinition()
 }
 
 type PersistenceSchema struct {
-	Attributes []AttributeDefinition
-	Channels   []ChannelDefinition
+	Attributes []AttributeDef
+	Channels   []ChannelDef
 }

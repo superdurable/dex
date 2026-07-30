@@ -30,26 +30,26 @@ func (c Channel[T]) Publish(ctx Context, value T) error {
 	return invocation.publishChannel(c.name, value)
 }
 
-func (c Channel[T]) ForOne(options ...Condition) Condition {
+func (c Channel[T]) ForOne(options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, nil, nil, options)
 }
 
-func (c Channel[T]) ForN(count int, options ...Condition) Condition {
+func (c Channel[T]) ForN(count int, options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, &count, &count, options)
 }
 
-func (c Channel[T]) AtLeast(count int, options ...Condition) Condition {
+func (c Channel[T]) AtLeast(count int, options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, &count, nil, options)
 }
 
-func (c Channel[T]) AtMost(count int, options ...Condition) Condition {
+func (c Channel[T]) AtMost(count int, options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, nil, &count, options)
 }
 
 func (c Channel[T]) AtLeastAtMost(
 	atLeast int,
 	atMost int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(
 		c.name,
@@ -105,7 +105,7 @@ func (c ChannelMap[T]) Publish(ctx Context, instance string, value T) error {
 
 func (c ChannelMap[T]) ForOne(
 	instance string,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(c.name, instance, true, nil, nil, options)
 }
@@ -113,7 +113,7 @@ func (c ChannelMap[T]) ForOne(
 func (c ChannelMap[T]) ForN(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(
 		c.name,
@@ -128,7 +128,7 @@ func (c ChannelMap[T]) ForN(
 func (c ChannelMap[T]) AtLeast(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(c.name, instance, true, &count, nil, options)
 }
@@ -136,7 +136,7 @@ func (c ChannelMap[T]) AtLeast(
 func (c ChannelMap[T]) AtMost(
 	instance string,
 	count int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(c.name, instance, true, nil, &count, options)
 }
@@ -145,7 +145,7 @@ func (c ChannelMap[T]) AtLeastAtMost(
 	instance string,
 	atLeast int,
 	atMost int,
-	options ...Condition,
+	options ...ConditionOption,
 ) Condition {
 	return newChannelCondition(
 		c.name,
