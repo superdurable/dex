@@ -91,6 +91,9 @@ doubt, improve the name instead.
 Every new comment block you add (a contiguous group of `//` lines) must be fewer
 than 20 words. If a longer new comment is necessary, ask the user first.
 
+An explicit user request for a paragraph, detailed explanation, or longer
+comment authorizes exceeding this limit without asking again.
+
 These rules do not apply to comments that existed before the current change.
 Never edit an existing comment merely to simplify, shorten, rephrase, fix
 grammar, or satisfy the word limit.
@@ -98,6 +101,9 @@ grammar, or satisfy the word limit.
 The new-comment simplification and 20-word rules also do not apply to
 `server/config/`. Configuration comments should favor complete operational
 semantics.
+
+Comments documenting function or method return values are also exempt from the
+20-word limit and should describe complete return semantics.
 
 ### Preserve Comments During Refactoring
 
