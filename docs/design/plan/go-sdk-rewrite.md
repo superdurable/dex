@@ -208,8 +208,8 @@ building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step
 types and rejects flows with multiple starting steps.
 
 `GetStepOptions() == nil` uses server defaults. A non-nil value supplies
-immutable defaults whenever the step is scheduled; explicit start or movement
-options override those defaults field by field.
+immutable defaults whenever the step is scheduled. The starting step uses those
+options directly; movement options may override them field by field.
 
 Example:
 
@@ -796,7 +796,7 @@ func (client *Client) PublishToChannel(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	channelName string,
+	channel ChannelDef,
 	values ...any,
 ) error
 
@@ -804,7 +804,7 @@ func (client *Client) PublishToChannelMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	channelName string,
+	channel ChannelDef,
 	instance string,
 	values ...any,
 ) error
@@ -823,7 +823,7 @@ func (client *Client) GetAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	valuePtr any,
 ) (found bool, err error)
 
@@ -831,7 +831,7 @@ func (client *Client) GetAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	valuePtr any,
 ) (found bool, err error)
@@ -840,7 +840,7 @@ func (client *Client) SetAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	value any,
 ) error
 
@@ -848,7 +848,7 @@ func (client *Client) SetAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	value any,
 ) error
@@ -857,14 +857,14 @@ func (client *Client) DeleteAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 ) error
 
 func (client *Client) DeleteAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 ) error
 
@@ -872,7 +872,7 @@ func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	value any,
 	options WaitOptions,
 ) error
@@ -881,7 +881,7 @@ func (client *Client) WaitForAttributeMapEqual(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	value any,
 	options WaitOptions,
@@ -891,8 +891,9 @@ func (client *Client) WaitForAttributeMapEqual(
 `StartFlow` sends `input` to the Flow's starting step. Phase 3 registration
 resolves that step and validates its handler signature. `InvokeRPC` accepts an
 application RPC value as `any`. `valuePtr` and `outputPtr` must be non-nil
-pointers. Map methods take the definition name and instance separately;
-physical key construction remains internal.
+pointers. Attribute and channel methods accept generic definitions through
+`AttributeDef` and `ChannelDef`. Map methods take their definition and instance
+separately; physical key construction remains internal.
 
 Batch attribute methods are also non-generic:
 
@@ -907,7 +908,7 @@ func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeNames ...string,
+	attributes ...AttributeDef,
 ) (map[string]Value, error)
 
 func (client *Client) SetAttributes(
@@ -1048,11 +1049,10 @@ type FlowConfig struct {
 }
 
 type StartFlowOptions struct {
-	Timeout         time.Duration
-	StepOptions     *StepOptions
+	Timeout         *time.Duration
 	IDReusePolicy   IDReusePolicy
 	CronSchedule    string
-	StartDelay      time.Duration
+	StartDelay      *time.Duration
 	RetryPolicy     *FlowRetryPolicy
 	Attributes      []InitialAttribute
 	ConfigOverride *FlowConfig
@@ -1151,6 +1151,11 @@ type ResetOptions struct {
 Pointer fields in `FlowConfig` preserve proto presence for partial overrides.
 `WorkerTarget` is configured through `FlowConfig`, not as a separate StartFlow
 argument.
+
+`StartFlowOptions.Timeout == nil` omits the Flow timeout.
+`StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
+options come from the step wrapped by `DefineStepAsStart`; StartFlow has no
+separate step-options override.
 
 `WaitOptions.Timeout == 0` retains the server's immediate-check semantics for
 WaitForAttribute and WaitForStepCompletion. `WaitForFlowOptions` is separate

@@ -34,7 +34,7 @@ func (client *Client) PublishToChannel(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	channelName string,
+	channel ChannelDef,
 	values ...any,
 ) error {
 	return errPhaseNotImplemented
@@ -44,7 +44,7 @@ func (client *Client) PublishToChannelMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	channelName string,
+	channel ChannelDef,
 	instance string,
 	values ...any,
 ) error {
@@ -67,7 +67,7 @@ func (client *Client) GetAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	valuePtr any,
 ) (found bool, err error) {
 	return false, errPhaseNotImplemented
@@ -77,7 +77,7 @@ func (client *Client) GetAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	valuePtr any,
 ) (found bool, err error) {
@@ -88,7 +88,7 @@ func (client *Client) SetAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	value any,
 ) error {
 	return errPhaseNotImplemented
@@ -98,7 +98,7 @@ func (client *Client) SetAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	value any,
 ) error {
@@ -109,7 +109,7 @@ func (client *Client) DeleteAttribute(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 ) error {
 	return errPhaseNotImplemented
 }
@@ -118,7 +118,7 @@ func (client *Client) DeleteAttributeMap(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 ) error {
 	return errPhaseNotImplemented
@@ -128,7 +128,7 @@ func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	value any,
 	options WaitOptions,
 ) error {
@@ -139,7 +139,7 @@ func (client *Client) WaitForAttributeMapEqual(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeName string,
+	attribute AttributeDef,
 	instance string,
 	value any,
 	options WaitOptions,
@@ -151,7 +151,7 @@ func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
 	runID string,
-	attributeNames ...string,
+	attributes ...AttributeDef,
 ) (map[string]Value, error) {
 	return nil, errPhaseNotImplemented
 }

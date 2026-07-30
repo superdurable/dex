@@ -167,11 +167,15 @@ func TestPublicContractsCompile(t *testing.T) {
 		StepDurability:         &durability,
 	}
 	options := dex.StartFlowOptions{
+		Timeout:        ptr.Any(time.Minute),
+		StartDelay:     ptr.Any(time.Second),
 		Attributes:     []dex.InitialAttribute{initial, mapInitial},
 		ConfigOverride: &config,
 	}
-	if len(options.Attributes) != 2 {
-		t.Fatal("initial attributes are missing")
+	if options.Timeout == nil ||
+		options.StartDelay == nil ||
+		len(options.Attributes) != 2 {
+		t.Fatal("start flow options are missing")
 	}
 }
 
@@ -278,6 +282,63 @@ var _ func(
 	any,
 	dex.StartFlowOptions,
 ) (string, error) = (*dex.Client).StartFlow
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.ChannelDef,
+	...any,
+) error = (*dex.Client).PublishToChannel
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.ChannelDef,
+	string,
+	...any,
+) error = (*dex.Client).PublishToChannelMap
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.AttributeDef,
+	any,
+) (bool, error) = (*dex.Client).GetAttribute
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.AttributeDef,
+	string,
+	any,
+) (bool, error) = (*dex.Client).GetAttributeMap
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.AttributeDef,
+	any,
+) error = (*dex.Client).SetAttribute
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	string,
+	dex.AttributeDef,
+	string,
+	any,
+) error = (*dex.Client).SetAttributeMap
 
 var _ func(
 	*dex.Client,

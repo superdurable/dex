@@ -93,6 +93,7 @@ arbitrary values through `dex.Context`.
 Compilable examples:
 
 - [Order flow](examples/order/main.go)
+- [Every Client API](examples/order/client.go)
 - [Step transitions](examples/transitions/main.go)
 - [Flow method RPC](examples/rpc/main.go)
 

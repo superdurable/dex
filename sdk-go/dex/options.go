@@ -87,11 +87,10 @@ type FlowConfig struct {
 }
 
 type StartFlowOptions struct {
-	Timeout        time.Duration
-	StepOptions    *StepOptions
+	Timeout        *time.Duration
 	IDReusePolicy  IDReusePolicy
 	CronSchedule   string
-	StartDelay     time.Duration
+	StartDelay     *time.Duration
 	RetryPolicy    *FlowRetryPolicy
 	Attributes     []InitialAttribute
 	ConfigOverride *FlowConfig

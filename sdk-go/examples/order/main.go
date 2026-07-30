@@ -26,7 +26,9 @@ var (
 		"order-status",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 	)
-	Commands = dex.DefineChannel[Command]("commands")
+	ItemQuantities  = dex.DefineAttributeMap[int]("item-quantities")
+	Commands        = dex.DefineChannel[Command]("commands")
+	CommandsByOrder = dex.DefineChannelMap[Command]("commands-by-order")
 )
 
 type Command struct {
@@ -120,8 +122,8 @@ func (OrderFlow) GetSteps() []dex.StepDef {
 
 func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{OrderStatus},
-		Channels:   []dex.ChannelDef{Commands},
+		Attributes: []dex.AttributeDef{OrderStatus, ItemQuantities},
+		Channels:   []dex.ChannelDef{Commands, CommandsByOrder},
 	}
 }
 
