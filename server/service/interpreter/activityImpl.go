@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -90,7 +91,9 @@ func (a *Activities) InvokeWaitForMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
-	if !a.cfg.ExternalStorage.EffectiveLazyLoading() {
+	lazyLoading := a.cfg.ExternalStorage.EffectiveLazyLoading()
+	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
+	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, composeInternalActivityError(provider, err)
@@ -118,10 +121,27 @@ func (a *Activities) InvokeWaitForMethod(
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, composeActivityError(provider, err)
 	}
+	if err := validateTransientStepMovement(resp.GetTransientStepMovement()); err != nil {
+		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
+		return nil, composeActivityError(provider, err)
+	}
 	if err := validateWorkerWaitForResponse(resp); err != nil {
 		return nil, composeActivityError(provider, err)
 	}
 
+	transientStep := resp.GetTransientStepMovement()
+	if transientStep != nil {
+		transientStep.FromStepExecutionIdInternalOnly = req.GetContext().GetStepExecutionId()
+		if err := a.reuseOrOffloadStepInput(
+			ctx,
+			transientStep,
+			originalStepInputBlob,
+			req.GetStepInput(),
+			activityInfo.WorkflowExecution.ID,
+		); err != nil {
+			return nil, composeInternalActivityError(provider, err)
+		}
+	}
 	resp.LocalActivityInput = nil
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
@@ -179,10 +199,7 @@ func (a *Activities) InvokeExecuteMethod(
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, composeActivityError(provider, err)
 	}
-	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
-		return nil, composeActivityError(provider, err)
-	}
-	if err := validateWorkerExecuteResponse(resp); err != nil {
+	if err := validateExecuteResponse(resp, input.GetIsTransientStep()); err != nil {
 		return nil, composeActivityError(provider, err)
 	}
 
@@ -348,17 +365,13 @@ func (a *Activities) reuseOrOffloadDecisionInputs(
 		return nil
 	}
 	for _, step := range decision.GetNextSteps() {
-		if step == nil || step.GetStepInput() == nil {
-			continue
-		}
-		if stepInputBlobRef(step.GetStepInput()).id != "" {
-			continue
-		}
-		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, step.GetStepInput()) {
-			step.StepInput = originalStepInputBlob.toValue()
-			continue
-		}
-		if err := a.offloadStepInput(ctx, step.StepInput, flowId); err != nil {
+		if err := a.reuseOrOffloadStepInput(
+			ctx,
+			step,
+			originalStepInputBlob,
+			hydratedStepInput,
+			flowId,
+		); err != nil {
 			return err
 		}
 	}
@@ -380,6 +393,27 @@ func (a *Activities) reuseOrOffloadDecisionInputs(
 		}
 	}
 	return nil
+}
+
+func (a *Activities) reuseOrOffloadStepInput(
+	ctx context.Context,
+	step *dexpb.StepMovement,
+	originalStepInputBlob stepInputBlob,
+	hydratedStepInput *dexpb.Value,
+	flowId string,
+) error {
+	if step == nil || step.GetStepInput() == nil ||
+		!a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
+		return nil
+	}
+	if stepInputBlobRef(step.GetStepInput()).id != "" {
+		return nil
+	}
+	if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, step.GetStepInput()) {
+		step.StepInput = originalStepInputBlob.toValue()
+		return nil
+	}
+	return a.offloadStepInput(ctx, step.StepInput, flowId)
 }
 
 func (a *Activities) offloadStepInput(
@@ -460,6 +494,21 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
 }
 
+func validateExecuteResponse(
+	resp *dexpb.InvokeExecuteMethodResponse,
+	isTransientStep bool,
+) error {
+	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
+		return err
+	}
+	if isTransientStep {
+		if err := validateTransientDeadEndDecision(resp.GetStepDecision()); err != nil {
+			return err
+		}
+	}
+	return validateWorkerExecuteResponse(resp)
+}
+
 func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeExecuteMethodResponse")
@@ -537,6 +586,46 @@ func validateCloseDecision(closeDecision *dexpb.CloseDecision, nextStepCount int
 		}
 	default:
 		return fmt.Errorf("close decision type is unspecified")
+	}
+	return nil
+}
+
+func validateTransientStepMovement(movement *dexpb.StepMovement) error {
+	if movement == nil {
+		return nil
+	}
+	if movement.GetStepType() == "" {
+		return fmt.Errorf("transient step type is empty")
+	}
+	if strings.HasPrefix(movement.GetStepType(), "_SYS_") {
+		return fmt.Errorf("transient step cannot target system step %q", movement.GetStepType())
+	}
+	options := movement.GetStepOptions()
+	if !options.GetSkipWaitFor() {
+		return fmt.Errorf("transient step must skip WaitFor")
+	}
+	if options.GetWaitForFailurePolicy() ==
+		dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE {
+		return fmt.Errorf("transient step cannot proceed on WaitFor failure")
+	}
+	if options.GetExecuteFailurePolicy() ==
+		dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP {
+		return fmt.Errorf("transient step cannot proceed on Execute failure")
+	}
+	if options.GetExecuteFailureProceedStepType() != "" {
+		return fmt.Errorf("transient step cannot configure an Execute failure step")
+	}
+	if options.GetExecuteFailureProceedStepOptions() != nil {
+		return fmt.Errorf("transient step cannot configure Execute failure step options")
+	}
+	return nil
+}
+
+func validateTransientDeadEndDecision(decision *dexpb.StepDecision) error {
+	if decision == nil || len(decision.GetNextSteps()) != 0 ||
+		decision.GetCloseDecision().GetCloseDecisionType() !=
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END {
+		return fmt.Errorf("transient step requires a DeadEnd close decision")
 	}
 	return nil
 }

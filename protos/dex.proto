@@ -546,6 +546,7 @@ message InvokeWaitForMethodResponse {
   repeated KV upsert_step_exe_locals = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  StepMovement transient_step_movement = 7;
 }
 
 message InvokeExecuteMethodRequest {
@@ -792,6 +793,8 @@ message InvokeWaitForMethodActivityOutput {
 message InvokeExecuteMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
+  // Requires a DeadEnd close decision without next steps.
+  bool is_transient_step = 3;
 }
 
 message InvokeExecuteMethodActivityOutput {

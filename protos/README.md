@@ -41,6 +41,18 @@ Temporal type metadata preserves numeric types. Cadence visibility payloads do
 not include index types, so Dex infers numbers from JSON: integral JSON numbers
 become `int_value`, and other numbers become `double_value`.
 
+### Transient step movement
+
+`InvokeWaitForMethodResponse.transient_step_movement` optionally runs one
+skip-WaitFor step before the returned waiting condition starts. The movement
+cannot configure failure-proceed behavior, and its Execute method must return a
+DeadEnd close decision without next steps.
+
+The server applies WaitFor writes before the transient Execute. It normalizes
+timer deadlines and makes the source step resumable only after the transient
+step succeeds. Continue-as-new may be requested during the transient Execute,
+but the run transition waits for that Execute to finish.
+
 ## Codegen
 
 Regenerate checked-in stubs into server and SDK trees:
