@@ -4,6 +4,7 @@
 
 * [Dex Design](design/Dex-Design.md)
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
+* [Transient step movement](design/transient-step-movement.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
 
 ## Case studies / examples

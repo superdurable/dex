@@ -325,8 +325,13 @@ func (i *Interpreter) StartEngineFlow(
 						timerProcessor,
 						continueAsNewer,
 						continueAsNewCounter,
+						stepExecutionCounter,
 						flowConfiger,
 					)
+					if stepExecutionStatus == service.StepExecutionStatusInternalError {
+						errToFailWf = stepExeErr
+						return
+					}
 					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
 						errToFailWf = normalizeStepFailureError(provider, stepExeErr)
@@ -376,10 +381,7 @@ func (i *Interpreter) StartEngineFlow(
 							stepExeId,
 							decision.GetNextSteps(),
 						); err != nil {
-							errToFailWf = provider.NewFlowError(
-								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-								&dexpb.ErrorResponse{Detail: err.Error()},
-							)
+							errToFailWf = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
@@ -602,6 +604,7 @@ func (i *Interpreter) processStepExecution(
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
+	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
@@ -620,6 +623,7 @@ func (i *Interpreter) processStepExecution(
 	var waitForMethErr error
 	var stepExeLocals []*dexpb.KV
 	var waitingCondition *dexpb.WaitingCondition
+	var transientStep *dexpb.StepMovement
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
@@ -641,6 +645,7 @@ func (i *Interpreter) processStepExecution(
 			continueAsNewer,
 			flowConfiger,
 			stepExeLocals,
+			false,
 		)
 	}
 
@@ -668,7 +673,7 @@ func (i *Interpreter) processStepExecution(
 		if len(lockAttributeKeys) > 0 {
 			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 			if err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			attributes = loadedAttributes
 		}
@@ -702,18 +707,35 @@ func (i *Interpreter) processStepExecution(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
 			); err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			waitingCondition = activityOutput.Response.GetWaitingCondition()
-			if waitingCondition != nil {
-				waitingCondition = timers.FixTimerConditionFromActivityOutput(
-					provider.Now(ctx),
-					waitingCondition,
-				)
-			}
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
+			transientStep = activityOutput.Response.GetTransientStepMovement()
 		}
+	}
+	if transientStep != nil {
+		transientStatus, transientErr := i.processTransientStepExecution(
+			ctx,
+			provider,
+			basicInfo,
+			transientStep,
+			persistenceManager,
+			channelStore,
+			continueAsNewer,
+			stepExecutionCounter,
+			flowConfiger,
+		)
+		if transientStatus != service.StepExecutionStatusCompleted {
+			return nil, transientStatus, transientErr
+		}
+	}
+	if !isResumeFromContinueAsNew && waitingCondition != nil {
+		waitingCondition = timers.FixTimerConditionFromActivityOutput(
+			provider.Now(ctx),
+			waitingCondition,
+		)
 	}
 	if waitingCondition == nil {
 		waitingCondition = &dexpb.WaitingCondition{}
@@ -842,7 +864,63 @@ func (i *Interpreter) processStepExecution(
 		continueAsNewer,
 		flowConfiger,
 		stepExeLocals,
+		false,
 	)
+}
+
+func (i *Interpreter) processTransientStepExecution(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	basicInfo service.BasicInfo,
+	step *dexpb.StepMovement,
+	persistenceManager *PersistenceManager,
+	channelStore *ChannelStore,
+	continueAsNewer *ContinueAsNewer,
+	stepExecutionCounter *StepExecutionCounter,
+	flowConfiger *interpreterconfig.FlowConfiger,
+) (service.StepExecutionStatus, error) {
+	stepRequest := NewStepStartRequest(step)
+	if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
+		[]StepRequest{stepRequest},
+	); err != nil {
+		return service.StepExecutionStatusInternalError, err
+	}
+
+	stepExecutionId := stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
+	info := provider.GetWorkflowInfo(ctx)
+	executionContext := &dexpb.Context{
+		FlowId:               info.WorkflowExecution.ID,
+		RunId:                info.FirstRunID,
+		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
+		StepExecutionId:      stepExecutionId,
+		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
+	}
+	decision, status, err := i.invokeExecuteMethod(
+		ctx,
+		provider,
+		basicInfo,
+		step,
+		stepExecutionId,
+		persistenceManager,
+		channelStore,
+		executionContext,
+		nil,
+		continueAsNewer,
+		flowConfiger,
+		nil,
+		true,
+	)
+	if status != service.StepExecutionStatusCompleted {
+		return status, err
+	}
+	if err := stepExecutionCounter.MarkStepExecutionCompleted(
+		step,
+		stepExecutionId,
+		decision.GetNextSteps(),
+	); err != nil {
+		return service.StepExecutionStatusInternalError, err
+	}
+	return service.StepExecutionStatusCompleted, nil
 }
 
 func (i *Interpreter) invokeExecuteMethod(
@@ -858,6 +936,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	continueAsNewer *ContinueAsNewer,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
+	isTransientStep bool,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
@@ -878,7 +957,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	if len(lockAttributeKeys) > 0 {
 		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
-			return nil, service.StepExecutionStatusFailedNoProceed, err
+			return nil, service.StepExecutionStatusInternalError, err
 		}
 	}
 
@@ -889,7 +968,8 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		i.activities.InvokeExecuteMethod,
 		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget: flowConfiger.GetWorkerTarget(),
+			WorkerTarget:    flowConfiger.GetWorkerTarget(),
+			IsTransientStep: isTransientStep,
 			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,
@@ -916,7 +996,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		executeResponse.GetUpsertAttributes(),
 	); err != nil {
-		return nil, service.StepExecutionStatusFailedNoProceed, err
+		return nil, service.StepExecutionStatusInternalError, err
 	}
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
