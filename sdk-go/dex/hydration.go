@@ -38,8 +38,8 @@ func hydrateValues(
 ) ([]*dexpb.Value, error) {
 	result := make([]*dexpb.Value, len(values))
 	references := make(map[blobReference]int)
+	referencesByPosition := make(map[int]blobReference)
 	var requests []*dexpb.Value
-	var positions []blobReference
 
 	for index, value := range values {
 		reference, blob, err := classifyBlob(value)
@@ -53,13 +53,12 @@ func hydrateValues(
 			result[index] = value
 			continue
 		}
-		requestIndex, found := references[reference]
+		_, found := references[reference]
 		if !found {
-			requestIndex = len(requests)
-			references[reference] = requestIndex
+			references[reference] = len(requests)
 			requests = append(requests, value)
 		}
-		positions = append(positions, reference)
+		referencesByPosition[index] = reference
 	}
 	if len(requests) == 0 {
 		return result, nil
@@ -88,13 +87,7 @@ func hydrateValues(
 		}
 	}
 
-	blobPosition := 0
-	for index, value := range result {
-		if value != nil {
-			continue
-		}
-		reference := positions[blobPosition]
-		blobPosition++
+	for index, reference := range referencesByPosition {
 		result[index] = hydrated[references[reference]]
 	}
 	return result, nil

@@ -117,6 +117,7 @@ const (
 	IndexDatetime
 )
 
+// AttributeIndex configures visibility indexing; datetime values use time.Time or RFC3339Nano strings.
 type AttributeIndex struct {
 	Type     IndexType
 	IndexKey string

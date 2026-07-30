@@ -92,30 +92,34 @@ func mapAttributeDelete(
 
 func mapStartFlowOptions(
 	options StartFlowOptions,
-) (int32, *dexpb.FlowStartOptions, error) {
+) (int32, *dexpb.FlowStartOptions, string, error) {
 	timeout, err := optionalDurationSeconds32(options.Timeout)
 	if err != nil {
-		return 0, nil, fmt.Errorf("dex: flow timeout: %w", err)
+		return 0, nil, "", fmt.Errorf("dex: flow timeout: %w", err)
 	}
 	startDelay, err := optionalDurationSeconds32(options.StartDelay)
 	if err != nil {
-		return 0, nil, fmt.Errorf("dex: start delay: %w", err)
+		return 0, nil, "", fmt.Errorf("dex: start delay: %w", err)
 	}
 	idReuse, err := mapIDReusePolicy(options.IDReusePolicy)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, "", err
 	}
 	retry, err := mapFlowRetryPolicy(options.RetryPolicy)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, "", err
 	}
 	attributes, err := mapInitialAttributes(options.Attributes)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, "", err
 	}
 	config, err := mapFlowConfig(options.ConfigOverride)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, "", err
+	}
+	requestID, err := newRequestID()
+	if err != nil {
+		return 0, nil, "", err
 	}
 	return timeout, &dexpb.FlowStartOptions{
 		IdReusePolicy:         idReuse,
@@ -127,7 +131,7 @@ func mapStartFlowOptions(
 		FlowAlreadyStartedOptions: mapAlreadyStartedOptions(
 			options.AlreadyStarted,
 		),
-	}, nil
+	}, requestID, nil
 }
 
 func mapAlreadyStartedOptions(
@@ -793,7 +797,11 @@ func mapWaitOptions(options WaitOptions) (int32, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	return timeout, options.RequestID, nil
+	requestID, err := newRequestID()
+	if err != nil {
+		return 0, "", err
+	}
+	return timeout, requestID, nil
 }
 
 func mapWaitForFlowOptions(
@@ -817,7 +825,14 @@ func mapInvokeOptions(
 	if err != nil {
 		return 0, nil, "", err
 	}
-	return timeout, locks, options.RequestID, nil
+	if len(locks) == 0 {
+		return timeout, locks, "", nil
+	}
+	requestID, err := newRequestID()
+	if err != nil {
+		return 0, nil, "", err
+	}
+	return timeout, locks, requestID, nil
 }
 
 func mapSearchFlowsOptions(

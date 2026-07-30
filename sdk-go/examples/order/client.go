@@ -139,7 +139,6 @@ func invokeUpdateOrder(
 			LockAttributes: []dex.AttributeLock{
 				dex.LockAttribute(OrderStatus),
 			},
-			RequestID: "update-order-request",
 		},
 	)
 	return output, err
@@ -252,10 +251,7 @@ func waitForOrderStatus(
 		runID,
 		OrderStatus,
 		"shipped",
-		dex.WaitOptions{
-			Timeout:   time.Minute,
-			RequestID: "wait-order-status-request",
-		},
+		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 
@@ -272,10 +268,7 @@ func waitForItemQuantity(
 		ItemQuantities,
 		"sku-1",
 		3,
-		dex.WaitOptions{
-			Timeout:   time.Minute,
-			RequestID: "wait-item-quantity-request",
-		},
+		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 
@@ -427,10 +420,7 @@ func waitForOrderStep(
 			StepType:        WaitForCommand.GetStepType(),
 			ExecutionNumber: 1,
 		},
-		dex.WaitOptions{
-			Timeout:   time.Minute,
-			RequestID: "wait-order-step-request",
-		},
+		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 

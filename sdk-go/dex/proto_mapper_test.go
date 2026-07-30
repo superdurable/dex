@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -181,7 +182,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	initial, err := Initial(attribute, "ready")
 	require.NoError(t, err)
 
-	flowTimeout, options, err := mapStartFlowOptions(StartFlowOptions{
+	flowTimeout, options, requestID, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:    &timeout,
 		StartDelay: &delay,
 		Attributes: []InitialAttribute{initial},
@@ -195,6 +196,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, uuid.MustParse(requestID))
 	require.Equal(t, int32(2), flowTimeout)
 	require.Equal(t, int32(2), options.FlowStartDelaySeconds)
 	require.Len(t, options.Attributes, 1)
@@ -202,9 +204,33 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NotNil(t, options.FlowConfigOverride.StepDurability)
 	require.True(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
 
-	_, empty, err := mapStartFlowOptions(StartFlowOptions{})
+	_, empty, secondRequestID, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
+	require.NotEqual(t, requestID, secondRequestID)
 	require.Nil(t, empty.FlowConfigOverride)
+}
+
+func TestRequestIDMapping(t *testing.T) {
+	timeout, waitRequestID, err := mapWaitOptions(WaitOptions{
+		Timeout: time.Second,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), timeout)
+	require.NotEqual(t, uuid.Nil, uuid.MustParse(waitRequestID))
+
+	attribute := DefineAttribute[string]("status")
+	_, locks, invokeRequestID, err := mapInvokeOptions(InvokeOptions{
+		LockAttributes: []AttributeLock{LockAttribute(attribute)},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"status"}, locks)
+	require.NotEqual(t, waitRequestID, invokeRequestID)
+	require.NotEqual(t, uuid.Nil, uuid.MustParse(invokeRequestID))
+
+	_, locks, invokeRequestID, err = mapInvokeOptions(InvokeOptions{})
+	require.NoError(t, err)
+	require.Empty(t, locks)
+	require.Empty(t, invokeRequestID)
 }
 
 func TestResultMappingRejectsUnknownEnumsAndBlobValues(t *testing.T) {

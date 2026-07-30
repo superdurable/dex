@@ -32,6 +32,10 @@ type codecRecord struct {
 	Count int
 }
 
+type codecInterface interface {
+	Foo()
+}
+
 func TestValueCodecNativeAndJSONRoundTrips(t *testing.T) {
 	testCases := []struct {
 		name   string
@@ -169,8 +173,47 @@ func TestValueCodecNullAndDecodeValidation(t *testing.T) {
 	), "unsupported object encoding")
 }
 
+func TestValueDecodeRejectsIncompatibleInterfaces(t *testing.T) {
+	testCases := []struct {
+		name   string
+		value  *dexpb.Value
+		target any
+	}{
+		{
+			name: "string to error",
+			value: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+				StringValue: "value",
+			}},
+			target: new(error),
+		},
+		{
+			name: "integer to method interface",
+			value: &dexpb.Value{Kind: &dexpb.Value_IntValue{
+				IntValue: 1,
+			}},
+			target: new(codecInterface),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				err := decodeValue(testCase.value, testCase.target)
+				require.ErrorContains(t, err, "cannot decode")
+			})
+		})
+	}
+
+	var target any
+	require.NoError(t, decodeValue(
+		&dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "value"}},
+		&target,
+	))
+	require.Equal(t, "value", target)
+}
+
 func TestIndexedAttributeEncoding(t *testing.T) {
-	dateTime := time.Date(2026, 7, 30, 10, 0, 0, 0, time.FixedZone("PDT", -7*3600))
+	dateTime := time.Date(2026, 7, 30, 10, 0, 0, 123456789, time.UTC)
 	testCases := []struct {
 		name      string
 		value     any
@@ -189,7 +232,7 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 		{name: "datetime", value: dateTime, indexType: IndexDatetime},
 		{
 			name:      "datetime string",
-			value:     dateTime.Format(dateTimeFormat),
+			value:     "2026-07-30T10:00:00.123456789Z",
 			indexType: IndexDatetime,
 		},
 	}
@@ -203,6 +246,12 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 			require.NotNil(t, value.Kind)
 			require.True(t, config.Enable)
 			require.Equal(t, "shared", config.IndexKey)
+			if testCase.indexType == IndexDatetime {
+				require.Equal(t, dateTime.Format(time.RFC3339Nano), value.GetStringValue())
+				var decoded time.Time
+				require.NoError(t, decodeValue(value, &decoded))
+				require.Equal(t, dateTime, decoded)
+			}
 		})
 	}
 
@@ -211,6 +260,8 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 	_, _, err = encodeAttributeValue("1", &AttributeIndex{Type: IndexInt})
 	require.ErrorContains(t, err, "incompatible")
 	_, _, err = encodeAttributeValue("tomorrow", &AttributeIndex{Type: IndexDatetime})
+	require.ErrorContains(t, err, "invalid absolute datetime")
+	_, _, err = encodeAttributeValue("20240101", &AttributeIndex{Type: IndexDatetime})
 	require.ErrorContains(t, err, "invalid absolute datetime")
 }
 

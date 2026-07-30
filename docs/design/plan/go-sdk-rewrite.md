@@ -128,10 +128,12 @@ never panic.
 | int | signed integers and unsigned integers up to `math.MaxInt64` |
 | double | float32 and float64 |
 | bool | bool and named bools |
-| datetime | `time.Time` or an absolute server-compatible datetime string |
+| datetime | `time.Time` or an RFC3339Nano string |
 
 An indexed delete carries both the null arm and the definition's index config.
 An attribute without indexing omits `IndexConfig`.
+Datetime strings accept UTC `Z` and numeric offsets, preserve fractional
+seconds, and do not interpret numeric strings as Unix nanoseconds.
 
 ### Pure proto mapping
 
@@ -1014,11 +1016,10 @@ change server-side wait semantics.
 
 Request IDs:
 
-- the SDK generates one UUID per logical `InvokeRPC`, `WaitForStepCompletion`, or
-  `WaitForAttributeEqual` call;
+- the SDK generates one UUID per logical `StartFlow`, locking `InvokeRPC`,
+  `WaitForStepCompletion`, or `WaitForAttributeEqual` call;
 - transparent retries reuse it;
-- option structs may accept an advanced override for deterministic tests or an
-  application retry spanning client calls;
+- request IDs are internal and cannot be supplied by applications;
 - a non-locking RPC may omit the wire request ID, while locking RPC always sends
   it.
 
@@ -1154,12 +1155,10 @@ type AlreadyStartedOptions struct {
 type InvokeOptions struct {
 	Timeout        time.Duration
 	LockAttributes []AttributeLock
-	RequestID      string
 }
 
 type WaitOptions struct {
-	Timeout   time.Duration
-	RequestID string
+	Timeout time.Duration
 }
 
 type WaitForFlowOptions struct {
@@ -1428,8 +1427,8 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 11. Step-execution local Set accepts `any`, Get accepts a caller-provided
     pointer, and `RecordEvent(name, any)` compiles.
 12. `Context.WaitForMethodFailed` compiles for Execute implementations.
-13. Non-generic client methods use server identifiers directly, return only run
-    ID from starts, and preserve request-ID overrides.
+13. Non-generic client methods use server identifiers directly and return only
+    run ID from starts.
 
 Package-internal tests cover native and JSON values, indexed attributes,
 duration rounding, waits, decisions, errors, hydration validation, and cache

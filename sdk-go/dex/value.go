@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -28,7 +27,7 @@ import (
 
 const (
 	jsonEncoding     = "json"
-	dateTimeFormat   = "2006-01-02T15:04:05-07:00"
+	dateTimeFormat   = time.RFC3339Nano
 	internalIDPrefix = "__dex_internal_condition_"
 )
 
@@ -248,8 +247,7 @@ func assignString(target reflect.Value, value string) error {
 		return nil
 	}
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(value))
-		return nil
+		return assignInterface(target, value, "string")
 	}
 	if target.Kind() != reflect.String {
 		return decodeTypeError("string", target.Type())
@@ -260,8 +258,7 @@ func assignString(target reflect.Value, value string) error {
 
 func assignInt(target reflect.Value, value int64) error {
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(value))
-		return nil
+		return assignInterface(target, value, "integer")
 	}
 	switch target.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -284,8 +281,7 @@ func assignInt(target reflect.Value, value int64) error {
 
 func assignFloat(target reflect.Value, value float64) error {
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(value))
-		return nil
+		return assignInterface(target, value, "double")
 	}
 	if target.Kind() != reflect.Float32 && target.Kind() != reflect.Float64 {
 		return decodeTypeError("double", target.Type())
@@ -299,13 +295,21 @@ func assignFloat(target reflect.Value, value float64) error {
 
 func assignBool(target reflect.Value, value bool) error {
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(value))
-		return nil
+		return assignInterface(target, value, "boolean")
 	}
 	if target.Kind() != reflect.Bool {
 		return decodeTypeError("boolean", target.Type())
 	}
 	target.SetBool(value)
+	return nil
+}
+
+func assignInterface(target reflect.Value, value any, source string) error {
+	reflected := reflect.ValueOf(value)
+	if !reflected.Type().AssignableTo(target.Type()) {
+		return decodeTypeError(source, target.Type())
+	}
+	target.Set(reflected)
 	return nil
 }
 
@@ -353,10 +357,6 @@ func parseDatetime(value string) (time.Time, error) {
 	dateTime, err := time.Parse(dateTimeFormat, value)
 	if err == nil {
 		return dateTime, nil
-	}
-	unixNano, integerErr := strconv.ParseInt(value, 10, 64)
-	if integerErr == nil {
-		return time.Unix(0, unixNano), nil
 	}
 	return time.Time{}, fmt.Errorf("dex: invalid absolute datetime %q", value)
 }
