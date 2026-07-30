@@ -294,14 +294,14 @@ func (a *Activities) InvokeWorkerRPC(
 	return out, nil
 }
 
-// CleanupBlobStore deletes blob objects for flows that no longer exist in the backend.
-func (a *Activities) CleanupBlobStore(
+// CleanupBlobsAfterAllRunsDeleted deletes blobs after the backend removes every run.
+func (a *Activities) CleanupBlobsAfterAllRunsDeleted(
 	ctx context.Context, input *dexpb.CleanupBlobStoreActivityInput,
 ) (*dexpb.CleanupBlobStoreActivityOutput, error) {
 	store := a.blobStore
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
-	logger.Info("CleanupBlobStore started")
+	logger.Info("CleanupBlobsAfterAllRunsDeleted started")
 	client := a.unifiedClient
 
 	var continueToken *string
@@ -318,20 +318,20 @@ func (a *Activities) CleanupBlobStore(
 		for _, workflowPath := range listOutput.WorkflowPaths {
 			_, valid := blobstore.ExtractYyyymmddToUnixSeconds(workflowPath)
 			if !valid {
-				logger.Info("CleanupBlobStore skipped workflow path", "path", workflowPath)
+				logger.Info("CleanupBlobsAfterAllRunsDeleted skipped workflow path", "path", workflowPath)
 				continue
 			}
 			flowId := blobstore.MustExtractWorkflowId(workflowPath)
 			_, err := client.DescribeWorkflowExecution(ctx, flowId, "", nil)
 			if client.IsNotFoundError(err) {
 				if err := store.DeleteWorkflowObjects(ctx, input.GetStoreId(), workflowPath); err != nil {
-					logger.Error("CleanupBlobStore failed to delete workflow objects", "workflowPath", workflowPath, "error", err)
+					logger.Error("CleanupBlobsAfterAllRunsDeleted failed to delete workflow objects", "workflowPath", workflowPath, "error", err)
 					return nil, err
 				}
 				totalDeleted++
-				logger.Info("CleanupBlobStore deleted workflow objects", "workflowPath", workflowPath)
+				logger.Info("CleanupBlobsAfterAllRunsDeleted deleted workflow objects", "workflowPath", workflowPath)
 			} else if err != nil {
-				logger.Error("CleanupBlobStore failed to describe workflow", "workflowPath", workflowPath, "error", err)
+				logger.Error("CleanupBlobsAfterAllRunsDeleted failed to describe workflow", "workflowPath", workflowPath, "error", err)
 				return nil, err
 			}
 			provider.RecordHeartbeat(ctx)
@@ -340,7 +340,7 @@ func (a *Activities) CleanupBlobStore(
 			break
 		}
 	}
-	logger.Info("CleanupBlobStore completed", "totalDeleted", totalDeleted)
+	logger.Info("CleanupBlobsAfterAllRunsDeleted completed", "totalDeleted", totalDeleted)
 	return &dexpb.CleanupBlobStoreActivityOutput{TotalDeleted: totalDeleted}, nil
 }
 

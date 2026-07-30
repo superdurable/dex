@@ -149,7 +149,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 	iw.worker.RegisterActivity(iw.activities.InvokeExecuteMethod)
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
 	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
-	iw.worker.RegisterActivity(iw.activities.CleanupBlobStore)
+	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)
 
 	err := iw.worker.Start()
 	if err != nil {
@@ -158,11 +158,15 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 
 	if iw.cfg.ExternalStorage.Enabled {
 		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
-			if storeCfg.CleanupCronSchedule != "" {
+			cronSchedule, scheduleErr := storeCfg.CleanupStrategy.CronSchedule()
+			if scheduleErr != nil {
+				log.Fatalln("Invalid blobstore cleanup strategy", scheduleErr)
+			}
+			if cronSchedule != "" {
 				err = iw.unifiedClient.StartBlobStoreCleanupWorkflow(
 					context.Background(), iw.taskQueue,
 					"blobstore-cleanup-"+storeCfg.StorageId,
-					storeCfg.CleanupCronSchedule,
+					cronSchedule,
 					storeCfg.StorageId)
 				if err != nil {
 					if iw.unifiedClient.IsWorkflowAlreadyStartedError(err) {

@@ -64,10 +64,10 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 	}
 	if testCfg.S3TestThreshold > 0 {
 		externalStorage := config.ExternalStorageConfig{
-			Enabled:                     true,
-			LazyLoading:                 testCfg.LazyLoading,
-			ThresholdInBytes:            testCfg.S3TestThreshold,
-			MinAgeForCleanupCheckInDays: 3,
+			Enabled:                true,
+			LazyLoading:            testCfg.LazyLoading,
+			ThresholdInBytes:       testCfg.S3TestThreshold,
+			HistoryRetentionInDays: 3,
 			SupportedStorages: []config.BlobStorageConfig{
 				{
 					Status:      config.StorageStatusActive,
