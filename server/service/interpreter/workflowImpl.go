@@ -64,13 +64,13 @@ func (i *Interpreter) StartEngineFlow(
 		if provider.IsReplaying(ctx) {
 			return
 		}
-		eventType := ""
+		eventType := event.EventTypeUnspecified
 		if retErr == nil {
-			eventType = "FLOW_COMPLETE"
+			eventType = event.EventTypeFlowComplete
 		} else if provider.IsApplicationError(retErr) {
-			eventType = "FLOW_FAIL"
+			eventType = event.EventTypeFlowFail
 		}
-		if eventType == "" {
+		if eventType == event.EventTypeUnspecified {
 			return
 		}
 		info := provider.GetWorkflowInfo(ctx)
@@ -254,7 +254,7 @@ func (i *Interpreter) StartEngineFlow(
 				FlowId:             info.WorkflowExecution.ID,
 				RunId:              info.WorkflowExecution.RunID,
 				FlowType:           basicInfo.FlowType,
-				EventType:          "FLOW_START",
+				EventType:          event.EventTypeFlowStart,
 				StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
 				Attributes:         persistenceManager.GetAllAttributes(),
 			})
@@ -680,9 +680,9 @@ func (i *Interpreter) processStepExecution(
 		}
 	} else {
 		if step.StepOptions != nil {
-			waitForApiTimeout := options.GetWaitForTimeoutSeconds()
-			if waitForApiTimeout > 0 {
-				activityOptions.StartToCloseTimeout = time.Duration(waitForApiTimeout) * time.Second
+			waitForMethodTimeout := options.GetWaitForTimeoutSeconds()
+			if waitForMethodTimeout > 0 {
+				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
 			}
 			activityOptions.RetryPolicy = options.GetWaitForRetryPolicy()
 		}
@@ -718,7 +718,7 @@ func (i *Interpreter) processStepExecution(
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
-		if waitForMethErr != nil && !shouldProceedOnWaitForApiError(step) {
+		if waitForMethErr != nil && !shouldProceedOnWaitForMethodError(step) {
 			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
 
@@ -890,9 +890,9 @@ func (i *Interpreter) invokeExecuteMethod(
 		StartToCloseTimeout: 30 * time.Second,
 	}
 	if step.StepOptions != nil {
-		executeApiTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
-		if executeApiTimeout > 0 {
-			activityOptions.StartToCloseTimeout = time.Duration(executeApiTimeout) * time.Second
+		executeMethodTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
+		if executeMethodTimeout > 0 {
+			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
 		activityOptions.RetryPolicy = step.GetStepOptions().GetExecuteRetryPolicy()
 	}
@@ -949,16 +949,16 @@ func (i *Interpreter) invokeExecuteMethod(
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
 }
 
-func shouldProceedOnWaitForApiError(step *dexpb.StepMovement) bool {
+func shouldProceedOnWaitForMethodError(step *dexpb.StepMovement) bool {
 	return step.GetStepOptions().GetWaitForFailurePolicy() ==
-		dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE
+		dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE
 }
 
 func shouldProceedOnExecuteMethodError(step *dexpb.StepMovement) bool {
 	options := step.GetStepOptions()
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
-			dexpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+			dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
 }
 
 func (i *Interpreter) BlobStoreCleanup(

@@ -76,7 +76,7 @@ func doTestStateApiFailAndProceed(
 		WaitForRetryPolicy: &dexpb.RetryPolicy{
 			MaximumAttempts: 1,
 		},
-		WaitForFailurePolicy: dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE,
+		WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
 	}
 
 	startRequest := &dexpb.StartFlowRequest{
