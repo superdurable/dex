@@ -48,6 +48,16 @@ type UnifiedClient interface {
 	DescribeWorkflowExecution(
 		ctx context.Context, workflowID, runID string, indexedAttrTypes map[string]dexpb.IndexType,
 	) (*DescribeWorkflowExecutionResponse, error)
+	GetWorkflowHistory(
+		ctx context.Context,
+		request *GetWorkflowHistoryRequest,
+	) (*WorkflowHistory, error)
+	WaitForWorkflowHistoryEvent(
+		ctx context.Context,
+		workflowID string,
+		runID string,
+		nextInternalEventID int64,
+	) (*WorkflowHistory, error)
 	GetWorkflowResult(
 		ctx context.Context, valuePtr interface{}, workflowID string, runID string,
 	) (resolvedRunID string, status dexpb.FlowStatus, err error)
@@ -102,4 +112,22 @@ type DescribeWorkflowExecutionResponse struct {
 	IndexedAttributes    map[string]*dexpb.Value
 	Memos                map[string]*dexpb.Value
 	FlowStartedTimestamp int64
+	StartTime            time.Time
+	CloseTime            *time.Time
+}
+
+type GetWorkflowHistoryRequest struct {
+	WorkflowID           string
+	RunID                string
+	StartInternalEventID int64
+	EstimatePageSize     int32
+	NextPageToken        []byte
+}
+
+type WorkflowHistory struct {
+	Events                   []*dexpb.FlowHistoryEvent
+	NextPageToken            []byte
+	NextInternalEventID      int64
+	EventAvailable           bool
+	AvailableInternalEventID int64
 }

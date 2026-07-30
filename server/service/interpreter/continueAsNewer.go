@@ -44,6 +44,7 @@ type ContinueAsNewer struct {
 	stepRequestQueue     *StepRequestQueue
 	channelStore         *ChannelStore
 	stepExecutionCounter *StepExecutionCounter
+	activeStepMovements  map[string]*dexpb.StepMovement
 	persistenceManager   *PersistenceManager
 	outputCollector      *OutputCollector
 	timerProcessor       interfaces.TimerProcessor
@@ -70,6 +71,7 @@ func NewContinueAsNewer(
 		stepRequestQueue:     stepRequestQueue,
 		channelStore:         channelStore,
 		stepExecutionCounter: stepExecutionCounter,
+		activeStepMovements:  map[string]*dexpb.StepMovement{},
 		persistenceManager:   persistenceManager,
 		outputCollector:      collector,
 		timerProcessor:       timerProcessor,
@@ -179,6 +181,53 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 	}
 }
 
+func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExecutionState {
+	queuedResumeRequests := c.stepRequestQueue.GetAllStepResumeRequests()
+	timerInfos := c.timerProcessor.GetTimerInfos()
+	var states []*dexpb.ActiveStepExecutionState
+	for _, stepType := range DeterministicKeys(c.stepExecutionCounter.stepActiveExecutionNums) {
+		for _, executionNumber := range c.stepExecutionCounter.stepActiveExecutionNums[stepType] {
+			stepExecutionID := formatStepExecutionId(stepType, executionNumber)
+			if _, queued := queuedResumeRequests[stepExecutionID]; queued {
+				continue
+			}
+			states = append(
+				states,
+				c.activeStepExecutionState(stepExecutionID, stepType, timerInfos[stepExecutionID]),
+			)
+		}
+	}
+	return states
+}
+
+func (c *ContinueAsNewer) activeStepExecutionState(
+	stepExecutionID string,
+	stepType string,
+	timers []*dexpb.TimerInfo,
+) *dexpb.ActiveStepExecutionState {
+	state := &dexpb.ActiveStepExecutionState{
+		StepExecutionId: stepExecutionID,
+		StepType:        stepType,
+		Phase:           dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_ACTIVE,
+		Movement:        c.activeStepMovements[stepExecutionID],
+		Timers:          timers,
+	}
+	resumeInfo := c.StepExecutionToResumeMap[stepExecutionID]
+	if resumeInfo == nil {
+		if state.GetMovement() != nil {
+			state.FromStepExecutionId = state.GetMovement().GetFromStepExecutionIdInternalOnly()
+		}
+		return state
+	}
+	state.Phase = dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_WAITING
+	state.Movement = resumeInfo.GetStep()
+	state.FromStepExecutionId = resumeInfo.GetStep().GetFromStepExecutionIdInternalOnly()
+	state.WaitingCondition = resumeInfo.GetWaitingCondition()
+	state.CompletedConditions = resumeInfo.GetCompletedConditions()
+	state.StepExecutionLocals = resumeInfo.GetStepExeLocals()
+	return state
+}
+
 func (c *ContinueAsNewer) SetQueryHandlersForContinueAsNew(
 	ctx interfaces.UnifiedContext,
 ) error {
@@ -237,6 +286,20 @@ func (c *ContinueAsNewer) AddPotentialStepExecutionToResume(
 		panic("step resume info requires an execution ID")
 	}
 	c.StepExecutionToResumeMap[resumeInfo.GetStepExecutionId()] = resumeInfo
+}
+
+func (c *ContinueAsNewer) TrackActiveStep(
+	stepExecutionID string,
+	step *dexpb.StepMovement,
+) {
+	if stepExecutionID == "" || step == nil {
+		panic("active step requires an execution ID and movement")
+	}
+	c.activeStepMovements[stepExecutionID] = step
+}
+
+func (c *ContinueAsNewer) RemoveActiveStep(stepExecutionID string) {
+	delete(c.activeStepMovements, stepExecutionID)
 }
 
 func (c *ContinueAsNewer) HasAnyStepExecutionToResume() bool {

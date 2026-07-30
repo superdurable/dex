@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -35,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
 	uclient "github.com/superdurable/dex/service/client"
+	historybuilder "github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/index"
 	realcadence "go.uber.org/cadence"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -42,6 +44,7 @@ import (
 	"go.uber.org/cadence/client"
 	"go.uber.org/cadence/encoded"
 	"go.uber.org/cadence/workflow"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type cadenceClient struct {
@@ -52,6 +55,13 @@ type cadenceClient struct {
 	converter                      encoded.DataConverter
 	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
 	it                             *cadence.InterpreterWorker
+}
+
+type localActivityMarkerData struct {
+	ActivityType string `json:"activityType,omitempty"`
+	ErrReason    string `json:"errReason,omitempty"`
+	ResultJSON   string `json:"resultJson,omitempty"`
+	Attempt      int32  `json:"attempt,omitempty"`
 }
 
 func (t *cadenceClient) IsWorkflowAlreadyStartedError(err error) bool {
@@ -247,10 +257,19 @@ func (t *cadenceClient) ListWorkflow(
 	}
 	var executions []*dexpb.SearchFlowsResponseEntry
 	for _, exe := range resp.GetExecutions() {
+		searchAttributes := index.MapCadenceSearchAttributeFieldsToKVs(exe.GetSearchAttributes())
+		status, err := mapToDexWorkflowStatus(exe.CloseStatus)
+		if err != nil {
+			return nil, err
+		}
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
 			FlowId:           *exe.Execution.WorkflowId,
 			RunId:            *exe.Execution.RunId,
-			SearchAttributes: index.MapCadenceSearchAttributeFieldsToKVs(exe.GetSearchAttributes()),
+			SearchAttributes: searchAttributes,
+			FlowType:         stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
+			FlowStatus:       status,
+			StartTime:        cadenceTimestamp(exe.StartTime),
+			CloseTime:        cadenceTimestamp(exe.CloseTime),
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{
@@ -323,14 +342,480 @@ func (t *cadenceClient) DescribeWorkflowExecution(
 	if err != nil {
 		return nil, err
 	}
+	info := resp.GetWorkflowExecutionInfo()
+	startTime := time.Unix(0, info.GetStartTime())
+	var closeTime *time.Time
+	if info.CloseTime != nil {
+		closeTime = ptr.Any(time.Unix(0, info.GetCloseTime()))
+	}
 
 	return &uclient.DescribeWorkflowExecutionResponse{
-		RunId:             resp.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
+		RunId:             info.GetExecution().GetRunId(),
 		FirstRunId:        "", // Cadence does not provide FirstRunId
 		Status:            status,
 		IndexedAttributes: indexedAttributes,
 		Memos:             memo,
+		StartTime:         startTime,
+		CloseTime:         closeTime,
 	}, nil
+}
+
+func (t *cadenceClient) GetWorkflowHistory(
+	ctx context.Context,
+	request *uclient.GetWorkflowHistoryRequest,
+) (*uclient.WorkflowHistory, error) {
+	response, err := t.getCadenceHistoryPage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	rawEvents := response.GetHistory().GetEvents()
+	startInternalEventID := request.StartInternalEventID
+	if startInternalEventID == 0 {
+		startInternalEventID = 1
+		if len(rawEvents) > 0 {
+			startInternalEventID = rawEvents[0].GetEventId()
+		}
+	}
+	nextInternalEventID := startInternalEventID
+	if len(rawEvents) > 0 {
+		nextInternalEventID = rawEvents[len(rawEvents)-1].GetEventId() + 1
+	}
+	events, err := t.buildCadenceHistoryEvents(
+		ctx,
+		request.WorkflowID,
+		request.RunID,
+		startInternalEventID,
+		nextInternalEventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &uclient.WorkflowHistory{
+		Events:              events,
+		NextPageToken:       response.GetNextPageToken(),
+		NextInternalEventID: nextInternalEventID,
+	}, nil
+}
+
+func (t *cadenceClient) getCadenceHistoryPage(
+	ctx context.Context,
+	request *uclient.GetWorkflowHistoryRequest,
+) (*shared.GetWorkflowExecutionHistoryResponse, error) {
+	nextPageToken := request.NextPageToken
+	for {
+		filterType := shared.HistoryEventFilterTypeAllEvent
+		response, err := t.serviceClient.GetWorkflowExecutionHistory(
+			ctx,
+			&shared.GetWorkflowExecutionHistoryRequest{
+				Domain: &t.domain,
+				Execution: &shared.WorkflowExecution{
+					WorkflowId: &request.WorkflowID,
+					RunId:      &request.RunID,
+				},
+				MaximumPageSize:        ptr.Any(request.EstimatePageSize),
+				NextPageToken:          nextPageToken,
+				HistoryEventFilterType: &filterType,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		rawEvents := response.GetHistory().GetEvents()
+		reachedStart := len(rawEvents) > 0 &&
+			rawEvents[len(rawEvents)-1].GetEventId() >= request.StartInternalEventID
+		if len(request.NextPageToken) > 0 ||
+			request.StartInternalEventID <= 1 ||
+			reachedStart ||
+			len(response.GetNextPageToken()) == 0 {
+			return response, nil
+		}
+		nextPageToken = response.GetNextPageToken()
+	}
+}
+
+func (t *cadenceClient) buildCadenceHistoryEvents(
+	ctx context.Context,
+	workflowID string,
+	runID string,
+	startInternalEventID int64,
+	nextInternalEventID int64,
+) ([]*dexpb.FlowHistoryEvent, error) {
+	iterator := t.cClient.GetWorkflowHistory(
+		ctx,
+		workflowID,
+		runID,
+		false,
+		shared.HistoryEventFilterTypeAllEvent,
+	)
+	builder := historybuilder.NewBuilder(workflowID, runID)
+	scheduledTypes := map[int64]string{}
+	fallbackFailures := map[string][]*dexpb.StepMethodAttemptFailure{}
+	for iterator.HasNext() {
+		event, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		if err := t.addCadenceHistoryEvent(
+			builder,
+			scheduledTypes,
+			fallbackFailures,
+			event,
+		); err != nil {
+			return nil, err
+		}
+	}
+	return builder.EventsInRange(startInternalEventID, nextInternalEventID)
+}
+
+func (t *cadenceClient) WaitForWorkflowHistoryEvent(
+	ctx context.Context,
+	workflowID string,
+	runID string,
+	nextInternalEventID int64,
+) (*uclient.WorkflowHistory, error) {
+	iterator := t.cClient.GetWorkflowHistory(
+		ctx,
+		workflowID,
+		runID,
+		true,
+		shared.HistoryEventFilterTypeAllEvent,
+	)
+	for iterator.HasNext() {
+		event, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		if event.GetEventId() >= nextInternalEventID {
+			return &uclient.WorkflowHistory{
+				EventAvailable:           true,
+				AvailableInternalEventID: event.GetEventId(),
+			}, nil
+		}
+	}
+	return &uclient.WorkflowHistory{}, nil
+}
+
+func (t *cadenceClient) addCadenceHistoryEvent(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *shared.HistoryEvent,
+) error {
+	eventTime := time.Unix(0, event.GetTimestamp())
+	switch event.GetEventType() {
+	case shared.EventTypeWorkflowExecutionStarted:
+		var input dexpb.InterpreterWorkflowInput
+		if err := t.converter.FromData(
+			event.GetWorkflowExecutionStartedEventAttributes().GetInput(),
+			&input,
+		); err != nil {
+			return err
+		}
+		builder.RecordStart(event.GetEventId(), eventTime, &input)
+	case shared.EventTypeActivityTaskScheduled:
+		return t.recordCadenceScheduledActivity(
+			builder,
+			scheduledTypes,
+			fallbackFailures,
+			event,
+		)
+	case shared.EventTypeActivityTaskStarted:
+		attributes := event.GetActivityTaskStartedEventAttributes()
+		var lastFailure *dexpb.StepMethodFailure
+		if attributes.GetLastFailureReason() != "" {
+			lastFailure = &dexpb.StepMethodFailure{
+				Message:    attributes.GetLastFailureReason(),
+				ErrorType:  attributes.GetLastFailureReason(),
+				RetryState: "RETRY_STATE_IN_PROGRESS",
+			}
+		}
+		builder.RecordActivityStarted(
+			eventTime,
+			attributes.GetScheduledEventId(),
+			attributes.GetAttempt(),
+			lastFailure,
+		)
+	case shared.EventTypeActivityTaskCompleted:
+		return t.recordCadenceCompletedActivity(builder, scheduledTypes, event)
+	case shared.EventTypeActivityTaskFailed:
+		attributes := event.GetActivityTaskFailedEventAttributes()
+		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			return nil
+		}
+		return builder.RecordActivityFailed(
+			event.GetEventId(),
+			eventTime,
+			attributes.GetScheduledEventId(),
+			&dexpb.StepMethodFailure{
+				Message:   attributes.GetReason(),
+				ErrorType: attributes.GetReason(),
+			},
+		)
+	case shared.EventTypeActivityTaskTimedOut:
+		attributes := event.GetActivityTaskTimedOutEventAttributes()
+		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			return nil
+		}
+		return builder.RecordActivityFailed(
+			event.GetEventId(),
+			eventTime,
+			attributes.GetScheduledEventId(),
+			&dexpb.StepMethodFailure{
+				Message:    "step method activity timed out",
+				RetryState: attributes.GetTimeoutType().String(),
+			},
+		)
+	case shared.EventTypeMarkerRecorded:
+		return t.recordCadenceLocalActivity(builder, fallbackFailures, event)
+	case shared.EventTypeWorkflowExecutionSignaled:
+		attributes := event.GetWorkflowExecutionSignaledEventAttributes()
+		if attributes.GetSignalName() != service.ExecuteRpcSignalChannelName {
+			return nil
+		}
+		var request dexpb.ExecuteRpcSignalRequest
+		if err := t.converter.FromData(attributes.GetInput(), &request); err != nil {
+			return err
+		}
+		builder.RecordSignal(event.GetEventId(), eventTime, &request)
+	case shared.EventTypeWorkflowExecutionCompleted:
+		var output dexpb.InterpreterWorkflowOutput
+		attributes := event.GetWorkflowExecutionCompletedEventAttributes()
+		if len(attributes.GetResult()) > 0 {
+			if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
+				return err
+			}
+		}
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+			Results:    output.GetStepCompletionOutputs(),
+		})
+	case shared.EventTypeWorkflowExecutionFailed:
+		attributes := event.GetWorkflowExecutionFailedEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
+			ErrorType:    cadenceFlowErrorType(attributes.GetReason()),
+			ErrorMessage: attributes.GetReason(),
+		})
+	case shared.EventTypeWorkflowExecutionTimedOut:
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_TIMEOUT,
+		})
+	case shared.EventTypeWorkflowExecutionTerminated:
+		attributes := event.GetWorkflowExecutionTerminatedEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
+			ErrorMessage: attributes.GetReason(),
+		})
+	case shared.EventTypeWorkflowExecutionCanceled:
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_CANCELED,
+		})
+	case shared.EventTypeWorkflowExecutionContinuedAsNew:
+		attributes := event.GetWorkflowExecutionContinuedAsNewEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:       dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW,
+			ContinuedToRunId: attributes.GetNewExecutionRunId(),
+		})
+	}
+	return nil
+}
+
+func (t *cadenceClient) recordCadenceScheduledActivity(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *shared.HistoryEvent,
+) error {
+	attributes := event.GetActivityTaskScheduledEventAttributes()
+	activityType := attributes.GetActivityType().GetName()
+	durability := dexpb.StepDurability_STEP_DURABILITY_SYNC
+	method := activityMethod(activityType)
+	var previousFailures []*dexpb.StepMethodAttemptFailure
+	if failures := fallbackFailures[method]; len(failures) > 0 {
+		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+		previousFailures = failures
+		delete(fallbackFailures, method)
+	}
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		var input dexpb.InvokeWaitForMethodActivityInput
+		if err := t.converter.FromData(attributes.GetInput(), &input); err != nil {
+			return err
+		}
+		builder.RecordWaitScheduled(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			&input,
+			durability,
+			previousFailures,
+		)
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		var input dexpb.InvokeExecuteMethodActivityInput
+		if err := t.converter.FromData(attributes.GetInput(), &input); err != nil {
+			return err
+		}
+		builder.RecordExecuteScheduled(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			&input,
+			durability,
+			previousFailures,
+		)
+	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
+	default:
+		return nil
+	}
+	scheduledTypes[event.GetEventId()] = activityType
+	return nil
+}
+
+func (t *cadenceClient) recordCadenceCompletedActivity(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	event *shared.HistoryEvent,
+) error {
+	attributes := event.GetActivityTaskCompletedEventAttributes()
+	activityType := scheduledTypes[attributes.GetScheduledEventId()]
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		var output dexpb.InvokeWaitForMethodActivityOutput
+		if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		return builder.RecordActivityCompleted(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			attributes.GetScheduledEventId(),
+			&output,
+			nil,
+		)
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		var output dexpb.InvokeExecuteMethodActivityOutput
+		if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		return builder.RecordActivityCompleted(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			attributes.GetScheduledEventId(),
+			nil,
+			&output,
+		)
+	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
+		var output dexpb.DumpFlowForContinueAsNewActivityOutput
+		if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		builder.RecordContinueDump(&output)
+	}
+	return nil
+}
+
+func (t *cadenceClient) recordCadenceLocalActivity(
+	builder *historybuilder.Builder,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *shared.HistoryEvent,
+) error {
+	attributes := event.GetMarkerRecordedEventAttributes()
+	if attributes.GetMarkerName() != "LocalActivity" {
+		return nil
+	}
+	var marker localActivityMarkerData
+	if err := t.converter.FromData(attributes.GetDetails(), &marker); err != nil {
+		return err
+	}
+	if marker.ResultJSON == "" {
+		method := activityMethod(marker.ActivityType)
+		fallbackFailures[method] = append(
+			fallbackFailures[method],
+			&dexpb.StepMethodAttemptFailure{
+				Attempt:    marker.Attempt + 1,
+				FailedTime: timestamppb.New(time.Unix(0, event.GetTimestamp())),
+				Failure: &dexpb.StepMethodFailure{
+					Message:    marker.ErrReason,
+					ErrorType:  marker.ErrReason,
+					RetryState: "RETRY_STATE_IN_PROGRESS",
+				},
+			},
+		)
+		return nil
+	}
+	previousFailures := fallbackFailures[activityMethod(marker.ActivityType)]
+	delete(fallbackFailures, activityMethod(marker.ActivityType))
+	result := []byte(marker.ResultJSON)
+	switch {
+	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+		var output dexpb.InvokeWaitForMethodActivityOutput
+		if err := t.converter.FromData(result, &output); err != nil {
+			return err
+		}
+		builder.RecordLocalWaitCompleted(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			&output,
+			marker.Attempt+1,
+			previousFailures,
+		)
+	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+		var output dexpb.InvokeExecuteMethodActivityOutput
+		if err := t.converter.FromData(result, &output); err != nil {
+			return err
+		}
+		builder.RecordLocalExecuteCompleted(
+			event.GetEventId(),
+			time.Unix(0, event.GetTimestamp()),
+			&output,
+			marker.Attempt+1,
+			previousFailures,
+		)
+	case strings.Contains(marker.ActivityType, "DumpFlowForContinueAsNew"):
+		var output dexpb.DumpFlowForContinueAsNewActivityOutput
+		if err := t.converter.FromData(result, &output); err != nil {
+			return err
+		}
+		builder.RecordContinueDump(&output)
+	}
+	return nil
+}
+
+func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {
+	value, ok := dexpb.FlowErrorType_value[reason]
+	if !ok {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
+	}
+	return dexpb.FlowErrorType(value)
+}
+
+func activityMethod(activityType string) string {
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		return "wait-for"
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		return "execute"
+	default:
+		return activityType
+	}
+}
+
+func isStepActivity(activityType string) bool {
+	return strings.Contains(activityType, "InvokeWaitForMethod") ||
+		strings.Contains(activityType, "InvokeExecuteMethod")
+}
+
+func stringSearchAttribute(attributes []*dexpb.KV, key string) string {
+	for _, attribute := range attributes {
+		if attribute.GetKey() == key {
+			return attribute.GetValue().GetStringValue()
+		}
+	}
+	return ""
+}
+
+func cadenceTimestamp(timestamp *int64) *timestamppb.Timestamp {
+	if timestamp == nil {
+		return nil
+	}
+	return timestamppb.New(time.Unix(0, *timestamp))
 }
 
 func (t *cadenceClient) decodeMemo(memo *shared.Memo) (map[string]*dexpb.Value, error) {

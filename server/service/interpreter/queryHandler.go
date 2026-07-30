@@ -57,6 +57,7 @@ func SetQueryHandlers(
 			Config:                     flowConfiger.Get(),
 			Snapshot:                   continueAsNewer.GetSnapshot(),
 			FiringTimersUnixTimestamps: timerProcessor.GetTimerStartedUnixTimestamps(),
+			ActiveStepExecutions:       continueAsNewer.GetActiveStepExecutionStates(),
 		}, nil
 	})
 	if err != nil {

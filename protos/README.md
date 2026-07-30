@@ -33,13 +33,24 @@ accepts no input.
 
 ## Search flows
 
-`SearchFlows` returns each execution's flow ID, run ID, and all search
-attributes supplied by the backend visibility API. Search attribute values use
-the `Value` oneof; the response does not expose backend index types.
+`SearchFlows` returns each execution's flow ID, run ID, flow type, status,
+start/close times, and all search attributes supplied by the backend visibility
+API. Search attribute values use the `Value` oneof; the response does not
+expose backend index types.
 
 Temporal type metadata preserves numeric types. Cadence visibility payloads do
 not include index types, so Dex infers numbers from JSON: integral JSON numbers
 become `int_value`, and other numbers become `double_value`.
+
+## Web introspection
+
+`GetFlowSummary` returns Dex execution metadata. `GetHistoryEvents` converts
+Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
+supports incremental refresh. `GetFlowState` returns the interpreter
+snapshot for a running flow.
+
+History events describe flows, step methods, RPCs, and channel publications.
+They do not expose workflow tasks, activities, markers, or raw backend events.
 
 ### Transient step movement
 
@@ -69,3 +80,4 @@ make -C protos proto
 | `sdk-python/dex/dexpb/` | `sdk-python/dex/dex_api/` |
 
 `make -C server idl-code-gen` and `make -C sdk-go idl-code-gen` delegate to `make -C protos proto`.
+Use `make -C server idl-code-gen-server` to regenerate only server Go stubs.

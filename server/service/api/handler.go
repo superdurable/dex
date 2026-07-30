@@ -133,6 +133,34 @@ func (h *handler) SearchFlows(
 	return h.svc.SearchFlows(ctx, req)
 }
 
+func (h *handler) GetFlowSummary(
+	ctx context.Context,
+	req *dexpb.GetFlowSummaryRequest,
+) (*dexpb.GetFlowSummaryResponse, error) {
+	return h.svc.GetFlowSummary(ctx, req)
+}
+
+func (h *handler) GetHistoryEvents(
+	ctx context.Context,
+	req *dexpb.GetHistoryEventsRequest,
+) (*dexpb.GetHistoryEventsResponse, error) {
+	return h.svc.GetHistoryEvents(ctx, req)
+}
+
+func (h *handler) WaitForHistoryEvent(
+	ctx context.Context,
+	req *dexpb.WaitForHistoryEventRequest,
+) (*dexpb.WaitForHistoryEventResponse, error) {
+	return h.svc.WaitForHistoryEvent(ctx, req)
+}
+
+func (h *handler) GetFlowState(
+	ctx context.Context,
+	req *dexpb.GetFlowStateRequest,
+) (*dexpb.GetFlowStateResponse, error) {
+	return h.svc.GetFlowState(ctx, req)
+}
+
 func (h *handler) ResetFlow(
 	ctx context.Context,
 	req *dexpb.ResetFlowRequest,

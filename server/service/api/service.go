@@ -46,7 +46,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const defaultHistoryPageSize = 100
 
 type serviceImpl struct {
 	client         uclient.UnifiedClient
@@ -687,6 +690,148 @@ func (s *serviceImpl) SearchFlows(
 	return &dexpb.SearchFlowsResponse{
 		FlowRuns:      response.Executions,
 		NextPageToken: string(response.NextPageToken),
+	}, nil
+}
+
+func (s *serviceImpl) GetFlowSummary(
+	ctx context.Context,
+	req *dexpb.GetFlowSummaryRequest,
+) (*dexpb.GetFlowSummaryResponse, error) {
+	if req == nil || req.GetFlowId() == "" {
+		return nil, makeInvalidRequestError("flow ID is required")
+	}
+	description, err := s.client.DescribeWorkflowExecution(
+		ctx,
+		req.GetFlowId(),
+		req.GetRunId(),
+		map[string]dexpb.IndexType{
+			service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	)
+	if err != nil {
+		return nil, s.handleError(err)
+	}
+	response := &dexpb.GetFlowSummaryResponse{
+		FlowExecutionId: &dexpb.FlowExecutionID{
+			FlowId: req.GetFlowId(),
+			RunId:  description.RunId,
+		},
+		FirstRunId: description.FirstRunId,
+		RequestId:  decodeStringMemo(description.Memos[service.WorkflowRequestId]),
+		FlowType:   description.IndexedAttributes[service.SearchAttributeDexWorkflowType].GetStringValue(),
+		FlowStatus: description.Status,
+		StartTime:  timestamppb.New(description.StartTime),
+	}
+	if description.CloseTime != nil {
+		response.CloseTime = timestamppb.New(*description.CloseTime)
+	}
+	return response, nil
+}
+
+func decodeStringMemo(value *dexpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	return string(value.GetObjValue().GetPayload())
+}
+
+func (s *serviceImpl) GetHistoryEvents(
+	ctx context.Context,
+	req *dexpb.GetHistoryEventsRequest,
+) (*dexpb.GetHistoryEventsResponse, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetRunId() == "" {
+		return nil, makeInvalidRequestError("flow ID and run ID are required")
+	}
+	if req.GetStartInternalEventId() < 0 || req.GetEstimatePageSize() < 0 {
+		return nil, makeInvalidRequestError("event ID and page size must be non-negative")
+	}
+	pageSize := req.GetEstimatePageSize()
+	if pageSize == 0 {
+		pageSize = defaultHistoryPageSize
+	}
+	history, err := s.client.GetWorkflowHistory(ctx, &uclient.GetWorkflowHistoryRequest{
+		WorkflowID:           req.GetFlowId(),
+		RunID:                req.GetRunId(),
+		StartInternalEventID: req.GetStartInternalEventId(),
+		EstimatePageSize:     pageSize,
+		NextPageToken:        req.GetNextPageToken(),
+	})
+	if err != nil {
+		return nil, s.handleError(err)
+	}
+	return &dexpb.GetHistoryEventsResponse{
+		Events:              history.Events,
+		NextPageToken:       history.NextPageToken,
+		NextInternalEventId: history.NextInternalEventID,
+	}, nil
+}
+
+func (s *serviceImpl) WaitForHistoryEvent(
+	ctx context.Context,
+	req *dexpb.WaitForHistoryEventRequest,
+) (*dexpb.WaitForHistoryEventResponse, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetRunId() == "" || req.GetNextInternalEventId() <= 0 {
+		return nil, makeInvalidRequestError("flow ID, run ID, and positive next event ID are required")
+	}
+	history, err := s.client.WaitForWorkflowHistoryEvent(
+		ctx,
+		req.GetFlowId(),
+		req.GetRunId(),
+		req.GetNextInternalEventId(),
+	)
+	if err != nil {
+		if s.client.IsRequestTimeoutError(err) {
+			return nil, serviceerrors.DeadlineExceededLongPoll(
+				"history long poll exceeded the deadline",
+			).ToGRPCError()
+		}
+		return nil, s.handleError(err)
+	}
+	description, err := s.client.DescribeWorkflowExecution(
+		ctx,
+		req.GetFlowId(),
+		req.GetRunId(),
+		nil,
+	)
+	if err != nil {
+		return nil, s.handleError(err)
+	}
+	return &dexpb.WaitForHistoryEventResponse{
+		EventAvailable:           history.EventAvailable,
+		AvailableInternalEventId: history.AvailableInternalEventID,
+		FlowStatus:               description.Status,
+	}, nil
+}
+
+func (s *serviceImpl) GetFlowState(
+	ctx context.Context,
+	req *dexpb.GetFlowStateRequest,
+) (*dexpb.GetFlowStateResponse, error) {
+	if req == nil || req.GetFlowId() == "" {
+		return nil, makeInvalidRequestError("flow ID is required")
+	}
+	description, err := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), req.GetRunId(), nil)
+	if err != nil {
+		return nil, s.handleError(err)
+	}
+	var dump dexpb.DebugDumpResponse
+	if err := s.client.QueryWorkflow(
+		ctx,
+		&dump,
+		req.GetFlowId(),
+		description.RunId,
+		service.DebugDumpQueryType,
+	); err != nil {
+		return nil, s.handleError(err)
+	}
+	snapshot := dump.GetSnapshot()
+	return &dexpb.GetFlowStateResponse{
+		FlowConfig:             dump.GetConfig(),
+		Attributes:             snapshot.GetAttributes(),
+		ActiveStepExecutions:   dump.GetActiveStepExecutions(),
+		QueuedSteps:            snapshot.GetStepsToStartFromBeginning(),
+		PendingChannelMessages: snapshot.GetChannelReceived(),
+		CompletedSteps:         snapshot.GetStepOutputs(),
 	}, nil
 }
 
