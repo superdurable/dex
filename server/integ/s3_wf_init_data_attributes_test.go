@@ -78,6 +78,7 @@ func doTestWorkflowWithS3InitDataAttributes(t *testing.T, backendType service.Ba
 
 	flowId := s3_init_data_attributes.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3_init_data_attributes.WorkflowType,
 		FlowTimeoutSeconds: 100,

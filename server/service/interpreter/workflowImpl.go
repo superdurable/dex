@@ -1029,7 +1029,7 @@ func (i *Interpreter) BlobStoreCleanup(
 		&output,
 		dexpb.StepDurability_STEP_DURABILITY_SYNC,
 		activityCtx,
-		i.activities.CleanupBlobStore,
+		i.activities.CleanupBlobsAfterAllRunsDeleted,
 		&dexpb.CleanupBlobStoreActivityInput{
 			StoreId: storeId,
 		},

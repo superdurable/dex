@@ -45,6 +45,10 @@ const (
 )
 
 const (
+	CleanupStrategyTypeAfterAllRunsDeleted CleanupStrategyType = "afterAllRunsDeleted"
+)
+
+const (
 	// DefaultApiPort is the default FlowService/InternalService gRPC bind port.
 	DefaultApiPort = 8801
 	// DefaultMaxWaitSeconds caps WaitForFlow / WaitForStepCompletion / WaitForAttribute when MaxWaitSeconds is 0.
@@ -96,13 +100,20 @@ type (
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStorageConfig `yaml:"supportedStorages"`
-		// MinAgeForCleanupCheckInDays stops cleanup scans for objects newer than now minus this many days. Align with Temporal/Cadence retention.
-		// Default 0 means no age gate. Need to manually set as it needs to align with Temporal/Cadence retention.
-		MinAgeForCleanupCheckInDays int `yaml:"minAgeForCleanupCheckInDays"`
+		// HistoryRetentionInDays must match the Temporal/Cadence history retention. Default 0; configure it explicitly.
+		HistoryRetentionInDays int `yaml:"historyRetentionInDays"`
 	}
 
-	StorageStatus string
-	StorageType   string
+	StorageStatus       string
+	StorageType         string
+	CleanupStrategyType string
+
+	CleanupStrategy struct {
+		// CleanupStrategyType selects cleanup eligibility. Default and only supported value: afterAllRunsDeleted.
+		CleanupStrategyType CleanupStrategyType `yaml:"cleanupStrategyType"`
+		// CleanupFrequencyInDays schedules cleanup at midnight every Nth day-of-month. Default 0 disables scheduled cleanup.
+		CleanupFrequencyInDays int `yaml:"cleanupFrequencyInDays"`
+	}
 
 	BlobStorageConfig struct {
 		// Status is "active" (writable) or "inactive" (read-only). Only one active store is allowed.
@@ -121,8 +132,8 @@ type (
 		S3AccessKey string `yaml:"s3AccessKey"`
 		// S3SecretKey is the secret access key for S3 auth.
 		S3SecretKey string `yaml:"s3SecretKey"`
-		// CleanupCronSchedule is a standard cron for the blob cleanup workflow. Empty disables cleanup.
-		CleanupCronSchedule string `yaml:"cleanupCronSchedule"`
+		// CleanupStrategy controls automatic blob cleanup. Default type is afterAllRunsDeleted; zero frequency disables scheduling.
+		CleanupStrategy CleanupStrategy `yaml:"cleanupStrategy"`
 	}
 
 	ApiConfig struct {
@@ -283,6 +294,26 @@ func (c ExternalStorageConfig) EffectiveLazyLoading() bool {
 		return true
 	}
 	return *c.LazyLoading
+}
+
+func (c CleanupStrategy) CronSchedule() (string, error) {
+	strategyType := c.CleanupStrategyType
+	if strategyType == "" {
+		strategyType = CleanupStrategyTypeAfterAllRunsDeleted
+	}
+	if strategyType != CleanupStrategyTypeAfterAllRunsDeleted {
+		return "", fmt.Errorf("unsupported cleanup strategy type: %s", strategyType)
+	}
+	if c.CleanupFrequencyInDays < 0 {
+		return "", fmt.Errorf("cleanup frequency in days must be non-negative")
+	}
+	if c.CleanupFrequencyInDays == 0 {
+		return "", nil
+	}
+	if c.CleanupFrequencyInDays == 1 {
+		return "0 0 * * *", nil
+	}
+	return fmt.Sprintf("0 0 */%d * *", c.CleanupFrequencyInDays), nil
 }
 
 // EffectiveGrpcMaxMessageBytes returns GrpcMaxMessageBytes or DefaultGrpcMaxMessageBytes.

@@ -142,13 +142,16 @@ cleanTestCache:
 integTests:
 	$Q go test -v ./integ
 
+blobCacheTests:
+	$Q go test -race ./dex/blobcache
+
 unitTests:
 	$Q go test -v ./dex
 
-tests: integTests unitTests
+tests: integTests unitTests blobCacheTests
 
 ci-tests:
-	$Q go test -v -cover ./integ ./dex -coverprofile coverage.out -coverpkg ./dex/...
+	$Q go test -v -cover ./integ ./dex ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...
 
 fmt:
 	$Q gofmt -s -w ./dex ./dextest ./integ

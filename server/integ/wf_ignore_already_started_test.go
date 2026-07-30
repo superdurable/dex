@@ -39,36 +39,17 @@ func TestIgnoreAlreadyStartedFlowTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, nil, true)
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, nil, "first", "second", true)
 		smallWaitForFastTest()
 
 		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, &dexpb.FlowAlreadyStartedOptions{
 			IgnoreAlreadyStartedError: true,
-		}, false)
+		}, "retry", "retry", false)
 		smallWaitForFastTest()
 
-		doIgnoreAlreadyStartedFlow(
-			t,
-			service.BackendTypeTemporal,
-			&dexpb.FlowAlreadyStartedOptions{RequestId: "test"},
-			&dexpb.FlowAlreadyStartedOptions{
-				IgnoreAlreadyStartedError: true,
-				RequestId:                 "test",
-			},
-			false,
-		)
-		smallWaitForFastTest()
-
-		doIgnoreAlreadyStartedFlow(
-			t,
-			service.BackendTypeTemporal,
-			&dexpb.FlowAlreadyStartedOptions{RequestId: "test1"},
-			&dexpb.FlowAlreadyStartedOptions{
-				IgnoreAlreadyStartedError: true,
-				RequestId:                 "test2",
-			},
-			true,
-		)
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeTemporal, nil, &dexpb.FlowAlreadyStartedOptions{
+			IgnoreAlreadyStartedError: true,
+		}, "first", "second", true)
 		smallWaitForFastTest()
 	}
 }
@@ -78,36 +59,17 @@ func TestIgnoreAlreadyStartedFlowCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, nil, true)
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, nil, "first", "second", true)
 		smallWaitForFastTest()
 
 		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, &dexpb.FlowAlreadyStartedOptions{
 			IgnoreAlreadyStartedError: true,
-		}, false)
+		}, "retry", "retry", false)
 		smallWaitForFastTest()
 
-		doIgnoreAlreadyStartedFlow(
-			t,
-			service.BackendTypeCadence,
-			&dexpb.FlowAlreadyStartedOptions{RequestId: "test"},
-			&dexpb.FlowAlreadyStartedOptions{
-				IgnoreAlreadyStartedError: true,
-				RequestId:                 "test",
-			},
-			false,
-		)
-		smallWaitForFastTest()
-
-		doIgnoreAlreadyStartedFlow(
-			t,
-			service.BackendTypeCadence,
-			&dexpb.FlowAlreadyStartedOptions{RequestId: "test1"},
-			&dexpb.FlowAlreadyStartedOptions{
-				IgnoreAlreadyStartedError: true,
-				RequestId:                 "test2",
-			},
-			true,
-		)
+		doIgnoreAlreadyStartedFlow(t, service.BackendTypeCadence, nil, &dexpb.FlowAlreadyStartedOptions{
+			IgnoreAlreadyStartedError: true,
+		}, "first", "second", true)
 		smallWaitForFastTest()
 	}
 }
@@ -117,6 +79,8 @@ func doIgnoreAlreadyStartedFlow(
 	backendType service.BackendType,
 	firstReqConfig *dexpb.FlowAlreadyStartedOptions,
 	secondReqConfig *dexpb.FlowAlreadyStartedOptions,
+	firstRequestID string,
+	secondRequestID string,
 	errorExpected bool,
 ) {
 	workerTarget := startWorker(t, wf_ignore_already_started.NewHandler())
@@ -127,11 +91,11 @@ func doIgnoreAlreadyStartedFlow(
 	defer cancel()
 
 	flowId := wf_ignore_already_started.FlowType + "-" + uuid.NewString()
-	firstReq := createStartFlowRequest(flowId, workerTarget, firstReqConfig)
+	firstReq := createStartFlowRequest(flowId, workerTarget, firstRequestID, firstReqConfig)
 	firstRes, err := flowClient.StartFlow(ctx, firstReq)
 	require.NoError(t, err)
 
-	secondReq := createStartFlowRequest(flowId, workerTarget, secondReqConfig)
+	secondReq := createStartFlowRequest(flowId, workerTarget, secondRequestID, secondReqConfig)
 	secondRes, err := flowClient.StartFlow(ctx, secondReq)
 
 	if errorExpected {
@@ -156,9 +120,11 @@ func doIgnoreAlreadyStartedFlow(
 func createStartFlowRequest(
 	flowId string,
 	workerTarget *dexpb.WorkerTarget,
+	requestID string,
 	options *dexpb.FlowAlreadyStartedOptions,
 ) *dexpb.StartFlowRequest {
 	return &dexpb.StartFlowRequest{
+		RequestId:          requestID,
 		FlowId:             flowId,
 		FlowType:           wf_ignore_already_started.FlowType,
 		FlowTimeoutSeconds: 10,

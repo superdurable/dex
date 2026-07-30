@@ -46,6 +46,7 @@ func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.Activ
 	info := activity.GetInfo(ctx)
 	return interfaces.ActivityInfo{
 		ScheduledTime:   info.ScheduledTime,
+		ActivityID:      info.ActivityID,
 		Attempt:         info.Attempt,
 		IsLocalActivity: info.IsLocalActivity,
 		WorkflowExecution: interfaces.WorkflowExecution{

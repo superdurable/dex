@@ -31,6 +31,8 @@ module map.
   external constraints. Prefer clearer names over obvious new comments.
 - Keep each new contiguous comment block under 20 words. Ask before exceeding
   this for a new comment.
+- An explicit user request for a paragraph, detailed explanation, or longer
+  comment authorizes exceeding this limit without asking again.
 - These comment rules do not apply to existing comments. Never simplify,
   shorten, rephrase, grammar-fix, or delete existing comments for style.
 - Preserve existing comments verbatim during refactors and move them with their
@@ -38,6 +40,8 @@ module map.
   every original detail and meaning.
 - The new-comment rules do not apply to `server/config/`; configuration comments
   should favor complete operational semantics.
+- Comments documenting function or method return values are exempt from the
+  20-word limit and should describe complete return semantics.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 

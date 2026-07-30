@@ -91,6 +91,7 @@ func doTestWaitForStateCompletion(
 	flowId := wait_for_state_completion.WorkflowType + uuid.NewString()
 	nowTimestamp := time.Now().Unix()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -161,6 +162,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-timeout-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -206,6 +208,7 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-can-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -244,6 +247,7 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-cancel-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -321,6 +325,7 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-closed-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -359,6 +364,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-concurrent-" + uuid.NewString()
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 60,
@@ -420,6 +426,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-invalid-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
 		FlowTimeoutSeconds: 30,

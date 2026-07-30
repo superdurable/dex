@@ -57,6 +57,7 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 	flowId := "TestStartFlowWithoutStartOptions-" + uuid.NewString()
 	stepInput := encodedObjectValue("json", []byte("test data"))
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,

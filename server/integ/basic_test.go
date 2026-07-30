@@ -112,6 +112,7 @@ func doTestBasicFlow(
 		},
 	}
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 100,

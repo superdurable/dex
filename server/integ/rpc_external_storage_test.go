@@ -83,6 +83,7 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 
 	flowId := rpcStorage.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           rpcStorage.WorkflowType,
 		FlowTimeoutSeconds: 30,
@@ -102,6 +103,7 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 	}, 5*time.Second, 50*time.Millisecond)
 
 	rpcRequest := &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        rpcStorage.UpdateDataAttributesRPC,
 		Input:          objJSONValue(`"rpc-input"`),

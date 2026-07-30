@@ -77,6 +77,7 @@ func doTestWorkflowWithS3StateInputOptimization(t *testing.T, backendType servic
 
 	flowId := s3_state_input_optimization.WorkflowType + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           s3_state_input_optimization.WorkflowType,
 		FlowTimeoutSeconds: 100,

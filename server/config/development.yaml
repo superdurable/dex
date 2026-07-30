@@ -19,7 +19,7 @@ interpreter:
 externalStorage:
   enabled: true
   thresholdInBytes: 100000 # 100 KB
-  minAgeForCleanupCheckInDays: 3
+  historyRetentionInDays: 3
   supportedStorages:
     - status: active
       storageId: "local-dev-s3"
@@ -29,4 +29,6 @@ externalStorage:
       s3Region: "us-east-1"
       s3AccessKey: "minioadmin"
       s3SecretKey: "minioadmin"
-      cleanupCronSchedule: "0 0 * * *" #every day at 00:00
+      cleanupStrategy:
+        cleanupStrategyType: afterAllRunsDeleted
+        cleanupFrequencyInDays: 1

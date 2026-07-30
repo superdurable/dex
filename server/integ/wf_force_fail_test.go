@@ -71,6 +71,7 @@ func doTestFlowForceFail(
 
 	flowId := "wf-force-fail-test-" + uuid.NewString()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wf_force_fail.FlowType,
 		FlowTimeoutSeconds: 10,

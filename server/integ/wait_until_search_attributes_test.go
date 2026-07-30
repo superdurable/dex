@@ -75,6 +75,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 
 	flowId := wait_until_search_attributes.WorkflowType + uuid.NewString()
 	startRequest := &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_until_search_attributes.WorkflowType,
 		FlowTimeoutSeconds: 20,

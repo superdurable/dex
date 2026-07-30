@@ -59,6 +59,7 @@ func testUpdateWorkerTarget(t *testing.T, backendType service.BackendType) {
 
 	flowID := "worker-target-update-" + uuid.NewString()
 	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 20,
