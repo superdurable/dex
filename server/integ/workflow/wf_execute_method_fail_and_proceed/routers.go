@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package wf_execute_api_fail_and_proceed
+package wf_execute_method_fail_and_proceed
 
 import (
 	"context"
@@ -41,7 +41,7 @@ import (
  *		- Execute method will gracefully complete flow
  */
 const (
-	FlowType          = "wf_execute_api_fail_and_proceed"
+	FlowType          = "wf_execute_method_fail_and_proceed"
 	Step1             = "S1"
 	StepRecover       = "Recover"
 	InputData         = "test-data"

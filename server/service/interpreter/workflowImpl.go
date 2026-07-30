@@ -890,9 +890,9 @@ func (i *Interpreter) invokeExecuteMethod(
 		StartToCloseTimeout: 30 * time.Second,
 	}
 	if step.StepOptions != nil {
-		executeApiTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
-		if executeApiTimeout > 0 {
-			activityOptions.StartToCloseTimeout = time.Duration(executeApiTimeout) * time.Second
+		executeMethodTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
+		if executeMethodTimeout > 0 {
+			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
 		activityOptions.RetryPolicy = step.GetStepOptions().GetExecuteRetryPolicy()
 	}
@@ -958,7 +958,7 @@ func shouldProceedOnExecuteMethodError(step *dexpb.StepMovement) bool {
 	options := step.GetStepOptions()
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
-			dexpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+			dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
 }
 
 func (i *Interpreter) BlobStoreCleanup(

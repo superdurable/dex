@@ -201,10 +201,10 @@ enum WaitForMethodFailurePolicy {
   WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
 }
 
-enum ExecuteApiFailurePolicy {
-  EXECUTE_API_FAILURE_POLICY_UNSPECIFIED = 0;
-  EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE = 1;
-  EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;
+enum ExecuteMethodFailurePolicy {
+  EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
+  EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1;
+  EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;
 }
 
 message StepOptions {
@@ -213,7 +213,7 @@ message StepOptions {
   RetryPolicy wait_for_retry_policy = 3;
   RetryPolicy execute_retry_policy = 4;
   WaitForMethodFailurePolicy wait_for_failure_policy = 5;
-  ExecuteApiFailurePolicy execute_failure_policy = 6;
+  ExecuteMethodFailurePolicy execute_failure_policy = 6;
   string execute_failure_proceed_step_type = 7;
   StepOptions execute_failure_proceed_step_options = 8;
   bool skip_wait_for = 9;
