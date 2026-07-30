@@ -1,3 +1,5 @@
+# How waitForStateCompletion works
+
 What is **Signal-With-Start** in [Temporal](https://docs.temporal.io/encyclopedia/workflow-message-passing#signal-with-start):
 
 - Signal a workflow if it's running (already started), otherwise, start and signal it atomically
