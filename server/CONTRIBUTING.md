@@ -60,6 +60,12 @@ package-global environments or registries.
 `WaitForStepCompletion`, `WaitForAttribute`, and locking RPCs are Temporal-only
 synchronous updates. Non-locking RPCs remain available on both backends.
 
+Their protobuf requests require a client-generated `request_id`. The server passes
+it to Temporal as the Update ID, so one logical call must reuse the same ID across
+retries and keep the operation and input unchanged. Temporal deduplicates only
+within one namespace, workflow ID, and run ID; Continue-as-New starts a new
+deduplication scope. SDK support remains deferred during the server rewrite.
+
 Memo is reserved for worker-target and request-id metadata. Never store attributes
 in Memo.
 

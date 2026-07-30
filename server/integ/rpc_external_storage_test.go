@@ -114,6 +114,7 @@ func doTestRpcExternalStorage(t *testing.T, backendType service.BackendType, use
 			rpcStorage.SmallDataKey,
 			rpcStorage.LargeDataKey,
 		}
+		rpcRequest.RequestId = uuid.NewString()
 	}
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, rpcRequest)

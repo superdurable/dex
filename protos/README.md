@@ -19,6 +19,18 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
 change the target for subsequent WorkerService calls while the flow is running.
 
+## Step close decisions
+
+`StepDecision.close_decision` explicitly ends a step thread or flow. Graceful
+completion waits for other active steps; force completion and force failure end
+the flow immediately; dead end ends only the current step thread.
+
+`FORCE_COMPLETE_ON_CHANNELS_EMPTY` atomically completes when every named channel
+is empty. It requires unique, non-empty `conditional_channel_names` and at least
+one `next_steps` fallback. Other close types cannot include channel names or
+next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
+accepts no input.
+
 ## Search flows
 
 `SearchFlows` returns each execution's flow ID, run ID, and all search
@@ -28,6 +40,18 @@ the `Value` oneof; the response does not expose backend index types.
 Temporal type metadata preserves numeric types. Cadence visibility payloads do
 not include index types, so Dex infers numbers from JSON: integral JSON numbers
 become `int_value`, and other numbers become `double_value`.
+
+### Transient step movement
+
+`InvokeWaitForMethodResponse.transient_step_movement` optionally runs one
+skip-WaitFor step before the returned waiting condition starts. The movement
+cannot configure failure-proceed behavior, and its Execute method must return a
+DeadEnd close decision without next steps.
+
+The server applies WaitFor writes before the transient Execute. It normalizes
+timer deadlines and makes the source step resumable only after the transient
+step succeeds. Continue-as-new may be requested during the transient Execute,
+but the run transition waits for that Execute to finish.
 
 ## Codegen
 

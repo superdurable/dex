@@ -195,16 +195,16 @@ message FlowRetryPolicy {
   int32 maximum_attempts = 4;
 }
 
-enum WaitForApiFailurePolicy {
-  WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED = 0;
-  WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;
-  WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
+enum WaitForMethodFailurePolicy {
+  WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
+  WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;
+  WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
 }
 
-enum ExecuteApiFailurePolicy {
-  EXECUTE_API_FAILURE_POLICY_UNSPECIFIED = 0;
-  EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE = 1;
-  EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;
+enum ExecuteMethodFailurePolicy {
+  EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
+  EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1;
+  EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;
 }
 
 message StepOptions {
@@ -212,8 +212,8 @@ message StepOptions {
   int32 execute_timeout_seconds = 2;
   RetryPolicy wait_for_retry_policy = 3;
   RetryPolicy execute_retry_policy = 4;
-  WaitForApiFailurePolicy wait_for_failure_policy = 5;
-  ExecuteApiFailurePolicy execute_failure_policy = 6;
+  WaitForMethodFailurePolicy wait_for_failure_policy = 5;
+  ExecuteMethodFailurePolicy execute_failure_policy = 6;
   string execute_failure_proceed_step_type = 7;
   StepOptions execute_failure_proceed_step_options = 8;
   bool skip_wait_for = 9;
@@ -442,6 +442,7 @@ message InvokeRPCRequest {
   // Acquire exclusive lock on these attribute keys for the RPC's
   // read-modify-write. Empty = non-locking RPC.
   repeated string lock_attribute_keys = 6;
+  // Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
   string request_id = 7;
 }
 
@@ -469,6 +470,8 @@ message WaitForStepCompletionRequest {
   string step_type = 2;
   string step_execution_number = 3;
   int32 wait_time_seconds = 5;
+  // Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+  string request_id = 6;
 }
 
 message WaitForStepCompletionResponse {}
@@ -479,6 +482,8 @@ message WaitForAttributeRequest {
   WaitForAttributeCondition condition = 3;
   // Zero/omit checks once; positive waits until match or timeout.
   int32 wait_time_seconds = 4;
+  // Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+  string request_id = 5;
 }
 
 message WaitForAttributeCondition {
@@ -545,6 +550,7 @@ message InvokeWaitForMethodResponse {
   repeated KV upsert_step_exe_locals = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  StepMovement transient_step_movement = 7;
 }
 
 message InvokeExecuteMethodRequest {
@@ -586,26 +592,26 @@ message InvokeWorkerRPCResponse {
 
 message StepDecision {
   repeated StepMovement next_steps = 1;
-  FlowConditionalClose conditional_close = 2;
+  CloseDecision close_decision = 2;
 }
 
-enum FlowConditionalCloseType {
-  FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED = 0;
-  FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;
-  // TODO implement this in the future
-  // FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY = 2;
+enum CloseDecisionType {
+  CLOSE_DECISION_TYPE_UNSPECIFIED = 0;
+  CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;
+  CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE = 2;
+  CLOSE_DECISION_TYPE_FORCE_COMPLETE = 3;
+  CLOSE_DECISION_TYPE_FORCE_FAIL = 4;
+  CLOSE_DECISION_TYPE_DEAD_END = 5;
 }
 
-message FlowConditionalClose {
-  FlowConditionalCloseType conditional_close_type = 1;
-  repeated string channel_names = 2;
+message CloseDecision {
+  CloseDecisionType close_decision_type = 1;
+  repeated string conditional_channel_names = 2;
   Value close_input = 3;
 }
 
 message StepMovement {
   string step_type = 1;
-  // For _SYS_FORCE_FAILING_FLOW, only string_value is used as ErrorResponse.detail;
-  // other Value kinds are ignored.
   Value step_input = 2;
   StepOptions step_options = 3;
   // Server-owned scheduling source; workers must leave this empty.
@@ -791,6 +797,8 @@ message InvokeWaitForMethodActivityOutput {
 message InvokeExecuteMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
+  // Requires a DeadEnd close decision without next steps.
+  bool is_transient_step = 3;
 }
 
 message InvokeExecuteMethodActivityOutput {

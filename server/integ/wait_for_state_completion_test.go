@@ -118,6 +118,7 @@ func doTestWaitForStateCompletion(
 			StepType:            wait_for_state_completion.State2,
 			StepExecutionNumber: "1",
 			WaitTimeSeconds:     30,
+			RequestId:           uuid.NewString(),
 		})
 		require.NoError(t, err)
 	} else {
@@ -126,6 +127,7 @@ func doTestWaitForStateCompletion(
 			StepType:            wait_for_state_completion.State1,
 			StepExecutionNumber: "1",
 			WaitTimeSeconds:     30,
+			RequestId:           uuid.NewString(),
 		})
 		require.NoError(t, err)
 	}
@@ -176,6 +178,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		StepType:            wait_for_state_completion.State1,
 		StepExecutionNumber: "999",
 		WaitTimeSeconds:     0,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
@@ -223,6 +226,7 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     30,
+		RequestId:           uuid.NewString(),
 	})
 	require.NoError(t, err)
 
@@ -263,6 +267,7 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 			StepType:            wait_for_state_completion.State2,
 			StepExecutionNumber: "1",
 			WaitTimeSeconds:     30,
+			RequestId:           uuid.NewString(),
 		})
 		waitDone <- waitErr
 	}()
@@ -298,6 +303,7 @@ func doTestWaitForStateCompletionNotFound(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     1,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -341,6 +347,7 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     30,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -356,7 +363,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-concurrent-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
@@ -373,6 +380,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     30,
+		RequestId:           uuid.NewString(),
 	}
 
 	var waitGroup sync.WaitGroup
@@ -390,6 +398,16 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	for waitIndex, waitErr := range waitErrors {
 		require.NoError(t, waitErr, "waiter %d failed", waitIndex)
 	}
+	accepted, completed := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		startResponse.GetRunId(),
+		waitRequest.GetRequestId(),
+	)
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 1, completed)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
@@ -421,9 +439,20 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
+		StepType:            wait_for_state_completion.State2,
+		StepExecutionNumber: "1",
+		WaitTimeSeconds:     1,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:              flowId,
 		StepType:            "",
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     1,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -433,6 +462,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "abc",
 		WaitTimeSeconds:     1,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -442,6 +472,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     -1,
+		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

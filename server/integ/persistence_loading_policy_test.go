@@ -91,6 +91,7 @@ func doTestPersistenceLoadingPolicy(
 			persistence.TestSearchAttributeTextKey,
 			"da_2",
 		}
+		rpcRequest.RequestId = uuid.NewString()
 	}
 
 	_, err = flowClient.InvokeRPC(ctx, rpcRequest)

@@ -64,13 +64,13 @@ func (i *Interpreter) StartEngineFlow(
 		if provider.IsReplaying(ctx) {
 			return
 		}
-		eventType := ""
+		eventType := event.EventTypeUnspecified
 		if retErr == nil {
-			eventType = "FLOW_COMPLETE"
+			eventType = event.EventTypeFlowComplete
 		} else if provider.IsApplicationError(retErr) {
-			eventType = "FLOW_FAIL"
+			eventType = event.EventTypeFlowFail
 		}
-		if eventType == "" {
+		if eventType == event.EventTypeUnspecified {
 			return
 		}
 		info := provider.GetWorkflowInfo(ctx)
@@ -254,7 +254,7 @@ func (i *Interpreter) StartEngineFlow(
 				FlowId:             info.WorkflowExecution.ID,
 				RunId:              info.WorkflowExecution.RunID,
 				FlowType:           basicInfo.FlowType,
-				EventType:          "FLOW_START",
+				EventType:          event.EventTypeFlowStart,
 				StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
 				Attributes:         persistenceManager.GetAllAttributes(),
 			})
@@ -325,8 +325,13 @@ func (i *Interpreter) StartEngineFlow(
 						timerProcessor,
 						continueAsNewer,
 						continueAsNewCounter,
+						stepExecutionCounter,
 						flowConfiger,
 					)
+					if stepExecutionStatus == service.StepExecutionStatusInternalError {
+						errToFailWf = stepExeErr
+						return
+					}
 					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
 						errToFailWf = normalizeStepFailureError(provider, stepExeErr)
@@ -376,10 +381,7 @@ func (i *Interpreter) StartEngineFlow(
 							stepExeId,
 							decision.GetNextSteps(),
 						); err != nil {
-							errToFailWf = provider.NewFlowError(
-								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-								&dexpb.ErrorResponse{Detail: err.Error()},
-							)
+							errToFailWf = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
@@ -526,13 +528,14 @@ func checkClosingWorkflow(
 	completeOutput *dexpb.StepCompletionOutput,
 	err error,
 ) {
-	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
-		if conditionalClose.ConditionalCloseType !=
-			dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
-			err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-				&dexpb.ErrorResponse{Detail: "invalid step decisions. Unsupported ConditionalCloseType "})
-			return
-		}
+	closeDecision := decision.GetCloseDecision()
+	if closeDecision == nil {
+		canGoNext = true
+		return
+	}
+
+	switch closeDecision.GetCloseDecisionType() {
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
 		// trigger a signal draining so that all the channel messages are processed
 		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 		// Messages of channels could be published via step executions, within the same workflow task.
@@ -548,8 +551,8 @@ func checkClosingWorkflow(
 		}
 
 		conditionMet := true
-		for _, chName := range conditionalClose.ChannelNames {
-			if channelStore.HasData(chName) {
+		for _, channelName := range closeDecision.GetConditionalChannelNames() {
+			if channelStore.HasData(channelName) {
 				conditionMet = false
 			}
 		}
@@ -560,59 +563,32 @@ func checkClosingWorkflow(
 			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      conditionalClose.CloseInput,
+				CompletedStepOutput:      closeDecision.GetCloseInput(),
 			}
 			return
 		}
-		for _, st := range decision.GetNextSteps() {
-			if service.ValidClosingFlowStepType[st.GetStepType()] {
-				err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-					&dexpb.ErrorResponse{Detail: "invalid ConditionUnmetDecision with stepType: " + st.GetStepType()})
-				return
-			}
-		}
-
 		canGoNext = true
 		return
-
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE:
+		gracefulComplete = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE:
+		forceComplete = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL:
+		forceFail = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END:
+		return
+	default:
+		err = provider.NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			&dexpb.ErrorResponse{Detail: "invalid close decision type"},
+		)
+		return
 	}
 
-	canGoNext = true
-	for _, movement := range decision.GetNextSteps() {
-		switch movement.GetStepType() {
-		case service.GracefulCompletingFlowStepType:
-			canGoNext = false
-			gracefulComplete = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.ForceCompletingFlowStepType:
-			canGoNext = false
-			forceComplete = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.ForceFailingFlowStepType:
-			canGoNext = false
-			forceFail = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.DeadEndFlowStepType:
-			canGoNext = false
-		}
-	}
-
-	if !canGoNext && len(decision.NextSteps) > 1 {
-		// Illegal decision
-		err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			&dexpb.ErrorResponse{Detail: "invalid step decisions. Closing workflow decision cannot be combined with other state decisions"})
+	completeOutput = &dexpb.StepCompletionOutput{
+		CompletedStepType:        currentStepType,
+		CompletedStepExecutionId: currentStepExeId,
+		CompletedStepOutput:      closeDecision.GetCloseInput(),
 	}
 	return
 }
@@ -628,6 +604,7 @@ func (i *Interpreter) processStepExecution(
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewer *ContinueAsNewer,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
+	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
@@ -646,6 +623,7 @@ func (i *Interpreter) processStepExecution(
 	var waitForMethErr error
 	var stepExeLocals []*dexpb.KV
 	var waitingCondition *dexpb.WaitingCondition
+	var transientStep *dexpb.StepMovement
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
@@ -667,6 +645,7 @@ func (i *Interpreter) processStepExecution(
 			continueAsNewer,
 			flowConfiger,
 			stepExeLocals,
+			false,
 		)
 	}
 
@@ -680,9 +659,9 @@ func (i *Interpreter) processStepExecution(
 		}
 	} else {
 		if step.StepOptions != nil {
-			waitForApiTimeout := options.GetWaitForTimeoutSeconds()
-			if waitForApiTimeout > 0 {
-				activityOptions.StartToCloseTimeout = time.Duration(waitForApiTimeout) * time.Second
+			waitForMethodTimeout := options.GetWaitForTimeoutSeconds()
+			if waitForMethodTimeout > 0 {
+				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
 			}
 			activityOptions.RetryPolicy = options.GetWaitForRetryPolicy()
 		}
@@ -694,7 +673,7 @@ func (i *Interpreter) processStepExecution(
 		if len(lockAttributeKeys) > 0 {
 			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 			if err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			attributes = loadedAttributes
 		}
@@ -718,7 +697,7 @@ func (i *Interpreter) processStepExecution(
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
-		if waitForMethErr != nil && !shouldProceedOnWaitForApiError(step) {
+		if waitForMethErr != nil && !shouldProceedOnWaitForMethodError(step) {
 			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
 
@@ -728,18 +707,35 @@ func (i *Interpreter) processStepExecution(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
 			); err != nil {
-				return nil, service.StepExecutionStatusFailedNoProceed, err
+				return nil, service.StepExecutionStatusInternalError, err
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			waitingCondition = activityOutput.Response.GetWaitingCondition()
-			if waitingCondition != nil {
-				waitingCondition = timers.FixTimerConditionFromActivityOutput(
-					provider.Now(ctx),
-					waitingCondition,
-				)
-			}
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
+			transientStep = activityOutput.Response.GetTransientStepMovement()
 		}
+	}
+	if transientStep != nil {
+		transientStatus, transientErr := i.processTransientStepExecution(
+			ctx,
+			provider,
+			basicInfo,
+			transientStep,
+			persistenceManager,
+			channelStore,
+			continueAsNewer,
+			stepExecutionCounter,
+			flowConfiger,
+		)
+		if transientStatus != service.StepExecutionStatusCompleted {
+			return nil, transientStatus, transientErr
+		}
+	}
+	if !isResumeFromContinueAsNew && waitingCondition != nil {
+		waitingCondition = timers.FixTimerConditionFromActivityOutput(
+			provider.Now(ctx),
+			waitingCondition,
+		)
 	}
 	if waitingCondition == nil {
 		waitingCondition = &dexpb.WaitingCondition{}
@@ -868,7 +864,63 @@ func (i *Interpreter) processStepExecution(
 		continueAsNewer,
 		flowConfiger,
 		stepExeLocals,
+		false,
 	)
+}
+
+func (i *Interpreter) processTransientStepExecution(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	basicInfo service.BasicInfo,
+	step *dexpb.StepMovement,
+	persistenceManager *PersistenceManager,
+	channelStore *ChannelStore,
+	continueAsNewer *ContinueAsNewer,
+	stepExecutionCounter *StepExecutionCounter,
+	flowConfiger *interpreterconfig.FlowConfiger,
+) (service.StepExecutionStatus, error) {
+	stepRequest := NewStepStartRequest(step)
+	if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
+		[]StepRequest{stepRequest},
+	); err != nil {
+		return service.StepExecutionStatusInternalError, err
+	}
+
+	stepExecutionId := stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
+	info := provider.GetWorkflowInfo(ctx)
+	executionContext := &dexpb.Context{
+		FlowId:               info.WorkflowExecution.ID,
+		RunId:                info.FirstRunID,
+		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
+		StepExecutionId:      stepExecutionId,
+		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
+	}
+	decision, status, err := i.invokeExecuteMethod(
+		ctx,
+		provider,
+		basicInfo,
+		step,
+		stepExecutionId,
+		persistenceManager,
+		channelStore,
+		executionContext,
+		nil,
+		continueAsNewer,
+		flowConfiger,
+		nil,
+		true,
+	)
+	if status != service.StepExecutionStatusCompleted {
+		return status, err
+	}
+	if err := stepExecutionCounter.MarkStepExecutionCompleted(
+		step,
+		stepExecutionId,
+		decision.GetNextSteps(),
+	); err != nil {
+		return service.StepExecutionStatusInternalError, err
+	}
+	return service.StepExecutionStatusCompleted, nil
 }
 
 func (i *Interpreter) invokeExecuteMethod(
@@ -884,15 +936,16 @@ func (i *Interpreter) invokeExecuteMethod(
 	continueAsNewer *ContinueAsNewer,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
+	isTransientStep bool,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 	}
 	if step.StepOptions != nil {
-		executeApiTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
-		if executeApiTimeout > 0 {
-			activityOptions.StartToCloseTimeout = time.Duration(executeApiTimeout) * time.Second
+		executeMethodTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
+		if executeMethodTimeout > 0 {
+			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
 		activityOptions.RetryPolicy = step.GetStepOptions().GetExecuteRetryPolicy()
 	}
@@ -904,7 +957,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	if len(lockAttributeKeys) > 0 {
 		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
-			return nil, service.StepExecutionStatusFailedNoProceed, err
+			return nil, service.StepExecutionStatusInternalError, err
 		}
 	}
 
@@ -915,7 +968,8 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		i.activities.InvokeExecuteMethod,
 		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget: flowConfiger.GetWorkerTarget(),
+			WorkerTarget:    flowConfiger.GetWorkerTarget(),
+			IsTransientStep: isTransientStep,
 			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,
@@ -942,23 +996,23 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		executeResponse.GetUpsertAttributes(),
 	); err != nil {
-		return nil, service.StepExecutionStatusFailedNoProceed, err
+		return nil, service.StepExecutionStatusInternalError, err
 	}
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
 }
 
-func shouldProceedOnWaitForApiError(step *dexpb.StepMovement) bool {
+func shouldProceedOnWaitForMethodError(step *dexpb.StepMovement) bool {
 	return step.GetStepOptions().GetWaitForFailurePolicy() ==
-		dexpb.WaitForApiFailurePolicy_WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE
+		dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE
 }
 
 func shouldProceedOnExecuteMethodError(step *dexpb.StepMovement) bool {
 	options := step.GetStepOptions()
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
-			dexpb.ExecuteApiFailurePolicy_EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+			dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
 }
 
 func (i *Interpreter) BlobStoreCleanup(

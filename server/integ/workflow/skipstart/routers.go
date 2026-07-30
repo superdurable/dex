@@ -26,7 +26,6 @@ import (
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -62,7 +61,7 @@ func (h *handler) InvokeWaitForMethod(
 	_ context.Context,
 	_ *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	return nil, status.Error(codes.InvalidArgument, "waitFor API should be skipped")
+	return nil, status.Error(codes.InvalidArgument, "waitFor method should be skipped")
 }
 
 func (h *handler) InvokeExecuteMethod(
@@ -93,12 +92,7 @@ func (h *handler) InvokeExecuteMethod(
 		} else if request.GetStepType() == State2 {
 			return &dexpb.InvokeExecuteMethodResponse{
 				StepDecision: &dexpb.StepDecision{
-					NextSteps: []*dexpb.StepMovement{
-						{
-							StepType:  service.GracefulCompletingFlowStepType,
-							StepInput: request.GetStepInput(),
-						},
-					},
+					CloseDecision: common.GracefulCompleteDecision(request.GetStepInput()),
 				},
 			}, nil
 		}

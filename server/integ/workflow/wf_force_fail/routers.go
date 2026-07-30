@@ -26,7 +26,6 @@ import (
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 )
 
 /**
@@ -97,12 +96,7 @@ func (h *handler) InvokeExecuteMethod(
 
 	return &dexpb.InvokeExecuteMethodResponse{
 		StepDecision: &dexpb.StepDecision{
-			NextSteps: []*dexpb.StepMovement{
-				{
-					StepType:  service.ForceFailingFlowStepType,
-					StepInput: testStepInput,
-				},
-			},
+			CloseDecision: common.ForceFailDecision(testStepInput),
 		},
 	}, nil
 }

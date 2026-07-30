@@ -23,11 +23,12 @@ package deadend
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/dex/integ/workflow/common"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -54,6 +55,7 @@ const (
 type handler struct {
 	dexpb.UnimplementedWorkerServiceServer
 	invokeHistory sync.Map
+	rpcInvokes    atomic.Int32
 }
 
 func NewHandler() *handler {
@@ -75,6 +77,7 @@ func (h *handler) InvokeWorkerRPC(
 	if request.GetFlowType() != WorkflowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
+	h.rpcInvokes.Add(1)
 
 	switch request.GetRpcName() {
 	case RPCTriggerState:
@@ -92,6 +95,7 @@ func (h *handler) InvokeWorkerRPC(
 			},
 		}, nil
 	case RPCWriteData:
+		time.Sleep(50 * time.Millisecond)
 		return &dexpb.InvokeWorkerRPCResponse{
 			UpsertAttributes: []*dexpb.AttributeWrite{
 				{
@@ -135,9 +139,7 @@ func (h *handler) InvokeExecuteMethod(
 		if request.GetStepType() == State1 {
 			return &dexpb.InvokeExecuteMethodResponse{
 				StepDecision: &dexpb.StepDecision{
-					NextSteps: []*dexpb.StepMovement{
-						{StepType: service.DeadEndFlowStepType},
-					},
+					CloseDecision: common.DeadEndDecision(),
 				},
 			}, nil
 		}
@@ -153,4 +155,8 @@ func (h *handler) GetTestResult() common.TestResult {
 		return true
 	})
 	return common.TestResult{InvokeHistory: invokeHistory}
+}
+
+func (h *handler) GetRPCInvokes() int32 {
+	return h.rpcInvokes.Load()
 }

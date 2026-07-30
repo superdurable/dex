@@ -264,11 +264,11 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 	time.Sleep(time.Second)
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId:         newRequestID(),
 		FlowId:            flowId,
 		RpcName:           rpc.RPCNameError,
 		Input:             rpc.TestInput,
 		TimeoutSeconds:    2,
+		RequestId:         uuid.NewString(),
 		LockAttributeKeys: []string{"unused-lock-key"},
 	})
 	require.Error(t, err)
@@ -283,11 +283,11 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 	assertions.Equal(int32(codes.Unavailable), workerFail.GetOriginalWorkerErrorStatus())
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId:         newRequestID(),
 		FlowId:            flowId,
 		RpcName:           rpc.RPCNameReadOnly,
 		Input:             rpc.TestInput,
 		TimeoutSeconds:    2,
+		RequestId:         uuid.NewString(),
 		LockAttributeKeys: []string{""},
 	})
 	require.Error(t, err)

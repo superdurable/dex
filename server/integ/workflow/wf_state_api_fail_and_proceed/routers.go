@@ -26,7 +26,6 @@ import (
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -71,7 +70,7 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if request.GetStepType() == Step1 {
-		return nil, status.Error(codes.InvalidArgument, "waitFor API failure")
+		return nil, status.Error(codes.InvalidArgument, "waitFor method failure")
 	}
 
 	panic("should not get here")
@@ -100,9 +99,7 @@ func (h *handler) InvokeExecuteMethod(
 
 	return &dexpb.InvokeExecuteMethodResponse{
 		StepDecision: &dexpb.StepDecision{
-			NextSteps: []*dexpb.StepMovement{
-				{StepType: service.GracefulCompletingFlowStepType},
-			},
+			CloseDecision: common.GracefulCompleteDecision(nil),
 		},
 	}, nil
 }

@@ -70,7 +70,7 @@ func (h *handler) InvokeWaitForMethod(
 
 		if request.GetStepType() == Step1 {
 			time.Sleep(30 * time.Second)
-			return nil, status.Error(codes.InvalidArgument, "waitFor API timeout")
+			return nil, status.Error(codes.InvalidArgument, "waitFor method timeout")
 		}
 	}
 

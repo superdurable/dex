@@ -274,6 +274,9 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
 	if req.GetStepType() == "" || req.GetStepExecutionNumber() == "" {
 		return nil, makeInvalidRequestError("step type and step execution number are required")
 	}
@@ -297,6 +300,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			&response,
 			req.GetFlowId(),
 			"",
+			req.GetRequestId(),
 			service.WaitForStepCompletionUpdateType,
 			req,
 		)
@@ -328,6 +332,9 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAt
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
 	equal := req.GetCondition().GetEqual()
 	if equal == nil || equal.GetKey() == "" || equal.GetValue() == nil ||
 		equal.GetValue().GetKind() == nil {
@@ -348,6 +355,7 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAt
 			&response,
 			req.GetFlowId(),
 			"",
+			req.GetRequestId(),
 			service.WaitForAttributeUpdateType,
 			req,
 		)
@@ -734,7 +742,7 @@ func (s *serviceImpl) InvokeRPC(
 		len(workerResponse.GetRecordEvents()) > 0 ||
 		len(workerResponse.GetPublishToChannel()) > 0 ||
 		len(decision.GetNextSteps()) > 0 ||
-		decision.GetConditionalClose() != nil {
+		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),
@@ -765,12 +773,16 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required for locking RPC")
+	}
 	var result dexpb.InvokeRpcUpdateResult
 	if err := s.client.SynchronousUpdateWorkflow(
 		ctx,
 		&result,
 		req.GetFlowId(),
 		req.GetRunId(),
+		req.GetRequestId(),
 		service.ExecuteOptimisticLockingRpcUpdateType,
 		req,
 	); err != nil {

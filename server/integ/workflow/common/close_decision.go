@@ -18,46 +18,33 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package event
+package common
 
 import "github.com/superdurable/dex/gen/dexpb"
 
-type EventType int
-
-const (
-	EventTypeUnspecified EventType = iota
-	EventTypeFlowStart
-	EventTypeFlowComplete
-	EventTypeFlowFail
-	EventTypeWaitForAttemptFail
-	EventTypeWaitForAttemptSucc
-	EventTypeExecuteAttemptFail
-	EventTypeExecuteAttemptSucc
-	EventTypeRPCExecution
-)
-
-// Event is a lightweight server-side observability hook payload (not an IDL type).
-type Event struct {
-	FlowId             string
-	RunId              string
-	FlowType           string
-	StepType           string
-	StepExecutionId    string
-	RpcName            string
-	EventType          EventType
-	StartTimestampInMs int64
-	Attributes         []*dexpb.KV
+func GracefulCompleteDecision(closeInput *dexpb.Value) *dexpb.CloseDecision {
+	return &dexpb.CloseDecision{
+		CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+		CloseInput:        closeInput,
+	}
 }
 
-// HandleEventFunc must be lightweight, reliable, and fast (<1s).
-type HandleEventFunc func(event Event)
-
-var Handle HandleEventFunc = DefaultHandleEventFunc
-
-func SetHandleEventFunc(handler HandleEventFunc) {
-	Handle = handler
+func ForceCompleteDecision(closeInput *dexpb.Value) *dexpb.CloseDecision {
+	return &dexpb.CloseDecision{
+		CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+		CloseInput:        closeInput,
+	}
 }
 
-func DefaultHandleEventFunc(event Event) {
-	// Noop by default
+func ForceFailDecision(closeInput *dexpb.Value) *dexpb.CloseDecision {
+	return &dexpb.CloseDecision{
+		CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL,
+		CloseInput:        closeInput,
+	}
+}
+
+func DeadEndDecision() *dexpb.CloseDecision {
+	return &dexpb.CloseDecision{
+		CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END,
+	}
 }

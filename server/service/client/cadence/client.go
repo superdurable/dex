@@ -443,7 +443,7 @@ func (t *cadenceClient) GetWorkflowResult(
 }
 
 func (t *cadenceClient) SynchronousUpdateWorkflow(
-	ctx context.Context, valuePtr interface{}, workflowID, runID, updateType string, input interface{},
+	ctx context.Context, valuePtr interface{}, workflowID, runID, updateID, updateType string, input interface{},
 ) error {
 	return fmt.Errorf("not supported in Cadence")
 }

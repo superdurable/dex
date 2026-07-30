@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package wf_execute_api_fail_and_proceed
+package wf_execute_method_fail_and_proceed
 
 import (
 	"context"
@@ -26,7 +26,6 @@ import (
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -41,7 +40,7 @@ import (
  *		- Execute method will gracefully complete flow
  */
 const (
-	FlowType          = "wf_execute_api_fail_and_proceed"
+	FlowType          = "wf_execute_method_fail_and_proceed"
 	Step1             = "S1"
 	StepRecover       = "Recover"
 	InputData         = "test-data"
@@ -94,9 +93,7 @@ func (h *handler) InvokeExecuteMethod(
 	if request.GetStepType() == StepRecover {
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: []*dexpb.StepMovement{
-					{StepType: service.GracefulCompletingFlowStepType},
-				},
+				CloseDecision: common.GracefulCompleteDecision(nil),
 			},
 		}, nil
 	}
