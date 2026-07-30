@@ -237,12 +237,9 @@ func getObject(ctx context.Context, client *s3.Client, bucketName, key string) (
 	}
 
 	data, readErr := io.ReadAll(result.Body)
-	closeErr := result.Body.Close()
+	_ = result.Body.Close()
 	if readErr != nil {
 		return nil, readErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
 	}
 	return data, nil
 }
