@@ -315,6 +315,7 @@ func (i *Interpreter) StartEngineFlow(
 					} else {
 						stepExeId = stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
 					}
+					continueAsNewer.TrackActiveStep(stepExeId, step)
 
 					decision, stepExecutionStatus, stepExeErr := i.processStepExecution(ctx, provider,
 						basicInfo,
@@ -376,6 +377,7 @@ func (i *Interpreter) StartEngineFlow(
 							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 						}
 						// finally, mark step completed and may also update system search attribute
+						continueAsNewer.RemoveActiveStep(stepExeId)
 						if err := stepExecutionCounter.MarkStepExecutionCompleted(
 							step,
 							stepExeId,
@@ -392,6 +394,7 @@ func (i *Interpreter) StartEngineFlow(
 							stepExeId,
 						)
 						// finally, mark state completed and may also update activeStepType search attribute
+						continueAsNewer.RemoveActiveStep(stepExeId)
 						err := stepExecutionCounter.MarkStepExecutionCompleted(
 							step,
 							stepExeId,
@@ -887,6 +890,7 @@ func (i *Interpreter) processTransientStepExecution(
 	}
 
 	stepExecutionId := stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
+	continueAsNewer.TrackActiveStep(stepExecutionId, step)
 	info := provider.GetWorkflowInfo(ctx)
 	executionContext := &dexpb.Context{
 		FlowId:               info.WorkflowExecution.ID,
@@ -913,6 +917,7 @@ func (i *Interpreter) processTransientStepExecution(
 	if status != service.StepExecutionStatusCompleted {
 		return status, err
 	}
+	continueAsNewer.RemoveActiveStep(stepExecutionId)
 	if err := stepExecutionCounter.MarkStepExecutionCompleted(
 		step,
 		stepExecutionId,
@@ -961,6 +966,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		}
 	}
 
+	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
 	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
 	exeMethErr := provider.ExecuteActivity(
 		&activityOutput,
@@ -981,9 +987,8 @@ func (i *Interpreter) invokeExecuteMethod(
 			},
 		},
 	)
-	// always unlock and remove from resume map regardless of step success/failure
+	// always unlock regardless of step success/failure
 	persistenceManager.UnlockKeys(lockAttributeKeys)
-	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
 
 	if exeMethErr != nil {
 		if shouldProceedOnExecuteMethodError(step) {

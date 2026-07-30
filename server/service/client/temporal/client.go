@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,11 +32,15 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	historybuilder "github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/index"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
+	history "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
@@ -50,6 +55,11 @@ type temporalClient struct {
 	memoEncryption                 bool // this is a workaround for https://github.com/temporalio/sdk-go/issues/1045
 	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
 	it                             *temporal.InterpreterWorker
+}
+
+type localActivityMarkerData struct {
+	ActivityType string
+	Attempt      int32
 }
 
 func NewTemporalClient(
@@ -298,10 +308,18 @@ func (t *temporalClient) ListWorkflow(
 		if err != nil {
 			return nil, err
 		}
+		status, err := mapToDexWorkflowStatus(exe.GetStatus())
+		if err != nil {
+			return nil, err
+		}
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
 			FlowId:           exe.Execution.WorkflowId,
 			RunId:            exe.Execution.RunId,
 			SearchAttributes: searchAttributes,
+			FlowType:         stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
+			FlowStatus:       status,
+			StartTime:        exe.GetStartTime(),
+			CloseTime:        exe.GetCloseTime(),
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{
@@ -358,15 +376,490 @@ func (t *temporalClient) DescribeWorkflowExecution(
 	if err != nil {
 		return nil, err
 	}
+	info := resp.GetWorkflowExecutionInfo()
+	startTime := info.GetStartTime().AsTime()
+	var closeTime *time.Time
+	if info.GetCloseTime() != nil {
+		closeTime = ptr.Any(info.GetCloseTime().AsTime())
+	}
 
 	return &uclient.DescribeWorkflowExecutionResponse{
-		RunId:                resp.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
-		FirstRunId:           resp.GetWorkflowExecutionInfo().GetFirstRunId(),
+		RunId:                info.GetExecution().GetRunId(),
+		FirstRunId:           info.GetFirstRunId(),
 		Status:               status,
 		IndexedAttributes:    indexedAttributes,
 		Memos:                memo,
-		FlowStartedTimestamp: utils.ToNanoSeconds(resp.GetWorkflowExecutionInfo().GetStartTime()),
+		FlowStartedTimestamp: utils.ToNanoSeconds(info.GetStartTime()),
+		StartTime:            startTime,
+		CloseTime:            closeTime,
 	}, nil
+}
+
+func (t *temporalClient) GetWorkflowHistory(
+	ctx context.Context,
+	request *uclient.GetWorkflowHistoryRequest,
+) (*uclient.WorkflowHistory, error) {
+	response, err := t.getTemporalHistoryPage(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	rawEvents := response.GetHistory().GetEvents()
+	startInternalEventID := request.StartInternalEventID
+	if startInternalEventID == 0 {
+		startInternalEventID = 1
+		if len(rawEvents) > 0 {
+			startInternalEventID = rawEvents[0].GetEventId()
+		}
+	}
+	nextInternalEventID := startInternalEventID
+	if len(rawEvents) > 0 {
+		nextInternalEventID = rawEvents[len(rawEvents)-1].GetEventId() + 1
+	}
+	events, err := t.buildTemporalHistoryEvents(
+		ctx,
+		request.WorkflowID,
+		request.RunID,
+		startInternalEventID,
+		nextInternalEventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &uclient.WorkflowHistory{
+		Events:              events,
+		NextPageToken:       response.GetNextPageToken(),
+		NextInternalEventID: nextInternalEventID,
+	}, nil
+}
+
+func (t *temporalClient) getTemporalHistoryPage(
+	ctx context.Context,
+	request *uclient.GetWorkflowHistoryRequest,
+) (*workflowservice.GetWorkflowExecutionHistoryResponse, error) {
+	nextPageToken := request.NextPageToken
+	for {
+		response, err := t.tClient.WorkflowService().GetWorkflowExecutionHistory(
+			ctx,
+			&workflowservice.GetWorkflowExecutionHistoryRequest{
+				Namespace: t.namespace,
+				Execution: &common.WorkflowExecution{
+					WorkflowId: request.WorkflowID,
+					RunId:      request.RunID,
+				},
+				MaximumPageSize:        request.EstimatePageSize,
+				NextPageToken:          nextPageToken,
+				HistoryEventFilterType: enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		rawEvents := response.GetHistory().GetEvents()
+		reachedStart := len(rawEvents) > 0 &&
+			rawEvents[len(rawEvents)-1].GetEventId() >= request.StartInternalEventID
+		if len(request.NextPageToken) > 0 ||
+			request.StartInternalEventID <= 1 ||
+			reachedStart ||
+			len(response.GetNextPageToken()) == 0 {
+			return response, nil
+		}
+		nextPageToken = response.GetNextPageToken()
+	}
+}
+
+func (t *temporalClient) buildTemporalHistoryEvents(
+	ctx context.Context,
+	workflowID string,
+	runID string,
+	startInternalEventID int64,
+	nextInternalEventID int64,
+) ([]*dexpb.FlowHistoryEvent, error) {
+	iterator := t.tClient.GetWorkflowHistory(
+		ctx,
+		workflowID,
+		runID,
+		false,
+		enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT,
+	)
+	builder := historybuilder.NewBuilder(workflowID, runID)
+	scheduledTypes := map[int64]string{}
+	fallbackFailures := map[string][]*dexpb.StepMethodAttemptFailure{}
+	for iterator.HasNext() {
+		event, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		if err := t.addTemporalHistoryEvent(
+			builder,
+			scheduledTypes,
+			fallbackFailures,
+			event,
+		); err != nil {
+			return nil, err
+		}
+	}
+	return builder.EventsInRange(startInternalEventID, nextInternalEventID)
+}
+
+func (t *temporalClient) WaitForWorkflowHistoryEvent(
+	ctx context.Context,
+	workflowID string,
+	runID string,
+	nextInternalEventID int64,
+) (*uclient.WorkflowHistory, error) {
+	iterator := t.tClient.GetWorkflowHistory(
+		ctx,
+		workflowID,
+		runID,
+		true,
+		enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT,
+	)
+	for iterator.HasNext() {
+		event, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		if event.GetEventId() >= nextInternalEventID {
+			return &uclient.WorkflowHistory{
+				EventAvailable:           true,
+				AvailableInternalEventID: event.GetEventId(),
+			}, nil
+		}
+	}
+	return &uclient.WorkflowHistory{}, nil
+}
+
+func (t *temporalClient) addTemporalHistoryEvent(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *history.HistoryEvent,
+) error {
+	eventTime := event.GetEventTime().AsTime()
+	switch event.GetEventType() {
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+		var input dexpb.InterpreterWorkflowInput
+		if err := t.dataConverter.FromPayloads(
+			event.GetWorkflowExecutionStartedEventAttributes().GetInput(),
+			&input,
+		); err != nil {
+			return err
+		}
+		builder.RecordStart(event.GetEventId(), eventTime, &input)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+		return t.recordTemporalScheduledActivity(
+			builder,
+			scheduledTypes,
+			fallbackFailures,
+			event,
+		)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_STARTED:
+		attributes := event.GetActivityTaskStartedEventAttributes()
+		builder.RecordActivityStarted(
+			eventTime,
+			attributes.GetScheduledEventId(),
+			attributes.GetAttempt(),
+			temporalStepFailure(
+				attributes.GetLastFailure(),
+				enums.RETRY_STATE_IN_PROGRESS.String(),
+			),
+		)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+		return t.recordTemporalCompletedActivity(builder, scheduledTypes, event)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+		attributes := event.GetActivityTaskFailedEventAttributes()
+		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			return nil
+		}
+		return builder.RecordActivityFailed(
+			event.GetEventId(),
+			eventTime,
+			attributes.GetScheduledEventId(),
+			temporalStepFailure(attributes.GetFailure(), attributes.GetRetryState().String()),
+		)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+		attributes := event.GetActivityTaskTimedOutEventAttributes()
+		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			return nil
+		}
+		return builder.RecordActivityFailed(
+			event.GetEventId(),
+			eventTime,
+			attributes.GetScheduledEventId(),
+			&dexpb.StepMethodFailure{
+				Message:    "step method activity timed out",
+				RetryState: attributes.GetRetryState().String(),
+			},
+		)
+	case enums.EVENT_TYPE_MARKER_RECORDED:
+		return t.recordTemporalLocalActivity(
+			builder,
+			fallbackFailures,
+			event,
+		)
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
+		attributes := event.GetWorkflowExecutionSignaledEventAttributes()
+		if attributes.GetSignalName() != service.ExecuteRpcSignalChannelName {
+			return nil
+		}
+		var request dexpb.ExecuteRpcSignalRequest
+		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &request); err != nil {
+			return err
+		}
+		builder.RecordSignal(event.GetEventId(), eventTime, &request)
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+		var output dexpb.InterpreterWorkflowOutput
+		attributes := event.GetWorkflowExecutionCompletedEventAttributes()
+		if attributes.GetResult() != nil {
+			if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
+				return err
+			}
+		}
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+			Results:    output.GetStepCompletionOutputs(),
+		})
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+		attributes := event.GetWorkflowExecutionFailedEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
+			ErrorType:    temporalFlowErrorType(attributes.GetFailure()),
+			ErrorMessage: attributes.GetFailure().GetMessage(),
+		})
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_TIMEOUT,
+		})
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
+		attributes := event.GetWorkflowExecutionTerminatedEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
+			ErrorMessage: attributes.GetReason(),
+		})
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_CANCELED,
+		})
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW:
+		attributes := event.GetWorkflowExecutionContinuedAsNewEventAttributes()
+		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
+			FlowStatus:       dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW,
+			ContinuedToRunId: attributes.GetNewExecutionRunId(),
+		})
+	}
+	return nil
+}
+
+func (t *temporalClient) recordTemporalScheduledActivity(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *history.HistoryEvent,
+) error {
+	attributes := event.GetActivityTaskScheduledEventAttributes()
+	activityType := attributes.GetActivityType().GetName()
+	durability := dexpb.StepDurability_STEP_DURABILITY_SYNC
+	method := activityMethod(activityType)
+	var previousFailures []*dexpb.StepMethodAttemptFailure
+	if failures := fallbackFailures[method]; len(failures) > 0 {
+		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+		previousFailures = failures
+		delete(fallbackFailures, method)
+	}
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		var input dexpb.InvokeWaitForMethodActivityInput
+		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input); err != nil {
+			return err
+		}
+		builder.RecordWaitScheduled(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			&input,
+			durability,
+			previousFailures,
+		)
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		var input dexpb.InvokeExecuteMethodActivityInput
+		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input); err != nil {
+			return err
+		}
+		builder.RecordExecuteScheduled(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			&input,
+			durability,
+			previousFailures,
+		)
+	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
+	default:
+		return nil
+	}
+	scheduledTypes[event.GetEventId()] = activityType
+	return nil
+}
+
+func (t *temporalClient) recordTemporalCompletedActivity(
+	builder *historybuilder.Builder,
+	scheduledTypes map[int64]string,
+	event *history.HistoryEvent,
+) error {
+	attributes := event.GetActivityTaskCompletedEventAttributes()
+	activityType := scheduledTypes[attributes.GetScheduledEventId()]
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		var output dexpb.InvokeWaitForMethodActivityOutput
+		if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		return builder.RecordActivityCompleted(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			attributes.GetScheduledEventId(),
+			&output,
+			nil,
+		)
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		var output dexpb.InvokeExecuteMethodActivityOutput
+		if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		return builder.RecordActivityCompleted(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			attributes.GetScheduledEventId(),
+			nil,
+			&output,
+		)
+	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
+		var output dexpb.DumpFlowForContinueAsNewActivityOutput
+		if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
+			return err
+		}
+		builder.RecordContinueDump(&output)
+	}
+	return nil
+}
+
+func (t *temporalClient) recordTemporalLocalActivity(
+	builder *historybuilder.Builder,
+	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	event *history.HistoryEvent,
+) error {
+	attributes := event.GetMarkerRecordedEventAttributes()
+	if attributes.GetMarkerName() != "LocalActivity" {
+		return nil
+	}
+	var marker localActivityMarkerData
+	if err := t.dataConverter.FromPayloads(attributes.GetDetails()["data"], &marker); err != nil {
+		return err
+	}
+	result := attributes.GetDetails()["result"]
+	if result == nil {
+		method := activityMethod(marker.ActivityType)
+		fallbackFailures[method] = append(
+			fallbackFailures[method],
+			&dexpb.StepMethodAttemptFailure{
+				Attempt:    marker.Attempt,
+				FailedTime: event.GetEventTime(),
+				Failure: temporalStepFailure(
+					attributes.GetFailure(),
+					enums.RETRY_STATE_IN_PROGRESS.String(),
+				),
+			},
+		)
+		return nil
+	}
+	previousFailures := fallbackFailures[activityMethod(marker.ActivityType)]
+	delete(fallbackFailures, activityMethod(marker.ActivityType))
+	switch {
+	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+		var output dexpb.InvokeWaitForMethodActivityOutput
+		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
+			return err
+		}
+		builder.RecordLocalWaitCompleted(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			&output,
+			marker.Attempt,
+			previousFailures,
+		)
+	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+		var output dexpb.InvokeExecuteMethodActivityOutput
+		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
+			return err
+		}
+		builder.RecordLocalExecuteCompleted(
+			event.GetEventId(),
+			event.GetEventTime().AsTime(),
+			&output,
+			marker.Attempt,
+			previousFailures,
+		)
+	case strings.Contains(marker.ActivityType, "DumpFlowForContinueAsNew"):
+		var output dexpb.DumpFlowForContinueAsNewActivityOutput
+		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
+			return err
+		}
+		builder.RecordContinueDump(&output)
+	}
+	return nil
+}
+
+func temporalStepFailure(
+	failure *failurepb.Failure,
+	retryState string,
+) *dexpb.StepMethodFailure {
+	if failure == nil {
+		return &dexpb.StepMethodFailure{RetryState: retryState}
+	}
+	errorType := ""
+	if failure.GetApplicationFailureInfo() != nil {
+		errorType = failure.GetApplicationFailureInfo().GetType()
+	}
+	return &dexpb.StepMethodFailure{
+		Message:    failure.GetMessage(),
+		ErrorType:  errorType,
+		StackTrace: failure.GetStackTrace(),
+		RetryState: retryState,
+	}
+}
+
+func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {
+	if failure == nil || failure.GetApplicationFailureInfo() == nil {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
+	}
+	value, ok := dexpb.FlowErrorType_value[failure.GetApplicationFailureInfo().GetType()]
+	if !ok {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
+	}
+	return dexpb.FlowErrorType(value)
+}
+
+func activityMethod(activityType string) string {
+	switch {
+	case strings.Contains(activityType, "InvokeWaitForMethod"):
+		return "wait-for"
+	case strings.Contains(activityType, "InvokeExecuteMethod"):
+		return "execute"
+	default:
+		return activityType
+	}
+}
+
+func isStepActivity(activityType string) bool {
+	return strings.Contains(activityType, "InvokeWaitForMethod") ||
+		strings.Contains(activityType, "InvokeExecuteMethod")
+}
+
+func stringSearchAttribute(attributes []*dexpb.KV, key string) string {
+	for _, attribute := range attributes {
+		if attribute.GetKey() == key {
+			return attribute.GetValue().GetStringValue()
+		}
+	}
+	return ""
 }
 
 func (t *temporalClient) encryptMemoIfNeeded(rawMemo map[string]interface{}) (map[string]interface{}, error) {

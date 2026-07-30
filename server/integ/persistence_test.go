@@ -307,6 +307,9 @@ func doTestPersistenceWorkflow(
 			return false
 		}, 30*time.Second, 100*time.Millisecond)
 		require.Equal(t, flowId, searchFlow.GetFlowId())
+		require.Equal(t, persistence.WorkflowType, searchFlow.GetFlowType())
+		require.NotEqual(t, dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED, searchFlow.GetFlowStatus())
+		require.NotNil(t, searchFlow.GetStartTime())
 		requireSearchAttributesMatch(t, expectedIndexedAttributes, searchFlow.GetSearchAttributes())
 		requireSearchAttributePresent(t, searchFlow.GetSearchAttributes(), expectedFlowType)
 
