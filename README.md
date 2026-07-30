@@ -1,6 +1,7 @@
 # Dex — monorepo
 
-Workflow-as-code orchestration: server, protobuf IDL, and SDKs/samples for Go, Java, and Python.
+Workflow-as-code orchestration: server, protobuf IDL, and SDKs/samples for Go,
+Java, Python, and Rust.
 
 This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Indeed Workflow Framework). It combines that family of repos into one tree under [superdurable/dex](https://github.com/superdurable/dex), preserving git history under each directory.
 
@@ -17,6 +18,7 @@ This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Ind
 | [examples/java/](examples/java/) | Java examples |
 | [sdk-python/](sdk-python/) | Python SDK |
 | [examples/python/](examples/python/) | Python examples |
+| [sdk-rust/](sdk-rust/) | Shared Rust SDK Core |
 
 Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 
