@@ -22,6 +22,20 @@ package event
 
 import "github.com/superdurable/dex/gen/dexpb"
 
+type EventType int
+
+const (
+	EventTypeUnspecified EventType = iota
+	EventTypeFlowStart
+	EventTypeFlowComplete
+	EventTypeFlowFail
+	EventTypeWaitForAttemptFail
+	EventTypeWaitForAttemptSucc
+	EventTypeExecuteAttemptFail
+	EventTypeExecuteAttemptSucc
+	EventTypeRPCExecution
+)
+
 // Event is a lightweight server-side observability hook payload (not an IDL type).
 type Event struct {
 	FlowId             string
@@ -30,7 +44,7 @@ type Event struct {
 	StepType           string
 	StepExecutionId    string
 	RpcName            string
-	EventType          string
+	EventType          EventType
 	StartTimestampInMs int64
 	Attributes         []*dexpb.KV
 }

@@ -195,10 +195,10 @@ message FlowRetryPolicy {
   int32 maximum_attempts = 4;
 }
 
-enum WaitForApiFailurePolicy {
-  WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED = 0;
-  WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;
-  WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
+enum WaitForMethodFailurePolicy {
+  WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;
+  WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;
+  WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;
 }
 
 enum ExecuteApiFailurePolicy {
@@ -212,7 +212,7 @@ message StepOptions {
   int32 execute_timeout_seconds = 2;
   RetryPolicy wait_for_retry_policy = 3;
   RetryPolicy execute_retry_policy = 4;
-  WaitForApiFailurePolicy wait_for_failure_policy = 5;
+  WaitForMethodFailurePolicy wait_for_failure_policy = 5;
   ExecuteApiFailurePolicy execute_failure_policy = 6;
   string execute_failure_proceed_step_type = 7;
   StepOptions execute_failure_proceed_step_options = 8;

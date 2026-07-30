@@ -134,5 +134,5 @@ func doTestStateApiFail(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 		resp.GetErrorType(),
 	)
-	require.Contains(t, resp.GetErrorMessage(), "waitFor API failure")
+	require.Contains(t, resp.GetErrorMessage(), "waitFor method failure")
 }
