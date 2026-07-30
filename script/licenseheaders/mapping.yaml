@@ -5,6 +5,7 @@ examples/go: mit
 sdk-go: apache-2.0
 sdk-java: apache-2.0
 sdk-python: apache-2.0
+sdk-rust: apache-2.0
 examples/java: apache-2.0
 examples/python: apache-2.0
 protos: mit

@@ -1,6 +1,6 @@
 # Dex Web Phase 1 设计
 
-状态：Draft  
+状态：Draft
 日期：2026-07-30
 
 ## 1. Phase 1 范围

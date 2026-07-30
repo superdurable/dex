@@ -1,62 +1,148 @@
-# Dex Golang SDK
+# Dex Go SDK
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/superdurable/dex/sdk-go.svg)](https://pkg.go.dev/github.com/superdurable/dex/sdk-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/superdurable/dex/sdk-go)](https://goreportcard.com/report/github.com/superdurable/dex/sdk-go)
+The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
+`Attribute`, `Channel`, `WaitFor`, and `Execute` contracts.
 
-[![Build status](https://github.com/superdurable/dex/actions/workflows/sdk-go-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-go-ci.yml)
+Phase 1 contains the application-facing interfaces and value types. Phase 2
+adds value encoding and internal protobuf mapping. Registration, WorkerService,
+and the FlowService transport are not implemented yet.
 
-Golang SDK for [Dex workflow engine](https://github.com/superdurable/dex)
+## Authoring a flow
 
-```bash
-go get github.com/superdurable/dex/sdk-go@latest
+Application packages import `dex`, never `gen/dexpb`.
+
+```go
+var (
+	OrderStatus = dex.DefineAttribute[string](
+		"order-status",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	)
+	Commands = dex.DefineChannel[Command]("commands")
+)
+
+type WaitForCommandStep struct {
+	dex.DefaultStepOptions
+}
+
+func (WaitForCommandStep) GetStepType() string {
+	return "wait-for-command"
+}
+
+func (WaitForCommandStep) WaitFor(
+	ctx dex.Context,
+	input OrderInput,
+) (dex.Wait, error) {
+	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
+		return dex.Wait{}, err
+	}
+	return dex.AnyOf(
+		Commands.ForOne(dex.WithConditionID("command")),
+		dex.Timer(
+			30*time.Minute,
+			dex.WithConditionID("timeout"),
+		),
+	), nil
+}
+
+func (WaitForCommandStep) Execute(
+	ctx dex.Context,
+	input OrderInput,
+) (dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.ForceFail("command timed out"), nil
+	}
+	commands, err := Commands.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GracefulComplete(commands), nil
+}
+
+var WaitForCommand = WaitForCommandStep{}
+
+type OrderFlow struct{}
+
+func (OrderFlow) GetFlowType() string {
+	return "order"
+}
+
+func (OrderFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStepAsStart(WaitForCommand),
+	}
+}
+
+func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{Commands},
+	}
+}
 ```
 
-See [samples](../examples/go) for how to use this SDK.
+Flows use `dex.DefineStepAsStart` for at most one starting step and
+`dex.DefineStep` for every non-starting step.
 
-## Contribution
+Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
+`dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.
 
-See [contribution guide](CONTRIBUTION.md)
+Flow RPCs are methods matching `dex.RPC[IN, OUT]`. Attributes and channels stay
+strongly typed inside handlers. Step-execution locals and recorded events accept
+arbitrary values through `dex.Context`.
 
-## Development Plan
+## Value encoding
 
-### 1.0
+Strings, booleans, signed integers, representable unsigned integers, and
+floating-point values use native Dex value arms. Structs, maps, slices, arrays,
+`[]byte`, and other JSON-compatible values use an object arm with encoding
+`"json"`.
 
-- [x] Start workflow API
-- [x] Executing `start`/`decide` APIs and completing workflow
-- [x] Parallel execution of multiple states
-- [x] Timer command
-- [x] Signal command
-- [x] SearchAttribute
-- [x] DataAttributes
-- [x] StateExecutionLocal
-- [x] Signal workflow API
-- [x] Get workflow result API
-- [x] Search workflow API
-- [x] Describe workflow API
-- [x] Stop workflow API
-- [x] Reset workflow API
-- [x] Command type(s) for inter-state communications (e.g. internal channel)
-- [x] More workflow start options: IdReusePolicy, cron schedule, retry
-- [x] StateOption: Start/Decide API timeout and retry policy
-- [x] Reset workflow by stateId/StateExecutionId
-- [x] More workflow start options: initial search attributes
+Returned dynamic values remain opaque until decoded:
 
-### 1.1
+```go
+var result OrderResult
+if err := value.Decode(&result); err != nil {
+	return err
+}
+```
 
-- [x] Skip timer API for testing/operation
-- [x] Decider trigger type: any command combination
+Decode requires a non-nil pointer. Integer overflow, incompatible targets,
+unknown encodings, unhydrated blob references, and malformed JSON return
+errors.
 
-### 1.2
+Ordinary nil encodes as JSON null. The Dex null arm is used only when deleting
+an attribute.
 
-- [x] API improvements to reduce boilerplate code
+### Indexed attributes
 
-### 1.3
+Keyword and text indexes accept strings. Keyword-array indexes accept string
+slices. Int, double, and bool indexes accept their matching Go scalar families.
+Datetime indexes accept `time.Time` or RFC3339Nano strings, including UTC `Z`
+and numeric offsets. Fractional seconds are preserved. Numeric strings are not
+treated as Unix nanoseconds. Initial indexed values are validated by
+`dex.Initial` and `dex.InitialMapValue`.
 
-- [x] Support failing workflow with results
-- [x] Improve workflow uncompleted error return(canceled, failed, timeout, terminated)
+The SDK generates a UUID for every start and synchronous-update call. Retries
+reuse that UUID; applications do not supply request IDs.
 
-### 1.4
+Large string and object values may be returned as blob references. Hydration is
+internal and always occurs before a public `Value` is constructed; Decode never
+performs network I/O.
 
-- [x] Renaming some concepts/APIs with breaking changes(see release notes)
-- [x] Support workflow RPC
-- [x] PARTIAL_WITH_EXCLUSIVE_LOCK persistence loading type
+Compilable examples:
+
+- [Order flow](examples/order/main.go)
+- [Every Client API](examples/order/client.go)
+- [Step transitions](examples/transitions/main.go)
+- [Flow method RPC](examples/rpc/main.go)
+
+## Phase 2 verification
+
+```text
+make unitTests
+make blobCacheTests
+make copyright-check
+```
+
+The detailed design and later phase boundaries are in the
+[Go SDK rewrite plan](../docs/design/plan/go-sdk-rewrite.md).

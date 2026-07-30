@@ -118,8 +118,8 @@ endef
 
 .PHONY: release clean
 
-idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
-	$(MAKE) -C ../protos proto
+idl-code-gen: # regenerate Go SDK protobuf stubs from protos/dex.proto
+	$(MAKE) -C ../protos proto-sdk-go
 
 clean: ## Clean binaries and build folder
 	rm -f $(BINS)
@@ -146,15 +146,15 @@ blobCacheTests:
 	$Q go test -race ./dex/blobcache
 
 unitTests:
-	$Q go test -v ./dex
+	$Q go test -v ./dex ./examples/...
 
-tests: integTests unitTests blobCacheTests
+tests: unitTests blobCacheTests
 
 ci-tests:
-	$Q go test -v -cover ./integ ./dex ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...
+	$Q go test -v -cover ./dex ./examples/... ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...
 
 fmt:
-	$Q gofmt -s -w ./dex ./dextest ./integ
+	$Q gofmt -s -w ./dex ./dextest ./examples ./integ
   
 help:
 	@# print help first, so it's visible

@@ -38,6 +38,9 @@ dist/
 .tox/
 .nox/
 
+# Rust
+sdk-rust/target/
+
 # Logs / local
 *.log
 test.log

@@ -1,6 +1,21 @@
 name: Go SDK CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk-go/**"
+      - "protos/**"
+      - "go.work"
+      - "go.work.sum"
+      - ".github/workflows/sdk-go-ci.yml"
+  pull_request:
+    paths:
+      - "sdk-go/**"
+      - "protos/**"
+      - "go.work"
+      - "go.work.sum"
+      - ".github/workflows/sdk-go-ci.yml"
   workflow_dispatch:
 
 jobs:
@@ -19,10 +34,10 @@ jobs:
             sdk-go/go.sum
             go.work.sum
       - name: Unit tests
-        run: go test -v ./dex/... ./dextest/...
+        run: make unitTests
 
-  integ:
-    name: Integration tests
+  blob-cache:
+    name: Blob cache tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,56 +50,5 @@ jobs:
           cache-dependency-path: |
             sdk-go/go.sum
             go.work.sum
-      - name: Start Dex environment
-        env:
-          DEX_SERVER_IMAGE: superdurable/dex-server:latest
-        run: |
-          docker pull "$DEX_SERVER_IMAGE"
-          docker compose -f integ/docker-compose.yml up -d
-      - name: Wait for Dex server
-        run: |
-          set -euo pipefail
-          echo "Waiting for Elasticsearch..."
-          for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
-              echo "Elasticsearch ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 5
-          done
-          echo "Waiting for search attributes..."
-          for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
-              echo "Search attributes ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 120 ]; then
-              echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
-              docker logs temporal-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 2
-          done
-          echo "Waiting for Dex healthcheck..."
-          for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "Dex server healthy (attempt $i)"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Timed out waiting for Dex server"
-          docker compose -f integ/docker-compose.yml ps
-          docker logs dex-server 2>&1 | tail -80 || true
-          exit 1
-      - name: Integration tests
-        run: make ci-tests
-      - name: Dump docker logs
-        if: always()
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+      - name: Blob cache tests
+        run: make blobCacheTests

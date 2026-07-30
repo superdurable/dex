@@ -181,6 +181,12 @@ temporalIntegTests:
 cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 
+ci-web-api-temporal-test:
+	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60
+
+ci-web-api-cadence-test:
+	$Q go test -v ./integ -timeout 5m -run '^TestWebAPICadence$$' -search=false -temporal=false -dependencyWaitSeconds=180
+
 totalPartitions ?= 1
 partitionNum ?= 0
 

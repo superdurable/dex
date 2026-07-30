@@ -15,33 +15,46 @@
 package dex
 
 import (
-	"fmt"
-	"github.com/stretchr/testify/assert"
+	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-func TestCaptureError(t *testing.T) {
-	skipCaptureErrorLogging = true
-	assertions := assert.New(t)
-	err := testExecuteWithError()
-	assertions.NotNilf(err, "cannot be nil")
-	err = testExecuteWithSuccess()
-	assertions.Nil(err, "must be nil")
-	err = testExecuteWithPanic()
-	assertions.NotNilf(err, "cannot be nil")
+func TestConvertRPCErrorPreservesDexDetails(t *testing.T) {
+	rpcStatus, err := status.New(codes.FailedPrecondition, "fallback").WithDetails(
+		&dexpb.ErrorResponse{
+			Detail:                    "worker failed",
+			SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+			OriginalWorkerErrorStatus: int32(codes.InvalidArgument),
+			OriginalWorkerErrorType:   "ValidationError",
+			OriginalWorkerErrorDetail: "invalid input",
+		},
+	)
+	require.NoError(t, err)
+
+	converted := convertRPCError(rpcStatus.Err())
+	var dexError *Error
+	require.ErrorAs(t, converted, &dexError)
+	require.Equal(t, codes.FailedPrecondition, dexError.Code)
+	require.Equal(t, ErrorWorkerAPI, dexError.SubStatus)
+	require.Equal(t, "worker failed", dexError.Detail)
+	require.Equal(t, codes.InvalidArgument, dexError.OriginalWorkerError.Code)
+	require.Equal(t, "ValidationError", dexError.OriginalWorkerError.Type)
+	require.Equal(t, "invalid input", dexError.OriginalWorkerError.Detail)
 }
 
-func testExecuteWithError() (retErr error) {
-	defer func() { captureStateExecutionError(recover(), &retErr) }()
-	return fmt.Errorf("some error")
-}
+func TestConvertRPCErrorFallbackAndLocalError(t *testing.T) {
+	converted := convertRPCError(status.Error(codes.Unavailable, "backend unavailable"))
+	var dexError *Error
+	require.ErrorAs(t, converted, &dexError)
+	require.Equal(t, ErrorUncategorized, dexError.SubStatus)
+	require.Equal(t, "backend unavailable", dexError.Detail)
 
-func testExecuteWithSuccess() (retErr error) {
-	defer func() { captureStateExecutionError(recover(), &retErr) }()
-	return nil
-}
-
-func testExecuteWithPanic() (retErr error) {
-	defer func() { captureStateExecutionError(recover(), &retErr) }()
-	panic("some panic")
+	local := errors.New("local")
+	require.Same(t, local, convertRPCError(local))
+	require.NoError(t, convertRPCError(nil))
 }

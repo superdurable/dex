@@ -34,6 +34,54 @@ jobs:
           GOWORK: "off"
         run: make unitTests
 
+  web-api-integ:
+    name: Web API integration (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: temporal
+            compose_file: docker-compose/ci-temporal-dependencies.yml
+            make_target: ci-web-api-temporal-test
+          - backend: cadence
+            compose_file: docker-compose/ci-cadence-dependencies.yml
+            make_target: ci-web-api-cadence-test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Start ${{ matrix.backend }} dependencies
+        run: docker compose -f ${{ matrix.compose_file }} up -d
+      - name: Wait for Temporal search attributes
+        if: matrix.backend == 'temporal'
+        run: |
+          echo "Waiting for search attributes registration..."
+          for i in $(seq 1 90); do
+            if docker logs temporal-admin-tools 2>&1 | grep -q "All search attributes are registered"; then
+              echo "Search attributes ready (attempt $i)"
+              sleep 2
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for search attributes"
+          docker logs temporal-admin-tools 2>&1 | tail -40 || true
+          exit 1
+      - name: Web API integration tests
+        env:
+          GOWORK: "off"
+        run: make ${{ matrix.make_target }}
+      - name: Dump docker logs
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
   temporal-integ:
     name: Temporal integration (partition ${{ matrix.partition }})
     runs-on: ubuntu-latest

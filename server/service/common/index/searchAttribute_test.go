@@ -22,6 +22,7 @@ package index
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -140,4 +141,25 @@ func TestMapCadenceSearchAttributeFieldsToKVs(t *testing.T) {
 	require.Equal(t, 0.5, actual[2].GetValue().GetDoubleValue())
 	require.Equal(t, int64(1), actual[3].GetValue().GetIntValue())
 	require.Equal(t, "value", actual[4].GetValue().GetStringValue())
+}
+
+func TestResolveDatetimeIndexValue(t *testing.T) {
+	dateTime := time.Date(2026, 7, 30, 10, 0, 0, 123456789, time.UTC)
+	value := &dexpb.Value{Kind: &dexpb.Value_StringValue{
+		StringValue: dateTime.Format(time.RFC3339Nano),
+	}}
+
+	resolved := resolveNonNilIndexValue(
+		value,
+		dexpb.IndexType_INDEX_TYPE_DATETIME,
+	)
+	require.True(t, dateTime.Equal(resolved.(time.Time)))
+
+	numeric := &dexpb.Value{Kind: &dexpb.Value_StringValue{
+		StringValue: "20240101",
+	}}
+	require.Nil(
+		t,
+		resolveNonNilIndexValue(numeric, dexpb.IndexType_INDEX_TYPE_DATETIME),
+	)
 }

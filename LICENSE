@@ -14,6 +14,7 @@ Apache License 2.0
   - sdk-go/
   - sdk-java/
   - sdk-python/
+  - sdk-rust/
   - examples/java/
   - examples/python/
   - protos/ (dual-licensed; see above)

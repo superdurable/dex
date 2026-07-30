@@ -42,8 +42,9 @@ import (
  */
 
 const (
-	WorkflowType = "s3-get-set-data-attributes"
-	State1       = "S1"
+	WorkflowType          = "s3-get-set-data-attributes"
+	State1                = "S1"
+	CompletionChannelName = "completion"
 
 	SmallDataKey        = "small-data"
 	LargeDataKey        = "large-data"
@@ -99,7 +100,14 @@ func (h *handler) InvokeWaitForMethod(
 
 	if request.GetStepType() == State1 {
 		h.invokeHistory.Store("S1_waitFor", int64(1))
-		return &dexpb.InvokeWaitForMethodResponse{}, nil
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
+					{ChannelName: CompletionChannelName},
+				},
+			},
+		}, nil
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
