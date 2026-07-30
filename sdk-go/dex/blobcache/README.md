@@ -93,7 +93,7 @@ changing it does not change `MaxBytes`.
 - `Delete(id)` removes one cached blob.
 - `DeleteAll()` removes all cache-owned files and resets policy state. The
   cache remains usable.
-- `Close()` releases in-memory resources and preserves files for warm restart.
+- An orderly `Close()` releases resources without deleting committed files.
 
 For ephemeral shutdown, always close even if deletion fails:
 
@@ -105,7 +105,9 @@ return errors.Join(purgeErr, closeErr)
 
 Startup removes incomplete temp files, validates committed entries, and
 reconciles them against the current byte limit. Access-frequency history is not
-persisted.
+persisted. An operating-system or power failure may lose the newest committed
+directory entry because the parent directory is not synchronized; this is a
+safe miss because the cache is not authoritative.
 
 ## Development
 

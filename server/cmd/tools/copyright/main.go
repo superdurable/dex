@@ -63,6 +63,7 @@ var skipDirNames = map[string]bool{
 	".build":       true,
 	".tools":       true,
 	"vendor":       true,
+	"target":       true,
 	"node_modules": true,
 	"__pycache__":  true,
 	".idea":        true,
@@ -245,7 +246,7 @@ func (task *addLicenseHeaderTask) templateForRel(rel string) (string, bool) {
 func isSupportedSourceFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".go", ".java", ".py":
+	case ".go", ".java", ".py", ".rs":
 		return true
 	case ".yaml", ".yml":
 		// Hand-written OpenAPI IDL under protos/ only.
@@ -274,6 +275,7 @@ func mustProcessPath(path string) bool {
 	slash := filepath.ToSlash(path)
 	denylist := []string{
 		"/vendor/",
+		"/target/",
 		"/node_modules/",
 		"/__pycache__/",
 	}
@@ -288,7 +290,7 @@ func mustProcessPath(path string) bool {
 func formatHeader(raw string, ext string) (string, error) {
 	lines := splitLines(raw)
 	switch strings.ToLower(ext) {
-	case ".go":
+	case ".go", ".rs":
 		return commentLines(lines, "//"), nil
 	case ".py", ".yaml", ".yml":
 		return commentLines(lines, "#"), nil

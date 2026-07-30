@@ -30,7 +30,7 @@ background execution when updating persistence. People sometimes have to use com
 Note that by default, read and write are atomic separately.
 To ensure the atomicity of the whole RPC for read+write, you should use `PARTIAL_WITH_EXCLUSIVE_LOCK` persistence loading policy for the RPC options.
 The `PARTIAL_WITH_EXCLUSIVE_LOCK` for RPC is only supported by Temporal as backend with enabling synchronous update feature (by `frontend.enableUpdateWorkflowExecution:true` in Dynamic Config).
-See the [wiki](RPC-locking%3A-What-does-the-atomicity-of-RPC-really-mean%3F.md) for further details.
+See the [wiki](RPC-locking-What-does-the-atomicity-of-RPC-really-mean.md) for further details.
 
 ## Signal Channel vs RPC
 

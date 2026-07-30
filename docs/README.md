@@ -6,11 +6,12 @@
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
 * [Transient step movement](design/transient-step-movement.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
+* [Multi-language Rust SDK Core](design/multi-language-rust-sdk-core.md)
 * [Go SDK rewrite plan](design/plan/go-sdk-rewrite.md)
 
 ## Case studies / examples
 
-* [User sign-up/registry in Python/Java](case-study/Use-case-study-%E2%80%90%E2%80%90-user-signup-workflow.md)
+* [User sign-up/registry in Python/Java](case-study/Use-case-user-signup-workflow.md)
 * [Abstracted microservice orchestration in Java/Golang](case-study/Use-case-study-%E2%80%90%E2%80%90-Microservice-Orchestration.md)
 * Employer & JobSeeker engagement in [Java](../examples/java/src/main/java/io/dex/workflow/engagement) or [Golang](../examples/go/workflows/engagement)
 * Subscription Workflow in [Java](../examples/java/src/main/java/io/dex/workflow/subscription) or [Golang](../examples/go/workflows/subscription)
@@ -36,7 +37,7 @@
 * [WaitForStateExecutionCompletion](wiki/How-to-wait-for-a-workflow-state-to-complete.md)
 * [Dex limitation](wiki/Dex-limitation.md)
 * [Persistence Caching (experimental)](wiki/Persistence-Caching.md)
-* [RPC locking](wiki/RPC-locking%3A-What-does-the-atomicity-of-RPC-really-mean%3F.md)
+* [RPC locking](wiki/RPC-locking-What-does-the-atomicity-of-RPC-really-mean.md)
 * [SignalChannel vs InternalChannel](wiki/SignalChannel-vs-InternalChannel.md)
 
 ### Operation
@@ -49,11 +50,11 @@
 ### FAQ
 
 * [SignalChannel vs InternalChannel](wiki/SignalChannel-vs-InternalChannel.md)
-* [Using Dex as storage system](wiki/What-are-Pros-and-Cons-of-using-Dex-as-a-database-for-permanent-data-storage%3F.md)
+* [Using Dex as storage system](wiki/What-are-Pros-and-Cons-of-using-Dex-as-a-database-for-permanent-data-storage.md)
 * [How Dex works & design](design/Dex-Design.md)
 * [Data Persistence vs StateExecutionLocal vs input](wiki/Using-persistence-vs-State-input-vs-StateExecutionLocal-to-pass-data.md)
-* [RPC atomicity](wiki/RPC-locking%3A-What-does-the-atomicity-of-RPC-really-mean%3F.md)
+* [RPC atomicity](wiki/RPC-locking-What-does-the-atomicity-of-RPC-really-mean.md)
 * [Dex limitation](wiki/Dex-limitation.md)
 * [Wait for workflow to complete](wiki/How-to-wait-for-a-workflow-to-complete.md)
 * [Wait for workflow state to complete](wiki/How-to-wait-for-a-workflow-state-to-complete.md)
-* [How does waitForStateExecutionCompletion works](wiki/How-does-waitForStateCompletion-work%3F.md)
+* [How does waitForStateExecutionCompletion works](wiki/How-does-waitForStateCompletion-work.md)

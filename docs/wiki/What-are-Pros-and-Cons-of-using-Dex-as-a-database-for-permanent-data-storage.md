@@ -1,3 +1,5 @@
+# Dex as permanent data storage
+
 Dex provides persistence like a database out of the box. The main purpose is to make development fast and easy. Because workflow development always involve persisting states. 
 
 Typically, workflow only need the storage during the workflow execution. After workflow closed, all the data will be deleted once the configured retention period elapses.

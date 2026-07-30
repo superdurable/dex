@@ -1,3 +1,5 @@
+# RPC locking and atomicity
+
 The page is to answer the two questions:
 
 * Does this mean that all reads/writes in an RPC method are done atomically (workflow-level lock), so that we can ensure no race condition even if multiple calls to the RPC method are made simultaneously? 

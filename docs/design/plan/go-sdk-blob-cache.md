@@ -506,6 +506,12 @@ Crash points are safe:
 - During eviction: deleted entries are cache misses and reloadable from server.
 - During failed cleanup: startup either removes the orphan or fails `New`.
 
+The file is synchronized before rename, but the parent directory is not. An
+operating-system or power failure can lose the newest directory entry, which is
+a safe cache miss because the server remains authoritative. Power-loss
+durability would require directory synchronization in both Go and Rust and
+should be an explicit performance policy.
+
 ## Duplicate IDs and immutability
 
 Blob IDs are treated as immutable content identifiers:
