@@ -1,5 +1,7 @@
 # Dex Rust SDK Core
 
+[![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
+
 This workspace contains the shared native Core for Dex language SDKs.
 Java is supported through a dedicated Java 8-compatible JNI bridge.
 
@@ -23,14 +25,19 @@ use dex_core::{BlobCache, BlobCacheConfig};
 
 let config = BlobCacheConfig::new("./blob-cache", 256 * 1024 * 1024, 10_000)?;
 let cache = BlobCache::open(config)?;
-cache.put("server-minted-blob-id", b"opaque bytes")?;
-let payload = cache.get("server-minted-blob-id")?;
+let retained = cache.put("server-minted-blob-id", b"opaque bytes")?;
+let cached_payload = cache.get("server-minted-blob-id")?;
+if !retained || cached_payload.is_none() {
+    // Keep using the freshly loaded bytes.
+}
 cache.close()?;
 ```
 
 The calls are synchronous. Event-loop bridges must dispatch them through a
-bounded blocking executor. `close` preserves committed files for warm restart;
-use `delete_all` before `close` for ephemeral storage.
+bounded blocking executor. An orderly `close` does not delete committed files,
+so they can be reused after restart; use `delete_all` before `close` for
+ephemeral storage. The cache is not authoritative: policy rejection, a miss,
+or a cache error must fall back to fresh server data.
 
 ## Development
 

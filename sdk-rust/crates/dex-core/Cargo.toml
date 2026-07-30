@@ -8,9 +8,11 @@ rust-version.workspace = true
 description = "Language-neutral worker core for Dex SDKs"
 
 [dependencies]
+crc32c.workspace = true
 sha2.workspace = true
 stretto.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

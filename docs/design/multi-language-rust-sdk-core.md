@@ -74,7 +74,7 @@ Rust Core provides the disk blob cache used by Python, TypeScript, Java, C#,
 PHP, Ruby, and the native Rust SDK. The Go SDK keeps its existing independent
 implementation and does not link Rust Core.
 
-The Rust and Go implementations share the same behavioral and disk-format
+The Rust and Go implementations share the same public behavior and disk-format
 contract:
 
 - blob IDs are immutable content identifiers;
@@ -82,8 +82,8 @@ contract:
 - a miss, oversized value, or policy rejection is not an application failure;
 - capacity counts the 24-byte header, blob ID, and payload;
 - reads are concurrent while mutations and lifecycle changes are serialized;
-- committed files survive `close`, while `delete_all` leaves an open cache
-  empty and reusable;
+- orderly `close` does not delete committed files, while `delete_all` leaves
+  an open cache empty and reusable;
 - startup removes interrupted writes and corrupt files, then reconciles the
   configured capacity newest-first; and
 - one directory is exclusively owned by one process.
@@ -106,10 +106,22 @@ CRC32C covers the blob ID and payload. The path is
 rename. Unknown versions, invalid lengths, nonzero reserved bytes, path-hash
 mismatches, and checksum failures are recoverable corruption.
 
-The in-memory policy stores metadata only. Rust Core pins Stretto 0.9 for
-TinyLFU admission and SampledLFU eviction. Stretto is a Rust implementation of
-Ristretto, the policy used by the Go cache. Exact admission and victim choices
-remain timing-dependent and are not a portable contract.
+File contents are synchronized before rename, but the parent directory is not
+synchronized. An operating-system or power failure may therefore lose the
+newest directory entry; recovery treats that as a cache miss. The cache is not
+authoritative. If power-loss durability becomes a requirement, both the Rust
+and Go implementations must add directory synchronization under an explicit
+durability policy.
+
+The in-memory policy stores metadata only. Rust Core uses the Stretto 0.9
+release series for TinyLFU admission and SampledLFU eviction. Stretto is a Rust
+implementation of Ristretto, the policy used by the Go cache. Exact admission
+and victim choices remain timing-dependent and are not a portable contract.
+
+Go panics if an admitted entry remains pending after policy synchronization.
+Rust intentionally returns a reconciliation error instead, protecting host
+runtimes from a Core invariant failure. This unreachable failure mode is not
+part of the public cache contract.
 
 The public Rust operations map directly to bridge operations:
 
@@ -160,8 +172,10 @@ Completion {
 Request and response bytes contain canonical protobuf messages. Bridges do not
 reconstruct all Dex messages as FFI structs.
 
-The initial protocol version is `1`. A bridge and Core must reject unsupported
-versions during worker validation.
+The initial protocol version is `1`. Core stamps every invocation, and a bridge
+must echo that version with its completion. Core rejects a mismatched completion
+without consuming the pending invocation. A future worker handshake will
+validate versions before accepting work.
 
 ## Invocation lifecycle
 
@@ -321,6 +335,8 @@ logging and data-handling policies.
 
 - Integration: dispatch, poll, and complete a successful invocation.
 - Integration: preserve structured user failures through completion routing.
+- Integration: reject unsupported completion protocol versions without
+  consuming the invocation.
 - Integration: reject duplicate and unknown completions.
 - Integration: wake blocked pollers and requests during shutdown.
 - Integration: prove queue capacity applies backpressure before dispatch.

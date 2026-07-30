@@ -42,6 +42,7 @@ pub enum InvocationKind {
 /// Work delivered to a language SDK.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invocation {
+    protocol_version: u32,
     id: InvocationId,
     kind: InvocationKind,
     request: Vec<u8>,
@@ -49,7 +50,17 @@ pub struct Invocation {
 
 impl Invocation {
     pub(crate) fn new(id: InvocationId, kind: InvocationKind, request: Vec<u8>) -> Self {
-        Self { id, kind, request }
+        Self {
+            protocol_version: CORE_PROTOCOL_VERSION,
+            id,
+            kind,
+            request,
+        }
+    }
+
+    /// Returns the bridge protocol version.
+    pub fn protocol_version(&self) -> u32 {
+        self.protocol_version
     }
 
     /// Returns the opaque invocation identifier.

@@ -18,7 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
-use crate::{CoreError, Invocation, InvocationId, InvocationKind, InvocationResult};
+use crate::{
+    CORE_PROTOCOL_VERSION, CoreError, Invocation, InvocationId, InvocationKind, InvocationResult,
+};
 
 type CompletionSender = oneshot::Sender<Result<InvocationResult, CoreError>>;
 
@@ -129,9 +131,16 @@ impl WorkerCore {
     /// Completes one invocation exactly once.
     pub fn complete_invocation(
         &self,
+        protocol_version: u32,
         invocation_id: InvocationId,
         result: InvocationResult,
     ) -> Result<(), CoreError> {
+        if protocol_version != CORE_PROTOCOL_VERSION {
+            return Err(CoreError::UnsupportedProtocolVersion {
+                expected: CORE_PROTOCOL_VERSION,
+                actual: protocol_version,
+            });
+        }
         let completion_sender = lock(&self.inner.pending)
             .remove(&invocation_id)
             .ok_or(CoreError::UnknownInvocation(invocation_id))?;

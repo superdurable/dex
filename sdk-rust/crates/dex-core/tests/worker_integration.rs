@@ -15,7 +15,8 @@
 use std::time::Duration;
 
 use dex_core::{
-    CoreError, InvocationFailure, InvocationKind, InvocationResult, WorkerConfig, WorkerCore,
+    CORE_PROTOCOL_VERSION, CoreError, InvocationFailure, InvocationKind, InvocationResult,
+    WorkerConfig, WorkerCore,
 };
 
 #[tokio::test]
@@ -29,11 +30,13 @@ async fn routes_successful_invocation() {
     });
 
     let invocation = worker.poll_invocation().await.unwrap();
+    assert_eq!(invocation.protocol_version(), CORE_PROTOCOL_VERSION);
     assert_eq!(invocation.kind(), InvocationKind::Execute);
     assert_eq!(invocation.request(), b"request");
 
     worker
         .complete_invocation(
+            invocation.protocol_version(),
             invocation.id(),
             InvocationResult::Success(b"response".to_vec()),
         )
@@ -61,7 +64,11 @@ async fn preserves_language_failure() {
         b"python traceback".to_vec(),
     );
     worker
-        .complete_invocation(invocation.id(), InvocationResult::Failure(failure.clone()))
+        .complete_invocation(
+            invocation.protocol_version(),
+            invocation.id(),
+            InvocationResult::Failure(failure.clone()),
+        )
         .unwrap();
 
     assert_eq!(
@@ -82,14 +89,56 @@ async fn rejects_duplicate_completion() {
 
     let invocation = worker.poll_invocation().await.unwrap();
     worker
-        .complete_invocation(invocation.id(), InvocationResult::Success(Vec::new()))
+        .complete_invocation(
+            invocation.protocol_version(),
+            invocation.id(),
+            InvocationResult::Success(Vec::new()),
+        )
         .unwrap();
     dispatch.await.unwrap().unwrap();
 
     assert_eq!(
-        worker.complete_invocation(invocation.id(), InvocationResult::Success(Vec::new())),
+        worker.complete_invocation(
+            invocation.protocol_version(),
+            invocation.id(),
+            InvocationResult::Success(Vec::new())
+        ),
         Err(CoreError::UnknownInvocation(invocation.id()))
     );
+}
+
+#[tokio::test]
+async fn rejects_unsupported_completion_protocol_without_consuming_invocation() {
+    let worker = WorkerCore::new(WorkerConfig::new(1).unwrap());
+    let dispatch_worker = worker.clone();
+    let dispatch = tokio::spawn(async move {
+        dispatch_worker
+            .dispatch(InvocationKind::Execute, Vec::new())
+            .await
+    });
+
+    let invocation = worker.poll_invocation().await.unwrap();
+    let unsupported_version = CORE_PROTOCOL_VERSION + 1;
+    assert_eq!(
+        worker.complete_invocation(
+            unsupported_version,
+            invocation.id(),
+            InvocationResult::Success(Vec::new())
+        ),
+        Err(CoreError::UnsupportedProtocolVersion {
+            expected: CORE_PROTOCOL_VERSION,
+            actual: unsupported_version,
+        })
+    );
+
+    worker
+        .complete_invocation(
+            invocation.protocol_version(),
+            invocation.id(),
+            InvocationResult::Success(Vec::new()),
+        )
+        .unwrap();
+    dispatch.await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -149,13 +198,18 @@ async fn queue_capacity_backpressures_dispatch() {
     assert_eq!(first_invocation.request(), b"first");
     wait_for_available_capacity(&worker, 0).await;
     worker
-        .complete_invocation(first_invocation.id(), InvocationResult::Success(Vec::new()))
+        .complete_invocation(
+            first_invocation.protocol_version(),
+            first_invocation.id(),
+            InvocationResult::Success(Vec::new()),
+        )
         .unwrap();
 
     let second_invocation = worker.poll_invocation().await.unwrap();
     assert_eq!(second_invocation.request(), b"second");
     worker
         .complete_invocation(
+            second_invocation.protocol_version(),
             second_invocation.id(),
             InvocationResult::Success(Vec::new()),
         )

@@ -15,14 +15,11 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
 use dex_core::{BlobCache, BlobCacheConfig, BlobCacheError};
 use sha2::{Digest, Sha256};
-
-static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[test]
 fn blob_cache_round_trips_deletes_and_enforces_immutable_ids() {
@@ -225,6 +222,28 @@ fn blob_cache_delete_all_is_reusable() {
 
 #[cfg(unix)]
 #[test]
+fn blob_cache_retries_failed_delete_for_untracked_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = TestDirectory::new();
+    let cache = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+    let orphan_path = path_for(directory.path(), "untracked");
+    let parent = orphan_path.parent().unwrap();
+    fs::create_dir_all(parent).unwrap();
+    fs::write(&orphan_path, b"orphan").unwrap();
+
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o500)).unwrap();
+    let delete_result = cache.delete("untracked");
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(delete_result.is_err());
+    assert!(cache.put("cleanup-trigger", b"payload").unwrap());
+    assert!(!orphan_path.exists());
+    cache.close().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn blob_cache_uses_private_file_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -289,31 +308,20 @@ fn regular_files(root: &Path) -> Vec<PathBuf> {
 }
 
 struct TestDirectory {
-    path: PathBuf,
+    directory: tempfile::TempDir,
 }
 
 impl TestDirectory {
     fn new() -> Self {
-        let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "dex-rust-blob-cache-{}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir(&path).unwrap();
-        Self { path }
+        Self {
+            directory: tempfile::Builder::new()
+                .prefix("dex-rust-blob-cache-")
+                .tempdir()
+                .unwrap(),
+        }
     }
 
     fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        if let Err(error) = fs::remove_dir_all(&self.path) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                panic!("remove test directory: {error}");
-            }
-        }
+        self.directory.path()
     }
 }

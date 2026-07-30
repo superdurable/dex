@@ -22,6 +22,7 @@ use crate::InvocationId;
 pub enum CoreError {
     InvalidQueueCapacity,
     InvocationIdExhausted,
+    UnsupportedProtocolVersion { expected: u32, actual: u32 },
     WorkerShutdown,
     UnknownInvocation(InvocationId),
     CompletionReceiverDropped(InvocationId),
@@ -32,6 +33,10 @@ impl Display for CoreError {
         match self {
             Self::InvalidQueueCapacity => formatter.write_str("queue capacity must be positive"),
             Self::InvocationIdExhausted => formatter.write_str("invocation IDs exhausted"),
+            Self::UnsupportedProtocolVersion { expected, actual } => write!(
+                formatter,
+                "unsupported Core protocol version {actual}; expected {expected}"
+            ),
             Self::WorkerShutdown => formatter.write_str("worker is shut down"),
             Self::UnknownInvocation(invocation_id) => {
                 write!(formatter, "unknown invocation {}", invocation_id.get())

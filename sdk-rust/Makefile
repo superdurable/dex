@@ -4,7 +4,7 @@ fmt:
 	cargo fmt --all --check
 
 lint:
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 test:
-	cargo test --workspace
+	cargo test --workspace --locked

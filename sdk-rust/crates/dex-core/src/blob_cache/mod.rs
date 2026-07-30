@@ -40,6 +40,11 @@ pub struct BlobCache {
     closed: AtomicBool,
 }
 
+enum ExistingEntry {
+    Missing,
+    Reused,
+}
+
 impl BlobCache {
     pub fn open(config: BlobCacheConfig) -> Result<Self, BlobCacheError> {
         let store = LocalFileStore::new(config.directory())?;
@@ -113,8 +118,11 @@ impl BlobCache {
         if metadata.size > self.config.max_bytes() {
             return Ok(false);
         }
-        if let Some(reused) = self.reuse_existing(&metadata, payload)? {
-            return Ok(reused);
+        if matches!(
+            self.reuse_existing(&metadata, payload)?,
+            ExistingEntry::Reused
+        ) {
+            return Ok(true);
         }
 
         let entry = Arc::new(DiskEntry::pending(metadata));
@@ -136,9 +144,12 @@ impl BlobCache {
             return Ok(false);
         }
 
-        if let Err(error) = self.store.commit(&entry.metadata, payload) {
+        if let Err(failure) = self.store.commit(&entry.metadata, payload) {
+            if let Some(path) = failure.orphan_path {
+                self.callback.add_cleanup_path(&path);
+            }
             self.remove_candidate(&entry)?;
-            return Err(error);
+            return Err(failure.error);
         }
         if !entry.mark_ready() {
             return Err(BlobCacheError::Reconciliation(
@@ -163,7 +174,12 @@ impl BlobCache {
 
         let entry = self.policy_entry(blob_id)?;
         let Some(entry) = entry else {
-            return self.store.remove(&self.store.path_for(blob_id));
+            let path = self.store.path_for(blob_id);
+            if let Err(error) = self.store.remove(&path) {
+                self.callback.add_cleanup_path(&path);
+                return Err(error);
+            }
+            return Ok(());
         };
         entry.begin_eviction();
         if let Err(error) = self.store.remove(&entry.metadata.path) {
@@ -195,9 +211,15 @@ impl BlobCache {
                 .map_err(|error| BlobCacheError::Policy(error.to_string()))
         })?;
         self.wait_for_policy()?;
+        let callback_error = self.callback.take_error();
         if let Err(error) = self.store.purge() {
             self.callback.require_purge();
-            return Err(error);
+            return Err(match callback_error {
+                Some(callback_error) => BlobCacheError::Reconciliation(format!(
+                    "{callback_error}; purge blob cache: {error}"
+                )),
+                None => error,
+            });
         }
         self.callback.reset_after_purge();
         Ok(())
@@ -280,12 +302,12 @@ impl BlobCache {
         &self,
         metadata: &FileMetadata,
         payload: &[u8],
-    ) -> Result<Option<bool>, BlobCacheError> {
+    ) -> Result<ExistingEntry, BlobCacheError> {
         let Some(entry) = self.policy_entry(&metadata.blob_id)? else {
-            return Ok(None);
+            return Ok(ExistingEntry::Missing);
         };
         let Some(lease) = entry.acquire_read() else {
-            return Ok(None);
+            return Ok(ExistingEntry::Missing);
         };
         let result = self.store.read(&entry);
         drop(lease);
@@ -297,7 +319,7 @@ impl BlobCache {
                 {
                     return Err(BlobCacheError::ContentMismatch(metadata.blob_id.clone()));
                 }
-                Ok(Some(true))
+                Ok(ExistingEntry::Reused)
             }
             Err(error) if error.is_missing_or_corrupt() => {
                 entry.begin_eviction();
@@ -307,7 +329,7 @@ impl BlobCache {
                     return Err(remove_error);
                 }
                 self.remove_policy_key(&metadata.blob_id)?;
-                Ok(None)
+                Ok(ExistingEntry::Missing)
             }
             Err(error) => Err(error),
         }

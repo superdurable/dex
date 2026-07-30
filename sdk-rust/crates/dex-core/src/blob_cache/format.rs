@@ -101,32 +101,6 @@ pub(crate) fn decode_header(
 }
 
 pub(crate) fn calculate_checksum(blob_id: &[u8], payload: &[u8]) -> u32 {
-    let mut checksum = Crc32c::new();
-    checksum.update(blob_id);
-    checksum.update(payload);
-    checksum.finish()
-}
-
-pub(crate) struct Crc32c {
-    value: u32,
-}
-
-impl Crc32c {
-    pub(crate) fn new() -> Self {
-        Self { value: u32::MAX }
-    }
-
-    pub(crate) fn update(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.value ^= u32::from(*byte);
-            for _ in 0..8 {
-                let mask = 0_u32.wrapping_sub(self.value & 1);
-                self.value = (self.value >> 1) ^ (0x82f6_3b78 & mask);
-            }
-        }
-    }
-
-    pub(crate) fn finish(self) -> u32 {
-        !self.value
-    }
+    let checksum = crc32c::crc32c(blob_id);
+    crc32c::crc32c_append(checksum, payload)
 }

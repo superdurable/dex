@@ -23,9 +23,7 @@ use sha2::{Digest, Sha256};
 use super::BlobCacheError;
 use super::config::MAX_BLOB_ID_BYTES;
 use super::entry::DiskEntry;
-use super::format::{
-    Crc32c, FIXED_HEADER_SIZE, FileHeader, FileMetadata, decode_header, encode_header,
-};
+use super::format::{FIXED_HEADER_SIZE, FileHeader, FileMetadata, decode_header, encode_header};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -40,6 +38,20 @@ pub(crate) struct LocalFileStore {
 pub(crate) struct ScanResult {
     pub(crate) entries: Vec<FileMetadata>,
     pub(crate) invalid_paths: Vec<PathBuf>,
+}
+
+pub(crate) struct CommitFailure {
+    pub(crate) error: BlobCacheError,
+    pub(crate) orphan_path: Option<PathBuf>,
+}
+
+impl From<BlobCacheError> for CommitFailure {
+    fn from(error: BlobCacheError) -> Self {
+        Self {
+            error,
+            orphan_path: None,
+        }
+    }
 }
 
 impl LocalFileStore {
@@ -92,7 +104,7 @@ impl LocalFileStore {
         &self,
         metadata: &FileMetadata,
         payload: &[u8],
-    ) -> Result<(), BlobCacheError> {
+    ) -> Result<(), CommitFailure> {
         let parent = metadata
             .path
             .parent()
@@ -100,11 +112,11 @@ impl LocalFileStore {
         create_private_directory(parent, "create blob cache shard")?;
         match fs::symlink_metadata(&metadata.path) {
             Ok(_) => {
-                return Err(BlobCacheError::ContentMismatch(metadata.blob_id.clone()));
+                return Err(BlobCacheError::ContentMismatch(metadata.blob_id.clone()).into());
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(BlobCacheError::io("inspect final cache path", error));
+                return Err(BlobCacheError::io("inspect final cache path", error).into());
             }
         }
 
@@ -117,11 +129,14 @@ impl LocalFileStore {
         });
         if let Err(error) = result {
             if let Err(cleanup_error) = remove_file_if_present(&temp_path) {
-                return Err(BlobCacheError::Reconciliation(format!(
-                    "{error}; remove temporary file: {cleanup_error}"
-                )));
+                return Err(CommitFailure {
+                    error: BlobCacheError::Reconciliation(format!(
+                        "{error}; remove temporary file: {cleanup_error}"
+                    )),
+                    orphan_path: Some(temp_path),
+                });
             }
-            return Err(error);
+            return Err(error.into());
         }
         Ok(())
     }
@@ -154,10 +169,8 @@ impl LocalFileStore {
         file.read_exact(&mut payload).map_err(|error| {
             BlobCacheError::Corrupt(format!("read payload {}: {error}", self.relative(path)))
         })?;
-        let mut checksum = Crc32c::new();
-        checksum.update(blob_id.as_bytes());
-        checksum.update(&payload);
-        if checksum.finish() != header.checksum {
+        let checksum = crc32c::crc32c(blob_id.as_bytes());
+        if crc32c::crc32c_append(checksum, &payload) != header.checksum {
             return Err(BlobCacheError::Corrupt(format!(
                 "checksum mismatch {}",
                 self.relative(path)
@@ -227,8 +240,7 @@ impl LocalFileStore {
         }
         let file_size = file_metadata.len();
         let (header, blob_id) = self.read_prefix(&mut file, file_size, path)?;
-        let mut checksum = Crc32c::new();
-        checksum.update(blob_id.as_bytes());
+        let mut checksum = crc32c::crc32c(blob_id.as_bytes());
         let mut buffer = [0_u8; 64 * 1024];
         let mut remaining = header.payload_length;
         while remaining != 0 {
@@ -236,10 +248,10 @@ impl LocalFileStore {
             file.read_exact(&mut buffer[..amount]).map_err(|error| {
                 BlobCacheError::Corrupt(format!("read payload {}: {error}", self.relative(path)))
             })?;
-            checksum.update(&buffer[..amount]);
+            checksum = crc32c::crc32c_append(checksum, &buffer[..amount]);
             remaining -= amount as u64;
         }
-        if checksum.finish() != header.checksum {
+        if checksum != header.checksum {
             return Err(BlobCacheError::Corrupt(format!(
                 "checksum mismatch {}",
                 self.relative(path)
