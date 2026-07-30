@@ -1,7 +1,7 @@
 # Go SDK rewrite plan
 
-Status: Phase 2 implementation. Later phases are boundaries only and require
-their own design review before implementation.
+Status: Phase 3 design. Phases 1 and 2 are implemented. Later phases are
+boundaries only and require their own design review before implementation.
 
 ## Current source of truth
 
@@ -80,9 +80,10 @@ its storage, eviction, size, recovery, or test strategy.
 
 ### Phase 3 — registration assembly
 
-Provisional boundary only. Design schema validation, private type erasure for
-generic step/RPC handlers, flow/step/RPC lookup, duplicate detection, and
-handler lifecycle.
+Build the private immutable registry used later by WorkerService. Validate flow,
+step, persistence, and fallback definitions; erase generic step and RPC
+handlers; discover Flow method RPCs; and assemble scoped lookups. Phase 3 adds
+no WorkerService, invocation context, protobuf request handling, or transport.
 
 ### Phase 4 — WorkerService runtime
 
@@ -166,6 +167,265 @@ run WorkerService, or execute public client methods.
 2. All pure mappers and invariant failures have package-internal tests.
 3. Error details and blob hydration contracts are independently testable.
 4. Registration, WorkerService, and FlowService transport remain absent.
+
+## Phase 3 detailed design
+
+### Registration surface
+
+Phase 3 adds no application-facing registry API. The SDK builds a private
+registry from `[]Flow`:
+
+```go
+type registry struct {
+	// unexported
+}
+
+func newRegistry(flows []Flow) (*registry, error)
+```
+
+Phase 4 will call this constructor while assembling WorkerService. It will
+decide the public worker constructor and lifecycle API in its own design.
+Application code continues to declare registration through `Flow.GetSteps`,
+`Flow.GetPersistenceSchema`, and RPC methods on the Flow value.
+
+There is no mutable `AddFlow`, `AddStep`, or `AddRPC` API. Construction is
+atomic: validation and lookup assembly happen in temporary state, and any error
+returns no registry. Registration errors are ordinary descriptive errors; no
+new public error hierarchy is needed.
+
+### Registry structure and lookup scope
+
+The private registry owns:
+
+- a flow lookup keyed by durable flow type;
+- per-flow step lookups keyed by durable step type;
+- per-flow RPC lookups keyed by exported Go method name;
+- per-flow attribute and channel definition lookups.
+
+Step and RPC names are scoped to one flow. The same durable step or RPC name may
+appear in different flows. Flow types are registry-wide and must be unique.
+Attribute names are unique within a flow's attribute namespace, and channel
+names are unique within its channel namespace. An attribute and channel may
+share a name because the server stores them separately.
+
+All lookup APIs remain private. Phase 4 receives immutable descriptors rather
+than raw maps and is responsible for converting a missing lookup into the
+appropriate WorkerService error.
+
+### Flow and persistence validation
+
+`newRegistry` evaluates each supplied Flow once. It rejects:
+
+- nil and typed-nil Flow values;
+- empty or duplicate durable flow types;
+- nil persistence definitions;
+- empty or duplicate attribute names;
+- empty or duplicate channel names;
+- invalid attribute index types;
+- conflicting index types for one non-empty shared index key.
+
+A definition records whether it is static or a map. Registration uses that
+metadata later to validate locks, channel references, and worker writes. A
+static attribute's empty `IndexKey` resolves to its attribute name. An
+attribute map with an empty `IndexKey` continues to index each concrete physical
+key independently.
+
+Index keys are server visibility names, so a non-empty shared key must use one
+index type throughout the registry. Definitions in different flows may share
+that key only when their index types agree.
+
+### Generic step erasure
+
+`StepDef` keeps its public opaque shape, but `DefineStep` and
+`DefineStepAsStart` create a private generic adapter instead of storing an
+unclassified `any`:
+
+```go
+type stepHandler interface {
+	stepType() string
+	inputType() reflect.Type
+	options() *StepOptions
+	skipWaitFor() bool
+	waitFor(Context, any) (Wait, error)
+	execute(Context, any) (StepDecision, error)
+}
+
+type typedStepHandler[IN any] struct {
+	step Step[IN]
+}
+```
+
+The adapter validates the concrete input type before invoking the typed
+handler. A mismatch returns an error and never reaches application code. It
+does not encode or decode protobuf values; Phase 4 performs that work before
+and after calling the adapter.
+
+Registration rejects:
+
+- an empty or duplicate durable step type within one flow;
+- a zero `StepDef`, nil handler, or typed-nil handler;
+- more than one `DefineStepAsStart` entry;
+- invalid step defaults or attribute locks;
+- an execute-failure target outside the same flow;
+- an execute-failure target with a different input Go type;
+- recursive execute-failure fallback configuration.
+
+Zero steps and zero starting steps remain valid. A starting step is only the
+default selected by `StartFlow`; it is not a separate handler kind.
+
+The private `NoWaitFor` marker is authoritative. Registration caches
+`skipWaitFor` and Phase 4 never invokes the marker's panic implementation. A
+step that embeds `NoWaitFor` and also shadows `WaitFor` is still Execute-only.
+
+Step defaults are obtained once during registration. Registered definitions
+and returned option values transfer ownership to the SDK and must not be
+mutated afterward.
+
+### Registry-aware step references
+
+Movements and execute-failure fallbacks continue to preserve their generic input
+type through private adapters. Registration and Phase 4 must resolve each
+reference through the current flow's step lookup.
+
+The durable name alone is not enough. Resolution verifies that:
+
+- the target step is registered in the current flow;
+- the supplied generic input type exactly matches the registered input type;
+- the movement input value is assignable to that type;
+- registered target defaults, not an unregistered lookalike value, are used.
+
+This prevents an application from constructing another Step value with the same
+durable name and changing the registered handler or defaults. Phase 3 provides
+the private resolver; Phase 4 applies it to movements returned by Execute and
+RPC.
+
+Conditional close decisions likewise resolve every channel through the current
+flow schema. Duplicate, empty, undeclared, or wrong static/map references fail
+before a WorkerService response is committed.
+
+### Flow method RPC discovery
+
+RPCs are not listed in a separate communication schema. Registration enumerates
+the exported method set of the exact Flow value with `reflect.Type.NumMethod`.
+A method is an RPC only when its signature is exactly:
+
+```go
+func(
+	ctx dex.Context,
+	input IN,
+) (dex.RPCResult[OUT], error)
+```
+
+The receiver is supplied by reflection and is not part of the application
+signature. `Context` must be the SDK interface, the second result must be
+`error`, and the first result must be a concrete `RPCResult[OUT]`. Pointer
+results and defined lookalike result types are not accepted. Exported methods
+with other signatures and all unexported methods are ignored.
+
+The exported Go method name is the durable RPC name. The registry retains:
+
+- the method bound to the exact registered Flow receiver;
+- its input and output Go types;
+- its durable method name.
+
+Value-receiver and pointer-receiver RPCs are supported when the supplied Flow
+value exposes them. The registry retains that exact receiver so constructor
+dependencies stored on the Flow remain available.
+
+`RPCResult[OUT]` implements a private erasure contract so the reflected result
+can expose its output and next movements without exporting a non-generic
+wrapper. RPC invocation still receives and returns concrete Go values in Phase
+3 tests; protobuf conversion and invocation state belong to Phase 4.
+
+Package-level functions, closures, method expressions, and anonymous wrappers
+are not registrable RPCs. The later non-generic client accepts a direct bound
+Flow method value, validates its canonical `-fm` method identity, and derives
+the same durable method name. It does not need a public communication schema.
+
+### Handler lifecycle and concurrency
+
+Registration retains the exact Flow and Step values supplied by the
+application. It does not construct a handler per request and never calls
+`WaitFor`, `Execute`, or an RPC while building the registry.
+
+Phase 4 may invoke registered handlers concurrently. Flow and Step values must
+therefore be immutable or concurrency-safe and must keep invocation-specific
+state in `Context`, attributes, channels, or step-execution locals.
+
+### Phase exclusions
+
+Phase 3 does not implement:
+
+- a gRPC server or `WorkerServiceServer`;
+- protobuf request decoding or response mapping;
+- concrete invocation `Context` values;
+- buffered attribute, event, local, or channel commits;
+- method panic recovery or worker error conversion;
+- internal transient-step execution;
+- worker startup, readiness, draining, or shutdown;
+- FlowService client calls or RPC request-ID retries.
+
+Those runtime concerns remain in Phase 4 or Phase 5. Phase 3 only proves that a
+valid application definition can become an immutable, type-safe private
+registry.
+
+### Phase 3 exit gate
+
+1. Heterogeneous generic steps assemble behind private typed adapters.
+2. Flow method RPCs are discovered without an explicit RPC schema.
+3. Invalid names, duplicates, schema references, options, and fallbacks fail
+   atomically during registration.
+4. Runtime step references resolve only to registered definitions in their
+   current flow.
+5. No application package imports `dexpb`, and no WorkerService or client
+   transport is added.
+
+### Tests
+
+Phase 3 uses package-internal unit tests because no WorkerService transport
+exists yet. Integration coverage cannot reach the registry until Phase 4.
+
+Add focused tests for:
+
+1. heterogeneous steps, zero or one starting step, and flow-scoped lookups;
+2. nil, empty, duplicate, and typed-nil flow and step definitions;
+3. duplicate persistence names, static/map metadata, and index-key conflicts;
+4. `NoWaitFor` detection without calling its panic implementation;
+5. typed adapter input validation and successful WaitFor/Execute dispatch;
+6. undeclared locks, invalid fallback targets, mismatched input types, and
+   fallback cycles;
+7. value- and pointer-receiver RPC discovery, input/output type retention, and
+   durable method names;
+8. ignored helper methods and rejection of package functions, method
+   expressions, closures, and wrappers as RPC identities;
+9. lookalike Step references using registered defaults, plus undeclared or
+   wrong-kind channel references;
+10. atomic failure without a partially usable registry.
+
+Run Phase 3 verification through the Makefile:
+
+```bash
+make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase3.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase3-copyright.log
+```
+
+Phase 4 integration tests must invoke registered WaitFor, Execute, and RPC
+handlers through an in-process WorkerService and verify protobuf boundaries,
+buffer commit/rollback, errors, and concurrency.
+
+### Documentation
+
+- Keep this plan linked from [`docs/README.md`](../../README.md).
+- Update [`sdk-go/README.md`](../../../sdk-go/README.md) when Phase 3 lands with
+  Flow registration, starting-step, RPC reflection, and concurrency rules.
+- Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
+  Phase 3 verification commands.
+- Add registry construction to SDK examples only when the Phase 4 worker
+  constructor gives applications a public entry point.
+
+### UI/UX
+
+N/A: no in-repo web UI.
 
 ## Phase 1 detailed design
 
