@@ -116,18 +116,15 @@ type FlowRetryPolicy struct {
 
 type AlreadyStartedOptions struct {
 	IgnoreError bool
-	RequestID   string
 }
 
 type InvokeOptions struct {
 	Timeout        time.Duration
 	LockAttributes []AttributeLock
-	RequestID      string
 }
 
 type WaitOptions struct {
-	Timeout   time.Duration
-	RequestID string
+	Timeout time.Duration
 }
 
 type WaitForFlowOptions struct {

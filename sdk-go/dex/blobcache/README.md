@@ -40,6 +40,9 @@ The cache treats payloads as opaque bytes. The hydration layer stores string
 bytes directly and deterministically marshals the complete `EncodedObject`,
 including its encoding, for object blobs.
 
+The Phase 2 SDK defines this payload contract behind an internal hydration
+seam. FlowService and WorkerService wiring belongs to later SDK phases.
+
 `Dir` must be dedicated to one cache process. Client and Worker code in the
 same process may share a `Cache`; separate processes must use separate
 directories.

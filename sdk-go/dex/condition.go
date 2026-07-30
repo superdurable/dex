@@ -46,11 +46,11 @@ type Condition interface {
 }
 
 func Timer(duration time.Duration, options ...ConditionOption) Condition {
-	condition := conditionValue{
+	condition := &conditionValue{
 		kind:     conditionTimer,
 		duration: duration,
 	}
-	applyConditionOptions(&condition, options)
+	applyConditionOptions(condition, options)
 	return condition
 }
 
@@ -89,6 +89,7 @@ const (
 type conditionValue struct {
 	kind        conditionKind
 	conditionID string
+	idSet       bool
 	channelName string
 	instance    string
 	isMap       bool
@@ -106,7 +107,7 @@ func newChannelCondition(
 	atMost *int,
 	options []ConditionOption,
 ) Condition {
-	condition := conditionValue{
+	condition := &conditionValue{
 		kind:        conditionChannel,
 		channelName: name,
 		instance:    instance,
@@ -115,7 +116,7 @@ func newChannelCondition(
 		atMost:      atMost,
 	}
 	condition.err = validateChannelBounds(atLeast, atMost)
-	applyConditionOptions(&condition, options)
+	applyConditionOptions(condition, options)
 	return condition
 }
 
@@ -127,6 +128,7 @@ func applyConditionOptions(
 		switch value := option.(type) {
 		case conditionIDOption:
 			condition.conditionID = value.conditionID
+			condition.idSet = true
 		}
 	}
 }
@@ -144,7 +146,7 @@ func validateChannelBounds(atLeast *int, atMost *int) error {
 	return nil
 }
 
-func (conditionValue) condition() {}
+func (*conditionValue) condition() {}
 
 type conditionIDOption struct {
 	conditionID string

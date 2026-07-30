@@ -247,14 +247,6 @@ type AttributeWrite struct {
 	Index *AttributeIndex
 }
 
-type Value struct {
-	value any
-}
-
-func (value Value) Decode(valuePtr any) error {
-	return errPhaseNotImplemented
-}
-
 type FlowStatus uint8
 
 const (

@@ -1,7 +1,7 @@
 # Go SDK rewrite plan
 
-Status: Phase 1 public contracts implemented. Later phases are boundaries only
-and require their own design review before implementation.
+Status: Phase 2 implementation. Later phases are boundaries only and require
+their own design review before implementation.
 
 ## Current source of truth
 
@@ -73,10 +73,10 @@ mapping, value encoding, blob hydration, or blob caching.
 
 ### Phase 2 — value codec and protobuf mapping
 
-Provisional boundary only. Design concrete-value encoding, proto conversion,
-error conversion, and the hydration seam. The separately implemented blob-cache
-component may be injected behind that seam; this SDK plan will not define its
-storage, eviction, size, recovery, or test strategy.
+Implement concrete-value encoding, pure proto conversion, error conversion,
+and the internal hydration seam. The separately implemented blob-cache
+component may later be injected behind that seam; this SDK plan does not define
+its storage, eviction, size, recovery, or test strategy.
 
 ### Phase 3 — registration assembly
 
@@ -93,6 +93,79 @@ buffering/commit mapping, method errors, transient steps, and shutdown.
 
 Provisional boundary only. Implement the Phase 1 client façade, migrate the Go
 integration suite, and run it against the default Temporal-backed Dex server.
+
+## Phase 2 detailed design
+
+### Value encoding
+
+Application code continues to use Go values and opaque `dex.Value`; `dexpb`
+remains internal.
+
+| Go value | Proto arm |
+|---|---|
+| string and named strings | `string_value` |
+| signed integers | `int_value` |
+| unsigned integers up to `math.MaxInt64` | `int_value` |
+| float32 and float64 | `double_value` |
+| bool and named bools | `bool_value` |
+| all other JSON-compatible values | `obj_value`, encoding `"json"` |
+
+Structs, maps, slices, arrays, `[]byte`, and non-indexed `time.Time` use JSON.
+Ordinary nil and typed nil encode as a JSON null object. The proto null arm is
+reserved for attribute deletion.
+
+`Value.Decode` requires a non-nil pointer. It rejects overflow, incompatible
+targets, malformed JSON, unknown object encodings, deletion markers, and blob
+arms that have not passed through hydration. Dynamic failures return errors and
+never panic.
+
+### Indexed attributes
+
+| Index type | Accepted Go values |
+|---|---|
+| keyword and text | string and named strings |
+| keyword array | string slices and equivalent named slices |
+| int | signed integers and unsigned integers up to `math.MaxInt64` |
+| double | float32 and float64 |
+| bool | bool and named bools |
+| datetime | `time.Time` or an RFC3339Nano string |
+
+An indexed delete carries both the null arm and the definition's index config.
+An attribute without indexing omits `IndexConfig`.
+Datetime strings accept UTC `Z` and numeric offsets, preserve fractional
+seconds, and do not interpret numeric strings as Unix nanoseconds.
+
+### Pure proto mapping
+
+Phase 2 maps waits, conditions, decisions, movements, retries, step and flow
+options, initial attributes, result values, statuses, search entries, and health
+results without assembling a WorkerService or FlowService invocation.
+
+Positive durations round up to whole seconds; negative durations fail.
+Pointer durations retain absence. Unknown SDK or proto enum values fail.
+Unnamed conditions receive deterministic reserved IDs in declaration order.
+Explicit IDs must be non-empty, unique, and outside the reserved prefix.
+
+### Errors and hydration
+
+The internal error mapper preserves the gRPC code, Dex substatus and detail,
+plus original worker code, type, and detail. A gRPC error without Dex details
+uses `ErrorUncategorized`; local non-gRPC errors remain unchanged.
+
+The private hydration seam accepts blob arms and returns concrete values in the
+same order. It deduplicates repeated references and validates count and arm
+kind. String cache payloads are raw UTF-8 bytes. Object cache payloads are
+deterministic protobuf encodings of the complete `EncodedObject`.
+
+Phase 2 does not call `LoadBlobs`, wire the disk cache, register flows or RPCs,
+run WorkerService, or execute public client methods.
+
+### Phase 2 exit gate
+
+1. Concrete and indexed values round-trip without exposing `dexpb`.
+2. All pure mappers and invariant failures have package-internal tests.
+3. Error details and blob hydration contracts are independently testable.
+4. Registration, WorkerService, and FlowService transport remain absent.
 
 ## Phase 1 detailed design
 
@@ -943,11 +1016,10 @@ change server-side wait semantics.
 
 Request IDs:
 
-- the SDK generates one UUID per logical `InvokeRPC`, `WaitForStepCompletion`, or
-  `WaitForAttributeEqual` call;
+- the SDK generates one UUID per logical `StartFlow`, locking `InvokeRPC`,
+  `WaitForStepCompletion`, or `WaitForAttributeEqual` call;
 - transparent retries reuse it;
-- option structs may accept an advanced override for deterministic tests or an
-  application retry spanning client calls;
+- request IDs are internal and cannot be supplied by applications;
 - a non-locking RPC may omit the wire request ID, while locking RPC always sends
   it.
 
@@ -1020,8 +1092,8 @@ type HealthInfo struct {
 non-nil pointer. The SDK does not guess an application type when the response
 does not carry a typed definition.
 
-`LoadBlobs` is not a public client operation. It is an internal hydration call
-implemented after the Phase 2 seam is designed.
+`LoadBlobs` is not a public client operation. Phase 5 connects it to the
+internal Phase 2 hydration seam.
 
 ### Client option structs
 
@@ -1078,18 +1150,15 @@ type FlowRetryPolicy struct {
 
 type AlreadyStartedOptions struct {
 	IgnoreError bool
-	RequestID   string
 }
 
 type InvokeOptions struct {
 	Timeout        time.Duration
 	LockAttributes []AttributeLock
-	RequestID      string
 }
 
 type WaitOptions struct {
-	Timeout   time.Duration
-	RequestID string
+	Timeout time.Duration
 }
 
 type WaitForFlowOptions struct {
@@ -1330,9 +1399,9 @@ style; they only satisfy Go's return rules.
 
 ## Tests
 
-Phase 1 cannot use server integration tests because it intentionally has no
-registration, worker, codec, or transport. Contract compile tests are the only
-reachable test level in this phase.
+Phase 2 cannot use server integration tests because it intentionally has no
+registration, worker, or transport. External contract tests cover the public
+surface; package-internal tests cover codec and mapper branches.
 
 Add SDK external-package tests (`package dex_test`) for these scenarios:
 
@@ -1358,14 +1427,19 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 11. Step-execution local Set accepts `any`, Get accepts a caller-provided
     pointer, and `RecordEvent(name, any)` compiles.
 12. `Context.WaitForMethodFailed` compiles for Execute implementations.
-13. Non-generic client methods use server identifiers directly, return only run
-    ID from starts, and preserve request-ID overrides.
+13. Non-generic client methods use server identifiers directly and return only
+    run ID from starts.
 
-Run Phase 1 verification through the Makefile:
+Package-internal tests cover native and JSON values, indexed attributes,
+duration rounding, waits, decisions, errors, hydration validation, and cache
+payload round trips.
+
+Run Phase 2 verification through the Makefile:
 
 ```bash
-make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase1.log
-make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase1-copyright.log
+make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase2.log
+make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase2-blobcache.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase2-copyright.log
 ```
 
 Later phases must add Temporal integration coverage for:
@@ -1387,16 +1461,15 @@ Temporal-backed.
 
 ## Documentation
 
-- Keep this plan linked from [`docs/README.md`](../../README.md) after Phase 1 is
-  approved.
-- Rewrite [`sdk-go/README.md`](../../../sdk-go/README.md) when Phase 1 types
-  land. Use the authoring example above and cover the single `Step[IN]`
+- Keep this plan linked from [`docs/README.md`](../../README.md).
+- Keep [`sdk-go/README.md`](../../../sdk-go/README.md) aligned with the
+  authoring and value-codec contracts. Cover the single `Step[IN]`
   interface, embedded `NoWaitFor[IN]`, Flow method RPCs, close decisions, typed
   attributes/channels, untyped step-execution locals and events, strongly typed
   channel results, timer-fired helpers, `WaitForMethodFailed`, and RPC-only
   channel size.
 - Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
-  Phase 1 verification commands and the rule that application packages do not
+  Phase 2 verification commands and the rule that application packages do not
   import `dexpb`.
 - Blob-cache documentation belongs with its independent component. The Go SDK
   documentation will later describe only how that component is configured or
