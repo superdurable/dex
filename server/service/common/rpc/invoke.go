@@ -134,13 +134,8 @@ func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 	if decision == nil {
 		return nil
 	}
-	if decision.GetConditionalClose() != nil {
+	if decision.GetCloseDecision() != nil {
 		return fmt.Errorf("closing flow in RPC is not supported yet")
-	}
-	for _, step := range decision.GetNextSteps() {
-		if step != nil && service.ValidClosingFlowStepType[step.GetStepType()] {
-			return fmt.Errorf("closing flow in RPC is not supported yet")
-		}
 	}
 	return nil
 }

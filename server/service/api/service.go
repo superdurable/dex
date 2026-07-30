@@ -732,7 +732,7 @@ func (s *serviceImpl) InvokeRPC(
 		len(workerResponse.GetRecordEvents()) > 0 ||
 		len(workerResponse.GetPublishToChannel()) > 0 ||
 		len(decision.GetNextSteps()) > 0 ||
-		decision.GetConditionalClose() != nil {
+		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),

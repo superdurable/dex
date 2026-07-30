@@ -248,24 +248,17 @@ func (e *StepExecutionCounter) decreaseStepIdActiveCounts(step *dexpb.StepMoveme
 }
 
 // as an optimization, we want to skip refreshing the search attribute
-// if there are no non-closing next steps, to avoid unnecessary refreshes
+// if there are next steps, to avoid unnecessary refreshes
 func determineIfShouldSkipRefreshOnCompleted(
 	nextSteps []*dexpb.StepMovement,
 	enabledForAll bool,
 ) bool {
-	var nonClosingNextSteps []*dexpb.StepMovement
-	for _, step := range nextSteps {
-		if _, ok := service.ValidClosingFlowStepType[step.GetStepType()]; !ok {
-			// step is not a ValidClosingFlowStepType
-			nonClosingNextSteps = append(nonClosingNextSteps, step)
-		}
-	}
 	if enabledForAll {
-		if len(nonClosingNextSteps) > 0 {
+		if len(nextSteps) > 0 {
 			return true
 		}
 	} else {
-		for _, step := range nonClosingNextSteps {
+		for _, step := range nextSteps {
 			if !step.GetStepOptions().GetSkipWaitFor() {
 				return true
 			}

@@ -58,17 +58,3 @@ const (
 	WorkerAddressMemoKey = DexSystemConstPrefix + "WorkerAddress"
 	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"
 )
-
-const (
-	GracefulCompletingFlowStepType = "_SYS_GRACEFUL_COMPLETING_FLOW"
-	ForceCompletingFlowStepType    = "_SYS_FORCE_COMPLETING_FLOW"
-	ForceFailingFlowStepType       = "_SYS_FORCE_FAILING_FLOW"
-	DeadEndFlowStepType            = "_SYS_DEAD_END"
-)
-
-var ValidClosingFlowStepType = map[string]bool{
-	GracefulCompletingFlowStepType: true,
-	ForceCompletingFlowStepType:    true,
-	ForceFailingFlowStepType:       true,
-	DeadEndFlowStepType:            true,
-}

@@ -194,7 +194,7 @@ func (a *Activities) InvokeExecuteMethod(
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
 	}
-	if err := a.reuseOrOffloadNextStepInputs(
+	if err := a.reuseOrOffloadDecisionInputs(
 		ctx,
 		resp.GetStepDecision(),
 		originalStepInputBlob,
@@ -335,9 +335,9 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	)
 }
 
-// reuseOrOffloadNextStepInputs accepts worker-echoed blob ids as-is, reuses the
+// reuseOrOffloadDecisionInputs accepts worker-echoed blob ids as-is, reuses the
 // original blob id when the concrete payload matches, otherwise offloads.
-func (a *Activities) reuseOrOffloadNextStepInputs(
+func (a *Activities) reuseOrOffloadDecisionInputs(
 	ctx context.Context,
 	decision *dexpb.StepDecision,
 	originalStepInputBlob stepInputBlob,
@@ -362,12 +362,17 @@ func (a *Activities) reuseOrOffloadNextStepInputs(
 			return err
 		}
 	}
-	if closeInput := decision.GetConditionalClose().GetCloseInput(); closeInput != nil {
+	closeDecision := decision.GetCloseDecision()
+	if closeDecision.GetCloseDecisionType() ==
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL {
+		return nil
+	}
+	if closeInput := closeDecision.GetCloseInput(); closeInput != nil {
 		if stepInputBlobRef(closeInput).id != "" {
 			return nil
 		}
 		if shouldReuseStepInputBlob(originalStepInputBlob, hydratedStepInput, closeInput) {
-			decision.ConditionalClose.CloseInput = originalStepInputBlob.toValue()
+			closeDecision.CloseInput = originalStepInputBlob.toValue()
 			return nil
 		}
 		if err := a.offloadStepInput(ctx, closeInput, flowId); err != nil {
@@ -475,35 +480,41 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 	if decision == nil {
 		return fmt.Errorf("step decision is nil")
 	}
-	if len(decision.GetNextSteps()) == 0 && decision.GetConditionalClose() == nil {
+	if len(decision.GetNextSteps()) == 0 && decision.GetCloseDecision() == nil {
 		return fmt.Errorf("empty step decision is not supported")
 	}
-	systemStepCount := 0
 	for index, movement := range decision.GetNextSteps() {
 		if movement == nil || movement.GetStepType() == "" {
 			return fmt.Errorf("next step at index %d is invalid", index)
 		}
-		if service.ValidClosingFlowStepType[movement.GetStepType()] {
-			systemStepCount++
+	}
+	if closeDecision := decision.GetCloseDecision(); closeDecision != nil {
+		return validateCloseDecision(closeDecision, len(decision.GetNextSteps()))
+	}
+	return nil
+}
+
+func validateCloseDecision(closeDecision *dexpb.CloseDecision, nextStepCount int) error {
+	closeType := closeDecision.GetCloseDecisionType()
+	channelNames := closeDecision.GetConditionalChannelNames()
+	if closeType != dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
+		if nextStepCount > 0 {
+			return fmt.Errorf("close decision cannot be combined with next steps")
+		}
+		if len(channelNames) > 0 {
+			return fmt.Errorf("conditional channel names require a conditional close decision")
 		}
 	}
-	if systemStepCount > 0 && len(decision.GetNextSteps()) > 1 {
-		return fmt.Errorf("closing step cannot be combined with another next step")
-	}
-	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
-		if systemStepCount > 0 {
-			return fmt.Errorf("conditional close cannot contain a closing next step")
+	switch closeType {
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
+		if nextStepCount == 0 {
+			return fmt.Errorf("conditional close decision requires at least one next step")
 		}
-		switch conditionalClose.GetConditionalCloseType() {
-		case dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
-		default:
-			return fmt.Errorf("conditional close type is unspecified")
-		}
-		if len(conditionalClose.GetChannelNames()) == 0 {
-			return fmt.Errorf("conditional close requires at least one channel")
+		if len(channelNames) == 0 {
+			return fmt.Errorf("conditional close decision requires at least one channel")
 		}
 		seenChannelNames := map[string]struct{}{}
-		for _, channelName := range conditionalClose.GetChannelNames() {
+		for _, channelName := range channelNames {
 			if channelName == "" {
 				return fmt.Errorf("conditional close channel name is empty")
 			}
@@ -512,6 +523,20 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 			}
 			seenChannelNames[channelName] = struct{}{}
 		}
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE:
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL:
+		if closeInput := closeDecision.GetCloseInput(); closeInput != nil {
+			if _, isString := closeInput.GetKind().(*dexpb.Value_StringValue); !isString {
+				return fmt.Errorf("force fail close input must be a string")
+			}
+		}
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END:
+		if closeDecision.GetCloseInput() != nil {
+			return fmt.Errorf("dead end close decision cannot have close input")
+		}
+	default:
+		return fmt.Errorf("close decision type is unspecified")
 	}
 	return nil
 }

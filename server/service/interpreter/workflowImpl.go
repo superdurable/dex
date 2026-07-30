@@ -526,13 +526,14 @@ func checkClosingWorkflow(
 	completeOutput *dexpb.StepCompletionOutput,
 	err error,
 ) {
-	if conditionalClose := decision.GetConditionalClose(); conditionalClose != nil {
-		if conditionalClose.ConditionalCloseType !=
-			dexpb.FlowConditionalCloseType_FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY {
-			err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-				&dexpb.ErrorResponse{Detail: "invalid step decisions. Unsupported ConditionalCloseType "})
-			return
-		}
+	closeDecision := decision.GetCloseDecision()
+	if closeDecision == nil {
+		canGoNext = true
+		return
+	}
+
+	switch closeDecision.GetCloseDecisionType() {
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY:
 		// trigger a signal draining so that all the channel messages are processed
 		signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 		// Messages of channels could be published via step executions, within the same workflow task.
@@ -548,8 +549,8 @@ func checkClosingWorkflow(
 		}
 
 		conditionMet := true
-		for _, chName := range conditionalClose.ChannelNames {
-			if channelStore.HasData(chName) {
+		for _, channelName := range closeDecision.GetConditionalChannelNames() {
+			if channelStore.HasData(channelName) {
 				conditionMet = false
 			}
 		}
@@ -560,59 +561,32 @@ func checkClosingWorkflow(
 			completeOutput = &dexpb.StepCompletionOutput{
 				CompletedStepType:        currentStepType,
 				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      conditionalClose.CloseInput,
+				CompletedStepOutput:      closeDecision.GetCloseInput(),
 			}
 			return
 		}
-		for _, st := range decision.GetNextSteps() {
-			if service.ValidClosingFlowStepType[st.GetStepType()] {
-				err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-					&dexpb.ErrorResponse{Detail: "invalid ConditionUnmetDecision with stepType: " + st.GetStepType()})
-				return
-			}
-		}
-
 		canGoNext = true
 		return
-
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE:
+		gracefulComplete = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE:
+		forceComplete = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL:
+		forceFail = true
+	case dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END:
+		return
+	default:
+		err = provider.NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+			&dexpb.ErrorResponse{Detail: "invalid close decision type"},
+		)
+		return
 	}
 
-	canGoNext = true
-	for _, movement := range decision.GetNextSteps() {
-		switch movement.GetStepType() {
-		case service.GracefulCompletingFlowStepType:
-			canGoNext = false
-			gracefulComplete = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.ForceCompletingFlowStepType:
-			canGoNext = false
-			forceComplete = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.ForceFailingFlowStepType:
-			canGoNext = false
-			forceFail = true
-			completeOutput = &dexpb.StepCompletionOutput{
-				CompletedStepType:        currentStepType,
-				CompletedStepExecutionId: currentStepExeId,
-				CompletedStepOutput:      movement.GetStepInput(),
-			}
-		case service.DeadEndFlowStepType:
-			canGoNext = false
-		}
-	}
-
-	if !canGoNext && len(decision.NextSteps) > 1 {
-		// Illegal decision
-		err = provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			&dexpb.ErrorResponse{Detail: "invalid step decisions. Closing workflow decision cannot be combined with other state decisions"})
+	completeOutput = &dexpb.StepCompletionOutput{
+		CompletedStepType:        currentStepType,
+		CompletedStepExecutionId: currentStepExeId,
+		CompletedStepOutput:      closeDecision.GetCloseInput(),
 	}
 	return
 }

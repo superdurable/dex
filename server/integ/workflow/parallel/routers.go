@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -120,6 +119,7 @@ func (h *handler) InvokeExecuteMethod(
 		}
 
 		var nextSteps []*dexpb.StepMovement
+		var closeDecision *dexpb.CloseDecision
 		switch request.GetStepType() {
 		case State1:
 			time.Sleep(time.Second * 1)
@@ -146,47 +146,33 @@ func (h *handler) InvokeExecuteMethod(
 		case State13:
 			time.Sleep(time.Second * 1)
 
-			nextSteps = []*dexpb.StepMovement{
-				{
-					StepType: service.GracefulCompletingFlowStepType,
-					StepInput: &dexpb.Value{
-						Kind: &dexpb.Value_ObjValue{
-							ObjValue: &dexpb.EncodedObject{
-								Encoding: "json",
-								Payload:  []byte("from " + request.GetStepType()),
-							},
-						},
-					},
-				},
-			}
+			closeDecision = common.GracefulCompleteDecision(parallelCloseInput(request.GetStepType()))
 		case State111, State112, State121, State122:
-			nextSteps = []*dexpb.StepMovement{
-				{
-					StepType: service.GracefulCompletingFlowStepType,
-					StepInput: &dexpb.Value{
-						Kind: &dexpb.Value_ObjValue{
-							ObjValue: &dexpb.EncodedObject{
-								Encoding: "json",
-								Payload:  []byte("from " + request.GetStepType()),
-							},
-						},
-					},
-				},
-			}
+			closeDecision = common.GracefulCompleteDecision(parallelCloseInput(request.GetStepType()))
 		default:
-			nextSteps = []*dexpb.StepMovement{
-				{StepType: service.ForceFailingFlowStepType},
-			}
+			closeDecision = common.ForceFailDecision(nil)
 		}
 
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: nextSteps,
+				NextSteps:     nextSteps,
+				CloseDecision: closeDecision,
 			},
 		}, nil
 	}
 
 	return nil, status.Error(codes.InvalidArgument, "invalid flow type or step type")
+}
+
+func parallelCloseInput(stepType string) *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte("from " + stepType),
+			},
+		},
+	}
 }
 
 func (h *handler) GetTestResult() common.TestResult {

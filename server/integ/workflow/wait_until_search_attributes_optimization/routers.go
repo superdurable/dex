@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -202,9 +201,7 @@ func (h *handler) InvokeExecuteMethod(
 		time.Sleep(time.Second * 8)
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: []*dexpb.StepMovement{
-					{StepType: service.GracefulCompletingFlowStepType},
-				},
+				CloseDecision: common.GracefulCompleteDecision(nil),
 			},
 		}, nil
 	case State4:
@@ -238,17 +235,13 @@ func (h *handler) InvokeExecuteMethod(
 		time.Sleep(time.Second * 4)
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: []*dexpb.StepMovement{
-					{StepType: service.GracefulCompletingFlowStepType},
-				},
+				CloseDecision: common.GracefulCompleteDecision(nil),
 			},
 		}, nil
 	case State7:
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				NextSteps: []*dexpb.StepMovement{
-					{StepType: service.GracefulCompletingFlowStepType},
-				},
+				CloseDecision: common.GracefulCompleteDecision(nil),
 			},
 		}, nil
 	default:

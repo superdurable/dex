@@ -197,12 +197,130 @@ func TestValidateWaitingConditionRejections(t *testing.T) {
 	require.NoError(t, validateWaitingCondition(nil))
 }
 
-func TestValidateStepDecisionEmpty(t *testing.T) {
-	require.Error(t, validateStepDecision(nil))
-	require.Error(t, validateStepDecision(&dexpb.StepDecision{}))
-	require.NoError(t, validateStepDecision(&dexpb.StepDecision{
-		NextSteps: []*dexpb.StepMovement{{StepType: "s"}},
-	}))
+func TestValidateStepDecision(t *testing.T) {
+	validConditional := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	)
+	validConditional.NextSteps = []*dexpb.StepMovement{{StepType: "next"}}
+	validConditional.CloseDecision.ConditionalChannelNames = []string{"channel"}
+
+	conditionalWithoutNext := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	)
+	conditionalWithoutNext.CloseDecision.ConditionalChannelNames = []string{"channel"}
+
+	conditionalWithoutChannels := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	)
+	conditionalWithoutChannels.NextSteps = []*dexpb.StepMovement{{StepType: "next"}}
+
+	conditionalWithDuplicateChannels := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	)
+	conditionalWithDuplicateChannels.NextSteps = []*dexpb.StepMovement{{StepType: "next"}}
+	conditionalWithDuplicateChannels.CloseDecision.ConditionalChannelNames = []string{"channel", "channel"}
+
+	conditionalWithEmptyChannel := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+	)
+	conditionalWithEmptyChannel.NextSteps = []*dexpb.StepMovement{{StepType: "next"}}
+	conditionalWithEmptyChannel.CloseDecision.ConditionalChannelNames = []string{""}
+
+	gracefulWithNext := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+	)
+	gracefulWithNext.NextSteps = []*dexpb.StepMovement{{StepType: "next"}}
+
+	gracefulWithChannels := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+	)
+	gracefulWithChannels.CloseDecision.ConditionalChannelNames = []string{"channel"}
+
+	forceFailWithString := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL,
+	)
+	forceFailWithString.CloseDecision.CloseInput = &dexpb.Value{
+		Kind: &dexpb.Value_StringValue{StringValue: "detail"},
+	}
+
+	forceFailWithInt := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL,
+	)
+	forceFailWithInt.CloseDecision.CloseInput = &dexpb.Value{
+		Kind: &dexpb.Value_IntValue{IntValue: 1},
+	}
+
+	deadEndWithInput := decisionWithClose(
+		dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END,
+	)
+	deadEndWithInput.CloseDecision.CloseInput = &dexpb.Value{
+		Kind: &dexpb.Value_StringValue{StringValue: "input"},
+	}
+
+	testCases := []struct {
+		name          string
+		decision      *dexpb.StepDecision
+		errorContains string
+	}{
+		{"nil", nil, "step decision is nil"},
+		{"empty", &dexpb.StepDecision{}, "empty step decision"},
+		{"nil_next_step", &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{nil},
+		}, "next step at index 0 is invalid"},
+		{"empty_next_step_type", &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{{}},
+		}, "next step at index 0 is invalid"},
+		{"next_step", &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{{StepType: "next"}},
+		}, ""},
+		{"conditional", validConditional, ""},
+		{"conditional_without_next", conditionalWithoutNext, "requires at least one next step"},
+		{"conditional_without_channels", conditionalWithoutChannels, "requires at least one channel"},
+		{"conditional_with_duplicate_channels", conditionalWithDuplicateChannels, "duplicate conditional close channel"},
+		{"conditional_with_empty_channel", conditionalWithEmptyChannel, "conditional close channel name is empty"},
+		{"graceful", decisionWithClose(
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+		), ""},
+		{"graceful_with_next", gracefulWithNext, "cannot be combined with next steps"},
+		{"graceful_with_channels", gracefulWithChannels, "require a conditional close decision"},
+		{"force_complete", decisionWithClose(
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+		), ""},
+		{"force_fail", decisionWithClose(
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL,
+		), ""},
+		{"force_fail_with_string", forceFailWithString, ""},
+		{"force_fail_with_int", forceFailWithInt, "must be a string"},
+		{"dead_end", decisionWithClose(
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END,
+		), ""},
+		{"dead_end_with_input", deadEndWithInput, "cannot have close input"},
+		{"unspecified", decisionWithClose(
+			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_UNSPECIFIED,
+		), "close decision type is unspecified"},
+		{"unknown", decisionWithClose(
+			dexpb.CloseDecisionType(100),
+		), "close decision type is unspecified"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateStepDecision(testCase.decision)
+			if testCase.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, testCase.errorContains)
+		})
+	}
+}
+
+func decisionWithClose(closeType dexpb.CloseDecisionType) *dexpb.StepDecision {
+	return &dexpb.StepDecision{
+		CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: closeType,
+		},
+	}
 }
 
 func createConditions() ([]*dexpb.TimerCondition, []*dexpb.ChannelCondition) {
