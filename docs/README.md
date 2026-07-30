@@ -6,6 +6,7 @@
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
 * [Transient step movement](design/transient-step-movement.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
+* [Go SDK rewrite plan](design/plan/go-sdk-rewrite.md)
 
 ## Case studies / examples
 

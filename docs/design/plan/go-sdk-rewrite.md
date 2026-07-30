@@ -1,7 +1,7 @@
 # Go SDK rewrite plan
 
-Status: Phase 1 design. Later phases are boundaries only and require their own
-design review before implementation.
+Status: Phase 1 public contracts implemented. Later phases are boundaries only
+and require their own design review before implementation.
 
 ## Current source of truth
 
@@ -65,7 +65,7 @@ Design and add the public Go contracts used by application code:
 - invocation `Context`;
 - waiting conditions and typed result accessors;
 - step movements, close decisions, and step options;
-- public client request/result structs and typed client helper signatures;
+- public client request/result structs and non-generic client methods;
 - public SDK errors.
 
 Phase 1 does not implement registration, WorkerService, gRPC calls, protobuf
@@ -231,9 +231,9 @@ func (ApproveOrderStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	_ = approvals
-	return dex.Next(dex.Move(ShipOrder, ShipOrderInput{
+	return dex.GoTo(ShipOrder, ShipOrderInput{
 		OrderID: input.OrderID,
-	})), nil
+	}), nil
 }
 
 var ApproveOrder = ApproveOrderStep{}
@@ -376,17 +376,7 @@ func DefineAttributeMap[T any](
 ```
 
 `AttributeMap` maps an application instance key to one flat server attribute
-key. The physical escaping/encoding is SDK-owned; callers use `Key(instance)`
-instead of constructing it.
-
-```go
-type AttributeKey struct {
-	// unexported
-}
-
-func (a Attribute[T]) Key() AttributeKey
-func (a AttributeMap[T]) Key(instance string) AttributeKey
-```
+key. Physical keys and their escaping are internal SDK details.
 
 Invocation operations take `Context` explicitly:
 
@@ -461,41 +451,41 @@ Publishing uses invocation state, while wait construction does not:
 func (c Channel[T]) Publish(ctx Context, value T) error
 func (c ChannelMap[T]) Publish(ctx Context, instance string, value T) error
 
-func (c Channel[T]) ForOne(options ...ConditionOption) ChannelCondition
-func (c Channel[T]) ForN(count int, options ...ConditionOption) ChannelCondition
-func (c Channel[T]) AtLeast(count int, options ...ConditionOption) ChannelCondition
-func (c Channel[T]) AtMost(count int, options ...ConditionOption) ChannelCondition
+func (c Channel[T]) ForOne(options ...Condition) Condition
+func (c Channel[T]) ForN(count int, options ...Condition) Condition
+func (c Channel[T]) AtLeast(count int, options ...Condition) Condition
+func (c Channel[T]) AtMost(count int, options ...Condition) Condition
 func (c Channel[T]) AtLeastAtMost(
 	atLeast int,
 	atMost int,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 
 func (c ChannelMap[T]) ForOne(
 	instance string,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 func (c ChannelMap[T]) ForN(
 	instance string,
 	count int,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 func (c ChannelMap[T]) AtLeast(
 	instance string,
 	count int,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 func (c ChannelMap[T]) AtMost(
 	instance string,
 	count int,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 func (c ChannelMap[T]) AtLeastAtMost(
 	instance string,
 	atLeast int,
 	atMost int,
-	options ...ConditionOption,
-) ChannelCondition
+	options ...Condition,
+) Condition
 ```
 
 Mapping:
@@ -544,17 +534,9 @@ Execute is a programming error detected from `ctx`. There is no
 their values are concatenated in channel-condition declaration order. The raw
 proto-shaped condition result types remain internal.
 
-Close decisions take concrete channel references:
-
-```go
-type ChannelReference interface {
-	ChannelName() string
-	channelReference()
-}
-
-func (c Channel[T]) Ref() ChannelReference
-func (c ChannelMap[T]) Ref(instance string) ChannelReference
-```
+Conditional close decisions take `Channel[T]` values directly through the
+erased `[]ChannelDefinition` slice. Callers do not construct physical channel
+references.
 
 ### Waiting conditions
 
@@ -564,7 +546,7 @@ type Wait struct {
 }
 
 type Condition interface {
-	ConditionID() string
+	condition()
 }
 
 func ExecuteImmediately() Wait
@@ -575,15 +557,16 @@ func AnyComboOf(combinations ...ConditionCombination) Wait
 func Timer(
 	conditionID string,
 	duration time.Duration,
-) TimerCondition
+) Condition
 ```
 
 Channel condition IDs are optional for `AllOf` and `AnyOf`:
 
 ```go
-func WithConditionID(conditionID string) ConditionOption
+func WithConditionID(conditionID string) Condition
 ```
 
+`WithConditionID` is valid only as an option to a channel count constructor.
 The SDK assigns internal IDs to unnamed conditions when serializing one `Wait`.
 `AnyComboOf` refers to the actual condition values supplied to `Combo`, so the
 application does not manually duplicate IDs. Explicit IDs remain useful for
@@ -612,13 +595,19 @@ type StepMovement struct {
 	// unexported
 }
 
-func Move[IN any](
+func GoTo[IN any](
+	step Step[IN],
+	input IN,
+	options ...StepMoveOption,
+) StepDecision
+
+func MovementOf[IN any](
 	step Step[IN],
 	input IN,
 	options ...StepMoveOption,
 ) StepMovement
 
-func Next(movements ...StepMovement) StepDecision
+func GoToMulti(movements ...StepMovement) StepDecision
 func GracefulComplete(output any) StepDecision
 func ForceComplete(output any) StepDecision
 func ForceFail(reason string) StepDecision
@@ -626,14 +615,15 @@ func DeadEnd() StepDecision
 
 func ForceCompleteOnChannelsEmpty(
 	output any,
-	channels []ChannelReference,
+	channels []ChannelDefinition,
 	otherwise ...StepMovement,
 ) StepDecision
 ```
 
 Rules enforced by construction or Phase 3 validation:
 
-- `Next` requires at least one valid movement.
+- `GoTo` constructs one movement and `GoToMulti` requires at least one valid
+  movement.
 - graceful complete, force complete, force fail, and dead end cannot have next
   steps;
 - force fail accepts only a string reason;
@@ -677,6 +667,16 @@ type ExecuteFailure struct {
 	// unexported
 }
 
+type AttributeLock interface {
+	attributeLock()
+}
+
+func LockAttribute[T any](attribute Attribute[T]) AttributeLock
+func LockAttributeMap[T any](
+	attribute AttributeMap[T],
+	instance string,
+) AttributeLock
+
 func ProceedToOnExecuteFailure[IN any](
 	step Step[IN],
 	options *StepOptions,
@@ -691,15 +691,15 @@ type StepOptions struct {
 	ExecuteFailure  *ExecuteFailure
 	WaitForDurability  StepDurability
 	ExecuteDurability  StepDurability
-	WaitForLockAttributes []AttributeKey
-	ExecuteLockAttributes []AttributeKey
+	WaitForLockAttributes []AttributeLock
+	ExecuteLockAttributes []AttributeLock
 }
 ```
 
 The typed constructor prevents callers from placing an erased step inside
 `ExecuteFailure`. Phase 3 validates that its target consumes the failed step's
 unchanged input, because the server reuses that input. `StepOptions` does not
-expose server-owned fields or a generic skip flag.
+expose physical attribute keys, server-owned fields, or a generic skip flag.
 
 ### RPC
 
@@ -751,115 +751,154 @@ step-execution locals or return a close decision.
 
 Phase 1 fixes signatures but does not implement gRPC.
 
-Go does not support generic methods, so type-safe calls are package functions
-over a non-generic `Client`:
+As in dex-base, every FlowService operation is a method on `Client`. Client
+methods are intentionally non-generic; application handler APIs retain their
+strong typing, while transport calls use `any` and caller-provided output
+pointers.
 
 ```go
 type Client struct {
 	// unexported
 }
 
-type FlowRun struct {
-	FlowID string
-	RunID  string
-}
-
-func StartFlow(
+func (client *Client) StartFlow(
 	ctx context.Context,
-	client *Client,
 	flow Flow,
 	flowID string,
 	options StartFlowOptions,
-) (FlowRun, error)
+) (runID string, err error)
 
-func StartFlowAt[IN any](
+func (client *Client) StartFlowAt(
 	ctx context.Context,
-	client *Client,
 	flow Flow,
 	flowID string,
-	step Step[IN],
-	input IN,
+	step any,
+	input any,
 	options StartFlowOptions,
-) (FlowRun, error)
+) (runID string, err error)
 
-func PublishToChannel[T any](
+func (client *Client) PublishToChannel(
 	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	channel Channel[T],
-	value T,
+	flowID string,
+	runID string,
+	channelName string,
+	values ...any,
 ) error
 
-func InvokeRPC[IN, OUT any](
+func (client *Client) PublishToChannelMap(
 	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	rpc RPC[IN, OUT],
-	input IN,
+	flowID string,
+	runID string,
+	channelName string,
+	instance string,
+	values ...any,
+) error
+
+func (client *Client) InvokeRPC(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	rpc any,
+	input any,
+	outputPtr any,
 	options InvokeOptions,
-) (OUT, error)
-
-func GetAttribute[T any](
-	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	attribute Attribute[T],
-) (value T, found bool, err error)
-
-func SetAttribute[T any](
-	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	attribute Attribute[T],
-	value T,
 ) error
 
-func DeleteAttribute[T any](
+func (client *Client) GetAttribute(
 	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	attribute Attribute[T],
+	flowID string,
+	runID string,
+	attributeName string,
+	valuePtr any,
+) (found bool, err error)
+
+func (client *Client) GetAttributeMap(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+	instance string,
+	valuePtr any,
+) (found bool, err error)
+
+func (client *Client) SetAttribute(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+	value any,
 ) error
 
-func WaitForAttributeEqual[T any](
+func (client *Client) SetAttributeMap(
 	ctx context.Context,
-	client *Client,
-	run FlowRun,
-	attribute Attribute[T],
-	value T,
+	flowID string,
+	runID string,
+	attributeName string,
+	instance string,
+	value any,
+) error
+
+func (client *Client) DeleteAttribute(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+) error
+
+func (client *Client) DeleteAttributeMap(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+	instance string,
+) error
+
+func (client *Client) WaitForAttributeEqual(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+	value any,
+	options WaitOptions,
+) error
+
+func (client *Client) WaitForAttributeMapEqual(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	attributeName string,
+	instance string,
+	value any,
 	options WaitOptions,
 ) error
 ```
 
-Equivalent map helpers take the instance key immediately after the map
-definition. Heterogeneous batch operations use sealed `AttributeRead` and
-`AttributeWrite` values built by typed helpers:
+`StartFlowAt` and `InvokeRPC` accept application step and RPC values as `any`.
+Phase 3 registration resolves them and validates their handler signatures.
+`valuePtr` and `outputPtr` must be non-nil pointers. Map methods take the
+definition name and instance separately; physical key construction remains
+internal.
+
+Batch attribute methods are also non-generic:
 
 ```go
-func ReadAttribute[T any](attribute Attribute[T]) AttributeRead
-func ReadAttributeMap[T any](
-	attribute AttributeMap[T],
-	instance string,
-) AttributeRead
-
-func WriteAttribute[T any](
-	attribute Attribute[T],
-	value T,
-) (AttributeWrite, error)
-func WriteAttributeMap[T any](
-	attribute AttributeMap[T],
-	instance string,
-	value T,
-) (AttributeWrite, error)
+type AttributeWrite struct {
+	Name  string
+	Value any
+	Index *AttributeIndex
+}
 
 func (client *Client) GetAttributes(
 	ctx context.Context,
-	run FlowRun,
-	attributes ...AttributeRead,
-) (AttributeValues, error)
+	flowID string,
+	runID string,
+	attributeNames ...string,
+) (map[string]Value, error)
+
 func (client *Client) SetAttributes(
 	ctx context.Context,
-	run FlowRun,
+	flowID string,
+	runID string,
 	writes ...AttributeWrite,
 ) error
 ```
@@ -868,15 +907,19 @@ The remaining FlowService operations use non-generic public types:
 
 | Server RPC | Phase 1 façade |
 |---|---|
-| `StopFlow` | `Client.StopFlow(ctx, run, StopOptions)` |
-| `WaitForFlow` | `Client.WaitForFlow(ctx, run, WaitForFlowOptions)` |
+| `StopFlow` | `Client.StopFlow(ctx, flowID, runID, StopOptions)` |
+| `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, runID, WaitForFlowOptions)` |
 | `SearchFlows` | `Client.SearchFlows(ctx, SearchFlowsOptions)` |
-| `ResetFlow` | `Client.ResetFlow(ctx, run, ResetOptions)` |
-| `SkipTimer` | `Client.SkipTimer(ctx, run, StepExecutionRef, TimerRef)` |
-| `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, run, FlowConfig)` |
+| `ResetFlow` | `Client.ResetFlow(ctx, flowID, runID, ResetOptions)` |
+| `SkipTimer` | `Client.SkipTimer(ctx, flowID, runID, StepExecutionRef, TimerRef)` |
+| `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, runID, FlowConfig)` |
 | `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionRef, WaitOptions)` |
-| `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, run)` |
+| `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID, runID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
+
+`runID` may be empty for operations where the server permits targeting the
+current run. `StartFlow` and `StartFlowAt` return only the created run ID because
+the caller already supplied the flow ID.
 
 `WaitForAttributeEqual` compares the encoded server value. Waiting on a
 blob-backed stored value may return `FailedPrecondition`; SDK hydration does not
@@ -902,7 +945,7 @@ type Value struct {
 	// unexported
 }
 
-func DecodeValue[T any](value Value) (T, error)
+func (value Value) Decode(valuePtr any) error
 
 type FlowStatus uint8
 
@@ -940,7 +983,8 @@ type WaitForFlowResult struct {
 }
 
 type SearchFlowEntry struct {
-	FlowRun
+	FlowID           string
+	RunID            string
 	SearchAttributes map[string]Value
 }
 
@@ -956,8 +1000,8 @@ type HealthInfo struct {
 }
 ```
 
-`StepCompletion.Output` and search attributes can be decoded with
-`DecodeValue[T]`. The SDK does not guess an application type when the response
+`StepCompletion.Output` and search attributes decode into a caller-provided
+non-nil pointer. The SDK does not guess an application type when the response
 does not carry a typed definition.
 
 `LoadBlobs` is not a public client operation. It is an internal hydration call
@@ -1024,7 +1068,7 @@ type AlreadyStartedOptions struct {
 
 type InvokeOptions struct {
 	Timeout        time.Duration
-	LockAttributes []AttributeKey
+	LockAttributes []AttributeLock
 	RequestID      string
 }
 
@@ -1267,12 +1311,11 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    channels, and RPCs without importing `dexpb`.
 2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
    embeds `NoWaitFor[IN]`.
-3. `Move` and `StartFlowAt` preserve the target step input type without a public
-   definition wrapper.
-4. A Flow method matching `RPC[IN, OUT]` preserves `InvokeRPC` input/output
-   types without an RPC interface or definition wrapper.
+3. `GoTo`, `MovementOf`, and `GoToMulti` preserve target step input types.
+4. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
+   `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.
 5. Static and map attributes expose typed Get/Set/Delete methods that take
-   `Context`, plus typed lock keys.
+   `Context`, while physical keys remain internal behind sealed lock values.
 6. Static and map channels expose Publish, all five count forms, and the
    `myCh.Size(ctx)` / `myChMap.Size(ctx, key)` RPC shape.
 7. A Wait combines timers and channel conditions through All, Any, and
@@ -1280,13 +1323,13 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 8. Static and map channel result methods return `[]T` without exposing raw
    condition-result types.
 9. The `Context.HasTimerFired` and `HasTimerFiredByIndex` signatures compile.
-10. Execute can return next, all close decisions, and conditional
-   force-complete fallback.
+10. Execute can return `GoTo`, `GoToMulti`, all close decisions, and conditional
+    force-complete fallback using channel definitions directly.
 11. Step-execution local Set accepts `any`, Get accepts a caller-provided
     pointer, and `RecordEvent(name, any)` compiles.
 12. `Context.WaitForMethodFailed` compiles for Execute implementations.
-13. Client option structs preserve optional `FlowConfig` fields and request-ID
-    overrides.
+13. Non-generic client methods use server identifiers directly, return only run
+    ID from starts, and preserve request-ID overrides.
 
 Run Phase 1 verification through the Makefile:
 
@@ -1305,8 +1348,8 @@ Later phases must add Temporal integration coverage for:
 5. untyped step-execution locals round-trip from WaitFor to Execute through a
    caller-provided pointer;
 6. arbitrary event values are encoded and recorded once per invocation name;
-7. Flow method RPC registration, typed invocation, and optional next steps map
-   to the current server contract;
+7. Flow method RPC registration, handler invocation, and optional next steps
+   map to the current server contract;
 8. internal transient movement mapping remains unavailable to application code.
 
 Cadence execution is not required because the default Dex server image is

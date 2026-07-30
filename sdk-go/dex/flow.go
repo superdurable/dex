@@ -14,22 +14,22 @@
 
 package dex
 
-type StateDef struct {
-	State WorkflowState
-	// CanStartWorkflow decides whether the state can start a workflow
-	CanStartWorkflow bool
+type Flow interface {
+	GetFlowType() string
+	GetPersistenceSchema() PersistenceSchema
 }
 
-func StartingStateDef(state WorkflowState) StateDef {
-	return StateDef{
-		State:            state,
-		CanStartWorkflow: true,
-	}
+type AttributeDefinition interface {
+	AttributeName() string
+	attributeDefinition()
 }
 
-func NonStartingStateDef(state WorkflowState) StateDef {
-	return StateDef{
-		State:            state,
-		CanStartWorkflow: false,
-	}
+type ChannelDefinition interface {
+	ChannelName() string
+	channelDefinition()
+}
+
+type PersistenceSchema struct {
+	Attributes []AttributeDefinition
+	Channels   []ChannelDefinition
 }

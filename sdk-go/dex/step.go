@@ -14,15 +14,28 @@
 
 package dex
 
-import (
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-)
+type Step[IN any] interface {
+	GetStepType() string
+	GetStepOptions() *StepOptions
+	WaitFor(ctx Context, input IN) (Wait, error)
+	Execute(ctx Context, input IN) (StepDecision, error)
+}
 
-type ObjectEncoder interface {
-	// GetEncodingType returns the encoding info that it can handle
-	GetEncodingType() string
-	// Encode serialize an object
-	Encode(obj interface{}) (*dexpb.EncodedObject, error)
-	// Decode deserialize an object
-	Decode(encodedObj *dexpb.EncodedObject, resultPtr interface{}) error
+type NoWaitFor[IN any] struct{}
+
+type DefaultStepOptions struct{}
+
+type StepDefaults[IN any] struct {
+	DefaultStepOptions
+	NoWaitFor[IN]
+}
+
+func (NoWaitFor[IN]) WaitFor(Context, IN) (Wait, error) {
+	panic("NoWaitFor: framework must skip WaitFor")
+}
+
+func (NoWaitFor[IN]) noWaitFor() {}
+
+func (DefaultStepOptions) GetStepOptions() *StepOptions {
+	return nil
 }

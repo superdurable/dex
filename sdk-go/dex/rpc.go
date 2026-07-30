@@ -14,9 +14,26 @@
 
 package dex
 
-import "github.com/superdurable/dex/sdk-go/gen/dexpb"
+type RPC[IN, OUT any] func(
+	ctx Context,
+	input IN,
+) (RPCResult[OUT], error)
 
-type WorkflowInfo struct {
-	Status       dexpb.WorkflowStatus
-	CurrentRunId string
+type RPCResult[OUT any] struct {
+	Output    OUT
+	NextSteps []StepMovement
+}
+
+func Reply[OUT any](output OUT) RPCResult[OUT] {
+	return RPCResult[OUT]{Output: output}
+}
+
+func ReplyAndMove[OUT any](
+	output OUT,
+	movements ...StepMovement,
+) RPCResult[OUT] {
+	return RPCResult[OUT]{
+		Output:    output,
+		NextSteps: movements,
+	}
 }
