@@ -34,7 +34,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
-	dexruntime "github.com/superdurable/dex/service/runtime"
+	"github.com/superdurable/dex/service/bootstrap"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -186,7 +186,7 @@ func (s *supervisor) startDexRuntime(
 	ctx context.Context,
 	listener net.Listener,
 	exits chan<- componentExit,
-) (*dexruntime.Runtime, error) {
+) (*bootstrap.Runtime, error) {
 	dexConfig := &config.Config{
 		Log: config.Logger{
 			Stdout:   true,
@@ -204,8 +204,8 @@ func (s *supervisor) startDexRuntime(
 			},
 		},
 	}
-	dexRuntime, err := dexruntime.New(dexConfig, &dexruntime.Options{
-		Services:        dexruntime.Services{API: true, Interpreter: true},
+	dexRuntime, err := bootstrap.New(dexConfig, &bootstrap.Options{
+		Services:        bootstrap.Services{API: true, Interpreter: true},
 		APIListener:     listener,
 		ShutdownTimeout: s.cfg.ShutdownTimeout,
 	})
@@ -222,7 +222,7 @@ func (s *supervisor) shutdown(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	webServer *dexweb.Server,
-	dexRuntime *dexruntime.Runtime,
+	dexRuntime *bootstrap.Runtime,
 	runErr error,
 ) error {
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)

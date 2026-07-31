@@ -30,7 +30,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
-	serviceruntime "github.com/superdurable/dex/service/runtime"
+	"github.com/superdurable/dex/service/bootstrap"
 	"github.com/urfave/cli"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/client"
@@ -40,8 +40,8 @@ import (
 const serviceAPI = "api"
 const serviceInterpreter = "interpreter"
 
-const DefaultCadenceDomain = serviceruntime.DefaultCadenceDomain
-const DefaultCadenceHostPort = serviceruntime.DefaultCadenceHostPort
+const DefaultCadenceDomain = bootstrap.DefaultCadenceDomain
+const DefaultCadenceHostPort = bootstrap.DefaultCadenceHostPort
 
 // BuildCLI is the main entry point for the dex server
 func BuildCLI() *cli.App {
@@ -83,7 +83,7 @@ func start(cliContext *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	runtime, err := serviceruntime.New(cfg, &serviceruntime.Options{Services: services})
+	dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{Services: services})
 	if err != nil {
 		return err
 	}
@@ -94,15 +94,15 @@ func start(cliContext *cli.Context) error {
 		syscall.SIGHUP,
 	)
 	defer cancel()
-	return runtime.Run(ctx)
+	return dexRuntime.Run(ctx)
 }
 
-func getServices(cliContext *cli.Context) (serviceruntime.Services, error) {
+func getServices(cliContext *cli.Context) (bootstrap.Services, error) {
 	value := strings.TrimSpace(cliContext.String("services"))
 	if value == "" {
-		return serviceruntime.Services{}, fmt.Errorf("no services specified for starting")
+		return bootstrap.Services{}, fmt.Errorf("no services specified for starting")
 	}
-	var services serviceruntime.Services
+	var services bootstrap.Services
 	for _, token := range strings.Split(value, ",") {
 		switch strings.TrimSpace(token) {
 		case serviceAPI:
@@ -110,7 +110,7 @@ func getServices(cliContext *cli.Context) (serviceruntime.Services, error) {
 		case serviceInterpreter:
 			services.Interpreter = true
 		default:
-			return serviceruntime.Services{}, fmt.Errorf("invalid service %q", token)
+			return bootstrap.Services{}, fmt.Errorf("invalid service %q", token)
 		}
 	}
 	return services, nil
@@ -121,13 +121,13 @@ func BuildCadenceClient(
 	domain string,
 	dataConverter encoded.DataConverter,
 ) (client.Client, error) {
-	return serviceruntime.BuildCadenceClient(serviceClient, domain, dataConverter)
+	return bootstrap.BuildCadenceClient(serviceClient, domain, dataConverter)
 }
 
 func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface, func(), error) {
-	return serviceruntime.BuildCadenceServiceClient(hostPort)
+	return bootstrap.BuildCadenceServiceClient(hostPort)
 }
 
 func CreateS3Client(cfg config.Config, ctx context.Context) (*s3.Client, error) {
-	return serviceruntime.CreateS3Client(ctx, &cfg)
+	return bootstrap.CreateS3Client(ctx, &cfg)
 }

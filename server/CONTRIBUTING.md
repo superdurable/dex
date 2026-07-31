@@ -157,7 +157,7 @@ For the shortest Temporal setup with Dex Web, run `dexcli dev` from the
 repository root after building `cli/dexcli`. See [`../cli/README.md`](../cli/README.md).
 
 The standalone server binary continues to support full Temporal and Cadence
-YAML configuration through the same `service/runtime` package.
+YAML configuration through the same `service/bootstrap` package.
 
 The first step you may want to explore is to run it locally!
 

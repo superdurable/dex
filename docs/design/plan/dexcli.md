@@ -1,6 +1,6 @@
 # Dex CLI 实施计划
 
-状态：Implemented  
+状态：Implemented
 日期：2026-07-31
 
 ## 1. 目标
@@ -125,15 +125,15 @@ web/
   package.json
 
 server/
-  service/runtime/
-    runtime.go
+  service/bootstrap/
+    bootstrap.go
 ```
 
 Module ownership：
 
 - `server/` 继续提供 Dex API/interpreter 实现。
 - `web/` 成为独立 Go module，提供可复用的 HTTP server、Dex gRPC adapter 和 embedded assets。
-- `cli/` 成为独立 Go module，import server runtime 和 web module，负责组合与生命周期。
+- `cli/` 成为独立 Go module，import server bootstrap 和 web module，负责组合与生命周期。
 - 根目录 `go.work` 增加 `./web` 和 `./cli`。
 - `script/licenseheaders/mapping.yaml` 为 `cli` 和新增的 Web Go 文件指定 MIT header。
 
@@ -219,15 +219,15 @@ Server 提供：
 
 `WaitForHistoryEvent` handler 必须把 HTTP request cancellation 传入 gRPC context。
 
-## 6. Dex server runtime 重构
+## 6. Dex server bootstrap 重构
 
 当前 `server/cmd/server/dex/dex.go` 在 goroutine 中使用 `log.Fatal`，最后永久等待 `sync.WaitGroup`。它不能被 `dexcli` 安全管理。
 
-新增 `server/service/runtime`：
+新增 `server/service/bootstrap`：
 
 ```go
-runtime, err := runtime.New(config)
-err = runtime.Run(ctx)
+dexRuntime, err := bootstrap.New(config)
+err = dexRuntime.Run(ctx)
 ```
 
 Runtime 负责构造和持有：
@@ -388,7 +388,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 ### Phase 1：可复用 runtime 和 module 骨架
 
 1. 创建 `cli/go.mod`、`web/go.mod`，更新 `go.work` 和 license mapping。
-2. 从旧 server CLI 抽出 `server/service/runtime`。
+2. 从旧 server CLI 抽出 `server/service/bootstrap`。
 3. 让旧 `server/cmd/server` 使用新 runtime，并支持 signal-driven shutdown。
 4. 保持现有 Temporal/Cadence server integration suites 全部通过。
 
@@ -469,7 +469,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - 新增 `cli/README.md`：安装、`dexcli dev`、全部 flags、local/external Temporal 和 troubleshooting。
 - 更新根 `README.md`：将 `brew install dexcli` 作为最短本地启动路径。
 - 重写 `web/README.md`：Go Web server、Vite build、embedded assets 和 contributor development flow。
-- 更新 `server/CONTRIBUTING.md`：server runtime、`dexcli` integration tests 和 Temporal prerequisite。
+- 更新 `server/CONTRIBUTING.md`：server bootstrap、`dexcli` integration tests 和 Temporal prerequisite。
 - 更新 `server/lite/README.md` 或相应文档：说明 Docker lite 与 `dexcli dev` 的定位；确认替代后再删除旧脚本。
 - 更新 `docs/README.md` 链接本文。
 
