@@ -161,6 +161,27 @@ func (valueRegistrationFlow) Query(
 	return Reply(registrationOutput{Value: "value"}), nil
 }
 
+type mixedReceiverRegistrationFlow struct{}
+
+func (mixedReceiverRegistrationFlow) GetFlowType() string {
+	return "mixed-flow"
+}
+
+func (mixedReceiverRegistrationFlow) GetSteps() []StepDef {
+	return nil
+}
+
+func (mixedReceiverRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{}
+}
+
+func (*mixedReceiverRegistrationFlow) Update(
+	Context,
+	registrationInput,
+) (RPCResult[registrationOutput], error) {
+	return Reply(registrationOutput{}), nil
+}
+
 type errorRegistrationFlow struct {
 	rpcError error
 }
@@ -683,6 +704,49 @@ func TestStepAdaptersAndRuntimeReferences(t *testing.T) {
 		DefineChannel[registrationInput]("missing"),
 	})
 	require.ErrorContains(t, err, "is not declared")
+}
+
+func TestRegistryReportsFirstInvalidStepOptions(t *testing.T) {
+	first := &registrationStep{
+		stepType: "aaa",
+		options: &StepOptions{
+			WaitForLockAttributes: []AttributeLock{
+				LockAttribute(DefineAttribute[string]("undeclared-a")),
+			},
+		},
+	}
+	second := &registrationStep{
+		stepType: "zzz",
+		options: &StepOptions{
+			WaitForLockAttributes: []AttributeLock{
+				LockAttribute(DefineAttribute[string]("undeclared-z")),
+			},
+		},
+	}
+	for attempt := 0; attempt < 50; attempt++ {
+		assembled, err := newRegistry([]Flow{&registrationFlow{
+			flowType: "probe",
+			steps: []StepDef{
+				DefineStep(first),
+				DefineStep(second),
+			},
+		}})
+		require.Nil(t, assembled)
+		require.ErrorContains(t, err, `step "aaa" options`)
+		require.NotContains(t, err.Error(), `step "zzz" options`)
+	}
+}
+
+func TestRegistryRejectsPointerOnlyRPCsOnValueFlow(t *testing.T) {
+	assembled, err := newRegistry([]Flow{mixedReceiverRegistrationFlow{}})
+	require.Nil(t, assembled)
+	require.ErrorContains(t, err, `RPC methods [Update]`)
+	require.ErrorContains(t, err, "pointer receivers")
+	require.ErrorContains(t, err, "register *mixedReceiverRegistrationFlow")
+
+	name, err := rpcMethodName((&mixedReceiverRegistrationFlow{}).Update)
+	require.NoError(t, err)
+	require.Equal(t, "Update", name)
 }
 
 func TestRPCDiscoveryInvocationAndIdentity(t *testing.T) {

@@ -241,10 +241,15 @@ only when their index types agree.
 unclassified `any`:
 
 ```go
-type stepHandler interface {
+type stepReference interface {
 	stepType() string
-	inputType() reflect.Type
-	options() *StepOptions
+	stepInputType() reflect.Type
+	stepOptions() *StepOptions
+	stepValue() any
+}
+
+type stepHandler interface {
+	stepReference
 	skipWaitFor() bool
 	waitFor(Context, any) (Wait, error)
 	execute(Context, any) (StepDecision, error)
@@ -254,6 +259,10 @@ type typedStepHandler[IN any] struct {
 	step Step[IN]
 }
 ```
+
+`stepReference` is the shared identity surface for registered steps and for
+runtime movements or execute-failure targets. `stepHandler` extends it with
+WaitFor/Execute dispatch used only by registered step definitions.
 
 The adapter validates the concrete input type before invoking the typed
 handler. A mismatch returns an error and never reaches application code. It
@@ -265,7 +274,8 @@ Registration rejects:
 - an empty or duplicate durable step type within one flow;
 - a zero `StepDef`, nil handler, or typed-nil handler;
 - more than one `DefineStepAsStart` entry;
-- invalid step defaults or attribute locks;
+- invalid step defaults or attribute locks, reporting the first illegal step
+  in `GetSteps` order;
 - an execute-failure target outside the same flow;
 - an execute-failure target with a different input Go type;
 - recursive execute-failure fallback configuration.
@@ -330,7 +340,10 @@ The exported Go method name is the durable RPC name. The registry retains:
 
 Value-receiver and pointer-receiver RPCs are supported when the supplied Flow
 value exposes them. The registry retains that exact receiver so constructor
-dependencies stored on the Flow remain available.
+dependencies stored on the Flow remain available. If a value-typed Flow
+implements the `Flow` interface but pointer-receiver methods match the RPC
+signature, registration fails and names those methods so the application
+registers a pointer instead of discovering an empty RPC set.
 
 `RPCResult[OUT]` implements a private erasure contract so the reflected result
 can expose its output and next movements without exporting a non-generic
@@ -395,12 +408,14 @@ Add focused tests for:
 6. undeclared locks, invalid fallback targets, mismatched input types, and
    fallback cycles;
 7. value- and pointer-receiver RPC discovery, input/output type retention, and
-   durable method names;
+   durable method names; rejection when pointer-only RPCs are invisible on a
+   value-typed Flow;
 8. ignored helper methods and rejection of package functions, method
    expressions, closures, and wrappers as RPC identities;
 9. lookalike Step references using registered defaults, plus undeclared or
    wrong-kind channel references;
-10. atomic failure without a partially usable registry.
+10. atomic failure without a partially usable registry;
+11. stable first-error reporting when multiple steps have invalid options.
 
 Run Phase 3 verification through the Makefile:
 

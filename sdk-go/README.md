@@ -113,9 +113,12 @@ func (
 ) (dex.RPCResult[OUT], error)
 ```
 
-Other exported methods and all unexported methods are ignored. Client calls
-must pass the direct bound method value, such as `Orders.Update`; package
-functions, method expressions, closures, and wrappers are rejected.
+Other exported methods and all unexported methods are ignored. Register a
+pointer Flow value when RPC methods use pointer receivers; a value-typed Flow
+that only exposes those RPCs on `*T` fails registration instead of silently
+omitting them. Client calls must pass the direct bound method value, such as
+`Orders.Update`; package functions, method expressions, closures, and wrappers
+are rejected.
 
 Registered Flow and Step values are retained and may later be invoked
 concurrently. They must be immutable or concurrency-safe and must keep

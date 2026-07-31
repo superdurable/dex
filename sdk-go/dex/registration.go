@@ -193,7 +193,9 @@ func (flow *registeredFlow) registerSteps(definitions []StepDef) error {
 			return err
 		}
 	}
-	for _, step := range flow.steps {
+	// Validate in GetSteps order so the first illegal step is reported stably.
+	for _, definition := range definitions {
+		step := flow.steps[definition.handler.stepType()]
 		if err := flow.validateStepOptions(step.options, step.inputType); err != nil {
 			return fmt.Errorf("step %q options: %w", step.stepType, err)
 		}

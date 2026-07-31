@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -44,15 +45,43 @@ func discoverRPCs(flow Flow) (map[string]*registeredRPC, error) {
 		if !matches {
 			continue
 		}
-		if _, found := registered[rpc.durableName]; found {
-			return nil, fmt.Errorf(
-				"duplicate RPC method %q",
-				rpc.durableName,
-			)
-		}
 		registered[rpc.durableName] = rpc
 	}
+	if err := rejectPointerOnlyRPCs(receiverType, registered); err != nil {
+		return nil, err
+	}
 	return registered, nil
+}
+
+func rejectPointerOnlyRPCs(
+	receiverType reflect.Type,
+	registered map[string]*registeredRPC,
+) error {
+	if receiverType.Kind() == reflect.Pointer {
+		return nil
+	}
+	pointerType := reflect.PointerTo(receiverType)
+	var missing []string
+	for index := 0; index < pointerType.NumMethod(); index++ {
+		method := pointerType.Method(index)
+		if _, found := registered[method.Name]; found {
+			continue
+		}
+		if !rpcMethodType(method.Type, true) {
+			continue
+		}
+		missing = append(missing, method.Name)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return fmt.Errorf(
+		"RPC methods %v have pointer receivers; register *%s, not %s",
+		missing,
+		receiverType.Name(),
+		receiverType,
+	)
 }
 
 func newRegisteredRPC(
