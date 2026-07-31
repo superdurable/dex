@@ -42,7 +42,7 @@ dexcli dev --temporal-address localhost:7233
 ```
 
 External mode does not start or stop Temporal. The target namespace must
-already contain a `FlowType` search attribute of type `Keyword`.
+already contain `FlowType` (`Keyword`) and `ActiveStepTypes` (`KeywordList`).
 
 Select another namespace with `--temporal-namespace`. The first release uses
 plaintext endpoints; Temporal Cloud authentication is not supported yet.
@@ -81,5 +81,5 @@ binary does not read `web/`, `node_modules`, or the source tree.
 - “Temporal CLI was not found”: reinstall `dexcli` with Homebrew or install the
   `temporal` formula.
 - “address is already in use”: stop the listed service or select another port.
-- “missing search attribute FlowType”: create `FlowType` as `Keyword` in the
-  selected external namespace.
+- “missing search attribute”: register `FlowType` as `Keyword` and
+  `ActiveStepTypes` as `KeywordList` in the selected external namespace.

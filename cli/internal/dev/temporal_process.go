@@ -29,6 +29,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/superdurable/dex/service"
 )
 
 type temporalProcess struct {
@@ -49,7 +51,8 @@ func startTemporalProcess(cfg *Config, stdout io.Writer, stderr io.Writer) (*tem
 		"--port", strconv.Itoa(cfg.TemporalPort),
 		"--ui-ip", cfg.BindAddress,
 		"--ui-port", strconv.Itoa(cfg.TemporalUIPort),
-		"--search-attribute", "FlowType=Keyword",
+		"--search-attribute", service.SearchAttributeDexWorkflowType + "=Keyword",
+		"--search-attribute", service.SearchAttributeActiveStepTypes + "=KeywordList",
 	}
 	if cfg.TemporalNamespace != defaultTemporalNamespace {
 		arguments = append(arguments, "--namespace", cfg.TemporalNamespace)

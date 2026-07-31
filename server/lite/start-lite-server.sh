@@ -33,13 +33,11 @@ echo "now trying to register Dex system search attributes..."
 
 for run in {1..60}; do
   sleep 1
-  temporal  operator search-attribute  create --name DexWorkflowType --type Keyword
+  temporal  operator search-attribute  create --name FlowType --type Keyword
   sleep 0.1
-  temporal  operator search-attribute  create --name DexGlobalWorkflowVersion --type Int 
+  temporal  operator search-attribute  create --name ActiveStepTypes --type KeywordList
   sleep 0.1
-  temporal  operator search-attribute  create --name DexExecutingStateIds --type KeywordList 
-  sleep 0.1
-  if checkExists "DexWorkflowType" && checkExists "DexGlobalWorkflowVersion" && checkExists "DexExecutingStateIds" ; then
+  if checkExists "FlowType" && checkExists "ActiveStepTypes" ; then
       echo "All search attributes are registered"
       break
     fi

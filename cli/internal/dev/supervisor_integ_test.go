@@ -118,7 +118,7 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 		cancelStartup()
 		t.Fatal(err)
 	}
-	if err := validateFlowType(startupCtx, temporalClient, localConfig.TemporalNamespace); err != nil {
+	if err := validateSearchAttributes(startupCtx, temporalClient, localConfig.TemporalNamespace); err != nil {
 		temporalClient.Close()
 		cancelStartup()
 		t.Fatal(err)
