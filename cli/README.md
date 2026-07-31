@@ -5,7 +5,7 @@
 ## Install
 
 ```bash
-brew install dexcli
+brew install superdurable/tap/dexcli
 ```
 
 The Homebrew formula installs Temporal CLI as a runtime dependency. Node.js is

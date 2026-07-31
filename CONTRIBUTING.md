@@ -1,5 +1,24 @@
 # Contributing
 
+## Repository layout
+
+| Path | Contents |
+|------|----------|
+| [server/](server/) | Dex server (Temporal/Cadence backend) |
+| [protos/](protos/) | Protobuf IDL ([`dex.proto`](protos/dex.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
+| [docs/](docs/) | Docs: [`design/`](docs/design/), [`case-study/`](docs/case-study/), [`wiki/`](docs/wiki/) (start at [README.md](docs/README.md)) |
+| [cli/](cli/) | `dexcli` local development environment |
+| [web/](web/) | Dex Web console |
+| [sdk-go/](sdk-go/) | Go SDK |
+| [examples/go/](examples/go/) | Go examples |
+| [sdk-java/](sdk-java/) | Java SDK |
+| [examples/java/](examples/java/) | Java examples |
+| [sdk-python/](sdk-python/) | Python SDK |
+| [examples/python/](examples/python/) | Python examples |
+| [sdk-rust/](sdk-rust/) | Shared Rust SDK Core |
+
+Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
+
 ## Prerequisites
 
 - Go 1.24+ (see `server/go.mod`; root `go.work` pins the workspace)

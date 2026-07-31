@@ -75,11 +75,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
+          formula_version="${VERSION#v}"
           darwin_arm64="$(awk '/darwin_arm64/ { print $1 }' dist/checksums.txt)"
           darwin_amd64="$(awk '/darwin_amd64/ { print $1 }' dist/checksums.txt)"
           linux_arm64="$(awk '/linux_arm64/ { print $1 }' dist/checksums.txt)"
           linux_amd64="$(awk '/linux_amd64/ { print $1 }' dist/checksums.txt)"
           sed \
+            -e "s/@FORMULA_VERSION@/${formula_version}/g" \
             -e "s/@VERSION@/${VERSION}/g" \
             -e "s/@DARWIN_ARM64_SHA256@/${darwin_arm64}/g" \
             -e "s/@DARWIN_AMD64_SHA256@/${darwin_amd64}/g" \
