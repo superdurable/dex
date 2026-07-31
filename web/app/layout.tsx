@@ -5,8 +5,11 @@ import { PreferencesProvider } from './providers';
 import { AppHeader } from './components/AppHeader';
 
 export const metadata: Metadata = {
-  title: 'Dex Web',
+  title: 'Dex · Super Durable',
   description: 'Inspect and operate Dex flows',
+  icons: {
+    icon: '/super-durable-logo.png',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

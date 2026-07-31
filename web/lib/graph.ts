@@ -100,7 +100,8 @@ export function buildStepGraph(
   const edges: StepGraphEdge[] = [];
   for (const node of nodes.values()) {
     if (node.kind !== 'step') continue;
-    const source = node.fromStepExecutionId || START_NODE_ID;
+    const requestedSource = node.fromStepExecutionId || START_NODE_ID;
+    const source = nodes.has(requestedSource) ? requestedSource : START_NODE_ID;
     edges.push({ id: `${source}->${node.id}`, source, target: node.id });
   }
 

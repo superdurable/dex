@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePreferences } from '../providers';
 
@@ -8,10 +9,19 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <Link href="/" className="brand-mark">D</Link>
+        <Link href="/" className="brand-mark" aria-label="Super Durable home">
+          <Image
+            className="brand-logo"
+            src="/super-durable-logo.png"
+            alt=""
+            width={72}
+            height={72}
+            priority
+            unoptimized
+          />
+        </Link>
         <div>
-          <Link href="/" className="brand-name">Dex</Link>
-          <div className="brand-subtitle">Durable execution console</div>
+          <Link href="/" className="brand-name">Super Durable</Link>
         </div>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">

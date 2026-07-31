@@ -57,6 +57,7 @@ export function jsonValue(value: unknown, fieldName = ''): unknown {
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(object)) {
     if (key === 'payload' || key === 'start_or_continue' || key === 'kind') continue;
+    if (typeof nested === 'string' && nested in object) continue;
     result[camelKey(key)] = jsonValue(nested, key);
   }
   return result;
@@ -94,10 +95,19 @@ function dexValue(value: unknown): unknown {
   if ('null_value' in message) return null;
   if ('obj_value' in message) {
     const object = asRecord(message.obj_value);
-    const payload = Buffer.isBuffer(object.payload)
-      ? object.payload.toString('base64')
-      : stringValue(object.payload);
-    return { encoding: stringValue(object.encoding), payload };
+    const encoding = stringValue(object.encoding);
+    if (Buffer.isBuffer(object.payload)) {
+      const text = object.payload.toString('utf8');
+      if (encoding === 'json') {
+        try {
+          return JSON.parse(text) as unknown;
+        } catch {
+          return { encoding, payload: text };
+        }
+      }
+      return { encoding, payload: object.payload.toString('base64') };
+    }
+    return { encoding, payload: stringValue(object.payload) };
   }
   if ('internal_blob_id_for_string_value' in message) {
     return { blobId: message.internal_blob_id_for_string_value, kind: 'string' };

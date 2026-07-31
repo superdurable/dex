@@ -17,7 +17,7 @@ Phase 1 不实现 Web 或 server API。后续阶段：
 
 1. 实现 server API、history converter 和 integration tests。
 2. 实现搜索页、Run Overview、Timeline 和实时刷新。
-3. 实现 Step Graph、Event Graph、实时状态和 Reset。
+3. 实现 Step Graph、实时状态和 Reset。
 4. 完成大 history 性能、响应式和发布工作。
 
 ## 2. 核心原则
@@ -499,7 +499,7 @@ Sections：
 │ Flows / flow-id / run-id                         [Refresh][Copy] │
 │ Status | Start/Close/Duration | History length/size | Run chain │
 ├──────────────────────────────────────────────────────────────────┤
-│ [Overview] [Step Graph] [Timeline] [Event Graph]                 │
+│ [Overview] [Step Graph] [Timeline]                               │
 ├────────────────────────────────────────┬─────────────────────────┤
 │ Current tab                            │ Live State / Details    │
 │                                        │ Attributes              │
@@ -530,12 +530,6 @@ Timeline：
 - completed/failed method event 展开 attempts、request、response 和 failure；
 - long poll 增量更新；
 - 大 history 使用 semantic pagination 和虚拟列表。
-
-Event Graph：
-
-- 一个 Dex semantic event 一个节点；
-- step lineage、RPC source、Continue-As-New 和 close edge；
-- 不展示 workflow task、activity 或 marker 节点。
 
 ## 10. Tests
 

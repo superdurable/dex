@@ -67,7 +67,6 @@ export function StepGraph({
         <div>
           <p className="eyebrow">Business topology</p>
           <h2>Step graph</h2>
-          <p>SYNC and ASYNC methods share the same Dex lineage model.</p>
         </div>
         <div className="graph-legend">
           {['Active', 'Waiting', 'Completed', 'Failed'].map((status) => (

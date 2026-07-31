@@ -11,14 +11,13 @@ import type {
 } from '@/lib/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
-import { EventGraph } from './details/EventGraph';
 import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { ResetFlowDialog } from './details/ResetFlowDialog';
 import { StepGraph } from './details/StepGraph';
 import { Timeline } from './details/Timeline';
 
-type RunTab = 'overview' | 'steps' | 'timeline' | 'events';
+type RunTab = 'overview' | 'steps' | 'timeline';
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 
@@ -169,7 +168,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     ['overview', 'Overview'],
     ['steps', 'Step graph'],
     ['timeline', 'Timeline'],
-    ['events', 'Event graph'],
   ];
   const latestEvent = history.at(-1);
   const selected = selectedEvent ?? latestEvent ?? null;
@@ -246,13 +244,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           )}
           {tab === 'timeline' && (
             <Timeline
-              events={history}
-              selectedEvent={selectedEvent}
-              onSelectEvent={setSelectedEvent}
-            />
-          )}
-          {tab === 'events' && (
-            <EventGraph
               events={history}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}

@@ -36,7 +36,7 @@ The Flows page provides:
 
 The Run page provides:
 
-- Overview, Step graph, Timeline, and Event graph tabs;
+- Overview, Step graph, and Timeline tabs;
 - expandable Dex semantic event payloads;
 - active/waiting step state, attributes, timers, queued steps, channels, and
   completed outputs;

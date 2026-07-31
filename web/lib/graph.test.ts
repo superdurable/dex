@@ -28,8 +28,30 @@ describe('step graph', () => {
       event(3, 'FlowClosed'),
     ];
     const graph = buildStepGraph(events);
+    expect(graph.edges).toContainEqual({
+      id: '__start__->A-1',
+      source: '__start__',
+      target: 'A-1',
+    });
     expect(graph.edges.map((edge) => `${edge.source}->${edge.target}`)).toContain('A-1->B-1');
     expect(graph.nodes.find((node) => node.id === 'B-1')?.status).toBe('Completed');
+  });
+
+  it('connects lineage from a previous run to the current run start', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepExecuteCompleted', {
+        stepExecutionId: 'S2-1',
+        fromStepExecutionId: 'S1-1',
+        stepType: 'S2',
+      }),
+      event(2, 'FlowClosed'),
+    ]);
+    expect(graph.edges).toContainEqual({
+      id: '__start__->S2-1',
+      source: '__start__',
+      target: 'S2-1',
+    });
+    expect(graph.nodes.find((node) => node.id === 'S2-1')?.fromStepExecutionId).toBe('S1-1');
   });
 
   it('creates RPC sources and overlays waiting state', () => {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatDate, formatDuration } from '@/lib/format';
+import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
   buildVisibilityQuery,
   parseVisibilityQuery,
@@ -19,8 +19,8 @@ type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' |
 const defaultColumns: ColumnId[] = [
   'status',
   'flowId',
-  'runId',
   'flowType',
+  'runId',
   'start',
   'close',
   'duration',
@@ -45,6 +45,8 @@ const builtInFields = [
   'CloseTime',
 ];
 
+const hiddenSearchAttributes = new Set(['TemporalChangeVersion']);
+
 interface SavedQuery {
   name: string;
   query: string;
@@ -66,6 +68,14 @@ function readJSON<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function normalizeColumnOrder(columns: ColumnId[]): ColumnId[] {
+  if (!columns.includes('flowType')) return columns;
+  const reordered: ColumnId[] = columns.filter((column) => column !== 'flowType');
+  const flowIdIndex = reordered.indexOf('flowId');
+  reordered.splice(flowIdIndex < 0 ? 0 : flowIdIndex + 1, 0, 'flowType');
+  return reordered;
 }
 
 export function FlowSearchPage() {
@@ -91,7 +101,9 @@ export function FlowSearchPage() {
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
   const customAttributes = useMemo(() => {
     const keys = new Set<string>();
-    flows.forEach((flow) => flow.searchAttributes.forEach((item) => keys.add(item.key)));
+    flows.forEach((flow) => flow.searchAttributes.forEach((item) => {
+      if (!hiddenSearchAttributes.has(item.key)) keys.add(item.key);
+    }));
     return [...keys].sort();
   }, [flows]);
 
@@ -156,7 +168,9 @@ export function FlowSearchPage() {
     }
     setRecent(readJSON('dex-web-recent-queries', []));
     setSaved(readJSON('dex-web-saved-queries', []));
-    setColumns(readJSON('dex-web-columns', defaultColumns));
+    const storedColumns = normalizeColumnOrder(readJSON('dex-web-columns', defaultColumns));
+    setColumns(storedColumns);
+    window.localStorage.setItem('dex-web-columns', JSON.stringify(storedColumns));
     setHydrated(true);
     void executeSearch(initialQuery, '', 0, initialPageSize);
   }, [executeSearch]);
@@ -246,9 +260,8 @@ export function FlowSearchPage() {
     <div className="page-shell">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Flow visibility</p>
-          <h1>Flows</h1>
-          <p>Search executions and inspect their Dex-level history and current state.</p>
+          <h1>Dex</h1>
+          <p>Redefine Durable Execution. Dead Simple. More Power.</p>
         </div>
       </section>
 
@@ -441,7 +454,9 @@ export function FlowSearchPage() {
           <table className="flow-table">
             <thead>
               <tr>
-                {columns.map((column) => <th key={column}>{columnLabels[column]}</th>)}
+                {columns.map((column) => (
+                  <th className={`column-${column}`} key={column}>{columnLabels[column]}</th>
+                ))}
                 {customAttributes.map((key) => <th key={key}>{key}</th>)}
               </tr>
             </thead>
@@ -449,11 +464,13 @@ export function FlowSearchPage() {
               {!loading && flows.map((flow) => (
                 <tr key={`${flow.flowId}-${flow.runId}`}>
                   {columns.map((column) => (
-                    <td key={column}>{renderCell(column, flow, timezone)}</td>
+                    <td className={`column-${column}`} key={column}>
+                      {renderCell(column, flow, timezone)}
+                    </td>
                   ))}
                   {customAttributes.map((key) => (
                     <td key={key}>
-                      {String(flow.searchAttributes.find((item) => item.key === key)?.value ?? '—')}
+                      {displayValue(flow.searchAttributes.find((item) => item.key === key)?.value)}
                     </td>
                   ))}
                 </tr>
@@ -489,12 +506,16 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
       return <StatusBadge status={flow.flowStatus} />;
     case 'flowId':
       return (
-        <Link className="table-link" href={`/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}>
+        <Link
+          className="table-link table-id table-id-flow"
+          href={`/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
+          title={flow.flowId}
+        >
           {flow.flowId}
         </Link>
       );
     case 'runId':
-      return <span className="mono truncate-id" title={flow.runId}>{flow.runId}</span>;
+      return <span className="mono table-id table-id-run" title={flow.runId}>{flow.runId}</span>;
     case 'flowType':
       return flow.flowType || '—';
     case 'start':
