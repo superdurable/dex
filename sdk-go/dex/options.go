@@ -40,7 +40,7 @@ const (
 )
 
 type ExecuteFailure struct {
-	step    stepReference
+	step    StepDef
 	options *StepOptions
 }
 
@@ -49,7 +49,7 @@ func ProceedToOnExecuteFailure[IN any](
 	options *StepOptions,
 ) *ExecuteFailure {
 	return &ExecuteFailure{
-		step:    typedStepHandler[IN]{step: step},
+		step:    typedStepDef[IN]{step: step},
 		options: options,
 	}
 }

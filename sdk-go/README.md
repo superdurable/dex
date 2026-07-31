@@ -99,9 +99,9 @@ names, multiple starting steps, invalid indexes, undeclared locks, and
 incompatible execute-failure targets before WorkerService starts.
 
 `DefineStep` and `DefineStepAsStart` retain the step input type behind a private
-adapter. Runtime movements resolve through the current Flow's registered step
-definitions, so a same-name Step value cannot replace the registered handler or
-defaults.
+`typedStepDef` that implements the sealed `StepDef` interface. Runtime
+movements resolve through the current Flow's registered step definitions, so a
+same-name Step value cannot replace the registered handler or defaults.
 
 RPCs require no communication schema. Every exported Flow method other than the
 `Flow` interface methods must use this exact shape and is registered under its

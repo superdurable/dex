@@ -34,7 +34,7 @@ type registeredFlow struct {
 }
 
 type registeredStep struct {
-	handler     stepHandler
+	handler     StepDef
 	stepType    string
 	inputType   reflect.Type
 	options     *StepOptions
@@ -201,7 +201,7 @@ func (flow *registeredFlow) registerSteps(definitions []StepDef) error {
 	}
 	// Validate in GetSteps order so the first illegal step is reported stably.
 	for _, definition := range definitions {
-		step := flow.steps[definition.handler.stepType()]
+		step := flow.steps[definition.stepType()]
 		if err := flow.validateStepOptions(step.options, step.inputType); err != nil {
 			return fmt.Errorf("step %q options: %w", step.stepType, err)
 		}
@@ -213,11 +213,10 @@ func (flow *registeredFlow) registerStep(
 	definition StepDef,
 	index int,
 ) error {
-	handler := definition.handler
-	if handler == nil || nilInterface(handler.stepValue()) {
+	if definition == nil || nilInterface(definition.stepValue()) {
 		return fmt.Errorf("step at index %d is nil", index)
 	}
-	stepType := handler.stepType()
+	stepType := definition.stepType()
 	if stepType == "" {
 		return fmt.Errorf("step at index %d has an empty type", index)
 	}
@@ -225,14 +224,14 @@ func (flow *registeredFlow) registerStep(
 		return fmt.Errorf("duplicate step type %q", stepType)
 	}
 	registered := &registeredStep{
-		handler:     handler,
+		handler:     definition,
 		stepType:    stepType,
-		inputType:   handler.stepInputType(),
-		options:     handler.stepOptions(),
-		starting:    definition.starting,
-		skipWaitFor: handler.skipWaitFor(),
+		inputType:   definition.stepInputType(),
+		options:     definition.stepOptions(),
+		starting:    definition.isStarting(),
+		skipWaitFor: definition.skipWaitFor(),
 	}
-	if definition.starting {
+	if definition.isStarting() {
 		if flow.startingStep != nil {
 			return fmt.Errorf(
 				"multiple starting steps %q and %q",
@@ -373,7 +372,7 @@ func (flow *registeredFlow) resolveMovement(
 }
 
 func (flow *registeredFlow) resolveStepReference(
-	reference stepReference,
+	reference StepDef,
 ) (*registeredStep, error) {
 	if reference == nil || nilInterface(reference.stepValue()) {
 		return nil, fmt.Errorf("step reference is nil")

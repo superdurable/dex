@@ -35,17 +35,20 @@ func DefineStepAsStart[IN any](step Step[IN]) StepDef {
 }
 
 func newStepDef[IN any](step Step[IN], starting bool) StepDef {
-	return StepDef{
-		handler:  typedStepHandler[IN]{step: step},
-		starting: starting,
-	}
+	return typedStepDef[IN]{step: step, starting: starting}
 }
 
 // StepDef is the representation of Step, without Go's generic
 // So that internal sdk can use it to workaround Go's generic limitations
-type StepDef struct {
-	handler  stepHandler
-	starting bool
+type StepDef interface {
+	stepType() string
+	stepInputType() reflect.Type
+	stepOptions() *StepOptions
+	stepValue() any
+	isStarting() bool
+	skipWaitFor() bool
+	waitFor(Context, any) (Wait, error)
+	execute(Context, any) (StepDecision, error)
 }
 
 type NoWaitFor[IN any] struct{}
@@ -67,46 +70,46 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
 
-type stepReference interface {
-	stepType() string
-	stepInputType() reflect.Type
-	stepOptions() *StepOptions
-	stepValue() any
+// typedStepDef is the only concrete StepDef. Each application step is a
+// Step[IN] with its own input type, but GetSteps, registration, movements,
+// and execute-failure options need one non-generic type so differently typed
+// steps can live in the same slice and maps. Go cannot express that as
+// []Step[IN] with mixed IN, so DefineStep / DefineStepAsStart / MovementOf
+// wrap each Step[IN] in typedStepDef[IN]. The wrapper implements StepDef with
+// any-typed waitFor/execute, then casts the input back to IN before calling
+// the real Step methods—keeping compile-time typing at the authoring API
+// while letting the internal SDK treat all steps uniformly.
+type typedStepDef[IN any] struct {
+	step     Step[IN]
+	starting bool
 }
 
-type stepHandler interface {
-	stepReference
-	skipWaitFor() bool
-	waitFor(Context, any) (Wait, error)
-	execute(Context, any) (StepDecision, error)
+func (def typedStepDef[IN]) stepType() string {
+	return def.step.GetStepType()
 }
 
-type typedStepHandler[IN any] struct {
-	step Step[IN]
-}
-
-func (handler typedStepHandler[IN]) stepType() string {
-	return handler.step.GetStepType()
-}
-
-func (typedStepHandler[IN]) stepInputType() reflect.Type {
+func (typedStepDef[IN]) stepInputType() reflect.Type {
 	return reflect.TypeFor[IN]()
 }
 
-func (handler typedStepHandler[IN]) stepOptions() *StepOptions {
-	return handler.step.GetStepOptions()
+func (def typedStepDef[IN]) stepOptions() *StepOptions {
+	return def.step.GetStepOptions()
 }
 
-func (handler typedStepHandler[IN]) stepValue() any {
-	return handler.step
+func (def typedStepDef[IN]) stepValue() any {
+	return def.step
 }
 
-func (handler typedStepHandler[IN]) skipWaitFor() bool {
-	_, skip := any(handler.step).(noWaitForStep)
+func (def typedStepDef[IN]) isStarting() bool {
+	return def.starting
+}
+
+func (def typedStepDef[IN]) skipWaitFor() bool {
+	_, skip := any(def.step).(noWaitForStep)
 	return skip
 }
 
-func (handler typedStepHandler[IN]) waitFor(
+func (def typedStepDef[IN]) waitFor(
 	ctx Context,
 	input any,
 ) (Wait, error) {
@@ -114,10 +117,10 @@ func (handler typedStepHandler[IN]) waitFor(
 	if err != nil {
 		return Wait{}, err
 	}
-	return handler.step.WaitFor(ctx, typedInput)
+	return def.step.WaitFor(ctx, typedInput)
 }
 
-func (handler typedStepHandler[IN]) execute(
+func (def typedStepDef[IN]) execute(
 	ctx Context,
 	input any,
 ) (StepDecision, error) {
@@ -125,7 +128,7 @@ func (handler typedStepHandler[IN]) execute(
 	if err != nil {
 		return StepDecision{}, err
 	}
-	return handler.step.Execute(ctx, typedInput)
+	return def.step.Execute(ctx, typedInput)
 }
 
 type noWaitForStep interface {
@@ -155,14 +158,14 @@ func stepInput[IN any](input any) (IN, error) {
 	return typedInput, nil
 }
 
-func validStepReference(reference stepReference) bool {
-	if reference == nil {
+func validStepDef(definition StepDef) bool {
+	if definition == nil {
 		return false
 	}
-	value := reflect.ValueOf(reference.stepValue())
+	value := reflect.ValueOf(definition.stepValue())
 	return value.IsValid() &&
 		!isNilValue(value) &&
-		reference.stepType() != ""
+		definition.stepType() != ""
 }
 
 func isNilableType(valueType reflect.Type) bool {

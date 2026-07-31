@@ -227,7 +227,7 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, nil
 	}
-	if !validStepReference(failure.step) {
+	if !validStepDef(failure.step) {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
@@ -556,7 +556,7 @@ func mapStepMovements(
 }
 
 func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
-	if !validStepReference(movement.step) {
+	if !validStepDef(movement.step) {
 		return nil, fmt.Errorf("dex: movement target is invalid")
 	}
 	input, err := encodeValue(movement.input)

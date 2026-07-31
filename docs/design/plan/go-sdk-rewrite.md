@@ -241,28 +241,27 @@ only when their index types agree.
 unclassified `any`:
 
 ```go
-type stepReference interface {
+// typedStepDef erases Step[IN] so differently typed steps can share []StepDef.
+type typedStepDef[IN any] struct {
+	step     Step[IN]
+	starting bool
+}
+
+type StepDef interface {
 	stepType() string
 	stepInputType() reflect.Type
 	stepOptions() *StepOptions
 	stepValue() any
-}
-
-type stepHandler interface {
-	stepReference
+	isStarting() bool
 	skipWaitFor() bool
 	waitFor(Context, any) (Wait, error)
 	execute(Context, any) (StepDecision, error)
 }
-
-type typedStepHandler[IN any] struct {
-	step Step[IN]
-}
 ```
 
-`stepReference` is the shared identity surface for registered steps and for
-runtime movements or execute-failure targets. `stepHandler` extends it with
-WaitFor/Execute dispatch used only by registered step definitions.
+`StepDef` is the sealed, non-generic form of `Step` for heterogeneous lists.
+`typedStepDef` is the only implementation: it captures `IN` at `DefineStep` time
+so `GetSteps`, movements, and execute-failure targets can share one slice type.
 
 The adapter validates the concrete input type before invoking the typed
 handler. A mismatch returns an error and never reaches application code. It
@@ -516,7 +515,7 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
-type StepDef struct {
+type StepDef interface {
 	// unexported
 }
 

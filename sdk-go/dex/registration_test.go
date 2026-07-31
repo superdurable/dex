@@ -380,7 +380,7 @@ func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 			name: "zero step definition",
 			flows: []Flow{&registrationFlow{
 				flowType: "flow",
-				steps:    []StepDef{{}},
+				steps:    []StepDef{nil},
 			}},
 			error: "step at index 0 is nil",
 		},
@@ -714,7 +714,7 @@ func TestStepAdaptersAndRuntimeReferences(t *testing.T) {
 	require.Nil(t, resolved.options)
 
 	_, err = registeredFlow.resolveMovement(StepMovement{
-		step:  typedStepHandler[registrationInput]{step: lookalike},
+		step:  typedStepDef[registrationInput]{step: lookalike},
 		input: "wrong",
 	})
 	require.ErrorContains(t, err, "not assignable")
