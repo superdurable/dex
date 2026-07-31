@@ -1148,7 +1148,6 @@ func (client *Client) StartFlow(
 func (client *Client) PublishToChannel(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	channel ChannelDef,
 	values ...any,
 ) error
@@ -1156,7 +1155,6 @@ func (client *Client) PublishToChannel(
 func (client *Client) PublishToChannelMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	channel ChannelDef,
 	instance string,
 	values ...any,
@@ -1165,7 +1163,6 @@ func (client *Client) PublishToChannelMap(
 func (client *Client) InvokeRPC(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	rpc any,
 	input any,
 	outputPtr any,
@@ -1175,7 +1172,6 @@ func (client *Client) InvokeRPC(
 func (client *Client) GetAttribute(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	valuePtr any,
 ) (found bool, err error)
@@ -1183,7 +1179,6 @@ func (client *Client) GetAttribute(
 func (client *Client) GetAttributeMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	valuePtr any,
@@ -1192,7 +1187,6 @@ func (client *Client) GetAttributeMap(
 func (client *Client) SetAttribute(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	value any,
 ) error
@@ -1200,31 +1194,14 @@ func (client *Client) SetAttribute(
 func (client *Client) SetAttributeMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	value any,
 ) error
 
-func (client *Client) DeleteAttribute(
-	ctx context.Context,
-	flowID string,
-	runID string,
-	attribute AttributeDef,
-) error
-
-func (client *Client) DeleteAttributeMap(
-	ctx context.Context,
-	flowID string,
-	runID string,
-	attribute AttributeDef,
-	instance string,
-) error
-
 func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	value any,
 	options WaitOptions,
@@ -1233,7 +1210,6 @@ func (client *Client) WaitForAttributeEqual(
 func (client *Client) WaitForAttributeMapEqual(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	value any,
@@ -1246,7 +1222,9 @@ resolves that step and validates its handler signature. `InvokeRPC` accepts an
 application RPC value as `any`. `valuePtr` and `outputPtr` must be non-nil
 pointers. Attribute and channel methods accept generic definitions through
 `AttributeDef` and `ChannelDef`. Map methods take their definition and instance
-separately; physical key construction remains internal.
+separately; physical key construction remains internal. Client methods target
+the current run for a flow ID; they do not take a `runID` argument.
+`StartFlow` still returns the created run ID.
 
 Batch attribute methods are also non-generic:
 
@@ -1260,14 +1238,12 @@ type AttributeWrite struct {
 func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attributes ...AttributeDef,
 ) (map[string]Value, error)
 
 func (client *Client) SetAttributes(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	writes ...AttributeWrite,
 ) error
 ```
@@ -1276,19 +1252,15 @@ The remaining FlowService operations use non-generic public types:
 
 | Server RPC | Phase 1 façade |
 |---|---|
-| `StopFlow` | `Client.StopFlow(ctx, flowID, runID, StopOptions)` |
-| `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, runID, WaitForFlowOptions)` |
-| `SearchFlows` | `Client.SearchFlows(ctx, SearchFlowsOptions)` |
-| `ResetFlow` | `Client.ResetFlow(ctx, flowID, runID, ResetOptions)` |
-| `SkipTimer` | `Client.SkipTimer(ctx, flowID, runID, StepExecutionRef, TimerRef)` |
-| `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, runID, FlowConfig)` |
-| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionRef, WaitOptions)` |
-| `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID, runID)` |
+| `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
+| `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
+| `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
+| `ResetFlow` | `Client.ResetFlow(ctx, flowID, ResetOptions)` |
+| `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
+| `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
+| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitOptions)` |
+| `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
-
-`runID` may be empty for operations where the server permits targeting the
-current run. `StartFlow` returns only the created run ID because the caller
-already supplied the flow ID.
 
 `WaitForAttributeEqual` compares the encoded server value. Waiting on a
 blob-backed stored value may return `FailedPrecondition`; SDK hydration does not
@@ -1297,9 +1269,10 @@ change server-side wait semantics.
 Request IDs:
 
 - the SDK generates one UUID per logical `StartFlow`, locking `InvokeRPC`,
-  `WaitForStepCompletion`, or `WaitForAttributeEqual` call;
+  `WaitForStepCompletion`, or `WaitForAttributeEqual` call when the caller
+  does not supply one;
+- `StartFlowOptions.RequestID` lets applications override the generated ID;
 - transparent retries reuse it;
-- request IDs are internal and cannot be supplied by applications;
 - a non-locking RPC may omit the wire request ID, while locking RPC always sends
   it.
 
@@ -1401,14 +1374,15 @@ type FlowConfig struct {
 }
 
 type StartFlowOptions struct {
-	Timeout         *time.Duration
-	IDReusePolicy   IDReusePolicy
-	CronSchedule    string
-	StartDelay      *time.Duration
-	RetryPolicy     *FlowRetryPolicy
-	Attributes      []InitialAttribute
+	Timeout        *time.Duration
+	IDReusePolicy  IDReusePolicy
+	CronSchedule   string
+	StartDelay     *time.Duration
+	RetryPolicy    *FlowRetryPolicy
+	Attributes     []InitialAttributeDef
 	ConfigOverride *FlowConfig
 	AlreadyStarted *AlreadyStartedOptions
+	RequestID      *string
 }
 
 type IDReusePolicy uint8
@@ -1446,12 +1420,6 @@ type WaitForFlowOptions struct {
 	Timeout      time.Duration
 }
 
-type SearchFlowsOptions struct {
-	Query         string
-	PageSize      int32
-	NextPageToken string
-}
-
 type StopType uint8
 
 const (
@@ -1465,12 +1433,12 @@ type StopOptions struct {
 	Reason string
 }
 
-type StepExecutionRef struct {
-	StepType       string
-	ExecutionNumber int32
+type StepExecutionID struct {
+	StepType        string
+	ExecutionNumber *int32
 }
 
-type TimerRef struct {
+type TimerID struct {
 	ConditionID string
 	Index       *int32
 }
@@ -1510,24 +1478,24 @@ separate step-options override.
 WaitForAttribute and WaitForStepCompletion. `WaitForFlowOptions` is separate
 because its zero duration means the server-configured maximum long poll.
 
-`InitialAttribute` is sealed and constructed with typed helpers so initial
+`InitialAttributeDef` is sealed and constructed with typed helpers so initial
 values carry the definition's index configuration:
 
 ```go
-type InitialAttribute interface {
+type InitialAttributeDef interface {
 	initialAttribute()
 }
 
-func Initial[T any](
+func InitialAttribute[T any](
 	attribute Attribute[T],
 	value T,
-) (InitialAttribute, error)
+) (InitialAttributeDef, error)
 
-func InitialMapValue[T any](
+func InitialAttributeMapValue[T any](
 	attribute AttributeMap[T],
 	instance string,
 	value T,
-) (InitialAttribute, error)
+) (InitialAttributeDef, error)
 ```
 
 No old reset, memo, loading-policy, or worker-URL fields are retained.

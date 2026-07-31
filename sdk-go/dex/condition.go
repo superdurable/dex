@@ -26,7 +26,7 @@ type Wait struct {
 }
 
 func ExecuteImmediately() Wait {
-	return Wait{kind: waitExecuteImmediately}
+	return Wait{kind: waitCompletedImmediately}
 }
 
 func AllOf(conditions ...Condition) Wait {
@@ -73,7 +73,7 @@ func Combo(conditions ...Condition) ConditionCombination {
 type waitKind uint8
 
 const (
-	waitExecuteImmediately waitKind = iota + 1
+	waitCompletedImmediately waitKind = iota + 1
 	waitAllOf
 	waitAnyOf
 	waitAnyComboOf

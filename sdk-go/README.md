@@ -155,10 +155,11 @@ slices. Int, double, and bool indexes accept their matching Go scalar families.
 Datetime indexes accept `time.Time` or RFC3339Nano strings, including UTC `Z`
 and numeric offsets. Fractional seconds are preserved. Numeric strings are not
 treated as Unix nanoseconds. Initial indexed values are validated by
-`dex.Initial` and `dex.InitialMapValue`.
+`dex.InitialAttribute` and `dex.InitialAttributeMapValue`.
 
-The SDK generates a UUID for every start and synchronous-update call. Retries
-reuse that UUID; applications do not supply request IDs.
+The SDK generates a UUID for every start and synchronous-update call when the
+caller does not supply one. `StartFlowOptions.RequestID` may override the
+generated start ID. Retries reuse that UUID.
 
 Large string and object values may be returned as blob references. Hydration is
 internal and always occurs before a public `Value` is constructed; Decode never

@@ -328,7 +328,7 @@ func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
 
 func mapWait(wait Wait) (*dexpb.WaitingCondition, error) {
 	switch wait.kind {
-	case waitExecuteImmediately:
+	case waitCompletedImmediately:
 		return nil, nil
 	case waitAllOf:
 		return mapFlatWait(
@@ -829,15 +829,17 @@ func mapInvokeOptions(
 }
 
 func mapSearchFlowsOptions(
-	options SearchFlowsOptions,
+	query string,
+	pageSize int32,
+	nextPageToken string,
 ) (*dexpb.SearchFlowsRequest, error) {
-	if options.PageSize < 0 {
+	if pageSize < 0 {
 		return nil, fmt.Errorf("dex: search page size must not be negative")
 	}
 	return &dexpb.SearchFlowsRequest{
-		Query:         options.Query,
-		PageSize:      options.PageSize,
-		NextPageToken: options.NextPageToken,
+		Query:         query,
+		PageSize:      pageSize,
+		NextPageToken: nextPageToken,
 	}, nil
 }
 

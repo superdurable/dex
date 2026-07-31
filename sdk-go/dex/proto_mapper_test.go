@@ -263,7 +263,7 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	_, err = mapResetOptions(ResetOptions{Type: ResetType(99)})
 	require.ErrorContains(t, err, "unsupported reset type")
 
-	_, err = mapSearchFlowsOptions(SearchFlowsOptions{PageSize: -1})
+	_, err = mapSearchFlowsOptions("", -1, "")
 	require.ErrorContains(t, err, "must not be negative")
 
 	_, err = mapFlowConfig(&FlowConfig{

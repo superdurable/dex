@@ -93,12 +93,10 @@ func publishCommand(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.PublishToChannel(
 		ctx,
 		flowID,
-		runID,
 		Commands,
 		Command{Name: "approve"},
 	)
@@ -108,12 +106,10 @@ func publishOrderCommand(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.PublishToChannelMap(
 		ctx,
 		flowID,
-		runID,
 		CommandsByOrder,
 		flowID,
 		Command{Name: "ship"},
@@ -124,13 +120,11 @@ func invokeUpdateOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (UpdateOrderOutput, error) {
 	var output UpdateOrderOutput
 	err := client.InvokeRPC(
 		ctx,
 		flowID,
-		runID,
 		Orders.UpdateOrder,
 		UpdateOrderInput{Status: "processing"},
 		&output,
@@ -148,13 +142,11 @@ func getOrderStatus(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (string, bool, error) {
 	var status string
 	found, err := client.GetAttribute(
 		ctx,
 		flowID,
-		runID,
 		OrderStatus,
 		&status,
 	)
@@ -165,13 +157,11 @@ func getItemQuantity(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (int, bool, error) {
 	var quantity int
 	found, err := client.GetAttributeMap(
 		ctx,
 		flowID,
-		runID,
 		ItemQuantities,
 		"sku-1",
 		&quantity,
@@ -183,12 +173,10 @@ func setOrderStatus(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.SetAttribute(
 		ctx,
 		flowID,
-		runID,
 		OrderStatus,
 		"shipped",
 	)
@@ -198,44 +186,13 @@ func setItemQuantity(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.SetAttributeMap(
 		ctx,
 		flowID,
-		runID,
 		ItemQuantities,
 		"sku-1",
 		3,
-	)
-}
-
-func deleteOrderStatus(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-	runID string,
-) error {
-	return client.DeleteAttribute(
-		ctx,
-		flowID,
-		runID,
-		OrderStatus,
-	)
-}
-
-func deleteItemQuantity(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-	runID string,
-) error {
-	return client.DeleteAttributeMap(
-		ctx,
-		flowID,
-		runID,
-		ItemQuantities,
-		"sku-1",
 	)
 }
 
@@ -243,12 +200,10 @@ func waitForOrderStatus(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.WaitForAttributeEqual(
 		ctx,
 		flowID,
-		runID,
 		OrderStatus,
 		"shipped",
 		dex.WaitOptions{Timeout: time.Minute},
@@ -259,12 +214,10 @@ func waitForItemQuantity(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.WaitForAttributeMapEqual(
 		ctx,
 		flowID,
-		runID,
 		ItemQuantities,
 		"sku-1",
 		3,
@@ -276,12 +229,10 @@ func getOrderAttributes(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (map[string]dex.Value, error) {
 	return client.GetAttributes(
 		ctx,
 		flowID,
-		runID,
 		OrderStatus,
 		ItemQuantities,
 	)
@@ -291,12 +242,10 @@ func setOrderAttributes(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.SetAttributes(
 		ctx,
 		flowID,
-		runID,
 		dex.AttributeWrite{
 			Name:  OrderStatus.AttributeName(),
 			Value: "processing",
@@ -309,12 +258,10 @@ func stopOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.StopFlow(
 		ctx,
 		flowID,
-		runID,
 		dex.StopOptions{
 			Type:   dex.CancelFlow,
 			Reason: "customer requested cancellation",
@@ -326,12 +273,10 @@ func waitForOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (dex.WaitForFlowResult, error) {
 	return client.WaitForFlow(
 		ctx,
 		flowID,
-		runID,
 		dex.WaitForFlowOptions{
 			NeedsResults: true,
 			Timeout:      time.Minute,
@@ -345,10 +290,9 @@ func searchOrders(
 ) (dex.SearchFlowsPage, error) {
 	return client.SearchFlows(
 		ctx,
-		dex.SearchFlowsOptions{
-			Query:    "order-status = 'shipped'",
-			PageSize: 100,
-		},
+		"order-status = 'shipped'",
+		100,
+		"",
 	)
 }
 
@@ -356,12 +300,10 @@ func resetOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) (string, error) {
 	return client.ResetFlow(
 		ctx,
 		flowID,
-		runID,
 		dex.ResetOptions{
 			Type:   dex.ResetToBeginning,
 			Reason: "reprocess order",
@@ -373,15 +315,13 @@ func skipOrderTimer(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.SkipTimer(
 		ctx,
 		flowID,
-		runID,
 		dex.StepExecutionID{
 			StepType:        WaitForCommand.GetStepType(),
-			ExecutionNumber: 1,
+			ExecutionNumber: ptr.Any(int32(1)),
 		},
 		dex.TimerID{ConditionID: "timeout"},
 	)
@@ -391,12 +331,10 @@ func updateOrderConfig(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
 	return client.UpdateFlowConfig(
 		ctx,
 		flowID,
-		runID,
 		dex.FlowConfig{
 			ContinueAsNewThreshold: ptr.Any(int32(100)),
 			StepDurability:         ptr.Any(dex.StepDurabilityAsync),
@@ -418,7 +356,7 @@ func waitForOrderStep(
 		flowID,
 		dex.StepExecutionID{
 			StepType:        WaitForCommand.GetStepType(),
-			ExecutionNumber: 1,
+			ExecutionNumber: ptr.Any(int32(1)),
 		},
 		dex.WaitOptions{Timeout: time.Minute},
 	)
@@ -428,9 +366,8 @@ func continueOrderAsNew(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-	runID string,
 ) error {
-	return client.TriggerContinueAsNew(ctx, flowID, runID)
+	return client.TriggerContinueAsNew(ctx, flowID)
 }
 
 func checkHealth(

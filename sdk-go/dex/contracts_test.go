@@ -287,7 +287,6 @@ var _ func(
 	*dex.Client,
 	context.Context,
 	string,
-	string,
 	dex.ChannelDef,
 	...any,
 ) error = (*dex.Client).PublishToChannel
@@ -295,7 +294,6 @@ var _ func(
 var _ func(
 	*dex.Client,
 	context.Context,
-	string,
 	string,
 	dex.ChannelDef,
 	string,
@@ -306,7 +304,6 @@ var _ func(
 	*dex.Client,
 	context.Context,
 	string,
-	string,
 	dex.AttributeDef,
 	any,
 ) (bool, error) = (*dex.Client).GetAttribute
@@ -314,7 +311,6 @@ var _ func(
 var _ func(
 	*dex.Client,
 	context.Context,
-	string,
 	string,
 	dex.AttributeDef,
 	string,
@@ -325,7 +321,6 @@ var _ func(
 	*dex.Client,
 	context.Context,
 	string,
-	string,
 	dex.AttributeDef,
 	any,
 ) error = (*dex.Client).SetAttribute
@@ -333,7 +328,6 @@ var _ func(
 var _ func(
 	*dex.Client,
 	context.Context,
-	string,
 	string,
 	dex.AttributeDef,
 	string,
@@ -343,7 +337,6 @@ var _ func(
 var _ func(
 	*dex.Client,
 	context.Context,
-	string,
 	string,
 	any,
 	any,
