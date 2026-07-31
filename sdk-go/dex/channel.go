@@ -22,6 +22,12 @@ func DefineChannel[T any](name string) Channel[T] {
 	return Channel[T]{name: name}
 }
 
+// ChannelDef is the interface of Channel, without Go's generic
+type ChannelDef interface {
+	channelName() string
+	channelIsMap() bool
+}
+
 func (c Channel[T]) Publish(ctx Context, value T) error {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {
@@ -85,10 +91,12 @@ func (c Channel[T]) ChannelName() string {
 	return c.name
 }
 
-func (Channel[T]) channelDefinition() {}
+func (c Channel[T]) channelName() string {
+	return c.name
+}
 
-func (c Channel[T]) channelMetadata() channelDefMetadata {
-	return channelDefMetadata{name: c.name}
+func (Channel[T]) channelIsMap() bool {
+	return false
 }
 
 type ChannelMap[T any] struct {
@@ -193,10 +201,12 @@ func (c ChannelMap[T]) ChannelName() string {
 	return c.name
 }
 
-func (ChannelMap[T]) channelDefinition() {}
+func (c ChannelMap[T]) channelName() string {
+	return c.name
+}
 
-func (c ChannelMap[T]) channelMetadata() channelDefMetadata {
-	return channelDefMetadata{name: c.name, isMap: true}
+func (ChannelMap[T]) channelIsMap() bool {
+	return true
 }
 
 type channelInvocation interface {

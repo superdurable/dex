@@ -26,11 +26,6 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
-type StepDef struct {
-	handler  stepHandler
-	starting bool
-}
-
 func DefineStep[IN any](step Step[IN]) StepDef {
 	return newStepDef(step, false)
 }
@@ -44,6 +39,13 @@ func newStepDef[IN any](step Step[IN], starting bool) StepDef {
 		handler:  typedStepHandler[IN]{step: step},
 		starting: starting,
 	}
+}
+
+// StepDef is the representation of Step, without Go's generic
+// So that internal sdk can use it to workaround Go's generic limitations
+type StepDef struct {
+	handler  stepHandler
+	starting bool
 }
 
 type NoWaitFor[IN any] struct{}

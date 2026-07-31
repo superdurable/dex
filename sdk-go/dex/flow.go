@@ -20,30 +20,7 @@ type Flow interface {
 	GetPersistenceSchema() PersistenceSchema
 }
 
-type AttributeDef interface {
-	AttributeName() string
-	attributeDefinition()
-	attributeMetadata() attributeDefMetadata
-}
-
-type ChannelDef interface {
-	ChannelName() string
-	channelDefinition()
-	channelMetadata() channelDefMetadata
-}
-
 type PersistenceSchema struct {
 	Attributes []AttributeDef
 	Channels   []ChannelDef
-}
-
-type attributeDefMetadata struct {
-	name  string
-	index *AttributeIndex
-	isMap bool
-}
-
-type channelDefMetadata struct {
-	name  string
-	isMap bool
 }

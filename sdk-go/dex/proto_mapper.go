@@ -643,10 +643,10 @@ func mapUniqueChannels(channels []ChannelDef) ([]string, error) {
 	mapped := make([]string, 0, len(channels))
 	seen := make(map[string]struct{}, len(channels))
 	for _, channel := range channels {
-		if channel == nil || channel.ChannelName() == "" {
+		if channel == nil || channel.channelName() == "" {
 			return nil, fmt.Errorf("dex: conditional close channel is invalid")
 		}
-		name := channel.ChannelName()
+		name := channel.channelName()
 		if _, found := seen[name]; found {
 			return nil, fmt.Errorf("dex: duplicate conditional close channel %q", name)
 		}

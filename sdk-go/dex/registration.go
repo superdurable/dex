@@ -43,13 +43,16 @@ type registeredStep struct {
 }
 
 type registeredAttribute struct {
-	def      AttributeDef
-	metadata attributeDefMetadata
+	def   AttributeDef
+	name  string
+	index *AttributeIndex
+	isMap bool
 }
 
 type registeredChannel struct {
-	def      ChannelDef
-	metadata channelDefMetadata
+	def   ChannelDef
+	name  string
+	isMap bool
 }
 
 func newRegistry(flows []Flow) (*registry, error) {
@@ -117,8 +120,7 @@ func (flow *registeredFlow) registerPersistence(
 		if nilInterface(definition) {
 			return fmt.Errorf("attribute at index %d is nil", index)
 		}
-		metadata := definition.attributeMetadata()
-		if err := flow.registerAttribute(definition, metadata, indexTypes); err != nil {
+		if err := flow.registerAttribute(definition, indexTypes); err != nil {
 			return err
 		}
 	}
@@ -126,8 +128,7 @@ func (flow *registeredFlow) registerPersistence(
 		if nilInterface(definition) {
 			return fmt.Errorf("channel at index %d is nil", index)
 		}
-		metadata := definition.channelMetadata()
-		if err := flow.registerChannel(definition, metadata); err != nil {
+		if err := flow.registerChannel(definition); err != nil {
 			return err
 		}
 	}
@@ -136,53 +137,58 @@ func (flow *registeredFlow) registerPersistence(
 
 func (flow *registeredFlow) registerAttribute(
 	definition AttributeDef,
-	metadata attributeDefMetadata,
 	indexTypes map[string]IndexType,
 ) error {
-	if metadata.name == "" {
+	name := definition.attributeName()
+	if name == "" {
 		return fmt.Errorf("attribute name must not be empty")
 	}
-	if _, found := flow.attributes[metadata.name]; found {
-		return fmt.Errorf("duplicate attribute %q", metadata.name)
+	if _, found := flow.attributes[name]; found {
+		return fmt.Errorf("duplicate attribute %q", name)
 	}
-	if metadata.index != nil {
-		if _, err := mapIndexType(metadata.index.Type); err != nil {
-			return fmt.Errorf("attribute %q: %w", metadata.name, err)
+	index := definition.attributeIndex()
+	isMap := definition.attributeIsMap()
+	if index != nil {
+		if _, err := mapIndexType(index.Type); err != nil {
+			return fmt.Errorf("attribute %q: %w", name, err)
 		}
-		indexKey := effectiveIndexKey(metadata)
+		indexKey := effectiveIndexKey(name, index, isMap)
 		if indexKey != "" {
 			if existing, found := indexTypes[indexKey]; found &&
-				existing != metadata.index.Type {
+				existing != index.Type {
 				return fmt.Errorf(
 					"index key %q has conflicting types %d and %d",
 					indexKey,
 					existing,
-					metadata.index.Type,
+					index.Type,
 				)
 			}
-			indexTypes[indexKey] = metadata.index.Type
+			indexTypes[indexKey] = index.Type
 		}
 	}
-	flow.attributes[metadata.name] = registeredAttribute{
-		def:      definition,
-		metadata: metadata,
+	flow.attributes[name] = registeredAttribute{
+		def:   definition,
+		name:  name,
+		index: index,
+		isMap: isMap,
 	}
 	return nil
 }
 
 func (flow *registeredFlow) registerChannel(
 	definition ChannelDef,
-	metadata channelDefMetadata,
 ) error {
-	if metadata.name == "" {
+	name := definition.channelName()
+	if name == "" {
 		return fmt.Errorf("channel name must not be empty")
 	}
-	if _, found := flow.channels[metadata.name]; found {
-		return fmt.Errorf("duplicate channel %q", metadata.name)
+	if _, found := flow.channels[name]; found {
+		return fmt.Errorf("duplicate channel %q", name)
 	}
-	flow.channels[metadata.name] = registeredChannel{
-		def:      definition,
-		metadata: metadata,
+	flow.channels[name] = registeredChannel{
+		def:   definition,
+		name:  name,
+		isMap: definition.channelIsMap(),
 	}
 	return nil
 }
@@ -316,7 +322,7 @@ func (flow *registeredFlow) validateAttributeLocks(
 		if !found {
 			return fmt.Errorf("attribute %q is not declared", concrete.name)
 		}
-		if attribute.metadata.isMap != concrete.isMap {
+		if attribute.isMap != concrete.isMap {
 			return fmt.Errorf(
 				"attribute %q static/map kind does not match its lock",
 				concrete.name,
@@ -403,24 +409,24 @@ func (flow *registeredFlow) resolveChannels(
 		if nilInterface(definition) {
 			return nil, fmt.Errorf("channel reference is nil")
 		}
-		metadata := definition.channelMetadata()
-		channel, found := flow.channels[metadata.name]
+		name := definition.channelName()
+		channel, found := flow.channels[name]
 		if !found {
-			return nil, fmt.Errorf("channel %q is not declared", metadata.name)
+			return nil, fmt.Errorf("channel %q is not declared", name)
 		}
-		if channel.metadata.isMap != metadata.isMap {
+		if channel.isMap != definition.channelIsMap() {
 			return nil, fmt.Errorf(
 				"channel %q static/map kind does not match its definition",
-				metadata.name,
+				name,
 			)
 		}
-		if _, found := seen[metadata.name]; found {
+		if _, found := seen[name]; found {
 			return nil, fmt.Errorf(
 				"duplicate channel reference %q",
-				metadata.name,
+				name,
 			)
 		}
-		seen[metadata.name] = struct{}{}
+		seen[name] = struct{}{}
 		resolved = append(resolved, channel)
 	}
 	return resolved, nil
@@ -447,14 +453,18 @@ func (flow *registeredFlow) lookupRPC(
 	return rpc, found
 }
 
-func effectiveIndexKey(metadata attributeDefMetadata) string {
-	if metadata.index.IndexKey != "" {
-		return metadata.index.IndexKey
+func effectiveIndexKey(
+	name string,
+	index *AttributeIndex,
+	isMap bool,
+) string {
+	if index.IndexKey != "" {
+		return index.IndexKey
 	}
-	if metadata.isMap {
+	if isMap {
 		return ""
 	}
-	return metadata.name
+	return name
 }
 
 func assignableValue(value any, targetType reflect.Type) bool {

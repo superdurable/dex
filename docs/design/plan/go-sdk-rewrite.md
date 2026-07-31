@@ -695,13 +695,14 @@ Persistence remains the combination of attributes and channels:
 
 ```go
 type AttributeDef interface {
-	AttributeName() string
-	attributeDefinition()
+	attributeName() string
+	attributeIndex() *AttributeIndex
+	attributeIsMap() bool
 }
 
 type ChannelDef interface {
-	ChannelName() string
-	channelDefinition()
+	channelName() string
+	channelIsMap() bool
 }
 
 type PersistenceSchema struct {
@@ -711,8 +712,10 @@ type PersistenceSchema struct {
 ```
 
 `AttributeDef` and `ChannelDef` are sealed, erased interfaces
-implemented by the generic definitions below. A flow declares both static and
-map definitions in this schema.
+implemented by the generic definitions below. Unexported methods keep
+third-party types from satisfying them. A flow declares both static and
+map definitions in this schema. Concrete `Attribute` / `Channel` values still
+expose public `AttributeName` / `ChannelName` for application use.
 
 Step-execution locals and record events are not flow persistence definitions:
 locals have one step-execution scope, while events are history annotations.
