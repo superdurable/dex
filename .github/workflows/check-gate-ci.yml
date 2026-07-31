@@ -1,0 +1,146 @@
+name: Check Gate CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: check-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-gate:
+    name: Check Gate CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - 'protos/**'
+              - '.github/scripts/dump-docker-logs.sh'
+              - '.github/workflows/server-ci.yml'
+            sdk_go:
+              - 'sdk-go/**'
+              - 'protos/**'
+              - 'go.work'
+              - 'go.work.sum'
+              - '.github/workflows/sdk-go-ci.yml'
+            sdk_rust:
+              - 'sdk-rust/**'
+              - '.github/workflows/sdk-rust-ci.yml'
+            web:
+              - 'web/**'
+              - 'protos/**'
+              - '.github/workflows/web-ci.yml'
+            copyright:
+              - 'server/**'
+              - 'sdk-go/**'
+              - 'sdk-java/**'
+              - 'sdk-python/**'
+              - 'sdk-rust/**'
+              - 'examples/go/**'
+              - 'examples/java/**'
+              - 'examples/python/**'
+              - 'protos/**'
+              - 'script/licenseheaders/**'
+              - 'Makefile'
+              - '.github/workflows/copyright-ci.yml'
+      - name: Wait for required workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          FILTER_SERVER: ${{ steps.filter.outputs.server }}
+          FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
+          FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
+          FILTER_WEB: ${{ steps.filter.outputs.web }}
+          FILTER_COPYRIGHT: ${{ steps.filter.outputs.copyright }}
+        run: |
+          set -euo pipefail
+
+          expected=()
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Web CI" "Copyright")
+          else
+            [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
+            [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
+            [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
+            [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
+            [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
+          fi
+
+          if [[ ${#expected[@]} -eq 0 ]]; then
+            echo "No path-matched CI workflows; Check Gate CI succeeded."
+            exit 0
+          fi
+
+          echo "Waiting for workflows: ${expected[*]}"
+          echo "head_sha=$HEAD_SHA"
+
+          deadline=$((SECONDS + 85 * 60))
+          while (( SECONDS < deadline )); do
+            runs_json="$(gh api \
+              "repos/${REPO}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")"
+
+            failed=0
+            pending=0
+            for name in "${expected[@]}"; do
+              row="$(jq -c --arg name "$name" '
+                [.workflow_runs[] | select(.name == $name)]
+                | sort_by(.id)
+                | reverse
+                | if length == 0 then empty
+                  else .[0] | {status, conclusion, html_url, id}
+                  end
+              ' <<<"$runs_json")"
+
+              if [[ -z "$row" ]]; then
+                echo "PENDING  $name (not started)"
+                pending=1
+                continue
+              fi
+
+              status="$(jq -r '.status' <<<"$row")"
+              conclusion="$(jq -r '.conclusion // empty' <<<"$row")"
+              url="$(jq -r '.html_url' <<<"$row")"
+
+              if [[ "$status" != "completed" ]]; then
+                echo "PENDING  $name ($status) $url"
+                pending=1
+                continue
+              fi
+
+              if [[ "$conclusion" == "success" ]]; then
+                echo "OK       $name $url"
+                continue
+              fi
+
+              echo "FAILED   $name ($conclusion) $url"
+              failed=1
+            done
+
+            if (( failed )); then
+              echo "One or more required workflows failed."
+              exit 1
+            fi
+            if (( pending == 0 )); then
+              echo "All required workflows succeeded."
+              exit 0
+            fi
+            sleep 30
+          done
+
+          echo "Timed out waiting for required workflows."
+          exit 1
