@@ -1,8 +1,10 @@
 class Dexcli < Formula
   desc "Run Dex, Dex Web, and a local Temporal development server"
   homepage "https://github.com/superdurable/dex"
-  version "@VERSION@"
+  version "@FORMULA_VERSION@"
   license "MIT"
+
+  depends_on "temporal"
 
   on_macos do
     if Hardware::CPU.arm?
@@ -23,8 +25,6 @@ class Dexcli < Formula
       sha256 "@LINUX_AMD64_SHA256@"
     end
   end
-
-  depends_on "temporal"
 
   def install
     bin.install "dexcli"
