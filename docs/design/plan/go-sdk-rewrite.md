@@ -1,7 +1,7 @@
 # Go SDK rewrite plan
 
-Status: Phase 3 implementation. Phases 1 and 2 are implemented. Later phases
-are boundaries only and require their own design review before implementation.
+Status: Phase 4 design. Phases 1 through 3 are implemented. Phase 5 remains a
+boundary only and requires its own design review before implementation.
 
 ## Current source of truth
 
@@ -14,6 +14,11 @@ This plan is based on the current:
 - [`server/service/interpreter/channel/plan.go`](../../../server/service/interpreter/channel/plan.go)
 - [`server/service/common/rpc/invoke.go`](../../../server/service/common/rpc/invoke.go)
 - [`server/service/api/service.go`](../../../server/service/api/service.go)
+- [`sdk-go/dex/registration.go`](../../../sdk-go/dex/registration.go)
+- [`sdk-go/dex/rpc_registration.go`](../../../sdk-go/dex/rpc_registration.go)
+- [`sdk-go/dex/proto_mapper.go`](../../../sdk-go/dex/proto_mapper.go)
+- [`sdk-go/dex/hydration.go`](../../../sdk-go/dex/hydration.go)
+- [`sdk-go/dex/blobcache/cache.go`](../../../sdk-go/dex/blobcache/cache.go)
 - [`docs/design/transient-step-movement.md`](../transient-step-movement.md)
 
 The old `sdk-go/dex` API is not a compatibility constraint. The product has not
@@ -49,8 +54,9 @@ adding aliases.
   synchronous updates and require an SDK-generated request ID.
 - `WorkerTarget` belongs to `FlowConfig` and may describe a normal or headless
   plaintext gRPC target.
-- Large string/object `Value` arms may contain blob IDs. Hydration is required
-  later, but blob-cache design and implementation are outside this plan.
+- Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
+  existing cache into hydration; cache storage policy remains independently
+  designed.
 
 ## Phase boundaries
 
@@ -87,8 +93,10 @@ no WorkerService, invocation context, protobuf request handling, or transport.
 
 ### Phase 4 — WorkerService runtime
 
-Provisional boundary only. Design the gRPC worker, invocation contexts,
-buffering/commit mapping, method errors, transient steps, and shutdown.
+Implement the application-hosted plaintext gRPC worker around the Phase 3
+registry. Add invocation contexts, request hydration and decoding, buffered
+commit mapping, method errors, panic recovery, and worker lifecycle. Keep the
+generated WorkerService and hydration machinery private.
 
 ### Phase 5 — FlowService client and integration migration
 
@@ -183,8 +191,8 @@ type registry struct {
 func newRegistry(flows []Flow) (*registry, error)
 ```
 
-Phase 4 will call this constructor while assembling WorkerService. It will
-decide the public worker constructor and lifecycle API in its own design.
+Phase 4 calls this constructor while assembling WorkerService and keeps it
+behind the public Worker lifecycle API defined below.
 Application code continues to declare registration through `Flow.GetSteps`,
 `Flow.GetPersistenceSchema`, and RPC methods on the Flow value.
 
@@ -443,6 +451,480 @@ buffer commit/rollback, errors, and concurrency.
 
 N/A: no in-repo web UI.
 
+## Phase 4 detailed design
+
+### Public worker surface
+
+Phase 4 adds one application-hosted worker. It owns the private Phase 3
+registry and the generated WorkerService gRPC server:
+
+```go
+type WorkerOptions struct {
+	BindAddress        string
+	WorkerTarget       WorkerTarget
+	FlowServiceAddress string
+	BlobCache          *blobcache.Cache
+}
+
+type Worker struct {
+	// unexported
+}
+
+func NewWorker(
+	flows []Flow,
+	options WorkerOptions,
+) (*Worker, error)
+
+func (worker *Worker) WorkerTarget() *WorkerTarget
+func (worker *Worker) Start() error
+func (worker *Worker) Stop(ctx context.Context) error
+```
+
+`NewWorker` calls `newRegistry` and returns registration or option errors before
+opening a listener. Construction remains atomic: an invalid flow set returns no
+Worker. The Worker retains the supplied Flow and Step values exactly as Phase 3
+specifies.
+
+An empty `BindAddress` uses `:8803`. It controls only the local plaintext gRPC
+listener. `WorkerTarget` is the server-reachable target supplied later through
+`StartFlowOptions.ConfigOverride.WorkerTarget` or `UpdateFlowConfig`.
+
+An empty `WorkerTarget.Address` derives from `BindAddress`. A concrete bind host
+and port are copied. An unspecified bind host such as `:8803`, `0.0.0.0:8803`,
+or `[::]:8803` becomes `localhost:8803`, because a wildcard is not a dialable
+advertised host. `WorkerTarget.Headless` is preserved. This default is intended
+for a Worker and Dex server with matching local network reachability;
+deployments with containers, pods, load balancers, or DNS must set the
+advertised address explicitly.
+
+`Worker.WorkerTarget()` returns a fresh copy of the resolved target for use in
+flow options. It does not mutate a caller-owned option value.
+
+The bind address and WorkerTarget are not required to match. For example, a
+Worker may bind every local interface while Dex dials a headless Kubernetes
+service:
+
+```go
+worker, err := dex.NewWorker(
+	[]dex.Flow{Orders},
+	dex.WorkerOptions{
+		BindAddress: "0.0.0.0:8803",
+		WorkerTarget: dex.WorkerTarget{
+			Address:  "orders-worker.default.svc.cluster.local:8803",
+			Headless: true,
+		},
+	},
+)
+
+runID, err := client.StartFlow(
+	ctx,
+	Orders,
+	"order-1",
+	OrderInput{},
+	dex.StartFlowOptions{
+		ConfigOverride: &dex.FlowConfig{
+			WorkerTarget: worker.WorkerTarget(),
+		},
+	},
+)
+```
+
+`WorkerTarget.Headless` describes how the server resolves the advertised
+target; it does not change the local listener. The Worker resolves the empty
+address default but never automatically registers or updates the target for a
+flow.
+
+An empty `FlowServiceAddress` uses `localhost:8801`. The Worker uses this
+plaintext target only for private `LoadBlobs` calls. It does not expose
+`LoadBlobs`, construct the Phase 5 public Client, or make any FlowService call
+when a request has no blob arms.
+
+`BlobCache` is optional and constructor-injected. The caller owns it: stopping
+the Worker does not purge or close a shared cache. The Worker owns and closes
+its private FlowService gRPC connection.
+
+The runtime uses `slog.Default` for lifecycle, cache, and recovered-panic logs.
+Phase 4 does not add a custom logging interface.
+
+`Start` binds the configured address, serves WorkerService, and blocks. It may
+be called once. A normal `Stop` makes `Start` return nil; bind and serve failures
+are returned. The Worker does not install signal handlers or start itself in a
+goroutine.
+
+`Stop` is idempotent. It stops accepting calls and waits for in-flight handlers.
+If `ctx` expires first, it force-stops the gRPC server, cancels in-flight RPC
+contexts, and returns `ctx.Err()`. Calling `Stop` before `Start` succeeds and
+prevents a later start. A Worker is one-shot and cannot restart after stopping.
+
+The public `Worker` does not implement generated request methods. An unexported
+server value implements `dexpb.WorkerServiceServer`, so application code never
+uses `dexpb` to host or invoke the worker.
+
+### Runtime structure
+
+The Worker owns these private components:
+
+```text
+Worker
+  registry                 immutable Phase 3 descriptors
+  workerService            generated gRPC adapter
+  hydrationCoordinator     cache + private FlowService LoadBlobs client
+  grpcServer / listener    plaintext WorkerService transport
+  lifecycle state          start, drain, force-stop, terminal error
+```
+
+Each gRPC call creates one independent invocation object. No attribute values,
+condition results, locals, events, or buffered writes are retained on the
+registered Flow or Step values. Calls for different flows and runs may execute
+concurrently.
+
+The private WorkerService handlers use a common pipeline:
+
+1. validate the request envelope and resolve its flow, step, or RPC;
+2. collect and hydrate every input value required by that method;
+3. decode the typed handler input;
+4. build the method-specific invocation Context;
+5. invoke the registered handler with panic recovery;
+6. validate registry-aware Wait, decision, and movement references;
+7. encode the handler result and buffered mutations; and
+8. return one response only after every conversion succeeds.
+
+Any failure before step 8 discards the complete invocation buffer. Worker calls
+never partially commit attributes, locals, events, or channel messages.
+
+### Request validation and lookup
+
+All three handlers reject a nil request or nil proto Context. WaitFor and
+Execute require non-empty flow type, step type, step input, flow ID, run ID,
+step-execution ID, `Attempt >= 1`, and a non-zero first-attempt timestamp. RPC
+requires non-empty flow type, RPC name, input, flow ID, and run ID; its proto
+does not carry step-attempt metadata.
+
+Lookup is always scoped through the Phase 3 registry:
+
+- an unknown flow, step, or RPC is `NotFound`;
+- a WaitFor call for a registered `NoWaitFor` step is `FailedPrecondition` and
+  never calls the marker's panic method;
+- a malformed request or duplicate input key is `InvalidArgument`;
+- a registered handler is selected only from the current flow descriptor.
+
+The runtime never uses an application-supplied durable name to bypass the
+registered descriptor. Runtime movements and conditional channel references
+are resolved again before response mapping.
+
+### Hydration and typed input decoding
+
+Before decoding, the Worker flattens request values in deterministic request
+order:
+
+- WaitFor: step input, then attributes;
+- Execute: step input, attributes, step-execution locals, channel result values;
+- RPC: input, then attributes.
+
+It calls the Phase 2 hydration seam once for that ordered list. Repeated blob
+references are deduplicated without changing reconstructed request order.
+
+The hydration coordinator resolves a blob as follows:
+
+1. try `BlobCache.Get` when a cache is configured;
+2. decode and validate the cached payload against the blob arm;
+3. delete a missing or corrupt cache entry and treat it as a miss;
+4. batch all misses into one private `FlowService.LoadBlobs` request;
+5. require one concrete response of the correct arm for every requested ID;
+6. use the fresh response even when cache admission rejects it; and
+7. log cache read, deletion, or write errors while continuing with a valid
+   fresh response.
+
+An unavailable FlowService, missing result, wrong result kind, or response that
+still contains a blob arm fails the Worker call. Cache payloads retain the Phase
+2 string/object format. The runtime does not change cache capacity, eviction,
+recovery, or directory-ownership semantics.
+
+Typed step and RPC inputs are allocated from the registered `reflect.Type`,
+decoded through the Phase 2 codec, and passed through the Phase 3 erased
+adapter. Decode failures return errors; reflection and codec failures never
+panic across the gRPC boundary.
+
+### Invocation Context
+
+The private invocation type implements `Context`, `attributeInvocation`, and
+`channelInvocation`. It embeds the incoming gRPC context, so deadlines,
+cancellation, and forced Worker shutdown propagate to application handlers.
+
+Metadata maps directly from proto Context. Unix-second timestamps use
+`time.Unix(seconds, 0)`. Step-execution IDs, lineage, first-attempt time, and
+attempt are populated for WaitFor and Execute. RPC returns empty
+step-execution IDs, zero `FirstAttemptAt`, and zero `Attempt` because the server
+supplies no step attempt metadata for RPC.
+
+Method-specific operations are enforced at runtime:
+
+| Operation | WaitFor | Execute | RPC |
+|---|:---:|:---:|:---:|
+| attribute Get/Set/Delete | yes | yes | yes |
+| channel Publish | yes | yes | yes |
+| RecordEvent | yes | yes | yes |
+| SetStepExecutionLocal | yes | no | no |
+| GetStepExecutionLocal | no | yes | no |
+| channel condition results | no | yes | no |
+| timer/wait-failure helpers | no | yes | no |
+| channel Size | no | no | yes |
+
+Operations returning an error use `errInvalidInvocationContext` outside their
+allowed method. `Channel.Size` has no error result, so invalid use panics; the
+Worker recovers it and returns a structured method failure. Invocation values
+must not be retained or used after the handler returns.
+
+`HasTimerFired` is true when any timer result is completed.
+`HasTimerFiredByIndex` uses the timer-result order supplied by the server and
+returns false outside Execute or for an invalid index. Natural completion and
+`SkipTimer` are intentionally indistinguishable. `WaitForMethodFailed` reads
+`ConditionResults.wait_for_failed`.
+
+### Attributes and buffered reads
+
+Incoming attributes are validated as unique, non-empty physical keys and stored
+as hydrated concrete values. Attribute operations resolve the registered
+definition by logical name and verify static/map kind. The runtime uses the
+registered index configuration rather than trusting a same-name lookalike
+handle.
+
+Map operations derive the physical key with the Phase 2 escaping rule. Get
+first observes the invocation's latest buffered write:
+
+- a buffered Set decodes that value;
+- a buffered Delete returns `found=false`;
+- otherwise Get reads the hydrated request snapshot; and
+- a missing key returns the typed zero value with `found=false`.
+
+Set and Delete encode immediately. A failed encode leaves the previous buffer
+unchanged. Multiple writes to one physical key use last-write-wins and emit one
+`AttributeWrite`; distinct keys retain first-write order for deterministic
+responses. Deletes keep the registered index config.
+
+### Step-execution locals and events
+
+Execute validates incoming locals as unique non-empty keys. Get requires a
+non-nil pointer and decodes the hydrated value. Missing locals return
+`found=false`.
+
+WaitFor may Set a local more than once; the last value wins and the response
+uses first-write key order. Execute and RPC reject Set. Internal transient
+Execute receives no locals and therefore cannot read source-step locals.
+
+`RecordEvent` requires a non-empty name. One name may be recorded once per
+method invocation; a duplicate returns an error without replacing the first
+value. Events preserve call order. They remain outside `PersistenceSchema`.
+
+### Channels and condition results
+
+Publish resolves a registered static or map channel, encodes the value
+immediately, and appends one `ChannelMessage`. Multiple publishes preserve call
+order and are never coalesced.
+
+Wait mapping validates every channel condition against the current flow schema.
+A same-name static/map mismatch, empty map instance, invalid bounds, undeclared
+channel, condition-ID error, or encoding error rejects the complete response.
+`SkipWaitImmediately` maps to an omitted waiting condition.
+
+Execute stores hydrated condition results in server order. A typed
+`GetConditionResults` call:
+
+- resolves the requested registered channel and physical map instance;
+- selects completed channel results with that physical name;
+- concatenates values in the request's channel-result order; and
+- decodes each value into the channel's `T`.
+
+Waiting results contribute no values. Duplicate results for the same concrete
+channel are intentionally concatenated. A malformed status, empty channel
+name, or undecodable value fails the invocation.
+
+RPC channel sizes start from `InvokeWorkerRPCRequest.channel_infos`. Missing
+entries read as zero. Each successful Publish earlier in the same RPC
+increments the matching concrete size, so `Size` observes invocation-local
+publishes. Empty names and negative incoming sizes are invalid. WaitFor and
+Execute never receive or synthesize channel sizes.
+
+### WaitFor response
+
+WaitFor invokes the registered typed handler unless `skipWaitFor` is true. A
+successful response contains:
+
+- the registry-validated waiting condition;
+- buffered attribute writes;
+- buffered step-execution locals;
+- recorded events; and
+- published channel messages.
+
+The Worker never sets `local_activity_input`; that field is server-owned.
+
+Transient movement remains internal. `Wait` reserves an unexported optional
+movement used only by SDK-owned machinery. If present, the mapper requires a
+registered execute-only target, forces `skip_wait_for`, rejects failure-proceed
+options, and leaves lineage empty. Public Wait constructors cannot set it.
+Normal application WaitFor responses therefore omit
+`transient_step_movement`. The server remains authoritative for requiring a
+transient Execute to return only `DeadEnd()`.
+
+### Execute response
+
+Execute receives condition results and source-step locals, calls the registered
+typed handler, and requires a non-empty `StepDecision`.
+
+Every movement is resolved through `registeredFlow.resolveMovement`. Mapping
+uses the registered target's immutable defaults plus the explicit movement
+overrides. It rejects unregistered lookalikes, input-type mismatches, invalid
+options, and worker-owned lineage fields.
+
+Conditional close channels are resolved through the registered flow before
+mapping. All other close decisions remain mutually exclusive with next steps.
+The response contains the decision plus buffered attributes, events, and
+channel messages. The Worker leaves `local_activity_input` empty and does not
+emit Execute local writes.
+
+### RPC response
+
+RPC resolves the reflected method from the current flow, decodes its registered
+input type, and invokes the exact bound receiver retained by Phase 3.
+
+The erased `RPCResult` output is encoded directly. Optional movements use the
+same registry-aware resolution as Execute. RPC cannot return a close decision
+or step-execution locals. The response contains output, optional next steps,
+and buffered attributes, events, and channel messages.
+
+### Method failures and panic recovery
+
+Every Worker failure crosses gRPC as a status with one `WorkerErrorResponse`.
+The server can therefore preserve the original worker code, concrete error
+type, and detail in its public `dex.Error` conversion.
+
+| Failure | gRPC code |
+|---|---|
+| malformed request or handler result | `InvalidArgument` |
+| unknown flow, step, or RPC | `NotFound` |
+| WaitFor called for `NoWaitFor` | `FailedPrecondition` |
+| handler-returned gRPC status | preserve its code |
+| ordinary handler error | `Unknown` |
+| request cancellation/deadline | `Canceled` / `DeadlineExceeded` |
+| panic or SDK invariant failure | `Internal` |
+
+For a returned error, `WorkerErrorResponse.error_type` is its concrete Go type.
+For a panic it records the recovered value type. Panic stacks are logged by the
+Worker but are not returned over gRPC. A panic in application code, reflection,
+or an invocation helper is recovered at the outer handler boundary after all
+buffers have become unreachable.
+
+### Concurrency and ownership
+
+The registry and registered definitions are immutable after `NewWorker`.
+Separate invocation objects make concurrent calls independent, and the worker
+implementation must pass the race detector.
+
+Application Flow and Step values may be called concurrently and remain the
+application's responsibility to make concurrency-safe. Invocation Context
+mutation is synchronous handler state: applications must finish any goroutines
+using it before returning.
+
+Request protobuf values are freshly deserialized and transferred to the
+invocation. The runtime does not defensively clone them. Encoded response
+values and mutation buffers become owned by the response only after successful
+mapping.
+
+### Phase exclusions
+
+Phase 4 does not implement:
+
+- public FlowService Client methods or request-ID retries;
+- automatic WorkerTarget registration or service discovery;
+- TLS WorkerService or FlowService transport;
+- public gRPC request/response types or a custom service registrar;
+- a public transient-step constructor;
+- custom value codecs or codec registries; or
+- blob-cache eviction, recovery, or capacity changes.
+
+### Phase 4 exit gate
+
+1. Applications can construct and run a Worker from `[]Flow` without importing
+   `dexpb`.
+2. WaitFor, Execute, and RPC dispatch through the Phase 3 registry over gRPC.
+3. Typed values, attributes, channels, locals, results, and decisions cross the
+   proto boundary through Phase 2 codecs and registry-aware validation.
+4. Successful handlers commit their complete buffer; errors and panics commit
+   nothing.
+5. Blob-backed request values hydrate through private LoadBlobs and optional
+   cache wiring before application decode.
+6. Graceful and forced shutdown have deterministic, race-free behavior.
+7. The Worker exposes its resolved target for flow options without making
+   Client calls or updating flows automatically.
+8. No public Client transport or registration API is added.
+
+### Tests
+
+Phase 4 adds in-process WorkerService integration tests using a real gRPC
+server and client. Package-internal tests may use generated stubs; application
+examples and external contract tests still do not import `dexpb`.
+
+Cover these scenarios:
+
+1. Worker construction rejects invalid registration and target configuration;
+   empty target addresses derive from concrete and wildcard bind addresses.
+2. `Start`/`Stop` lifecycle is one-shot, idempotent, and deadline-bounded.
+3. WaitFor dispatch decodes typed input and maps attributes, locals, events,
+   channel publishes, timers, combinations, and immediate execution.
+4. Execute dispatch decodes locals and channel results, exposes timer and
+   WaitFor-failure helpers, and maps every next/close decision.
+5. Multiple completed conditions on one channel concatenate values in server
+   order, including static and map channels.
+6. RPC reflection dispatch preserves typed input/output, movement validation,
+   attributes, events, publishes, and channel sizes including local publishes.
+7. Set-then-Get and Delete-then-Get observe buffered state; duplicate events
+   and malformed incoming keys fail.
+8. Returned errors, gRPC status errors, panics, cancellation, and mapping
+   failures return WorkerError details and commit no buffered mutations.
+9. Unknown flow/step/RPC, a WaitFor request for `NoWaitFor`, undeclared schema
+   handles, and lookalike movement targets return the planned status codes.
+10. A fake FlowService plus real disk cache covers cache hit, miss, corrupt
+   payload reload, batching, deduplication, wrong kind, missing result, and
+   cache failure while using a fresh result.
+11. Concurrent WaitFor, Execute, and RPC calls isolate invocation state under
+    the race detector; graceful stop drains an in-flight handler and deadline
+    expiry cancels it.
+12. The internal transient mapper emits valid skip options and rejects a
+    waiting target or failure-proceed configuration without exposing an
+    application constructor.
+
+Run Phase 4 verification through the Makefile:
+
+```bash
+make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase4.log
+make -C sdk-go workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase4-worker.log
+make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcache.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase4-copyright.log
+```
+
+`workerIntegTests` runs the WorkerService integration package with `-race`.
+
+The default Temporal-backed end-to-end suite remains Phase 5 because Phase 4
+does not yet provide the public Client calls needed to start and drive runs.
+
+### Documentation
+
+- Keep this plan linked from [`docs/README.md`](../../README.md).
+- When Phase 4 lands, update [`sdk-go/README.md`](../../../sdk-go/README.md)
+  with Worker construction, bind-versus-advertise addresses, concurrency,
+  hydration, error, and shutdown semantics.
+- Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
+  worker integration and race verification commands.
+- Update the Go examples to construct a Worker from their Flow values and show
+  signal-driven `Stop(ctx)` without importing generated protobufs.
+- Update [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
+  with cache ownership and Worker hydration wiring; do not change cache policy
+  documentation.
+
+### UI/UX
+
+N/A: no in-repo web UI.
+
 ## Phase 1 detailed design
 
 ### Design rules
@@ -661,7 +1143,8 @@ Semantics:
   WaitFor.
 - `WaitForMethodFailed` is true only when Execute follows a failed WaitFor under
   `ProceedOnFailure`.
-- `Attempt` starts at one.
+- Step-method `Attempt` starts at one. RPC returns zero `Attempt` and a zero
+  `FirstAttemptAt` because its request carries no attempt metadata.
 - writes, events, and channel publishes are buffered until the method returns
   successfully;
 - attribute reads observe earlier writes in the same invocation.
