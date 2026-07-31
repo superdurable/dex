@@ -34,6 +34,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
@@ -100,7 +101,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		}
 		return err
 	}
-	if err := validateFlowType(startupCtx, temporalClient, s.cfg.TemporalNamespace); err != nil {
+	if err := validateSearchAttributes(startupCtx, temporalClient, s.cfg.TemporalNamespace); err != nil {
 		temporalClient.Close()
 		if ctx.Err() != nil {
 			return nil
@@ -336,7 +337,7 @@ func waitForTemporal(
 	}
 }
 
-func validateFlowType(ctx context.Context, temporalClient temporalclient.Client, namespace string) error {
+func validateSearchAttributes(ctx context.Context, temporalClient temporalclient.Client, namespace string) error {
 	response, err := temporalClient.OperatorService().ListSearchAttributes(
 		ctx,
 		&operatorservicepb.ListSearchAttributesRequest{Namespace: namespace},
@@ -344,12 +345,31 @@ func validateFlowType(ctx context.Context, temporalClient temporalclient.Client,
 	if err != nil {
 		return fmt.Errorf("list Temporal search attributes for namespace %q: %w", namespace, err)
 	}
-	attributeType, exists := response.GetCustomAttributes()["FlowType"]
-	if !exists {
-		return fmt.Errorf("Temporal namespace %q is missing search attribute FlowType (Keyword)", namespace)
+	requiredAttributes := []struct {
+		name          string
+		attributeType enumspb.IndexedValueType
+	}{
+		{service.SearchAttributeDexWorkflowType, enumspb.INDEXED_VALUE_TYPE_KEYWORD},
+		{service.SearchAttributeActiveStepTypes, enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST},
 	}
-	if attributeType != enumspb.INDEXED_VALUE_TYPE_KEYWORD {
-		return fmt.Errorf("Temporal search attribute FlowType must be Keyword, got %s", attributeType)
+	for _, requiredAttribute := range requiredAttributes {
+		attributeType, exists := response.GetCustomAttributes()[requiredAttribute.name]
+		if !exists {
+			return fmt.Errorf(
+				"Temporal namespace %q is missing search attribute %s (%s)",
+				namespace,
+				requiredAttribute.name,
+				requiredAttribute.attributeType,
+			)
+		}
+		if attributeType != requiredAttribute.attributeType {
+			return fmt.Errorf(
+				"Temporal search attribute %s must be %s, got %s",
+				requiredAttribute.name,
+				requiredAttribute.attributeType,
+				attributeType,
+			)
+		}
 	}
 	return nil
 }
