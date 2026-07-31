@@ -9,16 +9,38 @@ on:
       - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-ci.yml"
   pull_request:
-    paths:
-      - "server/**"
-      - "protos/**"
-      - ".github/scripts/dump-docker-logs.sh"
-      - ".github/workflows/server-ci.yml"
   workflow_dispatch:
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.server.outputs.server }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - 'protos/**'
+              - '.github/scripts/dump-docker-logs.sh'
+              - '.github/workflows/server-ci.yml'
+      - id: server
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "server=${{ steps.filter.outputs.server }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "server=true" >> "$GITHUB_OUTPUT"
+          fi
+
   unit:
     name: Unit tests
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +58,8 @@ jobs:
 
   web-api-integ:
     name: Web API integration (${{ matrix.backend }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -84,6 +108,8 @@ jobs:
 
   temporal-integ:
     name: Temporal integration (partition ${{ matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -125,6 +151,8 @@ jobs:
 
   cadence-integ:
     name: Cadence integration (partition ${{ matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -149,3 +177,50 @@ jobs:
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
+  # Required check for branch protection. Always reports so path-filtered
+  # skips still satisfy merge rules.
+  server-ci:
+    name: Server CI
+    needs:
+      - changes
+      - unit
+      - web-api-integ
+      - temporal-integ
+      - cadence-integ
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate Server CI result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SERVER: ${{ needs.changes.outputs.server }}
+          UNIT: ${{ needs.unit.result }}
+          WEB_API: ${{ needs.web-api-integ.result }}
+          TEMPORAL: ${{ needs.temporal-integ.result }}
+          CADENCE: ${{ needs.cadence-integ.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Detect changes failed: $CHANGES_RESULT"
+            exit 1
+          fi
+          if [[ "$SERVER" != "true" ]]; then
+            echo "No server-related paths changed; Server CI skipped."
+            exit 0
+          fi
+          failed=0
+          for entry in \
+            "unit:${UNIT}" \
+            "web-api-integ:${WEB_API}" \
+            "temporal-integ:${TEMPORAL}" \
+            "cadence-integ:${CADENCE}"
+          do
+            name="${entry%%:*}"
+            result="${entry#*:}"
+            echo "${name}=${result}"
+            if [[ "$result" != "success" ]]; then
+              failed=1
+            fi
+          done
+          exit "$failed"
