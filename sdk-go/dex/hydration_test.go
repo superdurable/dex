@@ -123,6 +123,8 @@ func TestBlobCachePayloadRoundTrip(t *testing.T) {
 	decoded, err := unmarshalBlobCachePayload(stringReference, payload)
 	require.NoError(t, err)
 	require.Equal(t, "payload", decoded.GetStringValue())
+	_, err = unmarshalBlobCachePayload(stringReference, []byte{0xff})
+	require.ErrorContains(t, err, "UTF-8")
 
 	objectReference := &dexpb.Value{
 		Kind: &dexpb.Value_InternalBlobIdForObjValue{

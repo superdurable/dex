@@ -145,10 +145,13 @@ integTests:
 blobCacheTests:
 	$Q go test -race ./dex/blobcache
 
+workerIntegTests:
+	$Q go test -race -v ./dex -run '^TestWorker'
+
 unitTests:
 	$Q go test -v ./dex ./examples/...
 
-tests: unitTests blobCacheTests
+tests: unitTests workerIntegTests blobCacheTests
 
 ci-tests:
 	$Q go test -v -cover ./dex ./examples/... ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...

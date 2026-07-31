@@ -15,7 +15,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
@@ -130,4 +135,35 @@ func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 var Orders = OrderFlow{}
 var _ dex.Flow = Orders
 
-func main() {}
+func main() {
+	worker, err := dex.NewWorker([]dex.Flow{Orders}, dex.WorkerOptions{
+		BindAddress: ":8803",
+	})
+	if err != nil {
+		slog.Error("create order Worker", "error", err)
+		os.Exit(1)
+	}
+
+	ctx, stopSignals := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+	go stopOrderWorker(ctx, worker)
+
+	slog.Info("starting order Worker", "target", worker.WorkerTarget().Address)
+	if err := worker.Start(); err != nil {
+		slog.Error("run order Worker", "error", err)
+		os.Exit(1)
+	}
+}
+
+func stopOrderWorker(ctx context.Context, worker *dex.Worker) {
+	<-ctx.Done()
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := worker.Stop(stopCtx); err != nil {
+		slog.Error("stop order Worker", "error", err)
+	}
+}

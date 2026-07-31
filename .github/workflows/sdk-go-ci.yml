@@ -52,3 +52,20 @@ jobs:
             go.work.sum
       - name: Blob cache tests
         run: make blobCacheTests
+
+  worker-integration:
+    name: Worker integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk-go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: sdk-go/go.mod
+          cache-dependency-path: |
+            sdk-go/go.sum
+            go.work.sum
+      - name: Worker integration tests
+        run: make workerIntegTests

@@ -17,6 +17,7 @@ package dex
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/protobuf/proto"
@@ -127,6 +128,9 @@ func unmarshalBlobCachePayload(
 		return nil, fmt.Errorf("dex: cache payload requires a blob reference")
 	}
 	if !reference.objectBlob {
+		if !utf8.Valid(payload) {
+			return nil, fmt.Errorf("dex: cached string blob is not valid UTF-8")
+		}
 		return &dexpb.Value{
 			Kind: &dexpb.Value_StringValue{StringValue: string(payload)},
 		}, nil

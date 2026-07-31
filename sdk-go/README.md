@@ -3,10 +3,9 @@
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `WaitFor`, and `Execute` contracts.
 
-Phase 1 contains the application-facing interfaces and value types. Phase 2
-adds value encoding and internal protobuf mapping. Phase 3 adds private,
-immutable registration assembly. WorkerService and the FlowService transport
-are not implemented yet.
+Phases 1 through 4 provide the public model, value/protobuf mapping, private
+registration, and the application-hosted WorkerService. Public FlowService
+client transport remains Phase 5.
 
 ## Authoring a flow
 
@@ -121,9 +120,47 @@ instead of silently omitting them. Client calls must pass the direct bound
 method value, such as `Orders.Update`; package functions, method expressions,
 closures, and wrappers are rejected.
 
-Registered Flow and Step values are retained and may later be invoked
-concurrently. They must be immutable or concurrency-safe and must keep
+Registered Flow and Step values are retained and may be invoked concurrently.
+They must be immutable or concurrency-safe and must keep
 invocation state in `dex.Context`.
+
+## Running a Worker
+
+Applications host registered flows without importing generated protobufs:
+
+```go
+worker, err := dex.NewWorker([]dex.Flow{Orders}, dex.WorkerOptions{
+	BindAddress: ":8803",
+})
+if err != nil {
+	return err
+}
+
+if err := worker.Start(); err != nil {
+	return err
+}
+```
+
+`BindAddress` is the local plaintext listener. When
+`WorkerOptions.WorkerTarget.Address` is empty, the advertised target derives
+from it; wildcard hosts become `localhost`. Set an explicit target when Dex
+reaches the Worker through different DNS, a load balancer, or a headless
+address. `WorkerTarget()` returns the resolved value for
+`FlowConfig.WorkerTarget`.
+
+`Start` blocks and is one-shot. `Stop(ctx)` is idempotent, drains in-flight
+calls, and force-stops them if the context expires. The SDK does not install
+signal handlers; the [Order example](examples/order/main.go) shows signal-driven
+shutdown.
+
+Each invocation receives independent buffered attributes, channel messages,
+locals, and events. Successful handlers commit the whole response. Returned
+errors, mapping failures, and recovered panics commit nothing. Flow and Step
+values may be called concurrently and must be concurrency-safe.
+
+Blob-backed request values hydrate through the private FlowService connection.
+`FlowServiceAddress` defaults to `localhost:8801`. An optional `BlobCache`
+avoids repeat loads; the caller still owns and closes the cache.
 
 ## Value encoding
 
@@ -161,9 +198,9 @@ The SDK generates a UUID for every start and synchronous-update call when the
 caller does not supply one. `StartFlowOptions.RequestID` may override the
 generated start ID. Retries reuse that UUID.
 
-Large string and object values may be returned as blob references. Hydration is
-internal and always occurs before a public `Value` is constructed; Decode never
-performs network I/O.
+Large string and object values may be returned as blob references. Worker
+inputs hydrate before handler decode. Phase 5 public client results will hydrate
+before a `Value` is constructed. Decode never performs network I/O.
 
 Compilable examples:
 
@@ -172,10 +209,11 @@ Compilable examples:
 - [Step transitions](examples/transitions/main.go)
 - [Flow method RPC](examples/rpc/main.go)
 
-## Phase 3 verification
+## Phase 4 verification
 
 ```text
 make unitTests
+make workerIntegTests
 make blobCacheTests
 make copyright-check
 ```

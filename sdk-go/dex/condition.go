@@ -23,6 +23,7 @@ type Wait struct {
 	kind         waitKind
 	conditions   []Condition
 	combinations []ConditionCombination
+	transient    *StepMovement
 }
 
 func SkipWaitImmediately() Wait {
@@ -39,6 +40,11 @@ func AnyOf(conditions ...Condition) Wait {
 
 func AnyComboOf(combinations ...ConditionCombination) Wait {
 	return Wait{kind: waitAnyComboOf, combinations: combinations}
+}
+
+func withTransientMovement(wait Wait, movement StepMovement) Wait {
+	wait.transient = &movement
+	return wait
 }
 
 type Condition interface {

@@ -1,6 +1,6 @@
 # Go SDK rewrite plan
 
-Status: Phase 4 design. Phases 1 through 3 are implemented. Phase 5 remains a
+Status: Phases 1 through 4 are implemented. Phase 5 remains a
 boundary only and requires its own design review before implementation.
 
 ## Current source of truth
