@@ -93,6 +93,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" cli/dist/* --clobber
+      - name: Checkout Homebrew tap
+        if: github.event_name == 'release'
+        uses: actions/checkout@v7
+        with:
+          repository: superdurable/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Publish Homebrew formula
+        if: github.event_name == 'release'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          cp cli/dist/dexcli.rb homebrew-tap/Formula/dexcli.rb
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/dexcli.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew formula is unchanged"
+            exit 0
+          fi
+          git commit -m "dexcli ${VERSION#v}"
+          git push
       - name: Upload manual artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v6
