@@ -179,13 +179,13 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	searchMode := SearchAllActiveSteps
 	durability := StepDurabilityAsync
 	attribute := DefineAttribute[string]("status")
-	initial, err := Initial(attribute, "ready")
+	initial, err := InitialAttribute(attribute, "ready")
 	require.NoError(t, err)
 
 	flowTimeout, options, requestID, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:    &timeout,
 		StartDelay: &delay,
-		Attributes: []InitialAttribute{initial},
+		Attributes: []InitialAttributeDef{initial},
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
@@ -263,7 +263,7 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	_, err = mapResetOptions(ResetOptions{Type: ResetType(99)})
 	require.ErrorContains(t, err, "unsupported reset type")
 
-	_, err = mapSearchFlowsOptions(SearchFlowsOptions{PageSize: -1})
+	_, err = mapSearchFlowsOptions("", -1, "")
 	require.ErrorContains(t, err, "must not be negative")
 
 	_, err = mapFlowConfig(&FlowConfig{

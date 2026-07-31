@@ -40,7 +40,7 @@ const (
 )
 
 type ExecuteFailure struct {
-	step    any
+	step    StepDef
 	options *StepOptions
 }
 
@@ -48,7 +48,10 @@ func ProceedToOnExecuteFailure[IN any](
 	step Step[IN],
 	options *StepOptions,
 ) *ExecuteFailure {
-	return &ExecuteFailure{step: step, options: options}
+	return &ExecuteFailure{
+		step:    typedStepDef[IN]{step: step},
+		options: options,
+	}
 }
 
 type StepOptions struct {
@@ -92,9 +95,10 @@ type StartFlowOptions struct {
 	CronSchedule   string
 	StartDelay     *time.Duration
 	RetryPolicy    *FlowRetryPolicy
-	Attributes     []InitialAttribute
+	Attributes     []InitialAttributeDef
 	ConfigOverride *FlowConfig
 	AlreadyStarted *AlreadyStartedOptions
+	RequestID      *string
 }
 
 type IDReusePolicy uint8
@@ -132,12 +136,6 @@ type WaitForFlowOptions struct {
 	Timeout      time.Duration
 }
 
-type SearchFlowsOptions struct {
-	Query         string
-	PageSize      int32
-	NextPageToken string
-}
-
 type StopType uint8
 
 const (
@@ -151,12 +149,12 @@ type StopOptions struct {
 	Reason string
 }
 
-type StepExecutionRef struct {
+type StepExecutionID struct {
 	StepType        string
-	ExecutionNumber int32
+	ExecutionNumber *int32
 }
 
-type TimerRef struct {
+type TimerID struct {
 	ConditionID string
 	Index       *int32
 }

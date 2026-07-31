@@ -25,8 +25,8 @@ type Wait struct {
 	combinations []ConditionCombination
 }
 
-func ExecuteImmediately() Wait {
-	return Wait{kind: waitExecuteImmediately}
+func SkipWaitImmediately() Wait {
+	return Wait{kind: skipWaitImmediately}
 }
 
 func AllOf(conditions ...Condition) Wait {
@@ -46,7 +46,7 @@ type Condition interface {
 }
 
 func Timer(duration time.Duration, options ...ConditionOption) Condition {
-	condition := &conditionValue{
+	condition := &conditionImpl{
 		kind:     conditionTimer,
 		duration: duration,
 	}
@@ -55,7 +55,7 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 }
 
 type ConditionOption interface {
-	conditionOption()
+	applyCondition(*conditionImpl)
 }
 
 func WithConditionID(conditionID string) ConditionOption {
@@ -73,7 +73,7 @@ func Combo(conditions ...Condition) ConditionCombination {
 type waitKind uint8
 
 const (
-	waitExecuteImmediately waitKind = iota + 1
+	skipWaitImmediately waitKind = iota + 1
 	waitAllOf
 	waitAnyOf
 	waitAnyComboOf
@@ -86,7 +86,7 @@ const (
 	conditionTimer
 )
 
-type conditionValue struct {
+type conditionImpl struct {
 	kind        conditionKind
 	conditionID string
 	idSet       bool
@@ -107,7 +107,7 @@ func newChannelCondition(
 	atMost *int,
 	options []ConditionOption,
 ) Condition {
-	condition := &conditionValue{
+	condition := &conditionImpl{
 		kind:        conditionChannel,
 		channelName: name,
 		instance:    instance,
@@ -121,15 +121,11 @@ func newChannelCondition(
 }
 
 func applyConditionOptions(
-	condition *conditionValue,
+	condition *conditionImpl,
 	options []ConditionOption,
 ) {
 	for _, option := range options {
-		switch value := option.(type) {
-		case conditionIDOption:
-			condition.conditionID = value.conditionID
-			condition.idSet = true
-		}
+		option.applyCondition(condition)
 	}
 }
 
@@ -146,10 +142,13 @@ func validateChannelBounds(atLeast *int, atMost *int) error {
 	return nil
 }
 
-func (*conditionValue) condition() {}
+func (*conditionImpl) condition() {}
 
 type conditionIDOption struct {
 	conditionID string
 }
 
-func (conditionIDOption) conditionOption() {}
+func (option conditionIDOption) applyCondition(condition *conditionImpl) {
+	condition.conditionID = option.conditionID
+	condition.idSet = true
+}

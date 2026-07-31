@@ -240,6 +240,73 @@ receivers are exempt (Go convention: `func (w *Worker) ...`).
 
 Allowed short non-receiver names: `i j k n err ctx ok t mu wg id r w ch`
 
+## Go SDK Conventions (`sdk-go/`)
+
+Prefer explicit domain naming, thin public APIs, apply-style options, and
+Def/Impl layering. Keep design docs and examples in sync with API changes.
+
+### Naming
+
+- Factory/constructor names include the domain noun: `InitialAttribute`,
+  `InitialAttributeMapValue` — not bare `Initial` / `InitialMapValue`.
+- Schema erasure interfaces use `*Def` (`AttributeDef`, `ChannelDef`,
+  `InitialAttributeDef`, `StepDef`).
+- Unexported concrete implementations use `*Impl` (e.g. `conditionImpl`), not
+  `*Value`, unless the type is a true value object.
+- Identity types use `*ID` (`StepExecutionID`, `TimerID`), not `*Ref`.
+- Optional fields that may be omitted use pointers (`ExecutionNumber *int32`).
+- Names describe real semantics, not a misleading action. Prefer
+  `SkipWaitImmediately` over `ExecuteImmediately` when the value means “skip
+  waiting,” not “run Execute.”
+- When an entry method needs a recursive or stateful helper (extra args such as
+  a cycle-tracking set), name the helper `doXxx` for the same verb phrase:
+  `validateStepOptions` → `doValidateStepOptions`. Keep the entry thin;
+  put the real work in `doXxx`.
+
+### API shape
+
+- Omit parameters the SDK can default (e.g. client methods target the current
+  run; do not take `runID` unless an operation truly needs a specific run).
+- Do not wrap a few flat inputs in an Options struct. Prefer direct parameters
+  (`SearchFlows(ctx, query, pageSize, nextPageToken)`).
+- Prefer batch APIs alongside or instead of thin single-item variants when that
+  matches product shape; drop unused singles (e.g. public Delete helpers) rather
+  than keeping dead surface area.
+- Optional overrides are pointer fields on options (`RequestID *string`), with
+  SDK-generated defaults when nil.
+
+### Functional options
+
+Use apply methods on the option interface — never an empty marker plus
+`switch option.(type)`:
+
+```go
+type ConditionOption interface {
+	applyCondition(*conditionImpl)
+}
+
+func applyConditionOptions(condition *conditionImpl, options []ConditionOption) {
+	for _, option := range options {
+		option.applyCondition(condition)
+	}
+}
+```
+
+Same pattern as `AttributeOption.applyAttribute` and
+`StepMoveOption.applyStepMovement`.
+
+### Sealed Def interfaces
+
+Def interfaces exist for SDK-internal schema erasure. Seal them with
+unexported methods only. Application-facing names stay on concrete typed values
+(e.g. `Attribute[T].AttributeName()`), not on the Def interface.
+
+### Documentation
+
+When changing public SDK types or Client signatures, update in the same change:
+[`docs/design/plan/go-sdk-rewrite.md`](docs/design/plan/go-sdk-rewrite.md),
+[`sdk-go/README.md`](sdk-go/README.md), examples, and compile-contract tests.
+
 ## Test Isolation Rules
 
 ### No `time.Sleep` for Async Convergence

@@ -270,9 +270,9 @@ func TestInitialAttributeValidatesEncoding(t *testing.T) {
 		"status",
 		Indexed(AttributeIndex{Type: IndexKeyword}),
 	)
-	initial, err := Initial(attribute, "ready")
+	initial, err := InitialAttribute(attribute, "ready")
 	require.NoError(t, err)
-	mapped, err := mapInitialAttributes([]InitialAttribute{initial})
+	mapped, err := mapInitialAttributes([]InitialAttributeDef{initial})
 	require.NoError(t, err)
 	require.Equal(t, "status", mapped[0].Key)
 	require.Equal(t, "ready", mapped[0].Value.GetStringValue())
@@ -282,6 +282,6 @@ func TestInitialAttributeValidatesEncoding(t *testing.T) {
 		"invalid",
 		Indexed(AttributeIndex{Type: IndexKeyword}),
 	)
-	_, err = Initial(invalid, 1)
+	_, err = InitialAttribute(invalid, 1)
 	require.ErrorContains(t, err, "incompatible")
 }

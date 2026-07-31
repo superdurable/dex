@@ -15,7 +15,7 @@
 package dex
 
 type StepMovement struct {
-	step    any
+	step    StepDef
 	input   any
 	options *StepOptions
 }
@@ -33,7 +33,10 @@ func MovementOf[IN any](
 	input IN,
 	options ...StepMoveOption,
 ) StepMovement {
-	movement := StepMovement{step: step, input: input}
+	movement := StepMovement{
+		step:  typedStepDef[IN]{step: step},
+		input: input,
+	}
 	for _, option := range options {
 		option.applyStepMovement(&movement)
 	}

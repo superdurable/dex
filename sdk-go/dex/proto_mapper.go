@@ -26,13 +26,8 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
-type stepMetadata interface {
-	GetStepType() string
-	GetStepOptions() *StepOptions
-}
-
 func mapInitialAttributes(
-	attributes []InitialAttribute,
+	attributes []InitialAttributeDef,
 ) ([]*dexpb.AttributeWrite, error) {
 	mapped := make([]*dexpb.AttributeWrite, 0, len(attributes))
 	for _, attribute := range attributes {
@@ -232,8 +227,7 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, nil
 	}
-	step, ok := failure.step.(stepMetadata)
-	if !ok || step.GetStepType() == "" {
+	if !validStepDef(failure.step) {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
@@ -243,7 +237,7 @@ func mapExecuteFailure(
 			"", nil, err
 	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		step.GetStepType(), options, nil
+		failure.step.stepType(), options, nil
 }
 
 func mapRetryPolicy(policy *RetryPolicy) (*dexpb.RetryPolicy, error) {
@@ -334,7 +328,7 @@ func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
 
 func mapWait(wait Wait) (*dexpb.WaitingCondition, error) {
 	switch wait.kind {
-	case waitExecuteImmediately:
+	case skipWaitImmediately:
 		return nil, nil
 	case waitAllOf:
 		return mapFlatWait(
@@ -406,7 +400,7 @@ func mapCombinationWait(
 }
 
 type conditionMapper struct {
-	ids      map[*conditionValue]string
+	ids      map[*conditionImpl]string
 	usedIDs  map[string]struct{}
 	timers   []*dexpb.TimerCondition
 	channels []*dexpb.ChannelCondition
@@ -415,13 +409,13 @@ type conditionMapper struct {
 
 func newConditionMapper() *conditionMapper {
 	return &conditionMapper{
-		ids:     make(map[*conditionValue]string),
+		ids:     make(map[*conditionImpl]string),
 		usedIDs: make(map[string]struct{}),
 	}
 }
 
 func (mapper *conditionMapper) add(condition Condition) (string, error) {
-	concrete, ok := condition.(*conditionValue)
+	concrete, ok := condition.(*conditionImpl)
 	if !ok || concrete == nil {
 		return "", fmt.Errorf("dex: invalid condition %T", condition)
 	}
@@ -562,8 +556,7 @@ func mapStepMovements(
 }
 
 func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
-	step, ok := movement.step.(stepMetadata)
-	if !ok || step.GetStepType() == "" {
+	if !validStepDef(movement.step) {
 		return nil, fmt.Errorf("dex: movement target is invalid")
 	}
 	input, err := encodeValue(movement.input)
@@ -571,13 +564,13 @@ func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
 		return nil, err
 	}
 	options, err := mapStepOptions(
-		mergeStepOptions(step.GetStepOptions(), movement.options),
+		mergeStepOptions(movement.step.stepOptions(), movement.options),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &dexpb.StepMovement{
-		StepType:    step.GetStepType(),
+		StepType:    movement.step.stepType(),
 		StepInput:   input,
 		StepOptions: options,
 	}, nil
@@ -650,10 +643,10 @@ func mapUniqueChannels(channels []ChannelDef) ([]string, error) {
 	mapped := make([]string, 0, len(channels))
 	seen := make(map[string]struct{}, len(channels))
 	for _, channel := range channels {
-		if channel == nil || channel.ChannelName() == "" {
+		if channel == nil || channel.channelName() == "" {
 			return nil, fmt.Errorf("dex: conditional close channel is invalid")
 		}
-		name := channel.ChannelName()
+		name := channel.channelName()
 		if _, found := seen[name]; found {
 			return nil, fmt.Errorf("dex: duplicate conditional close channel %q", name)
 		}
@@ -836,15 +829,17 @@ func mapInvokeOptions(
 }
 
 func mapSearchFlowsOptions(
-	options SearchFlowsOptions,
+	query string,
+	pageSize int32,
+	nextPageToken string,
 ) (*dexpb.SearchFlowsRequest, error) {
-	if options.PageSize < 0 {
+	if pageSize < 0 {
 		return nil, fmt.Errorf("dex: search page size must not be negative")
 	}
 	return &dexpb.SearchFlowsRequest{
-		Query:         options.Query,
-		PageSize:      options.PageSize,
-		NextPageToken: options.NextPageToken,
+		Query:         query,
+		PageSize:      pageSize,
+		NextPageToken: nextPageToken,
 	}, nil
 }
 

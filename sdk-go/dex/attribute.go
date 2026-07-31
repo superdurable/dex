@@ -26,6 +26,14 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 	return Attribute[T]{name: key, index: config.index}
 }
 
+// AttributeDef is the interface of Attribute, without Go's generic
+// So that internal sdk can use it to workaround Go's generic limitations
+type AttributeDef interface {
+	attributeName() string
+	attributeIndex() *AttributeIndex
+	attributeIsMap() bool
+}
+
 func (a Attribute[T]) Get(ctx Context) (value T, found bool, err error) {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -55,7 +63,17 @@ func (a Attribute[T]) AttributeName() string {
 	return a.name
 }
 
-func (Attribute[T]) attributeDefinition() {}
+func (a Attribute[T]) attributeName() string {
+	return a.name
+}
+
+func (a Attribute[T]) attributeIndex() *AttributeIndex {
+	return a.index
+}
+
+func (Attribute[T]) attributeIsMap() bool {
+	return false
+}
 
 type AttributeMap[T any] struct {
 	name  string
@@ -99,7 +117,17 @@ func (a AttributeMap[T]) AttributeName() string {
 	return a.name
 }
 
-func (AttributeMap[T]) attributeDefinition() {}
+func (a AttributeMap[T]) attributeName() string {
+	return a.name
+}
+
+func (a AttributeMap[T]) attributeIndex() *AttributeIndex {
+	return a.index
+}
+
+func (AttributeMap[T]) attributeIsMap() bool {
+	return true
+}
 
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)
@@ -142,14 +170,10 @@ func LockAttributeMap[T any](
 	return attributeLock{name: attribute.name, instance: instance, isMap: true}
 }
 
-type InitialAttribute interface {
-	initialAttribute()
-}
-
-func Initial[T any](
+func InitialAttribute[T any](
 	attribute Attribute[T],
 	value T,
-) (InitialAttribute, error) {
+) (InitialAttributeDef, error) {
 	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
 	if err != nil {
 		return nil, err
@@ -163,11 +187,15 @@ func Initial[T any](
 	}, nil
 }
 
-func InitialMapValue[T any](
+type InitialAttributeDef interface {
+	initialAttribute()
+}
+
+func InitialAttributeMapValue[T any](
 	attribute AttributeMap[T],
 	instance string,
 	value T,
-) (InitialAttribute, error) {
+) (InitialAttributeDef, error) {
 	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
 	if err != nil {
 		return nil, err

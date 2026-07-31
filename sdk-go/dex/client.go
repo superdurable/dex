@@ -33,7 +33,6 @@ func (client *Client) StartFlow(
 func (client *Client) PublishToChannel(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	channel ChannelDef,
 	values ...any,
 ) error {
@@ -43,7 +42,6 @@ func (client *Client) PublishToChannel(
 func (client *Client) PublishToChannelMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	channel ChannelDef,
 	instance string,
 	values ...any,
@@ -54,7 +52,6 @@ func (client *Client) PublishToChannelMap(
 func (client *Client) InvokeRPC(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	rpc any,
 	input any,
 	outputPtr any,
@@ -66,7 +63,6 @@ func (client *Client) InvokeRPC(
 func (client *Client) GetAttribute(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	valuePtr any,
 ) (found bool, err error) {
@@ -76,7 +72,6 @@ func (client *Client) GetAttribute(
 func (client *Client) GetAttributeMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	valuePtr any,
@@ -87,7 +82,6 @@ func (client *Client) GetAttributeMap(
 func (client *Client) SetAttribute(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	value any,
 ) error {
@@ -97,7 +91,6 @@ func (client *Client) SetAttribute(
 func (client *Client) SetAttributeMap(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	value any,
@@ -105,21 +98,18 @@ func (client *Client) SetAttributeMap(
 	return errPhaseNotImplemented
 }
 
-func (client *Client) DeleteAttribute(
+func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
-	runID string,
-	attribute AttributeDef,
-) error {
-	return errPhaseNotImplemented
+	attributes ...AttributeDef,
+) (map[string]Value, error) {
+	return nil, errPhaseNotImplemented
 }
 
-func (client *Client) DeleteAttributeMap(
+func (client *Client) SetAttributes(
 	ctx context.Context,
 	flowID string,
-	runID string,
-	attribute AttributeDef,
-	instance string,
+	writes ...AttributeWrite,
 ) error {
 	return errPhaseNotImplemented
 }
@@ -127,7 +117,6 @@ func (client *Client) DeleteAttributeMap(
 func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	value any,
 	options WaitOptions,
@@ -138,7 +127,6 @@ func (client *Client) WaitForAttributeEqual(
 func (client *Client) WaitForAttributeMapEqual(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	attribute AttributeDef,
 	instance string,
 	value any,
@@ -147,28 +135,9 @@ func (client *Client) WaitForAttributeMapEqual(
 	return errPhaseNotImplemented
 }
 
-func (client *Client) GetAttributes(
-	ctx context.Context,
-	flowID string,
-	runID string,
-	attributes ...AttributeDef,
-) (map[string]Value, error) {
-	return nil, errPhaseNotImplemented
-}
-
-func (client *Client) SetAttributes(
-	ctx context.Context,
-	flowID string,
-	runID string,
-	writes ...AttributeWrite,
-) error {
-	return errPhaseNotImplemented
-}
-
 func (client *Client) StopFlow(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	options StopOptions,
 ) error {
 	return errPhaseNotImplemented
@@ -177,7 +146,6 @@ func (client *Client) StopFlow(
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	options WaitForFlowOptions,
 ) (WaitForFlowResult, error) {
 	return WaitForFlowResult{}, errPhaseNotImplemented
@@ -185,7 +153,9 @@ func (client *Client) WaitForFlow(
 
 func (client *Client) SearchFlows(
 	ctx context.Context,
-	options SearchFlowsOptions,
+	Query string,
+	PageSize int32,
+	NextPageToken string,
 ) (SearchFlowsPage, error) {
 	return SearchFlowsPage{}, errPhaseNotImplemented
 }
@@ -193,7 +163,6 @@ func (client *Client) SearchFlows(
 func (client *Client) ResetFlow(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	options ResetOptions,
 ) (newRunID string, err error) {
 	return "", errPhaseNotImplemented
@@ -202,9 +171,8 @@ func (client *Client) ResetFlow(
 func (client *Client) SkipTimer(
 	ctx context.Context,
 	flowID string,
-	runID string,
-	stepExecution StepExecutionRef,
-	timer TimerRef,
+	stepExecution StepExecutionID,
+	timer TimerID,
 ) error {
 	return errPhaseNotImplemented
 }
@@ -212,7 +180,6 @@ func (client *Client) SkipTimer(
 func (client *Client) UpdateFlowConfig(
 	ctx context.Context,
 	flowID string,
-	runID string,
 	config FlowConfig,
 ) error {
 	return errPhaseNotImplemented
@@ -221,7 +188,7 @@ func (client *Client) UpdateFlowConfig(
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
-	stepExecution StepExecutionRef,
+	stepExecution StepExecutionID,
 	options WaitOptions,
 ) error {
 	return errPhaseNotImplemented
@@ -230,7 +197,6 @@ func (client *Client) WaitForStepCompletion(
 func (client *Client) TriggerContinueAsNew(
 	ctx context.Context,
 	flowID string,
-	runID string,
 ) error {
 	return errPhaseNotImplemented
 }
