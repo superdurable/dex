@@ -922,7 +922,7 @@ type ConditionOption interface {
 	applyCondition(*conditionValue)
 }
 
-func ExecuteImmediately() Wait
+func SkipWaitImmediately() Wait
 func AllOf(conditions ...Condition) Wait
 func AnyOf(conditions ...Condition) Wait
 func Combo(conditions ...Condition) ConditionCombination
