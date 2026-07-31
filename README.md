@@ -12,6 +12,7 @@ This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Ind
 | [server/](server/) | Dex server (Temporal/Cadence backend) |
 | [protos/](protos/) | Protobuf IDL ([`dex.proto`](protos/dex.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
 | [docs/](docs/) | Docs: [`design/`](docs/design/), [`case-study/`](docs/case-study/), [`wiki/`](docs/wiki/) (start at [README.md](docs/README.md)) |
+| [web/](web/) | Dex Web console |
 | [sdk-go/](sdk-go/) | Go SDK |
 | [examples/go/](examples/go/) | Go examples |
 | [sdk-java/](sdk-java/) | Java SDK |
@@ -46,6 +47,16 @@ docker pull superdurable/dex-server:latest && docker compose -f ./docker-compose
 - Temporal: `localhost:7233`
 
 See [server/README.md](server/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+Run the Dex Web console separately:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+See [web/README.md](web/README.md) for server address and validation settings.
 
 ## Releases
 
