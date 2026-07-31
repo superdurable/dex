@@ -328,7 +328,7 @@ func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
 
 func mapWait(wait Wait) (*dexpb.WaitingCondition, error) {
 	switch wait.kind {
-	case waitCompletedImmediately:
+	case skipWaitImmediately:
 		return nil, nil
 	case waitAllOf:
 		return mapFlatWait(
