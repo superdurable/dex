@@ -122,22 +122,45 @@ func (flow *registrationFlow) Update(
 	return Reply(registrationOutput{Value: input.Value}), nil
 }
 
-func (*registrationFlow) ExportedHelper() string {
+type invalidRPCRegistrationFlow struct {
+	flowType string
+}
+
+func (flow invalidRPCRegistrationFlow) GetFlowType() string {
+	return flow.flowType
+}
+
+func (invalidRPCRegistrationFlow) GetSteps() []StepDef {
+	return nil
+}
+
+func (invalidRPCRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{}
+}
+
+func (invalidRPCRegistrationFlow) ExportedHelper() string {
 	return "helper"
 }
 
-func (*registrationFlow) WrongResult(
+func (invalidRPCRegistrationFlow) WrongResult(
 	Context,
 	registrationInput,
 ) (registrationOutput, error) {
 	return registrationOutput{}, nil
 }
 
-func (*registrationFlow) PointerResult(
+func (invalidRPCRegistrationFlow) PointerResult(
 	Context,
 	registrationInput,
 ) (*RPCResult[registrationOutput], error) {
 	return nil, nil
+}
+
+func (invalidRPCRegistrationFlow) Update(
+	Context,
+	registrationInput,
+) (RPCResult[registrationOutput], error) {
+	return Reply(registrationOutput{}), nil
 }
 
 type valueRegistrationFlow struct{}
@@ -301,17 +324,23 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 	require.True(t, firstRegistration.steps["execute-only"].skipWaitFor)
 	_, found = firstRegistration.lookupRPC("Update")
 	require.True(t, found)
-	_, found = firstRegistration.lookupRPC("ExportedHelper")
-	require.False(t, found)
-	_, found = firstRegistration.lookupRPC("WrongResult")
-	require.False(t, found)
-	_, found = firstRegistration.lookupRPC("PointerResult")
-	require.False(t, found)
 
 	secondRegistration, found := assembled.lookupFlow("second")
 	require.True(t, found)
 	_, found = secondRegistration.lookupStep("start")
 	require.True(t, found)
+}
+
+func TestRegistryRejectsNonRPCExportedMethods(t *testing.T) {
+	assembled, err := newRegistry([]Flow{
+		invalidRPCRegistrationFlow{flowType: "invalid-rpc"},
+	})
+	require.Nil(t, assembled)
+	require.ErrorContains(t, err, "exported methods")
+	require.ErrorContains(t, err, "ExportedHelper")
+	require.ErrorContains(t, err, "PointerResult")
+	require.ErrorContains(t, err, "WrongResult")
+	require.ErrorContains(t, err, "must be RPCs")
 }
 
 func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
@@ -740,7 +769,7 @@ func TestRegistryReportsFirstInvalidStepOptions(t *testing.T) {
 func TestRegistryRejectsPointerOnlyRPCsOnValueFlow(t *testing.T) {
 	assembled, err := newRegistry([]Flow{mixedReceiverRegistrationFlow{}})
 	require.Nil(t, assembled)
-	require.ErrorContains(t, err, `RPC methods [Update]`)
+	require.ErrorContains(t, err, `exported methods [Update]`)
 	require.ErrorContains(t, err, "pointer receivers")
 	require.ErrorContains(t, err, "register *mixedReceiverRegistrationFlow")
 

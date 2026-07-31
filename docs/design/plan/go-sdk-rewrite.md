@@ -329,8 +329,10 @@ func(
 The receiver is supplied by reflection and is not part of the application
 signature. `Context` must be the SDK interface, the second result must be
 `error`, and the first result must be a concrete `RPCResult[OUT]`. Pointer
-results and defined lookalike result types are not accepted. Exported methods
-with other signatures and all unexported methods are ignored.
+results and defined lookalike result types are not accepted. Every exported
+method on the registered Flow value other than the `Flow` interface methods
+(`GetFlowType`, `GetSteps`, `GetPersistenceSchema`) must match this RPC
+signature; otherwise registration fails. Unexported methods are ignored.
 
 The exported Go method name is the durable RPC name. The registry retains:
 
@@ -341,9 +343,9 @@ The exported Go method name is the durable RPC name. The registry retains:
 Value-receiver and pointer-receiver RPCs are supported when the supplied Flow
 value exposes them. The registry retains that exact receiver so constructor
 dependencies stored on the Flow remain available. If a value-typed Flow
-implements the `Flow` interface but pointer-receiver methods match the RPC
-signature, registration fails and names those methods so the application
-registers a pointer instead of discovering an empty RPC set.
+implements the `Flow` interface but exported methods exist only on the pointer
+type, registration fails and names those methods so the application registers a
+pointer instead of discovering an incomplete method set.
 
 `RPCResult[OUT]` implements a private erasure contract so the reflected result
 can expose its output and next movements without exporting a non-generic
@@ -408,10 +410,10 @@ Add focused tests for:
 6. undeclared locks, invalid fallback targets, mismatched input types, and
    fallback cycles;
 7. value- and pointer-receiver RPC discovery, input/output type retention, and
-   durable method names; rejection when pointer-only RPCs are invisible on a
+   durable method names; rejection when pointer-only methods are invisible on a
    value-typed Flow;
-8. ignored helper methods and rejection of package functions, method
-   expressions, closures, and wrappers as RPC identities;
+8. rejection of exported non-RPC Flow methods, plus rejection of package
+   functions, method expressions, closures, and wrappers as RPC identities;
 9. lookalike Step references using registered defaults, plus undeclared or
    wrong-kind channel references;
 10. atomic failure without a partially usable registry;

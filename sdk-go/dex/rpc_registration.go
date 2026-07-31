@@ -35,28 +35,46 @@ var (
 	rpcResultType = reflect.TypeFor[rpcResult]()
 )
 
+var flowInterfaceMethodNames = func() map[string]struct{} {
+	flowType := reflect.TypeFor[Flow]()
+	names := make(map[string]struct{}, flowType.NumMethod())
+	for index := 0; index < flowType.NumMethod(); index++ {
+		names[flowType.Method(index).Name] = struct{}{}
+	}
+	return names
+}()
+
 func discoverRPCs(flow Flow) (map[string]*registeredRPC, error) {
 	receiver := reflect.ValueOf(flow)
 	receiverType := receiver.Type()
 	registered := make(map[string]*registeredRPC)
+	var invalid []string
 	for index := 0; index < receiverType.NumMethod(); index++ {
 		method := receiverType.Method(index)
+		if _, skip := flowInterfaceMethodNames[method.Name]; skip {
+			continue
+		}
 		rpc, matches := newRegisteredRPC(receiver, method)
 		if !matches {
+			invalid = append(invalid, method.Name)
 			continue
 		}
 		registered[rpc.durableName] = rpc
 	}
-	if err := rejectPointerOnlyRPCs(receiverType, registered); err != nil {
+	if len(invalid) > 0 {
+		sort.Strings(invalid)
+		return nil, fmt.Errorf(
+			"exported methods %v must be RPCs with signature (Context, IN) (RPCResult[OUT], error)",
+			invalid,
+		)
+	}
+	if err := rejectPointerOnlyMethods(receiverType); err != nil {
 		return nil, err
 	}
 	return registered, nil
 }
 
-func rejectPointerOnlyRPCs(
-	receiverType reflect.Type,
-	registered map[string]*registeredRPC,
-) error {
+func rejectPointerOnlyMethods(receiverType reflect.Type) error {
 	if receiverType.Kind() == reflect.Pointer {
 		return nil
 	}
@@ -64,10 +82,10 @@ func rejectPointerOnlyRPCs(
 	var missing []string
 	for index := 0; index < pointerType.NumMethod(); index++ {
 		method := pointerType.Method(index)
-		if _, found := registered[method.Name]; found {
+		if _, skip := flowInterfaceMethodNames[method.Name]; skip {
 			continue
 		}
-		if !rpcMethodType(method.Type, true) {
+		if _, found := receiverType.MethodByName(method.Name); found {
 			continue
 		}
 		missing = append(missing, method.Name)
@@ -77,7 +95,7 @@ func rejectPointerOnlyRPCs(
 	}
 	sort.Strings(missing)
 	return fmt.Errorf(
-		"RPC methods %v have pointer receivers; register *%s, not %s",
+		"exported methods %v have pointer receivers; register *%s, not %s",
 		missing,
 		receiverType.Name(),
 		receiverType,
