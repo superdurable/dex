@@ -919,7 +919,7 @@ type Condition interface {
 }
 
 type ConditionOption interface {
-	conditionOption()
+	applyCondition(*conditionValue)
 }
 
 func ExecuteImmediately() Wait

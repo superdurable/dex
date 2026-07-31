@@ -52,7 +52,7 @@ func (step *registrationStep) WaitFor(
 	input registrationInput,
 ) (Wait, error) {
 	step.waitForInput = input
-	return ExecuteImmediately(), nil
+	return SkipWaitImmediately(), nil
 }
 
 func (step *registrationStep) Execute(

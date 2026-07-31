@@ -400,7 +400,7 @@ func mapCombinationWait(
 }
 
 type conditionMapper struct {
-	ids      map[*conditionValue]string
+	ids      map[*conditionImpl]string
 	usedIDs  map[string]struct{}
 	timers   []*dexpb.TimerCondition
 	channels []*dexpb.ChannelCondition
@@ -409,13 +409,13 @@ type conditionMapper struct {
 
 func newConditionMapper() *conditionMapper {
 	return &conditionMapper{
-		ids:     make(map[*conditionValue]string),
+		ids:     make(map[*conditionImpl]string),
 		usedIDs: make(map[string]struct{}),
 	}
 }
 
 func (mapper *conditionMapper) add(condition Condition) (string, error) {
-	concrete, ok := condition.(*conditionValue)
+	concrete, ok := condition.(*conditionImpl)
 	if !ok || concrete == nil {
 		return "", fmt.Errorf("dex: invalid condition %T", condition)
 	}
