@@ -45,11 +45,11 @@ func startOrder(
 	client *dex.Client,
 	flowID string,
 ) (string, error) {
-	initialStatus, err := dex.Initial(OrderStatus, "created")
+	initialStatus, err := dex.InitialAttribute(OrderStatus, "created")
 	if err != nil {
 		return "", err
 	}
-	initialQuantity, err := dex.InitialMapValue(
+	initialQuantity, err := dex.InitialAttributeMapValue(
 		ItemQuantities,
 		"sku-1",
 		2,
@@ -74,7 +74,7 @@ func startOrder(
 				MaximumInterval:    time.Minute,
 				MaximumAttempts:    3,
 			},
-			Attributes: []dex.InitialAttribute{
+			Attributes: []dex.InitialAttributeDef{
 				initialStatus,
 				initialQuantity,
 			},
@@ -379,11 +379,11 @@ func skipOrderTimer(
 		ctx,
 		flowID,
 		runID,
-		dex.StepExecutionRef{
+		dex.StepExecutionID{
 			StepType:        WaitForCommand.GetStepType(),
 			ExecutionNumber: 1,
 		},
-		dex.TimerRef{ConditionID: "timeout"},
+		dex.TimerID{ConditionID: "timeout"},
 	)
 }
 
@@ -416,7 +416,7 @@ func waitForOrderStep(
 	return client.WaitForStepCompletion(
 		ctx,
 		flowID,
-		dex.StepExecutionRef{
+		dex.StepExecutionID{
 			StepType:        WaitForCommand.GetStepType(),
 			ExecutionNumber: 1,
 		},

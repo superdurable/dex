@@ -150,11 +150,11 @@ var _ dex.Flow = flow
 var _ dex.RPC[stepInput, command] = flow.Update
 
 func TestPublicContractsCompile(t *testing.T) {
-	initial, err := dex.Initial(statusAttribute, "new")
+	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mapInitial, err := dex.InitialMapValue(itemsAttribute, "order-1", 1)
+	mapInitial, err := dex.InitialAttributeMapValue(itemsAttribute, "order-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestPublicContractsCompile(t *testing.T) {
 	options := dex.StartFlowOptions{
 		Timeout:        ptr.Any(time.Minute),
 		StartDelay:     ptr.Any(time.Second),
-		Attributes:     []dex.InitialAttribute{initial, mapInitial},
+		Attributes:     []dex.InitialAttributeDef{initial, mapInitial},
 		ConfigOverride: &config,
 	}
 	if options.Timeout == nil ||

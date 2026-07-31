@@ -170,14 +170,10 @@ func LockAttributeMap[T any](
 	return attributeLock{name: attribute.name, instance: instance, isMap: true}
 }
 
-type InitialAttribute interface {
-	initialAttribute()
-}
-
-func Initial[T any](
+func InitialAttribute[T any](
 	attribute Attribute[T],
 	value T,
-) (InitialAttribute, error) {
+) (InitialAttributeDef, error) {
 	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
 	if err != nil {
 		return nil, err
@@ -191,11 +187,15 @@ func Initial[T any](
 	}, nil
 }
 
-func InitialMapValue[T any](
+type InitialAttributeDef interface {
+	initialAttribute()
+}
+
+func InitialAttributeMapValue[T any](
 	attribute AttributeMap[T],
 	instance string,
 	value T,
-) (InitialAttribute, error) {
+) (InitialAttributeDef, error) {
 	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
 	if err != nil {
 		return nil, err

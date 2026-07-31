@@ -27,7 +27,7 @@ import (
 )
 
 func mapInitialAttributes(
-	attributes []InitialAttribute,
+	attributes []InitialAttributeDef,
 ) ([]*dexpb.AttributeWrite, error) {
 	mapped := make([]*dexpb.AttributeWrite, 0, len(attributes))
 	for _, attribute := range attributes {

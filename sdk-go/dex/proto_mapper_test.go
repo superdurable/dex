@@ -179,13 +179,13 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	searchMode := SearchAllActiveSteps
 	durability := StepDurabilityAsync
 	attribute := DefineAttribute[string]("status")
-	initial, err := Initial(attribute, "ready")
+	initial, err := InitialAttribute(attribute, "ready")
 	require.NoError(t, err)
 
 	flowTimeout, options, requestID, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:    &timeout,
 		StartDelay: &delay,
-		Attributes: []InitialAttribute{initial},
+		Attributes: []InitialAttributeDef{initial},
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
