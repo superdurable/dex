@@ -1,6 +1,4 @@
-'use client';
-
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import type {
@@ -182,8 +180,8 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     <div className="run-page">
       <section className="run-header">
         <div className="breadcrumbs">
-          <Link href="/">Flows</Link><span>/</span>
-          <Link href={`/flows/${encodeURIComponent(flowId)}`}>{flowId}</Link><span>/</span>
+          <Link to="/">Flows</Link><span>/</span>
+          <Link to={`/flows/${encodeURIComponent(flowId)}`}>{flowId}</Link><span>/</span>
           <span className="mono">{runId}</span>
         </div>
         <div className="run-title-row">

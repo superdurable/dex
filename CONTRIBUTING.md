@@ -33,6 +33,17 @@ make -C server unitTests
 make -C sdk-go ci-tests   # may start docker compose under sdk-go/integ
 ```
 
+### Dex CLI and Web
+
+```bash
+make -C cli build
+make -C cli test
+make -C cli integration-test
+```
+
+The CLI integration suite requires Temporal CLI. Web contributors can run
+`cli/dexcli dev --web-port 8902` and `npm run dev` in `web/` for hot reload.
+
 ## IDL (`protos/`)
 
 Protobuf source lives in [`protos/dex.proto`](protos/dex.proto). Rename catalog: [`docs/design/idl-renames.md`](docs/design/idl-renames.md).
@@ -101,6 +112,7 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 | Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`dex-sdk`](https://pypi.org/project/dex-sdk/) (version from `sdk-python/pyproject.toml`) |
 | Java SDK | `sdk-java-vX.Y.Z` | `sdk-java-v0.0.2` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from `sdk-java/build.gradle`) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
+| Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
 
 Notes:
 

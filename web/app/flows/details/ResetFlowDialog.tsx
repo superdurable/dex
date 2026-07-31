@@ -1,7 +1,5 @@
-'use client';
-
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router-dom';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 
 const resetTypes = [
@@ -23,7 +21,7 @@ export function ResetFlowDialog({
   events: FlowHistoryEvent[];
   onClose: () => void;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [resetType, setResetType] = useState(2);
   const [target, setTarget] = useState('');
   const [reason, setReason] = useState('');
@@ -61,7 +59,7 @@ export function ResetFlowDialog({
       });
       const data = await response.json() as { runId?: string; error?: string };
       if (!response.ok) throw new Error(data.error || 'Reset failed');
-      router.push(`/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
+      navigate(`/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
       onClose();
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : 'Reset failed');

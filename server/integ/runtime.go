@@ -103,8 +103,8 @@ func newInternalDumpHeaderCaptureInterceptor(
 }
 
 type interpreterWorker interface {
-	Start()
-	StartWithStickyCacheDisabledForTest()
+	Start() error
+	StartWithStickyCacheDisabledForTest() error
 	Close()
 }
 
@@ -165,7 +165,8 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 	t.Cleanup(workerPool.Close)
 	logger, err := loggerimpl.NewDevelopment()
 	require.NoError(t, err)
-	s3Client := dex.CreateS3Client(cfg, context.Background())
+	s3Client, err := dex.CreateS3Client(cfg, context.Background())
+	require.NoError(t, err)
 
 	var worker interpreterWorker
 	var unifiedClient uclient.UnifiedClient
@@ -241,7 +242,7 @@ func startDexService(t *testing.T, testConfig DexServiceTestConfig) *integRuntim
 	default:
 		require.FailNow(t, "unsupported backend", testConfig.BackendType)
 	}
-	startInterpreter(worker)
+	startInterpreter(t, worker)
 	internalDumpCapture := &internalDumpHeaderCapture{}
 	runtime := &integRuntime{internalDumpCapture: internalDumpCapture}
 	previousDumpObserver := api.DumpFlowForContinueAsNewHeaderObserver
@@ -315,12 +316,13 @@ func (runtime *integRuntime) requireInternalDumpHeaders(
 // globalBlobStore is set by startDexService for S3 cleanup tests that need the store.
 var globalBlobStore blobstore.BlobStore
 
-func startInterpreter(worker interpreterWorker) {
+func startInterpreter(t *testing.T, worker interpreterWorker) {
+	t.Helper()
 	if *disableStickyCache {
-		worker.StartWithStickyCacheDisabledForTest()
+		require.NoError(t, worker.StartWithStickyCacheDisabledForTest())
 		return
 	}
-	worker.Start()
+	require.NoError(t, worker.Start())
 }
 
 func startApiServer(

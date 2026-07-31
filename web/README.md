@@ -1,60 +1,59 @@
 # Dex Web
 
-Next.js console for searching Dex flows and inspecting Dex semantic history,
-step topology, current interpreter state, and reset points.
+Dex Web searches flows and displays Dex semantic history, step topology,
+current interpreter state, and reset points.
 
-## Development
+The production Web server is Go. It serves an embedded React SPA and translates
+same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
+Temporal/Cadence credentials and backend history never enter the browser.
 
-Requirements:
+## Run through dexcli
 
-- Node.js 22+
-- a Dex server listening on plaintext gRPC
+```bash
+dexcli dev
+```
+
+Open [http://127.0.0.1:8901](http://127.0.0.1:8901). No Node.js process runs in
+this mode.
+
+## Frontend development
+
+Requirements are Node.js 22+ and a local `dexcli` build.
+
+Terminal one starts the Go API bridge on port 8902:
+
+```bash
+./cli/dexcli dev --web-port 8902
+```
+
+Terminal two starts Vite with hot reload on port 8901:
 
 ```bash
 cd web
-cp .env.example .env.local
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The default server target is
-`127.0.0.1:8801`; override it with `DEX_SERVER_ADDRESS`.
+Vite proxies `/api/*` and `/healthz` to `http://127.0.0.1:8902`.
 
-The Next.js server reads [`../protos/dex.proto`](../protos/dex.proto) at runtime.
-Set `DEX_PROTO_PATH` only when the Web process does not run inside this
-repository.
+## Build
+
+```bash
+cd web
+npm ci
+npm run check
+npm run build
+GOWORK=off go test ./...
+```
+
+Vite writes production assets to `assets/dist/`. `assets/embed.go` embeds that
+directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The Flows page provides:
+The Flows page provides Basic and Advanced visibility queries, pagination,
+saved queries, configurable columns, custom search attributes, and timezone
+preferences.
 
-- Basic filters that generate a visibility query;
-- an Advanced editor for the complete query;
-- shareable URL state, recent queries, and named queries;
-- configurable columns, custom search attributes, timezone, and token
-  pagination.
-
-The Run page provides:
-
-- Overview, Step graph, and Timeline tabs;
-- expandable Dex semantic event payloads;
-- active/waiting step state, attributes, timers, queued steps, channels, and
-  completed outputs;
-- native-history pagination followed by `WaitForHistoryEvent` long polling;
-- reset by beginning, semantic anchor event, time, step type, or step execution.
-
-The browser calls local Next.js route handlers. Those handlers call Dex
-`FlowService` over gRPC, so Temporal/Cadence credentials and internal history
-never reach browser code.
-
-## Validation
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-Unit tests cover Basic/Advanced query conversion and the shared SYNC/ASYNC step
-lineage model. Browser E2E coverage will use the Temporal and Cadence integration
-stacks after the Web module is wired into their test fixtures.
+The Run page provides Overview, Step graph, Timeline, active/waiting state,
+attributes, timers, queued steps, channels, completed outputs, and reset.

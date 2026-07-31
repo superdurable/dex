@@ -1,5 +1,3 @@
-.next/
 node_modules/
 coverage/
-.env.local
 *.tsbuildinfo

@@ -22,51 +22,26 @@ package dex
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	rawLog "log"
+	"os"
+	"os/signal"
 	"strings"
-	"sync"
-	"time"
+	"syscall"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/superdurable/dex/config"
-	isvc "github.com/superdurable/dex/service"
-	"github.com/superdurable/dex/service/api"
-	uclient "github.com/superdurable/dex/service/client"
-	cadenceapi "github.com/superdurable/dex/service/client/cadence"
-	temporalapi "github.com/superdurable/dex/service/client/temporal"
-	"github.com/superdurable/dex/service/common/blobstore"
-	dexconverter "github.com/superdurable/dex/service/common/converter"
-	"github.com/superdurable/dex/service/common/log"
-	"github.com/superdurable/dex/service/common/log/loggerimpl"
-	"github.com/superdurable/dex/service/common/log/tag"
-	"github.com/superdurable/dex/service/common/workerclient"
-	"github.com/superdurable/dex/service/interpreter/cadence"
-	"github.com/superdurable/dex/service/interpreter/temporal"
-	"github.com/uber-go/tally/v4"
-	"github.com/uber-go/tally/v4/prometheus"
-	apiv1 "github.com/uber/cadence-idl/go/proto/api/v1"
+	"github.com/superdurable/dex/service/bootstrap"
 	"github.com/urfave/cli"
-	"go.temporal.io/sdk/client"
-	sdktally "go.temporal.io/sdk/contrib/tally"
-	"go.temporal.io/sdk/converter"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
-	cclient "go.uber.org/cadence/client"
-	"go.uber.org/cadence/compatibility"
+	"go.uber.org/cadence/client"
 	"go.uber.org/cadence/encoded"
-	"go.uber.org/yarpc"
-	"go.uber.org/yarpc/transport/grpc"
-	ggrpc "google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 const serviceAPI = "api"
 const serviceInterpreter = "interpreter"
+
+const DefaultCadenceDomain = bootstrap.DefaultCadenceDomain
+const DefaultCadenceHostPort = bootstrap.DefaultCadenceHostPort
 
 // BuildCLI is the main entry point for the dex server
 func BuildCLI() *cli.App {
@@ -74,7 +49,6 @@ func BuildCLI() *cli.App {
 	app.Name = "dex service"
 	app.Usage = "dex service"
 	app.Version = "beta"
-
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "config, c",
@@ -82,7 +56,6 @@ func BuildCLI() *cli.App {
 			Usage: "config path is a path relative to root, or an absolute path",
 		},
 	}
-
 	app.Commands = []cli.Command{
 		{
 			Name:    "start",
@@ -101,440 +74,60 @@ func BuildCLI() *cli.App {
 	return app
 }
 
-const DefaultCadenceDomain = "default"
-const DefaultCadenceHostPort = "127.0.0.1:7833"
-
-func start(c *cli.Context) {
-	configPath := c.GlobalString("config")
-	config, err := config.NewConfig(configPath)
+func start(cliContext *cli.Context) error {
+	cfg, err := config.NewConfig(cliContext.GlobalString("config"))
 	if err != nil {
-		rawLog.Fatalf("Unable to load config for path %v because of error %v", configPath, err)
+		return fmt.Errorf("load config: %w", err)
 	}
-	zapLogger, err := config.Log.NewZapLogger()
+	services, err := getServices(cliContext)
 	if err != nil {
-		rawLog.Fatalf("Unable to create a new zap logger %v", err)
+		return err
 	}
-	logger := loggerimpl.NewLogger(zapLogger)
-
-	services := getServices(c)
-	workerPool, err := workerclient.NewWorkerClientPool(config)
+	dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{Services: services})
 	if err != nil {
-		rawLog.Fatalf("Unable to create WorkerService client pool: %v", err)
+		return err
 	}
-	defer workerPool.Close()
-
-	// The client is a heavyweight object that should be created once per process.
-	var unifiedClient uclient.UnifiedClient
-	if config.Interpreter.Temporal != nil {
-		temporalConfig := config.Interpreter.Temporal
-
-		clientOptions := client.Options{
-			HostPort:  temporalConfig.HostPort,
-			Namespace: temporalConfig.Namespace,
-		}
-
-		metrics := client.MetricsNopHandler
-		if temporalConfig.Prometheus != nil {
-			pscope := newPrometheusScope(*temporalConfig.Prometheus, logger)
-			metrics = sdktally.NewMetricsHandler(pscope)
-			clientOptions.MetricsHandler = metrics
-		}
-
-		if temporalConfig.CloudAPIKey != "" {
-			clientOptions.Credentials = client.NewAPIKeyStaticCredentials(temporalConfig.CloudAPIKey)
-			// NOTE: this connectionOptions can be removed when upgrading temporal SDK to latest
-			// see https://docs.temporal.io/cloud/api-keys#sdk
-			clientOptions.ConnectionOptions = client.ConnectionOptions{
-				TLS: &tls.Config{},
-				DialOptions: []ggrpc.DialOption{
-					ggrpc.WithUnaryInterceptor(
-						func(
-							ctx context.Context, method string, req any, reply any, cc *ggrpc.ClientConn,
-							invoker ggrpc.UnaryInvoker, opts ...ggrpc.CallOption,
-						) error {
-							return invoker(
-								metadata.AppendToOutgoingContext(ctx, "temporal-namespace", temporalConfig.Namespace),
-								method,
-								req,
-								reply,
-								cc,
-								opts...,
-							)
-						},
-					),
-				},
-			}
-		}
-
-		dataConverter := dexconverter.NewTemporalDataConverter()
-		clientOptions.DataConverter = dataConverter
-		temporalClient, err := client.Dial(clientOptions)
-
-		if err != nil {
-			rawLog.Fatalf("Unable to connect to Temporal because of error %v", err)
-		}
-		unifiedClient = temporalapi.NewTemporalClient(
-			temporalClient,
-			temporalConfig.Namespace,
-			dataConverter,
-			false,
-			&config.Api.QueryWorkflowFailedRetryPolicy,
-		)
-
-		for _, svcName := range services {
-			go launchTemporalService(
-				svcName,
-				*config,
-				unifiedClient,
-				temporalClient,
-				dataConverter,
-				logger,
-				metrics,
-				workerPool,
-			)
-		}
-	} else if config.Interpreter.Cadence != nil {
-		hostPort := DefaultCadenceHostPort
-		domain := DefaultCadenceDomain
-		if config.Interpreter.Cadence.HostPort != "" {
-			hostPort = config.Interpreter.Cadence.HostPort
-		}
-		if config.Interpreter.Cadence.Domain != "" {
-			domain = config.Interpreter.Cadence.Domain
-		}
-		serviceClient, closeFunc, err := BuildCadenceServiceClient(hostPort)
-		if err != nil {
-			rawLog.Fatalf("Unable to connect to Cadence because of error %v", err)
-		}
-		dataConverter := dexconverter.NewCadenceDataConverter()
-		cadenceClient, err := BuildCadenceClient(serviceClient, domain, dataConverter)
-		if err != nil {
-			rawLog.Fatalf("Unable to connect to Cadence because of error %v", err)
-		}
-
-		unifiedClient = cadenceapi.NewCadenceClient(
-			domain,
-			cadenceClient,
-			serviceClient,
-			dataConverter,
-			closeFunc,
-			&config.Api.QueryWorkflowFailedRetryPolicy,
-		)
-
-		for _, svcName := range services {
-			go launchCadenceService(
-				svcName,
-				*config,
-				unifiedClient,
-				serviceClient,
-				domain,
-				closeFunc,
-				dataConverter,
-				logger,
-				workerPool,
-			)
-		}
-	} else {
-		panic("must provide either Cadence or Temporal config")
-	}
-
-	// TODO improve the waiting with process signal
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	wg.Wait()
-}
-
-func launchTemporalService(
-	svcName string, cfg config.Config, unifiedClient uclient.UnifiedClient, temporalClient client.Client,
-	dataConverter converter.DataConverter, logger log.Logger, metrics client.MetricsHandler,
-	workerPool *workerclient.WorkerClientPool,
-) {
-	s3Client := CreateS3Client(cfg, context.Background())
-	blobStore := blobstore.NewBlobStore(
-		s3Client,
-		cfg.Interpreter.Temporal.Namespace,
-		cfg.ExternalStorage,
-		logger,
-		metrics,
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+		syscall.SIGHUP,
 	)
-	switch svcName {
-	case serviceAPI:
-		svc := api.NewServer(
-			&cfg.Api,
-			&cfg.ExternalStorage,
-			&cfg.Interpreter,
-			unifiedClient,
-			logger.WithTags(tag.Service(svcName)),
-			blobStore,
-			func(ctx context.Context) error {
-				return nil
-			},
-			workerPool,
-		)
-		rawLog.Fatal(svc.Run())
-	case serviceInterpreter:
-		interpreter := temporal.NewInterpreterWorker(
-			&cfg,
-			temporalClient,
-			isvc.TaskQueue,
-			dataConverter,
-			unifiedClient,
-			blobStore,
-			workerPool,
-		)
-		interpreter.Start()
-	default:
-		rawLog.Fatalf("Invalid service: %v", svcName)
-	}
+	defer cancel()
+	return dexRuntime.Run(ctx)
 }
 
-func launchCadenceService(
-	svcName string,
-	cfg config.Config,
-	unifiedClient uclient.UnifiedClient,
-	service workflowserviceclient.Interface,
-	domain string,
-	closeFunc func(),
-	dataConverter encoded.DataConverter,
-	logger log.Logger,
-	workerPool *workerclient.WorkerClientPool,
-) {
-	s3Client := CreateS3Client(cfg, context.Background())
-	blobStore := blobstore.NewBlobStore(
-		s3Client,
-		cfg.Interpreter.Cadence.Domain,
-		cfg.ExternalStorage,
-		logger,
-		client.MetricsNopHandler,
-	)
-	switch svcName {
-	case serviceAPI:
-		svc := api.NewServer(
-			&cfg.Api,
-			&cfg.ExternalStorage,
-			&cfg.Interpreter,
-			unifiedClient,
-			logger.WithTags(tag.Service(svcName)),
-			blobStore,
-			func(ctx context.Context) error {
-				return nil
-			},
-			workerPool,
-		)
-		rawLog.Fatal(svc.Run())
-	case serviceInterpreter:
-		interpreter := cadence.NewInterpreterWorker(
-			&cfg,
-			service,
-			domain,
-			isvc.TaskQueue,
-			closeFunc,
-			dataConverter,
-			unifiedClient,
-			blobStore,
-			workerPool,
-		)
-		interpreter.Start()
-	default:
-		rawLog.Fatalf("Invalid service: %v", svcName)
+func getServices(cliContext *cli.Context) (bootstrap.Services, error) {
+	value := strings.TrimSpace(cliContext.String("services"))
+	if value == "" {
+		return bootstrap.Services{}, fmt.Errorf("no services specified for starting")
 	}
+	var services bootstrap.Services
+	for _, token := range strings.Split(value, ",") {
+		switch strings.TrimSpace(token) {
+		case serviceAPI:
+			services.API = true
+		case serviceInterpreter:
+			services.Interpreter = true
+		default:
+			return bootstrap.Services{}, fmt.Errorf("invalid service %q", token)
+		}
+	}
+	return services, nil
 }
-
-func getServices(c *cli.Context) []string {
-	val := strings.TrimSpace(c.String("services"))
-	tokens := strings.Split(val, ",")
-
-	if len(tokens) == 0 {
-		rawLog.Fatal("No services specified for starting")
-	}
-
-	var services []string
-	for _, token := range tokens {
-		t := strings.TrimSpace(token)
-		services = append(services, t)
-	}
-
-	return services
-}
-
-const _cadenceFrontendService = "cadence-frontend"
-const _cadenceClientName = "cadence-client"
 
 func BuildCadenceClient(
-	service workflowserviceclient.Interface,
+	serviceClient workflowserviceclient.Interface,
 	domain string,
 	dataConverter encoded.DataConverter,
-) (cclient.Client, error) {
-	return cclient.NewClient(
-		service,
-		domain,
-		&cclient.Options{
-			DataConverter: dataConverter,
-			FeatureFlags: cclient.FeatureFlags{
-				WorkflowExecutionAlreadyCompletedErrorEnabled: true,
-			},
-		}), nil
+) (client.Client, error) {
+	return bootstrap.BuildCadenceClient(serviceClient, domain, dataConverter)
 }
 
 func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface, func(), error) {
-
-	dispatcher := yarpc.NewDispatcher(yarpc.Config{
-		Name: _cadenceClientName,
-		Outbounds: yarpc.Outbounds{
-			_cadenceFrontendService: {Unary: grpc.NewTransport().NewSingleOutbound(hostPort)},
-		},
-	})
-
-	if dispatcher != nil {
-		if err := dispatcher.Start(); err != nil {
-			rawLog.Fatal("Failed to create outbound transport channel", err)
-		}
-	}
-
-	if dispatcher == nil {
-		rawLog.Fatal("No RPC dispatcher provided to create a connection to Cadence Service")
-	}
-
-	clientConfig := dispatcher.ClientConfig(_cadenceFrontendService)
-	return compatibility.NewThrift2ProtoAdapter(
-			apiv1.NewDomainAPIYARPCClient(clientConfig),
-			apiv1.NewWorkflowAPIYARPCClient(clientConfig),
-			apiv1.NewWorkerAPIYARPCClient(clientConfig),
-			apiv1.NewVisibilityAPIYARPCClient(clientConfig),
-		), func() {
-			dispatcher.Stop()
-		}, nil
+	return bootstrap.BuildCadenceServiceClient(hostPort)
 }
 
-// tally sanitizer options that satisfy Prometheus restrictions.
-// This will rename metrics at the tally emission level, so metrics name we
-// use maybe different from what gets emitted. In the current implementation
-// it will replace - and . with _
-var (
-	safeCharacters = []rune{'_'}
-
-	sanitizeOptions = tally.SanitizeOptions{
-		NameCharacters: tally.ValidCharacters{
-			Ranges:     tally.AlphanumericRange,
-			Characters: safeCharacters,
-		},
-		KeyCharacters: tally.ValidCharacters{
-			Ranges:     tally.AlphanumericRange,
-			Characters: safeCharacters,
-		},
-		ValueCharacters: tally.ValidCharacters{
-			Ranges:     tally.AlphanumericRange,
-			Characters: safeCharacters,
-		},
-		ReplacementCharacter: tally.DefaultReplacementCharacter,
-	}
-)
-
-func newPrometheusScope(c prometheus.Configuration, logger log.Logger) tally.Scope {
-	reporter, err := c.NewReporter(
-		prometheus.ConfigurationOptions{
-			Registry: prom.NewRegistry(),
-			OnError: func(err error) {
-				logger.Error("error in prometheus reporter", tag.Error(err))
-			},
-		},
-	)
-	if err != nil {
-		logger.Fatal("error creating prometheus reporter", tag.Error(err))
-	}
-	scopeOpts := tally.ScopeOptions{
-		CachedReporter:  reporter,
-		Separator:       prometheus.DefaultSeparator,
-		SanitizeOptions: &sanitizeOptions,
-		Prefix:          "temporal_samples",
-	}
-	scope, _ := tally.NewRootScope(scopeOpts, time.Second)
-
-	logger.Info("prometheus metrics scope created")
-	return scope
-}
-
-func CreateS3Client(cfg config.Config, ctx context.Context) *s3.Client {
-
-	if !cfg.ExternalStorage.Enabled {
-		return nil
-	}
-
-	// get the first active storage
-	var activeStorage *config.BlobStorageConfig
-	for _, storage := range cfg.ExternalStorage.SupportedStorages {
-		if storage.Status == config.StorageStatusActive {
-			activeStorage = &storage
-			break
-		}
-	}
-	if activeStorage == nil {
-		rawLog.Fatal("no active storage found")
-	}
-
-	if activeStorage.StorageType != "s3" {
-		rawLog.Fatal("only s3 is supported for external storage")
-	}
-
-	// Create custom resolver for MinIO endpoint
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-
-		if service == s3.ServiceID {
-			return aws.Endpoint{
-				URL:               activeStorage.S3Endpoint,
-				HostnameImmutable: true,
-				Source:            aws.EndpointSourceCustom,
-			}, nil
-		}
-		return aws.Endpoint{}, fmt.Errorf("unknown endpoint requested")
-	})
-
-	// Load AWS config with custom credentials and endpoint
-	cfg2, err := awsConfig.LoadDefaultConfig(ctx,
-		awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(activeStorage.S3AccessKey, activeStorage.S3SecretKey, "")),
-		awsConfig.WithRegion(activeStorage.S3Region),
-		awsConfig.WithEndpointResolverWithOptions(customResolver),
-	)
-	if err != nil {
-		rawLog.Fatal("failed to load AWS config", tag.Error(err))
-	}
-
-	// Create S3 client with path-style addressing (required for MinIO)
-	client := s3.NewFromConfig(cfg2, func(o *s3.Options) {
-		o.UsePathStyle = true
-	})
-
-	createBucketIfNotExists(ctx, client, activeStorage.S3Bucket)
-
-	return client
-}
-
-func createBucketIfNotExists(ctx context.Context, client *s3.Client, bucketName string) {
-	// Check if bucket exists
-	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(bucketName),
-	})
-
-	if err != nil {
-		// Bucket doesn't exist, create it
-		_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-			Bucket: aws.String(bucketName),
-		})
-
-		if err != nil {
-			bucketCreateError := err
-			// Its posible creating a bucket failed because the bucket was created by another service (api or interpreter)
-			// check the bucket still does not exist
-			_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
-				Bucket: aws.String(bucketName),
-			})
-
-			if err != nil {
-				rawLog.Fatal("failed to create bucket", tag.Error(bucketCreateError))
-			}
-		}
-		rawLog.Printf("bucket created successfully: %s", bucketName)
-	} else {
-		rawLog.Printf("bucket already exists: %s", bucketName)
-	}
+func CreateS3Client(cfg config.Config, ctx context.Context) (*s3.Client, error) {
+	return bootstrap.CreateS3Client(ctx, &cfg)
 }

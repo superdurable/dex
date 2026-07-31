@@ -23,7 +23,6 @@ package cadence
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/superdurable/dex/config"
 	uclient "github.com/superdurable/dex/service/client"
@@ -108,15 +107,15 @@ func (iw *InterpreterWorker) Close() {
 }
 
 // StartWithStickyCacheDisabledForTest can harm performance; should not be used in production environment
-func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() {
-	iw.doStart(true)
+func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() error {
+	return iw.doStart(true)
 }
 
-func (iw *InterpreterWorker) Start() {
-	iw.doStart(false)
+func (iw *InterpreterWorker) Start() error {
+	return iw.doStart(false)
 }
 
-func (iw *InterpreterWorker) doStart(disableStickyCache bool) {
+func (iw *InterpreterWorker) doStart(disableStickyCache bool) error {
 	var options worker.Options
 
 	if iw.cfg.Interpreter.Cadence.WorkerOptions != nil {
@@ -149,14 +148,14 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) {
 
 	err := iw.worker.Start()
 	if err != nil {
-		log.Fatalln("Unable to start worker", err)
+		return fmt.Errorf("start Cadence interpreter worker: %w", err)
 	}
 
 	if iw.cfg.ExternalStorage.Enabled {
 		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
 			cronSchedule, scheduleErr := storeCfg.CleanupStrategy.CronSchedule()
 			if scheduleErr != nil {
-				log.Fatalln("Invalid blobstore cleanup strategy", scheduleErr)
+				return fmt.Errorf("invalid blobstore cleanup strategy: %w", scheduleErr)
 			}
 			if cronSchedule != "" {
 				err = iw.unifiedClient.StartBlobStoreCleanupWorkflow(
@@ -168,9 +167,10 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) {
 					if iw.unifiedClient.IsWorkflowAlreadyStartedError(err) {
 						continue
 					}
-					log.Fatalln("Unable to start blobstore cleanup workflow", err)
+					return fmt.Errorf("start blobstore cleanup workflow: %w", err)
 				}
 			}
 		}
 	}
+	return nil
 }

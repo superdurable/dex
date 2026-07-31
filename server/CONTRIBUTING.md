@@ -19,6 +19,7 @@ Here is the repository layout if you are interested to learn about it:
     * `http/` some example HTTP scripts to call server, like REST API
     * `start-server.sh` the script to start Dex server in Docker image
 * `service/` Dex implementation
+	* `runtime/` reusable API/interpreter bootstrap used by the server binary and `dexcli`
     * `api/` API service implementation
         * `cadence/` the Cadence abstraction of `UnifiedClient`
         * `temporal/` the Temporal abstraction of `UnifiedClient`
@@ -151,6 +152,12 @@ you run the test too early, you may see error:  `"DexWorkflowType is not a valid
    attributes:  `cadence cl get-search-attr`
 
 ## Run the server
+
+For the shortest Temporal setup with Dex Web, run `dexcli dev` from the
+repository root after building `cli/dexcli`. See [`../cli/README.md`](../cli/README.md).
+
+The standalone server binary continues to support full Temporal and Cadence
+YAML configuration through the same `service/bootstrap` package.
 
 The first step you may want to explore is to run it locally!
 

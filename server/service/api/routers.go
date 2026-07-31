@@ -145,6 +145,11 @@ func (s *Server) Serve(listener net.Listener) error {
 
 // GracefulStop stops accepting requests before closing dependencies.
 func (s *Server) GracefulStop(timeout time.Duration) {
+	s.StopServing(timeout)
+	s.Close()
+}
+
+func (s *Server) StopServing(timeout time.Duration) {
 	s.setServing(false)
 	done := make(chan struct{})
 	go func() {
@@ -156,6 +161,9 @@ func (s *Server) GracefulStop(timeout time.Duration) {
 	case <-time.After(timeout):
 		s.grpcServer.Stop()
 	}
+}
+
+func (s *Server) Close() {
 	s.handler.close()
 }
 

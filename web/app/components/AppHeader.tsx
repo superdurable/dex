@@ -1,7 +1,4 @@
-'use client';
-
-import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { usePreferences } from '../providers';
 
 export function AppHeader() {
@@ -9,23 +6,21 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <Link href="/" className="brand-mark" aria-label="Super Durable home">
-          <Image
+        <Link to="/" className="brand-mark" aria-label="Super Durable home">
+          <img
             className="brand-logo"
             src="/super-durable-logo.png"
             alt=""
             width={72}
             height={72}
-            priority
-            unoptimized
           />
         </Link>
         <div>
-          <Link href="/" className="brand-name">Super Durable</Link>
+          <Link to="/" className="brand-name">Super Durable</Link>
         </div>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
-        <Link href="/">Flows</Link>
+        <Link to="/">Flows</Link>
         <span className="connection-pill">
           <span className="connection-dot" />
           Dex server

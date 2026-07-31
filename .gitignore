@@ -12,6 +12,7 @@
 coverage.out
 dex-server
 dex-samples
+cli/dexcli
 .bin/
 .build/
 vendor/

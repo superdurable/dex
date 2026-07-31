@@ -1,0 +1,99 @@
+name: Release Dex CLI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CLI version (for example v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'cli-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            web/go.sum
+            server/go.sum
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#cli-}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build embedded Web assets
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+          npm run build
+      - name: Build archives
+        working-directory: cli
+        env:
+          GOWORK: "off"
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            name="dexcli_${VERSION}_${os}_${arch}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -o "dist/${name}/dexcli" ./cmd/dexcli
+            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" dexcli
+            rm -r "dist/${name}"
+          done
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+      - name: Generate Homebrew formula
+        working-directory: cli
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          darwin_arm64="$(awk '/darwin_arm64/ { print $1 }' dist/checksums.txt)"
+          darwin_amd64="$(awk '/darwin_amd64/ { print $1 }' dist/checksums.txt)"
+          linux_arm64="$(awk '/linux_arm64/ { print $1 }' dist/checksums.txt)"
+          linux_amd64="$(awk '/linux_amd64/ { print $1 }' dist/checksums.txt)"
+          sed \
+            -e "s/@VERSION@/${VERSION}/g" \
+            -e "s/@DARWIN_ARM64_SHA256@/${darwin_arm64}/g" \
+            -e "s/@DARWIN_AMD64_SHA256@/${darwin_amd64}/g" \
+            -e "s/@LINUX_ARM64_SHA256@/${linux_arm64}/g" \
+            -e "s/@LINUX_AMD64_SHA256@/${linux_amd64}/g" \
+            homebrew/dexcli.rb.tmpl > dist/dexcli.rb
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" cli/dist/* --clobber
+      - name: Upload manual artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: dexcli-${{ steps.version.outputs.version }}
+          path: cli/dist/*

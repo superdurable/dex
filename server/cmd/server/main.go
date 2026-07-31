@@ -21,6 +21,7 @@
 package main
 
 import (
+	"log"
 	"os"
 
 	"github.com/superdurable/dex/cmd/server/dex"
@@ -34,5 +35,7 @@ func main() {
 		os.Args = append(os.Args, "start")
 	}
 
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }
