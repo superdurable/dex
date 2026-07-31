@@ -1090,12 +1090,6 @@ type RPCResult[OUT any] struct {
 	Output    OUT
 	NextSteps []StepMovement
 }
-
-func Reply[OUT any](output OUT) RPCResult[OUT]
-func ReplyAndMove[OUT any](
-	output OUT,
-	movements ...StepMovement,
-) RPCResult[OUT]
 ```
 
 Application code defines a Flow method with that signature:
@@ -1107,7 +1101,7 @@ func (BillingFlow) Refund(
 	ctx dex.Context,
 	input RefundInput,
 ) (dex.RPCResult[RefundOutput], error) {
-	return dex.Reply(RefundOutput{}), nil
+	return dex.RPCResult[RefundOutput]{Output: RefundOutput{}}, nil
 }
 
 var Billing = BillingFlow{}

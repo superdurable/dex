@@ -139,10 +139,10 @@ func (contractFlow) Update(
 	ctx dex.Context,
 	input stepInput,
 ) (dex.RPCResult[command], error) {
-	return dex.ReplyAndMove(
-		command{Name: "updated"},
-		dex.MovementOf(executeOnly, input),
-	), nil
+	return dex.RPCResult[command]{
+		Output:    command{Name: "updated"},
+		NextSteps: []dex.StepMovement{dex.MovementOf(executeOnly, input)},
+	}, nil
 }
 
 var flow = contractFlow{}

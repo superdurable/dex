@@ -249,7 +249,7 @@ func (flow *registeredFlow) validateStepOptions(
 	options *StepOptions,
 	inputType reflect.Type,
 ) error {
-	if err := flow.validateStepOptionReferences(
+	if err := flow.doValidateStepOptions(
 		options,
 		inputType,
 		make(map[*StepOptions]bool),
@@ -262,7 +262,7 @@ func (flow *registeredFlow) validateStepOptions(
 	return nil
 }
 
-func (flow *registeredFlow) validateStepOptionReferences(
+func (flow *registeredFlow) doValidateStepOptions(
 	options *StepOptions,
 	inputType reflect.Type,
 	active map[*StepOptions]bool,
@@ -301,7 +301,7 @@ func (flow *registeredFlow) validateStepOptionReferences(
 			inputType,
 		)
 	}
-	return flow.validateStepOptionReferences(
+	return flow.doValidateStepOptions(
 		options.ExecuteFailure.options,
 		target.inputType,
 		active,

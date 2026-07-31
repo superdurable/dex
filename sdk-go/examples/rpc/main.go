@@ -42,7 +42,7 @@ func (BillingFlow) Refund(
 	ctx dex.Context,
 	input RefundInput,
 ) (dex.RPCResult[RefundOutput], error) {
-	return dex.Reply(RefundOutput{Accepted: true}), nil
+	return dex.RPCResult[RefundOutput]{Output: RefundOutput{Accepted: true}}, nil
 }
 
 var Billing = BillingFlow{}

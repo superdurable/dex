@@ -26,20 +26,6 @@ type RPCResult[OUT any] struct {
 	NextSteps []StepMovement
 }
 
-func Reply[OUT any](output OUT) RPCResult[OUT] {
-	return RPCResult[OUT]{Output: output}
-}
-
-func ReplyAndMove[OUT any](
-	output OUT,
-	movements ...StepMovement,
-) RPCResult[OUT] {
-	return RPCResult[OUT]{
-		Output:    output,
-		NextSteps: movements,
-	}
-}
-
 type rpcResult interface {
 	rpcOutput() any
 	rpcOutputType() reflect.Type

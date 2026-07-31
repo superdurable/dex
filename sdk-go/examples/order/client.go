@@ -35,7 +35,9 @@ func (OrderFlow) UpdateOrder(
 	ctx dex.Context,
 	input UpdateOrderInput,
 ) (dex.RPCResult[UpdateOrderOutput], error) {
-	return dex.Reply(UpdateOrderOutput{Status: input.Status}), nil
+	return dex.RPCResult[UpdateOrderOutput]{
+		Output: UpdateOrderOutput{Status: input.Status},
+	}, nil
 }
 
 var _ dex.RPC[UpdateOrderInput, UpdateOrderOutput] = Orders.UpdateOrder

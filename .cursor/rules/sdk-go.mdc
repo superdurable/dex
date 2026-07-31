@@ -22,6 +22,10 @@ Def/Impl layering. Keep design docs and examples in sync with API changes.
 - Names describe real semantics, not a misleading action. Prefer
   `SkipWaitImmediately` over `ExecuteImmediately` when the value means “skip
   waiting,” not “run Execute.”
+- When an entry method needs a recursive or stateful helper (extra args such as
+  a cycle-tracking set), name the helper `doXxx` for the same verb phrase:
+  `validateStepOptions` → `doValidateStepOptions`. Keep the entry thin;
+  put the real work in `doXxx`.
 
 ## API shape
 

@@ -119,7 +119,7 @@ func (flow *registrationFlow) Update(
 	input registrationInput,
 ) (RPCResult[registrationOutput], error) {
 	flow.rpcCalls++
-	return Reply(registrationOutput{Value: input.Value}), nil
+	return RPCResult[registrationOutput]{Output: registrationOutput{Value: input.Value}}, nil
 }
 
 type invalidRPCRegistrationFlow struct {
@@ -160,7 +160,7 @@ func (invalidRPCRegistrationFlow) Update(
 	Context,
 	registrationInput,
 ) (RPCResult[registrationOutput], error) {
-	return Reply(registrationOutput{}), nil
+	return RPCResult[registrationOutput]{}, nil
 }
 
 type valueRegistrationFlow struct{}
@@ -181,7 +181,7 @@ func (valueRegistrationFlow) Query(
 	Context,
 	registrationInput,
 ) (RPCResult[registrationOutput], error) {
-	return Reply(registrationOutput{Value: "value"}), nil
+	return RPCResult[registrationOutput]{Output: registrationOutput{Value: "value"}}, nil
 }
 
 type mixedReceiverRegistrationFlow struct{}
@@ -202,7 +202,7 @@ func (*mixedReceiverRegistrationFlow) Update(
 	Context,
 	registrationInput,
 ) (RPCResult[registrationOutput], error) {
-	return Reply(registrationOutput{}), nil
+	return RPCResult[registrationOutput]{}, nil
 }
 
 type errorRegistrationFlow struct {
