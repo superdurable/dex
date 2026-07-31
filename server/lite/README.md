@@ -3,6 +3,9 @@ An all-in-one image for Dex server.
 
 (Internally, it just runs Temporalite as backend)
 
+For local SDK and Web development, prefer `dexcli dev`. The lite image remains
+the self-contained Docker option for environments that already use containers.
+
 DEX service: http://localhost:8801/
 WebUI: http://localhost:8233/
 Temporal service: localhost:7233

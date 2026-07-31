@@ -1,11 +1,9 @@
-'use client';
-
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 
 export function CurrentRunRedirect({ flowId }: { flowId: string }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -16,14 +14,16 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
       .then(async (response) => {
         const data = await response.json() as FlowSummary & { error?: string };
         if (!response.ok) throw new Error(data.error || 'Flow lookup failed');
-        router.replace(`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}`);
+        navigate(`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}`, {
+          replace: true,
+        });
       })
       .catch((lookupError) => {
         if (lookupError instanceof DOMException && lookupError.name === 'AbortError') return;
         setError(lookupError instanceof Error ? lookupError.message : 'Flow lookup failed');
       });
     return () => controller.abort();
-  }, [flowId, router]);
+  }, [flowId, navigate]);
 
   if (error) return <div className="page-shell"><div className="error-banner">{error}</div></div>;
   return <div className="page-loading">Resolving current run…</div>;

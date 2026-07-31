@@ -1,9 +1,11 @@
 go 1.24.0
 
 use (
+	./cli
 	./examples/go
 	./sdk-go
 	./server
+	./web
 )
 
 // Cadence still pulls the old monorepo module google.golang.org/genproto, while

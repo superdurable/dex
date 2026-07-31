@@ -12,6 +12,7 @@ This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Ind
 | [server/](server/) | Dex server (Temporal/Cadence backend) |
 | [protos/](protos/) | Protobuf IDL ([`dex.proto`](protos/dex.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
 | [docs/](docs/) | Docs: [`design/`](docs/design/), [`case-study/`](docs/case-study/), [`wiki/`](docs/wiki/) (start at [README.md](docs/README.md)) |
+| [cli/](cli/) | `dexcli` local development environment |
 | [web/](web/) | Dex Web console |
 | [sdk-go/](sdk-go/) | Go SDK |
 | [examples/go/](examples/go/) | Go examples |
@@ -23,7 +24,20 @@ This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Ind
 
 Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 
-## Quick start (local server)
+## Quick start
+
+```bash
+brew install dexcli
+dexcli dev
+```
+
+Open Dex Web at [http://127.0.0.1:8901](http://127.0.0.1:8901). This starts
+local Temporal and its Web UI automatically. Connect to an existing Temporal
+server instead with `dexcli dev --temporal-address localhost:7233`.
+
+See [cli/README.md](cli/README.md) for ports, persistence, and all flags.
+
+## Docker server
 
 All-in-one Docker (from upstream lite image):
 
@@ -48,15 +62,7 @@ docker pull superdurable/dex-server:latest && docker compose -f ./docker-compose
 
 See [server/README.md](server/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-Run the Dex Web console separately:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-See [web/README.md](web/README.md) for server address and validation settings.
+See [web/README.md](web/README.md) for frontend development.
 
 ## Releases
 

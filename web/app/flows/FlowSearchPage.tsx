@@ -1,6 +1,4 @@
-'use client';
-
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
@@ -508,7 +506,7 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
       return (
         <Link
           className="table-link table-id table-id-flow"
-          href={`/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
+          to={`/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
           title={flow.flowId}
         >
           {flow.flowId}

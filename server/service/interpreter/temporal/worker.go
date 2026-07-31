@@ -23,7 +23,6 @@ package temporal
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/superdurable/dex/config"
 	uclient "github.com/superdurable/dex/service/client"
@@ -108,15 +107,15 @@ func (iw *InterpreterWorker) Close() {
 }
 
 // StartWithStickyCacheDisabledForTest can harm performance; should not be used in production environment
-func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() {
-	iw.start(true)
+func (iw *InterpreterWorker) StartWithStickyCacheDisabledForTest() error {
+	return iw.start(true)
 }
 
-func (iw *InterpreterWorker) Start() {
-	iw.start(false)
+func (iw *InterpreterWorker) Start() error {
+	return iw.start(false)
 }
 
-func (iw *InterpreterWorker) start(disableStickyCache bool) {
+func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 	var options worker.Options
 
 	if iw.cfg.Interpreter.Temporal.WorkerOptions != nil {
@@ -153,14 +152,14 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 
 	err := iw.worker.Start()
 	if err != nil {
-		log.Fatalln("Unable to start worker", err)
+		return fmt.Errorf("start Temporal interpreter worker: %w", err)
 	}
 
 	if iw.cfg.ExternalStorage.Enabled {
 		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
 			cronSchedule, scheduleErr := storeCfg.CleanupStrategy.CronSchedule()
 			if scheduleErr != nil {
-				log.Fatalln("Invalid blobstore cleanup strategy", scheduleErr)
+				return fmt.Errorf("invalid blobstore cleanup strategy: %w", scheduleErr)
 			}
 			if cronSchedule != "" {
 				err = iw.unifiedClient.StartBlobStoreCleanupWorkflow(
@@ -172,9 +171,10 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) {
 					if iw.unifiedClient.IsWorkflowAlreadyStartedError(err) {
 						continue
 					}
-					log.Fatalln("Unable to start blobstore cleanup workflow", err)
+					return fmt.Errorf("start blobstore cleanup workflow: %w", err)
 				}
 			}
 		}
 	}
+	return nil
 }

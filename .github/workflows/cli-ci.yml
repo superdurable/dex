@@ -1,0 +1,78 @@
+name: Dex CLI CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - "web/**"
+      - "server/**"
+      - "protos/**"
+      - "go.work"
+      - ".github/workflows/cli-ci.yml"
+  pull_request:
+    paths:
+      - "cli/**"
+      - "web/**"
+      - "server/**"
+      - "protos/**"
+      - "go.work"
+      - ".github/workflows/cli-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build and local-stack integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            web/go.sum
+            server/go.sum
+      - name: Install Temporal CLI
+        uses: temporalio/setup-temporal@v0
+      - name: Build embedded Web assets
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+          npm run build
+      - name: Verify generated Web assets
+        run: git diff --exit-code -- web/assets/dist
+      - name: Test CLI packages
+        working-directory: cli
+        env:
+          GOWORK: "off"
+        run: go test ./...
+      - name: Test local and external Temporal modes
+        working-directory: cli
+        env:
+          GOWORK: "off"
+        run: go test -tags=integration ./internal/dev -count=1 -v
+      - name: Build release binary
+        working-directory: cli
+        env:
+          GOWORK: "off"
+        run: go build -trimpath -o dexcli ./cmd/dexcli
+      - name: Verify runtime has no Node dependency
+        working-directory: cli
+        run: |
+          env PATH="$(go env GOROOT)/bin:/usr/bin:/bin" ./dexcli version
+          env PATH="$(go env GOROOT)/bin:/usr/bin:/bin" ./dexcli dev --help

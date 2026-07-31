@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "server/**"
       - "protos/**"
       - ".github/workflows/web-ci.yml"
   pull_request:
     paths:
       - "web/**"
+      - "server/**"
       - "protos/**"
       - ".github/workflows/web-ci.yml"
   workflow_dispatch:
@@ -35,9 +37,19 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: web/go.mod
+          cache-dependency-path: |
+            web/go.sum
+            server/go.sum
       - name: Install
         run: npm ci
       - name: Check
         run: npm run check
       - name: Build
         run: npm run build
+      - name: Go integration tests
+        env:
+          GOWORK: "off"
+        run: go test ./...

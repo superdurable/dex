@@ -1,0 +1,36 @@
+class Dexcli < Formula
+  desc "Run Dex, Dex Web, and a local Temporal development server"
+  homepage "https://github.com/superdurable/dex"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/superdurable/dex/releases/download/cli-@VERSION@/dexcli_@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@DARWIN_ARM64_SHA256@"
+    else
+      url "https://github.com/superdurable/dex/releases/download/cli-@VERSION@/dexcli_@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@DARWIN_AMD64_SHA256@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/superdurable/dex/releases/download/cli-@VERSION@/dexcli_@VERSION@_linux_arm64.tar.gz"
+      sha256 "@LINUX_ARM64_SHA256@"
+    else
+      url "https://github.com/superdurable/dex/releases/download/cli-@VERSION@/dexcli_@VERSION@_linux_amd64.tar.gz"
+      sha256 "@LINUX_AMD64_SHA256@"
+    end
+  end
+
+  depends_on "temporal"
+
+  def install
+    bin.install "dexcli"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/dexcli version")
+  end
+end
