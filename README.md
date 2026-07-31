@@ -4,7 +4,8 @@
 
 Traditional databases persist only data. Durable Execution persists both data and actions. On top of that, Super Durable synchronizes persisted data with your existing databases and data storage—unifying your persistence architecture.
 
-This project is a fork of [indeedeng/iwf](https://github.com/indeedeng/iwf) (Indeed Workflow Framework). It combines that family of repos into one tree under [superdurable/dex](https://github.com/superdurable/dex), preserving git history under each directory.
+<img width="676" height="607" alt="arch" src="https://github.com/user-attachments/assets/720e38a8-b151-4251-aa8a-5b62ae64a7f4" />
+
 
 ## Quick start
 
