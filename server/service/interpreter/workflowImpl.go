@@ -226,6 +226,7 @@ func (i *Interpreter) StartEngineFlow(
 		persistenceManager,
 		channelStore,
 		continueAsNewer,
+		stepExecutionCounter,
 		flowConfiger,
 		basicInfo,
 	); err != nil {

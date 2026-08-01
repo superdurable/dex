@@ -178,6 +178,12 @@ integTests:
 temporalIntegTests:
 	$Q go test -v ./integ -timeout 20m -cadence=false
 
+dexServerAddress ?= 127.0.0.1:8801
+temporalHostPort ?= 127.0.0.1:7233
+
+temporalIntegTestsAgainstLocalDexDev:
+	$Q go test -v ./integ -timeout 20m -search=false -cadence=false -dexServerAddress=$(dexServerAddress) -temporalHostPort=$(temporalHostPort)
+
 cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 

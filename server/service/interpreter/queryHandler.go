@@ -36,6 +36,7 @@ func SetQueryHandlers(
 	persistenceManager *PersistenceManager,
 	channelStore *ChannelStore,
 	continueAsNewer *ContinueAsNewer,
+	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *config.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {
@@ -60,6 +61,22 @@ func SetQueryHandlers(
 			ActiveStepExecutions:       continueAsNewer.GetActiveStepExecutionStates(),
 		}, nil
 	})
+	if err != nil {
+		return err
+	}
+	err = provider.SetQueryHandler(
+		ctx,
+		service.IsStepExecutionCompletedQueryType,
+		func(stepType string, stepExecutionNumber int32) (bool, error) {
+			if stepType == "" || stepExecutionNumber <= 0 {
+				return false, fmt.Errorf("step type and positive execution number are required")
+			}
+			return stepExecutionCounter.IsStepExecutionCompleted(
+				stepType,
+				stepExecutionNumber,
+			), nil
+		},
+	)
 	if err != nil {
 		return err
 	}

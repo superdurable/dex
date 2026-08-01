@@ -182,6 +182,27 @@ this [issue](https://github.com/uber/cadence/issues/5076).
 * To run the whole suite for Cadence only `make cadenceIntegTests`
 * To run a specify test case or a test file, you can utilize the IDE or `go test` command.
 
+To reuse the Temporal and Dex Server managed by `dexcli dev`, run:
+
+```shell
+make temporalIntegTestsAgainstLocalDexDev
+```
+
+This target connects to Temporal at `127.0.0.1:7233` and Dex Server at
+`127.0.0.1:8801`. Override them with `temporalHostPort` and
+`dexServerAddress`. The tests register missing custom integration search
+attributes but never start or stop Temporal or Dex Server. Each test still
+starts its own worker on an ephemeral localhost port. Visibility search
+assertions are disabled because local Temporal uses SQLite instead of the CI
+visibility backend; indexed attribute read/write coverage remains enabled. The
+external client also supplies the suite's SYNC durability default when a start
+request omits it and preserves the suite's 12-second API wait cap.
+
+Tests requiring per-process Dex configuration—external storage, memo
+encryption, default headers, or disabled sticky cache—are skipped in this mode.
+They remain covered by `temporalIntegTests`, which starts an in-process Dex
+runtime for every test.
+
 CI integration tests are partitioned by top-level test name. Dynamic subtests run
 in the same partition as their parent. Reproduce a CI partition locally with:
 

@@ -182,7 +182,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 			waitForAttributeKey,
 			expectedValue,
 		),
-		WaitTimeSeconds: 0,
+		WaitTimeSeconds: 10,
 		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)

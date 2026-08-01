@@ -31,11 +31,12 @@ const (
 
 	TaskQueue = "Interpreter_DEFAULT"
 
-	GetAttributesWorkflowQueryType   = "GetAttributes"
-	GetCurrentTimerInfosQueryType    = "GetCurrentTimerInfos"
-	ContinueAsNewDumpByPageQueryType = "ContinueAsNewDumpByPage"
-	DebugDumpQueryType               = "DebugNewDump"
-	PrepareRpcQueryType              = "PrepareRpcQueryType"
+	GetAttributesWorkflowQueryType    = "GetAttributes"
+	GetCurrentTimerInfosQueryType     = "GetCurrentTimerInfos"
+	ContinueAsNewDumpByPageQueryType  = "ContinueAsNewDumpByPage"
+	DebugDumpQueryType                = "DebugNewDump"
+	IsStepExecutionCompletedQueryType = "IsStepExecutionCompleted"
+	PrepareRpcQueryType               = "PrepareRpcQueryType"
 
 	ExecuteOptimisticLockingRpcUpdateType = "ExecuteOptimisticLockingRpcUpdate"
 	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"

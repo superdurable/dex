@@ -310,6 +310,25 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 		if err == nil {
 			return &response, nil
 		}
+		if s.client.IsNotFoundError(err) {
+			completed, queryErr := s.isStepExecutionCompleted(
+				waitCtx,
+				req.GetFlowId(),
+				req.GetStepType(),
+				int32(stepExecutionNumber),
+			)
+			if queryErr == nil && completed {
+				return &response, nil
+			}
+			if queryErr != nil && !s.client.IsNotFoundError(queryErr) {
+				s.logger.Warn(
+					"failed to recover step completion after flow closed",
+					tag.WorkflowID(req.GetFlowId()),
+					tag.Error(queryErr),
+				)
+			}
+			return nil, s.handleError(err)
+		}
 		if updateType, ok := s.client.GetIfUpdateError(err, nil); !ok ||
 			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
 			return nil, s.handleError(err)
@@ -326,6 +345,27 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			backoff *= 2
 		}
 	}
+}
+
+func (s *serviceImpl) isStepExecutionCompleted(
+	ctx context.Context,
+	flowID string,
+	stepType string,
+	stepExecutionNumber int32,
+) (bool, error) {
+	var completed bool
+	if err := s.client.QueryWorkflow(
+		ctx,
+		&completed,
+		flowID,
+		"",
+		service.IsStepExecutionCompletedQueryType,
+		stepType,
+		stepExecutionNumber,
+	); err != nil {
+		return false, err
+	}
+	return completed, nil
 }
 
 func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error) {
