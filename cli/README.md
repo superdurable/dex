@@ -21,7 +21,7 @@ The default endpoints are:
 
 | Service | Address |
 |---|---|
-| Dex Web | `http://127.0.0.1:8901` |
+| Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | `127.0.0.1:8801` |
 | Temporal Web | `http://127.0.0.1:8233` |
 | Temporal | `127.0.0.1:7233` |
@@ -52,7 +52,7 @@ plaintext endpoints; Temporal Cloud authentication is not supported yet.
 ```text
 --bind-address string          local bind IP (default 127.0.0.1)
 --dex-port int                 Dex gRPC port (default 8801)
---web-port int                 Dex Web port (default 8901)
+--web-port int                 Dex Web port (default 8802)
 --temporal-address string      external Temporal host:port
 --temporal-namespace string    Temporal namespace (default default)
 --temporal-port int            local Temporal port (default 7233)

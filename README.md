@@ -14,7 +14,7 @@ brew install superdurable/tap/dexcli
 dexcli dev --open
 ```
 
-Open Dex Web at [http://127.0.0.1:8901](http://127.0.0.1:8901). This starts
+Open Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). This starts
 local Temporal and its Web UI automatically. Connect to an existing Temporal
 server instead with `dexcli dev --temporal-address localhost:7233`.
 

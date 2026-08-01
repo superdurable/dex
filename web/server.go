@@ -35,12 +35,12 @@ import (
 	"github.com/superdurable/dex/web/api"
 )
 
-const DefaultPort = 8901
+const DefaultPort = 8802
 
 type Config struct {
 	// BindAddress defaults to 127.0.0.1 and controls the HTTP bind IP.
 	BindAddress string
-	// Port defaults to 8901 and controls the HTTP bind port.
+	// Port defaults to 8802 and controls the HTTP bind port.
 	Port int
 }
 

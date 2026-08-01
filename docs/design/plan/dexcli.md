@@ -20,7 +20,7 @@ dexcli dev
 Temporal Server  127.0.0.1:7233
 Temporal Web     http://127.0.0.1:8233
 Dex Server       127.0.0.1:8801
-Dex Web          http://127.0.0.1:8901
+Dex Web          http://127.0.0.1:8802
 ```
 
 用户也可以连接已有 Temporal：
@@ -54,7 +54,7 @@ dexcli dev --temporal-address localhost:7233
           ▼                 ▼                 ▼
  temporal server      Dex runtime       Go Web server
  start-dev             in-process         in-process
-   :7233                  :8801              :8901
+   :7233                  :8801              :8802
    :8233 UI                                  │
                                              ├── embedded SPA
                                              └── /api/* → Dex gRPC
@@ -70,7 +70,7 @@ External Temporal :7233
           │
        dexcli
           ├── Dex runtime :8801
-          └── Go Web server :8901
+          └── Go Web server :8802
 ```
 
 `dexcli` 只检查 external Temporal readiness 和必要的 Dex search attributes，不管理其生命周期。
@@ -206,7 +206,7 @@ Web config 至少包含：
 
 ```text
 BindAddress  127.0.0.1
-Port         8901
+Port         8802
 ```
 
 Server 提供：
@@ -267,7 +267,7 @@ dexcli dev [flags]
 
 --bind-address string          default 127.0.0.1
 --dex-port int                 default 8801
---web-port int                 default 8901
+--web-port int                 default 8802
 --temporal-address string      non-empty selects external Temporal
 --temporal-namespace string    default default
 --temporal-port int            default 7233; local mode only
@@ -359,7 +359,7 @@ Process manager 必须：
 ```text
 Dex development environment is ready
 
-Dex Web:       http://127.0.0.1:8901
+Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
 Temporal Web:  http://127.0.0.1:8233
 Temporal:      127.0.0.1:7233
@@ -370,7 +370,7 @@ Press Ctrl+C to stop.
 External Temporal mode 不伪造 Temporal Web URL：
 
 ```text
-Dex Web:       http://127.0.0.1:8901
+Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
 Temporal:      localhost:7233 (external)
 ```
@@ -378,7 +378,7 @@ Temporal:      localhost:7233 (external)
 错误必须指出 component 和修复方法，例如：
 
 ```text
-cannot start Dex Web: 127.0.0.1:8901 is already in use
+cannot start Dex Web: 127.0.0.1:8802 is already in use
 external Temporal is missing search attribute FlowType (Keyword)
 Temporal CLI was not found; reinstall dexcli with Homebrew
 ```
@@ -446,14 +446,14 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - `--temporal-db-filename` 重启后保留 Temporal executions。
 - external mode 连接预先启动的 Temporal，不创建第二个 Temporal process。
 - 退出 external mode 后 external Temporal 仍然可用。
-- occupied 7233、8233、8801、8901 分别在部分启动前返回明确错误。
+- occupied 7233、8233、8801、8802 分别在部分启动前返回明确错误。
 - Temporal child 非预期退出会停止 Dex runtime 和 Web server，并返回非零状态。
 - SIGINT/SIGTERM 后所有 owned ports 可立即被下一次启动复用。
 - 在 PATH 中没有 `node`/`npm` 时，release binary 仍可提供完整 Dex Web。
 
 ### Browser E2E
 
-- 从 `http://127.0.0.1:8901` 搜索并进入 Flow Details。
+- 从 `http://127.0.0.1:8802` 搜索并进入 Flow Details。
 - 直接加载和刷新 `/flows/:flowId/:runId` 不产生 404。
 - Basic/Advanced query、pagination、long poll、Step Graph、Timeline 和 Reset 保持现有行为。
 - Dex Server 暂时不可用时展示可操作错误，恢复后能够重新加载。
@@ -475,7 +475,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 ## 14. UI/UX
 
-- Dex Web 的稳定默认入口是 `http://127.0.0.1:8901`。
+- Dex Web 的稳定默认入口是 `http://127.0.0.1:8802`。
 - `dexcli` 只在全部 services ready 后打印成功 banner。
 - `--open` 只打开 Dex Web，不自动打开 Temporal Web。
 - External Temporal 未提供 UI 地址时不显示猜测链接。
@@ -489,7 +489,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 1. `brew install dexcli` 是用户唯一的安装命令。
 2. `dexcli dev` 默认提供 Temporal、Temporal Web、Dex Server 和 Dex Web。
 3. `dexcli dev --temporal-address localhost:7233` 不启动或停止 local Temporal。
-4. Dex Web 默认运行在 `http://127.0.0.1:8901`。
+4. Dex Web 默认运行在 `http://127.0.0.1:8802`。
 5. Release runtime 不依赖 Node.js，不存在 Next.js API server。
 6. `cli` import `web` Go module，不复制 Web API implementation。
 7. 所有 server integration、Web API integration、browser E2E 和 packaging tests 通过。
