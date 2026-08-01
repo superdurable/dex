@@ -59,6 +59,9 @@ func TestMain(m *testing.M) {
 	}
 
 	fmt.Println("*temporalIntegTest, *cadenceIntegTest", *temporalIntegTest, *cadenceIntegTest)
+	if *dexServerAddress != "" && (!*temporalIntegTest || *cadenceIntegTest) {
+		log.Fatal("dexServerAddress requires Temporal-only integration tests")
+	}
 
 	if *temporalIntegTest {
 		var temporalClient client.Client
@@ -78,8 +81,21 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			log.Fatalf("unable to connect to Temporal %v", err)
 		}
-		temporalClient.Close()
 		fmt.Println("connected to Temporal namespace")
+		if *dexServerAddress != "" {
+			dependencyCtx, cancelDependency := context.WithTimeout(
+				context.Background(),
+				time.Duration(*dependencyWaitSeconds)*time.Second,
+			)
+			err = prepareExternalDex(dependencyCtx, temporalClient)
+			cancelDependency()
+			if err != nil {
+				temporalClient.Close()
+				log.Fatalf("external Dex test setup failed: %v", err)
+			}
+			fmt.Println("connected to external Dex server", *dexServerAddress)
+		}
+		temporalClient.Close()
 		if *dependencyWaitSeconds > 0 {
 			time.Sleep(time.Second * 1) // see https://github.com/temporalio/temporal/issues/4160
 		}

@@ -198,7 +198,7 @@ func upsertSearchAttributes() []*dexpb.AttributeWrite {
 	keywordArrayPayload, _ := json.Marshal([]string{"keyword1", "keyword2"})
 	return []*dexpb.AttributeWrite{
 		{
-			Key: "CustomKeywordField",
+			Key: "CustomKeywordArrayField",
 			Value: &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{

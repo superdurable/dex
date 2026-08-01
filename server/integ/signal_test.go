@@ -110,9 +110,9 @@ func doTestSignalWorkflow(
 	var debugDump dexpb.DebugDumpResponse
 	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	expectedConfig := proto.Clone(syncDurabilityConfig()).(*dexpb.FlowConfig)
+	expectedConfig := copyFlowConfigForMutation(runtime.defaultFlowConfig)
 	if flowConfig != nil {
-		expectedConfig = proto.Clone(flowConfig).(*dexpb.FlowConfig)
+		expectedConfig = copyFlowConfigForMutation(flowConfig)
 	}
 	expectedConfig.WorkerTarget = workerTarget
 	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
