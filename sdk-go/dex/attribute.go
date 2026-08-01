@@ -16,6 +16,8 @@ package dex
 
 import "github.com/superdurable/dex/sdk-go/gen/dexpb"
 
+// Attribute defines a typed persisted value.
+// String values require valid UTF-8; use []byte for arbitrary bytes.
 type Attribute[T any] struct {
 	name  string
 	index *AttributeIndex
@@ -75,6 +77,8 @@ func (Attribute[T]) attributeIsMap() bool {
 	return false
 }
 
+// AttributeMap defines keyed typed persisted values.
+// String values require valid UTF-8; use []byte for arbitrary bytes.
 type AttributeMap[T any] struct {
 	name  string
 	index *AttributeIndex

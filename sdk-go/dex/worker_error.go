@@ -1,0 +1,108 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dex
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+type workerFailure struct {
+	code  codes.Code
+	cause error
+}
+
+func newWorkerFailure(code codes.Code, cause error) error {
+	return &workerFailure{code: code, cause: cause}
+}
+
+func (failure *workerFailure) Error() string {
+	return failure.cause.Error()
+}
+
+func (failure *workerFailure) Unwrap() error {
+	return failure.cause
+}
+
+func finishWorkerCall(recovered any, err error) error {
+	if recovered != nil {
+		slog.Default().Error(
+			"Worker handler panic",
+			"panic", recovered,
+			"stack", string(debug.Stack()),
+		)
+		return workerStatusError(
+			codes.Internal,
+			fmt.Errorf("panic: %v", recovered),
+			fmt.Sprintf("%T", recovered),
+		)
+	}
+	if err == nil {
+		return nil
+	}
+
+	code, cause := classifyWorkerError(err)
+	detail := cause.Error()
+	if rpcStatus, ok := status.FromError(cause); ok {
+		detail = rpcStatus.Message()
+	}
+	return workerStatusError(code, cause, fmt.Sprintf("%T", cause), detail)
+}
+
+func classifyWorkerError(err error) (codes.Code, error) {
+	var failure *workerFailure
+	if errors.As(err, &failure) {
+		return failure.code, failure.cause
+	}
+	if errors.Is(err, context.Canceled) {
+		return codes.Canceled, err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return codes.DeadlineExceeded, err
+	}
+	if rpcStatus, ok := status.FromError(err); ok {
+		return rpcStatus.Code(), err
+	}
+	return codes.Unknown, err
+}
+
+func workerStatusError(
+	code codes.Code,
+	cause error,
+	errorType string,
+	details ...string,
+) error {
+	detail := cause.Error()
+	if len(details) > 0 {
+		detail = details[0]
+	}
+	rpcStatus := status.New(code, detail)
+	withDetails, err := rpcStatus.WithDetails(&dexpb.WorkerErrorResponse{
+		Detail:    detail,
+		ErrorType: errorType,
+	})
+	if err != nil {
+		slog.Default().Error("attach Worker error details", "error", err)
+		return rpcStatus.Err()
+	}
+	return withDetails.Err()
+}

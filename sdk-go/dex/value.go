@@ -20,6 +20,7 @@ import (
 	"math"
 	"reflect"
 	"time"
+	"unicode/utf8"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -27,16 +28,22 @@ import (
 
 const (
 	jsonEncoding     = "json"
+	rawBytesEncoding = "rawbytes"
 	dateTimeFormat   = time.RFC3339Nano
 	internalIDPrefix = "__dex_internal_condition_"
 )
 
-var timeType = reflect.TypeFor[time.Time]()
+var (
+	byteSliceType = reflect.TypeFor[[]byte]()
+	timeType      = reflect.TypeFor[time.Time]()
+)
 
+// Value is an opaque Dex value. Decoded string values contain valid UTF-8.
 type Value struct {
 	value *dexpb.Value
 }
 
+// Decode decodes Value into a non-nil pointer.
 func (value Value) Decode(valuePtr any) error {
 	return decodeValue(value.value, valuePtr)
 }
@@ -53,8 +60,13 @@ func encodeValue(value any) (*dexpb.Value, error) {
 
 	switch reflected.Kind() {
 	case reflect.String:
+		stringValue := reflected.String()
+		// Protobuf string fields require valid UTF-8.
+		if !utf8.ValidString(stringValue) {
+			return nil, fmt.Errorf("dex: string value is not valid UTF-8")
+		}
 		return &dexpb.Value{
-			Kind: &dexpb.Value_StringValue{StringValue: reflected.String()},
+			Kind: &dexpb.Value_StringValue{StringValue: stringValue},
 		}, nil
 	case reflect.Bool:
 		return &dexpb.Value{
@@ -81,8 +93,27 @@ func encodeValue(value any) (*dexpb.Value, error) {
 		return &dexpb.Value{
 			Kind: &dexpb.Value_DoubleValue{DoubleValue: number},
 		}, nil
+	case reflect.Slice:
+		if reflected.Type().ConvertibleTo(byteSliceType) {
+			return encodeRawBytes(reflected), nil
+		}
+		return encodeJSONObject(value)
 	default:
 		return encodeJSONObject(value)
+	}
+}
+
+func encodeRawBytes(value reflect.Value) *dexpb.Value {
+	rawBytes := value.Convert(byteSliceType).Interface().([]byte)
+	payload := make([]byte, len(rawBytes))
+	copy(payload, rawBytes)
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{
+				Encoding: rawBytesEncoding,
+				Payload:  payload,
+			},
+		},
 	}
 }
 
@@ -140,6 +171,14 @@ func encodeIndexedValue(value any, indexType IndexType) (*dexpb.Value, error) {
 	case IndexKeywordArray:
 		if !isStringSlice(reflected.Type()) {
 			return nil, incompatibleIndexValue(indexType, reflected.Type())
+		}
+		for index := range reflected.Len() {
+			if !utf8.ValidString(reflected.Index(index).String()) {
+				return nil, fmt.Errorf(
+					"dex: keyword array value at index %d is not valid UTF-8",
+					index,
+				)
+			}
 		}
 		return encodeJSONObject(value)
 	case IndexInt:
@@ -202,7 +241,7 @@ func decodeValue(value *dexpb.Value, valuePtr any) error {
 	case *dexpb.Value_BoolValue:
 		return assignBool(target, kind.BoolValue)
 	case *dexpb.Value_ObjValue:
-		return decodeObject(kind.ObjValue, valuePtr)
+		return decodeObject(kind.ObjValue, target, valuePtr)
 	case *dexpb.Value_InternalBlobIdForStringValue,
 		*dexpb.Value_InternalBlobIdForObjValue:
 		return fmt.Errorf("dex: blob-backed value must be hydrated before decoding")
@@ -224,20 +263,49 @@ func decodeTarget(valuePtr any) (reflect.Value, error) {
 	return target.Elem(), nil
 }
 
-func decodeObject(object *dexpb.EncodedObject, valuePtr any) error {
+func decodeObject(
+	object *dexpb.EncodedObject,
+	target reflect.Value,
+	valuePtr any,
+) error {
 	if object == nil {
 		return fmt.Errorf("dex: object value is missing")
 	}
-	if object.Encoding != jsonEncoding {
+	switch object.Encoding {
+	case jsonEncoding:
+		if err := json.Unmarshal(object.Payload, valuePtr); err != nil {
+			return fmt.Errorf("dex: decode JSON value: %w", err)
+		}
+		return nil
+	case rawBytesEncoding:
+		return assignRawBytes(target, object.Payload)
+	default:
 		return fmt.Errorf("dex: unsupported object encoding %q", object.Encoding)
 	}
-	if err := json.Unmarshal(object.Payload, valuePtr); err != nil {
-		return fmt.Errorf("dex: decode JSON value: %w", err)
+}
+
+func assignRawBytes(target reflect.Value, payload []byte) error {
+	rawBytes := make([]byte, len(payload))
+	copy(rawBytes, payload)
+	source := reflect.ValueOf(rawBytes)
+	if target.Kind() == reflect.Interface {
+		if !source.Type().AssignableTo(target.Type()) {
+			return decodeTypeError("raw bytes", target.Type())
+		}
+		target.Set(source)
+		return nil
 	}
+	if target.Kind() != reflect.Slice || !source.Type().ConvertibleTo(target.Type()) {
+		return decodeTypeError("raw bytes", target.Type())
+	}
+	target.Set(source.Convert(target.Type()))
 	return nil
 }
 
 func assignString(target reflect.Value, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("dex: string value is not valid UTF-8")
+	}
 	if target.Type() == timeType {
 		dateTime, err := parseDatetime(value)
 		if err != nil {

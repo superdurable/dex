@@ -1,0 +1,657 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dex
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"time"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+)
+
+type invocationMethod uint8
+
+const (
+	invocationWaitFor invocationMethod = iota + 1
+	invocationExecute
+	invocationRPC
+)
+
+type invocationContext struct {
+	context.Context
+	method invocationMethod
+	flow   *registeredFlow
+	active bool
+
+	flowID              string
+	runID               string
+	flowStartedAt       time.Time
+	stepExecutionID     string
+	fromStepExecutionID string
+	firstAttemptAt      time.Time
+	attempt             int32
+
+	attributes          map[string]*dexpb.Value
+	attributeWrites     map[string]*dexpb.AttributeWrite
+	attributeWriteOrder []string
+
+	locals          map[string]*dexpb.Value
+	localWrites     map[string]*dexpb.KV
+	localWriteOrder []string
+
+	events         map[string]struct{}
+	recordedEvents []*dexpb.KV
+	publications   []*dexpb.ChannelMessage
+
+	conditionResults *dexpb.ConditionResults
+	channelSizes     map[string]int
+}
+
+func newInvocationContext(
+	ctx context.Context,
+	method invocationMethod,
+	flow *registeredFlow,
+	metadata *dexpb.Context,
+	attributes []*dexpb.KV,
+	locals []*dexpb.KV,
+	conditionResults *dexpb.ConditionResults,
+	channelInfos map[string]*dexpb.ChannelInfo,
+) (*invocationContext, error) {
+	attributeValues, err := buildInvocationValues("attribute", attributes)
+	if err != nil {
+		return nil, err
+	}
+	localValues, err := buildInvocationValues("step-execution local", locals)
+	if err != nil {
+		return nil, err
+	}
+	sizes, err := buildChannelSizes(channelInfos)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateConditionResults(conditionResults); err != nil {
+		return nil, err
+	}
+	invocation := &invocationContext{
+		Context:          ctx,
+		method:           method,
+		flow:             flow,
+		active:           true,
+		flowID:           metadata.FlowId,
+		runID:            metadata.RunId,
+		flowStartedAt:    time.Unix(metadata.FlowStartedTimestamp, 0),
+		attributes:       attributeValues,
+		attributeWrites:  make(map[string]*dexpb.AttributeWrite),
+		locals:           localValues,
+		localWrites:      make(map[string]*dexpb.KV),
+		events:           make(map[string]struct{}),
+		conditionResults: conditionResults,
+		channelSizes:     sizes,
+	}
+	if method != invocationRPC {
+		invocation.stepExecutionID = metadata.StepExecutionId
+		invocation.fromStepExecutionID = metadata.FromStepExecutionId
+		invocation.attempt = metadata.Attempt
+		invocation.firstAttemptAt = time.Unix(metadata.FirstAttemptTimestamp, 0)
+	}
+	return invocation, nil
+}
+
+func buildInvocationValues(
+	kind string,
+	values []*dexpb.KV,
+) (map[string]*dexpb.Value, error) {
+	mapped := make(map[string]*dexpb.Value, len(values))
+	for index, value := range values {
+		if value == nil || value.Key == "" || value.Value == nil {
+			return nil, fmt.Errorf("dex: invalid %s at index %d", kind, index)
+		}
+		if _, found := mapped[value.Key]; found {
+			return nil, fmt.Errorf("dex: duplicate %s key %q", kind, value.Key)
+		}
+		mapped[value.Key] = value.Value
+	}
+	return mapped, nil
+}
+
+func buildChannelSizes(
+	infos map[string]*dexpb.ChannelInfo,
+) (map[string]int, error) {
+	sizes := make(map[string]int, len(infos))
+	for name, info := range infos {
+		if name == "" || info == nil || info.Size < 0 {
+			return nil, fmt.Errorf("dex: invalid channel info %q", name)
+		}
+		sizes[name] = int(info.Size)
+	}
+	return sizes, nil
+}
+
+func validateConditionResults(results *dexpb.ConditionResults) error {
+	if results == nil {
+		return nil
+	}
+	conditionIDs := make(map[string]struct{},
+		len(results.TimerResults)+len(results.ChannelResults))
+	for index, result := range results.TimerResults {
+		if result == nil || result.ConditionId == "" ||
+			!validConditionStatus(result.ConditionStatus) {
+			return fmt.Errorf("dex: invalid timer result at index %d", index)
+		}
+		if _, found := conditionIDs[result.ConditionId]; found {
+			return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+		}
+		conditionIDs[result.ConditionId] = struct{}{}
+	}
+	for index, result := range results.ChannelResults {
+		if result == nil || result.ConditionId == "" || result.ChannelName == "" ||
+			!validConditionStatus(result.ConditionStatus) {
+			return fmt.Errorf("dex: invalid channel result at index %d", index)
+		}
+		if _, found := conditionIDs[result.ConditionId]; found {
+			return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+		}
+		conditionIDs[result.ConditionId] = struct{}{}
+		if result.ConditionStatus == dexpb.ConditionStatus_CONDITION_STATUS_WAITING &&
+			len(result.Values) != 0 {
+			return fmt.Errorf("dex: waiting channel result %q has values", result.ConditionId)
+		}
+		for valueIndex, value := range result.Values {
+			if err := validateConcreteValue(value); err != nil {
+				return fmt.Errorf(
+					"dex: channel result %q value %d: %w",
+					result.ConditionId,
+					valueIndex,
+					err,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func validConditionStatus(status dexpb.ConditionStatus) bool {
+	return status == dexpb.ConditionStatus_CONDITION_STATUS_WAITING ||
+		status == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
+}
+
+func (invocation *invocationContext) FlowID() string {
+	return invocation.flowID
+}
+
+func (invocation *invocationContext) RunID() string {
+	return invocation.runID
+}
+
+func (invocation *invocationContext) FlowStartedAt() time.Time {
+	return invocation.flowStartedAt
+}
+
+func (invocation *invocationContext) StepExecutionID() string {
+	return invocation.stepExecutionID
+}
+
+func (invocation *invocationContext) FromStepExecutionID() string {
+	return invocation.fromStepExecutionID
+}
+
+func (invocation *invocationContext) FirstAttemptAt() time.Time {
+	return invocation.firstAttemptAt
+}
+
+func (invocation *invocationContext) Attempt() int32 {
+	return invocation.attempt
+}
+
+func (invocation *invocationContext) HasTimerFired() bool {
+	if !invocation.active || invocation.method != invocationExecute ||
+		invocation.conditionResults == nil {
+		return false
+	}
+	for _, result := range invocation.conditionResults.TimerResults {
+		if result.ConditionStatus == dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+			return true
+		}
+	}
+	return false
+}
+
+func (invocation *invocationContext) HasTimerFiredByIndex(index int) bool {
+	if !invocation.active || invocation.method != invocationExecute ||
+		invocation.conditionResults == nil ||
+		index < 0 || index >= len(invocation.conditionResults.TimerResults) {
+		return false
+	}
+	return invocation.conditionResults.TimerResults[index].ConditionStatus ==
+		dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
+}
+
+func (invocation *invocationContext) WaitForMethodFailed() bool {
+	return invocation.active && invocation.method == invocationExecute &&
+		invocation.conditionResults != nil &&
+		invocation.conditionResults.WaitForFailed
+}
+
+func (invocation *invocationContext) SetStepExecutionLocal(
+	key string,
+	value any,
+) error {
+	if err := invocation.requireActive(invocationWaitFor); err != nil {
+		return err
+	}
+	if key == "" {
+		return fmt.Errorf("dex: step-execution local key must not be empty")
+	}
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return err
+	}
+	if _, found := invocation.localWrites[key]; !found {
+		invocation.localWriteOrder = append(invocation.localWriteOrder, key)
+	}
+	invocation.localWrites[key] = &dexpb.KV{Key: key, Value: encoded}
+	return nil
+}
+
+func (invocation *invocationContext) GetStepExecutionLocal(
+	key string,
+	valuePtr any,
+) (bool, error) {
+	if err := invocation.requireActive(invocationExecute); err != nil {
+		return false, err
+	}
+	if key == "" {
+		return false, fmt.Errorf("dex: step-execution local key must not be empty")
+	}
+	target := reflect.ValueOf(valuePtr)
+	if valuePtr == nil || target.Kind() != reflect.Pointer || target.IsNil() {
+		return false, fmt.Errorf("dex: decode target must be a non-nil pointer")
+	}
+	value, found := invocation.locals[key]
+	if !found {
+		return false, nil
+	}
+	if err := decodeValue(value, valuePtr); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (invocation *invocationContext) RecordEvent(name string, value any) error {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		return err
+	}
+	if name == "" {
+		return fmt.Errorf("dex: event name must not be empty")
+	}
+	if _, found := invocation.events[name]; found {
+		return fmt.Errorf("dex: event %q was already recorded", name)
+	}
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return err
+	}
+	invocation.events[name] = struct{}{}
+	invocation.recordedEvents = append(invocation.recordedEvents, &dexpb.KV{
+		Key:   name,
+		Value: encoded,
+	})
+	return nil
+}
+
+func (invocation *invocationContext) getAttribute(
+	name string,
+	valuePtr any,
+) (bool, error) {
+	return invocation.getAttributeValue(name, "", false, valuePtr)
+}
+
+func (invocation *invocationContext) setAttribute(
+	name string,
+	value any,
+	_ *AttributeIndex,
+) error {
+	return invocation.setAttributeValue(name, "", false, value)
+}
+
+func (invocation *invocationContext) deleteAttribute(
+	name string,
+	_ *AttributeIndex,
+) error {
+	return invocation.deleteAttributeValue(name, "", false)
+}
+
+func (invocation *invocationContext) getAttributeMap(
+	name string,
+	instance string,
+	valuePtr any,
+) (bool, error) {
+	return invocation.getAttributeValue(name, instance, true, valuePtr)
+}
+
+func (invocation *invocationContext) setAttributeMap(
+	name string,
+	instance string,
+	value any,
+	_ *AttributeIndex,
+) error {
+	return invocation.setAttributeValue(name, instance, true, value)
+}
+
+func (invocation *invocationContext) deleteAttributeMap(
+	name string,
+	instance string,
+	_ *AttributeIndex,
+) error {
+	return invocation.deleteAttributeValue(name, instance, true)
+}
+
+func (invocation *invocationContext) getAttributeValue(
+	name string,
+	instance string,
+	isMap bool,
+	valuePtr any,
+) (bool, error) {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		return false, err
+	}
+	_, physical, err := invocation.resolveAttribute(name, instance, isMap)
+	if err != nil {
+		return false, err
+	}
+	if write, found := invocation.attributeWrites[physical]; found {
+		if _, deleted := write.Value.Kind.(*dexpb.Value_NullValue); deleted {
+			return false, nil
+		}
+		if err := decodeValue(write.Value, valuePtr); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	value, found := invocation.attributes[physical]
+	if !found {
+		return false, nil
+	}
+	if err := decodeValue(value, valuePtr); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (invocation *invocationContext) setAttributeValue(
+	name string,
+	instance string,
+	isMap bool,
+	value any,
+) error {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		return err
+	}
+	attribute, physical, err := invocation.resolveAttribute(name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
+	if err != nil {
+		return err
+	}
+	invocation.bufferAttributeWrite(&dexpb.AttributeWrite{
+		Key:         physical,
+		Value:       encoded,
+		IndexConfig: indexConfig,
+	})
+	return nil
+}
+
+func (invocation *invocationContext) deleteAttributeValue(
+	name string,
+	instance string,
+	isMap bool,
+) error {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		return err
+	}
+	attribute, physical, err := invocation.resolveAttribute(name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	write, err := mapAttributeDelete(physical, attribute.index)
+	if err != nil {
+		return err
+	}
+	invocation.bufferAttributeWrite(write)
+	return nil
+}
+
+func (invocation *invocationContext) resolveAttribute(
+	name string,
+	instance string,
+	isMap bool,
+) (registeredAttribute, string, error) {
+	attribute, found := invocation.flow.attributes[name]
+	if !found {
+		return registeredAttribute{}, "", fmt.Errorf("dex: attribute %q is not declared", name)
+	}
+	if attribute.isMap != isMap {
+		return registeredAttribute{}, "", fmt.Errorf(
+			"dex: attribute %q static/map kind does not match",
+			name,
+		)
+	}
+	physical, err := physicalName(name, instance, isMap)
+	return attribute, physical, err
+}
+
+func (invocation *invocationContext) bufferAttributeWrite(
+	write *dexpb.AttributeWrite,
+) {
+	if _, found := invocation.attributeWrites[write.Key]; !found {
+		invocation.attributeWriteOrder = append(invocation.attributeWriteOrder, write.Key)
+	}
+	invocation.attributeWrites[write.Key] = write
+}
+
+func (invocation *invocationContext) publishChannel(name string, value any) error {
+	return invocation.publishChannelValue(name, "", false, value)
+}
+
+func (invocation *invocationContext) publishChannelMap(
+	name string,
+	instance string,
+	value any,
+) error {
+	return invocation.publishChannelValue(name, instance, true, value)
+}
+
+func (invocation *invocationContext) publishChannelValue(
+	name string,
+	instance string,
+	isMap bool,
+	value any,
+) error {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		return err
+	}
+	physical, err := invocation.resolveChannel(name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return err
+	}
+	invocation.publications = append(invocation.publications, &dexpb.ChannelMessage{
+		ChannelName: physical,
+		Value:       encoded,
+	})
+	if invocation.method == invocationRPC {
+		invocation.channelSizes[physical]++
+	}
+	return nil
+}
+
+func (invocation *invocationContext) channelSize(name string) int {
+	return invocation.channelSizeValue(name, "", false)
+}
+
+func (invocation *invocationContext) channelMapSize(name string, instance string) int {
+	return invocation.channelSizeValue(name, instance, true)
+}
+
+func (invocation *invocationContext) channelSizeValue(
+	name string,
+	instance string,
+	isMap bool,
+) int {
+	if err := invocation.requireActive(invocationRPC); err != nil {
+		panic(err)
+	}
+	physical, err := invocation.resolveChannel(name, instance, isMap)
+	if err != nil {
+		panic(err)
+	}
+	return invocation.channelSizes[physical]
+}
+
+func (invocation *invocationContext) getChannelResults(
+	name string,
+	instance string,
+	isMap bool,
+	resultsPtr any,
+) error {
+	if err := invocation.requireActive(invocationExecute); err != nil {
+		return err
+	}
+	physical, err := invocation.resolveChannel(name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	target, err := channelResultsTarget(resultsPtr)
+	if err != nil {
+		return err
+	}
+	result := reflect.MakeSlice(target.Type(), 0, 0)
+	if invocation.conditionResults != nil {
+		for _, channelResult := range invocation.conditionResults.ChannelResults {
+			if channelResult.ChannelName != physical ||
+				channelResult.ConditionStatus != dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED {
+				continue
+			}
+			for _, value := range channelResult.Values {
+				decoded, decodeErr := decodeReflectValue(value, target.Type().Elem())
+				if decodeErr != nil {
+					return decodeErr
+				}
+				result = reflect.Append(result, decoded)
+			}
+		}
+	}
+	target.Set(result)
+	return nil
+}
+
+func (invocation *invocationContext) resolveChannel(
+	name string,
+	instance string,
+	isMap bool,
+) (string, error) {
+	channel, found := invocation.flow.channels[name]
+	if !found {
+		return "", fmt.Errorf("dex: channel %q is not declared", name)
+	}
+	if channel.isMap != isMap {
+		return "", fmt.Errorf("dex: channel %q static/map kind does not match", name)
+	}
+	return physicalName(name, instance, isMap)
+}
+
+func channelResultsTarget(resultsPtr any) (reflect.Value, error) {
+	if resultsPtr == nil {
+		return reflect.Value{}, fmt.Errorf("dex: channel results target must be a non-nil pointer")
+	}
+	target := reflect.ValueOf(resultsPtr)
+	if target.Kind() != reflect.Pointer || target.IsNil() ||
+		target.Elem().Kind() != reflect.Slice {
+		return reflect.Value{}, fmt.Errorf("dex: channel results target must point to a slice")
+	}
+	return target.Elem(), nil
+}
+
+func decodeReflectValue(
+	value *dexpb.Value,
+	valueType reflect.Type,
+) (reflect.Value, error) {
+	target := reflect.New(valueType)
+	if err := decodeValue(value, target.Interface()); err != nil {
+		return reflect.Value{}, err
+	}
+	return target.Elem(), nil
+}
+
+func (invocation *invocationContext) requireActive(
+	allowed ...invocationMethod,
+) error {
+	if !invocation.active {
+		return errInvalidInvocationContext
+	}
+	for _, method := range allowed {
+		if invocation.method == method {
+			return nil
+		}
+	}
+	return errInvalidInvocationContext
+}
+
+func (invocation *invocationContext) finish() {
+	invocation.active = false
+}
+
+func (invocation *invocationContext) mappedAttributeWrites() []*dexpb.AttributeWrite {
+	writes := make([]*dexpb.AttributeWrite, 0, len(invocation.attributeWriteOrder))
+	for _, key := range invocation.attributeWriteOrder {
+		writes = append(writes, invocation.attributeWrites[key])
+	}
+	return writes
+}
+
+func (invocation *invocationContext) mappedLocalWrites() []*dexpb.KV {
+	writes := make([]*dexpb.KV, 0, len(invocation.localWriteOrder))
+	for _, key := range invocation.localWriteOrder {
+		writes = append(writes, invocation.localWrites[key])
+	}
+	return writes
+}

@@ -177,6 +177,17 @@ func TestPublicContractsCompile(t *testing.T) {
 		len(options.Attributes) != 2 {
 		t.Fatal("start flow options are missing")
 	}
+
+	worker, err := dex.NewWorker([]dex.Flow{flow}, dex.WorkerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worker.WorkerTarget().Address != "localhost:8803" {
+		t.Fatal("worker target was not derived from the bind address")
+	}
+	if err := worker.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestErrorSupportsErrorsAs(t *testing.T) {

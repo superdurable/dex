@@ -886,13 +886,15 @@ func validateConcreteValue(value *dexpb.Value) error {
 		if kind.ObjValue == nil {
 			return fmt.Errorf("dex: object value is missing")
 		}
-		if kind.ObjValue.Encoding != jsonEncoding {
+		switch kind.ObjValue.Encoding {
+		case jsonEncoding, rawBytesEncoding:
+			return nil
+		default:
 			return fmt.Errorf(
 				"dex: unsupported object encoding %q",
 				kind.ObjValue.Encoding,
 			)
 		}
-		return nil
 	case *dexpb.Value_InternalBlobIdForStringValue,
 		*dexpb.Value_InternalBlobIdForObjValue:
 		return fmt.Errorf("dex: blob-backed value is not hydrated")

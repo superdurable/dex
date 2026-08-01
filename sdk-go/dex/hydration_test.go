@@ -21,21 +21,27 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
-type fakeValueHydrator struct {
+type fakeHydrationFlowServiceClient struct {
+	dexpb.FlowServiceClient
 	requests []*dexpb.Value
-	values   []*dexpb.Value
+	values   map[string]*dexpb.Value
 	err      error
 }
 
-func (hydrator *fakeValueHydrator) Hydrate(
+func (client *fakeHydrationFlowServiceClient) LoadBlobs(
 	_ context.Context,
-	requests []*dexpb.Value,
-) ([]*dexpb.Value, error) {
-	hydrator.requests = requests
-	return hydrator.values, hydrator.err
+	request *dexpb.LoadBlobsRequest,
+	_ ...grpc.CallOption,
+) (*dexpb.LoadBlobsResponse, error) {
+	client.requests = request.Values
+	if client.err != nil {
+		return nil, client.err
+	}
+	return &dexpb.LoadBlobsResponse{Values: client.values}, nil
 }
 
 func TestHydrateValuesDeduplicatesAndPreservesOrder(t *testing.T) {
@@ -52,23 +58,24 @@ func TestHydrateValuesDeduplicatesAndPreservesOrder(t *testing.T) {
 	concrete := &dexpb.Value{
 		Kind: &dexpb.Value_IntValue{IntValue: 7},
 	}
-	hydrator := &fakeValueHydrator{
-		values: []*dexpb.Value{
-			{Kind: &dexpb.Value_StringValue{StringValue: "loaded"}},
-			{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+	client := &fakeHydrationFlowServiceClient{
+		values: map[string]*dexpb.Value{
+			"string-blob": {Kind: &dexpb.Value_StringValue{StringValue: "loaded"}},
+			"object-blob": {Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
 				Encoding: jsonEncoding,
 				Payload:  []byte(`{"value":1}`),
 			}}},
 		},
 	}
+	hydrator := newValueHydrator(client, nil)
+	values := []*dexpb.Value{stringBlob, concrete, stringBlob, objectBlob}
 
-	values, err := hydrateValues(
+	err := hydrator.HydrateValuesInPlace(
 		context.Background(),
-		hydrator,
-		[]*dexpb.Value{stringBlob, concrete, stringBlob, objectBlob},
+		valuePointers(values),
 	)
 	require.NoError(t, err)
-	require.Len(t, hydrator.requests, 2)
+	require.Len(t, client.requests, 2)
 	require.Equal(t, "loaded", values[0].GetStringValue())
 	require.Same(t, concrete, values[1])
 	require.Equal(t, "loaded", values[2].GetStringValue())
@@ -81,35 +88,43 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 			InternalBlobIdForStringValue: "blob",
 		},
 	}
-	_, err := hydrateValues(context.Background(), nil, []*dexpb.Value{stringBlob})
-	require.ErrorContains(t, err, "require a hydrator")
+	require.Panics(t, func() { newValueHydrator(nil, nil) })
 
-	_, err = hydrateValues(
-		context.Background(),
-		&fakeValueHydrator{},
-		[]*dexpb.Value{stringBlob},
+	values := []*dexpb.Value{stringBlob}
+	err := newValueHydrator(
+		&fakeHydrationFlowServiceClient{},
+		nil,
+	).HydrateValuesInPlace(
+		context.Background(), valuePointers(values),
 	)
-	require.ErrorContains(t, err, "returned 0 values")
+	require.ErrorContains(t, err, "omitted blob")
+	require.Same(t, stringBlob, values[0])
 
-	_, err = hydrateValues(
-		context.Background(),
-		&fakeValueHydrator{values: []*dexpb.Value{{
-			Kind: &dexpb.Value_IntValue{IntValue: 1},
-		}}},
-		[]*dexpb.Value{stringBlob},
+	values = []*dexpb.Value{stringBlob}
+	err = newValueHydrator(
+		&fakeHydrationFlowServiceClient{values: map[string]*dexpb.Value{
+			"blob": {Kind: &dexpb.Value_IntValue{IntValue: 1}},
+		}},
+		nil,
+	).HydrateValuesInPlace(
+		context.Background(), valuePointers(values),
 	)
 	require.ErrorContains(t, err, "hydrated to")
+	require.Same(t, stringBlob, values[0])
 
-	_, err = hydrateValues(
-		context.Background(),
-		&fakeValueHydrator{err: errors.New("load failed")},
-		[]*dexpb.Value{stringBlob},
+	values = []*dexpb.Value{stringBlob}
+	err = newValueHydrator(
+		&fakeHydrationFlowServiceClient{err: errors.New("load failed")},
+		nil,
+	).HydrateValuesInPlace(
+		context.Background(), valuePointers(values),
 	)
 	require.ErrorContains(t, err, "load failed")
+	require.Same(t, stringBlob, values[0])
 }
 
 func TestBlobCachePayloadRoundTrip(t *testing.T) {
-	stringReference := &dexpb.Value{
+	stringBlobID := &dexpb.Value{
 		Kind: &dexpb.Value_InternalBlobIdForStringValue{
 			InternalBlobIdForStringValue: "string",
 		},
@@ -117,30 +132,40 @@ func TestBlobCachePayloadRoundTrip(t *testing.T) {
 	stringValue := &dexpb.Value{
 		Kind: &dexpb.Value_StringValue{StringValue: "payload"},
 	}
-	payload, err := marshalBlobCachePayload(stringReference, stringValue)
+	payload, err := marshalBlobCachePayload(stringBlobID, stringValue)
 	require.NoError(t, err)
 	require.Equal(t, []byte("payload"), payload)
-	decoded, err := unmarshalBlobCachePayload(stringReference, payload)
+	decoded, err := unmarshalBlobCachePayload(stringBlobID, payload)
 	require.NoError(t, err)
 	require.Equal(t, "payload", decoded.GetStringValue())
+	_, err = unmarshalBlobCachePayload(stringBlobID, []byte{0xff})
+	require.ErrorContains(t, err, "UTF-8")
 
-	objectReference := &dexpb.Value{
+	objectBlobID := &dexpb.Value{
 		Kind: &dexpb.Value_InternalBlobIdForObjValue{
 			InternalBlobIdForObjValue: "object",
 		},
 	}
 	objectValue := &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: jsonEncoding,
-			Payload:  []byte(`{"value":1}`),
+			Encoding: rawBytesEncoding,
+			Payload:  []byte{0x00, 0xff},
 		}},
 	}
-	first, err := marshalBlobCachePayload(objectReference, objectValue)
+	first, err := marshalBlobCachePayload(objectBlobID, objectValue)
 	require.NoError(t, err)
-	second, err := marshalBlobCachePayload(objectReference, objectValue)
+	second, err := marshalBlobCachePayload(objectBlobID, objectValue)
 	require.NoError(t, err)
 	require.Equal(t, first, second)
-	decoded, err = unmarshalBlobCachePayload(objectReference, first)
+	decoded, err = unmarshalBlobCachePayload(objectBlobID, first)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(objectValue.GetObjValue(), decoded.GetObjValue()))
+}
+
+func valuePointers(values []*dexpb.Value) []**dexpb.Value {
+	pointers := make([]**dexpb.Value, len(values))
+	for index := range values {
+		pointers[index] = &values[index]
+	}
+	return pointers
 }
