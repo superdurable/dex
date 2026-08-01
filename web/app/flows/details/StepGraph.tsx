@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Background,
   Controls,
@@ -20,11 +21,13 @@ interface StepNodeData extends Record<string, unknown> {
 }
 
 export function StepGraph({
+  flowId,
   events,
   state,
   selectedEvent,
   onSelectEvent,
 }: {
+  flowId: string;
   events: FlowHistoryEvent[];
   state: FlowState | null;
   selectedEvent: FlowHistoryEvent | null;
@@ -50,7 +53,20 @@ export function StepGraph({
         label: (
           <div className="graph-node-label">
             <span>{node.kind === 'source' ? 'Source' : node.kind === 'terminal' ? 'Terminal' : node.status}</span>
-            <b>{node.label}</b>
+            {node.previousRunId ? (
+              <>
+                <b>
+                  <Link
+                    className="graph-run-link nodrag nopan"
+                    title={node.previousRunId}
+                    to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
+                  >
+                    Continued from previous run
+                  </Link>
+                </b>
+                <code title={node.previousRunId}>{node.previousRunId}</code>
+              </>
+            ) : <b>{node.label}</b>}
             {node.kind === 'step' && <code>{node.id}</code>}
             {node.transient && <em>Transient</em>}
           </div>

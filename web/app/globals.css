@@ -1110,6 +1110,20 @@ pre {
   margin-left: 8px;
 }
 
+.event-run-link,
+.graph-run-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(75, 122, 42, 0.35);
+  text-underline-offset: 3px;
+}
+
+.event-run-link:hover,
+.graph-run-link:hover {
+  color: var(--brand-dark);
+  text-decoration-color: currentColor;
+}
+
 .event-card header p {
   margin: 6px 0 0;
   color: var(--muted);

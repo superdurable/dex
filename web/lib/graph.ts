@@ -24,6 +24,13 @@ function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function previousRunID(events: FlowHistoryEvent[]): string {
+  const started = events.find((event) => event.type === 'FlowStartedOrContinued');
+  const continued = started?.payload.continuedStart;
+  if (!continued || typeof continued !== 'object') return '';
+  return stringField((continued as Record<string, unknown>).previousRunId);
+}
+
 export function buildStepGraph(
   events: FlowHistoryEvent[],
   activeSteps: ActiveStepExecution[] = [],
@@ -34,6 +41,7 @@ export function buildStepGraph(
     label: 'Flow start',
     kind: 'source',
     status: 'Source',
+    previousRunId: previousRunID(events),
   });
 
   for (const event of events) {

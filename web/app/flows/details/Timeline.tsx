@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { usePreferences } from '../../providers';
 import { JsonView } from '../../components/JsonView';
 
 const eventLabels: Record<FlowHistoryEvent['type'], string> = {
-  FlowStartedOrContinued: 'Flow started / continued',
+  FlowStartedOrContinued: 'Flow started',
   FlowClosed: 'Flow closed',
   StepWaitForCompleted: 'WaitFor completed',
   StepWaitForFailed: 'WaitFor failed',
@@ -31,11 +32,21 @@ function executionSummary(event: FlowHistoryEvent): string {
   return [info.stepType, info.stepExecutionId].filter(Boolean).join(' · ');
 }
 
+function previousRunID(event: FlowHistoryEvent): string {
+  if (event.type !== 'FlowStartedOrContinued') return '';
+  const continued = event.payload.continuedStart;
+  if (!continued || typeof continued !== 'object') return '';
+  const value = (continued as Record<string, unknown>).previousRunId;
+  return typeof value === 'string' ? value : '';
+}
+
 export function Timeline({
+  flowId,
   events,
   selectedEvent,
   onSelectEvent,
 }: {
+  flowId: string;
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent) => void;
@@ -60,6 +71,7 @@ export function Timeline({
           const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
           const relative = startMs && eventMs ? Math.max(0, Math.round((eventMs - startMs) / 1000)) : null;
           const selected = selectedEvent?.eventId === event.eventId;
+          const previousRunId = previousRunID(event);
           return (
             <article
               className={`timeline-row ${selected ? 'selected' : ''}`}
@@ -77,7 +89,17 @@ export function Timeline({
                 <header>
                   <div>
                     <span className="event-id">#{event.eventId}</span>
-                    <h3>{eventLabels[event.type]}</h3>
+                    <h3>
+                      {previousRunId ? (
+                        <Link
+                          className="event-run-link"
+                          title={previousRunId}
+                          to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
+                        >
+                          Flow continued
+                        </Link>
+                      ) : eventLabels[event.type]}
+                    </h3>
                     {executionSummary(event) && <p>{executionSummary(event)}</p>}
                   </div>
                   <span className={`event-type tone-${eventTone(event)}`}>{event.type}</span>

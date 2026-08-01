@@ -57,3 +57,4 @@ preferences.
 
 The Run page provides Overview, Step graph, Timeline, active/waiting state,
 attributes, timers, queued steps, channels, completed outputs, and reset.
+Continued runs link to their previous run from Timeline and Step graph.
