@@ -42,7 +42,11 @@ func TestWfStateOptionsSearchAttributesLoading(t *testing.T) {
 }
 
 func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType service.BackendType) {
-	workerHandler := wf_state_options_search_attributes_loading.NewHandler()
+	keywordArraySearchAttributeKey := "CustomKeywordArrayField"
+	if backendType == service.BackendTypeCadence {
+		keywordArraySearchAttributeKey = "CustomKeywordField"
+	}
+	workerHandler := wf_state_options_search_attributes_loading.NewHandler(keywordArraySearchAttributeKey)
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
 	flowClient := runtime.FlowClient
@@ -63,8 +67,9 @@ func doTestWfStateOptionsSearchAttributesLoading(t *testing.T, backendType servi
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	waitResponse, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, waitResponse.GetFlowStatus())
 
 	history := workerHandler.GetTestResult().InvokeHistory
 	require.Equal(t, map[string]int64{
