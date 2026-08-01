@@ -33,7 +33,7 @@ import (
 const (
 	defaultBindAddress       = "127.0.0.1"
 	defaultDexPort           = 8801
-	defaultWebPort           = 8901
+	defaultWebPort           = 8802
 	defaultTemporalPort      = 7233
 	defaultTemporalUIPort    = 8233
 	defaultTemporalNamespace = "default"
@@ -44,7 +44,7 @@ type Config struct {
 	BindAddress string
 	// DexPort defaults to 8801 for the Dex gRPC server.
 	DexPort int
-	// WebPort defaults to 8901 for Dex Web.
+	// WebPort defaults to 8802 for Dex Web.
 	WebPort int
 	// TemporalAddress selects external Temporal when non-empty. Default is local mode.
 	TemporalAddress string

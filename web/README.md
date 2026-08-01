@@ -13,7 +13,7 @@ Temporal/Cadence credentials and backend history never enter the browser.
 dexcli dev
 ```
 
-Open [http://127.0.0.1:8901](http://127.0.0.1:8901). No Node.js process runs in
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). No Node.js process runs in
 this mode.
 
 ## Frontend development
@@ -26,7 +26,7 @@ Terminal one starts the Go API bridge on port 8902:
 ./cli/dexcli dev --web-port 8902
 ```
 
-Terminal two starts Vite with hot reload on port 8901:
+Terminal two starts Vite with hot reload on port 8802:
 
 ```bash
 cd web
