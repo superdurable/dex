@@ -16,7 +16,6 @@ package dex
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -36,6 +35,9 @@ func newWorkerService(
 ) *workerService {
 	if registry == nil {
 		panic("dex: WorkerService requires registry")
+	}
+	if hydrator == nil {
+		panic("dex: WorkerService requires value hydrator")
 	}
 	return &workerService{registry: registry, hydrator: hydrator}
 }
@@ -84,8 +86,10 @@ func (service *workerService) invokeWaitForMethod(
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
-	slots := stepRequestValueSlots(&request.StepInput, request.Attributes)
-	if err := service.hydrateSlots(ctx, slots); err != nil {
+	if err := service.hydrator.HydrateValuesInPlace(
+		ctx,
+		stepRequestValuePointers(&request.StepInput, request.Attributes),
+	); err != nil {
 		return nil, err
 	}
 	input, err := decodeHandlerInput(request.StepInput, step.inputType)
@@ -164,11 +168,11 @@ func (service *workerService) invokeExecuteMethod(
 	if err := validateKVEnvelopes("step-execution local", request.StepExeLocals); err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
-	slots, err := executeRequestValueSlots(request)
+	valuePointers, err := executeRequestValuePointers(request)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrateSlots(ctx, slots); err != nil {
+	if err := service.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
 		return nil, err
 	}
 	input, err := decodeHandlerInput(request.StepInput, step.inputType)
@@ -241,9 +245,9 @@ func (service *workerService) invokeWorkerRPC(
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrateSlots(
+	if err := service.hydrator.HydrateValuesInPlace(
 		ctx,
-		stepRequestValueSlots(&request.Input, request.Attributes),
+		stepRequestValuePointers(&request.Input, request.Attributes),
 	); err != nil {
 		return nil, err
 	}
@@ -326,22 +330,6 @@ func callRPCHandler(
 	return rpc.invoke(invocation, input)
 }
 
-func (service *workerService) hydrateSlots(
-	ctx context.Context,
-	slots []**dexpb.Value,
-) error {
-	err := hydrateValueSlots(ctx, service.hydrator, slots)
-	if err == nil {
-		return nil
-	}
-	var failure *workerFailure
-	if errors.As(err, &failure) || errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-	return newWorkerFailure(codes.InvalidArgument, err)
-}
-
 func validateStepWorkerRequest(
 	metadata *dexpb.Context,
 	flowType string,
@@ -399,37 +387,37 @@ func validateKVEnvelopes(kind string, values []*dexpb.KV) error {
 	return nil
 }
 
-func stepRequestValueSlots(
+func stepRequestValuePointers(
 	input **dexpb.Value,
 	attributes []*dexpb.KV,
 ) []**dexpb.Value {
-	slots := make([]**dexpb.Value, 0, 1+len(attributes))
-	slots = append(slots, input)
+	valuePointers := make([]**dexpb.Value, 0, 1+len(attributes))
+	valuePointers = append(valuePointers, input)
 	for _, attribute := range attributes {
-		slots = append(slots, &attribute.Value)
+		valuePointers = append(valuePointers, &attribute.Value)
 	}
-	return slots
+	return valuePointers
 }
 
-func executeRequestValueSlots(
+func executeRequestValuePointers(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) ([]**dexpb.Value, error) {
-	slots := stepRequestValueSlots(&request.StepInput, request.Attributes)
+	valuePointers := stepRequestValuePointers(&request.StepInput, request.Attributes)
 	for _, local := range request.StepExeLocals {
-		slots = append(slots, &local.Value)
+		valuePointers = append(valuePointers, &local.Value)
 	}
 	if request.ConditionResults == nil {
-		return slots, nil
+		return valuePointers, nil
 	}
 	for index, result := range request.ConditionResults.ChannelResults {
 		if result == nil {
 			return nil, fmt.Errorf("dex: channel result at index %d is nil", index)
 		}
 		for valueIndex := range result.Values {
-			slots = append(slots, &result.Values[valueIndex])
+			valuePointers = append(valuePointers, &result.Values[valueIndex])
 		}
 	}
-	return slots, nil
+	return valuePointers, nil
 }
 
 func decodeHandlerInput(value *dexpb.Value, inputType reflect.Type) (any, error) {

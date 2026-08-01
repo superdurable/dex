@@ -94,7 +94,7 @@ func NewWorker(
 	grpcServer := grpc.NewServer()
 	service := newWorkerService(
 		registered,
-		newWorkerValueHydrator(
+		newValueHydrator(
 			dexpb.NewFlowServiceClient(flowConn),
 			options.BlobCache,
 		),

@@ -50,6 +50,26 @@ type workerTestOutput struct {
 	After  int
 }
 
+type concreteValueHydrator struct{}
+
+func (concreteValueHydrator) HydrateValuesInPlace(
+	_ context.Context,
+	valuePointers []**dexpb.Value,
+) error {
+	for index, valuePointer := range valuePointers {
+		if valuePointer == nil {
+			return newWorkerFailure(
+				codes.InvalidArgument,
+				fmt.Errorf("dex: value pointer at index %d is nil", index),
+			)
+		}
+		if err := validateConcreteValue(*valuePointer); err != nil {
+			return newWorkerFailure(codes.InvalidArgument, err)
+		}
+	}
+	return nil
+}
+
 type workerWaitingStep struct {
 	DefaultStepOptions
 }
@@ -523,17 +543,19 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cache.Close()) }()
-	hydrator := newWorkerValueHydrator(client, cache)
+	hydrator := newValueHydrator(client, cache)
 	request := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: "blob-1",
 	}}
 
-	first, err := hydrator.Hydrate(context.Background(), []*dexpb.Value{request})
+	first := request
+	err = hydrator.HydrateValuesInPlace(context.Background(), []**dexpb.Value{&first})
 	require.NoError(t, err)
-	require.Equal(t, "loaded-blob-1", first[0].GetStringValue())
-	second, err := hydrator.Hydrate(context.Background(), []*dexpb.Value{request})
+	require.Equal(t, "loaded-blob-1", first.GetStringValue())
+	second := request
+	err = hydrator.HydrateValuesInPlace(context.Background(), []**dexpb.Value{&second})
 	require.NoError(t, err)
-	require.Equal(t, "loaded-blob-1", second[0].GetStringValue())
+	require.Equal(t, "loaded-blob-1", second.GetStringValue())
 	require.Equal(t, 1, flowService.callCount())
 
 	cached, err := cache.Put("corrupt", []byte{0xff})
@@ -542,16 +564,17 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	corruptRequest := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: "corrupt",
 	}}
-	loaded, err := hydrator.Hydrate(context.Background(), []*dexpb.Value{corruptRequest})
+	loaded := corruptRequest
+	err = hydrator.HydrateValuesInPlace(context.Background(), []**dexpb.Value{&loaded})
 	require.NoError(t, err)
-	require.Equal(t, "loaded-corrupt", loaded[0].GetStringValue())
+	require.Equal(t, "loaded-corrupt", loaded.GetStringValue())
 	require.Equal(t, 2, flowService.callCount())
 
 	encodedInput := mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1"})
 	flowService.setValue("input-blob", encodedInput)
 	workerClient, closeWorker := newWorkerTestClient(
 		t,
-		newWorkerValueHydrator(client, cache),
+		newValueHydrator(client, cache),
 	)
 	defer closeWorker()
 	rpcRequest := workerRPCRequest(t, workerTestInput{})
@@ -569,18 +592,20 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	wrongRequest := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: wrongID,
 	}}
-	wrongValues, err := hydrator.Hydrate(context.Background(), []*dexpb.Value{wrongRequest})
+	wrongValue := wrongRequest
+	err = hydrator.HydrateValuesInPlace(context.Background(), []**dexpb.Value{&wrongValue})
 	require.ErrorContains(t, err, "hydrated to")
-	require.Nil(t, wrongValues)
+	require.Same(t, wrongRequest, wrongValue)
 
 	omittedID := "omitted"
 	flowService.omitValue(omittedID)
 	omittedRequest := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: omittedID,
 	}}
-	omittedValues, err := hydrator.Hydrate(context.Background(), []*dexpb.Value{omittedRequest})
+	omittedValue := omittedRequest
+	err = hydrator.HydrateValuesInPlace(context.Background(), []**dexpb.Value{&omittedValue})
 	require.ErrorContains(t, err, "omitted blob")
-	require.Nil(t, omittedValues)
+	require.Same(t, omittedRequest, omittedValue)
 
 	closedCache, err := blobcache.New(&blobcache.Config{
 		Dir:      t.TempDir(),
@@ -588,10 +613,14 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, closedCache.Close())
-	uncachedHydrator := newWorkerValueHydrator(client, closedCache)
-	uncached, err := uncachedHydrator.Hydrate(context.Background(), []*dexpb.Value{request})
+	uncachedHydrator := newValueHydrator(client, closedCache)
+	uncached := request
+	err = uncachedHydrator.HydrateValuesInPlace(
+		context.Background(),
+		[]**dexpb.Value{&uncached},
+	)
 	require.NoError(t, err)
-	require.Equal(t, "loaded-blob-1", uncached[0].GetStringValue())
+	require.Equal(t, "loaded-blob-1", uncached.GetStringValue())
 }
 
 type workerBlobFlowService struct {
@@ -844,6 +873,9 @@ func newWorkerTestClient(
 	t *testing.T,
 	hydrator valueHydrator,
 ) (dexpb.WorkerServiceClient, func()) {
+	if hydrator == nil {
+		hydrator = concreteValueHydrator{}
+	}
 	registered, err := newRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
 	listener := bufconn.Listen(1 << 20)

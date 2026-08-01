@@ -112,16 +112,19 @@ remains internal.
 
 | Go value | Proto arm |
 |---|---|
-| string and named strings | `string_value` |
+| valid UTF-8 string and named strings | `string_value` |
 | signed integers | `int_value` |
 | unsigned integers up to `math.MaxInt64` | `int_value` |
 | float32 and float64 | `double_value` |
 | bool and named bools | `bool_value` |
+| `[]byte` and named byte slices | `obj_value`, encoding `"rawbytes"` |
 | all other JSON-compatible values | `obj_value`, encoding `"json"` |
 
-Structs, maps, slices, arrays, `[]byte`, and non-indexed `time.Time` use JSON.
-Ordinary nil and typed nil encode as a JSON null object. The proto null arm is
-reserved for attribute deletion.
+Strings with invalid UTF-8 return an encoding error; arbitrary binary data uses
+`[]byte`. Raw-byte object payloads contain the bytes directly without JSON or
+base64 encoding. Structs, maps, other slices, arrays, and non-indexed
+`time.Time` use JSON. Ordinary nil and typed nil encode as a JSON null object.
+The proto null arm is reserved for attribute deletion.
 
 `Value.Decode` requires a non-nil pointer. It rejects overflow, incompatible
 targets, malformed JSON, unknown object encodings, deletion markers, and blob
@@ -132,8 +135,8 @@ never panic.
 
 | Index type | Accepted Go values |
 |---|---|
-| keyword and text | string and named strings |
-| keyword array | string slices and equivalent named slices |
+| keyword and text | valid UTF-8 string and named strings |
+| keyword array | valid UTF-8 string slices and equivalent named slices |
 | int | signed integers and unsigned integers up to `math.MaxInt64` |
 | double | float32 and float64 |
 | bool | bool and named bools |

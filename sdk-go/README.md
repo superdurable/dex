@@ -165,9 +165,11 @@ avoids repeat loads; the caller still owns and closes the cache.
 ## Value encoding
 
 Strings, booleans, signed integers, representable unsigned integers, and
-floating-point values use native Dex value arms. Structs, maps, slices, arrays,
-`[]byte`, and other JSON-compatible values use an object arm with encoding
-`"json"`.
+floating-point values use native Dex value arms. Strings must contain valid
+UTF-8; use `[]byte` for arbitrary binary data. Byte slices use an object arm
+with encoding `"rawbytes"` and store the bytes directly without base64.
+Structs, maps, other slices, arrays, and JSON-compatible values use an object
+arm with encoding `"json"`.
 
 Returned dynamic values remain opaque until decoded:
 
@@ -178,21 +180,22 @@ if err := value.Decode(&result); err != nil {
 }
 ```
 
-Decode requires a non-nil pointer. Integer overflow, incompatible targets,
-unknown encodings, unhydrated blob references, and malformed JSON return
-errors.
+Decode requires a non-nil pointer. Invalid UTF-8 strings, integer overflow,
+incompatible targets, unknown encodings, unhydrated blob references, and
+malformed JSON return errors.
 
 Ordinary nil encodes as JSON null. The Dex null arm is used only when deleting
 an attribute.
 
 ### Indexed attributes
 
-Keyword and text indexes accept strings. Keyword-array indexes accept string
-slices. Int, double, and bool indexes accept their matching Go scalar families.
-Datetime indexes accept `time.Time` or RFC3339Nano strings, including UTC `Z`
-and numeric offsets. Fractional seconds are preserved. Numeric strings are not
-treated as Unix nanoseconds. Initial indexed values are validated by
-`dex.InitialAttribute` and `dex.InitialAttributeMapValue`.
+Keyword and text indexes accept valid UTF-8 strings. Keyword-array indexes
+accept slices containing valid UTF-8 strings. Int, double, and bool indexes
+accept their matching Go scalar families. Datetime indexes accept `time.Time`
+or RFC3339Nano strings, including UTC `Z` and numeric offsets. Fractional
+seconds are preserved. Numeric strings are not treated as Unix nanoseconds.
+Initial indexed values are validated by `dex.InitialAttribute` and
+`dex.InitialAttributeMapValue`.
 
 The SDK generates a UUID for every start and synchronous-update call when the
 caller does not supply one. `StartFlowOptions.RequestID` may override the

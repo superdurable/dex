@@ -26,6 +26,7 @@ import (
 type namedString string
 type namedInt int32
 type namedStrings []namedString
+type namedBytes []byte
 
 type codecRecord struct {
 	Name  string
@@ -94,11 +95,22 @@ func TestValueCodecNativeAndJSONRoundTrips(t *testing.T) {
 		},
 		{
 			name:   "bytes",
-			input:  []byte("bytes"),
+			input:  []byte{0xff, 0xfe},
 			target: new([]byte),
 			assert: func(t *testing.T, value *dexpb.Value, target any) {
-				require.Equal(t, jsonEncoding, value.GetObjValue().Encoding)
-				require.Equal(t, []byte("bytes"), *target.(*[]byte))
+				require.Equal(t, rawBytesEncoding, value.GetObjValue().Encoding)
+				require.Equal(t, []byte{0xff, 0xfe}, value.GetObjValue().Payload)
+				require.Equal(t, []byte{0xff, 0xfe}, *target.(*[]byte))
+			},
+		},
+		{
+			name:   "named bytes",
+			input:  namedBytes{0x00, 0xff},
+			target: new(namedBytes),
+			assert: func(t *testing.T, value *dexpb.Value, target any) {
+				require.Equal(t, rawBytesEncoding, value.GetObjValue().Encoding)
+				require.Equal(t, []byte{0x00, 0xff}, value.GetObjValue().Payload)
+				require.Equal(t, namedBytes{0x00, 0xff}, *target.(*namedBytes))
 			},
 		},
 	}
@@ -116,6 +128,19 @@ func TestValueCodecNativeAndJSONRoundTrips(t *testing.T) {
 func TestValueCodecRejectsInvalidValues(t *testing.T) {
 	_, err := encodeValue(uint64(math.MaxInt64) + 1)
 	require.ErrorContains(t, err, "exceeds int64")
+
+	_, err = encodeValue(string([]byte{0xff}))
+	require.ErrorContains(t, err, "valid UTF-8")
+
+	_, err = encodeValue(namedString(string([]byte{0xfe})))
+	require.ErrorContains(t, err, "valid UTF-8")
+	var decodedString string
+	require.ErrorContains(t, decodeValue(
+		&dexpb.Value{Kind: &dexpb.Value_StringValue{
+			StringValue: string([]byte{0xfd}),
+		}},
+		&decodedString,
+	), "valid UTF-8")
 
 	_, err = encodeValue(math.NaN())
 	require.ErrorContains(t, err, "non-finite")
@@ -210,6 +235,24 @@ func TestValueDecodeRejectsIncompatibleInterfaces(t *testing.T) {
 		&target,
 	))
 	require.Equal(t, "value", target)
+
+	require.NoError(t, decodeValue(
+		&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: rawBytesEncoding,
+			Payload:  []byte{0xff},
+		}}},
+		&target,
+	))
+	require.Equal(t, []byte{0xff}, target)
+
+	var stringTarget string
+	require.ErrorContains(t, decodeValue(
+		&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: rawBytesEncoding,
+			Payload:  []byte{0xff},
+		}}},
+		&stringTarget,
+	), "cannot decode raw bytes")
 }
 
 func TestIndexedAttributeEncoding(t *testing.T) {
@@ -263,6 +306,11 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 	require.ErrorContains(t, err, "invalid absolute datetime")
 	_, _, err = encodeAttributeValue("20240101", &AttributeIndex{Type: IndexDatetime})
 	require.ErrorContains(t, err, "invalid absolute datetime")
+	_, _, err = encodeAttributeValue(
+		[]string{"valid", string([]byte{0xff})},
+		&AttributeIndex{Type: IndexKeywordArray},
+	)
+	require.ErrorContains(t, err, "index 1 is not valid UTF-8")
 }
 
 func TestInitialAttributeValidatesEncoding(t *testing.T) {
