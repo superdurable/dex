@@ -40,14 +40,11 @@ type blobIDDef struct {
 	isObjectOrString bool
 }
 
-type blobHydrationRequest struct {
-	value  *dexpb.Value
-	blobID blobIDDef
-}
-
-type blobValueTarget struct {
-	value  **dexpb.Value
-	blobID blobIDDef
+type pendingBlob struct {
+	blobID        blobIDDef
+	blobIDValue   *dexpb.Value
+	hydratedValue *dexpb.Value
+	valuePointers []**dexpb.Value
 }
 
 func newValueHydrator(
@@ -64,9 +61,8 @@ func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
 	ctx context.Context,
 	valuePointers []**dexpb.Value,
 ) error {
-	requests := make([]blobHydrationRequest, 0, len(valuePointers))
-	targets := make([]blobValueTarget, 0, len(valuePointers))
-	seenBlobIDs := make(map[blobIDDef]struct{}, len(valuePointers))
+	pendingBlobs := make([]*pendingBlob, 0, len(valuePointers))
+	pendingBlobsByID := make(map[blobIDDef]*pendingBlob, len(valuePointers))
 	for index, valuePointer := range valuePointers {
 		if valuePointer == nil {
 			return newWorkerFailure(
@@ -84,68 +80,70 @@ func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
 			}
 			continue
 		}
-		targets = append(targets, blobValueTarget{
-			value:  valuePointer,
-			blobID: blobID,
-		})
-		if _, found := seenBlobIDs[blobID]; found {
-			continue
+		pending, found := pendingBlobsByID[blobID]
+		if !found {
+			pending = &pendingBlob{
+				blobID:      blobID,
+				blobIDValue: *valuePointer,
+			}
+			pendingBlobsByID[blobID] = pending
+			pendingBlobs = append(pendingBlobs, pending)
 		}
-		seenBlobIDs[blobID] = struct{}{}
-		requests = append(requests, blobHydrationRequest{
-			value:  *valuePointer,
-			blobID: blobID,
-		})
+		pending.valuePointers = append(pending.valuePointers, valuePointer)
 	}
-	if len(requests) == 0 {
+	if len(pendingBlobs) == 0 {
 		return nil
 	}
 
-	hydratedValues, err := hydrator.hydrateBlobValues(ctx, requests)
-	if err != nil {
+	if err := hydrator.hydrateBlobValues(ctx, pendingBlobs); err != nil {
 		return err
 	}
-	for _, target := range targets {
-		*target.value = hydratedValues[target.blobID]
+	for _, pending := range pendingBlobs {
+		for _, valuePointer := range pending.valuePointers {
+			*valuePointer = pending.hydratedValue
+		}
 	}
 	return nil
 }
 
 func (hydrator *valueHydratorImpl) hydrateBlobValues(
 	ctx context.Context,
-	requests []blobHydrationRequest,
-) (map[blobIDDef]*dexpb.Value, error) {
-	values := make(map[blobIDDef]*dexpb.Value, len(requests))
-	misses := make([]blobHydrationRequest, 0, len(requests))
-	for _, request := range requests {
-		cached, found := hydrator.loadCached(request.value, request.blobID)
+	pendingBlobs []*pendingBlob,
+) error {
+	misses := make([]*pendingBlob, 0, len(pendingBlobs))
+	for _, pending := range pendingBlobs {
+		cached, found := hydrator.loadCached(pending.blobIDValue, pending.blobID)
 		if found {
-			values[request.blobID] = cached
+			pending.hydratedValue = cached
 			continue
 		}
-		misses = append(misses, request)
+		misses = append(misses, pending)
 	}
 	if len(misses) == 0 {
-		return values, nil
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
+	}
+	missValues := make([]*dexpb.Value, 0, len(misses))
+	for _, miss := range misses {
+		missValues = append(missValues, miss.blobIDValue)
 	}
 
 	response, err := hydrator.client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
-		Values: blobHydrationRequestValues(misses),
+		Values: missValues,
 	})
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return ctxErr
 		}
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.Internal,
 			fmt.Errorf("dex: LoadBlobs: %w", err),
 		)
 	}
 	if response == nil {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.Internal,
 			fmt.Errorf("dex: LoadBlobs returned a nil response"),
 		)
@@ -153,18 +151,18 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 	for _, miss := range misses {
 		concrete, found := response.Values[miss.blobID.value]
 		if !found {
-			return nil, newWorkerFailure(
+			return newWorkerFailure(
 				codes.Internal,
 				fmt.Errorf("dex: LoadBlobs omitted blob %q", miss.blobID.value),
 			)
 		}
 		if err := validateHydratedValue(miss.blobID, concrete); err != nil {
-			return nil, newWorkerFailure(codes.Internal, err)
+			return newWorkerFailure(codes.Internal, err)
 		}
-		values[miss.blobID] = concrete
-		hydrator.storeCached(miss.value, miss.blobID, concrete)
+		miss.hydratedValue = concrete
+		hydrator.storeCached(miss.blobIDValue, miss.blobID, concrete)
 	}
-	return values, nil
+	return nil
 }
 
 func (hydrator *valueHydratorImpl) loadCached(
@@ -218,16 +216,6 @@ func (hydrator *valueHydratorImpl) storeCached(
 	if !cached {
 		slog.Default().Debug("Worker blob cache rejected entry", "blob_id", blobID.value)
 	}
-}
-
-func blobHydrationRequestValues(
-	requests []blobHydrationRequest,
-) []*dexpb.Value {
-	values := make([]*dexpb.Value, 0, len(requests))
-	for _, request := range requests {
-		values = append(values, request.value)
-	}
-	return values
 }
 
 func marshalBlobCachePayload(
