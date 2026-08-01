@@ -10,7 +10,7 @@ Here is the repository layout if you are interested to learn about it:
 * IDL source lives in monorepo `protos/dex.proto` (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * `dex` the main directory
   * `blobcache/` the independently tested disk blob cache
-  * root `.go` files contain public contracts and private registration/mapping
+  * root `.go` files contain public contracts and private registration/runtime
   * `contracts_test.go` compiles the API from an external application package
   * package-internal tests cover registration, value, protobuf, errors, and
     hydration
@@ -19,19 +19,21 @@ Here is the repository layout if you are interested to learn about it:
 
 Application packages must import `dex`, not `gen/dexpb`.
 
-## Phase 3 verification
+## Phase 4 verification
 
-Run registry, codec, mapper, contract, example, and cache tests through the
-Makefile:
+Run registry, codec, Worker transport, contract, example, and cache tests
+through the Makefile:
 
 ```text
-make unitTests 2>&1 | tee /tmp/test-go-sdk-phase3.log
-make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase3-blobcache.log
-make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase3-copyright.log
+make unitTests 2>&1 | tee /tmp/test-go-sdk-phase4.log
+make workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase4-worker.log
+make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcache.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase4-copyright.log
 ```
 
-Phase 3 does not run the legacy integration suite because WorkerService and
-transport remain outside this phase.
+`workerIntegTests` runs the WorkerService gRPC integration tests with the race
+detector. The legacy end-to-end suite remains Phase 5 because public Client
+transport is not implemented.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
