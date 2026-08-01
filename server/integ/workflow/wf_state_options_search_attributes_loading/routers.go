@@ -51,12 +51,14 @@ const (
 
 type handler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	invokeHistory sync.Map
+	invokeHistory                  sync.Map
+	keywordArraySearchAttributeKey string
 }
 
-func NewHandler() *handler {
+func NewHandler(keywordArraySearchAttributeKey string) *handler {
 	return &handler{
-		invokeHistory: sync.Map{},
+		invokeHistory:                  sync.Map{},
+		keywordArraySearchAttributeKey: keywordArraySearchAttributeKey,
 	}
 }
 
@@ -80,7 +82,10 @@ func (h *handler) InvokeWaitForMethod(
 	h.incrementInvokeHistory(request.GetStepType() + "_waitFor")
 
 	if request.GetStepType() != State1 {
-		if err := verifyAllSearchAttributes(request.GetAttributes()); err != nil {
+		if err := verifyAllSearchAttributes(
+			h.keywordArraySearchAttributeKey,
+			request.GetAttributes(),
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -107,14 +112,20 @@ func (h *handler) InvokeExecuteMethod(
 	var response *dexpb.InvokeExecuteMethodResponse
 	switch request.GetStepType() {
 	case State1:
-		response = getState1ExecuteResponse(request)
+		response = getState1ExecuteResponse(request, h.keywordArraySearchAttributeKey)
 	case State2, State3, State4:
-		if err := verifyAllSearchAttributes(request.GetAttributes()); err != nil {
+		if err := verifyAllSearchAttributes(
+			h.keywordArraySearchAttributeKey,
+			request.GetAttributes(),
+		); err != nil {
 			return nil, err
 		}
 		response = getNextStateExecuteResponse(request)
 	case State5:
-		if err := verifyAllSearchAttributes(request.GetAttributes()); err != nil {
+		if err := verifyAllSearchAttributes(
+			h.keywordArraySearchAttributeKey,
+			request.GetAttributes(),
+		); err != nil {
 			return nil, err
 		}
 		response = getState5ExecuteResponse()
@@ -142,7 +153,10 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func getState1ExecuteResponse(request *dexpb.InvokeExecuteMethodRequest) *dexpb.InvokeExecuteMethodResponse {
+func getState1ExecuteResponse(
+	request *dexpb.InvokeExecuteMethodRequest,
+	keywordArraySearchAttributeKey string,
+) *dexpb.InvokeExecuteMethodResponse {
 	return &dexpb.InvokeExecuteMethodResponse{
 		StepDecision: &dexpb.StepDecision{
 			NextSteps: []*dexpb.StepMovement{
@@ -152,7 +166,7 @@ func getState1ExecuteResponse(request *dexpb.InvokeExecuteMethodRequest) *dexpb.
 				},
 			},
 		},
-		UpsertAttributes: upsertSearchAttributes(),
+		UpsertAttributes: upsertSearchAttributes(keywordArraySearchAttributeKey),
 	}
 }
 
@@ -186,19 +200,22 @@ func getState5ExecuteResponse() *dexpb.InvokeExecuteMethodResponse {
 	}
 }
 
-func verifyAllSearchAttributes(attributes []*dexpb.KV) error {
-	expected := upsertSearchAttributeKVs()
+func verifyAllSearchAttributes(
+	keywordArraySearchAttributeKey string,
+	attributes []*dexpb.KV,
+) error {
+	expected := upsertSearchAttributeKVs(keywordArraySearchAttributeKey)
 	if err := matchAttributeKVsUnordered(expected, attributes); err != nil {
 		return status.Error(codes.InvalidArgument, "search attributes should be the same: "+err.Error())
 	}
 	return nil
 }
 
-func upsertSearchAttributes() []*dexpb.AttributeWrite {
+func upsertSearchAttributes(keywordArraySearchAttributeKey string) []*dexpb.AttributeWrite {
 	keywordArrayPayload, _ := json.Marshal([]string{"keyword1", "keyword2"})
 	return []*dexpb.AttributeWrite{
 		{
-			Key: "CustomKeywordArrayField",
+			Key: keywordArraySearchAttributeKey,
 			Value: &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{
@@ -217,8 +234,8 @@ func upsertSearchAttributes() []*dexpb.AttributeWrite {
 	}
 }
 
-func upsertSearchAttributeKVs() []*dexpb.KV {
-	writes := upsertSearchAttributes()
+func upsertSearchAttributeKVs(keywordArraySearchAttributeKey string) []*dexpb.KV {
+	writes := upsertSearchAttributes(keywordArraySearchAttributeKey)
 	kvs := make([]*dexpb.KV, len(writes))
 	for index, write := range writes {
 		kvs[index] = &dexpb.KV{Key: write.GetKey(), Value: write.GetValue()}
