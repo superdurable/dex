@@ -98,6 +98,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 		FlowTimeoutSeconds: 60,
 
 		StartStepType: command_thread_completion.StateAnyCmd,
+		StepInput:     nullValue(),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
@@ -126,6 +127,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 
 	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowId,
+		NeedsResults:    true,
 		WaitTimeSeconds: 20,
 	})
 	if err != nil {
@@ -149,6 +151,7 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	}, history, "State execution history mismatch: %v", history)
 
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Empty(response.GetResults())
 	signalReceived, ok := data["any_cmd_signal_received"].(bool)
 	assertions.True(ok, "any_cmd_signal_received data should be present")
 	assertions.True(signalReceived)

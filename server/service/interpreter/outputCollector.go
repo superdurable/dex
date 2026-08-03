@@ -20,7 +20,10 @@
 
 package interpreter
 
-import "github.com/superdurable/dex/gen/dexpb"
+import (
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/utils"
+)
 
 type OutputCollector struct {
 	outputs []*dexpb.StepCompletionOutput
@@ -37,7 +40,11 @@ func NewOutputCollector(initOutputs []*dexpb.StepCompletionOutput) *OutputCollec
 func (o *OutputCollector) Add(
 	output *dexpb.StepCompletionOutput,
 ) {
-	if output == nil || output.GetCompletedStepOutput().GetKind() == nil {
+	if output == nil {
+		return
+	}
+	completedStepOutput := output.GetCompletedStepOutput()
+	if completedStepOutput.GetKind() == nil || utils.IsNullValue(completedStepOutput) {
 		return
 	}
 	o.outputs = append(o.outputs, output)
