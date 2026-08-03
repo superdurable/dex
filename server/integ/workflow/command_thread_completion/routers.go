@@ -282,7 +282,7 @@ func (h *handler) InvokeExecuteMethod(
 
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
-				CloseDecision: common.GracefulCompleteDecision(nil),
+				CloseDecision: common.GracefulCompleteDecision(request.GetStepInput()),
 			},
 		}, nil
 	case StateAnyCmd:
@@ -318,7 +318,7 @@ func (h *handler) InvokeExecuteMethod(
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
 				NextSteps: []*dexpb.StepMovement{
-					{StepType: State3},
+					{StepType: State3, StepInput: request.GetStepInput()},
 				},
 			},
 		}, nil
