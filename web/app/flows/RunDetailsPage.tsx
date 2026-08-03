@@ -103,6 +103,13 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
 
   useEffect(() => {
     let active = true;
+    setSummary(null);
+    setHistory([]);
+    setState(null);
+    setNextPageToken('');
+    setNextInternalEventId(0);
+    setSelectedEvent(null);
+    setError('');
     setLoading(true);
     void refresh().finally(() => {
       if (active) setLoading(false);
@@ -234,6 +241,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           )}
           {tab === 'steps' && (
             <StepGraph
+              flowId={flowId}
               events={history}
               state={state}
               selectedEvent={selectedEvent}
@@ -242,6 +250,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           )}
           {tab === 'timeline' && (
             <Timeline
+              flowId={flowId}
               events={history}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}

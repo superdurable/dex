@@ -93,6 +93,7 @@ export interface StepGraphNode {
   label: string;
   kind: 'source' | 'step' | 'terminal';
   status: 'Source' | 'Active' | 'Waiting' | 'Completed' | 'Failed' | 'Terminal';
+  previousRunId?: string;
   stepType?: string;
   fromStepExecutionId?: string;
   waitFor?: FlowHistoryEvent;
