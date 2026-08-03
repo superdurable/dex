@@ -58,3 +58,6 @@ preferences.
 The Run page provides Overview, Step graph, Timeline, active/waiting state,
 attributes, timers, queued steps, channels, completed outputs, and reset.
 Continued runs link to their previous run from Timeline and Step graph.
+Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
+Timeline and Step graph share structured event details for flow, step method, RPC,
+and channel events. A Raw JSON tab preserves the complete server payload.

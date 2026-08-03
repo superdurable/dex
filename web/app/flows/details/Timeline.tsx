@@ -1,25 +1,13 @@
-'use client';
-
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
+import { durabilityLabel } from '@/lib/semantic';
 import { usePreferences } from '../../providers';
-import { JsonView } from '../../components/JsonView';
-
-const eventLabels: Record<FlowHistoryEvent['type'], string> = {
-  FlowStartedOrContinued: 'Flow started',
-  FlowClosed: 'Flow closed',
-  StepWaitForCompleted: 'WaitFor completed',
-  StepWaitForFailed: 'WaitFor failed',
-  StepExecuteCompleted: 'Execute completed',
-  StepExecuteFailed: 'Execute failed',
-  RpcExecutionCompleted: 'RPC completed',
-  ChannelExternalPublish: 'Channel published',
-};
+import { eventTitle } from './EventDetails';
 
 function eventTone(event: FlowHistoryEvent) {
   if (event.type.endsWith('Failed')) return 'failed';
+  if (event.type === 'StepWaitForCompleted') return 'waiting';
   if (event.type.endsWith('Completed')) return 'completed';
   if (event.type === 'FlowClosed') return 'closed';
   return 'neutral';
@@ -52,7 +40,6 @@ export function Timeline({
   onSelectEvent: (event: FlowHistoryEvent) => void;
 }) {
   const { timezone } = usePreferences();
-  const [expandAll, setExpandAll] = useState(false);
   if (!events.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
   const startMs = events[0].eventTime ? Date.parse(events[0].eventTime) : 0;
   return (
@@ -62,9 +49,6 @@ export function Timeline({
           <p className="eyebrow">Dex semantic history</p>
           <h2>{events.length} events</h2>
         </div>
-        <button className="button ghost" onClick={() => setExpandAll(!expandAll)}>
-          {expandAll ? 'Collapse all' : 'Expand all'}
-        </button>
       </div>
       <div className="timeline">
         {events.map((event) => {
@@ -98,19 +82,13 @@ export function Timeline({
                         >
                           Flow continued
                         </Link>
-                      ) : eventLabels[event.type]}
+                      ) : eventTitle(event)}
                     </h3>
                     {executionSummary(event) && <p>{executionSummary(event)}</p>}
                   </div>
                   <span className={`event-type tone-${eventTone(event)}`}>{event.type}</span>
                 </header>
                 <EventHighlights event={event} />
-                <JsonView
-                  key={`${event.eventId}-${expandAll}`}
-                  value={event.payload}
-                  label="Event details"
-                  initiallyOpen={expandAll}
-                />
               </div>
             </article>
           );
@@ -126,9 +104,8 @@ function EventHighlights({ event }: { event: FlowHistoryEvent }) {
   if (!execution && !failure) return null;
   return (
     <div className="event-highlights">
-      {execution?.durability !== undefined && <span>Durability <b>{String(execution.durability)}</b></span>}
+      {execution?.durability !== undefined && <span>Durability <b>{durabilityLabel(execution.durability)}</b></span>}
       {execution?.finalAttempt !== undefined && <span>Final attempt <b>{String(execution.finalAttempt)}</b></span>}
-      {execution?.isTransientStep === true && <span className="transient-chip">Transient</span>}
       {typeof failure?.message === 'string' && failure.message && (
         <span className="failure-message">{failure.message}</span>
       )}

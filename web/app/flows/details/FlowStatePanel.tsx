@@ -1,5 +1,21 @@
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
+import { waitingConditionTypeLabel } from '@/lib/semantic';
 import { JsonView } from '../../components/JsonView';
+import { EventDetails, eventTitle } from './EventDetails';
+
+type Data = Record<string, unknown>;
+
+function data(value: unknown): Data {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
+}
+
+function normalizeWaitingCondition(value: unknown): Data {
+  const condition = data(value);
+  return {
+    ...condition,
+    waitingConditionType: waitingConditionTypeLabel(condition.waitingConditionType),
+  };
+}
 
 export function FlowStatePanel({
   state,
@@ -15,12 +31,12 @@ export function FlowStatePanel({
       {selectedEvent && (
         <section className="sidebar-section">
           <p className="eyebrow">Selected event</p>
-          <h3>{selectedEvent.type}</h3>
+          <h3>{eventTitle(selectedEvent)}</h3>
           <div className="event-meta">
             <span>Event {selectedEvent.eventId}</span>
             <span>{selectedEvent.eventTime || 'No timestamp'}</span>
           </div>
-          <JsonView value={selectedEvent.payload} label="Payload" initiallyOpen />
+          <EventDetails event={selectedEvent} />
         </section>
       )}
 
@@ -37,7 +53,7 @@ export function FlowStatePanel({
             <code>{step.stepExecutionId}</code>
             <span>From {step.fromStepExecutionId || '—'}</span>
             {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
-              <JsonView value={step.waitingCondition} label="Waiting condition" />
+              <JsonView value={normalizeWaitingCondition(step.waitingCondition)} label="Waiting condition" />
             )}
             {step.timers.length > 0 && <JsonView value={step.timers} label={`${step.timers.length} timers`} />}
           </div>
