@@ -180,9 +180,15 @@ temporalIntegTests:
 
 dexServerAddress ?= 127.0.0.1:8801
 temporalHostPort ?= 127.0.0.1:7233
+skipContinueAsNewTests ?= true
 
 temporalIntegTestsAgainstLocalDexDev:
-	$Q go test -v ./integ -timeout 20m -search=false -cadence=false -dexServerAddress=$(dexServerAddress) -temporalHostPort=$(temporalHostPort)
+	$Q set -e; \
+		test_run_pattern='.'; \
+		if [ "$(skipContinueAsNewTests)" = "true" ]; then \
+			test_run_pattern="$$(go test -v ./integ -list '^Test' -temporal=false -cadence=false -dependencyWaitSeconds=0 | awk '/^Test/ && $$0 !~ /ContinueAsNew/ { tests = tests separator $$0; separator = "|" } END { print "^(" tests ")$$" }')"; \
+		fi; \
+		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dexServerAddress=$(dexServerAddress) -temporalHostPort=$(temporalHostPort)
 
 cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false

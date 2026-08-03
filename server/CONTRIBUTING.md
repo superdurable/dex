@@ -198,6 +198,19 @@ visibility backend; indexed attribute read/write coverage remains enabled. The
 external client also supplies the suite's SYNC durability default when a start
 request omits it and preserves the suite's 12-second API wait cap.
 
+The target excludes top-level tests whose names contain `ContinueAsNew` by
+default:
+
+```shell
+make temporalIntegTestsAgainstLocalDexDev \
+  dexServerAddress=127.0.0.1:18801 \
+  temporalHostPort=127.0.0.1:7233
+```
+
+Set `skipContinueAsNewTests=false` to run every top-level test. When filtering,
+the target lists the tests and runs those whose names do not contain
+`ContinueAsNew`.
+
 Tests requiring per-process Dex configuration—external storage, memo
 encryption, default headers, or disabled sticky cache—are skipped in this mode.
 They remain covered by `temporalIntegTests`, which starts an in-process Dex
