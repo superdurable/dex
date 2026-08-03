@@ -20,7 +20,7 @@ type Field = [label: string, value: unknown];
 const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   FlowStartedOrContinued: 'Flow started',
   FlowClosed: 'Flow closed',
-  StepWaitForCompleted: 'WaitFor started',
+  StepWaitForCompleted: 'WaitForCondition started',
   StepWaitForFailed: 'WaitFor failed',
   StepExecuteCompleted: 'Execute completed',
   StepExecuteFailed: 'Execute failed',

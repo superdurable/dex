@@ -1238,8 +1238,43 @@ pre {
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 145px 28px minmax(0, 1fr);
+  grid-template-columns: 145px 88px minmax(0, 1fr);
   cursor: pointer;
+}
+
+.timeline {
+  position: relative;
+}
+
+.timeline-step-links {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.timeline-step-link {
+  fill: none;
+  stroke: #4f87a3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2px;
+}
+
+#timeline-step-arrow path {
+  fill: #4f87a3;
+}
+
+.timeline-step-duration {
+  fill: #3b6479;
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: white;
+  stroke-linejoin: round;
+  stroke-width: 5px;
 }
 
 .timeline-row.selected .event-card {
@@ -1268,13 +1303,14 @@ pre {
 .timeline-rail {
   position: relative;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .timeline-rail::before {
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 13px;
   width: 1px;
   content: "";
   background: var(--line);
@@ -1285,6 +1321,7 @@ pre {
   width: 10px;
   height: 10px;
   margin-top: 17px;
+  margin-left: 8px;
   border: 2px solid white;
   border-radius: 50%;
   background: #8da09b;
@@ -1814,7 +1851,7 @@ pre {
   }
 
   .timeline-row {
-    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-columns: 74px minmax(0, 1fr);
   }
 
   .timeline-time {
@@ -1827,6 +1864,14 @@ pre {
   .timeline-rail {
     grid-column: 1;
     grid-row: 1 / 3;
+  }
+
+  .timeline-rail::before {
+    left: 8px;
+  }
+
+  .timeline-dot {
+    margin-left: 3px;
   }
 
   .event-card {
