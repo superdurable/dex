@@ -27,17 +27,19 @@ type OutputCollector struct {
 }
 
 func NewOutputCollector(initOutputs []*dexpb.StepCompletionOutput) *OutputCollector {
-	if initOutputs == nil {
-		initOutputs = []*dexpb.StepCompletionOutput{}
+	collector := &OutputCollector{}
+	for _, output := range initOutputs {
+		collector.Add(output)
 	}
-	return &OutputCollector{
-		outputs: initOutputs,
-	}
+	return collector
 }
 
 func (o *OutputCollector) Add(
 	output *dexpb.StepCompletionOutput,
 ) {
+	if output == nil || output.GetCompletedStepOutput().GetKind() == nil {
+		return
+	}
 	o.outputs = append(o.outputs, output)
 }
 

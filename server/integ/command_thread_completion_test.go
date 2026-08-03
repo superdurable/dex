@@ -200,7 +200,8 @@ func doTestCommandThreadCompletion(
 	}()
 
 	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
-		FlowId: flowId,
+		FlowId:       flowId,
+		NeedsResults: true,
 	})
 	require.NoError(t, err)
 
@@ -219,6 +220,7 @@ func doTestCommandThreadCompletion(
 	}, history, "Command thread completion test failed - state execution history mismatch: %v", history)
 
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertions.Empty(response.GetResults())
 
 	s1TimerFired, ok := data["s1_timer_fired"].(bool)
 	assertions.True(ok)
