@@ -891,6 +891,10 @@ func (s *serviceImpl) InvokeRPC(
 	if err := workerclient.RejectWorkerBlobIDs(req.GetInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
+	if len(req.GetLockAttributeKeys()) > 0 &&
+		s.client.GetBackendType() == service.BackendTypeCadence {
+		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
+	}
 	runID := req.GetRunId()
 	if runID == "" {
 		description, err := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), "", nil)
@@ -900,16 +904,15 @@ func (s *serviceImpl) InvokeRPC(
 		runID = description.RunId
 	}
 
-	retryPolicy := config.QueryWorkflowFailedRetryPolicyWithDefaults(
-		&s.apiCfg.QueryWorkflowFailedRetryPolicy,
-	)
+	retryPolicy := s.apiCfg.EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy()
 	for attempt := 1; ; attempt++ {
 		response, err := s.doInvokeRPC(ctx, req, runID)
 		if err == nil {
 			return response, nil
 		}
-		if req.GetRunId() != "" || attempt >= retryPolicy.MaximumAttempts {
-			return nil, err
+		if req.GetRunId() != "" || !s.client.IsNotFoundError(err) ||
+			attempt >= retryPolicy.MaximumAttempts {
+			return nil, s.handleInvokeRPCError(err)
 		}
 		description, describeErr := s.client.DescribeWorkflowExecution(
 			ctx,
@@ -923,10 +926,10 @@ func (s *serviceImpl) InvokeRPC(
 				tag.WorkflowID(req.GetFlowId()),
 				tag.Error(describeErr),
 			)
-			return nil, err
+			return nil, s.handleInvokeRPCError(err)
 		}
 		if description.RunId == runID {
-			return nil, err
+			return nil, s.handleInvokeRPCError(err)
 		}
 		runID = description.RunId
 		if retryErr := waitForCANRetry(
@@ -957,7 +960,7 @@ func (s *serviceImpl) doInvokeRPC(
 		service.PrepareRpcQueryType,
 		&dexpb.PrepareRpcQueryRequest{},
 	); err != nil {
-		return nil, s.handleError(err)
+		return nil, err
 	}
 	workerResponse, err := rpc.InvokeWorkerRpc(
 		ctx,
@@ -970,10 +973,7 @@ func (s *serviceImpl) doInvokeRPC(
 		s.extStore,
 	)
 	if err != nil {
-		if mapped, ok := serviceerrors.WorkerAPIFailure(err); ok {
-			return nil, mapped.ToGRPCError()
-		}
-		return nil, s.handleError(err)
+		return nil, err
 	}
 	decision := workerResponse.GetStepDecision()
 	if len(workerResponse.GetUpsertAttributes()) > 0 ||
@@ -998,10 +998,17 @@ func (s *serviceImpl) doInvokeRPC(
 			service.ExecuteRpcSignalChannelName,
 			signalRequest,
 		); err != nil {
-			return nil, s.handleError(err)
+			return nil, err
 		}
 	}
 	return &dexpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
+}
+
+func (s *serviceImpl) handleInvokeRPCError(err error) error {
+	if mapped, ok := serviceerrors.WorkerAPIFailure(err); ok {
+		return mapped.ToGRPCError()
+	}
+	return s.handleError(err)
 }
 
 func (s *serviceImpl) handleRpcBySynchronousUpdate(
@@ -1009,9 +1016,6 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 	req *dexpb.InvokeRPCRequest,
 	runID string,
 ) (*dexpb.InvokeRPCResponse, error) {
-	if s.client.GetBackendType() == service.BackendTypeCadence {
-		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
-	}
 	var result dexpb.InvokeRpcUpdateResult
 	if err := s.client.SynchronousUpdateWorkflow(
 		ctx,
@@ -1022,10 +1026,10 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 		service.ExecuteOptimisticLockingRpcUpdateType,
 		req,
 	); err != nil {
-		return nil, s.handleError(err)
+		return nil, err
 	}
 	if result.GetResponse() == nil {
-		return nil, serviceerrors.Internal("locking RPC returned no response").ToGRPCError()
+		return nil, fmt.Errorf("locking RPC returned no response")
 	}
 	return result.GetResponse(), nil
 }

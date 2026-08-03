@@ -5,6 +5,9 @@ api:
   queryWorkflowFailedRetryPolicy:
     initialIntervalSeconds: 1
     maximumAttempts: 5
+  invokeRPCContinuedAsNewErrorRetryPolicy:
+    initialIntervalSeconds: 1
+    maximumAttempts: 5
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s

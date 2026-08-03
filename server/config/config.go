@@ -145,14 +145,23 @@ type (
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
 		// IncludeRPCInputOutputIntoHistory stores RPC input/output in Temporal/Cadence history for debugging. Default false.
 		IncludeRPCInputOutputIntoHistory bool `yaml:"includeRPCInputOutputIntoHistory"`
-		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls and InvokeRPC after a run transition.
+		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls against the backend.
 		QueryWorkflowFailedRetryPolicy QueryWorkflowFailedRetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
+		// InvokeRPCContinuedAsNewErrorRetryPolicy retries InvokeRPC after ContinueAsNew. Default interval is 1 second and maximum attempts is 5.
+		InvokeRPCContinuedAsNewErrorRetryPolicy InvokeRPCContinuedAsNewErrorRetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
 	}
 
 	QueryWorkflowFailedRetryPolicy struct {
 		// InitialIntervalSeconds is the first backoff between query retries. Default 1.
 		InitialIntervalSeconds int `yaml:"initialIntervalSeconds"`
 		// MaximumAttempts is the max attempts including the first. Default 5.
+		MaximumAttempts int `yaml:"maximumAttempts"`
+	}
+
+	InvokeRPCContinuedAsNewErrorRetryPolicy struct {
+		// InitialIntervalSeconds is the delay between attempts. Non-positive values default to 1.
+		InitialIntervalSeconds int `yaml:"initialIntervalSeconds"`
+		// MaximumAttempts includes the initial attempt. Non-positive values default to 5.
 		MaximumAttempts int `yaml:"maximumAttempts"`
 	}
 
@@ -286,6 +295,18 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 		return DefaultMaxWaitSeconds
 	}
 	return c.MaxWaitSeconds
+}
+
+// EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy returns the configured policy with defaults.
+func (c ApiConfig) EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy() InvokeRPCContinuedAsNewErrorRetryPolicy {
+	policy := c.InvokeRPCContinuedAsNewErrorRetryPolicy
+	if policy.InitialIntervalSeconds <= 0 {
+		policy.InitialIntervalSeconds = 1
+	}
+	if policy.MaximumAttempts <= 0 {
+		policy.MaximumAttempts = 5
+	}
+	return policy
 }
 
 // EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.
