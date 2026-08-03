@@ -49,7 +49,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const defaultHistoryPageSize = 100
+const (
+	defaultHistoryPageSize           = 100
+	invokeRpcCANRetryMaximumAttempts = 6
+)
 
 type serviceImpl struct {
 	client         uclient.UnifiedClient
@@ -895,21 +898,14 @@ func (s *serviceImpl) InvokeRPC(
 		return s.handleRpcBySynchronousUpdate(ctx, req)
 	}
 
-	var preparation dexpb.PrepareRpcQueryResponse
-	if err := s.client.QueryWorkflow(
-		ctx,
-		&preparation,
-		req.GetFlowId(),
-		req.GetRunId(),
-		service.PrepareRpcQueryType,
-		&dexpb.PrepareRpcQueryRequest{},
-	); err != nil {
+	preparation, err := s.queryRpcPreparation(ctx, req)
+	if err != nil {
 		return nil, s.handleError(err)
 	}
 	workerResponse, err := rpc.InvokeWorkerRpc(
 		ctx,
 		s.workerPool,
-		&preparation,
+		preparation,
 		req,
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 		s.store,
@@ -949,6 +945,37 @@ func (s *serviceImpl) InvokeRPC(
 		}
 	}
 	return &dexpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
+}
+
+func (s *serviceImpl) queryRpcPreparation(
+	ctx context.Context,
+	req *dexpb.InvokeRPCRequest,
+) (*dexpb.PrepareRpcQueryResponse, error) {
+	backoff := 25 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		preparation := &dexpb.PrepareRpcQueryResponse{}
+		err := s.client.QueryWorkflow(
+			ctx,
+			preparation,
+			req.GetFlowId(),
+			req.GetRunId(),
+			service.PrepareRpcQueryType,
+			&dexpb.PrepareRpcQueryRequest{},
+		)
+		if err == nil {
+			return preparation, nil
+		}
+		if req.GetRunId() != "" || !s.client.IsNotFoundError(err) ||
+			attempt >= invokeRpcCANRetryMaximumAttempts {
+			return nil, err
+		}
+		if err := waitForCANRetry(ctx, time.Time{}, backoff); err != nil {
+			return nil, err
+		}
+		if backoff < time.Second {
+			backoff *= 2
+		}
+	}
 }
 
 func (s *serviceImpl) handleRpcBySynchronousUpdate(
