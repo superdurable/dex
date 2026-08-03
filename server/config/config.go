@@ -145,7 +145,7 @@ type (
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
 		// IncludeRPCInputOutputIntoHistory stores RPC input/output in Temporal/Cadence history for debugging. Default false.
 		IncludeRPCInputOutputIntoHistory bool `yaml:"includeRPCInputOutputIntoHistory"`
-		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls against the backend.
+		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls and InvokeRPC after a run transition.
 		QueryWorkflowFailedRetryPolicy QueryWorkflowFailedRetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
 	}
 
