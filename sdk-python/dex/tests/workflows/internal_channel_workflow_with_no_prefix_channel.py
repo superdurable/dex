@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from dex.command_request import CommandRequest, InternalChannelCommand
 from dex.command_results import CommandResults
@@ -28,7 +24,6 @@ internal_channel_name = "internal-channel-1"
 test_non_prefix_channel_name = "test-channel-"
 test_non_prefix_channel_name_with_suffix = test_non_prefix_channel_name + "abc"
 
-
 class InitState(WorkflowState[None]):
     def execute(
         self,
@@ -41,7 +36,6 @@ class InitState(WorkflowState[None]):
         return StateDecision.multi_next_states(
             WaitAnyWithPublishState, WaitAllThenPublishState
         )
-
 
 class WaitAnyWithPublishState(WorkflowState[None]):
     def wait_until(
@@ -69,7 +63,6 @@ class WaitAnyWithPublishState(WorkflowState[None]):
     ) -> StateDecision:
         return StateDecision.graceful_complete_workflow()
 
-
 class WaitAllThenPublishState(WorkflowState[None]):
     def wait_until(
         self,
@@ -92,7 +85,6 @@ class WaitAllThenPublishState(WorkflowState[None]):
     ) -> StateDecision:
         communication.publish_to_internal_channel(internal_channel_name, None)
         return StateDecision.dead_end
-
 
 class InternalChannelWorkflowWithNoPrefixChannel(ObjectWorkflow):
     def get_workflow_states(self) -> StateSchema:

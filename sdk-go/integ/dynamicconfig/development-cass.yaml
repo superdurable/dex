@@ -1,3 +1,6 @@
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
 system.forceSearchAttributesCacheRefreshOnRead:
   - value: true # Dev setup only. Please don't turn this on in production.
     constraints: {}

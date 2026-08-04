@@ -45,15 +45,23 @@ jobs:
               - '.github/workflows/web-ci.yml'
             copyright:
               - 'server/**'
+              - 'cli/**'
               - 'sdk-go/**'
               - 'sdk-java/**'
               - 'sdk-python/**'
               - 'sdk-rust/**'
+              - 'web/**'
               - 'examples/go/**'
               - 'examples/java/**'
               - 'examples/python/**'
               - 'protos/**'
               - 'script/licenseheaders/**'
+              - 'LICENSE'
+              - 'LEGACY_NOTICES.md'
+              - 'LICENSING.md'
+              - 'CLA.md'
+              - 'CLA-INDIVIDUAL.md'
+              - 'CLA-CORPORATE.md'
               - 'Makefile'
               - '.github/workflows/copyright-ci.yml'
       - name: Wait for required workflows
@@ -74,6 +82,7 @@ jobs:
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Web CI" "Copyright")
           else
+            expected+=("CLA")
             [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")

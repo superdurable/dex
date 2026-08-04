@@ -47,15 +47,15 @@ module map.
 
 ## License Headers
 
-- Every new or edited `.go` / `.java` / `.py` file (and hand-written OpenAPI YAML
-  under `protos/`) must start with the license header for its directory.
-- Templates and mapping: `script/licenseheaders/` (`mit`, `apache-2.0`,
-  `dual-mit-apache`). The tool picks the template by longest path prefix.
+- Every managed source file must use its `legacy-only`, `mixed`, or `new`
+  header from `script/licenseheaders/legacy-manifest.json`.
+- Web TypeScript, CSS, and HTML sources use the `new` header. Examples retain
+  their existing MIT or Apache-2.0 headers.
 - Skip generated trees: `**/gen/**`, `*.pb.go`, `*_pb.go`, `*.gen.*`.
 - When creating or modifying such a file, check the top; if the header is
   missing, add it. Or run `make copyright` from the repo root.
-- Use `make copyright-check` to verify; `make copyright-replace` to rewrite to
-  the Super Durable per-directory template (destructive).
+- Use `make copyright` to add or upgrade headers and `make copyright-check` to
+  verify classifications and normalized body hashes.
 
 # Server Go Conventions (`server/**/*.go`)
 

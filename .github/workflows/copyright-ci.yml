@@ -5,29 +5,45 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "cli/**"
       - "sdk-go/**"
       - "sdk-java/**"
       - "sdk-python/**"
       - "sdk-rust/**"
+      - "web/**"
       - "examples/go/**"
       - "examples/java/**"
       - "examples/python/**"
       - "protos/**"
       - "script/licenseheaders/**"
+      - "LICENSE"
+      - "LEGACY_NOTICES.md"
+      - "LICENSING.md"
+      - "CLA.md"
+      - "CLA-INDIVIDUAL.md"
+      - "CLA-CORPORATE.md"
       - "Makefile"
       - ".github/workflows/copyright-ci.yml"
   pull_request:
     paths:
       - "server/**"
+      - "cli/**"
       - "sdk-go/**"
       - "sdk-java/**"
       - "sdk-python/**"
       - "sdk-rust/**"
+      - "web/**"
       - "examples/go/**"
       - "examples/java/**"
       - "examples/python/**"
       - "protos/**"
       - "script/licenseheaders/**"
+      - "LICENSE"
+      - "LEGACY_NOTICES.md"
+      - "LICENSING.md"
+      - "CLA.md"
+      - "CLA-INDIVIDUAL.md"
+      - "CLA-CORPORATE.md"
       - "Makefile"
       - ".github/workflows/copyright-ci.yml"
   workflow_dispatch:
@@ -38,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod

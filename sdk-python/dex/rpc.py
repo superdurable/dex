@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from dataclasses import dataclass
 from functools import wraps
@@ -19,7 +15,6 @@ from typing import Callable, Optional
 
 from dex.errors import WorkflowDefinitionError
 from dex.dex_api.models import PersistenceLoadingPolicy, PersistenceLoadingType
-
 
 @dataclass
 class RPCInfo:
@@ -32,12 +27,10 @@ class RPCInfo:
     )
     bypass_caching_for_strong_consistency: bool = False
 
-
 rpc_definition_err = WorkflowDefinitionError(
     "an RPC must have at most 5 params: self, context:WorkflowContext, input:Any, persistence:Persistence, "
     "communication:Communication, where input can be any type"
 )
-
 
 def rpc(
     timeout_seconds: int = 10,

@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 """Base converter and implementations for data conversion.
 Adapted from https://github.com/temporalio/sdk-python/blob/main/temporalio/converter.py
@@ -56,7 +52,6 @@ if sys.version_info >= (3, 11):
 if sys.version_info >= (3, 10):
     from types import UnionType
 
-
 class PayloadConverter(ABC):
     """Base payload converter to/from payload/value."""
 
@@ -98,7 +93,6 @@ class PayloadConverter(ABC):
             Exception: Any issue during conversion.
         """
         raise NotImplementedError
-
 
 class EncodingPayloadConverter(ABC):
     """Base converter for a **known encoding** for use in CompositePayloadConverter."""
@@ -149,7 +143,6 @@ class EncodingPayloadConverter(ABC):
             RuntimeError: General error during decoding.
         """
         raise NotImplementedError
-
 
 class CompositePayloadConverter(PayloadConverter):
     """Composite payload converter that delegates to a list of encoding payload converters.
@@ -223,7 +216,6 @@ class CompositePayloadConverter(PayloadConverter):
             ) from err
         return value
 
-
 class DefaultPayloadConverter(CompositePayloadConverter):
     """Default payload converter compatible with other Temporal SDKs.
 
@@ -240,7 +232,6 @@ class DefaultPayloadConverter(CompositePayloadConverter):
     def __init__(self) -> None:
         """Create a default payload converter."""
         super().__init__(*DefaultPayloadConverter.default_encoding_payload_converters)
-
 
 class UnsetPayloadConverter(EncodingPayloadConverter):
     """Converter for 'unset' payloads supporting None values."""
@@ -266,7 +257,6 @@ class UnsetPayloadConverter(EncodingPayloadConverter):
             raise RuntimeError("Expected empty data set for binary/null")
         return None
 
-
 class BinaryNullPayloadConverter(UnsetPayloadConverter):
     """Converter for 'binary/null' payloads supporting None values."""
 
@@ -274,7 +264,6 @@ class BinaryNullPayloadConverter(UnsetPayloadConverter):
     def encoding(self) -> Union[str, Unset]:
         """See base class."""
         return "binary/null"
-
 
 class BinaryPlainPayloadConverter(EncodingPayloadConverter):
     """Converter for 'binary/plain' payloads supporting bytes values."""
@@ -304,7 +293,6 @@ class BinaryPlainPayloadConverter(EncodingPayloadConverter):
         """See base class."""
         return payload.data
 
-
 class AdvancedJSONEncoder(json.JSONEncoder):
     """Advanced JSON encoder.
 
@@ -331,7 +319,6 @@ class AdvancedJSONEncoder(json.JSONEncoder):
         if isinstance(o, uuid.UUID):
             return str(o)
         return super().default(o)
-
 
 class JSONPlainPayloadConverter(EncodingPayloadConverter):
     """Converter for 'json/plain' payloads supporting common Python values.
@@ -415,9 +402,7 @@ class JSONPlainPayloadConverter(EncodingPayloadConverter):
         except json.JSONDecodeError as err:
             raise RuntimeError("Failed parsing") from err
 
-
 _JSONTypeConverterUnhandled = NewType("_JSONTypeConverterUnhandled", object)
-
 
 class JSONTypeConverter(ABC):
     """Converter for converting an object from Python :py:func:`json.loads`
@@ -447,7 +432,6 @@ class JSONTypeConverter(ABC):
             not handle this situation.
         """
         raise NotImplementedError
-
 
 class PayloadCodec(ABC):
     """Codec for encoding/decoding to/from bytes.
@@ -488,7 +472,6 @@ class PayloadCodec(ABC):
             given.
         """
         raise NotImplementedError
-
 
 @dataclass(frozen=True)
 class ObjectEncoder:
@@ -554,7 +537,6 @@ class ObjectEncoder:
             payload = self.payload_codec.decode(payload)
         return self.payload_converter.from_payload(payload, type_hint)
 
-
 DefaultPayloadConverter.default_encoding_payload_converters = (
     UnsetPayloadConverter(),
     BinaryNullPayloadConverter(),
@@ -563,7 +545,6 @@ DefaultPayloadConverter.default_encoding_payload_converters = (
 )
 
 ObjectEncoder.default = ObjectEncoder()
-
 
 def value_to_type(
     hint: Type,

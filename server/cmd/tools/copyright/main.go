@@ -18,23 +18,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Package main adds or verifies per-directory license headers.
+// Modifications Copyright (c) 2026 Super Durable, Inc.
 //
-// Templates and directory→template mapping live under script/licenseheaders/.
-// -replace rewrites existing headers to the Super Durable template for that
-// directory (destructive). Default mode only adds headers when missing.
+// Modifications after the Legacy Cutoff are licensed under the
+// Super Durable Source License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
+
+// Package main adds and verifies repository license headers.
 package main
 
 import (
-	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 type config struct {
@@ -43,18 +50,46 @@ type config struct {
 	filePaths  string
 }
 
-type addLicenseHeaderTask struct {
-	config       *config
-	replaceAll   bool
-	mapping      map[string]string // prefix → template id
-	prefixes     []string          // longest first
-	rawTemplates map[string]string // template id → plain text
+type policy struct {
+	Cutoff                  string            `json:"cutoff"`
+	IncludedPrefixes        []string          `json:"included_prefixes"`
+	ForcedNewPrefixes       []string          `json:"forced_new_prefixes"`
+	ExcludedPrefixes        []string          `json:"excluded_prefixes"`
+	RetainedLicensePrefixes map[string]string `json:"retained_license_prefixes"`
+}
+
+type manifest struct {
+	Cutoff  string                   `json:"cutoff"`
+	Entries map[string]manifestEntry `json:"entries"`
+}
+
+type manifestEntry struct {
+	Classification string `json:"classification"`
+	BaselineHash   string `json:"baseline_hash"`
+}
+
+type headerTask struct {
+	config        *config
+	policy        *policy
+	manifest      *manifest
+	templates     map[string]string
+	renameSources map[string]lineageSource
+}
+
+type lineageSource struct {
+	path string
+	kind string
+}
+
+type expectedHeader struct {
+	classification string
+	templateID     string
 }
 
 const (
 	headersDirName   = "script/licenseheaders"
-	mappingFileName  = "mapping.yaml"
-	defaultFilePerms = os.FileMode(0644)
+	policyFileName   = "policy.json"
+	manifestFileName = "legacy-manifest.json"
 )
 
 var skipDirNames = map[string]bool{
@@ -68,90 +103,141 @@ var skipDirNames = map[string]bool{
 	"__pycache__":  true,
 	".idea":        true,
 	".vscode":      true,
+	"gen":          true,
+	"dexpb":        true,
+	"build":        true,
+	"dist":         true,
+}
+
+var headerMarkers = []string{
+	"copyright",
+	"licensed under",
+	"permission is hereby granted",
+	"spdx-license-identifier",
+	"legacy materials",
+	"modifications after the legacy cutoff",
+	"dual-licensed",
 }
 
 func main() {
-	var cfg config
-	var replaceAll bool
-	flag.StringVar(&cfg.rootDir, "rootDir", ".", "project root directory")
-	flag.BoolVar(&cfg.verifyOnly, "verifyOnly", false,
-		"don't automatically add headers, just verify all files")
-	flag.BoolVar(&replaceAll, "replace", false,
-		"replace existing license headers with the directory's Super Durable template (destructive)")
-	flag.StringVar(&cfg.filePaths, "filePaths", "", "comma separated list of files to process")
+	var taskConfig config
+	flag.StringVar(&taskConfig.rootDir, "rootDir", ".", "project root directory")
+	flag.BoolVar(&taskConfig.verifyOnly, "verifyOnly", false, "verify without changing files")
+	flag.StringVar(&taskConfig.filePaths, "filePaths", "", "comma-separated files to process")
 	flag.Parse()
 
-	task := &addLicenseHeaderTask{
-		config:     &cfg,
-		replaceAll: replaceAll,
+	task, err := newHeaderTask(&taskConfig)
+	if err == nil {
+		err = task.run()
 	}
-	if err := task.init(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	if err := task.run(); err != nil {
+	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
-func (task *addLicenseHeaderTask) init() error {
-	root, err := filepath.Abs(task.config.rootDir)
+func newHeaderTask(taskConfig *config) (*headerTask, error) {
+	rootDir, err := filepath.Abs(taskConfig.rootDir)
 	if err != nil {
-		return fmt.Errorf("resolve rootDir: %w", err)
+		return nil, fmt.Errorf("resolve rootDir: %w", err)
 	}
-	task.config.rootDir = root
-
-	headersDir := filepath.Join(root, headersDirName)
-	mappingPath := filepath.Join(headersDir, mappingFileName)
-	data, err := os.ReadFile(mappingPath)
-	if err != nil {
-		return fmt.Errorf("read mapping: %w", err)
+	taskConfig.rootDir = rootDir
+	task := &headerTask{
+		config:    taskConfig,
+		policy:    &policy{},
+		manifest:  &manifest{},
+		templates: map[string]string{},
 	}
-	mapping := map[string]string{}
-	if err := yaml.Unmarshal(data, &mapping); err != nil {
-		return fmt.Errorf("parse mapping: %w", err)
+	if err := readJSON(filepath.Join(rootDir, headersDirName, policyFileName), task.policy); err != nil {
+		return nil, err
 	}
-	if len(mapping) == 0 {
-		return fmt.Errorf("empty mapping in %s", mappingPath)
+	if err := readJSON(filepath.Join(rootDir, headersDirName, manifestFileName), task.manifest); err != nil {
+		return nil, err
 	}
-	task.mapping = mapping
-	task.prefixes = make([]string, 0, len(mapping))
-	for prefix := range mapping {
-		task.prefixes = append(task.prefixes, prefix)
+	if task.policy.Cutoff != task.manifest.Cutoff {
+		return nil, fmt.Errorf("policy cutoff %s differs from manifest cutoff %s", task.policy.Cutoff, task.manifest.Cutoff)
 	}
-	sort.Slice(task.prefixes, func(i, j int) bool {
-		return len(task.prefixes[i]) > len(task.prefixes[j])
-	})
-
-	task.rawTemplates = map[string]string{}
-	for _, id := range mapping {
-		if _, ok := task.rawTemplates[id]; ok {
-			continue
+	for _, templateID := range []string{"new", "mixed", "legacy-reference", "mit", "apache-2.0"} {
+		fileName := templateID + ".txt"
+		if templateID == "new" {
+			fileName = "super-durable-1.0.txt"
 		}
-		path := filepath.Join(headersDir, id+".txt")
-		raw, err := os.ReadFile(path)
+		content, err := os.ReadFile(filepath.Join(rootDir, headersDirName, fileName))
 		if err != nil {
-			return fmt.Errorf("read template %s: %w", id, err)
+			return nil, fmt.Errorf("read template %s: %w", templateID, err)
 		}
-		task.rawTemplates[id] = strings.TrimRight(string(raw), "\n") + "\n"
+		task.templates[templateID] = strings.TrimRight(string(content), "\n")
+	}
+	renameSources, err := task.findRenameSources()
+	if err != nil {
+		return nil, err
+	}
+	task.renameSources = renameSources
+	return task, nil
+}
+
+func readJSON(path string, destination any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, destination); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil
 }
 
-func (task *addLicenseHeaderTask) run() error {
+func (task *headerTask) findRenameSources() (map[string]lineageSource, error) {
+	result := map[string]lineageSource{}
+	for _, arguments := range [][]string{
+		{"diff", "--name-status", "-z", "-M20%", "-C20%", "--find-copies-harder", task.policy.Cutoff, "HEAD"},
+		{"diff", "--name-status", "-z", "-M20%", "-C20%", "--find-copies-harder", "HEAD"},
+	} {
+		output, err := task.git(arguments...)
+		if err != nil {
+			return nil, err
+		}
+		fields := strings.Split(string(output), "\x00")
+		for index := 0; index < len(fields) && fields[index] != ""; {
+			status := fields[index]
+			index++
+			if index >= len(fields) {
+				break
+			}
+			sourcePath := fields[index]
+			index++
+			if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+				if index >= len(fields) {
+					break
+				}
+				destinationPath := fields[index]
+				index++
+				kind := "copy"
+				if strings.HasPrefix(status, "R") {
+					kind = "rename"
+				}
+				result[destinationPath] = lineageSource{path: sourcePath, kind: kind}
+			}
+		}
+	}
+	return result, nil
+}
+
+func (task *headerTask) run() error {
 	if task.config.filePaths != "" {
-		paths := strings.Split(task.config.filePaths, ",")
-		for _, path := range paths {
-			path = strings.TrimSpace(path)
-			if path == "" {
+		for _, filePath := range strings.Split(task.config.filePaths, ",") {
+			filePath = strings.TrimSpace(filePath)
+			if filePath == "" {
 				continue
 			}
-			info, err := os.Stat(path)
+			if !filepath.IsAbs(filePath) {
+				filePath = filepath.Join(task.config.rootDir, filePath)
+			}
+			fileInfo, err := os.Stat(filePath)
 			if err != nil {
 				return err
 			}
-			if err := task.handleFile(path, info, nil); err != nil {
+			if err := task.handleFile(filePath, fileInfo, nil); err != nil {
 				return err
 			}
 		}
@@ -160,279 +246,488 @@ func (task *addLicenseHeaderTask) run() error {
 	return filepath.Walk(task.config.rootDir, task.handleFile)
 }
 
-func (task *addLicenseHeaderTask) handleFile(path string, fileInfo os.FileInfo, err error) error {
-	if err != nil {
-		return err
+func (task *headerTask) handleFile(path string, fileInfo fs.FileInfo, walkErr error) error {
+	if walkErr != nil {
+		return walkErr
 	}
 	if fileInfo.IsDir() {
-		name := fileInfo.Name()
-		if skipDirNames[name] || strings.HasPrefix(name, "_vendor-") {
-			return filepath.SkipDir
-		}
-		// Skip generated trees and Java/Gradle build outputs.
-		if name == "gen" || name == "dexpb" || name == "build" || name == "dist" || name == "target" {
+		if skipDirNames[fileInfo.Name()] || strings.HasPrefix(fileInfo.Name(), "_vendor-") {
 			return filepath.SkipDir
 		}
 		return nil
 	}
-	if !mustProcessPath(path) {
-		return nil
-	}
-	if !isSupportedSourceFile(path) {
-		return nil
-	}
-	if isFileAutogenerated(path) {
-		return nil
-	}
-
-	rel, err := filepath.Rel(task.config.rootDir, path)
+	relativePath, err := filepath.Rel(task.config.rootDir, path)
 	if err != nil {
 		return err
 	}
-	rel = filepath.ToSlash(rel)
-	templateID, ok := task.templateForRel(rel)
-	if !ok {
+	relativePath = filepath.ToSlash(relativePath)
+	if !isSupportedSourceFile(relativePath) || isFileAutogenerated(relativePath) {
 		return nil
 	}
-	rawTemplate := task.rawTemplates[templateID]
-	header, err := formatHeader(rawTemplate, filepath.Ext(path))
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+	expected, managed, err := task.expectedHeaderFor(relativePath, path)
+	if err != nil || !managed {
+		return err
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	body := string(data)
-	hasHeader := hasLicenseHeader(body)
-	if hasHeader && !task.replaceAll {
+	if err := task.validate(relativePath, data, expected); err == nil {
 		return nil
+	} else if task.config.verifyOnly {
+		return err
 	}
-	if task.config.verifyOnly {
-		if !hasHeader {
-			return fmt.Errorf("%s missing license header", path)
-		}
-		return nil
+	updated, err := task.render(relativePath, data, expected)
+	if err != nil {
+		return err
 	}
-
-	shebang := ""
-	rest := body
-	if strings.HasPrefix(body, "#!") {
-		nl := strings.IndexByte(body, '\n')
-		if nl >= 0 {
-			shebang = body[:nl+1]
-			rest = body[nl+1:]
-		} else {
-			shebang = body + "\n"
-			rest = ""
-		}
+	if err := atomicWrite(path, updated, fileInfo.Mode()); err != nil {
+		return err
 	}
-	if hasHeader {
-		rest = stripLicenseHeader(rest)
+	if err := task.validate(relativePath, updated, expected); err != nil {
+		return err
 	}
-	return os.WriteFile(path, []byte(shebang+header+rest), defaultFilePerms)
-}
-
-func (task *addLicenseHeaderTask) templateForRel(rel string) (string, bool) {
-	for _, prefix := range task.prefixes {
-		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
-			return task.mapping[prefix], true
-		}
-	}
-	return "", false
+	return nil
 }
 
 func isSupportedSourceFile(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".go", ".java", ".py", ".rs":
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".java", ".proto", ".py", ".rs":
 		return true
+	case ".css", ".html", ".ts", ".tsx":
+		return hasPathPrefix(path, "web")
 	case ".yaml", ".yml":
-		// Hand-written OpenAPI IDL under protos/ only.
-		slash := filepath.ToSlash(path)
-		return strings.Contains(slash, "/protos/") || strings.HasSuffix(slash, "/protos")
+		return hasPathPrefix(path, "protos")
 	default:
 		return false
 	}
 }
 
 func isFileAutogenerated(path string) bool {
-	base := filepath.Base(path)
-	slash := filepath.ToSlash(path)
-	return strings.Contains(base, ".gen.") ||
-		strings.HasSuffix(base, "_pb.go") ||
-		strings.HasSuffix(base, ".pb.go") ||
-		strings.HasSuffix(base, "_pb2.py") ||
-		strings.HasSuffix(base, "_pb2_grpc.py") ||
-		strings.HasSuffix(base, "_pb2.pyi") ||
-		strings.Contains(slash, "/gen/") ||
-		strings.Contains(slash, "/dexpb/") ||
-		strings.Contains(slash, "/.openapi-generator/")
+	baseName := filepath.Base(path)
+	slashPath := filepath.ToSlash(path)
+	return strings.Contains(baseName, ".gen.") ||
+		strings.HasSuffix(baseName, "_pb.go") ||
+		strings.HasSuffix(baseName, ".pb.go") ||
+		strings.HasSuffix(baseName, "_pb2.py") ||
+		strings.HasSuffix(baseName, "_pb2_grpc.py") ||
+		strings.HasSuffix(baseName, "_pb2.pyi") ||
+		strings.Contains(slashPath, "/gen/") ||
+		strings.Contains(slashPath, "/dexpb/") ||
+		strings.Contains(slashPath, "/.openapi-generator/")
 }
 
-func mustProcessPath(path string) bool {
-	slash := filepath.ToSlash(path)
-	denylist := []string{
-		"/vendor/",
-		"/target/",
-		"/node_modules/",
-		"/__pycache__/",
+func (task *headerTask) expectedHeaderFor(relativePath string, absolutePath string) (expectedHeader, bool, error) {
+	if templateID, ok := longestPrefixValue(relativePath, task.policy.RetainedLicensePrefixes); ok {
+		return expectedHeader{classification: "retained", templateID: templateID}, true, nil
 	}
-	for _, d := range denylist {
-		if strings.Contains(slash, d) {
-			return false
-		}
+	if hasAnyPrefix(relativePath, task.policy.ExcludedPrefixes) {
+		return expectedHeader{}, false, nil
 	}
-	return true
-}
-
-func formatHeader(raw string, ext string) (string, error) {
-	lines := splitLines(raw)
-	switch strings.ToLower(ext) {
-	case ".go", ".rs":
-		return commentLines(lines, "//"), nil
-	case ".py", ".yaml", ".yml":
-		return commentLines(lines, "#"), nil
-	case ".java":
-		return blockComment(lines), nil
-	default:
-		return "", fmt.Errorf("unsupported extension %q", ext)
+	if !hasAnyPrefix(relativePath, task.policy.IncludedPrefixes) {
+		return expectedHeader{}, false, nil
 	}
-}
-
-func splitLines(s string) []string {
-	s = strings.TrimRight(s, "\n")
-	if s == "" {
-		return nil
+	if hasAnyPrefix(relativePath, task.policy.ForcedNewPrefixes) {
+		return expectedHeader{classification: "new", templateID: "new"}, true, nil
 	}
-	return strings.Split(s, "\n")
-}
-
-func commentLines(lines []string, prefix string) string {
-	var b strings.Builder
-	for _, line := range lines {
-		if line == "" {
-			b.WriteString(prefix + "\n")
-		} else {
-			b.WriteString(prefix + " " + line + "\n")
-		}
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
-func blockComment(lines []string) string {
-	var b strings.Builder
-	b.WriteString("/*\n")
-	for _, line := range lines {
-		if line == "" {
-			b.WriteString(" *\n")
-		} else {
-			b.WriteString(" * " + line + "\n")
-		}
-	}
-	b.WriteString(" */\n\n")
-	return b.String()
-}
-
-func hasLicenseHeader(content string) bool {
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for i := 0; i < 40 && scanner.Scan(); i++ {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || line == "/*" || line == "*/" || line == "*" || line == "//" || line == "#" {
-			continue
-		}
-		// Strip common comment prefixes before matching.
-		check := line
-		for _, p := range []string{"//", "#", "*", "/*", "*/"} {
-			if strings.HasPrefix(check, p) {
-				check = strings.TrimSpace(strings.TrimPrefix(check, p))
+	entry, ok := task.manifest.Entries[relativePath]
+	if !ok {
+		if source, sourceFound := task.renameSources[relativePath]; sourceFound {
+			entry, ok = task.manifest.Entries[source.path]
+			if ok && source.kind == "copy" && entry.Classification != "new" {
+				return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
 			}
 		}
-		if isLicenseHeaderLine(check) || isLicenseHeaderLine(line) {
-			return true
+	}
+	if ok {
+		if entry.Classification == "legacy-only" {
+			data, err := os.ReadFile(absolutePath)
+			if err != nil {
+				return expectedHeader{}, false, err
+			}
+			if hashBytes(task.normalizedBody(data, filepath.Ext(relativePath))) != entry.BaselineHash {
+				return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
+			}
 		}
-		// Stop once we hit non-comment content.
-		if !isCommentOrEmpty(line) {
-			return false
+		return expectedHeader{classification: entry.Classification, templateID: entry.Classification}, true, nil
+	}
+	hasLegacy, err := task.hasLegacyBoundary(relativePath)
+	if err != nil {
+		return expectedHeader{}, false, err
+	}
+	if hasLegacy {
+		return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
+	}
+	return expectedHeader{classification: "new", templateID: "new"}, true, nil
+}
+
+func longestPrefixValue(path string, values map[string]string) (string, bool) {
+	prefixes := make([]string, 0, len(values))
+	for prefix := range values {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Slice(prefixes, func(left int, right int) bool {
+		return len(prefixes[left]) > len(prefixes[right])
+	})
+	for _, prefix := range prefixes {
+		if hasPathPrefix(path, prefix) {
+			return values[prefix], true
+		}
+	}
+	return "", false
+}
+
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if hasPathPrefix(path, prefix) {
+			return true
 		}
 	}
 	return false
 }
 
-func isCommentOrEmpty(line string) bool {
-	if line == "" {
-		return true
+func hasPathPrefix(path string, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, strings.TrimRight(prefix, "/")+"/")
+}
+
+func (task *headerTask) hasLegacyBoundary(relativePath string) (bool, error) {
+	output, err := task.git(
+		"blame",
+		"-C",
+		"-C",
+		"-C",
+		"--line-porcelain",
+		task.policy.Cutoff+"..HEAD",
+		"--",
+		relativePath,
+	)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		return false, err
 	}
-	return strings.HasPrefix(line, "//") ||
-		strings.HasPrefix(line, "#") ||
-		strings.HasPrefix(line, "/*") ||
-		strings.HasPrefix(line, "*") ||
-		line == "*/"
+	data, err := os.ReadFile(filepath.Join(task.config.rootDir, filepath.FromSlash(relativePath)))
+	if err != nil {
+		return false, err
+	}
+	header, _ := splitHeader(splitShebang(string(data)).body, filepath.Ext(relativePath))
+	headerLineCount := len(strings.Split(header, "\n"))
+	boundary := false
+	currentLine := 0
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && len(fields[0]) == 40 {
+			parsedLine, parseErr := strconv.Atoi(fields[2])
+			if parseErr == nil {
+				currentLine = parsedLine
+			}
+		} else if line == "boundary" {
+			boundary = true
+		} else if boundary && strings.HasPrefix(line, "filename ") {
+			if currentLine > headerLineCount {
+				return true, nil
+			}
+			boundary = false
+		}
+	}
+	return false, nil
 }
 
-func isLicenseHeaderLine(line string) bool {
-	lower := strings.ToLower(line)
-	return strings.Contains(lower, "copyright") ||
-		strings.Contains(lower, "spdx-license-identifier") ||
-		strings.Contains(lower, "licensed under the apache") ||
-		strings.Contains(lower, "permission is hereby granted") ||
-		strings.Contains(lower, "super durable, inc") ||
-		strings.Contains(lower, "dual-licensed")
+func (task *headerTask) validate(relativePath string, data []byte, expected expectedHeader) error {
+	extension := filepath.Ext(relativePath)
+	parts := splitShebang(string(data))
+	header, _ := splitHeader(parts.body, extension)
+	newHeader := formatHeader(task.templates["new"], extension)
+	mixedHeader := formatHeader(task.templates["mixed"], extension)
+	legacyReference := formatHeader(task.templates["legacy-reference"], extension)
+	switch expected.classification {
+	case "new":
+		if strings.TrimSpace(header) != strings.TrimSpace(newHeader) {
+			return fmt.Errorf("%s must use the new Super Durable header", relativePath)
+		}
+	case "mixed":
+		if !strings.Contains(header, mixedHeader) {
+			return fmt.Errorf("%s must use the mixed header", relativePath)
+		}
+		legacyHeader := strings.TrimSpace(strings.ReplaceAll(header, mixedHeader, ""))
+		if legacyHeader == "" {
+			return fmt.Errorf("%s mixed header is missing its legacy notice", relativePath)
+		}
+	case "legacy-only":
+		if strings.Contains(header, newHeader) || strings.Contains(header, mixedHeader) {
+			return fmt.Errorf("%s must remain legacy-only", relativePath)
+		}
+		if strings.TrimSpace(header) == "" {
+			return fmt.Errorf("%s is missing its legacy header", relativePath)
+		}
+	case "retained":
+		marker := "Permission is hereby granted"
+		if expected.templateID == "apache-2.0" {
+			marker = "Licensed under the Apache License"
+		}
+		if !strings.Contains(header, marker) {
+			return fmt.Errorf("%s must retain its %s header", relativePath, expected.templateID)
+		}
+	default:
+		return fmt.Errorf("%s has unknown classification %q", relativePath, expected.classification)
+	}
+	if strings.Contains(header, legacyReference) && expected.classification == "new" {
+		return fmt.Errorf("%s new header contains a legacy notice", relativePath)
+	}
+	return nil
 }
 
-func stripLicenseHeader(content string) string {
-	lines := strings.Split(content, "\n")
-	i := 0
-	inBlock := false
-	for i < len(lines) && i < 80 {
-		line := strings.TrimSpace(lines[i])
+func (task *headerTask) render(relativePath string, data []byte, expected expectedHeader) ([]byte, error) {
+	extension := filepath.Ext(relativePath)
+	parts := splitShebang(string(data))
+	cleaned := task.stripManagedBlocks(parts.body, extension)
+	preservedHeader, body := splitHeader(cleaned, extension)
+	var headers []string
+	switch expected.classification {
+	case "new":
+		headers = []string{formatHeader(task.templates["new"], extension)}
+	case "mixed":
+		if strings.TrimSpace(preservedHeader) == "" {
+			preservedHeader = formatHeader(task.templates["legacy-reference"], extension)
+		}
+		headers = []string{strings.TrimSpace(preservedHeader), formatHeader(task.templates["mixed"], extension)}
+	case "legacy-only":
+		if strings.TrimSpace(preservedHeader) == "" {
+			preservedHeader = formatHeader(task.templates["legacy-reference"], extension)
+		}
+		headers = []string{strings.TrimSpace(preservedHeader)}
+	case "retained":
+		if strings.TrimSpace(preservedHeader) != "" {
+			return nil, fmt.Errorf("%s has a non-%s header; refusing to replace it", relativePath, expected.templateID)
+		}
+		headers = []string{formatHeader(task.templates[expected.templateID], extension)}
+	default:
+		return nil, fmt.Errorf("%s has unknown classification %q", relativePath, expected.classification)
+	}
+	body = strings.TrimLeft(body, "\n")
+	separator := "\n\n"
+	if body == "" {
+		separator = "\n"
+	}
+	rendered := parts.shebang + strings.Join(headers, "\n\n") + separator + body
+	return []byte(rendered), nil
+}
+
+func (task *headerTask) normalizedBody(data []byte, extension string) []byte {
+	parts := splitShebang(string(data))
+	_, body := splitHeader(parts.body, extension)
+	body = task.stripManagedBlocks(body, extension)
+	return []byte(strings.TrimLeft(body, "\n"))
+}
+
+func (task *headerTask) stripManagedBlocks(content string, extension string) string {
+	result := content
+	for _, templateID := range []string{"new", "mixed", "legacy-reference"} {
+		header := formatHeader(task.templates[templateID], extension)
+		result = strings.ReplaceAll(result, "\n\n"+header+"\n\n", "\n")
+		result = strings.ReplaceAll(result, header, "")
+	}
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+	return result
+}
+
+type shebangParts struct {
+	shebang string
+	body    string
+}
+
+func splitShebang(content string) shebangParts {
+	if !strings.HasPrefix(content, "#!") {
+		return shebangParts{body: content}
+	}
+	newline := strings.IndexByte(content, '\n')
+	if newline < 0 {
+		return shebangParts{shebang: content + "\n"}
+	}
+	return shebangParts{shebang: content[:newline+1], body: content[newline+1:]}
+}
+
+func splitHeader(content string, extension string) (string, string) {
+	if extension == ".css" || extension == ".java" {
+		return splitBlockHeader(content)
+	}
+	if extension == ".html" {
+		return splitHTMLHeader(content)
+	}
+	prefix := "//"
+	if extension == ".py" || extension == ".yaml" || extension == ".yml" {
+		prefix = "#"
+	}
+	lines := strings.SplitAfter(content, "\n")
+	index := 0
+	var headers []string
+	for {
+		for index < len(lines) && strings.TrimSpace(lines[index]) == "" {
+			index++
+		}
+		start := index
+		var candidate strings.Builder
+		for index < len(lines) && strings.HasPrefix(strings.TrimLeft(lines[index], " \t"), prefix) {
+			candidate.WriteString(lines[index])
+			index++
+		}
+		candidateText := strings.TrimRight(candidate.String(), "\n")
+		if candidateText == "" || !isHeaderCandidate(candidateText) {
+			if len(headers) > 0 {
+				return strings.Join(headers, "\n\n"), strings.Join(lines[start:], "")
+			}
+			return "", content
+		}
+		headers = append(headers, candidateText)
+	}
+}
+
+func splitBlockHeader(content string) (string, string) {
+	offset := 0
+	var headers []string
+	for {
+		for offset < len(content) && strings.ContainsRune(" \t\r\n", rune(content[offset])) {
+			offset++
+		}
+		if !strings.HasPrefix(content[offset:], "/*") {
+			break
+		}
+		end := strings.Index(content[offset:], "*/")
+		if end < 0 {
+			break
+		}
+		end += offset + 2
+		candidate := content[offset:end]
+		if !isHeaderCandidate(candidate) {
+			break
+		}
+		headers = append(headers, candidate)
+		offset = end
+	}
+	if len(headers) == 0 {
+		return "", content
+	}
+	return strings.Join(headers, "\n\n"), content[offset:]
+}
+
+func splitHTMLHeader(content string) (string, string) {
+	offset := 0
+	var headers []string
+	for {
+		for offset < len(content) && strings.ContainsRune(" \t\r\n", rune(content[offset])) {
+			offset++
+		}
+		if !strings.HasPrefix(content[offset:], "<!--") {
+			break
+		}
+		end := strings.Index(content[offset:], "-->")
+		if end < 0 {
+			break
+		}
+		end += offset + 3
+		candidate := content[offset:end]
+		if !isHeaderCandidate(candidate) {
+			break
+		}
+		headers = append(headers, candidate)
+		offset = end
+	}
+	if len(headers) == 0 {
+		return "", content
+	}
+	return strings.Join(headers, "\n\n"), content[offset:]
+}
+
+func isHeaderCandidate(content string) bool {
+	lowerContent := strings.ToLower(content)
+	for _, marker := range headerMarkers {
+		if strings.Contains(lowerContent, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatHeader(plain string, extension string) string {
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+	if extension == ".css" || extension == ".java" {
+		formatted := []string{"/*"}
+		for _, line := range lines {
+			if line == "" {
+				formatted = append(formatted, " *")
+			} else {
+				formatted = append(formatted, " * "+line)
+			}
+		}
+		return strings.Join(append(formatted, " */"), "\n")
+	}
+	if extension == ".html" {
+		formatted := []string{"<!--"}
+		formatted = append(formatted, lines...)
+		return strings.Join(append(formatted, "-->"), "\n")
+	}
+	prefix := "//"
+	if extension == ".py" || extension == ".yaml" || extension == ".yml" {
+		prefix = "#"
+	}
+	formatted := make([]string, 0, len(lines))
+	for _, line := range lines {
 		if line == "" {
-			i++
-			continue
+			formatted = append(formatted, prefix)
+		} else {
+			formatted = append(formatted, prefix+" "+line)
 		}
-		if strings.HasPrefix(line, "/*") {
-			inBlock = true
-			i++
-			if strings.Contains(line, "*/") {
-				inBlock = false
-			}
-			continue
-		}
-		if inBlock {
-			i++
-			if strings.Contains(line, "*/") {
-				inBlock = false
-			}
-			continue
-		}
-		if isLicenseHeaderLine(stripCommentPrefix(line)) || line == "//" || line == "#" {
-			i++
-			continue
-		}
-		if strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") {
-			// Contiguous leading comment block treated as header when replacing.
-			i++
-			continue
-		}
-		break
 	}
-	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
-		i++
-	}
-	if i >= len(lines) {
-		return ""
-	}
-	return strings.Join(lines[i:], "\n")
+	return strings.Join(formatted, "\n")
 }
 
-func stripCommentPrefix(line string) string {
-	check := strings.TrimSpace(line)
-	for _, p := range []string{"//", "#", "*", "/*", "*/"} {
-		if strings.HasPrefix(check, p) {
-			check = strings.TrimSpace(strings.TrimPrefix(check, p))
-		}
+func hashBytes(content []byte) string {
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:])
+}
+
+func atomicWrite(path string, content []byte, mode fs.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".copyright-*")
+	if err != nil {
+		return err
 	}
-	return check
+	temporaryPath := temporary.Name()
+	defer func() {
+		if removeErr := os.Remove(temporaryPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "remove temporary file: %v\n", removeErr)
+		}
+	}()
+	if _, err := temporary.Write(content); err != nil {
+		if closeErr := temporary.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := temporary.Chmod(mode); err != nil {
+		if closeErr := temporary.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (task *headerTask) git(arguments ...string) ([]byte, error) {
+	command := exec.Command("git", arguments...)
+	command.Dir = task.config.rootDir
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w", strings.Join(arguments, " "), err)
+	}
+	return output, nil
 }

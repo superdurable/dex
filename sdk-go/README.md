@@ -7,6 +7,11 @@ Phases 1 through 4 provide the public model, value/protobuf mapping, private
 registration, and the application-hosted WorkerService. Public FlowService
 client transport remains Phase 5.
 
+## License
+
+[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+
 ## Authoring a flow
 
 Application packages import `dex`, never `gen/dexpb`.

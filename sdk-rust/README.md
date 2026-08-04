@@ -54,4 +54,5 @@ adds the internal protobuf protocol and tonic gRPC adapter.
 
 ## License
 
-Apache License 2.0.
+[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

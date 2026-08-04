@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from dex.command_request import CommandRequest
 from dex.command_results import CommandResults
@@ -54,7 +50,6 @@ expected_final_das = {
     test_da_set_key: test_da_set_value,
 }
 
-
 class DataAttributeRWState(WorkflowState[None]):
     def wait_until(
         self,
@@ -87,7 +82,6 @@ class DataAttributeRWState(WorkflowState[None]):
         persistence.set_data_attribute(test_da_prefix_key_1, test_da_prefix_value_1)
         persistence.set_data_attribute(test_da_prefix_key_2, test_da_prefix_value_2)
         return StateDecision.graceful_complete_workflow()
-
 
 class PersistenceDataAttributesWorkflow(ObjectWorkflow):
     def get_workflow_states(self) -> StateSchema:

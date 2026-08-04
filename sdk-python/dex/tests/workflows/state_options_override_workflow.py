@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from dex.command_request import CommandRequest
 from dex.command_results import CommandResults
@@ -27,7 +23,6 @@ from dex.workflow_state import T, WorkflowState
 from dex.workflow_state_options import WorkflowStateOptions
 
 output_da = "output_da"
-
 
 class InitState(WorkflowState[str]):
     def wait_until(
@@ -61,7 +56,6 @@ class InitState(WorkflowState[str]):
             ),
         )
 
-
 class NonInitState(WorkflowState[str]):
     def wait_until(
         self,
@@ -88,7 +82,6 @@ class NonInitState(WorkflowState[str]):
             wait_until_api_retry_policy=RetryPolicy(maximum_attempts=1),
             proceed_to_execute_when_wait_until_retry_exhausted=WaitUntilApiFailurePolicy.FAIL_WORKFLOW_ON_FAILURE,
         )
-
 
 class StateOptionsOverrideWorkflow(ObjectWorkflow):
     def get_persistence_schema(self) -> PersistenceSchema:

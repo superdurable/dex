@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 import http
 from dataclasses import dataclass
@@ -90,7 +86,6 @@ from dex.stop_workflow_options import StopWorkflowOptions
 from dex.utils.dex_typing import assert_not_unset
 from dex.utils.persistence_utils import get_search_attribute_value
 
-
 @dataclass
 class UnregisteredWorkflowOptions:
     workflow_id_reuse_policy: Optional[IDReusePolicy] = None
@@ -106,9 +101,7 @@ class UnregisteredWorkflowOptions:
     initial_search_attributes: Optional[list[SearchAttribute]] = None
     using_memo_for_data_attributes: Optional[bool] = None
 
-
 T = TypeVar("T")
-
 
 # from https://stackoverflow.com/questions/45028991/best-way-to-extend-httpstatus-with-custom-value
 # HERE BE DRAGONS!
@@ -127,10 +120,8 @@ def add_http_status(name, value, phrase, description=""):
     )  # append the names so it appears in __members__
     HTTPStatus._value2member_map_[value] = new_status  # add it to the value=>member map
 
-
 add_http_status("DEX_CUSTOM_ERROR_1", 420, "DEX_CUSTOM_ERROR_1")
 add_http_status("DEX_CUSTOM_ERROR_2", 450, "DEX_CUSTOM_ERROR_2")
-
 
 class UnregisteredClient:
     def __init__(self, client_options: ClientOptions):
@@ -586,7 +577,6 @@ class UnregisteredClient:
         )
 
         return handler_error_and_return(response)
-
 
 def handler_error_and_return(response: Response):
     if response.status_code != http.HTTPStatus.OK:

@@ -100,22 +100,36 @@ cd ../examples/python && poetry install
 
 ## License headers
 
-Source files use per-directory license headers (MIT under `server/` and
-`examples/go/`; Apache-2.0 under the SDKs and Java/Python samples; dual MIT +
-Apache-2.0 under `protos/`). Templates and the directory mapping live in
-[`script/licenseheaders/`](script/licenseheaders/).
+Managed source files use the classifications recorded in
+[`script/licenseheaders/legacy-manifest.json`](script/licenseheaders/legacy-manifest.json):
+
+- `legacy-only` preserves the original license while its normalized body still
+  matches the cutoff snapshot.
+- `mixed` preserves the original header and adds the Super Durable modification
+  notice.
+- `new` uses `LicenseRef-Super-Durable-1.0`.
+
+`docs/` is not relicensed. Go examples retain MIT; Java and Python examples
+retain Apache-2.0. See [LICENSING.md](LICENSING.md) for the repository policy.
 
 From the repo root:
 
 ```bash
 make copyright         # add missing headers
-make copyright-check   # verify headers are present
-make copyright-replace # rewrite to Super Durable per-directory templates (destructive)
+make copyright-check   # verify classifications, body hashes, and headers
 ```
 
 Skip generated trees (`**/gen/**`, `*.pb.go`, `*_pb.go`, `*.gen.*`). Prefer
-`make copyright` over hand-copying when adding files. CI runs
+`make copyright` over hand-copying when adding files. It upgrades a modified
+`legacy-only` file to `mixed` without replacing its legacy notice. CI runs
 `make copyright-check` via [`.github/workflows/copyright-ci.yml`](.github/workflows/copyright-ci.yml).
+
+## Contributor License Agreement
+
+All contributors must sign an [individual or corporate CLA](CLA.md). Email the
+signed agreement and GitHub handle to licensing@superdurable.io. Pull
+requests from handles absent from `.github/cla-signatures.json` fail the CLA
+check until the record is updated.
 
 ## CI
 

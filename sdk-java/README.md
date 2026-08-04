@@ -6,6 +6,11 @@ See [samples](../examples/java) for how to use this SDK to build your workflow.
 
 Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable.io](https://superdurable.io)).
 
+## License
+
+[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+
 ## Requirements
 
 - Java 1.8+
