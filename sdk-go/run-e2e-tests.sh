@@ -22,7 +22,7 @@ temporal_port="${DEX_INTEG_TEMPORAL_PORT:-17233}"
 temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-18233}"
 dex_address="127.0.0.1:${dex_port}"
 temporal_address="127.0.0.1:${temporal_port}"
-log_file="/tmp/test-go-sdk-phase5-temporal-services.log"
+log_file="/tmp/test-go-sdk-phase5-e2e-services.log"
 test_dir=$(mktemp -d)
 dexcli_pid=""
 

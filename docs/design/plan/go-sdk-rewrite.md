@@ -1494,12 +1494,12 @@ make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
 make -C sdk-go clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
 make -C sdk-go workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
 make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
-make -C sdk-go temporalIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-temporal.log
+make -C sdk-go e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 ```
 
 `clientIntegTests` and `workerIntegTests` run with the race detector.
-`temporalIntegTests` owns the current-checkout `dexcli` build, startup,
+`e2eTests` owns the current-checkout `dexcli` build, startup,
 readiness, test execution, failure logs, and cleanup. GitHub Actions runs all
 five SDK targets and uploads Temporal/Dex logs on an E2E failure.
 

@@ -142,8 +142,8 @@ cleanTestCache:
 integTests:
 	$Q go test -v ./integ
 
-temporalIntegTests:
-	$Q ./run-integ-tests.sh
+e2eTests:
+	$Q ./run-e2e-tests.sh
 
 blobCacheTests:
 	$Q go test -race ./dex/blobcache

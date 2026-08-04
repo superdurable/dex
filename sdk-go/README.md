@@ -274,11 +274,11 @@ make unitTests
 make clientIntegTests
 make workerIntegTests
 make blobCacheTests
-make temporalIntegTests
+make e2eTests
 make copyright-check
 ```
 
-`temporalIntegTests` uses the current checkout's `dexcli dev` environment. It
+`e2eTests` uses the current checkout's `dexcli dev` environment. It
 runs the migrated iWF Go SDK scenarios through the public Dex SDK.
 
 The detailed design and later phase boundaries are in the

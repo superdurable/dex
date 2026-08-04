@@ -93,8 +93,8 @@ jobs:
       - name: Client integration tests
         run: make clientIntegTests
 
-  temporal-integration:
-    name: Temporal integration tests
+  e2e:
+    name: End-to-end tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -114,12 +114,12 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
-      - name: Temporal integration tests
-        run: make temporalIntegTests
+      - name: End-to-end tests
+        run: make e2eTests
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sdk-go-temporal-services
-          path: /tmp/test-go-sdk-phase5-temporal-services.log
+          name: sdk-go-e2e-services
+          path: /tmp/test-go-sdk-phase5-e2e-services.log
           if-no-files-found: ignore

@@ -29,12 +29,12 @@ make unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
 make clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
 make workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
 make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
-make temporalIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-temporal.log
+make e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 ```
 
 `clientIntegTests` and `workerIntegTests` use real in-process gRPC with the race
-detector. `temporalIntegTests` builds `dexcli`, starts its local Dex and Temporal
+detector. `e2eTests` builds `dexcli`, starts its local Dex and Temporal
 environment, migrates the former iWF SDK scenarios, and owns cleanup.
 
 ## How to update IDL and the generated code
