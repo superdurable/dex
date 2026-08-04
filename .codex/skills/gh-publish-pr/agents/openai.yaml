@@ -1,4 +1,0 @@
-interface:
-  display_name: "Publish GitHub PR"
-  short_description: "Commit, push, and open pull requests reliably"
-  default_prompt: "Use $gh-publish-pr to publish my local changes as a GitHub pull request."
