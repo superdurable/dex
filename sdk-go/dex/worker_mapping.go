@@ -195,7 +195,7 @@ func mapRegisteredMovement(
 	if err != nil {
 		return nil, err
 	}
-	options, err := mapStepOptions(mergeStepOptions(target.options, movement.options))
+	options, err := mapRegisteredStepOptions(target, movement.options)
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +204,24 @@ func mapRegisteredMovement(
 		StepInput:   input,
 		StepOptions: options,
 	}, nil
+}
+
+func mapRegisteredStepOptions(
+	step *registeredStep,
+	overrides *StepOptions,
+) (*dexpb.StepOptions, error) {
+	options, err := mapStepOptions(mergeStepOptions(step.options, overrides))
+	if err != nil {
+		return nil, err
+	}
+	if !step.skipWaitFor {
+		return options, nil
+	}
+	if options == nil {
+		options = &dexpb.StepOptions{}
+	}
+	options.SkipWaitFor = true
+	return options, nil
 }
 
 func mapRegisteredRPCResult(

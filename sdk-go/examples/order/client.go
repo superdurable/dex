@@ -83,6 +83,7 @@ func startOrder(
 			AlreadyStarted: &dex.AlreadyStartedOptions{
 				IgnoreError: true,
 			},
+			RequestID: ptr.Any("start-order/" + flowID),
 		},
 	)
 }
@@ -232,7 +233,6 @@ func getOrderAttributes(
 		ctx,
 		flowID,
 		OrderStatus,
-		ItemQuantities,
 	)
 }
 
@@ -318,8 +318,7 @@ func skipOrderTimer(
 		ctx,
 		flowID,
 		dex.StepExecutionID{
-			StepType:        WaitForCommand.GetStepType(),
-			ExecutionNumber: ptr.Any(int32(1)),
+			StepType: WaitForCommand.GetStepType(),
 		},
 		dex.TimerID{ConditionID: "timeout"},
 	)
@@ -353,8 +352,7 @@ func waitForOrderStep(
 		ctx,
 		flowID,
 		dex.StepExecutionID{
-			StepType:        WaitForCommand.GetStepType(),
-			ExecutionNumber: ptr.Any(int32(1)),
+			StepType: WaitForCommand.GetStepType(),
 		},
 		dex.WaitOptions{Timeout: time.Minute},
 	)

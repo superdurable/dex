@@ -11,47 +11,158 @@
 package integ
 
 import (
-	"context"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
-	"strconv"
+	"fmt"
+	"strings"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestRPCWorkflow(t *testing.T) {
-	wfId := "TestRPCWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	wf := rpcWorkflow{}
+var (
+	rpcFlowChannel = dex.DefineChannel[int]("rpc-values")
+	rpcFlowStatus  = dex.DefineAttribute[string]("rpc-status")
+)
 
-	runId, err := client.StartWorkflow(context.Background(), wf, wfId, 10, 1, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+type rpcFlow struct{}
 
-	time.Sleep(time.Second)
-	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
-	assert.Nil(t, err)
-	assert.Equal(t, dexpb.RUNNING, info.Status)
+func (rpcFlow) GetFlowType() string {
+	return "go-sdk-rpc"
+}
 
-	err = client.InvokeRPC(context.Background(), wfId, "", wf.TestErrorRPC, 1, nil)
-	assert.NotNil(t, err)
-	assert.True(t, dex.IsRPCError(err))
-	rpcErr, _ := err.(*dex.ApiError)
-	assert.Equal(t, "worker API error, status:501, errorType:test-error-type", rpcErr.Response.GetDetail())
+func (rpcFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(rpcFlowStep{})}
+}
 
-	// Test unregister client
-	unregClient := dex.NewUnregisteredClient(nil)
-	err = unregClient.InvokeRPCByName(context.Background(), wfId, "", "TestErrorRPC", 1, nil, nil)
-	assert.NotNil(t, err)
+func (rpcFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{rpcFlowStatus},
+		Channels:   []dex.ChannelDef{rpcFlowChannel},
+	}
+}
 
-	var rpcOutput int
-	err = client.InvokeRPC(context.Background(), wfId, "", wf.TestRPC, 1, &rpcOutput)
-	assert.Nil(t, err)
-	assert.Equal(t, 2, rpcOutput)
+type rpcIncrementOutput struct {
+	Value       int
+	SizeBefore  int
+	SizeAfter   int
+	StatusFound bool
+}
 
-	var output int
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, 3, output)
+func (rpcFlow) Increment(
+	ctx dex.Context,
+	input int,
+) (dex.RPCResult[rpcIncrementOutput], error) {
+	_, found, err := rpcFlowStatus.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[rpcIncrementOutput]{}, err
+	}
+	before := rpcFlowChannel.Size(ctx)
+	if err := rpcFlowStatus.Set(ctx, "invoked"); err != nil {
+		return dex.RPCResult[rpcIncrementOutput]{}, err
+	}
+	if err := rpcFlowChannel.Publish(ctx, input+1); err != nil {
+		return dex.RPCResult[rpcIncrementOutput]{}, err
+	}
+	return dex.RPCResult[rpcIncrementOutput]{Output: rpcIncrementOutput{
+		Value:       input + 1,
+		SizeBefore:  before,
+		SizeAfter:   rpcFlowChannel.Size(ctx),
+		StatusFound: found,
+	}}, nil
+}
+
+func (rpcFlow) Fail(
+	dex.Context,
+	int,
+) (dex.RPCResult[int], error) {
+	return dex.RPCResult[int]{}, fmt.Errorf("planned RPC failure")
+}
+
+type rpcFlowStep struct {
+	dex.DefaultStepOptions
+}
+
+func (rpcFlowStep) GetStepType() string {
+	return "wait-for-rpc"
+}
+
+func (rpcFlowStep) WaitFor(
+	dex.Context,
+	int,
+) (dex.Wait, error) {
+	return dex.AnyOf(rpcFlowChannel.ForOne()), nil
+}
+
+func (rpcFlowStep) Execute(
+	ctx dex.Context,
+	input int,
+) (dex.StepDecision, error) {
+	values, err := rpcFlowChannel.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if len(values) != 1 || values[0] != input+1 {
+		return dex.StepDecision{}, fmt.Errorf("unexpected RPC channel values %v", values)
+	}
+	status, found, err := rpcFlowStatus.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if !found || status != "invoked" {
+		return dex.StepDecision{}, fmt.Errorf("RPC attribute write was not committed")
+	}
+	return dex.GracefulComplete(values[0] + 1), nil
+}
+
+func TestRPCFlow(t *testing.T) {
+	ctx := integrationContext(t)
+	flow := rpcFlow{}
+	flowID := newFlowID(t, "rpc")
+	_, err := integClient.StartFlow(
+		ctx,
+		flow,
+		flowID,
+		1,
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+
+	var failedOutput int
+	err = integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.Fail,
+		1,
+		&failedOutput,
+		dex.InvokeOptions{},
+	)
+	sdkError := requireDexError(t, err, dex.ErrorWorkerAPI)
+	require.NotNil(t, sdkError.OriginalWorkerError)
+	require.True(t, strings.Contains(
+		sdkError.OriginalWorkerError.Detail,
+		"planned RPC failure",
+	))
+
+	var output rpcIncrementOutput
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.Increment,
+		1,
+		&output,
+		dex.InvokeOptions{LockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(rpcFlowStatus),
+		}},
+	))
+	require.Equal(t, 2, output.Value)
+	require.Equal(t, 0, output.SizeBefore)
+	require.Equal(t, 1, output.SizeAfter)
+	require.False(t, output.StatusFound)
+
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
+	var flowOutput int
+	require.NoError(t, result.Completions[0].Output.Decode(&flowOutput))
+	require.Equal(t, 3, flowOutput)
 }

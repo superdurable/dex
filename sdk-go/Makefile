@@ -142,22 +142,28 @@ cleanTestCache:
 integTests:
 	$Q go test -v ./integ
 
+temporalIntegTests:
+	$Q ./run-integ-tests.sh
+
 blobCacheTests:
 	$Q go test -race ./dex/blobcache
 
 workerIntegTests:
 	$Q go test -race -v ./dex -run '^TestWorker'
 
+clientIntegTests:
+	$Q go test -race -v ./dex -run '^TestClient'
+
 unitTests:
 	$Q go test -v ./dex ./examples/...
 
-tests: unitTests workerIntegTests blobCacheTests
+tests: unitTests clientIntegTests workerIntegTests blobCacheTests
 
 ci-tests:
 	$Q go test -v -cover ./dex ./examples/... ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...
 
 fmt:
-	$Q gofmt -s -w ./dex ./dextest ./examples ./integ
+	$Q gofmt -s -w ./dex ./examples ./integ
   
 help:
 	@# print help first, so it's visible

@@ -3,9 +3,8 @@
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `WaitFor`, and `Execute` contracts.
 
-Phases 1 through 4 provide the public model, value/protobuf mapping, private
-registration, and the application-hosted WorkerService. Public FlowService
-client transport remains Phase 5.
+The rewrite provides the public model, value/protobuf mapping, immutable
+registration, application-hosted WorkerService, and typed FlowService Client.
 
 ## License
 
@@ -73,7 +72,7 @@ func (OrderFlow) GetFlowType() string {
 
 func (OrderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStepAsStart(WaitForCommand),
+		dex.DefineStartStep(WaitForCommand),
 	}
 }
 
@@ -85,7 +84,7 @@ func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 ```
 
-Flows use `dex.DefineStepAsStart` for at most one starting step and
+Flows use `dex.DefineStartStep` for at most one starting step and
 `dex.DefineStep` for every non-starting step.
 
 Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
@@ -97,12 +96,12 @@ arbitrary values through `dex.Context`.
 
 ## Registration
 
-Registration is assembled internally from each Flow's durable type, steps,
+Registration is assembled once from each Flow's durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate
 names, multiple starting steps, invalid indexes, undeclared locks, and
 incompatible execute-failure targets before WorkerService starts.
 
-`DefineStep` and `DefineStepAsStart` retain the step input type behind a private
+`DefineStep` and `DefineStartStep` retain the step input type behind a private
 `typedStepDef` that implements the sealed `StepDef` interface. Runtime
 movements resolve through the current Flow's registered step definitions, so a
 same-name Step value cannot replace the registered handler or defaults.
@@ -131,15 +130,39 @@ invocation state in `dex.Context`.
 
 ## Running a Worker
 
-Applications host registered flows without importing generated protobufs:
+Applications share one Registry and BlobCache between Worker and Client:
 
 ```go
-worker, err := dex.NewWorker([]dex.Flow{Orders}, dex.WorkerOptions{
-	BindAddress: ":8803",
+logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+registry, err := dex.NewRegistry([]dex.Flow{Orders})
+if err != nil {
+	return err
+}
+cache, err := blobcache.New(&blobcache.Config{
+	Dir:      "/var/tmp/order-dex-blobs",
+	MaxBytes: 1 << 30,
+	Logger:   logger,
 })
 if err != nil {
 	return err
 }
+
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	BindAddress: ":8803",
+	Logger:      logger,
+})
+if err != nil {
+	return err
+}
+
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	WorkerTarget: worker.WorkerTarget(),
+	Logger:       logger,
+})
+if err != nil {
+	return err
+}
+defer client.Close()
 
 if err := worker.Start(); err != nil {
 	return err
@@ -163,9 +186,36 @@ locals, and events. Successful handlers commit the whole response. Returned
 errors, mapping failures, and recovered panics commit nothing. Flow and Step
 values may be called concurrently and must be concurrency-safe.
 
-Blob-backed request values hydrate through the private FlowService connection.
-`FlowServiceAddress` defaults to `localhost:8801`. An optional `BlobCache`
-avoids repeat loads; the caller still owns and closes the cache.
+Blob-backed values hydrate through private FlowService calls.
+`FlowServiceAddress` defaults to `localhost:8801`. Registry and BlobCache are
+required; the caller closes the cache after Client and Worker stop using it.
+
+`dex.Logger` supports structured debug, info, warning, and error messages.
+`blobcache.Config.Logger` defaults to `slog.Default` and is inherited by Client
+and Worker. Their option-level loggers override it for that component.
+
+## Calling FlowService
+
+Client methods target the current run by sending an empty run ID. This follows
+Continue-as-New automatically. `StartFlow` and `ResetFlow` return run IDs for
+diagnostics, while normal calls need only the flow ID.
+
+`ClientOptions.WorkerTarget` is the default advertised target for StartFlow.
+A per-call `ConfigOverride.WorkerTarget` takes precedence. UpdateFlowConfig does
+not inherit the Client default.
+
+StartFlow uses the starting step retained by Registry. Its input must match
+that step's input type, and its step options come from the registered Step.
+Flows without a starting step require nil input.
+
+The SDK generates request IDs for StartFlow, SetAttributes, InvokeRPC, and both
+wait-update APIs. Only `StartFlowOptions.RequestID` is public because it may be
+a stable business identifier spanning separate calls.
+
+Client is safe for concurrent calls. `Close` is idempotent and closes only its
+owned gRPC connection. Calls after Close return a local error. Remote
+FlowService failures become `*dex.Error`; local validation and codec failures
+remain ordinary Go errors.
 
 ## Value encoding
 
@@ -202,13 +252,13 @@ seconds are preserved. Numeric strings are not treated as Unix nanoseconds.
 Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
-The SDK generates a UUID for every start and synchronous-update call when the
-caller does not supply one. `StartFlowOptions.RequestID` may override the
-generated start ID. Retries reuse that UUID.
+The SDK generates a UUID for every request-ID-bearing call.
+`StartFlowOptions.RequestID` may override the generated start ID. Retries reuse
+the selected UUID.
 
 Large string and object values may be returned as blob references. Worker
-inputs hydrate before handler decode. Phase 5 public client results will hydrate
-before a `Value` is constructed. Decode never performs network I/O.
+inputs and Client results hydrate before handler or application decode. Decode
+never performs network I/O.
 
 Compilable examples:
 
@@ -217,14 +267,19 @@ Compilable examples:
 - [Step transitions](examples/transitions/main.go)
 - [Flow method RPC](examples/rpc/main.go)
 
-## Phase 4 verification
+## Verification
 
 ```text
 make unitTests
+make clientIntegTests
 make workerIntegTests
 make blobCacheTests
+make temporalIntegTests
 make copyright-check
 ```
+
+`temporalIntegTests` uses the current checkout's `dexcli dev` environment. It
+runs the migrated iWF Go SDK scenarios through the public Dex SDK.
 
 The detailed design and later phase boundaries are in the
 [Go SDK rewrite plan](../docs/design/plan/go-sdk-rewrite.md).

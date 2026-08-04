@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -63,7 +64,7 @@ func TestHydrateValuesDeduplicatesAndPreservesOrder(t *testing.T) {
 			}}},
 		},
 	}
-	hydrator := newValueHydrator(client, nil)
+	hydrator := newValueHydrator(client, newHydrationCache(t), nil)
 	values := []*dexpb.Value{stringBlob, concrete, stringBlob, objectBlob}
 
 	err := hydrator.HydrateValuesInPlace(
@@ -84,11 +85,16 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 			InternalBlobIdForStringValue: "blob",
 		},
 	}
-	require.Panics(t, func() { newValueHydrator(nil, nil) })
+	cache := newHydrationCache(t)
+	require.Panics(t, func() { newValueHydrator(nil, cache, nil) })
+	require.Panics(t, func() {
+		newValueHydrator(&fakeHydrationFlowServiceClient{}, nil, nil)
+	})
 
 	values := []*dexpb.Value{stringBlob}
 	err := newValueHydrator(
 		&fakeHydrationFlowServiceClient{},
+		cache,
 		nil,
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers(values),
@@ -101,6 +107,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		&fakeHydrationFlowServiceClient{values: map[string]*dexpb.Value{
 			"blob": {Kind: &dexpb.Value_IntValue{IntValue: 1}},
 		}},
+		cache,
 		nil,
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers(values),
@@ -111,6 +118,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 	values = []*dexpb.Value{stringBlob}
 	err = newValueHydrator(
 		&fakeHydrationFlowServiceClient{err: errors.New("load failed")},
+		cache,
 		nil,
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers(values),
@@ -164,4 +172,15 @@ func valuePointers(values []*dexpb.Value) []**dexpb.Value {
 		pointers[index] = &values[index]
 	}
 	return pointers
+}
+
+func newHydrationCache(t *testing.T) *blobcache.Cache {
+	t.Helper()
+	cache, err := blobcache.New(&blobcache.Config{
+		Dir:      t.TempDir(),
+		MaxBytes: 1 << 20,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cache.Close()) })
+	return cache
 }

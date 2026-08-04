@@ -21,13 +21,15 @@ import (
 
 type workerService struct {
 	dexpb.UnimplementedWorkerServiceServer
-	registry *registry
+	registry *Registry
 	hydrator valueHydrator
+	logger   Logger
 }
 
 func newWorkerService(
-	registry *registry,
+	registry *Registry,
 	hydrator valueHydrator,
+	logger Logger,
 ) *workerService {
 	if registry == nil {
 		panic("dex: WorkerService requires registry")
@@ -35,7 +37,11 @@ func newWorkerService(
 	if hydrator == nil {
 		panic("dex: WorkerService requires value hydrator")
 	}
-	return &workerService{registry: registry, hydrator: hydrator}
+	return &workerService{
+		registry: registry,
+		hydrator: hydrator,
+		logger:   resolveLogger(logger, nil),
+	}
 }
 
 func (service *workerService) InvokeWaitForMethod(
@@ -43,7 +49,7 @@ func (service *workerService) InvokeWaitForMethod(
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (response *dexpb.InvokeWaitForMethodResponse, err error) {
 	defer func() {
-		if finalErr := finishWorkerCall(recover(), err); finalErr != nil {
+		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
 			response = nil
 			err = finalErr
 		}
@@ -128,7 +134,7 @@ func (service *workerService) InvokeExecuteMethod(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (response *dexpb.InvokeExecuteMethodResponse, err error) {
 	defer func() {
-		if finalErr := finishWorkerCall(recover(), err); finalErr != nil {
+		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
 			response = nil
 			err = finalErr
 		}
@@ -209,7 +215,7 @@ func (service *workerService) InvokeWorkerRPC(
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (response *dexpb.InvokeWorkerRPCResponse, err error) {
 	defer func() {
-		if finalErr := finishWorkerCall(recover(), err); finalErr != nil {
+		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
 			response = nil
 			err = finalErr
 		}

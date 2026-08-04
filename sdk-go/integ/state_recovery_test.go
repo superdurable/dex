@@ -4,22 +4,76 @@
 package integ
 
 import (
-	"context"
-	"strconv"
+	"fmt"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestStateRecovery(t *testing.T) {
-	wfId := "TestStateRecovery" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), executeApiFailRecoveryWorkflow{}, wfId, 10, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+type executeRecoveryFlow struct {
+	emptyFlowSchema
+}
 
+func (executeRecoveryFlow) GetFlowType() string {
+	return "go-sdk-execute-recovery"
+}
+
+func (executeRecoveryFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(executeRecoveryFailStep{}),
+		dex.DefineStep(executeRecoveryFinishStep{}),
+	}
+}
+
+type executeRecoveryFailStep struct {
+	dex.NoWaitFor[string]
+}
+
+func (executeRecoveryFailStep) GetStepType() string {
+	return "fail"
+}
+
+func (executeRecoveryFailStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(executeRecoveryFinishStep{}, nil),
+	}
+}
+
+func (executeRecoveryFailStep) Execute(dex.Context, string) (dex.StepDecision, error) {
+	return dex.StepDecision{}, fmt.Errorf("planned Execute failure")
+}
+
+type executeRecoveryFinishStep struct {
+	dex.StepDefaults[string]
+}
+
+func (executeRecoveryFinishStep) GetStepType() string {
+	return "finish"
+}
+
+func (executeRecoveryFinishStep) Execute(
+	dex.Context,
+	string,
+) (dex.StepDecision, error) {
+	return dex.GracefulComplete("this is flow step 2"), nil
+}
+
+func TestStepRecovery(t *testing.T) {
+	flowID := newFlowID(t, "execute-recovery")
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		executeRecoveryFlow{},
+		flowID,
+		"unchanged input",
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
 	var output string
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, "this is workflow state 2", output)
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, "this is flow step 2", output)
 }

@@ -100,7 +100,7 @@ func (OrderFlow) GetFlowType() string {
 
 func (OrderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStepAsStart(ApproveOrder),
+		dex.DefineStartStep(ApproveOrder),
 		dex.DefineStep(ShipOrder),
 	}
 }

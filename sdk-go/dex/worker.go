@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -39,17 +38,18 @@ type WorkerOptions struct {
 	WorkerTarget WorkerTarget
 	// FlowServiceAddress is the plaintext Dex endpoint used only for blob hydration. Default: "localhost:8801".
 	FlowServiceAddress string
-	// BlobCache optionally caches hydrated values. Default: nil.
-	BlobCache *blobcache.Cache
+	// Logger defaults to the shared BlobCache logger.
+	Logger Logger
 }
 
 // Worker hosts registered Flows over the private WorkerService protocol.
 type Worker struct {
-	registry     *registry
+	registry     *Registry
 	bindAddress  string
 	workerTarget WorkerTarget
 	grpcServer   *grpc.Server
 	flowConn     *grpc.ClientConn
+	logger       Logger
 
 	lifecycleMu sync.Mutex
 	state       workerState
@@ -66,14 +66,17 @@ const (
 	workerStopped
 )
 
-// NewWorker validates Flows and constructs a one-shot Worker.
+// NewWorker constructs a one-shot Worker from shared dependencies.
 func NewWorker(
-	flows []Flow,
+	registry *Registry,
+	cache *blobcache.Cache,
 	options WorkerOptions,
 ) (*Worker, error) {
-	registered, err := newRegistry(flows)
-	if err != nil {
-		return nil, err
+	if registry == nil {
+		panic("dex.NewWorker requires Registry")
+	}
+	if cache == nil {
+		panic("dex.NewWorker requires BlobCache")
 	}
 	bindAddress, target, flowServiceAddress, err := resolveWorkerOptions(options)
 	if err != nil {
@@ -87,21 +90,25 @@ func NewWorker(
 		return nil, fmt.Errorf("dex: create FlowService client: %w", err)
 	}
 
+	logger := resolveLogger(options.Logger, cache.Logger())
 	grpcServer := grpc.NewServer()
 	service := newWorkerService(
-		registered,
+		registry,
 		newValueHydrator(
 			dexpb.NewFlowServiceClient(flowConn),
-			options.BlobCache,
+			cache,
+			logger,
 		),
+		logger,
 	)
 	dexpb.RegisterWorkerServiceServer(grpcServer, service)
 	return &Worker{
-		registry:     registered,
+		registry:     registry,
 		bindAddress:  bindAddress,
 		workerTarget: target,
 		grpcServer:   grpcServer,
 		flowConn:     flowConn,
+		logger:       logger,
 		state:        workerCreated,
 		done:         make(chan struct{}),
 	}, nil
@@ -172,7 +179,11 @@ func resolveAdvertisedWorkerTarget(
 }
 
 func validatePlaintextTarget(address string, requireHostPort bool) error {
-	lower := strings.ToLower(strings.TrimSpace(address))
+	trimmed := strings.TrimSpace(address)
+	if trimmed != address {
+		return fmt.Errorf("target address must not contain surrounding whitespace")
+	}
+	lower := strings.ToLower(trimmed)
 	if lower == "" {
 		return fmt.Errorf("target address must not be empty")
 	}
@@ -262,7 +273,7 @@ func (worker *Worker) Stop(ctx context.Context) error {
 func (worker *Worker) finish() {
 	worker.finishOnce.Do(func() {
 		if err := worker.flowConn.Close(); err != nil {
-			slog.Default().Error("close Worker FlowService connection", "error", err)
+			worker.logger.Error("close Worker FlowService connection", "error", err)
 		}
 		close(worker.done)
 	})

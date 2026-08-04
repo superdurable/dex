@@ -294,7 +294,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 	first := &registrationFlow{
 		flowType: "first",
 		steps: []StepDef{
-			DefineStepAsStart(start),
+			DefineStartStep(start),
 			DefineStep(executeOnly),
 		},
 		schema: PersistenceSchema{
@@ -307,7 +307,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 		steps:    []StepDef{DefineStep(&registrationStep{stepType: "start"})},
 	}
 
-	assembled, err := newRegistry([]Flow{first, second})
+	assembled, err := NewRegistry([]Flow{first, second})
 	require.NoError(t, err)
 
 	firstRegistration, found := assembled.lookupFlow("first")
@@ -328,7 +328,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 }
 
 func TestRegistryRejectsNonRPCExportedMethods(t *testing.T) {
-	assembled, err := newRegistry([]Flow{
+	assembled, err := NewRegistry([]Flow{
 		invalidRPCRegistrationFlow{flowType: "invalid-rpc"},
 	})
 	require.Nil(t, assembled)
@@ -412,8 +412,8 @@ func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 			flows: []Flow{&registrationFlow{
 				flowType: "flow",
 				steps: []StepDef{
-					DefineStepAsStart(validStep),
-					DefineStepAsStart(
+					DefineStartStep(validStep),
+					DefineStartStep(
 						&registrationStep{stepType: "second"},
 					),
 				},
@@ -424,7 +424,7 @@ func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			assembled, err := newRegistry(testCase.flows)
+			assembled, err := NewRegistry(testCase.flows)
 			require.Nil(t, assembled)
 			require.ErrorContains(t, err, testCase.error)
 		})
@@ -559,7 +559,7 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			assembled, err := newRegistry(testCase.flows)
+			assembled, err := NewRegistry(testCase.flows)
 			require.Nil(t, assembled)
 			require.ErrorContains(t, err, testCase.error)
 		})
@@ -651,7 +651,7 @@ func TestRegistryValidatesStepOptions(t *testing.T) {
 				DefineStep(target),
 			}
 			steps = append(steps, testCase.steps...)
-			assembled, err := newRegistry([]Flow{&registrationFlow{
+			assembled, err := NewRegistry([]Flow{&registrationFlow{
 				flowType: "flow",
 				steps:    steps,
 				schema: PersistenceSchema{
@@ -671,14 +671,14 @@ func TestStepAdaptersAndRuntimeReferences(t *testing.T) {
 	flow := &registrationFlow{
 		flowType: "flow",
 		steps: []StepDef{
-			DefineStepAsStart(start),
+			DefineStartStep(start),
 			DefineStep(registeredTarget),
 		},
 		schema: PersistenceSchema{
 			Channels: []ChannelDef{commands},
 		},
 	}
-	assembled, err := newRegistry([]Flow{flow})
+	assembled, err := NewRegistry([]Flow{flow})
 	require.NoError(t, err)
 	registeredFlow, found := assembled.lookupFlow("flow")
 	require.True(t, found)
@@ -749,7 +749,7 @@ func TestRegistryReportsFirstInvalidStepOptions(t *testing.T) {
 		},
 	}
 	for attempt := 0; attempt < 50; attempt++ {
-		assembled, err := newRegistry([]Flow{&registrationFlow{
+		assembled, err := NewRegistry([]Flow{&registrationFlow{
 			flowType: "probe",
 			steps: []StepDef{
 				DefineStep(first),
@@ -763,7 +763,7 @@ func TestRegistryReportsFirstInvalidStepOptions(t *testing.T) {
 }
 
 func TestRegistryRejectsPointerOnlyRPCsOnValueFlow(t *testing.T) {
-	assembled, err := newRegistry([]Flow{mixedReceiverRegistrationFlow{}})
+	assembled, err := NewRegistry([]Flow{mixedReceiverRegistrationFlow{}})
 	require.Nil(t, assembled)
 	require.ErrorContains(t, err, `exported methods [Update]`)
 	require.ErrorContains(t, err, "pointer receivers")
@@ -776,7 +776,7 @@ func TestRegistryRejectsPointerOnlyRPCsOnValueFlow(t *testing.T) {
 
 func TestRPCDiscoveryInvocationAndIdentity(t *testing.T) {
 	pointerFlow := &registrationFlow{flowType: "pointer-flow"}
-	assembled, err := newRegistry([]Flow{
+	assembled, err := NewRegistry([]Flow{
 		pointerFlow,
 		valueRegistrationFlow{},
 	})
@@ -830,7 +830,7 @@ func TestRPCDiscoveryInvocationAndIdentity(t *testing.T) {
 func TestRPCInvocationReturnsApplicationError(t *testing.T) {
 	expected := errors.New("failed")
 	flow := errorRegistrationFlow{rpcError: expected}
-	assembled, err := newRegistry([]Flow{flow})
+	assembled, err := NewRegistry([]Flow{flow})
 	require.NoError(t, err)
 	registered, found := assembled.lookupFlow("error-flow")
 	require.True(t, found)

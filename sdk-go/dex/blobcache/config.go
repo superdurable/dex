@@ -13,6 +13,8 @@ package blobcache
 import (
 	"errors"
 	"fmt"
+
+	"github.com/superdurable/dex/sdk-go/logging"
 )
 
 const (
@@ -44,6 +46,8 @@ type Config struct {
 	MaxBytes int64
 	// FrequencyCounters defaults to 10,000; use roughly 10× expected blobs; Ristretto uses about 3 bytes per counter before rounding.
 	FrequencyCounters int64
+	// Logger defaults to slog.Default and supplies the logger inherited by Client and Worker.
+	Logger logging.Logger
 }
 
 func validateConfig(cfg *Config) error {

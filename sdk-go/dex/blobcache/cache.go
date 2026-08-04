@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/superdurable/dex/sdk-go/logging"
 )
 
 // Cache stores immutable blob payloads on disk under a Ristretto policy.
@@ -34,6 +35,7 @@ type Cache struct {
 	cfg    *Config
 	store  fileStore
 	policy *ristretto.Cache[string, *diskEntry]
+	logger logging.Logger
 
 	lifecycleMu sync.RWMutex
 	commitMu    sync.Mutex
@@ -69,6 +71,7 @@ func newCache(cfg *Config, store fileStore) (*Cache, error) {
 	cache := &Cache{
 		cfg:            cfg,
 		store:          store,
+		logger:         logging.OrDefault(cfg.Logger),
 		cleanupBacklog: make(map[string]struct{}),
 	}
 	if err := cache.initializePolicy(); err != nil {
@@ -484,4 +487,9 @@ func (cache *Cache) retryCleanup() error {
 		return fmt.Errorf("%w: %v", ErrReconciliation, cleanupErr)
 	}
 	return nil
+}
+
+// Logger returns the configured logger.
+func (cache *Cache) Logger() logging.Logger {
+	return cache.logger
 }

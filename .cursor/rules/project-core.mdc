@@ -32,6 +32,7 @@ module map.
 - Lift stateful closures into struct methods when they capture 3+ values, mutate
   outer state, have multiple call sites, or outlive one statement.
 - One-shot callbacks, tiny pure transforms, and IIFEs are acceptable.
+- Keep a struct's methods in one primary file. Do not split its method set across feature-specific files.
 - New comments explain only non-obvious reasons, trade-offs, invariants, or
   external constraints. Prefer clearer names over obvious new comments.
 - Keep each new contiguous comment block under 20 words. Ask before exceeding

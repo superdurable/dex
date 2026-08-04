@@ -113,10 +113,10 @@ func DefineStep[IN any](step Step[IN]) StepDef {
 	return newStepDef(step, false)
 }
 
-// DefineStepAsStart wraps the Flow's starting Step for Flow.GetSteps.
+// DefineStartStep wraps the Flow's starting Step for Flow.GetSteps.
 // A Flow may declare at most one starting step. With none, the run starts with
 // no step execution (RPCs can still start steps later).
-func DefineStepAsStart[IN any](step Step[IN]) StepDef {
+func DefineStartStep[IN any](step Step[IN]) StepDef {
 	return newStepDef(step, true)
 }
 
@@ -185,7 +185,7 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 // Step[IN] with its own input type, but GetSteps, registration, movements,
 // and execute-failure options need one non-generic type so differently typed
 // steps can live in the same slice and maps. Go cannot express that as
-// []Step[IN] with mixed IN, so DefineStep / DefineStepAsStart / MovementOf
+// []Step[IN] with mixed IN, so DefineStep / DefineStartStep / MovementOf
 // wrap each Step[IN] in typedStepDef[IN]. The wrapper implements StepDef with
 // any-typed waitFor/execute, then casts the input back to IN before calling
 // the real Step methods—keeping compile-time typing at the authoring API

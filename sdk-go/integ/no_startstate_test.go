@@ -11,30 +11,75 @@
 package integ
 
 import (
-	"context"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"strconv"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestNoStartStateWorkflow(t *testing.T) {
-	wfId := "TestNoStartStateWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	wf := noStartStateWorkflow{}
+type noStartStepFlow struct {
+	emptyFlowSchema
+}
 
-	runId, err := client.StartWorkflow(context.Background(), wf, wfId, 10, 1, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+func (noStartStepFlow) GetFlowType() string {
+	return "go-sdk-no-start-step"
+}
 
+func (noStartStepFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStep(noStartFinishStep{})}
+}
+
+func (noStartStepFlow) Start(
+	dex.Context,
+	int,
+) (dex.RPCResult[int], error) {
+	return dex.RPCResult[int]{
+		Output:    2,
+		NextSteps: []dex.StepMovement{dex.MovementOf(noStartFinishStep{}, 2)},
+	}, nil
+}
+
+type noStartFinishStep struct {
+	dex.StepDefaults[int]
+}
+
+func (noStartFinishStep) GetStepType() string {
+	return "finish"
+}
+
+func (noStartFinishStep) Execute(
+	_ dex.Context,
+	input int,
+) (dex.StepDecision, error) {
+	return dex.GracefulComplete(input + 1), nil
+}
+
+func TestFlowWithoutStartingStep(t *testing.T) {
+	ctx := integrationContext(t)
+	flow := noStartStepFlow{}
+	flowID := newFlowID(t, "no-start-step")
+	_, err := integClient.StartFlow(
+		ctx,
+		flow,
+		flowID,
+		nil,
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
 	var rpcOutput int
-	err = client.InvokeRPC(context.Background(), wfId, "", wf.TestRPC, 1, &rpcOutput)
-	assert.Nil(t, err)
-	assert.Equal(t, 2, rpcOutput)
-
-	time.Sleep(time.Second * 2)
-	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
-	assert.Nil(t, err)
-	assert.Equal(t, dexpb.COMPLETED, info.Status)
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.Start,
+		1,
+		&rpcOutput,
+		dex.InvokeOptions{},
+	))
+	require.Equal(t, 2, rpcOutput)
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
+	var output int
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, 3, output)
 }

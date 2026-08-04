@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"runtime/debug"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -39,14 +38,15 @@ func (failure *workerFailure) Unwrap() error {
 	return failure.cause
 }
 
-func finishWorkerCall(recovered any, err error) error {
+func finishWorkerCall(logger Logger, recovered any, err error) error {
 	if recovered != nil {
-		slog.Default().Error(
+		logger.Error(
 			"Worker handler panic",
 			"panic", recovered,
 			"stack", string(debug.Stack()),
 		)
 		return workerStatusError(
+			logger,
 			codes.Internal,
 			fmt.Errorf("panic: %v", recovered),
 			fmt.Sprintf("%T", recovered),
@@ -61,7 +61,7 @@ func finishWorkerCall(recovered any, err error) error {
 	if rpcStatus, ok := status.FromError(cause); ok {
 		detail = rpcStatus.Message()
 	}
-	return workerStatusError(code, cause, fmt.Sprintf("%T", cause), detail)
+	return workerStatusError(logger, code, cause, fmt.Sprintf("%T", cause), detail)
 }
 
 func classifyWorkerError(err error) (codes.Code, error) {
@@ -82,6 +82,7 @@ func classifyWorkerError(err error) (codes.Code, error) {
 }
 
 func workerStatusError(
+	logger Logger,
 	code codes.Code,
 	cause error,
 	errorType string,
@@ -97,7 +98,7 @@ func workerStatusError(
 		ErrorType: errorType,
 	})
 	if err != nil {
-		slog.Default().Error("attach Worker error details", "error", err)
+		logger.Error("attach Worker error details", "error", err)
 		return rpcStatus.Err()
 	}
 	return withDetails.Err()

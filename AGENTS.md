@@ -134,6 +134,8 @@ struct-based file:
 Exceptions: generated code (leave as-is); tightly grouped methods on different
 subsystems in one file (keep the cluster intact).
 
+Keep a struct's methods in one primary file. Do not split its method set across feature-specific files.
+
 ### `ptr.Any(...)` for Pointer Literals (Go)
 
 Use `ptr.Any(value)` instead of a throwaway local variable taken by address.

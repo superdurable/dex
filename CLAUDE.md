@@ -74,6 +74,8 @@ A callee appears below its caller. Prefer:
 
 Leave generated code unchanged and keep tightly coupled subsystem clusters intact.
 
+Keep a struct's methods in one primary file. Do not split its method set across feature-specific files.
+
 ## Pointers and Naming
 
 - Use `ptr.Any(value)` for pointer literals. Import
