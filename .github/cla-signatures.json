@@ -1,5 +1,11 @@
 {
-  "signatories": [],
+  "signatories": [
+    {
+      "github_handle": "longquanzheng",
+      "agreement_type": "corporate",
+      "agreement_date": "2026-08-04"
+    }
+  ],
   "exempt_bot_handles": [
     "dependabot[bot]",
     "github-actions[bot]"
