@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from typing import Optional
 
@@ -29,14 +25,12 @@ from dex.workflow import ObjectWorkflow
 from dex.workflow_context import WorkflowContext
 from dex.workflow_state import WorkflowState
 
-
 """
 NOTE: This workflow and its tests were translated from dex-java-sdk, but currently, there is a
 discrepency between the sdks in their handling of empty graceful complete workflow
 messages. These tests will not pass, so they are curretly being skipped. They were added
 here for posterity.
 """
-
 
 INTERNAL_CHANNEL_NAME = "test-channel-1"
 TEST_DATA_OBJECT_KEY = "data-obj-1"
@@ -46,7 +40,6 @@ RPC_INPUT = "rpc-input"
 RPC_OUTPUT = 100
 TEST_STR = "test-str"
 TEST_DELAY = 0.1
-
 
 class JavaDuplicateRpcMemoWorkflow(ObjectWorkflow):
     def get_workflow_states(self) -> StateSchema:
@@ -228,7 +221,6 @@ class JavaDuplicateRpcMemoWorkflow(ObjectWorkflow):
             raise RuntimeError("invalid context")
         return persistence.get_search_attribute_keyword(TEST_SEARCH_ATTRIBUTE_KEY)
 
-
 class RpcMemoWorkflowState1(WorkflowState[int]):
     def wait_until(
         self,
@@ -250,7 +242,6 @@ class RpcMemoWorkflowState1(WorkflowState[int]):
         communication: Communication,
     ) -> StateDecision:
         return StateDecision.single_next_state(RpcMemoWorkflowState2, 0)
-
 
 class RpcMemoWorkflowState2(WorkflowState[int]):
     _counter: int = 0

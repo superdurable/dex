@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 import typing
 from dataclasses import dataclass
@@ -26,12 +22,10 @@ from dex.dex_api.types import Unset
 from dex.object_encoder import ObjectEncoder
 from dex.type_store import TypeStore
 
-
 @dataclass
 class TimerCommandResult:
     status: TimerStatus
     command_id: str
-
 
 @dataclass
 class InternalChannelCommandResult:
@@ -40,7 +34,6 @@ class InternalChannelCommandResult:
     status: ChannelRequestStatus
     command_id: str
 
-
 @dataclass
 class SignalChannelCommandResult:
     channel_name: str
@@ -48,14 +41,12 @@ class SignalChannelCommandResult:
     status: ChannelRequestStatus
     command_id: str
 
-
 @dataclass
 class CommandResults:
     timer_commands: list[TimerCommandResult]
     internal_channel_commands: list[InternalChannelCommandResult]
     signal_channel_commands: list[SignalChannelCommandResult]
     wait_until_api_succeeded: Optional[bool] = None
-
 
 def from_idl_command_results(
     idl_results: Union[Unset, IdlCommandResults],

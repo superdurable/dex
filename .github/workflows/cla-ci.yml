@@ -1,0 +1,34 @@
+name: CLA
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      github_handle:
+        description: GitHub handle to verify
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  cla-check:
+    name: Contributor agreement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify signature record
+        env:
+          GITHUB_HANDLE: ${{ github.event.pull_request.user.login || inputs.github_handle }}
+        run: |
+          if jq -e --arg handle "$GITHUB_HANDLE" '
+            ([.signatories[].github_handle] + .exempt_bot_handles) | index($handle)
+          ' .github/cla-signatures.json >/dev/null; then
+            echo "CLA record found for $GITHUB_HANDLE"
+            exit 0
+          fi
+
+          echo "No CLA record for $GITHUB_HANDLE."
+          echo "See CLA.md and email the signed agreement to licensing@superdurable.io."
+          exit 1

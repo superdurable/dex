@@ -23,6 +23,15 @@ bootJar {
 
 jar {
     enabled = true
+    from('LICENSE') {
+        into 'META-INF'
+    }
+    from('LEGACY_NOTICES.md') {
+        into 'META-INF'
+    }
+    from('LICENSES') {
+        into 'META-INF/LICENSES'
+    }
 }
 
 java {
@@ -140,8 +149,9 @@ publishing {
 
                 licenses {
                     license {
-                        name = 'The Apache License, Version 2.0'
-                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        name = 'Super Durable Source License 1.0'
+                        url = 'https://github.com/superdurable/dex/blob/main/LICENSE'
+                        distribution = 'repo'
                     }
                 }
 

@@ -104,3 +104,7 @@ Check out our [CONTRIBUTING](https://github.com/superdurable/dex/blob/main/CONTR
   * [#3](https://cadenceworkflow.io/blog/2023/08/31/community-spotlight-august-2023/)
 * Dex is an abstracted Temporal [framework](https://github.com/temporalio/awesome-temporal). Same for [Cadence](https://github.com/uber/cadence#cadence).
 * [How ContinueAsNew is built in Dex](https://medium.com/@qlong/guide-to-continueasnew-in-cadence-temporal-workflow-using-dex-as-an-example-part-1-c24ae5266f07)
+## License
+
+[Super Durable Source License 1.0](LICENSE.md), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

@@ -26,4 +26,15 @@ Versions are per-component. Tag with a prefix (for example `server-v1.0.0`, `sdk
 
 ## Licensing
 
-Multiple licenses apply by directory. See root [LICENSE](LICENSE) and each package's own LICENSE file.
+Super Durable changes to the product, SDKs, protocol, CLI, and web components
+use the [Super Durable Source License 1.0](LICENSE). Production use is free up
+to US$10 million in consolidated annual revenue; after first exceeding the
+threshold, continued production use requires a subscription within 90 days.
+Competitive Dex products and hosted replacements always require a commercial
+license.
+
+Applications may bundle SDK and protocol components subject to the
+developer/operator revenue rule. End users that only run the application do
+not need a separate subscription. Legacy code retains its original license;
+`docs/` and `examples/` are excluded from the relicensing. See
+[LICENSING.md](LICENSING.md) and [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

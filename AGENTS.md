@@ -33,20 +33,23 @@ only when a section genuinely doesn't apply.
 
 ### License Headers
 
-Every new or edited `.go` / `.java` / `.py` file (and hand-written OpenAPI YAML
-under `protos/`) must start with the license header for its directory from
-[`script/licenseheaders/`](script/licenseheaders/) — selected by longest path
-prefix in `mapping.yaml`.
+Every new or edited `.go` / `.java` / `.py` / `.rs` / `.proto` file, Web
+`.ts` / `.tsx` / `.css` / `.html` source, and hand-written OpenAPI YAML under
+`protos/` must start with the classification header from
+[`script/licenseheaders/`](script/licenseheaders/). The committed
+legacy manifest determines whether a managed file is `legacy-only`, `mixed`,
+or `new`. Examples retain their existing MIT or Apache-2.0 headers.
 
 Skip generated trees: `**/gen/**`, `*.pb.go`, `*_pb.go`, `*.gen.*`.
 
 When creating or modifying such a file, check the top; if the header is missing,
 add it. From the repo root:
 
-- `make copyright` — add missing headers
-- `make copyright-check` — verify (fails if any are missing)
-- `make copyright-replace` — replace existing headers with the current
-  Super Durable per-directory template (destructive)
+- `make copyright` — safely add or upgrade required headers
+- `make copyright-check` — verify classifications, body hashes, and headers
+
+Do not replace legacy headers. Editing a `legacy-only` file upgrades it to
+`mixed`; files first created after the cutoff use the `new` header.
 
 ### No Backward Compatibility
 

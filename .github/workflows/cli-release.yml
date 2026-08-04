@@ -64,7 +64,10 @@ jobs:
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "dist/${name}/dexcli" ./cmd/dexcli
-            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" dexcli
+            cp LICENSE LEGACY_NOTICES.md "dist/${name}/"
+            cp -R LICENSES "dist/${name}/LICENSES"
+            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" \
+              dexcli LICENSE LEGACY_NOTICES.md LICENSES
             rm -r "dist/${name}"
           done
           cd dist

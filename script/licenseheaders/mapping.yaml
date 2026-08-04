@@ -1,13 +1,15 @@
-# Longest-prefix match: first path segment(s) under the repo root → template id.
-# Template files live alongside this mapping as <id>.txt.
-server: mit
-cli: mit
-web: mit
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
+#
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
+
+# Retained example licenses. Managed source classifications live in policy.json
+# and legacy-manifest.json.
 examples/go: mit
-sdk-go: apache-2.0
-sdk-java: apache-2.0
-sdk-python: apache-2.0
-sdk-rust: apache-2.0
 examples/java: apache-2.0
 examples/python: apache-2.0
-protos: mit

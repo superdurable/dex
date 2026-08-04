@@ -1,0 +1,7 @@
+{
+  "signatories": [],
+  "exempt_bot_handles": [
+    "dependabot[bot]",
+    "github-actions[bot]"
+  ]
+}

@@ -114,4 +114,6 @@ This project is governed by the [Contributor Covenant v 1.4.1](CODE_OF_CONDUCT.m
 See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo tag conventions.
 
 ## License
-This project uses the [Apache 2.0](LICENSE) license. (Update this and the LICENSE file if your project uses a different license.)
+
+[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

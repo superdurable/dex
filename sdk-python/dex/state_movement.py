@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from __future__ import annotations
 
@@ -28,7 +24,6 @@ if typing.TYPE_CHECKING:
 from dataclasses import dataclass
 from typing import Any
 
-
 from dex.dex_api.models.state_movement import StateMovement as IdlStateMovement
 
 from dex.object_encoder import ObjectEncoder
@@ -43,7 +38,6 @@ graceful_completing_sys_state_id = (
 force_completing_sys_state_id = reserved_state_id_prefix + "FORCE_COMPLETING_WORKFLOW"
 force_failing_sys_state_id = reserved_state_id_prefix + "FORCE_FAILING_WORKFLOW"
 dead_end_sys_state_id = reserved_state_id_prefix + "DEAD_END"
-
 
 @dataclass
 class StateMovement:
@@ -88,9 +82,7 @@ class StateMovement:
             state_id, state_input, state_options_override, wait_for_key
         )
 
-
 StateMovement.dead_end = StateMovement(dead_end_sys_state_id)
-
 
 def _to_idl_state_movement(
     movement: StateMovement, wf_type: str, registry: Registry, encoder: ObjectEncoder

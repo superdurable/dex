@@ -83,3 +83,7 @@ binary does not read `web/`, `node_modules`, or the source tree.
 - “address is already in use”: stop the listed service or select another port.
 - “missing search attribute”: register `FlowType` as `Keyword` and
   `ActiveStepTypes` as `KeywordList` in the selected external namespace.
+## License
+
+[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

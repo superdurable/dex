@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "cutoff": "1a61670238cbdc8f2a0a6dd78cc5668fb014f283",
+  "contamination_commit": "41ce2b6f9ada3ecd48dd8a0372ac5af4d8fd6e7c",
+  "included_prefixes": [
+    "server",
+    "cli",
+    "web",
+    "sdk-go",
+    "sdk-java",
+    "sdk-python",
+    "sdk-rust",
+    "protos",
+    "script"
+  ],
+  "forced_new_prefixes": [
+    "protos",
+    "sdk-rust",
+    "web"
+  ],
+  "excluded_prefixes": [
+    "docs",
+    "examples"
+  ],
+  "retained_license_prefixes": {
+    "examples/go": "mit",
+    "examples/java": "apache-2.0",
+    "examples/python": "apache-2.0"
+  },
+  "reviewed_mixed_paths": [
+    "sdk-go/dex/blobcache/concurrency_test.go",
+    "sdk-go/dex/errors_test.go",
+    "sdk-go/dex/invocation.go",
+    "sdk-go/dex/proto_mapper_test.go",
+    "sdk-go/dex/registration_test.go",
+    "sdk-go/dex/value_test.go",
+    "sdk-go/dex/worker_error.go",
+    "sdk-go/dex/worker_integration_test.go",
+    "server/integ/channel_multivalue_test.go",
+    "server/integ/external_dex.go",
+    "server/integ/runtime.go",
+    "server/integ/s3_history_assert.go",
+    "server/integ/wait_for_attribute_test.go",
+    "server/integ/web_api_test.go",
+    "server/integ/worker_target_update_test.go",
+    "server/integ/workflow/channel_multivalue/routers.go",
+    "server/integ/workflow/common/load_blobs.go",
+    "server/integ/workflow/transient_step/routers.go",
+    "server/service/bootstrap/cadence.go",
+    "server/service/bootstrap/metrics.go",
+    "server/service/bootstrap/storage.go",
+    "server/service/bootstrap/temporal.go",
+    "server/service/client/history/builder.go",
+    "server/service/common/retry/policy_test.go",
+    "server/service/common/timeparser/time_test.go",
+    "server/service/common/workerclient/worker_client_pool_test.go",
+    "server/service/interpreter/channel/plan_test.go",
+    "server/service/interpreter/config/flowConfiger_test.go",
+    "server/service/interpreter/stepExecutionCounter.go",
+    "web/api/handlers.go",
+    "web/api/mapping.go"
+  ],
+  "repair_from_head_paths": [
+    "cli/internal/dev/supervisor_integ_test.go",
+    "sdk-go/dex/blobcache/cache.go",
+    "sdk-go/dex/blobcache/entry.go",
+    "sdk-go/dex/blobcache/file_store.go",
+    "sdk-go/dex/blobcache/format.go",
+    "sdk-go/dextest/client.go",
+    "sdk-go/dextest/communication.go",
+    "sdk-go/dextest/persistence.go",
+    "sdk-go/dextest/workflow_context.go",
+    "sdk-rust/crates/dex-core/src/invocation.rs",
+    "server/service/client/temporal/data_conveter_mock.go",
+    "server/service/client/temporal/real_temporal_client_mock.go",
+    "server/service/interpreter/channel/plan.go",
+    "server/service/interpreter/interfaces/interfaces_mock.go"
+  ],
+  "legacy_licenses": {
+    "server": ["MIT"],
+    "sdk-go": ["Apache-2.0"],
+    "sdk-java": ["Apache-2.0"],
+    "sdk-python": ["Apache-2.0"],
+    "protos": ["MIT", "Apache-2.0"],
+    "samples-go": ["MIT"],
+    "samples-java": ["Apache-2.0"],
+    "samples-python": ["Apache-2.0"]
+  }
+}

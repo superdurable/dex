@@ -1,16 +1,12 @@
-# Copyright (c) 2022-2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 import inspect
 from typing import Any, Callable, List, Optional, Type, TypeVar, Union
@@ -45,14 +41,12 @@ from dex.workflow_state_options import _to_idl_state_options
 
 T = TypeVar("T")
 
-
 def get_workflow_type_by_rpc_method(meth) -> str:
     if inspect.ismethod(meth):
         return inspect.getmro(meth.__self__.__class__)[0].__name__
     if inspect.isfunction(meth):
         return meth.__qualname__.split(".<locals>", 1)[0].rsplit(".", 1)[0]
     raise InvalidArgumentError(f"method {meth} is not a RPC method")
-
 
 class Client:
     def __init__(self, registry: Registry, options: Optional[ClientOptions] = None):
@@ -512,7 +506,6 @@ class Client:
         self._unregistered_client.set_workflow_search_attributes(
             workflow_id, workflow_run_id, search_attributes
         )
-
 
 def convert_to_sa_list(
     sa_types: dict[str, SearchAttributeValueType], initial_sas: dict[str, Any]
