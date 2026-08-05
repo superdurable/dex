@@ -32,11 +32,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/engagement"
-	"github.com/superdurable/dex/examples/go/workflows/microservices"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
-	"github.com/superdurable/dex/examples/go/workflows/polling"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
@@ -113,22 +108,11 @@ func environmentOr(name string, fallback string) string {
 
 func (server *sampleServer) router() http.Handler {
 	router := gin.Default()
-	router.GET("/subscription/start", server.startSubscription)
-	router.GET("/subscription/cancel", server.cancelSubscription)
-	router.GET("/subscription/updateChargeAmount", server.updateSubscriptionChargeAmount)
-	router.GET("/subscription/describe", server.describeSubscription)
-	router.GET("/engagement/start", server.startEngagement)
-	router.GET("/engagement/describe", server.describeEngagement)
-	router.GET("/engagement/optout", server.optOutReminder)
-	router.GET("/engagement/decline", server.declineEngagement)
-	router.GET("/engagement/accept", server.acceptEngagement)
-	router.GET("/engagement/list", server.listEngagements)
-	router.GET("/microservice/start", server.startMicroservice)
-	router.GET("/microservice/swap", server.swapMicroserviceData)
-	router.GET("/microservice/signal", server.signalMicroservice)
-	router.GET("/moneytransfer/start", server.startMoneyTransfer)
-	router.GET("/polling/start", server.startPolling)
-	router.GET("/polling/complete", server.completePollingTask)
+	newSubscriptionController(server.client).registerRoutes(router)
+	newEngagementController(server.client).registerRoutes(router)
+	newMicroserviceController(server.client).registerRoutes(router)
+	newMoneyTransferController(server.client).registerRoutes(router)
+	newPollingController(server.client).registerRoutes(router)
 	return router
 }
 
@@ -165,250 +149,14 @@ func (server *sampleServer) close() error {
 	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 
-func (server *sampleServer) startSubscription(request *gin.Context) {
-	flowID := newFlowID("subscription")
-	customer := subscription.Customer{
-		FirstName: "Quanzheng",
-		LastName:  "Long",
-		ID:        "qlong",
-		Email:     "qlong@example.com",
-		Subscription: subscription.Subscription{
-			TrialPeriod:         20 * time.Second,
-			BillingPeriod:       10 * time.Second,
-			MaxBillingPeriods:   10,
-			BillingPeriodCharge: 100,
-		},
-	}
-	server.startFlow(request, workflows.Subscription, flowID, customer)
-}
-
-func (server *sampleServer) cancelSubscription(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	err := server.client.PublishToChannel(
-		request.Request.Context(),
-		flowID,
-		subscription.CancelSubscription,
-		nil,
-	)
-	respond(request, struct{}{}, err)
-}
-
-func (server *sampleServer) updateSubscriptionChargeAmount(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	amount, err := strconv.Atoi(request.Query("newChargeAmount"))
-	if err != nil {
-		request.JSON(http.StatusBadRequest, gin.H{"error": "newChargeAmount must be an integer"})
-		return
-	}
-	err = server.client.PublishToChannel(
-		request.Request.Context(),
-		flowID,
-		subscription.UpdateChargeAmount,
-		amount,
-	)
-	respond(request, struct{}{}, err)
-}
-
-func (server *sampleServer) describeSubscription(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var output subscription.Subscription
-	err := server.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		workflows.Subscription.Describe,
-		nil,
-		&output,
-		sdk.InvokeOptions{},
-	)
-	respond(request, output, err)
-}
-
-func (server *sampleServer) startEngagement(request *gin.Context) {
-	flowID := newFlowID("engagement")
-	input := engagement.EngagementInput{
-		EmployerID:  "test-employer-id",
-		JobSeekerID: "test-job-seeker-id",
-		Notes:       "test-notes",
-	}
-	server.startFlow(request, workflows.Engagement, flowID, input)
-}
-
-func (server *sampleServer) describeEngagement(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var output engagement.EngagementDescription
-	err := server.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		workflows.Engagement.Describe,
-		nil,
-		&output,
-		sdk.InvokeOptions{},
-	)
-	respond(request, output, err)
-}
-
-func (server *sampleServer) optOutReminder(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	err := server.client.PublishToChannel(
-		request.Request.Context(),
-		flowID,
-		engagement.OptOutReminder,
-		nil,
-	)
-	respond(request, struct{}{}, err)
-}
-
-func (server *sampleServer) declineEngagement(request *gin.Context) {
-	server.updateEngagement(request, workflows.Engagement.Decline)
-}
-
-func (server *sampleServer) acceptEngagement(request *gin.Context) {
-	server.updateEngagement(request, workflows.Engagement.Accept)
-}
-
-func (server *sampleServer) updateEngagement(
+func startFlow(
 	request *gin.Context,
-	rpc sdk.RPC[string, engagement.Status],
-) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var output engagement.Status
-	err := server.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		rpc,
-		request.Query("notes"),
-		&output,
-		sdk.InvokeOptions{},
-	)
-	respond(request, output, err)
-}
-
-func (server *sampleServer) listEngagements(request *gin.Context) {
-	query, found := requiredQuery(request, "query")
-	if !found {
-		return
-	}
-	page, err := server.client.SearchFlows(request.Request.Context(), query, 100, "")
-	respond(request, page, err)
-}
-
-func (server *sampleServer) startMicroservice(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	server.startFlow(request, workflows.Microservices, flowID, "test initial data")
-}
-
-func (server *sampleServer) swapMicroserviceData(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var output string
-	err := server.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		workflows.Microservices.Swap,
-		request.Query("data"),
-		&output,
-		sdk.InvokeOptions{},
-	)
-	respond(request, output, err)
-}
-
-func (server *sampleServer) signalMicroservice(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	err := server.client.PublishToChannel(
-		request.Request.Context(),
-		flowID,
-		microservices.Ready,
-		nil,
-	)
-	respond(request, struct{}{}, err)
-}
-
-func (server *sampleServer) startMoneyTransfer(request *gin.Context) {
-	amount, err := strconv.Atoi(request.Query("amount"))
-	if err != nil {
-		request.JSON(http.StatusBadRequest, gin.H{"error": "amount must be an integer"})
-		return
-	}
-	flowID := newFlowID("money-transfer")
-	input := moneytransfer.TransferRequest{
-		FromAccount: request.Query("fromAccount"),
-		ToAccount:   request.Query("toAccount"),
-		Amount:      amount,
-		Notes:       request.Query("notes"),
-	}
-	server.startFlow(request, workflows.MoneyTransfer, flowID, input)
-}
-
-func (server *sampleServer) startPolling(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	maximumPolls, err := strconv.Atoi(request.Query("pollingCompletionThreshold"))
-	if err != nil {
-		request.JSON(http.StatusBadRequest, gin.H{"error": "pollingCompletionThreshold must be an integer"})
-		return
-	}
-	server.startFlow(request, workflows.Polling, flowID, maximumPolls)
-}
-
-func (server *sampleServer) completePollingTask(request *gin.Context) {
-	flowID, found := requiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var channel sdk.ChannelDef
-	switch request.Query("channel") {
-	case polling.TaskACompleted.ChannelName():
-		channel = polling.TaskACompleted
-	case polling.TaskBCompleted.ChannelName():
-		channel = polling.TaskBCompleted
-	default:
-		request.JSON(http.StatusBadRequest, gin.H{"error": "channel must identify task A or task B"})
-		return
-	}
-	err := server.client.PublishToChannel(
-		request.Request.Context(),
-		flowID,
-		channel,
-		nil,
-	)
-	respond(request, struct{}{}, err)
-}
-
-func (server *sampleServer) startFlow(
-	request *gin.Context,
+	client *sdk.Client,
 	flow sdk.Flow,
 	flowID string,
 	input any,
 ) {
-	runID, err := server.client.StartFlow(
+	runID, err := client.StartFlow(
 		request.Request.Context(),
 		flow,
 		flowID,
