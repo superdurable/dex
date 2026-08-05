@@ -1238,7 +1238,7 @@ pre {
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 145px 88px minmax(0, 1fr);
+  grid-template-columns: 145px var(--timeline-link-rail-width, 88px) minmax(0, 1fr);
   cursor: pointer;
 }
 
@@ -1851,7 +1851,7 @@ pre {
   }
 
   .timeline-row {
-    grid-template-columns: 74px minmax(0, 1fr);
+    grid-template-columns: calc(var(--timeline-link-rail-width, 88px) - 14px) minmax(0, 1fr);
   }
 
   .timeline-time {

@@ -32,8 +32,27 @@ describe('timeline', () => {
       event(20, 'StepExecuteFailed', 'A-1'),
     ]);
     expect(links).toEqual([
-      { stepExecutionId: 'A-1', waitForEventId: 10, executeEventId: 20, conditionWaitDurationMs: null },
-      { stepExecutionId: 'B-1', waitForEventId: 30, executeEventId: 40, conditionWaitDurationMs: null },
+      { stepExecutionId: 'A-1', waitForEventId: 10, executeEventId: 20, conditionWaitDurationMs: null, lane: 0 },
+      { stepExecutionId: 'B-1', waitForEventId: 30, executeEventId: 40, conditionWaitDurationMs: null, lane: 0 },
+    ]);
+  });
+
+  it('separates overlapping step executions and reuses lanes afterward', () => {
+    const links = buildTimelineStepLinks([
+      event(9, 'StepWaitForCompleted', 'A-1'),
+      event(10, 'StepWaitForCompleted', 'B-1'),
+      event(11, 'StepWaitForCompleted', 'C-1'),
+      event(22, 'StepExecuteCompleted', 'A-1'),
+      event(28, 'StepExecuteCompleted', 'B-1'),
+      event(30, 'StepExecuteCompleted', 'C-1'),
+      event(40, 'StepWaitForCompleted', 'D-1'),
+      event(50, 'StepExecuteCompleted', 'D-1'),
+    ]);
+    expect(links.map(({ stepExecutionId, lane }) => ({ stepExecutionId, lane }))).toEqual([
+      { stepExecutionId: 'A-1', lane: 0 },
+      { stepExecutionId: 'B-1', lane: 1 },
+      { stepExecutionId: 'C-1', lane: 2 },
+      { stepExecutionId: 'D-1', lane: 0 },
     ]);
   });
 
