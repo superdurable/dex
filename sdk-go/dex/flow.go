@@ -11,17 +11,17 @@
 package dex
 
 // Flow is the top-level durable workflow definition. Any long-lived business
-// object (at least a few seconds) can be modeled as a Flow: a named type, a
-// list of Steps, and a persistence schema of attributes and channels.
+// object (at least a few seconds) can be modeled as a Flow: a Go type, a list
+// of Steps, and a persistence schema of attributes and channels.
 //
 // Exported methods on the Flow (other than the Flow interface methods) that
 // match RPC[IN, OUT] are registered as RPCs under their Go method names.
 //
 // Example:
 //
-//	type OrderFlow struct{}
-//
-//	func (OrderFlow) GetFlowType() string { return "order" }
+//	type OrderFlow struct {
+//		dex.DefaultFlowType
+//	}
 //
 //	func (OrderFlow) GetSteps() []dex.StepDef {
 //		return []dex.StepDef{
@@ -47,10 +47,8 @@ package dex
 //	var Orders = OrderFlow{}
 //	var _ dex.Flow = Orders
 type Flow interface {
-	// GetFlowType returns the durable flow type name used to start and look up
-	// runs. It must be non-empty and unique among registered flows. Prefer a
-	// stable explicit string; renaming the Go type does not change existing
-	// runs that already stored this name.
+	// GetFlowType overrides the default package-qualified Go type name.
+	// Embed DefaultFlowType to use the default.
 	GetFlowType() string
 
 	// GetSteps defines the steps of the flow. A step is one node in the flow
@@ -73,6 +71,13 @@ type Flow interface {
 	// WaitFor requests consumption and Execute reads results via
 	// Channel.GetConditionResults. Channel maps key messages by string.
 	GetPersistenceSchema() PersistenceSchema
+}
+
+// DefaultFlowType uses the package-qualified Go type as the durable flow type.
+type DefaultFlowType struct{}
+
+func (DefaultFlowType) GetFlowType() string {
+	return ""
 }
 
 // PersistenceSchema is the set of AttributeDef and ChannelDef values a Flow

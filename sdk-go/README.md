@@ -28,10 +28,6 @@ type WaitForCommandStep struct {
 	dex.DefaultStepOptions
 }
 
-func (WaitForCommandStep) GetStepType() string {
-	return "wait-for-command"
-}
-
 func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
@@ -64,10 +60,8 @@ func (WaitForCommandStep) Execute(
 
 var WaitForCommand = WaitForCommandStep{}
 
-type OrderFlow struct{}
-
-func (OrderFlow) GetFlowType() string {
-	return "order"
+type OrderFlow struct {
+	dex.DefaultFlowType
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {
@@ -100,7 +94,13 @@ arbitrary values through `dex.Context`.
 
 ## Registration
 
-Registration is assembled once from each Flow's durable type, steps,
+Registration uses pointer-stripped package-qualified Go types by default:
+`*orders.OrderFlow` becomes `orders.OrderFlow`. Embed `DefaultFlowType` in a
+Flow; `DefaultStepOptions` and `StepDefaults` already include
+`DefaultStepType`. Override `GetFlowType` or `GetStepType` only when an explicit
+durable identity is required.
+
+Registration is assembled once from each Flow's final durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate
 names, multiple starting steps, invalid indexes, undeclared locks, and
 incompatible execute-failure targets before WorkerService starts.

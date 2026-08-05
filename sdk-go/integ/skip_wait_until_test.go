@@ -21,10 +21,6 @@ type executeOnlyFlow struct {
 	emptyFlowSchema
 }
 
-func (executeOnlyFlow) GetFlowType() string {
-	return "go-sdk-execute-only"
-}
-
 func (executeOnlyFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(executeOnlyFirstStep{}),
@@ -34,10 +30,6 @@ func (executeOnlyFlow) GetSteps() []dex.StepDef {
 
 type executeOnlyValueFlow struct {
 	emptyFlowSchema
-}
-
-func (executeOnlyValueFlow) GetFlowType() string {
-	return "go-sdk-execute-only-value-flow"
 }
 
 func (executeOnlyValueFlow) GetSteps() []dex.StepDef {
@@ -51,10 +43,6 @@ type executeOnlyFirstStep struct {
 	dex.StepDefaults[int]
 }
 
-func (executeOnlyFirstStep) GetStepType() string {
-	return "first"
-}
-
 func (executeOnlyFirstStep) Execute(
 	_ dex.Context,
 	input int,
@@ -64,10 +52,6 @@ func (executeOnlyFirstStep) Execute(
 
 type executeOnlySecondStep struct {
 	dex.StepDefaults[int]
-}
-
-func (executeOnlySecondStep) GetStepType() string {
-	return "second"
 }
 
 func (executeOnlySecondStep) Execute(

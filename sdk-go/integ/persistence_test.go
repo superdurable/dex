@@ -64,10 +64,8 @@ type persistenceModel struct {
 	Datetime time.Time
 }
 
-type persistenceFlow struct{}
-
-func (persistenceFlow) GetFlowType() string {
-	return "go-sdk-persistence"
+type persistenceFlow struct {
+	dex.DefaultFlowType
 }
 
 func (persistenceFlow) GetSteps() []dex.StepDef {
@@ -93,10 +91,6 @@ func (persistenceFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 type persistenceFirstStep struct {
 	dex.DefaultStepOptions
-}
-
-func (persistenceFirstStep) GetStepType() string {
-	return "first"
 }
 
 func (persistenceFirstStep) WaitFor(
@@ -175,10 +169,6 @@ func (persistenceFirstStep) Execute(
 
 type persistenceSecondStep struct {
 	dex.DefaultStepOptions
-}
-
-func (persistenceSecondStep) GetStepType() string {
-	return "second"
 }
 
 func (persistenceSecondStep) WaitFor(
@@ -308,7 +298,7 @@ func TestPersistenceFlow(t *testing.T) {
 			return false
 		}
 		for _, entry := range searchPage.Flows {
-			if entry.FlowID == flowID && entry.FlowType == (persistenceFlow{}).GetFlowType() {
+			if entry.FlowID == flowID && entry.FlowType == dex.GetFinalFlowType(persistenceFlow{}) {
 				return true
 			}
 		}

@@ -35,15 +35,12 @@ var (
 )
 
 type PollingFlow struct {
+	dex.DefaultFlowType
 	service service.MyService
 }
 
 func NewPollingFlow(applicationService service.MyService) *PollingFlow {
 	return &PollingFlow{service: applicationService}
-}
-
-func (*PollingFlow) GetFlowType() string {
-	return "polling"
 }
 
 func (flow *PollingFlow) GetSteps() []dex.StepDef {
@@ -69,10 +66,6 @@ type initializeStep struct {
 	dex.StepDefaults[int]
 }
 
-func (initializeStep) GetStepType() string {
-	return "initialize"
-}
-
 func (initializeStep) Execute(
 	_ dex.Context,
 	maximumPolls int,
@@ -85,10 +78,6 @@ func (initializeStep) Execute(
 
 type waitForTasksStep struct {
 	dex.DefaultStepOptions
-}
-
-func (waitForTasksStep) GetStepType() string {
-	return "wait-for-tasks"
 }
 
 func (waitForTasksStep) WaitFor(
@@ -112,10 +101,6 @@ func (waitForTasksStep) Execute(
 type pollStep struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (pollStep) GetStepType() string {
-	return "poll-task-c"
 }
 
 func (pollStep) WaitFor(

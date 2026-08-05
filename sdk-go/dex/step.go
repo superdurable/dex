@@ -33,8 +33,6 @@ type None = *none
 //		dex.DefaultStepOptions
 //	}
 //
-//	func (ApproveOrderStep) GetStepType() string { return "approve-order" }
-//
 //	func (ApproveOrderStep) WaitFor(
 //		ctx dex.Context,
 //		input ApproveOrderInput,
@@ -63,8 +61,6 @@ type None = *none
 //		dex.StepDefaults[ShipOrderInput]
 //	}
 //
-//	func (ShipOrderStep) GetStepType() string { return "ship-order" }
-//
 //	func (ShipOrderStep) Execute(
 //		ctx dex.Context,
 //		input ShipOrderInput,
@@ -74,10 +70,8 @@ type None = *none
 //
 //	var ShipOrder = ShipOrderStep{}
 type Step[IN any] interface {
-	// GetStepType returns the durable step type name used by the worker and
-	// server to select this Step for WaitFor / Execute. It must be non-empty and
-	// unique within the Flow. Prefer a stable explicit string; renaming the Go
-	// type does not change in-flight executions that already stored this name.
+	// GetStepType overrides the default package-qualified Go type name.
+	// Embed DefaultStepType to use the default.
 	GetStepType() string
 
 	// GetStepOptions returns immutable defaults applied whenever this step is
@@ -154,6 +148,9 @@ type StepDef interface {
 //	}
 type NoWaitFor[IN any] struct{}
 
+// DefaultStepType uses the package-qualified Go type as the durable step type.
+type DefaultStepType struct{}
+
 // DefaultStepOptions embeds GetStepOptions that returns nil (server defaults).
 //
 // Example:
@@ -161,7 +158,9 @@ type NoWaitFor[IN any] struct{}
 //	type ApproveOrderStep struct {
 //		dex.DefaultStepOptions
 //	}
-type DefaultStepOptions struct{}
+type DefaultStepOptions struct {
+	DefaultStepType
+}
 
 // StepDefaults embeds DefaultStepOptions and NoWaitFor for execute-only steps
 // that use server option defaults.
@@ -186,6 +185,10 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
 
+func (DefaultStepType) GetStepType() string {
+	return ""
+}
+
 // typedStepDef is the only concrete StepDef. Each application step is a
 // Step[IN] with its own input type, but GetSteps, registration, movements,
 // and execute-failure options need one non-generic type so differently typed
@@ -201,7 +204,7 @@ type typedStepDef[IN any] struct {
 }
 
 func (def typedStepDef[IN]) stepType() string {
-	return def.step.GetStepType()
+	return GetFinalStepType(def.step)
 }
 
 func (typedStepDef[IN]) stepInputType() reflect.Type {

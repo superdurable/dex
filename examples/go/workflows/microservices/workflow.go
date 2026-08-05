@@ -33,15 +33,12 @@ var (
 )
 
 type OrchestrationFlow struct {
+	dex.DefaultFlowType
 	service service.MyService
 }
 
 func NewOrchestrationFlow(applicationService service.MyService) *OrchestrationFlow {
 	return &OrchestrationFlow{service: applicationService}
-}
-
-func (*OrchestrationFlow) GetFlowType() string {
-	return "microservice-orchestration"
 }
 
 func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
@@ -79,10 +76,6 @@ type callAPI1Step struct {
 	service service.MyService
 }
 
-func (callAPI1Step) GetStepType() string {
-	return "call-api-1"
-}
-
 func (step callAPI1Step) Execute(
 	ctx dex.Context,
 	input string,
@@ -102,10 +95,6 @@ type callAPI2Step struct {
 	service service.MyService
 }
 
-func (callAPI2Step) GetStepType() string {
-	return "call-api-2"
-}
-
 func (step callAPI2Step) Execute(
 	ctx dex.Context,
 	_ dex.None,
@@ -121,10 +110,6 @@ func (step callAPI2Step) Execute(
 type callAPI3Step struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (callAPI3Step) GetStepType() string {
-	return "call-api-3"
 }
 
 func (callAPI3Step) WaitFor(
@@ -155,10 +140,6 @@ func (step callAPI3Step) Execute(
 type callAPI4Step struct {
 	dex.StepDefaults[dex.None]
 	service service.MyService
-}
-
-func (callAPI4Step) GetStepType() string {
-	return "call-api-4"
 }
 
 func (step callAPI4Step) Execute(

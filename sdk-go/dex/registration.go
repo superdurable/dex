@@ -13,6 +13,7 @@ package dex
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // Registry stores immutable Flow definitions shared by Client and Worker.
@@ -81,9 +82,9 @@ func (registry *Registry) registerFlow(
 	flow Flow,
 	indexTypes map[string]IndexType,
 ) (*registeredFlow, error) {
-	flowType := flow.GetFlowType()
+	flowType := GetFinalFlowType(flow)
 	if flowType == "" {
-		return nil, fmt.Errorf("dex: flow type must not be empty")
+		return nil, fmt.Errorf("dex: flow must use a named package type")
 	}
 	registered := &registeredFlow{
 		flow:       flow,
@@ -440,9 +441,9 @@ func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
 	if nilInterface(reference) {
 		return nil, fmt.Errorf("dex: flow is nil")
 	}
-	flowType := reference.GetFlowType()
+	flowType := GetFinalFlowType(reference)
 	if flowType == "" {
-		return nil, fmt.Errorf("dex: flow type must not be empty")
+		return nil, fmt.Errorf("dex: flow must use a named package type")
 	}
 	registered, found := registry.lookupFlow(flowType)
 	if !found {
@@ -457,6 +458,27 @@ func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
 		)
 	}
 	return registered, nil
+}
+
+// GetFinalFlowType returns the override or the default package-qualified Go type.
+func GetFinalFlowType(flow Flow) string {
+	if flowType := flow.GetFlowType(); flowType != "" {
+		return flowType
+	}
+	return getSimpleTypeNameFromReflect(flow)
+}
+
+// GetFinalStepType returns the override or the default package-qualified Go type.
+func GetFinalStepType[IN any](step Step[IN]) string {
+	if stepType := step.GetStepType(); stepType != "" {
+		return stepType
+	}
+	return getSimpleTypeNameFromReflect(step)
+}
+
+func getSimpleTypeNameFromReflect(value any) string {
+	valueType := reflect.TypeOf(value)
+	return strings.TrimLeft(valueType.String(), "*")
 }
 
 func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registeredRPC, error) {

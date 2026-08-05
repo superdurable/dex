@@ -23,20 +23,12 @@ type timerFlow struct {
 	emptyFlowSchema
 }
 
-func (timerFlow) GetFlowType() string {
-	return "go-sdk-timer"
-}
-
 func (timerFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(timerStep{})}
 }
 
 type timerStep struct {
 	dex.DefaultStepOptions
-}
-
-func (timerStep) GetStepType() string {
-	return "timer"
 }
 
 func (timerStep) WaitFor(

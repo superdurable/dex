@@ -36,15 +36,12 @@ type TransferRequest struct {
 }
 
 type MoneyTransferFlow struct {
+	dex.DefaultFlowType
 	service service.MyService
 }
 
 func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFlow {
 	return &MoneyTransferFlow{service: applicationService}
-}
-
-func (*MoneyTransferFlow) GetFlowType() string {
-	return "money-transfer"
 }
 
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
@@ -67,10 +64,6 @@ type checkBalanceStep struct {
 	service service.MyService
 }
 
-func (checkBalanceStep) GetStepType() string {
-	return "check-balance"
-}
-
 func (step checkBalanceStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
@@ -82,12 +75,9 @@ func (step checkBalanceStep) Execute(
 }
 
 type createDebitMemoStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
-}
-
-func (createDebitMemoStep) GetStepType() string {
-	return "create-debit-memo"
 }
 
 func (createDebitMemoStep) GetStepOptions() *dex.StepOptions {
@@ -109,12 +99,9 @@ func (step createDebitMemoStep) Execute(
 }
 
 type debitStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
-}
-
-func (debitStep) GetStepType() string {
-	return "debit"
 }
 
 func (debitStep) GetStepOptions() *dex.StepOptions {
@@ -132,12 +119,9 @@ func (step debitStep) Execute(
 }
 
 type createCreditMemoStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
-}
-
-func (createCreditMemoStep) GetStepType() string {
-	return "create-credit-memo"
 }
 
 func (createCreditMemoStep) GetStepOptions() *dex.StepOptions {
@@ -159,12 +143,9 @@ func (step createCreditMemoStep) Execute(
 }
 
 type creditStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
-}
-
-func (creditStep) GetStepType() string {
-	return "credit"
 }
 
 func (creditStep) GetStepOptions() *dex.StepOptions {
@@ -187,12 +168,9 @@ func (step creditStep) Execute(
 }
 
 type compensateStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
-}
-
-func (compensateStep) GetStepType() string {
-	return "compensate"
 }
 
 func (compensateStep) GetStepOptions() *dex.StepOptions {

@@ -47,15 +47,12 @@ var (
 )
 
 type EngagementFlow struct {
+	dex.DefaultFlowType
 	service service.MyService
 }
 
 func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
 	return &EngagementFlow{service: applicationService}
-}
-
-func (flow *EngagementFlow) GetFlowType() string {
-	return "engagement"
 }
 
 func (flow *EngagementFlow) GetSteps() []dex.StepDef {
@@ -187,10 +184,6 @@ type initializeStep struct {
 	dex.StepDefaults[EngagementInput]
 }
 
-func (initializeStep) GetStepType() string {
-	return "initialize"
-}
-
 func (initializeStep) Execute(
 	ctx dex.Context,
 	input EngagementInput,
@@ -220,10 +213,6 @@ func (initializeStep) Execute(
 type processTimeoutStep struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (processTimeoutStep) GetStepType() string {
-	return "process-timeout"
 }
 
 func (processTimeoutStep) WaitFor(
@@ -260,10 +249,6 @@ func (step processTimeoutStep) Execute(
 type reminderStep struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (reminderStep) GetStepType() string {
-	return "reminder"
 }
 
 func (reminderStep) WaitFor(
@@ -308,10 +293,6 @@ func (step reminderStep) Execute(
 type notifyExternalSystemStep struct {
 	dex.StepDefaults[Status]
 	service service.MyService
-}
-
-func (notifyExternalSystemStep) GetStepType() string {
-	return "notify-external-system"
 }
 
 func (step notifyExternalSystemStep) Execute(

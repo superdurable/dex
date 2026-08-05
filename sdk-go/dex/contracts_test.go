@@ -47,10 +47,6 @@ type noPayloadStep struct {
 	dex.StepDefaults[dex.None]
 }
 
-func (noPayloadStep) GetStepType() string {
-	return "no-payload"
-}
-
 func (noPayloadStep) Execute(
 	dex.Context,
 	dex.None,
@@ -63,10 +59,6 @@ var _ dex.Step[dex.None] = noPayload
 
 type waitingStep struct {
 	dex.DefaultStepOptions
-}
-
-func (waitingStep) GetStepType() string {
-	return "waiting"
 }
 
 func (waitingStep) WaitFor(
@@ -111,10 +103,6 @@ type executeOnlyStep struct {
 	dex.StepDefaults[stepInput]
 }
 
-func (executeOnlyStep) GetStepType() string {
-	return "execute-only"
-}
-
 func (executeOnlyStep) Execute(
 	ctx dex.Context,
 	input stepInput,
@@ -127,10 +115,8 @@ func (executeOnlyStep) Execute(
 var executeOnly = executeOnlyStep{}
 var _ dex.Step[stepInput] = executeOnly
 
-type contractFlow struct{}
-
-func (contractFlow) GetFlowType() string {
-	return "contract"
+type contractFlow struct {
+	dex.DefaultFlowType
 }
 
 func (contractFlow) GetSteps() []dex.StepDef {

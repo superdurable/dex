@@ -25,10 +25,8 @@ var (
 	channelFlowSecond = dex.DefineChannel[int]("second")
 )
 
-type channelFlow struct{}
-
-func (channelFlow) GetFlowType() string {
-	return "go-sdk-channel"
+type channelFlow struct {
+	dex.DefaultFlowType
 }
 
 func (channelFlow) GetSteps() []dex.StepDef {
@@ -47,10 +45,6 @@ func (channelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 type channelFlowFirstStep struct {
 	dex.DefaultStepOptions
-}
-
-func (channelFlowFirstStep) GetStepType() string {
-	return "first"
 }
 
 func (channelFlowFirstStep) WaitFor(
@@ -87,10 +81,6 @@ func (channelFlowFirstStep) Execute(
 
 type channelFlowSecondStep struct {
 	dex.DefaultStepOptions
-}
-
-func (channelFlowSecondStep) GetStepType() string {
-	return "second"
 }
 
 func (channelFlowSecondStep) WaitFor(
@@ -163,7 +153,7 @@ func runChannelFlow(
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
 		flowID,
-		dex.StepExecutionID{StepType: "first"},
+		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
 		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 	require.NoError(t, integClient.PublishToChannel(
@@ -176,7 +166,7 @@ func runChannelFlow(
 		err = integClient.SkipTimer(
 			ctx,
 			flowID,
-			dex.StepExecutionID{StepType: "second"},
+			dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowSecondStep{})},
 			dex.TimerID{Index: ptr.Any(int32(0))},
 		)
 		return err == nil

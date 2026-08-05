@@ -223,6 +223,12 @@ Attribute names are unique within a flow's attribute namespace, and channel
 names are unique within its channel namespace. An attribute and channel may
 share a name because the server stores them separately.
 
+Flow and step names use a non-empty `GetFlowType` or `GetStepType` override.
+Otherwise the SDK removes leading pointer markers from
+`reflect.TypeOf(value).String()`, producing names such as
+`orders.OrderFlow` and `orders.initializeStep`. Registration,
+movements, failure targets, Worker dispatch, and StartFlow share this resolver.
+
 All lookup APIs remain private. Phase 4 receives immutable descriptors rather
 than raw maps and is responsible for converting a missing lookup into the
 appropriate WorkerService error.
@@ -232,7 +238,7 @@ appropriate WorkerService error.
 `NewRegistry` evaluates each supplied Flow once. It rejects:
 
 - nil and typed-nil Flow values;
-- empty or duplicate durable flow types;
+- duplicate final durable flow types;
 - nil persistence definitions;
 - empty or duplicate attribute names;
 - empty or duplicate channel names;
@@ -285,7 +291,7 @@ and after calling the adapter.
 
 Registration rejects:
 
-- an empty or duplicate durable step type within one flow;
+- a duplicate final durable step type within one flow;
 - a zero `StepDef`, nil handler, or typed-nil handler;
 - more than one `DefineStartStep` entry;
 - invalid step defaults or attribute locks, reporting the first illegal step
@@ -1531,8 +1537,8 @@ N/A: no in-repo web UI.
 ### Design rules
 
 1. Application code imports `dex`, not `gen/dexpb`.
-2. Persisted flow, step, attribute, and channel names are explicit strings.
-   RPC names come from registered Flow method names.
+2. Flow and step names default to pointer-stripped package-qualified Go types.
+   Attributes and channels use explicit strings; RPCs use Flow method names.
 3. Typed attributes and channels are immutable and safe as package variables.
 4. Methods that use invocation state take `Context` explicitly. Flow, step, and
    RPC implementations must not retain a current invocation.
@@ -1565,7 +1571,7 @@ errors.go           public error model
 This is a logical split, not permission to add runtime implementations during
 Phase 1.
 
-### Flow and explicit durable names
+### Flow and durable names
 
 Application code implements a minimal flow interface:
 
@@ -1577,8 +1583,10 @@ type Flow interface {
 }
 ```
 
-`GetFlowType` must return a non-empty, explicit durable name. Registration of a
-flow together with its heterogeneous steps and RPCs belongs to Phase 3.
+Embedding `DefaultFlowType` makes `GetFlowType` return empty, selecting the
+pointer-stripped package-qualified Go type such as `orders.OrderFlow`. An
+explicit non-empty result overrides that default. Registration of a flow
+together with its heterogeneous steps and RPCs belongs to Phase 3.
 `GetSteps` supplies every step through an opaque `StepDef`. Generic handler
 adapters remain internal implementation details, not public Phase 1 API.
 
@@ -1610,7 +1618,11 @@ func DefineStartStep[IN any](step Step[IN]) StepDef
 
 type NoWaitFor[IN any] struct{}
 
-type DefaultStepOptions struct{}
+type DefaultStepType struct{}
+
+type DefaultStepOptions struct {
+	DefaultStepType
+}
 
 type StepDefaults[IN any] struct {
 	DefaultStepOptions
@@ -1626,6 +1638,10 @@ func (NoWaitFor[IN]) noWaitFor() {}
 func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
+
+func (DefaultStepType) GetStepType() string {
+	return ""
+}
 ```
 
 `None` is a pointer alias for a Step, RPC, or Channel with no application
@@ -1640,8 +1656,9 @@ sets `skip_wait_for`; it never calls the supplied `WaitFor` method. There is no
 public `SkipWaitFor` field.
 
 A step that waits implements `WaitFor` and may implement `GetStepOptions`
-directly. It must not embed `NoWaitFor` or `StepDefaults`. `GetStepType` must
-return a non-empty, explicit durable name.
+directly. It must not embed `NoWaitFor` or `StepDefaults`. Embedding
+`DefaultStepOptions` also supplies the default package-qualified step type;
+an explicit non-empty `GetStepType` result overrides it.
 
 `DefineStep` and `DefineStartStep` retain the handler's input type while
 building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step
@@ -1656,10 +1673,6 @@ Example:
 ```go
 type ApproveOrderStep struct {
 	dex.DefaultStepOptions
-}
-
-func (ApproveOrderStep) GetStepType() string {
-	return "approve-order"
 }
 
 func (ApproveOrderStep) WaitFor(
@@ -1697,10 +1710,6 @@ var _ dex.Step[ApproveOrderInput] = ApproveOrder
 
 type ShipOrderStep struct {
 	dex.StepDefaults[ShipOrderInput]
-}
-
-func (ShipOrderStep) GetStepType() string {
-	return "ship-order"
 }
 
 func (ShipOrderStep) Execute(
@@ -2640,10 +2649,6 @@ type WaitForCommandStep struct {
 	dex.DefaultStepOptions
 }
 
-func (WaitForCommandStep) GetStepType() string {
-	return "wait-for-command"
-}
-
 func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
@@ -2699,10 +2704,8 @@ func (WaitForCommandStep) Execute(
 var WaitForCommand = WaitForCommandStep{}
 var _ dex.Step[OrderInput] = WaitForCommand
 
-type OrderFlow struct{}
-
-func (OrderFlow) GetFlowType() string {
-	return "order"
+type OrderFlow struct {
+	dex.DefaultFlowType
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {

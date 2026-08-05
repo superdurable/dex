@@ -65,20 +65,16 @@ type clientTestRPCOutput struct {
 	Status string
 }
 
-func (clientTestStep) GetStepType() string {
-	return "start"
-}
-
 func (clientTestStep) Execute(Context, clientTestInput) (StepDecision, error) {
 	return DeadEnd(), nil
 }
 
-type clientTestFlow struct{}
+type clientTestFlow struct {
+	DefaultFlowType
+}
 
-type clientNoStartFlow struct{}
-
-func (clientTestFlow) GetFlowType() string {
-	return "client-test"
+type clientNoStartFlow struct {
+	DefaultFlowType
 }
 
 func (clientTestFlow) GetSteps() []StepDef {
@@ -97,10 +93,6 @@ func (clientTestFlow) Update(
 	clientTestRPCInput,
 ) (RPCResult[clientTestRPCOutput], error) {
 	return RPCResult[clientTestRPCOutput]{Output: clientTestRPCOutput{}}, nil
-}
-
-func (clientNoStartFlow) GetFlowType() string {
-	return "client-no-start"
 }
 
 func (clientNoStartFlow) GetSteps() []StepDef {
@@ -226,8 +218,8 @@ func (service *clientTestFlowService) WaitForFlow(
 	return &dexpb.WaitForFlowResponse{
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results: []*dexpb.StepCompletionOutput{{
-			CompletedStepType:        "start",
-			CompletedStepExecutionId: "start-1",
+			CompletedStepType:        "dex.clientTestStep",
+			CompletedStepExecutionId: "dex.clientTestStep-1",
 			CompletedStepOutput: &dexpb.Value{
 				Kind: &dexpb.Value_InternalBlobIdForStringValue{
 					InternalBlobIdForStringValue: "completion-blob",
@@ -246,7 +238,7 @@ func (service *clientTestFlowService) SearchFlows(
 		FlowRuns: []*dexpb.SearchFlowsResponseEntry{{
 			FlowId:     "order-1",
 			RunId:      "run-1",
-			FlowType:   "client-test",
+			FlowType:   "dex.clientTestFlow",
 			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			StartTime:  timestamppb.New(time.Unix(100, 0)),
 			SearchAttributes: []*dexpb.KV{{
@@ -326,7 +318,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Equal(t, "run-1", runID)
 	require.Equal(t, "business-order-1", service.startRequest.RequestId)
 	require.Equal(t, int32(0), service.startRequest.FlowTimeoutSeconds)
-	require.Equal(t, "start", service.startRequest.StartStepType)
+	require.Equal(t, "dex.clientTestFlow", service.startRequest.FlowType)
+	require.Equal(t, "dex.clientTestStep", service.startRequest.StartStepType)
 	require.Equal(t, "worker.test:8803", service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.Address)
 
 	require.NoError(t, client.PublishToChannel(ctx, "order-1", clientTestCommands, "approve", "ship"))
@@ -465,10 +458,10 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.NoError(t, client.SkipTimer(
 		ctx,
 		"order-1",
-		StepExecutionID{StepType: "start"},
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 		TimerID{ConditionID: "timeout"},
 	))
-	require.Equal(t, "start-1", service.skipTimerRequest.StepExecutionId)
+	require.Equal(t, "dex.clientTestStep-1", service.skipTimerRequest.StepExecutionId)
 
 	require.NoError(t, client.UpdateFlowConfig(ctx, "order-1", FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
@@ -477,7 +470,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.NoError(t, client.WaitForStepCompletion(
 		ctx,
 		"order-1",
-		StepExecutionID{StepType: "start"},
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 		WaitOptions{},
 	))
 	require.Equal(t, "1", service.waitStepRequest.StepExecutionNumber)

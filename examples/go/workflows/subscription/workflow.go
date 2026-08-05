@@ -51,15 +51,12 @@ type Customer struct {
 }
 
 type SubscriptionFlow struct {
+	dex.DefaultFlowType
 	service service.MyService
 }
 
 func NewSubscriptionFlow(applicationService service.MyService) *SubscriptionFlow {
 	return &SubscriptionFlow{service: applicationService}
-}
-
-func (*SubscriptionFlow) GetFlowType() string {
-	return "subscription"
 }
 
 func (flow *SubscriptionFlow) GetSteps() []dex.StepDef {
@@ -94,10 +91,6 @@ type initializeStep struct {
 	dex.StepDefaults[Customer]
 }
 
-func (initializeStep) GetStepType() string {
-	return "initialize"
-}
-
 func (initializeStep) Execute(
 	ctx dex.Context,
 	customer Customer,
@@ -111,10 +104,6 @@ func (initializeStep) Execute(
 type trialStep struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (trialStep) GetStepType() string {
-	return "trial"
 }
 
 func (step trialStep) WaitFor(
@@ -143,10 +132,6 @@ const subscriptionOverKey = "subscription-over"
 type chargeCurrentBillStep struct {
 	dex.DefaultStepOptions
 	service service.MyService
-}
-
-func (chargeCurrentBillStep) GetStepType() string {
-	return "charge-current-bill"
 }
 
 func (chargeCurrentBillStep) WaitFor(
@@ -198,10 +183,6 @@ type cancelStep struct {
 	service service.MyService
 }
 
-func (cancelStep) GetStepType() string {
-	return "cancel"
-}
-
 func (cancelStep) WaitFor(
 	dex.Context,
 	dex.None,
@@ -222,10 +203,6 @@ func (step cancelStep) Execute(
 
 type updateChargeAmountStep struct {
 	dex.DefaultStepOptions
-}
-
-func (updateChargeAmountStep) GetStepType() string {
-	return "update-charge-amount"
 }
 
 func (updateChargeAmountStep) WaitFor(
