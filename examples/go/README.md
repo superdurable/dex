@@ -60,3 +60,5 @@ details.
 
 Dataset Deal stores reusable seller process definitions in PostgreSQL. Each
 execution snapshots its definition and exposes all runtime state through Dex.
+Its UI separates seller/buyer execution lists from editable process graphs and
+read-only execution graphs that highlight the current state.

@@ -75,6 +75,8 @@ the PostgreSQL definition cannot change an existing execution.
 Execution status and state come entirely from Dex visibility plus one batched
 attribute read per flow. Visibility is eventually consistent; the REST API,
 UI, and E2E checks use bounded retries when a new execution has not appeared.
+Seller ProcessID filters and buyer ProcessID filters are combined directly with
+the buyer's `BuyerID` in Dex `SearchFlows` queries.
 
 Register these Temporal keyword search attributes before starting executions:
 
@@ -97,10 +99,12 @@ idempotently at startup.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/dataset-deal/processes` | Validate and create a process |
+| `GET` | `/api/dataset-deal/processes` | List seller process definitions |
 | `GET` | `/api/dataset-deal/processes/:processID` | Read a process |
+| `PUT` | `/api/dataset-deal/processes/:processID` | Validate and update a process |
 | `POST` | `/api/dataset-deal/executions` | Start a buyer execution and wait for initialization |
-| `GET` | `/api/dataset-deal/executions` | List all executions |
-| `GET` | `/api/dataset-deal/executions?buyerID=buyer1` | List one buyer's executions |
+| `GET` | `/api/dataset-deal/executions?processID=deal-v1` | List one process's executions |
+| `GET` | `/api/dataset-deal/executions?buyerID=buyer1&processID=deal-v1` | List one buyer's matching executions |
 | `GET` | `/api/dataset-deal/executions/:flowID` | Read one execution snapshot |
 | `POST` | `/api/dataset-deal/executions/:flowID/channels/:conditionName` | Merge external condition data |
 
@@ -131,7 +135,10 @@ when the script exits. Keep them running for UI inspection with:
 KEEP_DATASET_DEAL_DEMO=1 make datasetDealDemo
 ```
 
-The seller/buyer UI is then available at the URL printed by the script.
+The seller dashboard lists processes beside executions. Buyer dashboards list
+only their executions. Process pages provide an editable state graph;
+execution pages render the immutable graph, highlight `currentState`, show
+runtime data, and provide the shared condition-message form.
 
 ## Tests
 

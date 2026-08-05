@@ -43,7 +43,9 @@ var schemaSQL string
 
 type Repository interface {
 	CreateProcess(context.Context, DealProcess) error
+	ListProcesses(context.Context) ([]DealProcess, error)
 	GetProcess(context.Context, string) (DealProcess, error)
+	UpdateProcess(context.Context, DealProcess) error
 }
 
 type PostgresRepository struct {
@@ -68,9 +70,9 @@ func (repository *PostgresRepository) CreateProcess(
 	ctx context.Context,
 	process DealProcess,
 ) error {
-	definition, err := json.Marshal(process)
+	definition, err := encodeProcess(process)
 	if err != nil {
-		return fmt.Errorf("encode dataset deal process: %w", err)
+		return err
 	}
 	_, err = repository.pool.Exec(
 		ctx,
@@ -89,6 +91,35 @@ func (repository *PostgresRepository) CreateProcess(
 	return fmt.Errorf("insert dataset deal process: %w", err)
 }
 
+func (repository *PostgresRepository) ListProcesses(
+	ctx context.Context,
+) ([]DealProcess, error) {
+	rows, err := repository.pool.Query(
+		ctx,
+		`SELECT definition FROM dataset_deal_processes ORDER BY created_at DESC, process_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list dataset deal processes: %w", err)
+	}
+	defer rows.Close()
+	processes := make([]DealProcess, 0)
+	for rows.Next() {
+		var definition []byte
+		if err := rows.Scan(&definition); err != nil {
+			return nil, fmt.Errorf("scan dataset deal process: %w", err)
+		}
+		process, err := decodeProcess(definition)
+		if err != nil {
+			return nil, err
+		}
+		processes = append(processes, process)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate dataset deal processes: %w", err)
+	}
+	return processes, nil
+}
+
 func (repository *PostgresRepository) GetProcess(
 	ctx context.Context,
 	processID string,
@@ -105,6 +136,43 @@ func (repository *PostgresRepository) GetProcess(
 	if err != nil {
 		return DealProcess{}, fmt.Errorf("read dataset deal process: %w", err)
 	}
+	return decodeProcess(definition)
+}
+
+func (repository *PostgresRepository) UpdateProcess(
+	ctx context.Context,
+	process DealProcess,
+) error {
+	definition, err := encodeProcess(process)
+	if err != nil {
+		return err
+	}
+	result, err := repository.pool.Exec(
+		ctx,
+		`UPDATE dataset_deal_processes
+		 SET definition = $2::jsonb
+		 WHERE process_id = $1`,
+		process.ProcessID,
+		definition,
+	)
+	if err != nil {
+		return fmt.Errorf("update dataset deal process: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrProcessNotFound
+	}
+	return nil
+}
+
+func encodeProcess(process DealProcess) ([]byte, error) {
+	definition, err := json.Marshal(process)
+	if err != nil {
+		return nil, fmt.Errorf("encode dataset deal process: %w", err)
+	}
+	return definition, nil
+}
+
+func decodeProcess(definition []byte) (DealProcess, error) {
 	var process DealProcess
 	if err := json.Unmarshal(definition, &process); err != nil {
 		return DealProcess{}, fmt.Errorf("decode dataset deal process: %w", err)
