@@ -26,7 +26,7 @@ var (
 )
 
 type channelFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (channelFlow) GetSteps() []dex.StepDef {
@@ -44,7 +44,7 @@ func (channelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type channelFlowFirstStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (channelFlowFirstStep) WaitFor(
@@ -80,7 +80,7 @@ func (channelFlowFirstStep) Execute(
 }
 
 type channelFlowSecondStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (channelFlowSecondStep) WaitFor(

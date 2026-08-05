@@ -24,7 +24,7 @@ var (
 )
 
 type interStepFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (interStepFlow) GetSteps() []dex.StepDef {
@@ -43,7 +43,7 @@ func (interStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type interStepStartStep struct {
-	dex.StepDefaults[struct{}]
+	dex.StepDefaultsNoWaitFor[struct{}]
 }
 
 func (interStepStartStep) Execute(
@@ -57,7 +57,7 @@ func (interStepStartStep) Execute(
 }
 
 type interStepWaitStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (interStepWaitStep) WaitFor(
@@ -93,7 +93,7 @@ func (interStepWaitStep) Execute(
 }
 
 type interStepPublishStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (interStepPublishStep) WaitFor(

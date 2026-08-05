@@ -47,7 +47,7 @@ var (
 )
 
 type EngagementFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 	service service.MyService
 }
 
@@ -181,7 +181,7 @@ func updateStatus(ctx dex.Context, status Status, note string) error {
 }
 
 type initializeStep struct {
-	dex.StepDefaults[EngagementInput]
+	dex.StepDefaultsNoWaitFor[EngagementInput]
 }
 
 func (initializeStep) Execute(
@@ -211,7 +211,7 @@ func (initializeStep) Execute(
 }
 
 type processTimeoutStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -247,7 +247,7 @@ func (step processTimeoutStep) Execute(
 }
 
 type reminderStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -291,7 +291,7 @@ func (step reminderStep) Execute(
 }
 
 type notifyExternalSystemStep struct {
-	dex.StepDefaults[Status]
+	dex.StepDefaultsNoWaitFor[Status]
 	service service.MyService
 }
 

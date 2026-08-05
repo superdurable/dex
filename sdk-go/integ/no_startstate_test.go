@@ -36,7 +36,7 @@ func (noStartStepFlow) Start(
 }
 
 type noStartFinishStep struct {
-	dex.StepDefaults[int]
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (noStartFinishStep) Execute(

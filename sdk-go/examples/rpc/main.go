@@ -21,7 +21,7 @@ type RefundOutput struct {
 }
 
 type BillingFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (BillingFlow) GetSteps() []dex.StepDef {

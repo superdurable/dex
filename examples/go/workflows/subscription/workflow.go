@@ -51,7 +51,7 @@ type Customer struct {
 }
 
 type SubscriptionFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 	service service.MyService
 }
 
@@ -88,7 +88,7 @@ func (*SubscriptionFlow) Describe(
 }
 
 type initializeStep struct {
-	dex.StepDefaults[Customer]
+	dex.StepDefaultsNoWaitFor[Customer]
 }
 
 func (initializeStep) Execute(
@@ -102,7 +102,7 @@ func (initializeStep) Execute(
 }
 
 type trialStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -130,7 +130,7 @@ func (trialStep) Execute(
 const subscriptionOverKey = "subscription-over"
 
 type chargeCurrentBillStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -179,7 +179,7 @@ func (step chargeCurrentBillStep) Execute(
 }
 
 type cancelStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -202,7 +202,7 @@ func (step cancelStep) Execute(
 }
 
 type updateChargeAmountStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (updateChargeAmountStep) WaitFor(

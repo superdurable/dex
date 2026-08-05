@@ -50,7 +50,7 @@ var (
 )
 
 type clientTestStep struct {
-	StepDefaults[clientTestInput]
+	StepDefaultsNoWaitFor[clientTestInput]
 }
 
 type clientTestInput struct {
@@ -70,11 +70,11 @@ func (clientTestStep) Execute(Context, clientTestInput) (StepDecision, error) {
 }
 
 type clientTestFlow struct {
-	DefaultFlowType
+	FlowDefaults
 }
 
 type clientNoStartFlow struct {
-	DefaultFlowType
+	FlowDefaults
 }
 
 func (clientTestFlow) GetSteps() []StepDef {

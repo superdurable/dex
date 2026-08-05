@@ -69,7 +69,7 @@ func (concreteValueHydrator) HydrateValuesInPlace(
 }
 
 type workerWaitingStep struct {
-	DefaultStepOptions
+	StepDefaults
 }
 
 func (workerWaitingStep) WaitFor(
@@ -163,7 +163,7 @@ func (workerWaitingStep) Execute(
 var workerTestWait = workerWaitingStep{}
 
 type workerFinishStep struct {
-	StepDefaults[workerTestInput]
+	StepDefaultsNoWaitFor[workerTestInput]
 }
 
 func (workerFinishStep) Execute(
@@ -176,7 +176,7 @@ func (workerFinishStep) Execute(
 var workerTestFinish = workerFinishStep{}
 
 type workerTestFlow struct {
-	DefaultFlowType
+	FlowDefaults
 }
 
 func (workerTestFlow) GetSteps() []StepDef {
@@ -225,7 +225,7 @@ func (workerTestFlow) Update(
 var workerFlow = workerTestFlow{}
 
 type workerBlockingFlow struct {
-	DefaultFlowType
+	FlowDefaults
 	entered     chan struct{}
 	release     chan struct{}
 	enteredOnce sync.Once

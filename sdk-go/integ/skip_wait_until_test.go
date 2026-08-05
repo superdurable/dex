@@ -40,7 +40,7 @@ func (executeOnlyValueFlow) GetSteps() []dex.StepDef {
 }
 
 type executeOnlyFirstStep struct {
-	dex.StepDefaults[int]
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (executeOnlyFirstStep) Execute(
@@ -51,7 +51,7 @@ func (executeOnlyFirstStep) Execute(
 }
 
 type executeOnlySecondStep struct {
-	dex.StepDefaults[int]
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (executeOnlySecondStep) Execute(

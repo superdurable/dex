@@ -145,7 +145,7 @@ class UserSignupWorkflow(ObjectWorkflow):
 
 #### Golang
 
-Go applications implement `dex.Flow` and typed `dex.Step[IN]` values. Execute-only Steps embed `dex.StepDefaults[IN]`; waiting Steps implement `WaitFor`. Exported Flow methods matching `dex.RPC[IN, OUT]` are registered automatically.
+Go applications implement `dex.Flow` and typed `dex.Step[IN]` values. Waiting Steps embed `dex.StepDefaults` and implement `WaitFor`; execute-only Steps embed `dex.StepDefaultsNoWaitFor[IN]`. Exported Flow methods matching `dex.RPC[IN, OUT]` are registered automatically.
 
 This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Go Flow definition:
 
@@ -156,6 +156,7 @@ var (
 )
 
 type OrchestrationFlow struct {
+	dex.FlowDefaults
 	service service.MyService
 }
 

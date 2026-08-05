@@ -31,7 +31,7 @@ func (basicFlow) GetSteps() []dex.StepDef {
 }
 
 type basicFirstStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (basicFirstStep) WaitFor(ctx dex.Context, input int) (dex.Wait, error) {
@@ -52,7 +52,7 @@ func (basicFirstStep) Execute(ctx dex.Context, input int) (dex.StepDecision, err
 }
 
 type basicSecondStep struct {
-	dex.StepDefaults[int]
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (basicSecondStep) Execute(dex.Context, int) (dex.StepDecision, error) {
@@ -105,7 +105,7 @@ func (proceedOnWaitForFailureFirstStep) Execute(
 }
 
 type proceedOnWaitForFailureSecondStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (proceedOnWaitForFailureSecondStep) WaitFor(

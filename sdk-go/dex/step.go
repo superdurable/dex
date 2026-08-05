@@ -23,14 +23,14 @@ type None = *none
 // Step is one node in a Flow's durable state machine. IN is the typed input
 // passed into WaitFor and Execute for this step.
 //
-// A waiting step implements WaitFor (and usually embeds DefaultStepOptions).
-// An execute-only step embeds StepDefaults[IN] (or NoWaitFor[IN]) so registration
-// sets skip_wait_for and never invokes WaitFor.
+// A waiting step embeds StepDefaults and implements WaitFor.
+// An execute-only step embeds StepDefaultsNoWaitFor[IN] (or NoWaitFor[IN]) so
+// registration sets skip_wait_for and never invokes WaitFor.
 //
 // Example (waiting step):
 //
 //	type ApproveOrderStep struct {
-//		dex.DefaultStepOptions
+//		dex.StepDefaults
 //	}
 //
 //	func (ApproveOrderStep) WaitFor(
@@ -58,7 +58,7 @@ type None = *none
 // Example (execute-only step):
 //
 //	type ShipOrderStep struct {
-//		dex.StepDefaults[ShipOrderInput]
+//		dex.StepDefaultsNoWaitFor[ShipOrderInput]
 //	}
 //
 //	func (ShipOrderStep) Execute(
@@ -75,7 +75,7 @@ type Step[IN any] interface {
 	GetStepType() string
 
 	// GetStepOptions returns immutable defaults applied whenever this step is
-	// scheduled. Return nil (e.g. by embedding DefaultStepOptions) to use server
+	// scheduled. Return nil (e.g. by embedding StepDefaults) to use server
 	// defaults. A movement may override individual fields when transitioning.
 	GetStepOptions() *StepOptions
 
@@ -89,13 +89,14 @@ type Step[IN any] interface {
 	// SetStepExecutionLocal are allowed here; writes are accepted with the
 	// WaitFor response.
 	//
-	// Optional for execute-only steps: embed NoWaitFor[IN] or StepDefaults[IN]
-	// instead of implementing a real WaitFor. Registration detects the marker and
-	// skips this method; the panic body must never run.
+	// Optional for execute-only steps: embed NoWaitFor[IN] or
+	// StepDefaultsNoWaitFor[IN] instead of implementing a real WaitFor.
+	// Registration detects the marker and skips this method; the panic body must
+	// never run.
 	WaitFor(ctx Context, input IN) (Wait, error)
 
 	// Execute decides what happens next after WaitFor conditions complete, or
-	// immediately when the step is execute-only (NoWaitFor / StepDefaults).
+	// immediately when the step is execute-only (NoWaitFor / StepDefaultsNoWaitFor).
 	//
 	//	ctx    invocation context; read condition results, timers, and
 	//	       step-execution locals set in WaitFor
@@ -136,7 +137,7 @@ type StepDef interface {
 	execute(Context, any) (StepDecision, error)
 }
 
-// NoWaitFor marks a Step as execute-only. Embed it (or StepDefaults) so
+// NoWaitFor marks a Step as execute-only. Embed it (or StepDefaultsNoWaitFor) so
 // registration sets skip_wait_for and never calls WaitFor. The WaitFor method
 // exists only to satisfy Step[IN] and panics if invoked.
 //
@@ -162,16 +163,26 @@ type DefaultStepOptions struct {
 	DefaultStepType
 }
 
-// StepDefaults embeds DefaultStepOptions and NoWaitFor for execute-only steps
-// that use server option defaults.
+// StepDefaults supplies default type and options while requiring WaitFor.
+//
+// Example:
+//
+//	type ApproveOrderStep struct {
+//		dex.StepDefaults
+//	}
+type StepDefaults struct {
+	DefaultStepOptions
+}
+
+// StepDefaultsNoWaitFor supplies defaults for execute-only steps.
 //
 // Example:
 //
 //	type ShipOrderStep struct {
-//		dex.StepDefaults[ShipOrderInput]
+//		dex.StepDefaultsNoWaitFor[ShipOrderInput]
 //	}
-type StepDefaults[IN any] struct {
-	DefaultStepOptions
+type StepDefaultsNoWaitFor[IN any] struct {
+	StepDefaults
 	NoWaitFor[IN]
 }
 

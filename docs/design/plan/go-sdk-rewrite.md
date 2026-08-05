@@ -1556,7 +1556,7 @@ Phase 1 owns these conceptual files under `sdk-go/dex/`:
 
 ```text
 flow.go             Flow and persistence declaration
-step.go             Step, StepDef, None, NoWaitFor, StepDefaults
+step.go             Step, StepDef, None, defaults, and NoWaitFor
 context.go          Context, invocation metadata, locals, and events
 attribute.go        Attribute, AttributeMap, indexing, invocation operations
 channel.go          Channel, ChannelMap, publish, size, bounded conditions
@@ -1583,7 +1583,7 @@ type Flow interface {
 }
 ```
 
-Embedding `DefaultFlowType` makes `GetFlowType` return empty, selecting the
+Embedding `FlowDefaults` makes `GetFlowType` return empty, selecting the
 pointer-stripped package-qualified Go type such as `orders.OrderFlow`. An
 explicit non-empty result overrides that default. Registration of a flow
 together with its heterogeneous steps and RPCs belongs to Phase 3.
@@ -1624,8 +1624,12 @@ type DefaultStepOptions struct {
 	DefaultStepType
 }
 
-type StepDefaults[IN any] struct {
+type StepDefaults struct {
 	DefaultStepOptions
+}
+
+type StepDefaultsNoWaitFor[IN any] struct {
+	StepDefaults
 	NoWaitFor[IN]
 }
 
@@ -1649,16 +1653,17 @@ payload. Applications pass `nil`; the unexported pointed-to type prevents
 constructing a non-nil payload and preserves compile-time rejection unlike
 `any`.
 
-An Execute-only step embeds `StepDefaults[IN]`, or embeds `NoWaitFor[IN]` and
-implements `GetStepOptions` itself. `NoWaitFor` supplies the interface method
-and carries an unexported marker. Phase 3 registration detects that marker and
-sets `skip_wait_for`; it never calls the supplied `WaitFor` method. There is no
-public `SkipWaitFor` field.
+An Execute-only step embeds `StepDefaultsNoWaitFor[IN]`, or embeds
+`NoWaitFor[IN]` and implements its type and options methods. `NoWaitFor`
+supplies the interface method and carries an unexported marker. Phase 3
+registration detects that marker and sets `skip_wait_for`; it never calls the
+supplied `WaitFor` method. There is no public `SkipWaitFor` field.
 
-A step that waits implements `WaitFor` and may implement `GetStepOptions`
-directly. It must not embed `NoWaitFor` or `StepDefaults`. Embedding
-`DefaultStepOptions` also supplies the default package-qualified step type;
-an explicit non-empty `GetStepType` result overrides it.
+A waiting step embeds `StepDefaults` and implements `WaitFor` and `Execute`.
+`StepDefaults` contains only `DefaultStepOptions`, so it never supplies or
+skips `WaitFor`. A custom-options waiting step embeds `DefaultStepType` and
+implements `GetStepOptions` directly. An explicit non-empty `GetStepType`
+result overrides the default package-qualified step type.
 
 `DefineStep` and `DefineStartStep` retain the handler's input type while
 building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step
@@ -1672,7 +1677,7 @@ Example:
 
 ```go
 type ApproveOrderStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (ApproveOrderStep) WaitFor(
@@ -1709,7 +1714,7 @@ var ApproveOrder = ApproveOrderStep{}
 var _ dex.Step[ApproveOrderInput] = ApproveOrder
 
 type ShipOrderStep struct {
-	dex.StepDefaults[ShipOrderInput]
+	dex.StepDefaultsNoWaitFor[ShipOrderInput]
 }
 
 func (ShipOrderStep) Execute(
@@ -2646,7 +2651,7 @@ var (
 )
 
 type WaitForCommandStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (WaitForCommandStep) WaitFor(
@@ -2705,7 +2710,7 @@ var WaitForCommand = WaitForCommandStep{}
 var _ dex.Step[OrderInput] = WaitForCommand
 
 type OrderFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {
@@ -2749,8 +2754,8 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 
 1. A package can declare a flow, heterogeneous typed steps, attributes,
    channels, and RPCs without importing `dexpb`.
-2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
-   embeds `NoWaitFor[IN]`.
+2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the former
+   embeds `StepDefaults` and the latter embeds `StepDefaultsNoWaitFor[IN]`.
 3. `None` preserves typed Step, RPC, and Channel declarations without accepting
    arbitrary payloads.
 4. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
@@ -2808,7 +2813,7 @@ Temporal-backed.
 - Keep this plan linked from [`docs/README.md`](../../README.md).
 - Keep [`sdk-go/README.md`](../../../sdk-go/README.md) aligned with the
   authoring and value-codec contracts. Cover the single `Step[IN]`
-  interface, embedded `NoWaitFor[IN]`, Flow method RPCs, close decisions, typed
+  interface, step defaults, Flow method RPCs, close decisions, typed
   attributes/channels, untyped step-execution locals and events, strongly typed
   channel results, timer-fired helpers, `WaitForMethodFailed`, and RPC-only
   channel size.

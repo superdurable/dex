@@ -25,7 +25,7 @@ var (
 )
 
 type rpcFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (rpcFlow) GetSteps() []dex.StepDef {
@@ -77,7 +77,7 @@ func (rpcFlow) Fail(
 }
 
 type rpcFlowStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (rpcFlowStep) WaitFor(

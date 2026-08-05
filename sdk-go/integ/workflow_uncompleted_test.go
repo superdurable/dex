@@ -29,7 +29,7 @@ func (forceFailFlow) GetSteps() []dex.StepDef {
 }
 
 type forceFailStep struct {
-	dex.StepDefaults[struct{}]
+	dex.StepDefaultsNoWaitFor[struct{}]
 }
 
 func (forceFailStep) Execute(

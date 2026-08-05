@@ -65,7 +65,7 @@ type persistenceModel struct {
 }
 
 type persistenceFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (persistenceFlow) GetSteps() []dex.StepDef {
@@ -90,7 +90,7 @@ func (persistenceFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type persistenceFirstStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (persistenceFirstStep) WaitFor(
@@ -168,7 +168,7 @@ func (persistenceFirstStep) Execute(
 }
 
 type persistenceSecondStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (persistenceSecondStep) WaitFor(

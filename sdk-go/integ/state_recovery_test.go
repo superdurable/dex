@@ -46,7 +46,7 @@ func (executeRecoveryFailStep) Execute(dex.Context, string) (dex.StepDecision, e
 }
 
 type executeRecoveryFinishStep struct {
-	dex.StepDefaults[string]
+	dex.StepDefaultsNoWaitFor[string]
 }
 
 func (executeRecoveryFinishStep) Execute(

@@ -36,7 +36,7 @@ type TransferRequest struct {
 }
 
 type MoneyTransferFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 	service service.MyService
 }
 
@@ -60,7 +60,7 @@ func (*MoneyTransferFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type checkBalanceStep struct {
-	dex.StepDefaults[TransferRequest]
+	dex.StepDefaultsNoWaitFor[TransferRequest]
 	service service.MyService
 }
 

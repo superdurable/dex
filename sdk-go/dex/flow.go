@@ -20,7 +20,7 @@ package dex
 // Example:
 //
 //	type OrderFlow struct {
-//		dex.DefaultFlowType
+//		dex.FlowDefaults
 //	}
 //
 //	func (OrderFlow) GetSteps() []dex.StepDef {
@@ -48,7 +48,7 @@ package dex
 //	var _ dex.Flow = Orders
 type Flow interface {
 	// GetFlowType overrides the default package-qualified Go type name.
-	// Embed DefaultFlowType to use the default.
+	// Embed FlowDefaults to use the default.
 	GetFlowType() string
 
 	// GetSteps defines the steps of the flow. A step is one node in the flow
@@ -73,10 +73,10 @@ type Flow interface {
 	GetPersistenceSchema() PersistenceSchema
 }
 
-// DefaultFlowType uses the package-qualified Go type as the durable flow type.
-type DefaultFlowType struct{}
+// FlowDefaults uses the package-qualified Go type as the durable flow type.
+type FlowDefaults struct{}
 
-func (DefaultFlowType) GetFlowType() string {
+func (FlowDefaults) GetFlowType() string {
 	return ""
 }
 

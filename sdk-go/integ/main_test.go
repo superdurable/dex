@@ -28,7 +28,7 @@ import (
 var integClient *dex.Client
 
 type emptyFlowSchema struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 }
 
 func (emptyFlowSchema) GetPersistenceSchema() dex.PersistenceSchema {

@@ -28,7 +28,7 @@ func (timerFlow) GetSteps() []dex.StepDef {
 }
 
 type timerStep struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 }
 
 func (timerStep) WaitFor(

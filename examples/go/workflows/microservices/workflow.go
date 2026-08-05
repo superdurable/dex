@@ -33,7 +33,7 @@ var (
 )
 
 type OrchestrationFlow struct {
-	dex.DefaultFlowType
+	dex.FlowDefaults
 	service service.MyService
 }
 
@@ -72,7 +72,7 @@ func (*OrchestrationFlow) Swap(
 }
 
 type callAPI1Step struct {
-	dex.StepDefaults[string]
+	dex.StepDefaultsNoWaitFor[string]
 	service service.MyService
 }
 
@@ -91,7 +91,7 @@ func (step callAPI1Step) Execute(
 }
 
 type callAPI2Step struct {
-	dex.StepDefaults[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.None]
 	service service.MyService
 }
 
@@ -108,7 +108,7 @@ func (step callAPI2Step) Execute(
 }
 
 type callAPI3Step struct {
-	dex.DefaultStepOptions
+	dex.StepDefaults
 	service service.MyService
 }
 
@@ -138,7 +138,7 @@ func (step callAPI3Step) Execute(
 }
 
 type callAPI4Step struct {
-	dex.StepDefaults[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.None]
 	service service.MyService
 }
 

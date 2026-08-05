@@ -20,7 +20,7 @@ import (
 )
 
 type mapperStep struct {
-	StepDefaults[int]
+	StepDefaultsNoWaitFor[int]
 	options *StepOptions
 	name    string
 }

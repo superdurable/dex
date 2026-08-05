@@ -29,7 +29,7 @@ type registrationOutput struct {
 }
 
 type automaticRegistrationStep struct {
-	StepDefaults[registrationInput]
+	StepDefaultsNoWaitFor[registrationInput]
 }
 
 func (automaticRegistrationStep) Execute(
@@ -39,8 +39,19 @@ func (automaticRegistrationStep) Execute(
 	return DeadEnd(), nil
 }
 
+type stepDefaultsWithoutWaitFor struct {
+	StepDefaults
+}
+
+func (stepDefaultsWithoutWaitFor) Execute(
+	Context,
+	registrationInput,
+) (StepDecision, error) {
+	return DeadEnd(), nil
+}
+
 type automaticRegistrationFlow struct {
-	DefaultFlowType
+	FlowDefaults
 }
 
 func (automaticRegistrationFlow) GetSteps() []StepDef {
@@ -83,7 +94,7 @@ func (step *registrationStep) Execute(
 }
 
 type executeOnlyRegistrationStep struct {
-	StepDefaults[registrationInput]
+	StepDefaultsNoWaitFor[registrationInput]
 	stepType string
 }
 
@@ -99,7 +110,7 @@ func (*executeOnlyRegistrationStep) Execute(
 }
 
 type stringRegistrationStep struct {
-	StepDefaults[string]
+	StepDefaultsNoWaitFor[string]
 	stepType string
 }
 
@@ -375,6 +386,13 @@ func TestRegistryUsesDefaultPackageQualifiedTypes(t *testing.T) {
 	registered, found := registry.lookupFlow("dex.automaticRegistrationFlow")
 	require.True(t, found)
 	require.Equal(t, "dex.automaticRegistrationStep", registered.startingStep.stepType)
+}
+
+func TestStepDefaultsRequiresWaitFor(t *testing.T) {
+	_, implementsStep := any(stepDefaultsWithoutWaitFor{}).(Step[registrationInput])
+	require.False(t, implementsStep)
+	_, implementsStep = any(automaticRegistrationStep{}).(Step[registrationInput])
+	require.True(t, implementsStep)
 }
 
 func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
