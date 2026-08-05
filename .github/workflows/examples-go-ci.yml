@@ -6,15 +6,11 @@ on:
     paths:
       - "examples/go/**"
       - "cli/**"
-      - "server/**"
-      - "web/**"
       - ".github/workflows/examples-go-ci.yml"
   pull_request:
     paths:
       - "examples/go/**"
       - "cli/**"
-      - "server/**"
-      - "web/**"
       - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
 

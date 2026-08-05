@@ -42,9 +42,6 @@ jobs:
             examples_go:
               - 'examples/go/**'
               - 'cli/**'
-              - 'server/**'
-              - 'web/**'
-              - 'protos/**'
               - '.github/workflows/examples-go-ci.yml'
             web:
               - 'web/**'
