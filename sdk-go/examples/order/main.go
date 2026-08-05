@@ -46,11 +46,7 @@ type OrderSnapshot struct {
 }
 
 type WaitForCommandStep struct {
-	dex.DefaultStepOptions
-}
-
-func (WaitForCommandStep) GetStepType() string {
-	return "wait-for-command"
+	dex.StepDefaults
 }
 
 func (WaitForCommandStep) WaitFor(
@@ -110,10 +106,8 @@ func (WaitForCommandStep) Execute(
 var WaitForCommand = WaitForCommandStep{}
 var _ dex.Step[OrderInput] = WaitForCommand
 
-type OrderFlow struct{}
-
-func (OrderFlow) GetFlowType() string {
-	return "order"
+type OrderFlow struct {
+	dex.FlowDefaults
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {

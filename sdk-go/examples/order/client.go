@@ -318,7 +318,7 @@ func skipOrderTimer(
 		ctx,
 		flowID,
 		dex.StepExecutionID{
-			StepType: WaitForCommand.GetStepType(),
+			StepType: dex.GetFinalStepType(WaitForCommand),
 		},
 		dex.TimerID{ConditionID: "timeout"},
 	)
@@ -352,7 +352,7 @@ func waitForOrderStep(
 		ctx,
 		flowID,
 		dex.StepExecutionID{
-			StepType: WaitForCommand.GetStepType(),
+			StepType: dex.GetFinalStepType(WaitForCommand),
 		},
 		dex.WaitOptions{Timeout: time.Minute},
 	)

@@ -23,20 +23,13 @@ type abnormalExitFlow struct {
 	emptyFlowSchema
 }
 
-func (abnormalExitFlow) GetFlowType() string {
-	return "go-sdk-abnormal-exit"
-}
-
 func (abnormalExitFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(abnormalExitStep{})}
 }
 
 type abnormalExitStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[struct{}]
-}
-
-func (abnormalExitStep) GetStepType() string {
-	return "fail"
 }
 
 func (abnormalExitStep) GetStepOptions() *dex.StepOptions {

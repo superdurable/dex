@@ -25,11 +25,7 @@ var (
 )
 
 type WaitForCommandStep struct {
-	dex.DefaultStepOptions
-}
-
-func (WaitForCommandStep) GetStepType() string {
-	return "wait-for-command"
+	dex.StepDefaults
 }
 
 func (WaitForCommandStep) WaitFor(
@@ -64,10 +60,8 @@ func (WaitForCommandStep) Execute(
 
 var WaitForCommand = WaitForCommandStep{}
 
-type OrderFlow struct{}
-
-func (OrderFlow) GetFlowType() string {
-	return "order"
+type OrderFlow struct {
+	dex.FlowDefaults
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {
@@ -87,7 +81,7 @@ func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 Flows use `dex.DefineStartStep` for at most one starting step and
 `dex.DefineStep` for every non-starting step.
 
-Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
+Execute-only steps embed `dex.StepDefaultsNoWaitFor[IN]`. Step transitions use
 `dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.
 
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
@@ -100,7 +94,14 @@ arbitrary values through `dex.Context`.
 
 ## Registration
 
-Registration is assembled once from each Flow's durable type, steps,
+Registration uses pointer-stripped package-qualified Go types by default:
+`*orders.OrderFlow` becomes `orders.OrderFlow`. Embed `FlowDefaults` in a
+Flow. Waiting steps embed `StepDefaults`; execute-only steps embed
+`StepDefaultsNoWaitFor[IN]`. Both include the default step type and options.
+Override `GetFlowType` or `GetStepType` only when an explicit durable identity
+is required.
+
+Registration is assembled once from each Flow's final durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate
 names, multiple starting steps, invalid indexes, undeclared locks, and
 incompatible execute-failure targets before WorkerService starts.

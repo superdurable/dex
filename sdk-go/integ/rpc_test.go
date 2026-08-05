@@ -24,10 +24,8 @@ var (
 	rpcFlowStatus  = dex.DefineAttribute[string]("rpc-status")
 )
 
-type rpcFlow struct{}
-
-func (rpcFlow) GetFlowType() string {
-	return "go-sdk-rpc"
+type rpcFlow struct {
+	dex.FlowDefaults
 }
 
 func (rpcFlow) GetSteps() []dex.StepDef {
@@ -79,11 +77,7 @@ func (rpcFlow) Fail(
 }
 
 type rpcFlowStep struct {
-	dex.DefaultStepOptions
-}
-
-func (rpcFlowStep) GetStepType() string {
-	return "wait-for-rpc"
+	dex.StepDefaults
 }
 
 func (rpcFlowStep) WaitFor(

@@ -21,10 +21,6 @@ type noStartStepFlow struct {
 	emptyFlowSchema
 }
 
-func (noStartStepFlow) GetFlowType() string {
-	return "go-sdk-no-start-step"
-}
-
 func (noStartStepFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStep(noStartFinishStep{})}
 }
@@ -40,11 +36,7 @@ func (noStartStepFlow) Start(
 }
 
 type noStartFinishStep struct {
-	dex.StepDefaults[int]
-}
-
-func (noStartFinishStep) GetStepType() string {
-	return "finish"
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (noStartFinishStep) Execute(

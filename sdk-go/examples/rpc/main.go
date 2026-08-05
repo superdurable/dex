@@ -20,10 +20,8 @@ type RefundOutput struct {
 	Accepted bool
 }
 
-type BillingFlow struct{}
-
-func (BillingFlow) GetFlowType() string {
-	return "billing"
+type BillingFlow struct {
+	dex.FlowDefaults
 }
 
 func (BillingFlow) GetSteps() []dex.StepDef {

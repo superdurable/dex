@@ -22,10 +22,6 @@ type executeRecoveryFlow struct {
 	emptyFlowSchema
 }
 
-func (executeRecoveryFlow) GetFlowType() string {
-	return "go-sdk-execute-recovery"
-}
-
 func (executeRecoveryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(executeRecoveryFailStep{}),
@@ -34,11 +30,8 @@ func (executeRecoveryFlow) GetSteps() []dex.StepDef {
 }
 
 type executeRecoveryFailStep struct {
+	dex.DefaultStepType
 	dex.NoWaitFor[string]
-}
-
-func (executeRecoveryFailStep) GetStepType() string {
-	return "fail"
 }
 
 func (executeRecoveryFailStep) GetStepOptions() *dex.StepOptions {
@@ -53,11 +46,7 @@ func (executeRecoveryFailStep) Execute(dex.Context, string) (dex.StepDecision, e
 }
 
 type executeRecoveryFinishStep struct {
-	dex.StepDefaults[string]
-}
-
-func (executeRecoveryFinishStep) GetStepType() string {
-	return "finish"
+	dex.StepDefaultsNoWaitFor[string]
 }
 
 func (executeRecoveryFinishStep) Execute(

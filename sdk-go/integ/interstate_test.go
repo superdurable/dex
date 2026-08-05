@@ -23,10 +23,8 @@ var (
 	interStepSecondChannel = dex.DefineChannel[int]("inter-step-second")
 )
 
-type interStepFlow struct{}
-
-func (interStepFlow) GetFlowType() string {
-	return "go-sdk-inter-step"
+type interStepFlow struct {
+	dex.FlowDefaults
 }
 
 func (interStepFlow) GetSteps() []dex.StepDef {
@@ -45,11 +43,7 @@ func (interStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type interStepStartStep struct {
-	dex.StepDefaults[struct{}]
-}
-
-func (interStepStartStep) GetStepType() string {
-	return "start"
+	dex.StepDefaultsNoWaitFor[struct{}]
 }
 
 func (interStepStartStep) Execute(
@@ -63,11 +57,7 @@ func (interStepStartStep) Execute(
 }
 
 type interStepWaitStep struct {
-	dex.DefaultStepOptions
-}
-
-func (interStepWaitStep) GetStepType() string {
-	return "wait"
+	dex.StepDefaults
 }
 
 func (interStepWaitStep) WaitFor(
@@ -103,11 +93,7 @@ func (interStepWaitStep) Execute(
 }
 
 type interStepPublishStep struct {
-	dex.DefaultStepOptions
-}
-
-func (interStepPublishStep) GetStepType() string {
-	return "publish"
+	dex.StepDefaults
 }
 
 func (interStepPublishStep) WaitFor(

@@ -69,11 +69,7 @@ func (concreteValueHydrator) HydrateValuesInPlace(
 }
 
 type workerWaitingStep struct {
-	DefaultStepOptions
-}
-
-func (workerWaitingStep) GetStepType() string {
-	return "waiting"
+	StepDefaults
 }
 
 func (workerWaitingStep) WaitFor(
@@ -167,11 +163,7 @@ func (workerWaitingStep) Execute(
 var workerTestWait = workerWaitingStep{}
 
 type workerFinishStep struct {
-	StepDefaults[workerTestInput]
-}
-
-func (workerFinishStep) GetStepType() string {
-	return "finish"
+	StepDefaultsNoWaitFor[workerTestInput]
 }
 
 func (workerFinishStep) Execute(
@@ -183,10 +175,8 @@ func (workerFinishStep) Execute(
 
 var workerTestFinish = workerFinishStep{}
 
-type workerTestFlow struct{}
-
-func (workerTestFlow) GetFlowType() string {
-	return "worker-test"
+type workerTestFlow struct {
+	FlowDefaults
 }
 
 func (workerTestFlow) GetSteps() []StepDef {
@@ -235,13 +225,10 @@ func (workerTestFlow) Update(
 var workerFlow = workerTestFlow{}
 
 type workerBlockingFlow struct {
+	FlowDefaults
 	entered     chan struct{}
 	release     chan struct{}
 	enteredOnce sync.Once
-}
-
-func (*workerBlockingFlow) GetFlowType() string {
-	return "worker-blocking"
 }
 
 func (*workerBlockingFlow) GetSteps() []StepDef {
@@ -274,8 +261,8 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 		context.Background(),
 		&dexpb.InvokeWaitForMethodRequest{
 			Context:   workerStepContext(),
-			FlowType:  workerFlow.GetFlowType(),
-			StepType:  workerTestWait.GetStepType(),
+			FlowType:  GetFinalFlowType(workerFlow),
+			StepType:  GetFinalStepType(workerTestWait),
 			StepInput: mustEncodeWorkerTestValue(t, waitInput),
 		},
 	)
@@ -291,8 +278,8 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 
 	immediateRequest := &dexpb.InvokeWaitForMethodRequest{
 		Context:  workerStepContext(),
-		FlowType: workerFlow.GetFlowType(),
-		StepType: workerTestWait.GetStepType(),
+		FlowType: GetFinalFlowType(workerFlow),
+		StepType: GetFinalStepType(workerTestWait),
 		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{
 			OrderID: "order-1",
 			Mode:    "immediate",
@@ -304,8 +291,8 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 
 	comboRequest := &dexpb.InvokeWaitForMethodRequest{
 		Context:  workerStepContext(),
-		FlowType: workerFlow.GetFlowType(),
-		StepType: workerTestWait.GetStepType(),
+		FlowType: GetFinalFlowType(workerFlow),
+		StepType: GetFinalStepType(workerTestWait),
 		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{
 			OrderID: "order-1",
 			Mode:    "combo",
@@ -321,7 +308,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, executeResponse.StepDecision.NextSteps, 1)
-	require.Equal(t, workerTestFinish.GetStepType(), executeResponse.StepDecision.NextSteps[0].StepType)
+	require.Equal(t, GetFinalStepType(workerTestFinish), executeResponse.StepDecision.NextSteps[0].StepType)
 	require.Len(t, executeResponse.UpsertAttributes, 1)
 	_, deleted := executeResponse.UpsertAttributes[0].Value.Kind.(*dexpb.Value_NullValue)
 	require.True(t, deleted)
@@ -348,7 +335,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 		context.Background(),
 		&dexpb.InvokeWorkerRPCRequest{
 			Context:  workerRPCContext(),
-			FlowType: workerFlow.GetFlowType(),
+			FlowType: GetFinalFlowType(workerFlow),
 			RpcName:  "Update",
 			Input:    mustEncodeWorkerTestValue(t, waitInput),
 			ChannelInfos: map[string]*dexpb.ChannelInfo{
@@ -391,8 +378,8 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			name: "execute-only WaitFor",
 			call: func() error {
 				_, err := client.InvokeWaitForMethod(context.Background(), &dexpb.InvokeWaitForMethodRequest{
-					Context: workerStepContext(), FlowType: workerFlow.GetFlowType(),
-					StepType:  workerTestFinish.GetStepType(),
+					Context: workerStepContext(), FlowType: GetFinalFlowType(workerFlow),
+					StepType:  GetFinalStepType(workerTestFinish),
 					StepInput: mustEncodeWorkerTestValue(t, workerTestInput{}),
 				})
 				return err
@@ -403,7 +390,7 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			name: "unknown step",
 			call: func() error {
 				_, err := client.InvokeExecuteMethod(context.Background(), &dexpb.InvokeExecuteMethodRequest{
-					Context: workerStepContext(), FlowType: workerFlow.GetFlowType(),
+					Context: workerStepContext(), FlowType: GetFinalFlowType(workerFlow),
 					StepType: "missing", StepInput: mustEncodeWorkerTestValue(t, workerTestInput{}),
 				})
 				return err
@@ -414,7 +401,7 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			name: "unknown RPC",
 			call: func() error {
 				_, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
-					Context: workerRPCContext(), FlowType: workerFlow.GetFlowType(),
+					Context: workerRPCContext(), FlowType: GetFinalFlowType(workerFlow),
 					RpcName: "Missing", Input: mustEncodeWorkerTestValue(t, workerTestInput{}),
 				})
 				return err
@@ -760,7 +747,7 @@ func TestWorkerStopDrainsAndForceCancels(t *testing.T) {
 func TestWorkerTransientMovementMapping(t *testing.T) {
 	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
-	flow, found := registered.lookupFlow(workerFlow.GetFlowType())
+	flow, found := registered.lookupFlow(GetFinalFlowType(workerFlow))
 	require.True(t, found)
 
 	wait := withTransientMovement(
@@ -793,7 +780,7 @@ func TestWorkerTransientMovementMapping(t *testing.T) {
 func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
-	flow, found := registered.lookupFlow(workerFlow.GetFlowType())
+	flow, found := registered.lookupFlow(GetFinalFlowType(workerFlow))
 	require.True(t, found)
 
 	tests := []struct {
@@ -887,7 +874,7 @@ func invokeBlockingRPC(
 			context.Background(),
 			&dexpb.InvokeWorkerRPCRequest{
 				Context:  workerRPCContext(),
-				FlowType: "worker-blocking",
+				FlowType: "dex.workerBlockingFlow",
 				RpcName:  "Block",
 				Input:    input,
 			},
@@ -987,8 +974,8 @@ func workerExecuteRequest(
 ) *dexpb.InvokeExecuteMethodRequest {
 	return &dexpb.InvokeExecuteMethodRequest{
 		Context:   workerStepContext(),
-		FlowType:  workerFlow.GetFlowType(),
-		StepType:  workerTestWait.GetStepType(),
+		FlowType:  GetFinalFlowType(workerFlow),
+		StepType:  GetFinalStepType(workerTestWait),
 		StepInput: mustEncodeWorkerTestValue(t, input),
 		StepExeLocals: []*dexpb.KV{{
 			Key: "input", Value: mustEncodeWorkerTestValue(t, input),
@@ -1026,7 +1013,7 @@ func workerRPCRequest(
 ) *dexpb.InvokeWorkerRPCRequest {
 	return &dexpb.InvokeWorkerRPCRequest{
 		Context:  workerRPCContext(),
-		FlowType: workerFlow.GetFlowType(),
+		FlowType: GetFinalFlowType(workerFlow),
 		RpcName:  "Update",
 		Input:    mustEncodeWorkerTestValue(t, input),
 	}

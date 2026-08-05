@@ -23,10 +23,6 @@ type basicFlow struct {
 	emptyFlowSchema
 }
 
-func (basicFlow) GetFlowType() string {
-	return "go-sdk-basic"
-}
-
 func (basicFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(basicFirstStep{}),
@@ -35,11 +31,7 @@ func (basicFlow) GetSteps() []dex.StepDef {
 }
 
 type basicFirstStep struct {
-	dex.DefaultStepOptions
-}
-
-func (basicFirstStep) GetStepType() string {
-	return "first"
+	dex.StepDefaults
 }
 
 func (basicFirstStep) WaitFor(ctx dex.Context, input int) (dex.Wait, error) {
@@ -60,11 +52,7 @@ func (basicFirstStep) Execute(ctx dex.Context, input int) (dex.StepDecision, err
 }
 
 type basicSecondStep struct {
-	dex.StepDefaults[int]
-}
-
-func (basicSecondStep) GetStepType() string {
-	return "second"
+	dex.StepDefaultsNoWaitFor[int]
 }
 
 func (basicSecondStep) Execute(dex.Context, int) (dex.StepDecision, error) {
@@ -75,10 +63,6 @@ type proceedOnWaitForFailureFlow struct {
 	emptyFlowSchema
 }
 
-func (proceedOnWaitForFailureFlow) GetFlowType() string {
-	return "go-sdk-proceed-on-wait-for-failure"
-}
-
 func (proceedOnWaitForFailureFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(proceedOnWaitForFailureFirstStep{}),
@@ -86,10 +70,8 @@ func (proceedOnWaitForFailureFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-type proceedOnWaitForFailureFirstStep struct{}
-
-func (proceedOnWaitForFailureFirstStep) GetStepType() string {
-	return "first"
+type proceedOnWaitForFailureFirstStep struct {
+	dex.DefaultStepType
 }
 
 func (proceedOnWaitForFailureFirstStep) GetStepOptions() *dex.StepOptions {
@@ -123,11 +105,7 @@ func (proceedOnWaitForFailureFirstStep) Execute(
 }
 
 type proceedOnWaitForFailureSecondStep struct {
-	dex.DefaultStepOptions
-}
-
-func (proceedOnWaitForFailureSecondStep) GetStepType() string {
-	return "second"
+	dex.StepDefaults
 }
 
 func (proceedOnWaitForFailureSecondStep) WaitFor(

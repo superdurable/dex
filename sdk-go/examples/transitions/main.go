@@ -32,11 +32,7 @@ type ShipOrderInput struct {
 }
 
 type ApproveOrderStep struct {
-	dex.DefaultStepOptions
-}
-
-func (ApproveOrderStep) GetStepType() string {
-	return "approve-order"
+	dex.StepDefaults
 }
 
 func (ApproveOrderStep) WaitFor(
@@ -75,11 +71,7 @@ var ApproveOrder = ApproveOrderStep{}
 var _ dex.Step[ApproveOrderInput] = ApproveOrder
 
 type ShipOrderStep struct {
-	dex.StepDefaults[ShipOrderInput]
-}
-
-func (ShipOrderStep) GetStepType() string {
-	return "ship-order"
+	dex.StepDefaultsNoWaitFor[ShipOrderInput]
 }
 
 func (ShipOrderStep) Execute(
@@ -92,10 +84,8 @@ func (ShipOrderStep) Execute(
 var ShipOrder = ShipOrderStep{}
 var _ dex.Step[ShipOrderInput] = ShipOrder
 
-type OrderFlow struct{}
-
-func (OrderFlow) GetFlowType() string {
-	return "order-transitions"
+type OrderFlow struct {
+	dex.FlowDefaults
 }
 
 func (OrderFlow) GetSteps() []dex.StepDef {

@@ -28,6 +28,40 @@ type registrationOutput struct {
 	Value string
 }
 
+type automaticRegistrationStep struct {
+	StepDefaultsNoWaitFor[registrationInput]
+}
+
+func (automaticRegistrationStep) Execute(
+	Context,
+	registrationInput,
+) (StepDecision, error) {
+	return DeadEnd(), nil
+}
+
+type stepDefaultsWithoutWaitFor struct {
+	StepDefaults
+}
+
+func (stepDefaultsWithoutWaitFor) Execute(
+	Context,
+	registrationInput,
+) (StepDecision, error) {
+	return DeadEnd(), nil
+}
+
+type automaticRegistrationFlow struct {
+	FlowDefaults
+}
+
+func (automaticRegistrationFlow) GetSteps() []StepDef {
+	return []StepDef{DefineStartStep(automaticRegistrationStep{})}
+}
+
+func (automaticRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{}
+}
+
 type registrationStep struct {
 	stepType     string
 	options      *StepOptions
@@ -60,7 +94,7 @@ func (step *registrationStep) Execute(
 }
 
 type executeOnlyRegistrationStep struct {
-	StepDefaults[registrationInput]
+	StepDefaultsNoWaitFor[registrationInput]
 	stepType string
 }
 
@@ -76,7 +110,7 @@ func (*executeOnlyRegistrationStep) Execute(
 }
 
 type stringRegistrationStep struct {
-	StepDefaults[string]
+	StepDefaultsNoWaitFor[string]
 	stepType string
 }
 
@@ -339,6 +373,28 @@ func TestRegistryRejectsNonRPCExportedMethods(t *testing.T) {
 	require.ErrorContains(t, err, "must be RPCs")
 }
 
+func TestRegistryUsesDefaultPackageQualifiedTypes(t *testing.T) {
+	flow := automaticRegistrationFlow{}
+	step := automaticRegistrationStep{}
+	require.Equal(t, "dex.automaticRegistrationFlow", GetFinalFlowType(flow))
+	require.Equal(t, GetFinalFlowType(flow), GetFinalFlowType(&flow))
+	require.Equal(t, "dex.automaticRegistrationStep", GetFinalStepType(step))
+	require.Equal(t, GetFinalStepType(step), GetFinalStepType(&step))
+
+	registry, err := NewRegistry([]Flow{&flow})
+	require.NoError(t, err)
+	registered, found := registry.lookupFlow("dex.automaticRegistrationFlow")
+	require.True(t, found)
+	require.Equal(t, "dex.automaticRegistrationStep", registered.startingStep.stepType)
+}
+
+func TestStepDefaultsRequiresWaitFor(t *testing.T) {
+	_, implementsStep := any(stepDefaultsWithoutWaitFor{}).(Step[registrationInput])
+	require.False(t, implementsStep)
+	_, implementsStep = any(automaticRegistrationStep{}).(Step[registrationInput])
+	require.True(t, implementsStep)
+}
+
 func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 	var nilFlow *registrationFlow
 	var nilStep *registrationStep
@@ -358,11 +414,6 @@ func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 			name:  "typed nil flow",
 			flows: []Flow{nilFlow},
 			error: "flow at index 0 is nil",
-		},
-		{
-			name:  "empty flow type",
-			flows: []Flow{&registrationFlow{}},
-			error: "flow type must not be empty",
 		},
 		{
 			name: "duplicate flow type",
@@ -387,14 +438,6 @@ func TestRegistryRejectsInvalidFlowsAndSteps(t *testing.T) {
 				steps:    []StepDef{DefineStep(nilStep)},
 			}},
 			error: "step at index 0 is nil",
-		},
-		{
-			name: "empty step type",
-			flows: []Flow{&registrationFlow{
-				flowType: "flow",
-				steps:    []StepDef{DefineStep(&registrationStep{})},
-			}},
-			error: "step at index 0 has an empty type",
 		},
 		{
 			name: "duplicate step type",

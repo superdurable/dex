@@ -24,20 +24,12 @@ type forceFailFlow struct {
 	emptyFlowSchema
 }
 
-func (forceFailFlow) GetFlowType() string {
-	return "go-sdk-force-fail"
-}
-
 func (forceFailFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(forceFailStep{})}
 }
 
 type forceFailStep struct {
-	dex.StepDefaults[struct{}]
-}
-
-func (forceFailStep) GetStepType() string {
-	return "fail"
+	dex.StepDefaultsNoWaitFor[struct{}]
 }
 
 func (forceFailStep) Execute(
@@ -51,18 +43,12 @@ type waitForFailureFlow struct {
 	emptyFlowSchema
 }
 
-func (waitForFailureFlow) GetFlowType() string {
-	return "go-sdk-wait-for-failure"
-}
-
 func (waitForFailureFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(waitForFailureStep{})}
 }
 
-type waitForFailureStep struct{}
-
-func (waitForFailureStep) GetStepType() string {
-	return "fail"
+type waitForFailureStep struct {
+	dex.DefaultStepType
 }
 
 func (waitForFailureStep) GetStepOptions() *dex.StepOptions {
@@ -87,18 +73,12 @@ type waitForTimeoutFlow struct {
 	emptyFlowSchema
 }
 
-func (waitForTimeoutFlow) GetFlowType() string {
-	return "go-sdk-wait-for-timeout"
-}
-
 func (waitForTimeoutFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(waitForTimeoutStep{})}
 }
 
-type waitForTimeoutStep struct{}
-
-func (waitForTimeoutStep) GetStepType() string {
-	return "timeout"
+type waitForTimeoutStep struct {
+	dex.DefaultStepType
 }
 
 func (waitForTimeoutStep) GetStepOptions() *dex.StepOptions {
