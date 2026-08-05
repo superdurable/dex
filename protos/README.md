@@ -50,6 +50,15 @@ Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
 supports incremental refresh. `GetFlowState` returns the interpreter
 snapshot for a running flow.
 
+Successful async local activities do not place requests in backend history.
+`GetStepEventInputs` retrieves retained WaitFor/Execute requests by flow run,
+semantic event ID, step execution ID, and method type. Missing or cleaned-up
+inputs appear in `unavailable_event_ids`; they do not fail the whole batch.
+Returned requests have blob-backed `Value` fields hydrated.
+
+`LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
+by value kind and blob ID before loading.
+
 History events describe flows, step methods, RPCs, and channel publications.
 They do not expose workflow tasks, activities, markers, or raw backend events.
 

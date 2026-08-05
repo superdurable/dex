@@ -12,6 +12,7 @@ package converter
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 
 const (
 	cadenceMagic       = "DEXDC"
+	cadenceWirePrefix  = "DEXDC:"
 	cadenceVersion     = uint8(1)
 	cadenceHeaderLen   = 5 + 1 + 4 // magic + version + frame_count
 	cadenceFrameHdrLen = 1 + 1 + 4 // kind + nil + length
@@ -87,7 +89,8 @@ func (c *cadenceDataConverter) ToData(values ...interface{}) ([]byte, error) {
 			return nil, err
 		}
 	}
-	return buf.Bytes(), nil
+	encoded := base64.RawStdEncoding.EncodeToString(buf.Bytes())
+	return []byte(cadenceWirePrefix + encoded), nil
 }
 
 func (c *cadenceDataConverter) FromData(input []byte, valuePtrs ...interface{}) error {
@@ -103,7 +106,17 @@ func (c *cadenceDataConverter) FromData(input []byte, valuePtrs ...interface{}) 
 		}
 		return fmt.Errorf("cadence converter: truncated header (0 bytes)")
 	}
+	if !bytes.HasPrefix(input, []byte(cadenceWirePrefix)) {
+		return fmt.Errorf("cadence converter: bad wire prefix")
+	}
+	decoded, err := base64.RawStdEncoding.DecodeString(string(input[len(cadenceWirePrefix):]))
+	if err != nil {
+		return fmt.Errorf("cadence converter: decode wire payload: %w", err)
+	}
+	return decodeCadenceFrames(decoded, valuePtrs)
+}
 
+func decodeCadenceFrames(input []byte, valuePtrs []interface{}) error {
 	if len(input) < cadenceHeaderLen {
 		return fmt.Errorf("cadence converter: truncated header (%d bytes)", len(input))
 	}

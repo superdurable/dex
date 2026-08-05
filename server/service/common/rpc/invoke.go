@@ -104,8 +104,54 @@ func InvokeWorkerRpc(
 	); err != nil {
 		return nil, err
 	}
+	if err := offloadRPCSideEffects(
+		ctx,
+		resp,
+		req.GetFlowId(),
+		invocationId,
+		blobStore,
+		externalStorageConfig,
+	); err != nil {
+		return nil, err
+	}
 
 	return resp, nil
+}
+
+func offloadRPCSideEffects(
+	ctx context.Context,
+	response *dexpb.InvokeWorkerRPCResponse,
+	flowID string,
+	invocationID string,
+	blobStore blobstore.BlobStore,
+	externalStorageConfig *config.ExternalStorageConfig,
+) error {
+	threshold := externalStorageConfig.ThresholdInBytes
+	enabled := externalStorageConfig.Enabled
+	if err := blobstore.OffloadLargeKVs(
+		ctx, response.GetRecordEvents(), flowID, invocationID, threshold, blobStore, enabled,
+	); err != nil {
+		return err
+	}
+	if err := blobstore.OffloadLargeChannelMessages(
+		ctx, response.GetPublishToChannel(), flowID, invocationID, threshold, blobStore, enabled,
+	); err != nil {
+		return err
+	}
+	for _, movement := range response.GetStepDecision().GetNextSteps() {
+		if err := blobstore.OffloadLargeValue(
+			ctx, movement.GetStepInput(), flowID, invocationID, threshold, blobStore, enabled,
+		); err != nil {
+			return err
+		}
+	}
+	closeDecision := response.GetStepDecision().GetCloseDecision()
+	if closeDecision.GetCloseDecisionType() == dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL {
+		return nil
+	}
+	return blobstore.OffloadLargeValue(
+		ctx, closeDecision.GetCloseInput(), flowID, invocationID, threshold, blobStore, enabled,
+	)
 }
 
 func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {

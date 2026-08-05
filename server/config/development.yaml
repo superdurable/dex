@@ -45,3 +45,8 @@ externalStorage:
       cleanupStrategy:
         cleanupStrategyType: afterAllRunsDeleted
         cleanupFrequencyInDays: 1
+    # Local filesystem alternative:
+    # - status: active
+    #   storageId: "local-dev"
+    #   storageType: "local"
+    #   localDirectory: "./dex-blobs"

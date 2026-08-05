@@ -32,8 +32,11 @@ import (
 
 type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	waitStarted  chan struct{}
-	waitCanceled chan struct{}
+	waitStarted            chan struct{}
+	waitCanceled           chan struct{}
+	loadBlobsRequests      chan *dexpb.LoadBlobsRequest
+	stepEventInputRequests chan *dexpb.GetStepEventInputsRequest
+	loadBlobsError         error
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
@@ -86,6 +89,98 @@ func TestWebServerMapsGRPCErrors(t *testing.T) {
 	decodeResponse(t, response, &result)
 	if result.Error != "invalid flow" || result.GRPCCode != int32(codes.InvalidArgument) {
 		t.Fatalf("unexpected error response: %+v", result)
+	}
+}
+
+func TestWebServerLoadsBlobsAndStepEventInputs(t *testing.T) {
+	service := &flowService{
+		loadBlobsRequests:      make(chan *dexpb.LoadBlobsRequest, 1),
+		stepEventInputRequests: make(chan *dexpb.GetStepEventInputsRequest, 1),
+	}
+	harness := newHarness(t, service)
+
+	blobResponse := postJSON(t, harness.http.URL+"/api/blobs/load", `{
+        "values": [
+          {"id":"string-id","kind":"string"},
+          {"id":"object-id","kind":"object"},
+          {"id":"string-id","kind":"string"}
+        ]
+      }`)
+	defer blobResponse.Body.Close()
+	if blobResponse.StatusCode != http.StatusOK {
+		t.Fatalf("blob status = %d", blobResponse.StatusCode)
+	}
+	var blobResult struct {
+		Values map[string]interface{} `json:"values"`
+	}
+	decodeResponse(t, blobResponse, &blobResult)
+	if blobResult.Values["string:string-id"] != "loaded string" {
+		t.Fatalf("unexpected string blob: %+v", blobResult.Values)
+	}
+	object, ok := blobResult.Values["object:object-id"].(map[string]interface{})
+	if !ok || object["answer"] != float64(42) {
+		t.Fatalf("unexpected object blob: %+v", blobResult.Values)
+	}
+	loadRequest := <-service.loadBlobsRequests
+	if len(loadRequest.GetValues()) != 2 ||
+		loadRequest.GetValues()[0].GetInternalBlobIdForStringValue() != "string-id" ||
+		loadRequest.GetValues()[1].GetInternalBlobIdForObjValue() != "object-id" {
+		t.Fatalf("unexpected LoadBlobs request: %+v", loadRequest)
+	}
+
+	inputResponse := postJSON(t, harness.http.URL+"/api/flows/step-event-inputs", `{
+        "flowId":"flow-1",
+        "runId":"run-1",
+        "keys":[
+          {"eventId":10,"stepExecutionId":"step-1","methodType":"waitFor"},
+          {"eventId":20,"stepExecutionId":"step-2","methodType":"execute"}
+        ]
+      }`)
+	defer inputResponse.Body.Close()
+	if inputResponse.StatusCode != http.StatusOK {
+		t.Fatalf("step input status = %d", inputResponse.StatusCode)
+	}
+	var inputResult struct {
+		Inputs []struct {
+			EventID int64                  `json:"eventId"`
+			Request map[string]interface{} `json:"request"`
+		} `json:"inputs"`
+		UnavailableEventIDs []int64 `json:"unavailableEventIds"`
+	}
+	decodeResponse(t, inputResponse, &inputResult)
+	if len(inputResult.Inputs) != 1 || inputResult.Inputs[0].EventID != 10 ||
+		inputResult.Inputs[0].Request["stepType"] != "charge" {
+		t.Fatalf("unexpected step inputs: %+v", inputResult)
+	}
+	if len(inputResult.UnavailableEventIDs) != 1 || inputResult.UnavailableEventIDs[0] != 20 {
+		t.Fatalf("unexpected unavailable inputs: %+v", inputResult)
+	}
+	inputRequest := <-service.stepEventInputRequests
+	if inputRequest.GetFlowExecutionId().GetRunId() != "run-1" ||
+		inputRequest.GetKeys()[0].GetMethodType() != dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR ||
+		inputRequest.GetKeys()[1].GetMethodType() != dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE {
+		t.Fatalf("unexpected GetStepEventInputs request: %+v", inputRequest)
+	}
+
+	errorHarness := newHarness(t, &flowService{
+		loadBlobsError: status.Error(codes.Unavailable, "blob store offline"),
+	})
+	errorResponse := postJSON(
+		t,
+		errorHarness.http.URL+"/api/blobs/load",
+		`{"values":[{"id":"string-id","kind":"string"}]}`,
+	)
+	defer errorResponse.Body.Close()
+	if errorResponse.StatusCode != http.StatusBadGateway {
+		t.Fatalf("blob error status = %d", errorResponse.StatusCode)
+	}
+	var mappedError struct {
+		Error    string `json:"error"`
+		GRPCCode int32  `json:"grpcCode"`
+	}
+	decodeResponse(t, errorResponse, &mappedError)
+	if mappedError.Error != "Stored value unavailable" || mappedError.GRPCCode != int32(codes.Unavailable) {
+		t.Fatalf("unexpected blob error response: %+v", mappedError)
 	}
 }
 
@@ -154,6 +249,39 @@ func (s *flowService) GetFlowSummary(
 	*dexpb.GetFlowSummaryRequest,
 ) (*dexpb.GetFlowSummaryResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "invalid flow")
+}
+
+func (s *flowService) LoadBlobs(
+	_ context.Context,
+	request *dexpb.LoadBlobsRequest,
+) (*dexpb.LoadBlobsResponse, error) {
+	if s.loadBlobsError != nil {
+		return nil, s.loadBlobsError
+	}
+	s.loadBlobsRequests <- request
+	return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{
+		"string-id": {Kind: &dexpb.Value_StringValue{StringValue: "loaded string"}},
+		"object-id": {Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: "json",
+			Payload:  []byte(`{"answer":42}`),
+		}}},
+	}}, nil
+}
+
+func (s *flowService) GetStepEventInputs(
+	_ context.Context,
+	request *dexpb.GetStepEventInputsRequest,
+) (*dexpb.GetStepEventInputsResponse, error) {
+	s.stepEventInputRequests <- request
+	return &dexpb.GetStepEventInputsResponse{
+		Inputs: []*dexpb.StepEventInput{{
+			EventId: 10,
+			Request: &dexpb.StepEventInput_WaitForRequest{
+				WaitForRequest: &dexpb.InvokeWaitForMethodRequest{StepType: "charge"},
+			},
+		}},
+		UnavailableEventIds: []int64{20},
+	}, nil
 }
 
 func (s *flowService) WaitForHistoryEvent(

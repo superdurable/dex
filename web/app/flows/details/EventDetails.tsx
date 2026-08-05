@@ -9,6 +9,11 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  isBlobReferenceValue,
+  isStoredValueUnavailable,
+  storedValueJSONReplacer,
+} from '@/lib/blobs';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   activeStepSearchModeLabel,
@@ -64,6 +69,8 @@ function isPresent(value: unknown): boolean {
 }
 
 function decodedValue(value: unknown): unknown {
+  if (isBlobReferenceValue(value)) return 'Loading stored value…';
+  if (isStoredValueUnavailable(value)) return 'Stored value unavailable';
   const message = asData(value);
   if ('stringValue' in message) return message.stringValue;
   if ('intValue' in message) return message.intValue;
@@ -464,6 +471,9 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           )}
         </DetailSection>
       )}
+      {payload.inputUnavailable === true && (
+        <DetailSection title="Method input"><p className="muted">Input was not retained.</p></DetailSection>
+      )}
       {isWaitFor
         ? <WaitingConditionView value={response.waitingCondition} />
         : <ConditionResultsView value={request.conditionResults} />}
@@ -620,7 +630,7 @@ export function EventDetails({
         </div>
         {view === 'details'
           ? <div className="semantic-event"><SemanticEventDetails event={event} /></div>
-          : <pre className="raw-event-json">{JSON.stringify(event.payload, null, 2)}</pre>}
+          : <pre className="raw-event-json">{JSON.stringify(event.payload, storedValueJSONReplacer, 2)}</pre>}
       </div>
     </div>
   );

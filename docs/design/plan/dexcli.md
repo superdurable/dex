@@ -255,8 +255,12 @@ Local `dexcli dev` 构造 typed `config.Config`，不生成临时 YAML：
 - Temporal address 为 local 或 external address；
 - namespace 默认 `default`；
 - API port 默认 `8801`；
-- external storage 默认 disabled；
+- external storage 默认使用 local filesystem backend，threshold 为 1 KB；
 - internal service target 指向本次 Dex API listener。
+
+`--blob-store-dir` 指定持久目录；`--temporal-db-filename <db>` 默认使用
+`<db>.dex-blobs`。两者都未设置时使用进程退出即删除的临时目录。external
+Temporal 没有显式目录时打印数据不跨 `dexcli` 重启保留的提示。
 
 高级 server 配置继续由现有 server binary/YAML 提供，不把所有 production config 暴露成 `dexcli dev` flags。
 
@@ -273,6 +277,7 @@ dexcli dev [flags]
 --temporal-port int            default 7233; local mode only
 --temporal-ui-port int         default 8233; local mode only
 --temporal-db-filename string  empty uses in-memory SQLite
+--blob-store-dir string        persistent Dex blob storage directory
 --open                         open Dex Web after readiness
 ```
 
@@ -444,6 +449,9 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - 默认 local mode 启动四个 endpoints，并能通过 Dex Web API 搜索一个实际 flow。
 - local Temporal 自动包含 `default` namespace 和 `FlowType=Keyword`。
 - `--temporal-db-filename` 重启后保留 Temporal executions。
+- local blob backend 使用安全路径编码和 atomic rename。
+- `--blob-store-dir` 或 `<db>.dex-blobs` 重启后保留 step inputs 和大 Value。
+- 无持久目录时退出会删除临时 blob 数据。
 - external mode 连接预先启动的 Temporal，不创建第二个 Temporal process。
 - 退出 external mode 后 external Temporal 仍然可用。
 - occupied 7233、8233、8801、8802 分别在部分启动前返回明确错误。

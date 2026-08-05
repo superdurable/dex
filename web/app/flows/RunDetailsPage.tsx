@@ -9,6 +9,7 @@
 import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
+import { hydrateBlobs } from '@/lib/blobs';
 import type {
   FlowHistoryEvent,
   FlowState,
@@ -25,12 +26,23 @@ import { Timeline } from './details/Timeline';
 
 type RunTab = 'overview' | 'steps' | 'timeline';
 
+interface StepEventInputsResult {
+  inputs: Array<{ eventId: number; request: Record<string, unknown> }>;
+  unavailableEventIds: number[];
+}
+
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 
 async function responseJSON<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
+}
+
+function stepMethodType(event: FlowHistoryEvent): 'waitFor' | 'execute' | null {
+  if (event.type.startsWith('StepWaitFor')) return 'waitFor';
+  if (event.type.startsWith('StepExecute')) return 'execute';
+  return null;
 }
 
 export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: string }) {
@@ -48,7 +60,12 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [resetOpen, setResetOpen] = useState(false);
   const [waitCycle, setWaitCycle] = useState(0);
+  const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
+  const [storedValueWarning, setStoredValueWarning] = useState('');
   const waitGeneration = useRef(0);
+  const blobCache = useRef(new Map<string, unknown>());
+  const hydratingEventIDs = useRef(new Set<number>());
+  const hydratedEventIDs = useRef(new Set<number>());
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
@@ -59,11 +76,62 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       return;
     }
     try {
-      setState(await responseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' })));
+      const rawState = await responseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
+      setState(rawState);
+      const hydrated = await hydrateBlobs(rawState, blobCache.current);
+      setState(hydrated.value);
+      if (hydrated.error) setStoredValueWarning(hydrated.error);
     } catch (stateError) {
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
   }, [stateURL]);
+
+  const hydrateEvent = useCallback(async (event: FlowHistoryEvent) => {
+    if (hydratedEventIDs.current.has(event.eventId)
+      || hydratingEventIDs.current.has(event.eventId)) return;
+    hydratingEventIDs.current.add(event.eventId);
+    try {
+      let eventWithInput = event;
+      const methodType = stepMethodType(event);
+      const request = event.payload.request;
+      const execution = event.payload.execution as Record<string, unknown> | undefined;
+      if (methodType && (!request || Object.keys(request as Record<string, unknown>).length === 0)) {
+        const result = await responseJSON<StepEventInputsResult>(await fetch('/api/flows/step-event-inputs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            flowId,
+            runId,
+            keys: [{
+              eventId: event.eventId,
+              stepExecutionId: String(execution?.stepExecutionId ?? ''),
+              methodType,
+            }],
+          }),
+          cache: 'no-store',
+        }));
+        const loaded = result.inputs.find((input) => input.eventId === event.eventId);
+        eventWithInput = {
+          ...event,
+          payload: {
+            ...event.payload,
+            ...(loaded ? { request: loaded.request } : {}),
+            ...(result.unavailableEventIds.includes(event.eventId)
+              ? { inputUnavailable: true }
+              : {}),
+          },
+        };
+      }
+      const hydrated = await hydrateBlobs(eventWithInput, blobCache.current);
+      setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
+      hydratedEventIDs.current.add(event.eventId);
+      if (hydrated.error) setStoredValueWarning(hydrated.error);
+    } catch {
+      setStoredValueWarning('Stored value unavailable');
+    } finally {
+      hydratingEventIDs.current.delete(event.eventId);
+    }
+  }, [flowId, runId]);
 
   const loadSummary = useCallback(async () => {
     const value = await responseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
@@ -117,6 +185,11 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     setNextPageToken('');
     setNextInternalEventId(0);
     setSelectedEvent(null);
+    setHydratedEvents({});
+    setStoredValueWarning('');
+    blobCache.current.clear();
+    hydratingEventIDs.current.clear();
+    hydratedEventIDs.current.clear();
     setError('');
     setLoading(true);
     void refresh().finally(() => {
@@ -183,7 +256,22 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     ['timeline', 'Timeline'],
   ];
   const latestEvent = history.at(-1);
-  const selected = selectedEvent ?? latestEvent ?? null;
+  const selectedRaw = selectedEvent ?? latestEvent ?? null;
+  const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
+  const displayedHistory = useMemo(
+    () => history.map((event) => hydratedEvents[event.eventId] ?? event),
+    [history, hydratedEvents],
+  );
+
+  useEffect(() => {
+    if (selectedRaw) void hydrateEvent(selectedRaw);
+  }, [hydrateEvent, selectedRaw?.eventId]);
+
+  useEffect(() => {
+    if (tab !== 'overview') return;
+    const startEvent = history.find((event) => event.type === 'FlowStartedOrContinued');
+    if (startEvent) void hydrateEvent(startEvent);
+  }, [hydrateEvent, history, tab]);
   const runChain = useMemo(() => {
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
@@ -233,6 +321,9 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       </section>
 
       {error && <div className="error-banner run-error">{error}</div>}
+      {storedValueWarning && (
+        <div className="warning-banner run-error">{storedValueWarning}</div>
+      )}
 
       <div className="run-tabs" role="tablist">
         {tabs.map(([id, label]) => (
@@ -245,12 +336,12 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       <div className="run-content">
         <section className="run-primary">
           {tab === 'overview' && summary && (
-            <FlowOverview summary={summary} events={history} state={state} />
+            <FlowOverview summary={summary} events={displayedHistory} state={state} />
           )}
           {tab === 'steps' && (
             <StepGraph
               flowId={flowId}
-              events={history}
+              events={displayedHistory}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -259,7 +350,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           {tab === 'timeline' && (
             <Timeline
               flowId={flowId}
-              events={history}
+              events={displayedHistory}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
             />

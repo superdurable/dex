@@ -109,6 +109,13 @@ func (h *handler) LoadBlobs(
 	return h.svc.LoadBlobs(ctx, req)
 }
 
+func (h *handler) GetStepEventInputs(
+	ctx context.Context,
+	req *dexpb.GetStepEventInputsRequest,
+) (*dexpb.GetStepEventInputsResponse, error) {
+	return h.svc.GetStepEventInputs(ctx, req)
+}
+
 func (h *handler) WaitForFlow(
 	ctx context.Context,
 	req *dexpb.WaitForFlowRequest,

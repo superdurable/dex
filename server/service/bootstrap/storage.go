@@ -60,8 +60,14 @@ func CreateS3Client(ctx context.Context, cfg *config.Config) (*s3.Client, error)
 	if activeStorage == nil {
 		return nil, fmt.Errorf("no active storage found")
 	}
-	if activeStorage.StorageType != "s3" {
-		return nil, fmt.Errorf("only s3 is supported for external storage")
+	if activeStorage.StorageType == config.StorageTypeLocal {
+		if activeStorage.LocalDirectory == "" {
+			return nil, fmt.Errorf("local blob storage directory is required")
+		}
+		return nil, nil
+	}
+	if activeStorage.StorageType != config.StorageTypeS3 {
+		return nil, fmt.Errorf("unsupported external storage type %q", activeStorage.StorageType)
 	}
 
 	// Create custom resolver for MinIO endpoint

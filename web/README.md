@@ -7,6 +7,13 @@ The production Web server is Go. It serves an embedded React SPA and translates
 same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
 Temporal/Cadence credentials and backend history never enter the browser.
 
+`POST /api/flows/step-event-inputs` fills async local-activity requests that
+backend history cannot contain. `POST /api/blobs/load` batches Dex `LoadBlobs`
+calls. The browser recursively hydrates the selected event and current flow
+state, dedupes by blob kind and ID, and caches loaded values across tabs.
+Unavailable stored values keep the page usable and never expose blob IDs or
+storage paths.
+
 ## Run through dexcli
 
 ```bash
@@ -61,6 +68,7 @@ Continued runs link to their previous run from Timeline and Step graph.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Timeline and Step graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
+Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 ## License
 
 [Super Durable Source License 1.0](LICENSE), with legacy portions under their

@@ -21,6 +21,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const maxRequestBytes = 1 << 20
@@ -40,9 +41,11 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
+	mux.HandleFunc("POST /api/flows/step-event-inputs", handler.getStepEventInputs)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("POST /api/flows/reset", handler.resetFlow)
+	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
 }
 
@@ -145,6 +148,76 @@ func (h *handler) getHistoryEvents(response http.ResponseWriter, request *http.R
 	})
 }
 
+func (h *handler) getStepEventInputs(response http.ResponseWriter, request *http.Request) {
+	var body getStepEventInputsRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.FlowID == "" || body.RunID == "" {
+		WriteError(response, http.StatusBadRequest, "flowId and runId are required", nil)
+		return
+	}
+	keys := make([]*dexpb.StepEventInputKey, 0, len(body.Keys))
+	for _, key := range body.Keys {
+		methodType, err := stepMethodType(key.MethodType)
+		if err != nil || key.EventID <= 0 || key.StepExecutionID == "" {
+			if err == nil {
+				err = fmt.Errorf("positive eventId and stepExecutionId are required")
+			}
+			WriteError(response, http.StatusBadRequest, err.Error(), nil)
+			return
+		}
+		keys = append(keys, &dexpb.StepEventInputKey{
+			EventId:         key.EventID,
+			StepExecutionId: key.StepExecutionID,
+			MethodType:      methodType,
+		})
+	}
+	result, err := h.client.GetStepEventInputs(request.Context(), &dexpb.GetStepEventInputsRequest{
+		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: body.FlowID, RunId: body.RunID},
+		Keys:            keys,
+	})
+	if err != nil {
+		writeGRPCError(response, err, "GetStepEventInputs")
+		return
+	}
+	inputs := make([]stepEventInput, 0, len(result.GetInputs()))
+	for _, input := range result.GetInputs() {
+		var requestMessage proto.Message
+		switch value := input.GetRequest().(type) {
+		case *dexpb.StepEventInput_WaitForRequest:
+			requestMessage = value.WaitForRequest
+		case *dexpb.StepEventInput_ExecuteRequest:
+			requestMessage = value.ExecuteRequest
+		default:
+			WriteError(response, http.StatusBadGateway, "step event input has no request", nil)
+			return
+		}
+		mapped, mapErr := protoMap(requestMessage)
+		if mapErr != nil {
+			WriteError(response, http.StatusBadGateway, mapErr.Error(), nil)
+			return
+		}
+		inputs = append(inputs, stepEventInput{EventID: input.GetEventId(), Request: mapped})
+	}
+	writeJSON(response, http.StatusOK, getStepEventInputsResponse{
+		Inputs:              inputs,
+		UnavailableEventIDs: result.GetUnavailableEventIds(),
+	})
+}
+
+func stepMethodType(value string) (dexpb.StepMethodType, error) {
+	switch value {
+	case "waitFor":
+		return dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR, nil
+	case "execute":
+		return dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE, nil
+	default:
+		return dexpb.StepMethodType_STEP_METHOD_TYPE_UNSPECIFIED, fmt.Errorf("methodType must be waitFor or execute")
+	}
+}
+
 func (h *handler) getFlowState(response http.ResponseWriter, request *http.Request) {
 	flowID, runID, ok := flowRunIDs(response, request)
 	if !ok {
@@ -231,6 +304,62 @@ func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(response, http.StatusOK, resetFlowResponse{RunID: result.GetRunId()})
+}
+
+func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request) {
+	var body loadBlobsRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	values := make([]*dexpb.Value, 0, len(body.Values))
+	seen := make(map[string]struct{}, len(body.Values))
+	for _, reference := range body.Values {
+		cacheKey := blobCacheKey(reference)
+		if reference.ID == "" || cacheKey == "" {
+			WriteError(response, http.StatusBadRequest, "blob id and kind are required", nil)
+			return
+		}
+		if _, exists := seen[cacheKey]; exists {
+			continue
+		}
+		seen[cacheKey] = struct{}{}
+		value := &dexpb.Value{}
+		switch reference.Kind {
+		case "string":
+			value.Kind = &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: reference.ID}
+		case "object":
+			value.Kind = &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: reference.ID}
+		default:
+			WriteError(response, http.StatusBadRequest, "blob kind must be string or object", nil)
+			return
+		}
+		values = append(values, value)
+	}
+	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Values: values})
+	if err != nil {
+		writeGRPCError(
+			response,
+			status.Error(status.Code(err), "Stored value unavailable"),
+			"LoadBlobs",
+		)
+		return
+	}
+	mapped := make(map[string]interface{}, len(result.GetValues()))
+	for _, reference := range body.Values {
+		value, exists := result.GetValues()[reference.ID]
+		if exists {
+			mapped[blobCacheKey(reference)] = dexValue(value)
+		}
+	}
+	writeJSON(response, http.StatusOK, loadBlobsResponse{Values: mapped})
+}
+
+func blobCacheKey(reference blobReference) string {
+	if reference.Kind != "string" && reference.Kind != "object" {
+		return ""
+	}
+	return reference.Kind + ":" + reference.ID
 }
 
 func health(response http.ResponseWriter, request *http.Request) {

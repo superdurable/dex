@@ -19,12 +19,15 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service/common/log"
@@ -65,8 +68,14 @@ func NewBlobStore(
 			activeStorage = &storage
 		}
 		supportedStores[storage.StorageId] = storage
-		if storage.StorageType != config.StorageTypeS3 {
-			panic("only S3 storage type is supported")
+		switch storage.StorageType {
+		case config.StorageTypeS3:
+		case config.StorageTypeLocal:
+			if storage.LocalDirectory == "" {
+				panic("local storage requires a directory")
+			}
+		default:
+			panic("unsupported blob storage type")
 		}
 	}
 	if activeStorage == nil {
@@ -108,7 +117,7 @@ func (b *blobStoreImpl) WriteObject(
 	// Note: using $ here so that the listing can be much easier to implement for pagination
 	path = fmt.Sprintf("%s$%s/%s", yyyymmdd, workflowId, objectID)
 
-	err = putObject(ctx, b.s3Client, b.activeStorage.S3Bucket, b.pathPrefix+path, data)
+	err = b.writeObject(ctx, b.activeStorage, path, data)
 	if err != nil {
 		b.writeObjectErrorCounter.Inc(1)
 		var re s3.ResponseError
@@ -132,6 +141,76 @@ func (b *blobStoreImpl) WriteObject(
 	}
 	b.writeObjectSuccessHistogram.Record(time.Duration(len(data)))
 	return
+}
+
+func (b *blobStoreImpl) WriteStepEventInput(
+	ctx context.Context,
+	runStarted time.Time,
+	flowID string,
+	runID string,
+	stepExecutionID string,
+	method string,
+	data []byte,
+) error {
+	path := StepEventInputPath(runStarted, flowID, runID, stepExecutionID, method)
+	if err := b.writeObject(ctx, b.activeStorage, path, data); err != nil {
+		b.writeObjectErrorCounter.Inc(1)
+		return fmt.Errorf("write step event input: %w", err)
+	}
+	b.writeObjectSuccessHistogram.Record(time.Duration(len(data)))
+	return nil
+}
+
+func (b *blobStoreImpl) ReadStepEventInput(
+	ctx context.Context,
+	runStarted time.Time,
+	flowID string,
+	runID string,
+	stepExecutionID string,
+	method string,
+) ([]byte, bool, error) {
+	path := StepEventInputPath(runStarted, flowID, runID, stepExecutionID, method)
+	storeIDs := make([]string, 0, len(b.supportedStore))
+	for storeID := range b.supportedStore {
+		if storeID != b.activeStorage.StorageId {
+			storeIDs = append(storeIDs, storeID)
+		}
+	}
+	sort.Strings(storeIDs)
+	storeIDs = append([]string{b.activeStorage.StorageId}, storeIDs...)
+	for _, storeID := range storeIDs {
+		storage := b.supportedStore[storeID]
+		data, err := b.readObject(ctx, storage, path)
+		if err == nil {
+			b.readObjectSuccessHistogram.Record(time.Duration(len(data)))
+			return data, true, nil
+		}
+		if IsObjectNotFound(err) {
+			continue
+		}
+		b.readObjectErrorCounter.Inc(1)
+		return nil, false, fmt.Errorf("read step event input: %w", err)
+	}
+	return nil, false, nil
+}
+
+func (b *blobStoreImpl) writeObject(
+	ctx context.Context,
+	storage config.BlobStorageConfig,
+	path string,
+	data []byte,
+) error {
+	switch storage.StorageType {
+	case config.StorageTypeS3:
+		if b.s3Client == nil {
+			return errors.New("S3 client is not configured")
+		}
+		return putObject(ctx, b.s3Client, storage.S3Bucket, b.pathPrefix+path, data)
+	case config.StorageTypeLocal:
+		return writeLocalObject(ctx, storage.LocalDirectory, b.pathPrefix+path, data)
+	default:
+		return fmt.Errorf("unsupported blob storage type %q", storage.StorageType)
+	}
 }
 
 func deterministicBlobUUID(invocationId string, data []byte) (uuid.UUID, error) {
@@ -181,7 +260,7 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		b.readObjectErrorCounter.Inc(1)
 		return nil, errors.New("store not found for " + storeId)
 	}
-	data, err := getObject(ctx, b.s3Client, storeConfig.S3Bucket, b.pathPrefix+path)
+	data, err := b.readObject(ctx, storeConfig, path)
 	if err != nil {
 		b.readObjectErrorCounter.Inc(1)
 		var re s3.ResponseError
@@ -205,6 +284,36 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 	}
 	b.readObjectSuccessHistogram.Record(time.Duration(len(data)))
 	return data, nil
+}
+
+func (b *blobStoreImpl) readObject(
+	ctx context.Context,
+	storage config.BlobStorageConfig,
+	path string,
+) ([]byte, error) {
+	switch storage.StorageType {
+	case config.StorageTypeS3:
+		if b.s3Client == nil {
+			return nil, errors.New("S3 client is not configured")
+		}
+		return getObject(ctx, b.s3Client, storage.S3Bucket, b.pathPrefix+path)
+	case config.StorageTypeLocal:
+		return readLocalObject(ctx, storage.LocalDirectory, b.pathPrefix+path)
+	default:
+		return nil, fmt.Errorf("unsupported blob storage type %q", storage.StorageType)
+	}
+}
+
+// IsObjectNotFound reports whether a backend object is absent.
+func IsObjectNotFound(err error) bool {
+	if os.IsNotExist(err) {
+		return true
+	}
+	var apiError smithy.APIError
+	if !errors.As(err, &apiError) {
+		return false
+	}
+	return apiError.ErrorCode() == "NoSuchKey" || apiError.ErrorCode() == "NotFound"
 }
 
 func putObject(ctx context.Context, client *s3.Client, bucketName string, key string, content []byte) error {
@@ -238,6 +347,12 @@ func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, work
 	// Create the prefix to match objects for this workflowId for today
 	yyyymmdd := time.Now().UTC().Format("20060102")
 	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yyyymmdd, workflowId)
+	if b.activeStorage.StorageType == config.StorageTypeLocal {
+		return countLocalObjects(ctx, b.activeStorage.LocalDirectory, prefix)
+	}
+	if b.s3Client == nil {
+		return 0, errors.New("S3 client is not configured")
+	}
 
 	// List objects with the prefix (limited to 1000 objects as documented)
 	result, err := b.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
@@ -255,6 +370,12 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 	storeConfig, ok := b.supportedStore[storeId]
 	if !ok {
 		return errors.New("store not found for " + storeId)
+	}
+	if storeConfig.StorageType == config.StorageTypeLocal {
+		return deleteLocalWorkflowObjects(ctx, storeConfig.LocalDirectory, b.pathPrefix+workflowPath)
+	}
+	if b.s3Client == nil {
+		return errors.New("S3 client is not configured")
 	}
 
 	// Construct the prefix for all objects of this workflow
@@ -368,6 +489,17 @@ func (b *blobStoreImpl) ListWorkflowPaths(ctx context.Context, input ListObjectP
 	storeConfig, ok := b.supportedStore[input.StoreId]
 	if !ok {
 		return nil, errors.New("store not found for " + input.StoreId)
+	}
+	if storeConfig.StorageType == config.StorageTypeLocal {
+		return listLocalWorkflowPaths(
+			ctx,
+			storeConfig.LocalDirectory,
+			strings.TrimSuffix(b.pathPrefix, "/"),
+			input.ContinuationToken,
+		)
+	}
+	if b.s3Client == nil {
+		return nil, errors.New("S3 client is not configured")
 	}
 
 	listInput := &s3.ListObjectsV2Input{

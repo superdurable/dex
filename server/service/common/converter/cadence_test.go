@@ -11,7 +11,9 @@
 package converter
 
 import (
+	"encoding/base64"
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,11 +30,12 @@ func TestCadenceSingleProtoRoundTrip(t *testing.T) {
 	}
 	data, err := dc.ToData(in)
 	require.NoError(t, err)
-	require.True(t, len(data) >= cadenceHeaderLen)
-	require.Equal(t, cadenceMagic, string(data[:5]))
-	require.Equal(t, cadenceVersion, data[5])
-	require.Equal(t, uint32(1), binary.BigEndian.Uint32(data[6:10]))
-	require.Equal(t, kindProto, data[10])
+	frames := decodeCadenceEnvelope(t, data)
+	require.True(t, len(frames) >= cadenceHeaderLen)
+	require.Equal(t, cadenceMagic, string(frames[:5]))
+	require.Equal(t, cadenceVersion, frames[5])
+	require.Equal(t, uint32(1), binary.BigEndian.Uint32(frames[6:10]))
+	require.Equal(t, kindProto, frames[10])
 
 	out := &dexpb.SkipTimerSignalRequest{}
 	require.NoError(t, dc.FromData(data, &out))
@@ -47,7 +50,8 @@ func TestCadenceMultiFrameMixedKinds(t *testing.T) {
 
 	data, err := dc.ToData(protoMsg, jsonVal, raw)
 	require.NoError(t, err)
-	require.Equal(t, uint32(3), binary.BigEndian.Uint32(data[6:10]))
+	frames := decodeCadenceEnvelope(t, data)
+	require.Equal(t, uint32(3), binary.BigEndian.Uint32(frames[6:10]))
 
 	var outProto *dexpb.FailFlowSignalRequest
 	var outJSON map[string]string
@@ -75,9 +79,10 @@ func TestCadenceTypedNilProto(t *testing.T) {
 	var typedNil *dexpb.FailFlowSignalRequest
 	data, err := dc.ToData(typedNil)
 	require.NoError(t, err)
-	require.Equal(t, kindProto, data[10])
-	require.Equal(t, nilFlagTrue, data[11])
-	require.Equal(t, uint32(0), binary.BigEndian.Uint32(data[12:16]))
+	frames := decodeCadenceEnvelope(t, data)
+	require.Equal(t, kindProto, frames[10])
+	require.Equal(t, nilFlagTrue, frames[11])
+	require.Equal(t, uint32(0), binary.BigEndian.Uint32(frames[12:16]))
 
 	var out *dexpb.FailFlowSignalRequest
 	out = &dexpb.FailFlowSignalRequest{Reason: "stale"}
@@ -124,7 +129,7 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	require.Error(t, dc.FromData([]byte("XXXXX"), &out))
 	require.Error(t, dc.FromData([]byte("DEXDC"), &out))
 
-	badVersion := append([]byte(cadenceMagic), 99, 0, 0, 0, 1)
+	badVersion := cadenceEnvelope(append([]byte(cadenceMagic), 99, 0, 0, 0, 1))
 	require.Error(t, dc.FromData(badVersion, &out))
 
 	// Valid header claiming 1 frame but truncated frame header.
@@ -132,7 +137,7 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	copy(truncated, cadenceMagic)
 	truncated[5] = byte(cadenceVersion)
 	binary.BigEndian.PutUint32(truncated[6:10], 1)
-	require.Error(t, dc.FromData(truncated, &out))
+	require.Error(t, dc.FromData(cadenceEnvelope(truncated), &out))
 
 	// Declared length larger than remaining bytes.
 	oversized := make([]byte, cadenceHeaderLen+cadenceFrameHdrLen)
@@ -142,7 +147,7 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	oversized[10] = kindProto
 	oversized[11] = nilFlagFalse
 	binary.BigEndian.PutUint32(oversized[12:16], 100)
-	require.Error(t, dc.FromData(oversized, &out))
+	require.Error(t, dc.FromData(cadenceEnvelope(oversized), &out))
 
 	// Declared length exceeds maxCadenceFrameBytes.
 	tooBig := make([]byte, cadenceHeaderLen+cadenceFrameHdrLen)
@@ -152,7 +157,7 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	tooBig[10] = kindProto
 	tooBig[11] = nilFlagFalse
 	binary.BigEndian.PutUint32(tooBig[12:16], maxCadenceFrameBytes+1)
-	require.Error(t, dc.FromData(tooBig, &out))
+	require.Error(t, dc.FromData(cadenceEnvelope(tooBig), &out))
 
 	// Wrong arity.
 	good, err := dc.ToData(&dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 1}})
@@ -161,11 +166,23 @@ func TestCadenceRejectsCorruptPayloads(t *testing.T) {
 	require.Error(t, dc.FromData(good, &a, &b))
 
 	// Trailing bytes.
-	trailing := append(append([]byte{}, good...), 0xFF)
-	require.Error(t, dc.FromData(trailing, &out))
+	trailing := append(decodeCadenceEnvelope(t, good), 0xFF)
+	require.Error(t, dc.FromData(cadenceEnvelope(trailing), &out))
 
 	// Unknown kind.
-	unknownKind := append([]byte{}, good...)
+	unknownKind := decodeCadenceEnvelope(t, good)
 	unknownKind[10] = 99
-	require.Error(t, dc.FromData(unknownKind, &out))
+	require.Error(t, dc.FromData(cadenceEnvelope(unknownKind), &out))
+}
+
+func decodeCadenceEnvelope(t *testing.T, data []byte) []byte {
+	t.Helper()
+	require.True(t, strings.HasPrefix(string(data), cadenceWirePrefix))
+	decoded, err := base64.RawStdEncoding.DecodeString(string(data[len(cadenceWirePrefix):]))
+	require.NoError(t, err)
+	return decoded
+}
+
+func cadenceEnvelope(frames []byte) []byte {
+	return []byte(cadenceWirePrefix + base64.RawStdEncoding.EncodeToString(frames))
 }

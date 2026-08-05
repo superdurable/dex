@@ -17,7 +17,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
+	"github.com/superdurable/dex/service/common/ptr"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -63,6 +66,17 @@ func newSupervisor(cfg *Config, stdout io.Writer, stderr io.Writer) *supervisor 
 }
 
 func (s *supervisor) Run(ctx context.Context) (runErr error) {
+	blobStoreDirectory, temporaryBlobStore, err := s.prepareBlobStoreDirectory()
+	if err != nil {
+		return err
+	}
+	if temporaryBlobStore {
+		defer func() {
+			if cleanupErr := os.RemoveAll(blobStoreDirectory); cleanupErr != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("remove temporary blob store: %w", cleanupErr))
+			}
+		}()
+	}
 	listeners, err := reserveOwnedListeners(s.cfg)
 	if err != nil {
 		return err
@@ -113,7 +127,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	componentExits := make(chan componentExit, 2)
-	dexRuntime, err := s.startDexRuntime(runCtx, listeners.dex, componentExits)
+	dexRuntime, err := s.startDexRuntime(runCtx, listeners.dex, componentExits, blobStoreDirectory)
 	if err != nil {
 		return err
 	}
@@ -173,10 +187,50 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, runErr)
 }
 
+func (s *supervisor) prepareBlobStoreDirectory() (string, bool, error) {
+	if s.cfg.BlobStoreDirectory != "" {
+		directory, err := filepath.Abs(s.cfg.BlobStoreDirectory)
+		if err != nil {
+			return "", false, fmt.Errorf("resolve blob store directory: %w", err)
+		}
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return "", false, fmt.Errorf("create blob store directory: %w", err)
+		}
+		return directory, false, nil
+	}
+	if s.cfg.TemporalDBFilename != "" {
+		directory, err := filepath.Abs(s.cfg.TemporalDBFilename + ".dex-blobs")
+		if err != nil {
+			return "", false, fmt.Errorf("resolve blob store directory: %w", err)
+		}
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return "", false, fmt.Errorf("create blob store directory: %w", err)
+		}
+		return directory, false, nil
+	}
+	directory, err := os.MkdirTemp("", "dexcli-blobs-*")
+	if err != nil {
+		return "", false, fmt.Errorf("create temporary blob store: %w", err)
+	}
+	if s.cfg.TemporalAddress != "" {
+		if _, err := fmt.Fprintln(
+			s.stderr,
+			"Warning: step inputs and large values will not survive dexcli restart; use --blob-store-dir to persist them.",
+		); err != nil {
+			return "", false, errors.Join(
+				fmt.Errorf("write blob store warning: %w", err),
+				os.RemoveAll(directory),
+			)
+		}
+	}
+	return directory, true, nil
+}
+
 func (s *supervisor) startDexRuntime(
 	ctx context.Context,
 	listener net.Listener,
 	exits chan<- componentExit,
+	blobStoreDirectory string,
 ) (*bootstrap.Runtime, error) {
 	dexConfig := &config.Config{
 		Log: config.Logger{
@@ -185,6 +239,22 @@ func (s *supervisor) startDexRuntime(
 			Encoding: "console",
 		},
 		Api: config.ApiConfig{Port: s.cfg.DexPort},
+		ExternalStorage: config.ExternalStorageConfig{
+			Enabled:                true,
+			LazyLoading:            ptr.Any(true),
+			ThresholdInBytes:       1024,
+			HistoryRetentionInDays: 1,
+			SupportedStorages: []config.BlobStorageConfig{{
+				Status:         config.StorageStatusActive,
+				StorageId:      "dexcli-local",
+				StorageType:    config.StorageTypeLocal,
+				LocalDirectory: blobStoreDirectory,
+				CleanupStrategy: config.CleanupStrategy{
+					CleanupStrategyType:    config.CleanupStrategyTypeAfterAllRunsDeleted,
+					CleanupFrequencyInDays: 1,
+				},
+			}},
+		},
 		Interpreter: config.Interpreter{
 			Temporal: &config.TemporalConfig{
 				HostPort:  s.cfg.temporalAddress(),

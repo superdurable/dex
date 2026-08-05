@@ -40,6 +40,41 @@ type keyValue struct {
 	Value interface{} `json:"value"`
 }
 
+type blobReference struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+}
+
+type loadBlobsRequest struct {
+	Values []blobReference `json:"values"`
+}
+
+type loadBlobsResponse struct {
+	Values map[string]interface{} `json:"values"`
+}
+
+type stepEventInputKey struct {
+	EventID         int64  `json:"eventId"`
+	StepExecutionID string `json:"stepExecutionId"`
+	MethodType      string `json:"methodType"`
+}
+
+type getStepEventInputsRequest struct {
+	FlowID string              `json:"flowId"`
+	RunID  string              `json:"runId"`
+	Keys   []stepEventInputKey `json:"keys"`
+}
+
+type stepEventInput struct {
+	EventID int64                  `json:"eventId"`
+	Request map[string]interface{} `json:"request"`
+}
+
+type getStepEventInputsResponse struct {
+	Inputs              []stepEventInput `json:"inputs"`
+	UnavailableEventIDs []int64          `json:"unavailableEventIds"`
+}
+
 type flowSummary struct {
 	FlowID         string  `json:"flowId"`
 	RunID          string  `json:"runId"`

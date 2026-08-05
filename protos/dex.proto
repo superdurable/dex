@@ -75,6 +75,7 @@ service FlowService {
   rpc GetAttributes(GetAttributesRequest) returns (GetAttributesResponse);
   rpc SetAttributes(SetAttributesRequest) returns (google.protobuf.Empty);
   rpc LoadBlobs(LoadBlobsRequest) returns (LoadBlobsResponse);
+  rpc GetStepEventInputs(GetStepEventInputsRequest) returns (GetStepEventInputsResponse);
   rpc WaitForFlow(WaitForFlowRequest) returns (WaitForFlowResponse);
   rpc SearchFlows(SearchFlowsRequest) returns (SearchFlowsResponse);
   rpc GetFlowSummary(GetFlowSummaryRequest) returns (GetFlowSummaryResponse);
@@ -423,6 +424,37 @@ message GetFlowSummaryResponse {
   FlowStatus flow_status = 5;
   google.protobuf.Timestamp start_time = 6;
   google.protobuf.Timestamp close_time = 7;
+}
+
+enum StepMethodType {
+  STEP_METHOD_TYPE_UNSPECIFIED = 0;
+  STEP_METHOD_TYPE_WAIT_FOR = 1;
+  STEP_METHOD_TYPE_EXECUTE = 2;
+}
+
+message StepEventInputKey {
+  int64 event_id = 1;
+  string step_execution_id = 2;
+  StepMethodType method_type = 3;
+}
+
+message GetStepEventInputsRequest {
+  FlowExecutionID flow_execution_id = 1;
+  repeated StepEventInputKey keys = 2;
+}
+
+message StepEventInput {
+  int64 event_id = 1;
+
+  oneof request {
+    InvokeWaitForMethodRequest wait_for_request = 2;
+    InvokeExecuteMethodRequest execute_request = 3;
+  }
+}
+
+message GetStepEventInputsResponse {
+  repeated StepEventInput inputs = 1;
+  repeated int64 unavailable_event_ids = 2;
 }
 
 message GetHistoryEventsRequest {
@@ -978,6 +1010,7 @@ message BlobStoreCleanupWorkflowOutput {
 message InvokeWaitForMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
+  int64 current_run_started_timestamp_internal_only = 3;
 }
 
 message InvokeWaitForMethodActivityOutput {
@@ -989,6 +1022,7 @@ message InvokeExecuteMethodActivityInput {
   InvokeExecuteMethodRequest request = 2;
   // Requires a DeadEnd close decision without next steps.
   bool is_transient_step = 3;
+  int64 current_run_started_timestamp_internal_only = 4;
 }
 
 message InvokeExecuteMethodActivityOutput {

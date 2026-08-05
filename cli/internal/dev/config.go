@@ -46,6 +46,8 @@ type Config struct {
 	TemporalUIPort int
 	// TemporalDBFilename defaults to in-memory storage.
 	TemporalDBFilename string
+	// BlobStoreDirectory persists Dex blobs when set. Default follows the Temporal database lifecycle.
+	BlobStoreDirectory string
 	// OpenBrowser defaults false and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
@@ -81,6 +83,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	flags.IntVar(&cfg.TemporalPort, "temporal-port", cfg.TemporalPort, "local Temporal gRPC port")
 	flags.IntVar(&cfg.TemporalUIPort, "temporal-ui-port", cfg.TemporalUIPort, "local Temporal Web port")
 	flags.StringVar(&cfg.TemporalDBFilename, "temporal-db-filename", "", "local Temporal SQLite file")
+	flags.StringVar(&cfg.BlobStoreDirectory, "blob-store-dir", "", "Dex blob storage directory")
 	flags.BoolVar(&cfg.OpenBrowser, "open", false, "open Dex Web after startup")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage: dexcli dev [flags]")

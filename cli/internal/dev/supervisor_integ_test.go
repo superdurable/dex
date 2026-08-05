@@ -20,6 +20,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,6 +151,44 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	}
 	temporalClient.Close()
 	cancelHealth()
+}
+
+func TestBlobStoreDirectorySelection(t *testing.T) {
+	root := t.TempDir()
+	output := &synchronizedBuffer{}
+
+	explicitConfig := defaultConfig()
+	explicitConfig.BlobStoreDirectory = filepath.Join(root, "explicit")
+	directory, temporary, err := newSupervisor(explicitConfig, output, output).prepareBlobStoreDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if temporary || directory != explicitConfig.BlobStoreDirectory {
+		t.Fatalf("unexpected explicit directory: directory=%q temporary=%t", directory, temporary)
+	}
+
+	databaseConfig := defaultConfig()
+	databaseConfig.TemporalDBFilename = filepath.Join(root, "temporal.db")
+	directory, temporary, err = newSupervisor(databaseConfig, output, output).prepareBlobStoreDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if temporary || directory != databaseConfig.TemporalDBFilename+".dex-blobs" {
+		t.Fatalf("unexpected database directory: directory=%q temporary=%t", directory, temporary)
+	}
+
+	externalConfig := defaultConfig()
+	externalConfig.TemporalAddress = "127.0.0.1:7233"
+	directory, temporary, err = newSupervisor(externalConfig, output, output).prepareBlobStoreDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !temporary || !strings.Contains(output.String(), "will not survive dexcli restart") {
+		t.Fatalf("unexpected temporary directory result: directory=%q temporary=%t output=%q", directory, temporary, output.String())
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitForHealthyWeb(t *testing.T, url string, runFinished <-chan error) {

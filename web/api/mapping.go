@@ -19,6 +19,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const blobReferenceField = "__dexBlobReference"
+
 func mapSearchEntry(entry *dexpb.SearchFlowsResponseEntry) flowExecution {
 	return flowExecution{
 		FlowID:           entry.GetFlowId(),
@@ -155,9 +157,9 @@ func dexValue(value *dexpb.Value) interface{} {
 	}
 	switch kind := value.GetKind().(type) {
 	case *dexpb.Value_InternalBlobIdForStringValue:
-		return map[string]interface{}{"blobId": kind.InternalBlobIdForStringValue, "kind": "string"}
+		return mappedBlobReference(kind.InternalBlobIdForStringValue, "string")
 	case *dexpb.Value_InternalBlobIdForObjValue:
-		return map[string]interface{}{"blobId": kind.InternalBlobIdForObjValue, "kind": "object"}
+		return mappedBlobReference(kind.InternalBlobIdForObjValue, "object")
 	case *dexpb.Value_StringValue:
 		return kind.StringValue
 	case *dexpb.Value_IntValue:
@@ -200,7 +202,38 @@ func protoMap(message proto.Message) (map[string]interface{}, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return normalizeBlobReferences(result).(map[string]interface{}), nil
+}
+
+func mappedBlobReference(id string, kind string) map[string]interface{} {
+	return map[string]interface{}{
+		blobReferenceField: map[string]interface{}{"id": id, "kind": kind},
+	}
+}
+
+func normalizeBlobReferences(value interface{}) interface{} {
+	switch current := value.(type) {
+	case map[string]interface{}:
+		if len(current) == 1 {
+			if id, ok := current["internalBlobIdForStringValue"].(string); ok {
+				return mappedBlobReference(id, "string")
+			}
+			if id, ok := current["internalBlobIdForObjValue"].(string); ok {
+				return mappedBlobReference(id, "object")
+			}
+		}
+		for key, entry := range current {
+			current[key] = normalizeBlobReferences(entry)
+		}
+		return current
+	case []interface{}:
+		for index, entry := range current {
+			current[index] = normalizeBlobReferences(entry)
+		}
+		return current
+	default:
+		return value
+	}
 }
 
 func interfaceSlice(value interface{}) []interface{} {

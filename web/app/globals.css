@@ -489,6 +489,16 @@ h3 {
   font-size: 13px;
 }
 
+.warning-banner {
+  margin: 14px 0;
+  padding: 11px 13px;
+  border: 1px solid #e3c77a;
+  border-radius: 10px;
+  color: #6f5412;
+  background: #fff8df;
+  font-size: 13px;
+}
+
 .results-card {
   margin-top: 18px;
   overflow: visible;

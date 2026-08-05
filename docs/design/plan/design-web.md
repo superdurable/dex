@@ -312,6 +312,12 @@ ASYNC local activity 不记录 input，因此 ASYNC event 的 `request` 可以 a
 - successful LocalActivity marker output 的 `LocalActivityInput`；
 - fallback regular Activity scheduled input 的 `Context`。
 
+成功的 local activity 会把发送给 worker 的完整 request 单独保存到 external
+storage。Web 选择该 event 时批量调用 `GetStepEventInputs` 补齐 request；regular
+Activity 继续直接使用 history request。存储路径由 run、step execution 和 method
+确定，不增加 history token。未启用存储或数据已清理时，API 在
+`unavailable_event_ids` 中报告该 event。
+
 `from_step_execution_id` 只接受 server 写入的值：
 
 - `__start__`；
@@ -357,6 +363,38 @@ message ChannelExternalPublishEvent {
 ```
 
 RPC 启动的 step 从 `StepMovement.from_step_execution_id_internal_only` 中的 `__rpc/<rpcName>` 建图。
+
+### 6.7 Step event input 与 blob hydration
+
+```proto
+message GetStepEventInputsRequest {
+  FlowExecutionID flow_execution_id = 1;
+  repeated StepEventInputKey keys = 2;
+}
+
+message GetStepEventInputsResponse {
+  repeated StepEventInput inputs = 1;
+  repeated int64 unavailable_event_ids = 2;
+}
+```
+
+local activity 成功后保存准确的 WaitFor/Execute worker request。Temporal 使用
+workflow start time；Cadence SDK 不提供该时间时，activity 用当前 flow ID 和 run ID
+执行 Describe 获取。文件位于：
+
+```text
+<namespace>/<run-start-date>$<encoded-flow-id>$<encoded-run-id>/
+  <encoded-step-execution-id>/<method>.pb
+```
+
+写入失败会让 local activity 失败并进入 regular Activity fallback。读取 API 在返回
+前 hydrate request 中的 step input、attributes、step locals 和 channel condition
+results。Web 不根据 event 顺序重建 attributes，也不推测 timer/channel results。
+
+Web Go bridge 提供 `POST /api/blobs/load`，统一 string/object blob reference 的 JSON
+shape。前端递归收集所选 event 或 live state 中的 references，按 `kind + blob ID`
+去重并批量加载；缓存跨 Overview、Step Graph 和 Timeline 共用。失败时保留页面并
+显示 “Stored value unavailable”，Raw JSON 不泄露 blob ID 或 object path。
 
 ## 7. WaitForHistoryEvent
 
@@ -554,6 +592,21 @@ Phase 2 使用 `server/integ/`：
 - Current state：WaitFor/Execute 为 ACTIVE，condition wait 为 WAITING。
 - Current state：CAN-resumed waiting step、queued resume request 和 transient Execute。
 - Execute 前移除 resume entry 后，CAN drain 不丢 step 或重复执行。
+- Temporal/Cadence × SYNC/ASYNC：WaitFor/Execute 显示调用时 step input、attributes 和 condition results。
+- channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
+- local failure fallback 使用 regular Activity history request；关闭存储或清理后返回 unavailable。
+- local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
+
+Web Go integration：
+
+- `/api/blobs/load` 映射 string/object arms，并按 `kind + blob ID` 去重。
+- `/api/flows/step-event-inputs` 映射 batch requests、partial unavailable 和 gRPC errors。
+
+Web Vitest：
+
+- 递归发现和替换 step input、attributes、channels、continued state 和 condition results。
+- batch cache 避免切换 tab 后重复加载。
+- 加载失败显示 unavailable，结构化 details 和 Raw JSON 都不泄露 blob ID。
 
 Web E2E：
 

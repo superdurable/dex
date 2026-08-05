@@ -227,6 +227,9 @@ integTestsNoSearch:
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
 
+localBlobStoreTests:
+	@GOWORK=off go test -v ./service/common/blobstore -run '^TestLocalBlobStore'
+
 replayTests:
 	@GOWORK=off go test -v ./replayTests -timeout 10m
 

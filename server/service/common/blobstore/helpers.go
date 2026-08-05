@@ -41,6 +41,54 @@ func OffloadLargeAttributeWrites(
 	return nil
 }
 
+// OffloadLargeKVs replaces oversized KV values with server-minted blob ids.
+func OffloadLargeKVs(
+	ctx context.Context,
+	values []*dexpb.KV,
+	flowId string,
+	invocationId string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if !enabled || threshold <= 0 {
+		return nil
+	}
+	for _, value := range values {
+		if value == nil || value.GetValue() == nil {
+			continue
+		}
+		if err := offloadValue(ctx, value.Value, flowId, invocationId, threshold, blobStore); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OffloadLargeChannelMessages replaces oversized channel values with blob ids.
+func OffloadLargeChannelMessages(
+	ctx context.Context,
+	messages []*dexpb.ChannelMessage,
+	flowId string,
+	invocationId string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if !enabled || threshold <= 0 {
+		return nil
+	}
+	for _, message := range messages {
+		if message == nil || message.GetValue() == nil {
+			continue
+		}
+		if err := offloadValue(ctx, message.Value, flowId, invocationId, threshold, blobStore); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // OffloadLargeValue offloads a single Value when over threshold.
 func OffloadLargeValue(
 	ctx context.Context,
@@ -123,6 +171,19 @@ func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error
 			continue
 		}
 		if err := HydrateValue(ctx, kv.GetValue(), blobStore); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func HydrateConditionResults(
+	ctx context.Context,
+	results *dexpb.ConditionResults,
+	blobStore BlobStore,
+) error {
+	for _, result := range results.GetChannelResults() {
+		if err := HydrateValues(ctx, result.GetValues(), blobStore); err != nil {
 			return err
 		}
 	}

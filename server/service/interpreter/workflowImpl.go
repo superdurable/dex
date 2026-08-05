@@ -81,8 +81,10 @@ func (i *Interpreter) StartEngineFlow(
 
 	NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
+	runStartedTimestamp := provider.Now(ctx).Unix()
 	basicInfo := service.BasicInfo{
-		FlowType: input.GetFlowType(),
+		FlowType:            input.GetFlowType(),
+		RunStartedTimestamp: runStartedTimestamp,
 	}
 
 	var channelStore *ChannelStore
@@ -679,7 +681,8 @@ func (i *Interpreter) processStepExecution(
 			ctx,
 			i.activities.InvokeWaitForMethod,
 			&dexpb.InvokeWaitForMethodActivityInput{
-				WorkerTarget: flowConfiger.GetWorkerTarget(),
+				WorkerTarget:                           flowConfiger.GetWorkerTarget(),
+				CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
 				Request: &dexpb.InvokeWaitForMethodRequest{
 					Context:    executionContext,
 					FlowType:   basicInfo.FlowType,
@@ -965,8 +968,9 @@ func (i *Interpreter) invokeExecuteMethod(
 		ctx,
 		i.activities.InvokeExecuteMethod,
 		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget:    flowConfiger.GetWorkerTarget(),
-			IsTransientStep: isTransientStep,
+			WorkerTarget:                           flowConfiger.GetWorkerTarget(),
+			IsTransientStep:                        isTransientStep,
+			CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
 			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,

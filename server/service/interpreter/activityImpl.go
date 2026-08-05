@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -28,6 +29,7 @@ import (
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type Activities struct {
@@ -117,6 +119,16 @@ func (a *Activities) InvokeWaitForMethod(
 	if err := validateWorkerWaitForResponse(resp); err != nil {
 		return nil, composeActivityError(provider, err)
 	}
+	if err := a.persistStepEventInput(
+		ctx,
+		input.GetCurrentRunStartedTimestampInternalOnly(),
+		activityInfo,
+		req.GetContext().GetStepExecutionId(),
+		blobstore.StepEventInputMethodWaitFor,
+		req,
+	); err != nil {
+		return nil, composeInternalActivityError(provider, err)
+	}
 
 	transientStep := resp.GetTransientStepMovement()
 	if transientStep != nil {
@@ -139,6 +151,16 @@ func (a *Activities) InvokeWaitForMethod(
 	if err := a.offloadWorkerAttributeWrites(
 		ctx,
 		resp.GetUpsertAttributes(),
+		activityInfo.WorkflowExecution.ID,
+		activityInvocationId(activityInfo),
+	); err != nil {
+		return nil, composeInternalActivityError(provider, err)
+	}
+	if err := a.offloadWorkerSideEffects(
+		ctx,
+		resp.GetUpsertStepExeLocals(),
+		resp.GetRecordEvents(),
+		resp.GetPublishToChannel(),
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
@@ -175,6 +197,9 @@ func (a *Activities) InvokeExecuteMethod(
 		if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
 			return nil, composeInternalActivityError(provider, err)
 		}
+		if err := blobstore.HydrateConditionResults(ctx, req.GetConditionResults(), a.blobStore); err != nil {
+			return nil, composeInternalActivityError(provider, err)
+		}
 	}
 
 	client, callCtx, release, err := a.workerPool.Acquire(
@@ -196,6 +221,16 @@ func (a *Activities) InvokeExecuteMethod(
 	}
 	if err := validateExecuteResponse(resp, input.GetIsTransientStep()); err != nil {
 		return nil, composeActivityError(provider, err)
+	}
+	if err := a.persistStepEventInput(
+		ctx,
+		input.GetCurrentRunStartedTimestampInternalOnly(),
+		activityInfo,
+		req.GetContext().GetStepExecutionId(),
+		blobstore.StepEventInputMethodExecute,
+		req,
+	); err != nil {
+		return nil, composeInternalActivityError(provider, err)
 	}
 
 	service.SetFromStepExecutionID(
@@ -224,9 +259,61 @@ func (a *Activities) InvokeExecuteMethod(
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
+	if err := a.offloadWorkerSideEffects(
+		ctx,
+		resp.GetUpsertStepExeLocals(),
+		resp.GetRecordEvents(),
+		resp.GetPublishToChannel(),
+		activityInfo.WorkflowExecution.ID,
+		activityInvocationId(activityInfo),
+	); err != nil {
+		return nil, composeInternalActivityError(provider, err)
+	}
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
 	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
+}
+
+func (a *Activities) persistStepEventInput(
+	ctx context.Context,
+	runStartedTimestamp int64,
+	activityInfo interfaces.ActivityInfo,
+	stepExecutionID string,
+	method string,
+	request proto.Message,
+) error {
+	if !activityInfo.IsLocalActivity || !a.cfg.ExternalStorage.Enabled {
+		return nil
+	}
+	if stepExecutionID == "" {
+		return fmt.Errorf("step event input requires a step execution ID")
+	}
+	runStarted := time.Unix(runStartedTimestamp, 0)
+	if runStartedTimestamp <= 0 {
+		description, err := a.unifiedClient.DescribeWorkflowExecution(
+			ctx,
+			activityInfo.WorkflowExecution.ID,
+			activityInfo.WorkflowExecution.RunID,
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("describe current run for step event input: %w", err)
+		}
+		runStarted = description.StartTime
+	}
+	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
+	if err != nil {
+		return fmt.Errorf("marshal step event input: %w", err)
+	}
+	return a.blobStore.WriteStepEventInput(
+		ctx,
+		runStarted,
+		activityInfo.WorkflowExecution.ID,
+		activityInfo.WorkflowExecution.RunID,
+		stepExecutionID,
+		method,
+		data,
+	)
 }
 
 // DumpFlowForContinueAsNew pages ContinueAsNewDump via InternalService.
@@ -306,13 +393,12 @@ func (a *Activities) CleanupBlobsAfterAllRunsDeleted(
 		}
 		continueToken = listOutput.ContinuationToken
 		for _, workflowPath := range listOutput.WorkflowPaths {
-			_, valid := blobstore.ExtractYyyymmddToUnixSeconds(workflowPath)
-			if !valid {
+			parsedPath, parseErr := blobstore.ParseWorkflowPath(workflowPath)
+			if parseErr != nil {
 				logger.Info("CleanupBlobsAfterAllRunsDeleted skipped workflow path", "path", workflowPath)
 				continue
 			}
-			flowId := blobstore.MustExtractWorkflowId(workflowPath)
-			_, err := client.DescribeWorkflowExecution(ctx, flowId, "", nil)
+			_, err := client.DescribeWorkflowExecution(ctx, parsedPath.FlowID, parsedPath.RunID, nil)
 			if client.IsNotFoundError(err) {
 				if err := store.DeleteWorkflowObjects(ctx, input.GetStoreId(), workflowPath); err != nil {
 					logger.Error("CleanupBlobsAfterAllRunsDeleted failed to delete workflow objects", "workflowPath", workflowPath, "error", err)
@@ -354,6 +440,30 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	}
 	return blobstore.OffloadLargeAttributeWrites(
 		ctx, writes, flowId, invocationId, a.cfg.ExternalStorage.ThresholdInBytes, a.blobStore, true,
+	)
+}
+
+func (a *Activities) offloadWorkerSideEffects(
+	ctx context.Context,
+	stepLocals []*dexpb.KV,
+	recordEvents []*dexpb.KV,
+	channelMessages []*dexpb.ChannelMessage,
+	flowId string,
+	invocationId string,
+) error {
+	threshold := a.cfg.ExternalStorage.ThresholdInBytes
+	if err := blobstore.OffloadLargeKVs(
+		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
+	); err != nil {
+		return err
+	}
+	if err := blobstore.OffloadLargeKVs(
+		ctx, recordEvents, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
+	); err != nil {
+		return err
+	}
+	return blobstore.OffloadLargeChannelMessages(
+		ctx, channelMessages, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
 	)
 }
 
