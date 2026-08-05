@@ -139,8 +139,8 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	return Flows()
 }
 
-func Flows() []dex.Flow {
-	return []dex.Flow{
+func Flows(additional ...dex.Flow) []dex.Flow {
+	flows := []dex.Flow{
 		Engagement,
 		Microservices,
 		MoneyTransfer,
@@ -171,4 +171,5 @@ func Flows() []dex.Flow {
 		WaitForStateCompletion,
 		GracefulTimeout,
 	}
+	return append(flows, additional...)
 }
