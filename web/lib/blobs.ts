@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
+
 export type BlobKind = 'string' | 'object';
 
 export interface BlobReference {
@@ -42,7 +44,7 @@ export function isStoredValueUnavailable(value: unknown): boolean {
 
 export function storedValueJSONReplacer(_key: string, value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
-  if (isStoredValueUnavailable(value)) return 'Stored value unavailable';
+  if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
   return value;
 }
 
@@ -79,13 +81,13 @@ export async function hydrateBlobs<T>(
     const unresolved = missing.some((reference) => !cache.has(blobCacheKey(reference)));
     return {
       value: replaceBlobReferences(value, cache, true) as T,
-      ...(unresolved ? { error: 'Stored value unavailable' } : {}),
+      ...(unresolved ? { error: VALUE_BLOB_UNAVAILABLE } : {}),
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     return {
       value: replaceBlobReferences(value, cache, true) as T,
-      error: 'Stored value unavailable',
+      error: VALUE_BLOB_UNAVAILABLE,
     };
   }
 }

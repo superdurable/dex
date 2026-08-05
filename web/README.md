@@ -11,8 +11,9 @@ Temporal/Cadence credentials and backend history never enter the browser.
 backend history cannot contain. `POST /api/blobs/load` batches Dex `LoadBlobs`
 calls. The browser recursively hydrates the selected event and current flow
 state, dedupes by blob kind and ID, and caches loaded values across tabs.
-Unavailable stored values keep the page usable and never expose blob IDs or
-storage paths.
+Missing values are labeled `Value blob unavailable`; missing local-activity
+requests are labeled `Step event input blob unavailable`. Neither exposes blob
+IDs or storage paths.
 
 ## Run through dexcli
 

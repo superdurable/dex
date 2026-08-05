@@ -341,7 +341,7 @@ func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request)
 	if err != nil {
 		writeGRPCError(
 			response,
-			status.Error(status.Code(err), "Stored value unavailable"),
+			status.Error(status.Code(err), "Value blob unavailable"),
 			"LoadBlobs",
 		)
 		return

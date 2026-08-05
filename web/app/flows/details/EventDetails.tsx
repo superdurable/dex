@@ -16,6 +16,10 @@ import {
 } from '@/lib/blobs';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
+  STEP_EVENT_INPUT_BLOB_UNAVAILABLE,
+  VALUE_BLOB_UNAVAILABLE,
+} from '@/lib/unavailable';
+import {
   activeStepSearchModeLabel,
   closeDecisionTypeLabel,
   conditionStatusLabel,
@@ -70,7 +74,7 @@ function isPresent(value: unknown): boolean {
 
 function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
-  if (isStoredValueUnavailable(value)) return 'Stored value unavailable';
+  if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
   const message = asData(value);
   if ('stringValue' in message) return message.stringValue;
   if ('intValue' in message) return message.intValue;
@@ -486,7 +490,9 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
         </DetailSection>
       )}
       {payload.inputUnavailable === true && (
-        <DetailSection title="Method input"><p className="muted">Input was not retained.</p></DetailSection>
+        <DetailSection title="Method input">
+          <p className="muted">{STEP_EVENT_INPUT_BLOB_UNAVAILABLE}</p>
+        </DetailSection>
       )}
       {isWaitFor
         ? <WaitingConditionView value={response.waitingCondition} />

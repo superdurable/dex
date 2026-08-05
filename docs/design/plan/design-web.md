@@ -394,7 +394,8 @@ results。Web 不根据 event 顺序重建 attributes，也不推测 timer/chann
 Web Go bridge 提供 `POST /api/blobs/load`，统一 string/object blob reference 的 JSON
 shape。前端递归收集所选 event 或 live state 中的 references，按 `kind + blob ID`
 去重并批量加载；缓存跨 Overview、Step Graph 和 Timeline 共用。失败时保留页面并
-显示 “Stored value unavailable”，Raw JSON 不泄露 blob ID 或 object path。
+Value blob 缺失显示 “Value blob unavailable”；step event input blob 缺失显示
+“Step event input blob unavailable”。Raw JSON 不泄露 blob ID 或 object path。
 
 ## 7. WaitForHistoryEvent
 

@@ -197,7 +197,7 @@ func TestWebServerLoadsBlobsAndStepEventInputs(t *testing.T) {
 		GRPCCode int32  `json:"grpcCode"`
 	}
 	decodeResponse(t, errorResponse, &mappedError)
-	if mappedError.Error != "Stored value unavailable" || mappedError.GRPCCode != int32(codes.Unavailable) {
+	if mappedError.Error != "Value blob unavailable" || mappedError.GRPCCode != int32(codes.Unavailable) {
 		t.Fatalf("unexpected blob error response: %+v", mappedError)
 	}
 }

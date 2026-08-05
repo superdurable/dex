@@ -10,6 +10,10 @@ import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
+import {
+  STEP_EVENT_INPUT_BLOB_UNAVAILABLE,
+  VALUE_BLOB_UNAVAILABLE,
+} from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
   FlowState,
@@ -61,7 +65,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [resetOpen, setResetOpen] = useState(false);
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
-  const [storedValueWarning, setStoredValueWarning] = useState('');
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const waitGeneration = useRef(0);
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
@@ -69,6 +73,9 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
+  const addDataWarning = useCallback((warning: string) => {
+    setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
+  }, []);
 
   const loadState = useCallback(async (statusCode: number) => {
     if (terminalStatuses.has(statusCode)) {
@@ -80,11 +87,11 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       setState(rawState);
       const hydrated = await hydrateBlobs(rawState, blobCache.current);
       setState(hydrated.value);
-      if (hydrated.error) setStoredValueWarning(hydrated.error);
+      if (hydrated.error) addDataWarning(hydrated.error);
     } catch (stateError) {
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
-  }, [stateURL]);
+  }, [addDataWarning, stateURL]);
 
   const hydrateEvent = useCallback(async (event: FlowHistoryEvent) => {
     if (hydratedEventIDs.current.has(event.eventId)
@@ -113,33 +120,38 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           }));
           const loaded = result.inputs.find((input) => input.eventId === event.eventId);
           const unavailableEventIDs = result.unavailableEventIds ?? [];
+          const inputBlobUnavailable = !loaded && unavailableEventIDs.includes(event.eventId);
           eventWithInput = {
             ...event,
             payload: {
               ...event.payload,
               ...(loaded ? { request: loaded.request } : {}),
-              ...(!loaded && unavailableEventIDs.includes(event.eventId)
+              ...(inputBlobUnavailable
                 ? { inputUnavailable: true }
                 : {}),
             },
           };
+          if (inputBlobUnavailable) {
+            addDataWarning(STEP_EVENT_INPUT_BLOB_UNAVAILABLE);
+          }
         } catch {
           eventWithInput = {
             ...event,
             payload: { ...event.payload, inputUnavailable: true },
           };
+          addDataWarning(STEP_EVENT_INPUT_BLOB_UNAVAILABLE);
         }
       }
       const hydrated = await hydrateBlobs(eventWithInput, blobCache.current);
       setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
       hydratedEventIDs.current.add(event.eventId);
-      if (hydrated.error) setStoredValueWarning(hydrated.error);
+      if (hydrated.error) addDataWarning(hydrated.error);
     } catch {
-      setStoredValueWarning('Stored value unavailable');
+      addDataWarning(VALUE_BLOB_UNAVAILABLE);
     } finally {
       hydratingEventIDs.current.delete(event.eventId);
     }
-  }, [flowId, runId]);
+  }, [addDataWarning, flowId, runId]);
 
   const loadSummary = useCallback(async () => {
     const value = await responseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
@@ -194,7 +206,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     setNextInternalEventId(0);
     setSelectedEvent(null);
     setHydratedEvents({});
-    setStoredValueWarning('');
+    setDataWarnings([]);
     blobCache.current.clear();
     hydratingEventIDs.current.clear();
     hydratedEventIDs.current.clear();
@@ -329,9 +341,9 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       </section>
 
       {error && <div className="error-banner run-error">{error}</div>}
-      {storedValueWarning && (
-        <div className="warning-banner run-error">{storedValueWarning}</div>
-      )}
+      {dataWarnings.map((warning) => (
+        <div className="warning-banner run-error" key={warning}>{warning}</div>
+      ))}
 
       <div className="run-tabs" role="tablist">
         {tabs.map(([id, label]) => (

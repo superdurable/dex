@@ -13,6 +13,7 @@ import {
   isStoredValueUnavailable,
   storedValueJSONReplacer,
 } from './blobs';
+import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
 
 function reference(id: string, kind: 'string' | 'object') {
   return { __dexBlobReference: { id, kind } };
@@ -88,9 +89,11 @@ describe('blob hydration', () => {
       fetcher as typeof fetch,
     );
 
-    expect(result.error).toBe('Stored value unavailable');
+    expect(result.error).toBe(VALUE_BLOB_UNAVAILABLE);
     expect(result.error).not.toContain('secret-object-id');
     expect(isStoredValueUnavailable(result.value.stepInput)).toBe(true);
-    expect(JSON.stringify(result.value, storedValueJSONReplacer)).not.toContain('secret-object-id');
+    const rendered = JSON.stringify(result.value, storedValueJSONReplacer);
+    expect(rendered).toContain(VALUE_BLOB_UNAVAILABLE);
+    expect(rendered).not.toContain('secret-object-id');
   });
 });
