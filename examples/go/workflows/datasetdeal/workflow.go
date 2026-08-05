@@ -116,33 +116,28 @@ type initializeStep struct {
 func (step initializeStep) Execute(
 	ctx dex.Context,
 	processID string,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	process, err := step.flow.repository.GetProcess(ctx, processID)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := ValidateProcess(process); err != nil {
-		return dex.StepDecision{}, fmt.Errorf("stored deal process is invalid: %w", err)
+		return nil, fmt.Errorf("stored deal process is invalid: %w", err)
 	}
-	_, found, err := BuyerID.Get(ctx)
-	if err != nil {
-		return dex.StepDecision{}, err
+	if _, err := BuyerID.Get(ctx); err != nil {
+		return nil, err
 	}
-	if !found {
-		return dex.StepDecision{}, fmt.Errorf("dataset deal buyer ID is missing")
-	}
-	stateData := copyStateData(process.InitialStateData)
 	if err := ProcessID.Set(ctx, processID); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := ProcessDefinition.Set(ctx, process); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if err := StateData.Set(ctx, stateData); err != nil {
-		return dex.StepDecision{}, err
+	if err := StateData.Set(ctx, process.InitialStateData); err != nil {
+		return nil, err
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(
 		preConditionStep{flow: step.flow},
@@ -158,19 +153,23 @@ type preConditionStep struct {
 func (step preConditionStep) WaitFor(
 	ctx dex.Context,
 	input stateStepInput,
-) (dex.Wait, error) {
-	state, err := step.flow.loadState(ctx, input.StateName)
+) (*dex.Wait, error) {
+	process, err := ProcessDefinition.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
 	}
 	if state.PreCondition == nil {
 		return dex.SkipWaitImmediately(), nil
 	}
 	if err := PendingPreConditionState.Set(ctx, state.Name); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := PendingPreConditionName.Set(ctx, state.PreCondition.Name); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.AllOf(ConditionMessages.ForOne(state.PreCondition.Name)), nil
 }
@@ -178,28 +177,32 @@ func (step preConditionStep) WaitFor(
 func (step preConditionStep) Execute(
 	ctx dex.Context,
 	input stateStepInput,
-) (dex.StepDecision, error) {
-	state, err := step.flow.loadState(ctx, input.StateName)
+) (*dex.StepDecision, error) {
+	process, err := ProcessDefinition.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
 	}
 	if state.PreCondition != nil {
 		updates, resultErr := conditionUpdates(ctx, state.PreCondition.Name)
 		if resultErr != nil {
-			return dex.StepDecision{}, resultErr
+			return nil, resultErr
 		}
 		if err := mergeStateData(ctx, updates); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 		if err := PendingPreConditionState.Delete(ctx); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 		if err := PendingPreConditionName.Delete(ctx); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(state.PreActions) > 0 {
 		return dex.GoTo(
@@ -207,7 +210,7 @@ func (step preConditionStep) Execute(
 			actionStepInput{StateName: state.Name, Phase: preActionPhase},
 		), nil
 	}
-	return step.flow.enterState(ctx, state)
+	return step.flow.gotoState(ctx, state)
 }
 
 type executeActionStep struct {
@@ -218,57 +221,66 @@ type executeActionStep struct {
 func (step executeActionStep) Execute(
 	ctx dex.Context,
 	input actionStepInput,
-) (dex.StepDecision, error) {
-	state, err := step.flow.loadState(ctx, input.StateName)
+) (*dex.StepDecision, error) {
+	process, err := ProcessDefinition.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
 	}
 	actions, err := actionsForPhase(state, input.Phase)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	actionIndex, found, err := CurrentActionIndexToExecute.Get(ctx)
+	actionIndex, err := CurrentActionIndexToExecute.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if !found || actionIndex < 0 || actionIndex >= len(actions) {
-		return dex.StepDecision{}, fmt.Errorf(
+	if actionIndex < 0 || actionIndex >= len(actions) {
+		return nil, fmt.Errorf(
 			"action index %d is invalid for %s actions in state %q",
 			actionIndex,
 			input.Phase,
 			state.Name,
 		)
 	}
-	runtimeState, err := readRuntimeState(ctx)
-	if err != nil {
-		return dex.StepDecision{}, err
+	actionInput := ActionInput{
+		FlowID:      ctx.FlowID(),
+		TargetState: state.Name,
 	}
-	updates, err := step.flow.actions.execute(actions[actionIndex], ActionInput{
-		FlowID:       ctx.FlowID(),
-		ProcessID:    runtimeState.ProcessID,
-		BuyerID:      runtimeState.BuyerID,
-		CurrentState: runtimeState.CurrentState,
-		TargetState:  state.Name,
-		StateData:    runtimeState.StateData,
-	})
+	actionInput.ProcessID, err = ProcessID.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
+	}
+	actionInput.BuyerID, err = BuyerID.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actionInput.StateData, err = StateData.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updates, err := step.flow.actions.execute(actions[actionIndex], actionInput)
+	if err != nil {
+		return nil, err
 	}
 	if err := mergeStateData(ctx, updates); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	nextActionIndex := actionIndex + 1
 	if err := CurrentActionIndexToExecute.Set(ctx, nextActionIndex); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if nextActionIndex < len(actions) {
 		return dex.GoTo(executeActionStep{flow: step.flow}, input), nil
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if input.Phase == preActionPhase {
-		return step.flow.enterState(ctx, state)
+		return step.flow.gotoState(ctx, state)
 	}
 	return dex.GoTo(
 		postConditionStep{flow: step.flow},
@@ -284,10 +296,14 @@ type postConditionStep struct {
 func (step postConditionStep) WaitFor(
 	ctx dex.Context,
 	input stateStepInput,
-) (dex.Wait, error) {
-	state, err := step.flow.loadState(ctx, input.StateName)
+) (*dex.Wait, error) {
+	process, err := ProcessDefinition.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
 	}
 	if state.PostCondition == nil || state.PostCondition.WaitFor == nil {
 		return dex.SkipWaitImmediately(), nil
@@ -298,33 +314,34 @@ func (step postConditionStep) WaitFor(
 func (step postConditionStep) Execute(
 	ctx dex.Context,
 	input stateStepInput,
-) (dex.StepDecision, error) {
-	state, err := step.flow.loadState(ctx, input.StateName)
+) (*dex.StepDecision, error) {
+	process, err := ProcessDefinition.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
 	}
 	if state.PostCondition == nil {
-		stateData, _, err := StateData.Get(ctx)
+		stateData, err := StateData.Get(ctx)
 		if err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 		return dex.GracefulComplete(stateData), nil
 	}
 	if state.PostCondition.WaitFor != nil {
 		updates, resultErr := conditionUpdates(ctx, state.PostCondition.WaitFor.Name)
 		if resultErr != nil {
-			return dex.StepDecision{}, resultErr
+			return nil, resultErr
 		}
 		if err := mergeStateData(ctx, updates); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 	}
-	stateData, found, err := StateData.Get(ctx)
+	stateData, err := StateData.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
-	}
-	if !found {
-		return dex.StepDecision{}, fmt.Errorf("dataset deal stateData is missing")
+		return nil, err
 	}
 	nextState := evaluateDecision(state.PostCondition.Decision, stateData)
 	return dex.GoTo(
@@ -333,33 +350,15 @@ func (step postConditionStep) Execute(
 	), nil
 }
 
-func (flow *DealFlow) loadState(
-	ctx dex.Context,
-	stateName string,
-) (StateDefinition, error) {
-	process, found, err := ProcessDefinition.Get(ctx)
-	if err != nil {
-		return StateDefinition{}, err
-	}
-	if !found {
-		return StateDefinition{}, fmt.Errorf("dataset deal process definition is missing")
-	}
-	state, found := process.State(stateName)
-	if !found {
-		return StateDefinition{}, fmt.Errorf("state %q is not defined", stateName)
-	}
-	return state, nil
-}
-
-func (flow *DealFlow) enterState(
+func (flow *DealFlow) gotoState(
 	ctx dex.Context,
 	state StateDefinition,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := CurrentState.Set(ctx, state.Name); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(state.PostActions) > 0 {
 		return dex.GoTo(
@@ -371,47 +370,6 @@ func (flow *DealFlow) enterState(
 		postConditionStep{flow: flow},
 		stateStepInput{StateName: state.Name},
 	), nil
-}
-
-type runtimeState struct {
-	ProcessID    string
-	BuyerID      string
-	CurrentState string
-	StateData    map[string]string
-}
-
-func readRuntimeState(ctx dex.Context) (runtimeState, error) {
-	processID, found, err := ProcessID.Get(ctx)
-	if err != nil {
-		return runtimeState{}, err
-	}
-	if !found {
-		return runtimeState{}, fmt.Errorf("dataset deal process ID is missing")
-	}
-	buyerID, found, err := BuyerID.Get(ctx)
-	if err != nil {
-		return runtimeState{}, err
-	}
-	if !found {
-		return runtimeState{}, fmt.Errorf("dataset deal buyer ID is missing")
-	}
-	stateData, found, err := StateData.Get(ctx)
-	if err != nil {
-		return runtimeState{}, err
-	}
-	if !found {
-		return runtimeState{}, fmt.Errorf("dataset deal stateData is missing")
-	}
-	currentState, _, err := CurrentState.Get(ctx)
-	if err != nil {
-		return runtimeState{}, err
-	}
-	return runtimeState{
-		ProcessID:    processID,
-		BuyerID:      buyerID,
-		CurrentState: currentState,
-		StateData:    stateData,
-	}, nil
 }
 
 func actionsForPhase(state StateDefinition, phase actionPhase) ([]string, error) {
@@ -444,21 +402,20 @@ func conditionUpdates(
 }
 
 func mergeStateData(ctx dex.Context, updates map[string]string) error {
-	stateData, found, err := StateData.Get(ctx)
+	stateData, err := StateData.Get(ctx)
 	if err != nil {
 		return err
 	}
-	if !found {
-		return fmt.Errorf("dataset deal stateData is missing")
+	if stateData == nil {
+		stateData = make(map[string]string, len(updates))
 	}
-	merged := copyStateData(stateData)
 	for key, value := range updates {
 		if key == "" {
 			return fmt.Errorf("stateData update key must not be empty")
 		}
-		merged[key] = value
+		stateData[key] = value
 	}
-	return StateData.Set(ctx, merged)
+	return StateData.Set(ctx, stateData)
 }
 
 func evaluateDecision(
@@ -472,14 +429,6 @@ func evaluateDecision(
 		}
 	}
 	return decision.ElseState
-}
-
-func copyStateData(source map[string]string) map[string]string {
-	result := make(map[string]string, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
 }
 
 var _ dex.Flow = (*DealFlow)(nil)

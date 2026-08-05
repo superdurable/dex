@@ -139,13 +139,13 @@ func (process DealProcess) validate(availableActions map[string]struct{}) error 
 	return nil
 }
 
-func (process DealProcess) State(name string) (StateDefinition, bool) {
+func (process DealProcess) State(name string) (StateDefinition, error) {
 	for _, state := range process.States {
 		if state.Name == name {
-			return state, true
+			return state, nil
 		}
 	}
-	return StateDefinition{}, false
+	return StateDefinition{}, fmt.Errorf("state %q is not defined", name)
 }
 
 func (process DealProcess) HasCondition(name string) bool {
