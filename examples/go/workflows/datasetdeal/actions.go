@@ -36,12 +36,11 @@ const (
 )
 
 type ActionInput struct {
-	FlowID       string
-	ProcessID    string
-	BuyerID      string
-	CurrentState string
-	TargetState  string
-	StateData    map[string]string
+	FlowID      string
+	ProcessID   string
+	BuyerID     string
+	TargetState string
+	StateData   map[string]string
 }
 
 type actionHandler func(dex.Logger, ActionInput) (map[string]string, error)
