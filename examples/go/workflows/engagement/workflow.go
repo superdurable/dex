@@ -130,7 +130,7 @@ func (*EngagementFlow) Accept(
 	if err := updateStatus(ctx, StatusAccepted, note); err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
-	if err := CompleteProcess.Publish(ctx, dex.None{}); err != nil {
+	if err := CompleteProcess.Publish(ctx, nil); err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
 	return dex.RPCResult[Status]{
@@ -211,8 +211,8 @@ func (initializeStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(processTimeoutStep{}, dex.None{}),
-		dex.MovementOf(reminderStep{}, dex.None{}),
+		dex.MovementOf(processTimeoutStep{}, nil),
+		dex.MovementOf(reminderStep{}, nil),
 		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),
 	), nil
 }
@@ -302,7 +302,7 @@ func (step reminderStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
-	return dex.GoTo(reminderStep{}, dex.None{}), nil
+	return dex.GoTo(reminderStep{}, nil), nil
 }
 
 type notifyExternalSystemStep struct {

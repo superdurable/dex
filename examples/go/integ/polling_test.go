@@ -45,13 +45,13 @@ func TestPollingStartAndChannels(t *testing.T) {
 		ctx,
 		flowID,
 		polling.TaskACompleted,
-		dex.None{},
+		nil,
 	))
 	require.NoError(t, integClient.PublishToChannel(
 		ctx,
 		flowID,
 		polling.TaskBCompleted,
-		dex.None{},
+		nil,
 	))
 
 	result := waitForFlow(t, flowID)

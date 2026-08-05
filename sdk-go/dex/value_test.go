@@ -151,6 +151,23 @@ func TestValueCodecRejectsInvalidValues(t *testing.T) {
 }
 
 func TestValueCodecNullAndDecodeValidation(t *testing.T) {
+	var noneInput None
+	noneValue, err := encodeValue(noneInput)
+	require.NoError(t, err)
+	require.JSONEq(t, "null", string(noneValue.GetObjValue().Payload))
+	var noneOutput None
+	require.NoError(t, decodeValue(noneValue, &noneOutput))
+	require.Nil(t, noneOutput)
+	_, err = encodeValue(None(&none{}))
+	require.ErrorContains(t, err, "must be nil")
+	require.ErrorContains(t, decodeValue(
+		&dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: jsonEncoding,
+			Payload:  []byte("{}"),
+		}}},
+		&noneOutput,
+	), "JSON null")
+
 	var input *codecRecord
 	value, err := encodeValue(input)
 	require.NoError(t, err)

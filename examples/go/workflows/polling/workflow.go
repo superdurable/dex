@@ -79,7 +79,7 @@ func (initializeStep) Execute(
 ) (dex.StepDecision, error) {
 	return dex.GoToMulti(
 		dex.MovementOf(pollStep{}, maximumPolls),
-		dex.MovementOf(waitForTasksStep{}, dex.None{}),
+		dex.MovementOf(waitForTasksStep{}, nil),
 	), nil
 }
 
@@ -138,7 +138,7 @@ func (step pollStep) Execute(
 		currentPolls = 0
 	}
 	if currentPolls >= maximumPolls {
-		if err := TaskCCompleted.Publish(ctx, dex.None{}); err != nil {
+		if err := TaskCCompleted.Publish(ctx, nil); err != nil {
 			return dex.StepDecision{}, err
 		}
 		return dex.DeadEnd(), nil

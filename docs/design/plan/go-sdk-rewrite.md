@@ -1598,7 +1598,8 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
-type None struct{}
+type none struct{}
+type None = *none
 
 type StepDef interface {
 	// unexported
@@ -1627,9 +1628,10 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 }
 ```
 
-`None` represents a Step, RPC, or Channel with no application payload. It
-preserves compile-time payload rejection unlike `any` and states the intent
-more clearly than `struct{}`.
+`None` is a pointer alias for a Step, RPC, or Channel with no application
+payload. Applications pass `nil`; the unexported pointed-to type prevents
+constructing a non-nil payload and preserves compile-time rejection unlike
+`any`.
 
 An Execute-only step embeds `StepDefaults[IN]`, or embeds `NoWaitFor[IN]` and
 implements `GetStepOptions` itself. `NoWaitFor` supplies the interface method

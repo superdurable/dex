@@ -45,9 +45,9 @@ func TestInitializeSubscription(t *testing.T) {
 	decision := initializeSubscription()
 
 	require.Equal(t, dex.GoToMulti(
-		dex.MovementOf(trialStep{}, dex.None{}),
-		dex.MovementOf(cancelStep{}, dex.None{}),
-		dex.MovementOf(updateChargeAmountStep{}, dex.None{}),
+		dex.MovementOf(trialStep{}, nil),
+		dex.MovementOf(cancelStep{}, nil),
+		dex.MovementOf(updateChargeAmountStep{}, nil),
 	), decision)
 }
 
@@ -67,7 +67,7 @@ func TestWaitForTrial(t *testing.T) {
 func TestExecuteTrial(t *testing.T) {
 	decision := executeTrial()
 
-	require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, dex.None{}), decision)
+	require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
 }
 
 func TestWaitForCharge(t *testing.T) {
@@ -101,7 +101,7 @@ func TestExecuteCharge(t *testing.T) {
 			customerID: testCustomer.ID,
 			amount:     testCustomer.Subscription.BillingPeriodCharge,
 		}}, applicationService.charges)
-		require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, dex.None{}), decision)
+		require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
 	})
 
 	t.Run("complete subscription", func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestExecuteCharge(t *testing.T) {
 func TestCancelSubscription(t *testing.T) {
 	applicationService := &recordingService{}
 
-	wait, err := (cancelStep{}).WaitFor(nil, dex.None{})
+	wait, err := (cancelStep{}).WaitFor(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, dex.AllOf(CancelSubscription.ForOne()), wait)
 
@@ -136,14 +136,14 @@ func TestCancelSubscription(t *testing.T) {
 }
 
 func TestUpdateChargeAmount(t *testing.T) {
-	wait, err := (updateChargeAmountStep{}).WaitFor(nil, dex.None{})
+	wait, err := (updateChargeAmountStep{}).WaitFor(nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, dex.AllOf(UpdateChargeAmount.ForOne()), wait)
 
 	updatedCustomer, decision, err := executeUpdateChargeAmount(testCustomer, []int{200})
 	require.NoError(t, err)
 	require.Equal(t, 200, updatedCustomer.Subscription.BillingPeriodCharge)
-	require.Equal(t, dex.GoTo(updateChargeAmountStep{}, dex.None{}), decision)
+	require.Equal(t, dex.GoTo(updateChargeAmountStep{}, nil), decision)
 }
 
 func TestUpdateChargeAmountRejectsUnexpectedResults(t *testing.T) {

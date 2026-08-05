@@ -259,9 +259,9 @@ func (updateChargeAmountStep) Execute(
 
 func initializeSubscription() dex.StepDecision {
 	return dex.GoToMulti(
-		dex.MovementOf(trialStep{}, dex.None{}),
-		dex.MovementOf(cancelStep{}, dex.None{}),
-		dex.MovementOf(updateChargeAmountStep{}, dex.None{}),
+		dex.MovementOf(trialStep{}, nil),
+		dex.MovementOf(cancelStep{}, nil),
+		dex.MovementOf(updateChargeAmountStep{}, nil),
 	)
 }
 
@@ -275,7 +275,7 @@ func waitForTrial(
 }
 
 func executeTrial() dex.StepDecision {
-	return dex.GoTo(chargeCurrentBillStep{}, dex.None{})
+	return dex.GoTo(chargeCurrentBillStep{}, nil)
 }
 
 func waitForCharge(customer Customer, periodNumber int) (dex.Wait, bool) {
@@ -300,7 +300,7 @@ func executeCharge(
 		customer.ID,
 		customer.Subscription.BillingPeriodCharge,
 	)
-	return dex.GoTo(chargeCurrentBillStep{}, dex.None{})
+	return dex.GoTo(chargeCurrentBillStep{}, nil)
 }
 
 func executeCancel(
@@ -322,7 +322,7 @@ func executeUpdateChargeAmount(
 		)
 	}
 	customer.Subscription.BillingPeriodCharge = amounts[0]
-	return customer, dex.GoTo(updateChargeAmountStep{}, dex.None{}), nil
+	return customer, dex.GoTo(updateChargeAmountStep{}, nil), nil
 }
 
 type subscriptionService interface {

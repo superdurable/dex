@@ -60,7 +60,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		ctx,
 		flowID,
 		workflows.Engagement.Describe,
-		dex.None{},
+		nil,
 		&description,
 		dex.InvokeOptions{},
 	))
@@ -69,7 +69,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		ctx,
 		flowID,
 		engagement.OptOutReminder,
-		dex.None{},
+		nil,
 	))
 
 	var status engagement.Status

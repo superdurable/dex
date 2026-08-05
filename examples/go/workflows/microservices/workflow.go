@@ -92,8 +92,8 @@ func (step callAPI1Step) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(callAPI2Step{}, dex.None{}),
-		dex.MovementOf(callAPI3Step{}, dex.None{}),
+		dex.MovementOf(callAPI2Step{}, nil),
+		dex.MovementOf(callAPI3Step{}, nil),
 	), nil
 }
 
@@ -147,7 +147,7 @@ func (step callAPI3Step) Execute(
 	}
 	step.service.CallAPI3(data)
 	if ctx.HasTimerFired() {
-		return dex.GoTo(callAPI4Step{}, dex.None{}), nil
+		return dex.GoTo(callAPI4Step{}, nil), nil
 	}
 	return dex.GracefulComplete(data), nil
 }

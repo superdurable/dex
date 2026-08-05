@@ -177,7 +177,7 @@ var _ dex.RPC[stepInput, command] = flow.Update
 var _ dex.RPC[dex.None, command] = flow.Describe
 
 func TestPublicContractsCompile(t *testing.T) {
-	_ = dex.MovementOf(noPayload, dex.None{})
+	_ = dex.MovementOf(noPayload, nil)
 	_ = noPayloadChannel.ForOne()
 
 	initial, err := dex.InitialAttribute(statusAttribute, "new")

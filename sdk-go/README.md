@@ -90,8 +90,9 @@ Flows use `dex.DefineStartStep` for at most one starting step and
 Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
 `dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.
 
-Use `dex.None` when a Step, RPC, or Channel has no application payload. Unlike
-`any`, it rejects accidental values; unlike `struct{}`, it makes intent explicit.
+Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
+`nil` at every call site. It rejects accidental values unlike `any` and makes
+the absence of a payload explicit.
 
 Flow RPCs are methods matching `dex.RPC[IN, OUT]`. Attributes and channels stay
 strongly typed inside handlers. Step-execution locals and recorded events accept
