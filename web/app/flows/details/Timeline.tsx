@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
@@ -18,6 +19,7 @@ import { eventTitle } from './EventDetails';
 interface StepLinkPath {
   id: string;
   label: string;
+  lane: number;
   path: string;
   duration: string;
   durationX: number;
@@ -69,6 +71,10 @@ export function Timeline({
   const eventDots = useRef(new Map<number, HTMLSpanElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
   const stepLinks = useMemo(() => buildTimelineStepLinks(events), [events]);
+  const linkLaneCount = Math.max(1, ...stepLinks.map((link) => link.lane + 1));
+  const timelineStyle = {
+    '--timeline-link-rail-width': `${88 + (linkLaneCount - 1) * 48}px`,
+  } as CSSProperties;
   const [stepLinkLayout, setStepLinkLayout] = useState<StepLinkLayout>({ width: 0, height: 0, paths: [] });
   const updateStepLinks = useCallback(() => {
     const timeline = timelineRef.current;
@@ -84,11 +90,12 @@ export function Timeline({
       const executeX = executeRect.right - timelineRect.left + 2;
       const waitForY = waitForRect.top + waitForRect.height / 2 - timelineRect.top;
       const executeY = executeRect.top + executeRect.height / 2 - timelineRect.top;
-      const linkX = Math.max(waitForX, executeX) + 15;
+      const linkX = Math.max(waitForX, executeX) + 15 + link.lane * 48;
       const duration = formatElapsedDuration(link.conditionWaitDurationMs);
       return [{
         id: `${link.stepExecutionId}-${link.waitForEventId}-${link.executeEventId}`,
         label: `${link.stepExecutionId}: WaitForCondition started to Execute`,
+        lane: link.lane,
         path: `M ${waitForX} ${waitForY} H ${linkX} V ${executeY} H ${executeX}`,
         duration,
         durationX: linkX + 6,
@@ -127,7 +134,7 @@ export function Timeline({
           <h2>{events.length} events</h2>
         </div>
       </div>
-      <div className="timeline" ref={timelineRef}>
+      <div className="timeline" ref={timelineRef} style={timelineStyle}>
         {stepLinkLayout.paths.length > 0 && (
           <svg
             aria-hidden="true"
@@ -142,7 +149,7 @@ export function Timeline({
               </marker>
             </defs>
             {stepLinkLayout.paths.map((link) => (
-              <g key={link.id}>
+              <g data-step-execution-id={link.id} data-timeline-lane={link.lane} key={link.id}>
                 <path className="timeline-step-link" d={link.path} markerEnd="url(#timeline-step-arrow)">
                   <title>{link.label}</title>
                 </path>
