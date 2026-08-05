@@ -29,9 +29,9 @@ import (
 
 var (
 	CurrentPolls   = dex.DefineAttribute[int]("current-polls")
-	TaskACompleted = dex.DefineChannel[struct{}]("task-a-completed")
-	TaskBCompleted = dex.DefineChannel[struct{}]("task-b-completed")
-	TaskCCompleted = dex.DefineChannel[struct{}]("task-c-completed")
+	TaskACompleted = dex.DefineChannel[dex.None]("task-a-completed")
+	TaskBCompleted = dex.DefineChannel[dex.None]("task-b-completed")
+	TaskCCompleted = dex.DefineChannel[dex.None]("task-c-completed")
 )
 
 type PollingFlow struct {
@@ -79,7 +79,7 @@ func (initializeStep) Execute(
 ) (dex.StepDecision, error) {
 	return dex.GoToMulti(
 		dex.MovementOf(pollStep{}, maximumPolls),
-		dex.MovementOf(waitForTasksStep{}, dex.NoInput{}),
+		dex.MovementOf(waitForTasksStep{}, dex.None{}),
 	), nil
 }
 
@@ -93,7 +93,7 @@ func (waitForTasksStep) GetStepType() string {
 
 func (waitForTasksStep) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AllOf(
 		TaskACompleted.ForOne(),
@@ -104,7 +104,7 @@ func (waitForTasksStep) WaitFor(
 
 func (waitForTasksStep) Execute(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.StepDecision, error) {
 	return dex.GracefulComplete("all tasks completed"), nil
 }
@@ -138,7 +138,7 @@ func (step pollStep) Execute(
 		currentPolls = 0
 	}
 	if currentPolls >= maximumPolls {
-		if err := TaskCCompleted.Publish(ctx, struct{}{}); err != nil {
+		if err := TaskCCompleted.Publish(ctx, dex.None{}); err != nil {
 			return dex.StepDecision{}, err
 		}
 		return dex.DeadEnd(), nil

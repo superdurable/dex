@@ -31,7 +31,7 @@ import (
 var (
 	BillingPeriodNumber = dex.DefineAttribute[int]("billing-period-number")
 	CustomerDetails     = dex.DefineAttribute[Customer]("customer")
-	CancelSubscription  = dex.DefineChannel[struct{}]("cancel-subscription")
+	CancelSubscription  = dex.DefineChannel[dex.None]("cancel-subscription")
 	UpdateChargeAmount  = dex.DefineChannel[int]("update-charge-amount")
 )
 
@@ -81,7 +81,7 @@ func (*SubscriptionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 func (*SubscriptionFlow) Describe(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.RPCResult[Subscription], error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -106,9 +106,9 @@ func (initializeStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(trialStep{}, dex.NoInput{}),
-		dex.MovementOf(cancelStep{}, dex.NoInput{}),
-		dex.MovementOf(updateChargeAmountStep{}, dex.NoInput{}),
+		dex.MovementOf(trialStep{}, dex.None{}),
+		dex.MovementOf(cancelStep{}, dex.None{}),
+		dex.MovementOf(updateChargeAmountStep{}, dex.None{}),
 	), nil
 }
 
@@ -123,7 +123,7 @@ func (trialStep) GetStepType() string {
 
 func (step trialStep) WaitFor(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.Wait, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -136,12 +136,12 @@ func (step trialStep) WaitFor(
 
 func (trialStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(chargeCurrentBillStep{}, dex.NoInput{}), nil
+	return dex.GoTo(chargeCurrentBillStep{}, dex.None{}), nil
 }
 
 const subscriptionOverKey = "subscription-over"
@@ -157,7 +157,7 @@ func (chargeCurrentBillStep) GetStepType() string {
 
 func (chargeCurrentBillStep) WaitFor(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.Wait, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -184,7 +184,7 @@ func (chargeCurrentBillStep) WaitFor(
 
 func (step chargeCurrentBillStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -205,7 +205,7 @@ func (step chargeCurrentBillStep) Execute(
 		customer.ID,
 		customer.Subscription.BillingPeriodCharge,
 	)
-	return dex.GoTo(chargeCurrentBillStep{}, dex.NoInput{}), nil
+	return dex.GoTo(chargeCurrentBillStep{}, dex.None{}), nil
 }
 
 type cancelStep struct {
@@ -219,14 +219,14 @@ func (cancelStep) GetStepType() string {
 
 func (cancelStep) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AllOf(CancelSubscription.ForOne()), nil
 }
 
 func (step cancelStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -246,14 +246,14 @@ func (updateChargeAmountStep) GetStepType() string {
 
 func (updateChargeAmountStep) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AllOf(UpdateChargeAmount.ForOne()), nil
 }
 
 func (updateChargeAmountStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	amounts, err := UpdateChargeAmount.GetConditionResults(ctx)
 	if err != nil {
@@ -270,10 +270,10 @@ func (updateChargeAmountStep) Execute(
 	if err := CustomerDetails.Set(ctx, customer); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(updateChargeAmountStep{}, dex.NoInput{}), nil
+	return dex.GoTo(updateChargeAmountStep{}, dex.None{}), nil
 }
 
 var (
-	_ dex.Flow                           = (*SubscriptionFlow)(nil)
-	_ dex.RPC[dex.NoInput, Subscription] = (*SubscriptionFlow)(nil).Describe
+	_ dex.Flow                        = (*SubscriptionFlow)(nil)
+	_ dex.RPC[dex.None, Subscription] = (*SubscriptionFlow)(nil).Describe
 )

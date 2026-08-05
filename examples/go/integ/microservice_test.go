@@ -64,7 +64,7 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		ctx,
 		flowID,
 		microservices.Ready,
-		struct{}{},
+		dex.None{},
 	))
 
 	result := waitForFlow(t, flowID)

@@ -152,7 +152,7 @@ This is an [example](../../examples/go/workflows/microservices/workflow.go) of a
 ```golang
 var (
 	Data  = dex.DefineAttribute[string]("data")
-	Ready = dex.DefineChannel[struct{}]("Ready")
+	Ready = dex.DefineChannel[dex.None]("Ready")
 )
 
 type OrchestrationFlow struct {

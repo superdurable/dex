@@ -191,7 +191,7 @@ func (server *sampleServer) cancelSubscription(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		subscription.CancelSubscription,
-		struct{}{},
+		sdk.None{},
 	)
 	respond(request, struct{}{}, err)
 }
@@ -225,7 +225,7 @@ func (server *sampleServer) describeSubscription(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		workflows.Subscription.Describe,
-		sdk.NoInput{},
+		sdk.None{},
 		&output,
 		sdk.InvokeOptions{},
 	)
@@ -252,7 +252,7 @@ func (server *sampleServer) describeEngagement(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		workflows.Engagement.Describe,
-		sdk.NoInput{},
+		sdk.None{},
 		&output,
 		sdk.InvokeOptions{},
 	)
@@ -268,7 +268,7 @@ func (server *sampleServer) optOutReminder(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		engagement.OptOutReminder,
-		struct{}{},
+		sdk.None{},
 	)
 	respond(request, struct{}{}, err)
 }
@@ -344,7 +344,7 @@ func (server *sampleServer) signalMicroservice(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		microservices.Ready,
-		struct{}{},
+		sdk.None{},
 	)
 	respond(request, struct{}{}, err)
 }
@@ -397,7 +397,7 @@ func (server *sampleServer) completePollingTask(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		channel,
-		struct{}{},
+		sdk.None{},
 	)
 	respond(request, struct{}{}, err)
 }

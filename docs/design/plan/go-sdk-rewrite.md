@@ -1550,7 +1550,7 @@ Phase 1 owns these conceptual files under `sdk-go/dex/`:
 
 ```text
 flow.go             Flow and persistence declaration
-step.go             Step, StepDef, NoInput, NoWaitFor, StepDefaults
+step.go             Step, StepDef, None, NoWaitFor, StepDefaults
 context.go          Context, invocation metadata, locals, and events
 attribute.go        Attribute, AttributeMap, indexing, invocation operations
 channel.go          Channel, ChannelMap, publish, size, bounded conditions
@@ -1598,7 +1598,7 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
-type NoInput struct{}
+type None struct{}
 
 type StepDef interface {
 	// unexported
@@ -1627,9 +1627,9 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 }
 ```
 
-`NoInput` represents a Step or RPC with no input. It preserves compile-time
-payload rejection unlike `any` and states the intent more clearly than
-`struct{}`.
+`None` represents a Step, RPC, or Channel with no application payload. It
+preserves compile-time payload rejection unlike `any` and states the intent
+more clearly than `struct{}`.
 
 An Execute-only step embeds `StepDefaults[IN]`, or embeds `NoWaitFor[IN]` and
 implements `GetStepOptions` itself. `NoWaitFor` supplies the interface method
@@ -2746,7 +2746,7 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    channels, and RPCs without importing `dexpb`.
 2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
    embeds `NoWaitFor[IN]`.
-3. `NoInput` preserves typed Step and RPC declarations without accepting
+3. `None` preserves typed Step, RPC, and Channel declarations without accepting
    arbitrary payloads.
 4. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
    preserve target step input types.

@@ -29,9 +29,10 @@ var (
 		"status",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 	)
-	itemsAttribute = dex.DefineAttributeMap[int]("items")
-	commandChannel = dex.DefineChannel[command]("commands")
-	commandByOrder = dex.DefineChannelMap[command]("commands-by-order")
+	itemsAttribute   = dex.DefineAttributeMap[int]("items")
+	commandChannel   = dex.DefineChannel[command]("commands")
+	commandByOrder   = dex.DefineChannelMap[command]("commands-by-order")
+	noPayloadChannel = dex.DefineChannel[dex.None]("no-payload")
 )
 
 type command struct {
@@ -42,23 +43,23 @@ type stepInput struct {
 	OrderID string
 }
 
-type noInputStep struct {
-	dex.StepDefaults[dex.NoInput]
+type noPayloadStep struct {
+	dex.StepDefaults[dex.None]
 }
 
-func (noInputStep) GetStepType() string {
-	return "no-input"
+func (noPayloadStep) GetStepType() string {
+	return "no-payload"
 }
 
-func (noInputStep) Execute(
+func (noPayloadStep) Execute(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
-var noInput = noInputStep{}
-var _ dex.Step[dex.NoInput] = noInput
+var noPayload = noPayloadStep{}
+var _ dex.Step[dex.None] = noPayload
 
 type waitingStep struct {
 	dex.DefaultStepOptions
@@ -148,6 +149,7 @@ func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		Channels: []dex.ChannelDef{
 			commandChannel,
 			commandByOrder,
+			noPayloadChannel,
 		},
 	}
 }
@@ -164,7 +166,7 @@ func (contractFlow) Update(
 
 func (contractFlow) Describe(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.RPCResult[command], error) {
 	return dex.RPCResult[command]{Output: command{Name: "described"}}, nil
 }
@@ -172,10 +174,11 @@ func (contractFlow) Describe(
 var flow = contractFlow{}
 var _ dex.Flow = flow
 var _ dex.RPC[stepInput, command] = flow.Update
-var _ dex.RPC[dex.NoInput, command] = flow.Describe
+var _ dex.RPC[dex.None, command] = flow.Describe
 
 func TestPublicContractsCompile(t *testing.T) {
-	_ = dex.MovementOf(noInput, dex.NoInput{})
+	_ = dex.MovementOf(noPayload, dex.None{})
+	_ = noPayloadChannel.ForOne()
 
 	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {

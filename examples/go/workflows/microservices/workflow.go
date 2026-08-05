@@ -29,7 +29,7 @@ import (
 
 var (
 	Data  = dex.DefineAttribute[string]("data")
-	Ready = dex.DefineChannel[struct{}]("Ready")
+	Ready = dex.DefineChannel[dex.None]("Ready")
 )
 
 type OrchestrationFlow struct {
@@ -92,13 +92,13 @@ func (step callAPI1Step) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(callAPI2Step{}, dex.NoInput{}),
-		dex.MovementOf(callAPI3Step{}, dex.NoInput{}),
+		dex.MovementOf(callAPI2Step{}, dex.None{}),
+		dex.MovementOf(callAPI3Step{}, dex.None{}),
 	), nil
 }
 
 type callAPI2Step struct {
-	dex.StepDefaults[dex.NoInput]
+	dex.StepDefaults[dex.None]
 	service service.MyService
 }
 
@@ -108,7 +108,7 @@ func (callAPI2Step) GetStepType() string {
 
 func (step callAPI2Step) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	data, _, err := Data.Get(ctx)
 	if err != nil {
@@ -129,7 +129,7 @@ func (callAPI3Step) GetStepType() string {
 
 func (callAPI3Step) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(24*time.Hour),
@@ -139,7 +139,7 @@ func (callAPI3Step) WaitFor(
 
 func (step callAPI3Step) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	data, _, err := Data.Get(ctx)
 	if err != nil {
@@ -147,13 +147,13 @@ func (step callAPI3Step) Execute(
 	}
 	step.service.CallAPI3(data)
 	if ctx.HasTimerFired() {
-		return dex.GoTo(callAPI4Step{}, dex.NoInput{}), nil
+		return dex.GoTo(callAPI4Step{}, dex.None{}), nil
 	}
 	return dex.GracefulComplete(data), nil
 }
 
 type callAPI4Step struct {
-	dex.StepDefaults[dex.NoInput]
+	dex.StepDefaults[dex.None]
 	service service.MyService
 }
 
@@ -163,7 +163,7 @@ func (callAPI4Step) GetStepType() string {
 
 func (step callAPI4Step) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	data, _, err := Data.Get(ctx)
 	if err != nil {

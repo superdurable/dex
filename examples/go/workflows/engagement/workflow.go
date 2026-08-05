@@ -42,8 +42,8 @@ var (
 	)
 	LastUpdateTimestamp = dex.DefineAttribute[int64]("LastUpdateTimeMillis")
 	Notes               = dex.DefineAttribute[string]("notes")
-	OptOutReminder      = dex.DefineChannel[struct{}]("OptOutReminder")
-	CompleteProcess     = dex.DefineChannel[struct{}]("CompleteProcess")
+	OptOutReminder      = dex.DefineChannel[dex.None]("OptOutReminder")
+	CompleteProcess     = dex.DefineChannel[dex.None]("CompleteProcess")
 )
 
 type EngagementFlow struct {
@@ -82,7 +82,7 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 func (*EngagementFlow) Describe(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.RPCResult[EngagementDescription], error) {
 	description, err := describe(ctx)
 	return dex.RPCResult[EngagementDescription]{Output: description}, err
@@ -130,7 +130,7 @@ func (*EngagementFlow) Accept(
 	if err := updateStatus(ctx, StatusAccepted, note); err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
-	if err := CompleteProcess.Publish(ctx, struct{}{}); err != nil {
+	if err := CompleteProcess.Publish(ctx, dex.None{}); err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
 	return dex.RPCResult[Status]{
@@ -211,8 +211,8 @@ func (initializeStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(processTimeoutStep{}, dex.NoInput{}),
-		dex.MovementOf(reminderStep{}, dex.NoInput{}),
+		dex.MovementOf(processTimeoutStep{}, dex.None{}),
+		dex.MovementOf(reminderStep{}, dex.None{}),
 		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),
 	), nil
 }
@@ -228,7 +228,7 @@ func (processTimeoutStep) GetStepType() string {
 
 func (processTimeoutStep) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(60*24*time.Hour),
@@ -238,7 +238,7 @@ func (processTimeoutStep) WaitFor(
 
 func (step processTimeoutStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	description, err := describe(ctx)
 	if err != nil {
@@ -268,7 +268,7 @@ func (reminderStep) GetStepType() string {
 
 func (reminderStep) WaitFor(
 	dex.Context,
-	dex.NoInput,
+	dex.None,
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(5*time.Second),
@@ -278,7 +278,7 @@ func (reminderStep) WaitFor(
 
 func (step reminderStep) Execute(
 	ctx dex.Context,
-	_ dex.NoInput,
+	_ dex.None,
 ) (dex.StepDecision, error) {
 	status, _, err := EngagementStatus.Get(ctx)
 	if err != nil {
@@ -302,7 +302,7 @@ func (step reminderStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
-	return dex.GoTo(reminderStep{}, dex.NoInput{}), nil
+	return dex.GoTo(reminderStep{}, dex.None{}), nil
 }
 
 type notifyExternalSystemStep struct {
@@ -336,8 +336,8 @@ func (step notifyExternalSystemStep) Execute(
 }
 
 var (
-	_ dex.Flow                                    = (*EngagementFlow)(nil)
-	_ dex.RPC[dex.NoInput, EngagementDescription] = (*EngagementFlow)(nil).Describe
-	_ dex.RPC[string, Status]                     = (*EngagementFlow)(nil).Decline
-	_ dex.RPC[string, Status]                     = (*EngagementFlow)(nil).Accept
+	_ dex.Flow                                 = (*EngagementFlow)(nil)
+	_ dex.RPC[dex.None, EngagementDescription] = (*EngagementFlow)(nil).Describe
+	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Decline
+	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Accept
 )

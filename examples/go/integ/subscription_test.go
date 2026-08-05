@@ -67,7 +67,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		ctx,
 		flowID,
 		workflows.Subscription.Describe,
-		dex.NoInput{},
+		dex.None{},
 		&current,
 		dex.InvokeOptions{},
 	))
@@ -83,7 +83,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 			ctx,
 			flowID,
 			workflows.Subscription.Describe,
-			dex.NoInput{},
+			dex.None{},
 			&current,
 			dex.InvokeOptions{},
 		)
@@ -93,7 +93,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		ctx,
 		flowID,
 		subscription.CancelSubscription,
-		struct{}{},
+		dex.None{},
 	))
 
 	result := waitForFlow(t, flowID)
