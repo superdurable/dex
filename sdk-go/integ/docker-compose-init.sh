@@ -10,13 +10,12 @@ fi
 }
 
 echo "now trying to register Dex system search attributes..."
+registered=false
 for run in {1..120}; do
   sleep 1
-  temporal  operator search-attribute  create --name DexWorkflowType --type Keyword
+  temporal  operator search-attribute  create --name FlowType --type Keyword
   sleep 0.1
-  temporal  operator search-attribute  create --name DexGlobalWorkflowVersion --type Int
-  sleep 0.1
-  temporal  operator search-attribute  create --name DexExecutingStateIds --type KeywordList
+  temporal  operator search-attribute  create --name ActiveStepTypes --type KeywordList
   sleep 0.1
   temporal  operator search-attribute  create --name CustomKeywordField --type Keyword
   sleep 0.1
@@ -30,13 +29,21 @@ for run in {1..120}; do
   sleep 0.1
   temporal  operator search-attribute  create --name CustomStringField --type Text
   sleep 0.1
+  temporal  operator search-attribute  create --name CustomKeywordArrayField --type KeywordList
+  sleep 0.1
 
-  if checkExists "DexWorkflowType" && checkExists "DexGlobalWorkflowVersion" && checkExists "DexExecutingStateIds" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomStringField"; then
+  if checkExists "FlowType" && checkExists "ActiveStepTypes" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomStringField" && checkExists "CustomKeywordArrayField"; then
     echo "All search attributes are registered"
+    registered=true
     break
   fi
 
 done
 
+if ! $registered; then
+  echo "search attribute registration timed out" >&2
+  exit 1
+fi
 
+touch /tmp/search-attributes-ready
 tail -f /dev/null

@@ -11,123 +11,193 @@
 package integ
 
 import (
-	"context"
 	"fmt"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
-	"github.com/stretchr/testify/assert"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestWorkflowTimeout(t *testing.T) {
-	wfId := "TestWorkflowTimeout" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &signalWorkflow{}, wfId, 1, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.TIMEOUT, nil, nil, nil, dex.GetDefaultObjectEncoder()), wErr)
-
-	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
-	assert.Nil(t, out)
-	assert.Equal(t, err, err2)
-
-	assert.Equal(t, "workflow is not completed successfully, closedStatus: TIMEOUT, failedErrorType(applies if failed as closedStatus):<nil>, error message:<nil>", err.Error())
+type forceFailFlow struct {
+	emptyFlowSchema
 }
 
-func TestWorkflowCancel(t *testing.T) {
-	wfId := "TestWorkflowCancel" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &signalWorkflow{}, wfId, 10, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	err = client.StopWorkflow(context.Background(), wfId, "", nil)
-	assert.Nil(t, err)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.CANCELED, nil, nil, nil, dex.GetDefaultObjectEncoder()), wErr)
-
-	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
-	assert.Nil(t, out)
-	assert.Equal(t, err, err2)
-
-	assert.Equal(t, "workflow is not completed successfully, closedStatus: CANCELED, failedErrorType(applies if failed as closedStatus):<nil>, error message:<nil>", err.Error())
+func (forceFailFlow) GetFlowType() string {
+	return "go-sdk-force-fail"
 }
 
-func TestForceFailWorkflow(t *testing.T) {
-	wfId := "TestForceFailWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &forceFailWorkflow{}, wfId, 10, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
-
-	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
-	assert.Nil(t, out)
-	assert.Equal(t, err, err2)
-	assert.NotNil(t, wErr.ErrorMessage)
-	assert.True(t, strings.Contains(*wErr.ErrorMessage, "a failing message"), "must contain failing message")
-	assert.True(t, strings.Contains(err.Error(), "a failing message"))
+func (forceFailFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(forceFailStep{})}
 }
 
-func TestStateApiFailWorkflow(t *testing.T) {
-	wfId := "TestStateApiFailWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &stateApiFailWorkflow{}, wfId, 10, nil, &dex.WorkflowOptions{})
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
-
-	assert.True(t, strings.Contains(*wErr.ErrorMessage, "test api failing"), "must contain api failing message")
-
-	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
-	assert.Nil(t, out)
-	assert.Equal(t, err, err2)
-
-	assert.True(t, strings.Contains(err.Error(), "workflow is not completed successfully, closedStatus: FAILED, failedErrorType(applies if failed as closedStatus):STATE_API_FAIL_ERROR_TYPE, error message:statusCode: 400, responseBody: {\"error\":\"error message:test api failing"))
+type forceFailStep struct {
+	dex.StepDefaults[struct{}]
 }
 
-func TestStateApiTimeoutWorkflow(t *testing.T) {
-	wfId := "TestStateApiTimeoutWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &stateApiTimeoutWorkflow{}, wfId, 10, nil, &dex.WorkflowOptions{})
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, nil, dex.GetDefaultObjectEncoder()), wErr)
-
-	fmt.Println(err)
-
-	expectedMsg := "workflow is not completed successfully, closedStatus: FAILED, failedErrorType(applies if failed as closedStatus):STATE_API_FAIL_ERROR_TYPE, error message:activity error "
-	assert.True(t, strings.HasPrefix(err.Error(), expectedMsg))
-
-	out, err2 := client.GetComplexWorkflowResults(context.Background(), wfId, "")
-	assert.Nil(t, out)
-	assert.Equal(t, err, err2)
+func (forceFailStep) GetStepType() string {
+	return "fail"
 }
 
-// TODO need to support terminate operation in Stop API first
-//func TestWorkflowTerminated(t *testing.T) {
-//
-//}
+func (forceFailStep) Execute(
+	dex.Context,
+	struct{},
+) (dex.StepDecision, error) {
+	return dex.ForceFail("a failing message"), nil
+}
+
+type waitForFailureFlow struct {
+	emptyFlowSchema
+}
+
+func (waitForFailureFlow) GetFlowType() string {
+	return "go-sdk-wait-for-failure"
+}
+
+func (waitForFailureFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(waitForFailureStep{})}
+}
+
+type waitForFailureStep struct{}
+
+func (waitForFailureStep) GetStepType() string {
+	return "fail"
+}
+
+func (waitForFailureStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{WaitForRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
+}
+
+func (waitForFailureStep) WaitFor(
+	dex.Context,
+	struct{},
+) (dex.Wait, error) {
+	return dex.Wait{}, fmt.Errorf("test WaitFor failing")
+}
+
+func (waitForFailureStep) Execute(
+	dex.Context,
+	struct{},
+) (dex.StepDecision, error) {
+	return dex.ForceFail("must not execute"), nil
+}
+
+type waitForTimeoutFlow struct {
+	emptyFlowSchema
+}
+
+func (waitForTimeoutFlow) GetFlowType() string {
+	return "go-sdk-wait-for-timeout"
+}
+
+func (waitForTimeoutFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(waitForTimeoutStep{})}
+}
+
+type waitForTimeoutStep struct{}
+
+func (waitForTimeoutStep) GetStepType() string {
+	return "timeout"
+}
+
+func (waitForTimeoutStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForTimeout: time.Second,
+		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+	}
+}
+
+func (waitForTimeoutStep) WaitFor(
+	ctx dex.Context,
+	_ struct{},
+) (dex.Wait, error) {
+	<-ctx.Done()
+	return dex.Wait{}, ctx.Err()
+}
+
+func (waitForTimeoutStep) Execute(
+	dex.Context,
+	struct{},
+) (dex.StepDecision, error) {
+	return dex.ForceFail("must not execute"), nil
+}
+
+func TestFlowTimeout(t *testing.T) {
+	flowID := newFlowID(t, "flow-timeout")
+	timeout := time.Second
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		channelFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{Timeout: &timeout},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowTimedOut, result.Status)
+}
+
+func TestFlowCancel(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "flow-cancel")
+	_, err := integClient.StartFlow(
+		ctx,
+		channelFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowCanceled, result.Status)
+}
+
+func TestForceFailFlow(t *testing.T) {
+	flowID := newFlowID(t, "force-fail")
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		forceFailFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowFailed, result.Status)
+	require.Equal(t, dex.FlowErrorStepDecision, result.ErrorType)
+	require.True(t, strings.Contains(result.ErrorMessage, "a failing message"))
+}
+
+func TestWaitForFailureFlow(t *testing.T) {
+	flowID := newFlowID(t, "wait-for-failure")
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		waitForFailureFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowFailed, result.Status)
+	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
+	require.True(t, strings.Contains(result.ErrorMessage, "test WaitFor failing"))
+}
+
+func TestWaitForTimeoutFlow(t *testing.T) {
+	flowID := newFlowID(t, "wait-for-timeout")
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		waitForTimeoutFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowFailed, result.Status)
+	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
+	require.NotEmpty(t, result.ErrorMessage)
+}

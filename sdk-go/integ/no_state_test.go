@@ -11,42 +11,84 @@
 package integ
 
 import (
-	"context"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
-	"strconv"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestNoStateWorkflow(t *testing.T) {
-	wfId := "TestNoStateWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	wf := noStateWorkflow{}
+type noStepFlow struct {
+	emptyFlowSchema
+}
 
-	runId, err := client.StartWorkflow(context.Background(), wf, wfId, 10, 1, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+func (noStepFlow) GetFlowType() string {
+	return "go-sdk-no-step"
+}
 
-	time.Sleep(time.Second)
-	info, err := client.DescribeWorkflow(context.Background(), wfId, "")
-	assert.Nil(t, err)
-	assert.Equal(t, dexpb.RUNNING, info.Status)
+func (noStepFlow) GetSteps() []dex.StepDef {
+	return nil
+}
 
-	err = client.InvokeRPC(context.Background(), wfId, "", wf.TestErrorRPC, 1, nil)
-	assert.NotNil(t, err)
-	assert.True(t, dex.IsRPCError(err))
-	rpcErr, _ := err.(*dex.ApiError)
-	assert.Equal(t, "worker API error, status:501, errorType:test-error-type", rpcErr.Response.GetDetail())
+func (noStepFlow) Fail(
+	dex.Context,
+	int,
+) (dex.RPCResult[int], error) {
+	return dex.RPCResult[int]{}, fmt.Errorf("planned no-step RPC failure")
+}
 
-	err = client.StopWorkflow(context.Background(), wfId, "", &dex.WorkflowStopOptions{
-		StopType: dexpb.FAIL,
-		Reason:   "test",
-	})
-	assert.Nil(t, err)
-	time.Sleep(time.Second * 2)
-	info, err = client.DescribeWorkflow(context.Background(), wfId, "")
-	assert.Nil(t, err)
-	assert.Equal(t, dexpb.FAILED, info.Status)
+func TestFlowWithoutSteps(t *testing.T) {
+	ctx := integrationContext(t)
+	flow := noStepFlow{}
+	flowID := newFlowID(t, "no-step")
+	_, err := integClient.StartFlow(
+		ctx,
+		flow,
+		flowID,
+		nil,
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	var searchPage dex.SearchFlowsPage
+	require.Eventually(t, func() bool {
+		searchPage, err = integClient.SearchFlows(
+			ctx,
+			"FlowType = '"+flow.GetFlowType()+"'",
+			100,
+			"",
+		)
+		if err != nil {
+			return false
+		}
+		for _, entry := range searchPage.Flows {
+			if entry.FlowID == flowID && entry.Status == dex.FlowRunning {
+				return true
+			}
+		}
+		return false
+	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", err)
+	var output int
+	err = integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.Fail,
+		1,
+		&output,
+		dex.InvokeOptions{},
+	)
+	sdkError := requireDexError(t, err, dex.ErrorWorkerAPI)
+	require.NotNil(t, sdkError.OriginalWorkerError)
+	require.True(t, strings.Contains(
+		sdkError.OriginalWorkerError.Detail,
+		"planned no-step RPC failure",
+	))
+	require.NoError(t, integClient.StopFlow(
+		ctx,
+		flowID,
+		dex.StopOptions{Type: dex.FailFlow, Reason: "test"},
+	))
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowFailed, result.Status)
 }

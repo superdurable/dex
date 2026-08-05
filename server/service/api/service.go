@@ -97,8 +97,8 @@ func (s *serviceImpl) StartFlow(
 	if req.GetRequestId() == "" {
 		return nil, makeInvalidRequestError("request ID is required")
 	}
-	if req.GetFlowTimeoutSeconds() <= 0 {
-		return nil, makeInvalidRequestError("flow timeout must be positive")
+	if req.GetFlowTimeoutSeconds() < 0 {
+		return nil, makeInvalidRequestError("flow timeout must be non-negative")
 	}
 	if err := workerclient.RejectWorkerBlobIDs(req.GetStepInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())

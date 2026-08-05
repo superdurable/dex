@@ -11,55 +11,188 @@
 package integ
 
 import (
-	"context"
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestBasicWorkflow(t *testing.T) {
-	wfId := "TestBasicWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, 1, &dex.WorkflowOptions{
-		WorkflowIdReusePolicy: ptr.Any(dexpb.DISALLOW_REUSE),
-		WorkflowRetryPolicy: &dexpb.WorkflowRetryPolicy{
-			InitialIntervalSeconds: dexpb.PtrInt32(10),
-			MaximumAttempts:        dexpb.PtrInt32(3),
-			MaximumIntervalSeconds: dexpb.PtrInt32(100),
-			BackoffCoefficient:     dexpb.PtrFloat32(3),
-		},
-	})
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-
-	// start the same workflowId again will fail
-	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, nil, nil)
-	assert.True(t, dex.IsWorkflowAlreadyStartedError(err))
-
-	var output int
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, 3, output)
-
-	err = client.GetSimpleWorkflowResult(context.Background(), "a wrong workflowId", "", &output)
-	assert.True(t, dex.IsWorkflowNotExistsError(err))
+type basicFlow struct {
+	emptyFlowSchema
 }
 
-func TestProceedOnStateStartFailWorkflow(t *testing.T) {
-	wfId := "TestProceedOnStateStartFailWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &proceedOnStateStartFailWorkflow{}, wfId, 10, "input", &dex.WorkflowOptions{})
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+func (basicFlow) GetFlowType() string {
+	return "go-sdk-basic"
+}
 
-	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, nil, nil)
-	assert.True(t, dex.IsWorkflowAlreadyStartedError(err))
+func (basicFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(basicFirstStep{}),
+		dex.DefineStep(basicSecondStep{}),
+	}
+}
 
+type basicFirstStep struct {
+	dex.DefaultStepOptions
+}
+
+func (basicFirstStep) GetStepType() string {
+	return "first"
+}
+
+func (basicFirstStep) WaitFor(ctx dex.Context, input int) (dex.Wait, error) {
+	if ctx.Attempt() < 1 || ctx.FirstAttemptAt().IsZero() {
+		return dex.Wait{}, fmt.Errorf("invalid first-step attempt metadata")
+	}
+	if input < 0 {
+		return dex.Wait{}, fmt.Errorf("input must not be negative")
+	}
+	return dex.SkipWaitImmediately(), nil
+}
+
+func (basicFirstStep) Execute(ctx dex.Context, input int) (dex.StepDecision, error) {
+	if ctx.Attempt() < 1 || ctx.FirstAttemptAt().IsZero() {
+		return dex.StepDecision{}, fmt.Errorf("invalid first-step attempt metadata")
+	}
+	return dex.GoTo(basicSecondStep{}, input+1), nil
+}
+
+type basicSecondStep struct {
+	dex.StepDefaults[int]
+}
+
+func (basicSecondStep) GetStepType() string {
+	return "second"
+}
+
+func (basicSecondStep) Execute(dex.Context, int) (dex.StepDecision, error) {
+	return dex.GracefulComplete(3), nil
+}
+
+type proceedOnWaitForFailureFlow struct {
+	emptyFlowSchema
+}
+
+func (proceedOnWaitForFailureFlow) GetFlowType() string {
+	return "go-sdk-proceed-on-wait-for-failure"
+}
+
+func (proceedOnWaitForFailureFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(proceedOnWaitForFailureFirstStep{}),
+		dex.DefineStep(proceedOnWaitForFailureSecondStep{}),
+	}
+}
+
+type proceedOnWaitForFailureFirstStep struct{}
+
+func (proceedOnWaitForFailureFirstStep) GetStepType() string {
+	return "first"
+}
+
+func (proceedOnWaitForFailureFirstStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForRetry: &dex.RetryPolicy{
+			InitialInterval: time.Second,
+			MaximumAttempts: 2,
+		},
+		WaitForFailure: dex.ProceedOnWaitForFailure,
+	}
+}
+
+func (proceedOnWaitForFailureFirstStep) WaitFor(
+	dex.Context,
+	string,
+) (dex.Wait, error) {
+	return dex.Wait{}, fmt.Errorf("planned WaitFor failure")
+}
+
+func (proceedOnWaitForFailureFirstStep) Execute(
+	ctx dex.Context,
+	input string,
+) (dex.StepDecision, error) {
+	if !ctx.WaitForMethodFailed() {
+		return dex.StepDecision{}, fmt.Errorf("WaitFor failure was not reported")
+	}
+	return dex.GoTo(
+		proceedOnWaitForFailureSecondStep{},
+		input+"_step1_wait_for_step1_execute",
+	), nil
+}
+
+type proceedOnWaitForFailureSecondStep struct {
+	dex.DefaultStepOptions
+}
+
+func (proceedOnWaitForFailureSecondStep) GetStepType() string {
+	return "second"
+}
+
+func (proceedOnWaitForFailureSecondStep) WaitFor(
+	dex.Context,
+	string,
+) (dex.Wait, error) {
+	return dex.SkipWaitImmediately(), nil
+}
+
+func (proceedOnWaitForFailureSecondStep) Execute(
+	_ dex.Context,
+	input string,
+) (dex.StepDecision, error) {
+	return dex.GracefulComplete(input + "_step2_wait_for_step2_execute"), nil
+}
+
+func TestBasicFlow(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "basic")
+	timeout := 30 * time.Second
+	runID, err := integClient.StartFlow(ctx, basicFlow{}, flowID, 1, dex.StartFlowOptions{
+		Timeout:       &timeout,
+		IDReusePolicy: dex.IDReuseDisallow,
+		RetryPolicy: &dex.FlowRetryPolicy{
+			InitialInterval:    time.Second,
+			MaximumAttempts:    3,
+			MaximumInterval:    10 * time.Second,
+			BackoffCoefficient: 3,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, runID)
+
+	_, err = integClient.StartFlow(ctx, basicFlow{}, flowID, 1, dex.StartFlowOptions{})
+	requireDexError(t, err, dex.ErrorFlowAlreadyStarted)
+
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
+	var output int
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, 3, output)
+
+	_, err = integClient.WaitForFlow(ctx, newFlowID(t, "missing"), dex.WaitForFlowOptions{})
+	requireDexError(t, err, dex.ErrorFlowNotFound)
+}
+
+func TestProceedOnWaitForFailureFlow(t *testing.T) {
+	flowID := newFlowID(t, "proceed-wait")
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		proceedOnWaitForFailureFlow{},
+		flowID,
+		"input",
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
 	var output string
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Equal(t, "input_state1_start_state1_decide_state2_start_state2_decide", output)
-	assert.Nil(t, err)
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(
+		t,
+		"input_step1_wait_for_step1_execute_step2_wait_for_step2_execute",
+		output,
+	)
 }

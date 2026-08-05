@@ -15,25 +15,27 @@ Here is the repository layout if you are interested to learn about it:
   * package-internal tests cover registration, value, protobuf, errors, and
     hydration
 * `examples/` contains compilable authoring examples
-* `integ/` is retained for migration when the runtime and client phases land
+* `integ/` contains the Temporal-backed public Client end-to-end suite
 
 Application packages must import `dex`, not `gen/dexpb`.
 
-## Phase 4 verification
+## Phase 5 verification
 
-Run registry, codec, Worker transport, contract, example, and cache tests
+Run registry, codec, Client and Worker transport, examples, cache, and E2E tests
 through the Makefile:
 
 ```text
-make unitTests 2>&1 | tee /tmp/test-go-sdk-phase4.log
-make workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase4-worker.log
-make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcache.log
-make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase4-copyright.log
+make unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
+make clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
+make workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
+make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
+make e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 ```
 
-`workerIntegTests` runs the WorkerService gRPC integration tests with the race
-detector. The legacy end-to-end suite remains Phase 5 because public Client
-transport is not implemented.
+`clientIntegTests` and `workerIntegTests` use real in-process gRPC with the race
+detector. `e2eTests` builds `dexcli`, starts its local Dex and Temporal
+environment, migrates the former iWF SDK scenarios, and owns cleanup.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)

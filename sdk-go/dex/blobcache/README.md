@@ -14,6 +14,7 @@ cache, err := blobcache.New(&blobcache.Config{
     Dir:               "/var/tmp/dex-worker/blobs",
     MaxBytes:          1 << 30,
     FrequencyCounters: 100_000,
+    Logger:             logger,
 })
 if err != nil {
     return err
@@ -40,9 +41,12 @@ The cache treats payloads as opaque bytes. The hydration layer stores string
 bytes directly and deterministically marshals the complete `EncodedObject`,
 including its encoding, for object blobs.
 
-The Worker uses this payload contract behind its internal hydration seam. Pass
-a cache through `dex.WorkerOptions.BlobCache`; stopping the Worker does not
-close or purge the caller-owned cache.
+Client and Worker use this payload contract behind the internal hydration seam.
+Pass the same cache to `dex.NewClient` and `dex.NewWorker`. Closing either
+consumer does not close or purge the caller-owned cache.
+
+`Config.Logger` defaults to `slog.Default`. Client and Worker inherit it unless
+their own options provide a component-specific logger.
 
 `Dir` must be dedicated to one cache process. Client and Worker code in the
 same process may share a `Cache`; separate processes must use separate

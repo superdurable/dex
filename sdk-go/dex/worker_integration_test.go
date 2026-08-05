@@ -11,9 +11,11 @@
 package dex
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -189,7 +191,7 @@ func (workerTestFlow) GetFlowType() string {
 
 func (workerTestFlow) GetSteps() []StepDef {
 	return []StepDef{
-		DefineStepAsStart(workerTestWait),
+		DefineStartStep(workerTestWait),
 		DefineStep(workerTestFinish),
 	}
 }
@@ -474,21 +476,24 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 }
 
 func TestWorkerLifecycleAndTargetDefaults(t *testing.T) {
-	concrete, err := NewWorker([]Flow{workerFlow}, WorkerOptions{
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	concrete, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		BindAddress: "127.0.0.1:9900",
+		Logger:      logger,
 	})
 	require.NoError(t, err)
+	require.Same(t, logger, concrete.logger)
 	require.Equal(t, "127.0.0.1:9900", concrete.WorkerTarget().Address)
 	require.NoError(t, concrete.Stop(context.Background()))
 
-	wildcard, err := NewWorker([]Flow{workerFlow}, WorkerOptions{BindAddress: ":8804"})
+	wildcard, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{BindAddress: ":8804"})
 	require.NoError(t, err)
 	require.Equal(t, "localhost:8804", wildcard.WorkerTarget().Address)
 	require.NoError(t, wildcard.Stop(context.Background()))
 	require.Error(t, wildcard.Start())
 
 	address := unusedWorkerAddress(t)
-	worker, err := NewWorker([]Flow{workerFlow}, WorkerOptions{
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		BindAddress: address,
 		WorkerTarget: WorkerTarget{
 			Address:  "worker.example:8803",
@@ -523,9 +528,9 @@ func TestWorkerLifecycleAndTargetDefaults(t *testing.T) {
 	cancelStopped()
 	require.NoError(t, worker.Stop(stoppedCtx))
 
-	_, err = NewWorker(nil, WorkerOptions{WorkerTarget: WorkerTarget{Address: "https://worker"}})
+	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{WorkerTarget: WorkerTarget{Address: "https://worker"}})
 	require.ErrorContains(t, err, "plaintext")
-	_, err = NewWorker(nil, WorkerOptions{BindAddress: ":0"})
+	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{BindAddress: ":0"})
 	require.ErrorContains(t, err, "1-65535")
 }
 
@@ -539,7 +544,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cache.Close()) }()
-	hydrator := newValueHydrator(client, cache)
+	hydrator := newValueHydrator(client, cache, nil)
 	request := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: "blob-1",
 	}}
@@ -570,7 +575,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	flowService.setValue("input-blob", encodedInput)
 	workerClient, closeWorker := newWorkerTestClient(
 		t,
-		newValueHydrator(client, cache),
+		newValueHydrator(client, cache, nil),
 	)
 	defer closeWorker()
 	rpcRequest := workerRPCRequest(t, workerTestInput{})
@@ -603,13 +608,16 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	require.ErrorContains(t, err, "omitted blob")
 	require.Same(t, omittedRequest, omittedValue)
 
+	var logOutput bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logOutput, nil))
 	closedCache, err := blobcache.New(&blobcache.Config{
 		Dir:      t.TempDir(),
 		MaxBytes: 1 << 20,
+		Logger:   logger,
 	})
 	require.NoError(t, err)
 	require.NoError(t, closedCache.Close())
-	uncachedHydrator := newValueHydrator(client, closedCache)
+	uncachedHydrator := newValueHydrator(client, closedCache, nil)
 	uncached := request
 	err = uncachedHydrator.HydrateValuesInPlace(
 		context.Background(),
@@ -617,6 +625,8 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, "loaded-blob-1", uncached.GetStringValue())
+	require.Contains(t, logOutput.String(), "read blob cache")
+	require.Contains(t, logOutput.String(), "write blob cache")
 }
 
 type workerBlobFlowService struct {
@@ -748,7 +758,7 @@ func TestWorkerStopDrainsAndForceCancels(t *testing.T) {
 }
 
 func TestWorkerTransientMovementMapping(t *testing.T) {
-	registered, err := newRegistry([]Flow{workerFlow})
+	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
 	flow, found := registered.lookupFlow(workerFlow.GetFlowType())
 	require.True(t, found)
@@ -781,7 +791,7 @@ func TestWorkerTransientMovementMapping(t *testing.T) {
 }
 
 func TestWorkerRegisteredDecisionMapping(t *testing.T) {
-	registered, err := newRegistry([]Flow{workerFlow})
+	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
 	flow, found := registered.lookupFlow(workerFlow.GetFlowType())
 	require.True(t, found)
@@ -821,12 +831,35 @@ func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 	require.Len(t, mapped.NextSteps, 1)
 }
 
+func newWorkerForTest(
+	t *testing.T,
+	flows []Flow,
+	options WorkerOptions,
+) (*Worker, error) {
+	t.Helper()
+	registry, err := NewRegistry(flows)
+	if err != nil {
+		return nil, err
+	}
+	cache, err := blobcache.New(&blobcache.Config{
+		Dir:      t.TempDir(),
+		MaxBytes: 1 << 20,
+	})
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close())
+	})
+	return NewWorker(registry, cache, options)
+}
+
 func startBlockingWorker(
 	t *testing.T,
 	flow Flow,
 ) (*Worker, dexpb.WorkerServiceClient, <-chan error, func()) {
 	address := unusedWorkerAddress(t)
-	worker, err := NewWorker([]Flow{flow}, WorkerOptions{BindAddress: address})
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{BindAddress: address})
 	require.NoError(t, err)
 	startResult := make(chan error, 1)
 	go func() { startResult <- worker.Start() }()
@@ -872,11 +905,11 @@ func newWorkerTestClient(
 	if hydrator == nil {
 		hydrator = concreteValueHydrator{}
 	}
-	registered, err := newRegistry([]Flow{workerFlow})
+	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	dexpb.RegisterWorkerServiceServer(grpcServer, newWorkerService(registered, hydrator))
+	dexpb.RegisterWorkerServiceServer(grpcServer, newWorkerService(registered, hydrator, nil))
 	serveResult := make(chan error, 1)
 	go func() {
 		serveResult <- grpcServer.Serve(listener)

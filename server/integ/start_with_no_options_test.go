@@ -50,7 +50,7 @@ func doTestStartFlowWithoutStartOptions(t *testing.T, backendType service.Backen
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           basic.FlowType,
-		FlowTimeoutSeconds: 100,
+		FlowTimeoutSeconds: 0,
 
 		StartStepType:    basic.Step1,
 		StepInput:        stepInput,

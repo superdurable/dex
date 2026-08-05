@@ -11,41 +11,69 @@
 package integ
 
 import (
-	"context"
-	"strconv"
+	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestAbnormalExitWorkflow(t *testing.T) {
-	wfId := "TestAbnormalExitWorkflow" + strconv.Itoa(int(time.Now().Unix()))
+type abnormalExitFlow struct {
+	emptyFlowSchema
+}
 
-	opt := dex.WorkflowOptions{
-		WorkflowIdReusePolicy: ptr.Any(dexpb.ALLOW_IF_PREVIOUS_EXITS_ABNORMALLY),
+func (abnormalExitFlow) GetFlowType() string {
+	return "go-sdk-abnormal-exit"
+}
+
+func (abnormalExitFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(abnormalExitStep{})}
+}
+
+type abnormalExitStep struct {
+	dex.NoWaitFor[struct{}]
+}
+
+func (abnormalExitStep) GetStepType() string {
+	return "fail"
+}
+
+func (abnormalExitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1},
 	}
+}
 
-	runId, err := client.StartWorkflow(context.Background(), &abnormalExitWorkflow{}, wfId, 10, nil, &opt)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
+func (abnormalExitStep) Execute(dex.Context, struct{}) (dex.StepDecision, error) {
+	return dex.StepDecision{}, fmt.Errorf("abnormal exit step")
+}
 
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", nil)
-	wErr, ok := dex.AsWorkflowUncompletedError(err)
-	assert.True(t, ok)
-	assert.True(t, strings.Contains(*wErr.ErrorMessage, "abnormal exit state"))
-	assert.Equal(t, dex.NewWorkflowUncompletedError(runId, dexpb.FAILED, ptr.Any(dexpb.STATE_API_FAIL_ERROR_TYPE), wErr.ErrorMessage, wErr.StateResults, dex.GetDefaultObjectEncoder()), wErr)
+func TestAbnormalExitFlow(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "abnormal")
+	runID, err := integClient.StartFlow(
+		ctx,
+		abnormalExitFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfPreviousFailed},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, runID)
+	result := waitForFlow(t, flowID, false)
+	require.Equal(t, dex.FlowFailed, result.Status)
+	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
+	require.True(t, strings.Contains(result.ErrorMessage, "abnormal exit step"))
 
-	// Starting a workflow with the same ID should be allowed since the previous failed abnormally
-	_, err = client.StartWorkflow(context.Background(), &basicWorkflow{}, wfId, 10, 1, &opt)
-	assert.False(t, dex.IsWorkflowAlreadyStartedError(err))
-
-	var output int
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, 3, output)
+	newRunID, err := integClient.StartFlow(
+		ctx,
+		basicFlow{},
+		flowID,
+		1,
+		dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfPreviousFailed},
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, runID, newRunID)
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID, false).Status)
 }

@@ -15,7 +15,8 @@ import (
 	"reflect"
 )
 
-type registry struct {
+// Registry stores immutable Flow definitions shared by Client and Worker.
+type Registry struct {
 	flows map[string]*registeredFlow
 }
 
@@ -51,8 +52,9 @@ type registeredChannel struct {
 	isMap bool
 }
 
-func newRegistry(flows []Flow) (*registry, error) {
-	assembled := &registry{
+// NewRegistry validates and assembles Flow definitions atomically.
+func NewRegistry(flows []Flow) (*Registry, error) {
+	assembled := &Registry{
 		flows: make(map[string]*registeredFlow, len(flows)),
 	}
 	indexTypes := make(map[string]IndexType)
@@ -75,7 +77,7 @@ func newRegistry(flows []Flow) (*registry, error) {
 	return assembled, nil
 }
 
-func (registry *registry) registerFlow(
+func (registry *Registry) registerFlow(
 	flow Flow,
 	indexTypes map[string]IndexType,
 ) (*registeredFlow, error) {
@@ -427,11 +429,115 @@ func (flow *registeredFlow) resolveChannels(
 	return resolved, nil
 }
 
-func (registry *registry) lookupFlow(
+func (registry *Registry) lookupFlow(
 	flowType string,
 ) (*registeredFlow, bool) {
 	flow, found := registry.flows[flowType]
 	return flow, found
+}
+
+func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
+	if nilInterface(reference) {
+		return nil, fmt.Errorf("dex: flow is nil")
+	}
+	flowType := reference.GetFlowType()
+	if flowType == "" {
+		return nil, fmt.Errorf("dex: flow type must not be empty")
+	}
+	registered, found := registry.lookupFlow(flowType)
+	if !found {
+		return nil, fmt.Errorf("dex: flow %q is not registered", flowType)
+	}
+	if reflect.TypeOf(reference) != reflect.TypeOf(registered.flow) {
+		return nil, fmt.Errorf(
+			"dex: flow %q type %s does not match registered type %s",
+			flowType,
+			reflect.TypeOf(reference),
+			reflect.TypeOf(registered.flow),
+		)
+	}
+	return registered, nil
+}
+
+func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registeredRPC, error) {
+	rpcName, err := rpcMethodName(reference)
+	if err != nil {
+		return nil, nil, err
+	}
+	referenceType := reflect.TypeOf(reference)
+	result := reflect.Zero(referenceType.Out(0)).Interface().(rpcResult)
+	inputType := referenceType.In(1)
+	outputType := result.rpcOutputType()
+	identity, err := rpcMethodIdentity(reference)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, flow := range registry.flows {
+		registered, found := flow.lookupRPC(rpcName)
+		if found && registered.identity == identity &&
+			registered.input == inputType && registered.output == outputType {
+			return flow, registered, nil
+		}
+	}
+	return nil, nil, fmt.Errorf(
+		"dex: RPC %q with input %s and output %s is not registered",
+		rpcName,
+		inputType,
+		outputType,
+	)
+}
+
+func (registry *Registry) resolveAttribute(
+	reference AttributeDef,
+	expectMap bool,
+) (registeredAttribute, error) {
+	if nilInterface(reference) {
+		return registeredAttribute{}, fmt.Errorf("dex: attribute definition is nil")
+	}
+	name := reference.attributeName()
+	if name == "" {
+		return registeredAttribute{}, fmt.Errorf("dex: attribute name must not be empty")
+	}
+	if reference.attributeIsMap() != expectMap {
+		return registeredAttribute{}, fmt.Errorf(
+			"dex: attribute %q has the wrong static/map kind",
+			name,
+		)
+	}
+	for _, flow := range registry.flows {
+		registered, found := flow.attributes[name]
+		if found && registered.isMap == expectMap &&
+			reflect.DeepEqual(registered.index, reference.attributeIndex()) {
+			return registered, nil
+		}
+	}
+	return registeredAttribute{}, fmt.Errorf("dex: attribute %q is not registered", name)
+}
+
+func (registry *Registry) resolveChannel(
+	reference ChannelDef,
+	expectMap bool,
+) (registeredChannel, error) {
+	if nilInterface(reference) {
+		return registeredChannel{}, fmt.Errorf("dex: channel definition is nil")
+	}
+	name := reference.channelName()
+	if name == "" {
+		return registeredChannel{}, fmt.Errorf("dex: channel name must not be empty")
+	}
+	if reference.channelIsMap() != expectMap {
+		return registeredChannel{}, fmt.Errorf(
+			"dex: channel %q has the wrong static/map kind",
+			name,
+		)
+	}
+	for _, flow := range registry.flows {
+		registered, found := flow.channels[name]
+		if found && registered.isMap == expectMap {
+			return registered, nil
+		}
+	}
+	return registeredChannel{}, fmt.Errorf("dex: channel %q is not registered", name)
 }
 
 func (flow *registeredFlow) lookupStep(

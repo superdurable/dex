@@ -13,7 +13,6 @@ version: '3.9'
 # see .env file for the default value of the environment variables
 services:
   elasticsearch:
-    container_name: temporal-elasticsearch-dex
     environment:
       - cluster.routing.allocation.disk.threshold_enabled=true
       - cluster.routing.allocation.disk.watermark.low=512mb
@@ -34,7 +33,6 @@ services:
       retries: 30
       start_period: 30s
   postgresql:
-    container_name: temporal-postgresql-dex
     environment:
       POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal
@@ -49,7 +47,6 @@ services:
       timeout: 5s
       retries: 20
   temporal:
-    container_name: temporal-dex
     depends_on:
       postgresql:
         condition: service_healthy
@@ -68,14 +65,11 @@ services:
     image: temporalio/auto-setup:${TEMPORAL_VERSION}
     networks:
       - temporal-network
-    ports:
-      - 7233:7233
     labels:
       kompose.volume.type: configMap
     volumes:
       - ./dynamicconfig:/etc/temporal/config/dynamicconfig
   temporal-admin-tools:
-    container_name: temporal-admin-tools-dex
     depends_on:
       - temporal
     environment:
@@ -89,18 +83,23 @@ services:
     volumes:
       - ./docker-compose-init.sh:/etc/temporal/init.sh
     entrypoint: sh -c "/etc/temporal/init.sh"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/search-attributes-ready"]
+      interval: 1s
+      timeout: 1s
+      retries: 120
   dex-server:
-    container_name: dex-server
     image: ${DEX_SERVER_IMAGE:-superdurable/dex-server:latest}
     environment:
-      - AUTO_FIX_WORKER_URL=172.17.0.1 # this will let dex-server automatically replace all dexWorkerUrls of "localhost" or "127.0.0.1" with "172.17.0.1"
+      - AUTO_FIX_WORKER_URL=host.docker.internal
     networks:
       - temporal-network
     ports:
-      - 8801:8801
+      - 8801
     depends_on:
       - temporal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 networks:
   temporal-network:
     driver: bridge
-    name: temporal-network

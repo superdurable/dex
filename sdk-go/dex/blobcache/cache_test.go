@@ -12,6 +12,8 @@ package blobcache
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +129,15 @@ func TestCacheValidatesInputsAndClosedState(t *testing.T) {
 
 	_, err := New(&Config{Dir: t.TempDir(), MaxBytes: 0})
 	require.ErrorIs(t, err, ErrInvalidConfig)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	configuredCache, err := New(&Config{
+		Dir:      t.TempDir(),
+		MaxBytes: 1 << 20,
+		Logger:   logger,
+	})
+	require.NoError(t, err)
+	require.Same(t, logger, configuredCache.Logger())
+	require.NoError(t, configuredCache.Close())
 
 	cache, rootDir := newTestCache(t, 1<<20)
 	require.NotEmpty(t, rootDir)

@@ -6,6 +6,9 @@ on:
     paths:
       - "sdk-go/**"
       - "protos/**"
+      - "server/**"
+      - "cli/**"
+      - "web/**"
       - "go.work"
       - "go.work.sum"
       - ".github/workflows/sdk-go-ci.yml"
@@ -13,6 +16,9 @@ on:
     paths:
       - "sdk-go/**"
       - "protos/**"
+      - "server/**"
+      - "cli/**"
+      - "web/**"
       - "go.work"
       - "go.work.sum"
       - ".github/workflows/sdk-go-ci.yml"
@@ -69,3 +75,51 @@ jobs:
             go.work.sum
       - name: Worker integration tests
         run: make workerIntegTests
+
+  client-integration:
+    name: Client integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk-go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: sdk-go/go.mod
+          cache-dependency-path: |
+            sdk-go/go.sum
+            go.work.sum
+      - name: Client integration tests
+        run: make clientIntegTests
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk-go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: sdk-go/go.mod
+          cache-dependency-path: |
+            sdk-go/go.sum
+            go.work.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
+      - name: End-to-end tests
+        run: make e2eTests
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-go-e2e-services
+          path: /tmp/test-go-sdk-phase5-e2e-services.log
+          if-no-files-found: ignore

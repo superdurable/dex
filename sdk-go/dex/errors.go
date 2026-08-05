@@ -21,7 +21,6 @@ import (
 
 var (
 	errInvalidInvocationContext = errors.New("dex: invalid invocation context")
-	errPhaseNotImplemented      = errors.New("dex: operation is not implemented")
 )
 
 type Error struct {

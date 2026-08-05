@@ -13,7 +13,6 @@ package dex
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"unicode/utf8"
 
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
@@ -29,6 +28,7 @@ type valueHydrator interface {
 type valueHydratorImpl struct {
 	client dexpb.FlowServiceClient
 	cache  *blobcache.Cache
+	logger Logger
 }
 
 type blobIDDef struct {
@@ -46,11 +46,19 @@ type pendingBlob struct {
 func newValueHydrator(
 	client dexpb.FlowServiceClient,
 	cache *blobcache.Cache,
+	logger Logger,
 ) valueHydrator {
 	if client == nil {
 		panic("dex: value hydrator requires FlowService client")
 	}
-	return &valueHydratorImpl{client: client, cache: cache}
+	if cache == nil {
+		panic("dex: value hydrator requires BlobCache")
+	}
+	return &valueHydratorImpl{
+		client: client,
+		cache:  cache,
+		logger: resolveLogger(logger, cache.Logger()),
+	}
 }
 
 func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
@@ -165,12 +173,9 @@ func (hydrator *valueHydratorImpl) loadCached(
 	request *dexpb.Value,
 	blobID blobIDDef,
 ) (*dexpb.Value, bool) {
-	if hydrator.cache == nil {
-		return nil, false
-	}
 	payload, found, err := hydrator.cache.Get(blobID.value)
 	if err != nil {
-		slog.Default().Warn("read Worker blob cache", "blob_id", blobID.value, "error", err)
+		hydrator.logger.Warn("read blob cache", "blob_id", blobID.value, "error", err)
 		return nil, false
 	}
 	if !found {
@@ -180,10 +185,10 @@ func (hydrator *valueHydratorImpl) loadCached(
 	if err == nil {
 		return value, true
 	}
-	slog.Default().Warn("decode Worker blob cache", "blob_id", blobID.value, "error", err)
+	hydrator.logger.Warn("decode blob cache", "blob_id", blobID.value, "error", err)
 	if deleteErr := hydrator.cache.Delete(blobID.value); deleteErr != nil {
-		slog.Default().Warn(
-			"delete Worker blob cache entry",
+		hydrator.logger.Warn(
+			"delete blob cache entry",
 			"blob_id", blobID.value,
 			"error", deleteErr,
 		)
@@ -196,21 +201,18 @@ func (hydrator *valueHydratorImpl) storeCached(
 	blobID blobIDDef,
 	concrete *dexpb.Value,
 ) {
-	if hydrator.cache == nil {
-		return
-	}
 	payload, err := marshalBlobCachePayload(request, concrete)
 	if err != nil {
-		slog.Default().Warn("encode Worker blob cache", "blob_id", blobID.value, "error", err)
+		hydrator.logger.Warn("encode blob cache", "blob_id", blobID.value, "error", err)
 		return
 	}
 	cached, err := hydrator.cache.Put(blobID.value, payload)
 	if err != nil {
-		slog.Default().Warn("write Worker blob cache", "blob_id", blobID.value, "error", err)
+		hydrator.logger.Warn("write blob cache", "blob_id", blobID.value, "error", err)
 		return
 	}
 	if !cached {
-		slog.Default().Debug("Worker blob cache rejected entry", "blob_id", blobID.value)
+		hydrator.logger.Debug("blob cache rejected entry", "blob_id", blobID.value)
 	}
 }
 

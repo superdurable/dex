@@ -48,6 +48,10 @@ const (
 	FlowService_LoadBlobs_FullMethodName             = "/dex.FlowService/LoadBlobs"
 	FlowService_WaitForFlow_FullMethodName           = "/dex.FlowService/WaitForFlow"
 	FlowService_SearchFlows_FullMethodName           = "/dex.FlowService/SearchFlows"
+	FlowService_GetFlowSummary_FullMethodName        = "/dex.FlowService/GetFlowSummary"
+	FlowService_GetHistoryEvents_FullMethodName      = "/dex.FlowService/GetHistoryEvents"
+	FlowService_WaitForHistoryEvent_FullMethodName   = "/dex.FlowService/WaitForHistoryEvent"
+	FlowService_GetFlowState_FullMethodName          = "/dex.FlowService/GetFlowState"
 	FlowService_ResetFlow_FullMethodName             = "/dex.FlowService/ResetFlow"
 	FlowService_InvokeRPC_FullMethodName             = "/dex.FlowService/InvokeRPC"
 	FlowService_SkipTimer_FullMethodName             = "/dex.FlowService/SkipTimer"
@@ -72,6 +76,10 @@ type FlowServiceClient interface {
 	LoadBlobs(ctx context.Context, in *LoadBlobsRequest, opts ...grpc.CallOption) (*LoadBlobsResponse, error)
 	WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*WaitForFlowResponse, error)
 	SearchFlows(ctx context.Context, in *SearchFlowsRequest, opts ...grpc.CallOption) (*SearchFlowsResponse, error)
+	GetFlowSummary(ctx context.Context, in *GetFlowSummaryRequest, opts ...grpc.CallOption) (*GetFlowSummaryResponse, error)
+	GetHistoryEvents(ctx context.Context, in *GetHistoryEventsRequest, opts ...grpc.CallOption) (*GetHistoryEventsResponse, error)
+	WaitForHistoryEvent(ctx context.Context, in *WaitForHistoryEventRequest, opts ...grpc.CallOption) (*WaitForHistoryEventResponse, error)
+	GetFlowState(ctx context.Context, in *GetFlowStateRequest, opts ...grpc.CallOption) (*GetFlowStateResponse, error)
 	ResetFlow(ctx context.Context, in *ResetFlowRequest, opts ...grpc.CallOption) (*ResetFlowResponse, error)
 	InvokeRPC(ctx context.Context, in *InvokeRPCRequest, opts ...grpc.CallOption) (*InvokeRPCResponse, error)
 	SkipTimer(ctx context.Context, in *SkipTimerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -164,6 +172,46 @@ func (c *flowServiceClient) SearchFlows(ctx context.Context, in *SearchFlowsRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchFlowsResponse)
 	err := c.cc.Invoke(ctx, FlowService_SearchFlows_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetFlowSummary(ctx context.Context, in *GetFlowSummaryRequest, opts ...grpc.CallOption) (*GetFlowSummaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFlowSummaryResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetFlowSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetHistoryEvents(ctx context.Context, in *GetHistoryEventsRequest, opts ...grpc.CallOption) (*GetHistoryEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetHistoryEventsResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetHistoryEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) WaitForHistoryEvent(ctx context.Context, in *WaitForHistoryEventRequest, opts ...grpc.CallOption) (*WaitForHistoryEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WaitForHistoryEventResponse)
+	err := c.cc.Invoke(ctx, FlowService_WaitForHistoryEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetFlowState(ctx context.Context, in *GetFlowStateRequest, opts ...grpc.CallOption) (*GetFlowStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFlowStateResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetFlowState_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +312,10 @@ type FlowServiceServer interface {
 	LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error)
 	WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error)
 	SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error)
+	GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error)
+	GetHistoryEvents(context.Context, *GetHistoryEventsRequest) (*GetHistoryEventsResponse, error)
+	WaitForHistoryEvent(context.Context, *WaitForHistoryEventRequest) (*WaitForHistoryEventResponse, error)
+	GetFlowState(context.Context, *GetFlowStateRequest) (*GetFlowStateResponse, error)
 	ResetFlow(context.Context, *ResetFlowRequest) (*ResetFlowResponse, error)
 	InvokeRPC(context.Context, *InvokeRPCRequest) (*InvokeRPCResponse, error)
 	SkipTimer(context.Context, *SkipTimerRequest) (*emptypb.Empty, error)
@@ -305,6 +357,18 @@ func (UnimplementedFlowServiceServer) WaitForFlow(context.Context, *WaitForFlowR
 }
 func (UnimplementedFlowServiceServer) SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SearchFlows not implemented")
+}
+func (UnimplementedFlowServiceServer) GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFlowSummary not implemented")
+}
+func (UnimplementedFlowServiceServer) GetHistoryEvents(context.Context, *GetHistoryEventsRequest) (*GetHistoryEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetHistoryEvents not implemented")
+}
+func (UnimplementedFlowServiceServer) WaitForHistoryEvent(context.Context, *WaitForHistoryEventRequest) (*WaitForHistoryEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WaitForHistoryEvent not implemented")
+}
+func (UnimplementedFlowServiceServer) GetFlowState(context.Context, *GetFlowStateRequest) (*GetFlowStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFlowState not implemented")
 }
 func (UnimplementedFlowServiceServer) ResetFlow(context.Context, *ResetFlowRequest) (*ResetFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResetFlow not implemented")
@@ -495,6 +559,78 @@ func _FlowService_SearchFlows_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetFlowSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFlowSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetFlowSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetFlowSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetFlowSummary(ctx, req.(*GetFlowSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetHistoryEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHistoryEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetHistoryEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetHistoryEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetHistoryEvents(ctx, req.(*GetHistoryEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_WaitForHistoryEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitForHistoryEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).WaitForHistoryEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_WaitForHistoryEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).WaitForHistoryEvent(ctx, req.(*WaitForHistoryEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetFlowState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFlowStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetFlowState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetFlowState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetFlowState(ctx, req.(*GetFlowStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_ResetFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResetFlowRequest)
 	if err := dec(in); err != nil {
@@ -677,6 +813,22 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchFlows",
 			Handler:    _FlowService_SearchFlows_Handler,
+		},
+		{
+			MethodName: "GetFlowSummary",
+			Handler:    _FlowService_GetFlowSummary_Handler,
+		},
+		{
+			MethodName: "GetHistoryEvents",
+			Handler:    _FlowService_GetHistoryEvents_Handler,
+		},
+		{
+			MethodName: "WaitForHistoryEvent",
+			Handler:    _FlowService_WaitForHistoryEvent_Handler,
+		},
+		{
+			MethodName: "GetFlowState",
+			Handler:    _FlowService_GetFlowState_Handler,
 		},
 		{
 			MethodName: "ResetFlow",

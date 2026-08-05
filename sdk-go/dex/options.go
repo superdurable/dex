@@ -94,7 +94,8 @@ type StartFlowOptions struct {
 	Attributes     []InitialAttributeDef
 	ConfigOverride *FlowConfig
 	AlreadyStarted *AlreadyStartedOptions
-	RequestID      *string
+	// RequestID defaults to a UUID; set a stable business identifier for cross-call retries.
+	RequestID *string
 }
 
 type IDReusePolicy uint8
@@ -146,7 +147,8 @@ type StopOptions struct {
 }
 
 type StepExecutionID struct {
-	StepType        string
+	StepType string
+	// ExecutionNumber defaults to one when omitted.
 	ExecutionNumber *int32
 }
 

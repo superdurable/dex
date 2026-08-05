@@ -21,6 +21,7 @@ import (
 type registeredRPC struct {
 	method      reflect.Value
 	durableName string
+	identity    string
 	input       reflect.Type
 	output      reflect.Type
 }
@@ -110,6 +111,7 @@ func newRegisteredRPC(
 	return &registeredRPC{
 		method:      receiver.Method(method.Index),
 		durableName: method.Name,
+		identity:    runtime.FuncForPC(method.Func.Pointer()).Name(),
 		input:       methodType.In(2),
 		output:      result.rpcOutputType(),
 	}, true
@@ -135,6 +137,18 @@ func (rpc *registeredRPC) invoke(
 }
 
 func rpcMethodName(rpc any) (string, error) {
+	canonical, err := rpcMethodIdentity(rpc)
+	if err != nil {
+		return "", err
+	}
+	separator := strings.LastIndex(canonical, ".")
+	if separator < 0 || separator == len(canonical)-1 {
+		return "", fmt.Errorf("dex: RPC method identity %q is invalid", canonical)
+	}
+	return canonical[separator+1:], nil
+}
+
+func rpcMethodIdentity(rpc any) (string, error) {
 	if rpc == nil {
 		return "", fmt.Errorf("dex: RPC must be a direct bound Flow method")
 	}
@@ -150,12 +164,7 @@ func rpcMethodName(rpc any) (string, error) {
 	if !strings.HasSuffix(runtimeName, "-fm") {
 		return "", fmt.Errorf("dex: RPC must be a direct bound Flow method")
 	}
-	canonical := strings.TrimSuffix(runtimeName, "-fm")
-	separator := strings.LastIndex(canonical, ".")
-	if separator < 0 || separator == len(canonical)-1 {
-		return "", fmt.Errorf("dex: RPC method identity %q is invalid", runtimeName)
-	}
-	return canonical[separator+1:], nil
+	return strings.TrimSuffix(runtimeName, "-fm"), nil
 }
 
 func rpcMethodType(methodType reflect.Type, hasReceiver bool) bool {

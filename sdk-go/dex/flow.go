@@ -25,7 +25,7 @@ package dex
 //
 //	func (OrderFlow) GetSteps() []dex.StepDef {
 //		return []dex.StepDef{
-//			dex.DefineStepAsStart(ApproveOrder),
+//			dex.DefineStartStep(ApproveOrder),
 //			dex.DefineStep(ShipOrder),
 //		}
 //	}
@@ -57,7 +57,7 @@ type Flow interface {
 	// state machine: it may WaitFor conditions (channel / timer) and then
 	// Execute a decision. See Step for details.
 	//
-	// Use DefineStepAsStart for at most one starting step and DefineStep for
+	// Use DefineStartStep for at most one starting step and DefineStep for
 	// every other step. An empty list, or a list with no starting step, means
 	// the run starts with no step execution; application code can still invoke
 	// RPCs that move into steps later.

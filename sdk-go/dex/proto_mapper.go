@@ -26,6 +26,7 @@ func mapInitialAttributes(
 	attributes []InitialAttributeDef,
 ) ([]*dexpb.AttributeWrite, error) {
 	mapped := make([]*dexpb.AttributeWrite, 0, len(attributes))
+	seen := make(map[string]struct{}, len(attributes))
 	for _, attribute := range attributes {
 		concrete, ok := attribute.(initialAttribute)
 		if !ok {
@@ -38,6 +39,13 @@ func mapInitialAttributes(
 		)
 		if err != nil {
 			return nil, err
+		}
+		if _, found := seen[key]; found {
+			return nil, fmt.Errorf("dex: duplicate initial attribute %q", key)
+		}
+		seen[key] = struct{}{}
+		if err := validateConcreteValue(concrete.encoded); err != nil {
+			return nil, fmt.Errorf("dex: initial attribute %q: %w", key, err)
 		}
 		mapped = append(mapped, &dexpb.AttributeWrite{
 			Key:         key,
@@ -83,34 +91,30 @@ func mapAttributeDelete(
 
 func mapStartFlowOptions(
 	options StartFlowOptions,
-) (int32, *dexpb.FlowStartOptions, string, error) {
+) (int32, *dexpb.FlowStartOptions, error) {
 	timeout, err := optionalDurationSeconds32(options.Timeout)
 	if err != nil {
-		return 0, nil, "", fmt.Errorf("dex: flow timeout: %w", err)
+		return 0, nil, fmt.Errorf("dex: flow timeout: %w", err)
 	}
 	startDelay, err := optionalDurationSeconds32(options.StartDelay)
 	if err != nil {
-		return 0, nil, "", fmt.Errorf("dex: start delay: %w", err)
+		return 0, nil, fmt.Errorf("dex: start delay: %w", err)
 	}
 	idReuse, err := mapIDReusePolicy(options.IDReusePolicy)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	retry, err := mapFlowRetryPolicy(options.RetryPolicy)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	attributes, err := mapInitialAttributes(options.Attributes)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	config, err := mapFlowConfig(options.ConfigOverride)
 	if err != nil {
-		return 0, nil, "", err
-	}
-	requestID, err := newRequestID()
-	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	return timeout, &dexpb.FlowStartOptions{
 		IdReusePolicy:         idReuse,
@@ -122,7 +126,7 @@ func mapStartFlowOptions(
 		FlowAlreadyStartedOptions: mapAlreadyStartedOptions(
 			options.AlreadyStarted,
 		),
-	}, requestID, nil
+	}, nil
 }
 
 func mapAlreadyStartedOptions(
@@ -227,10 +231,19 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
-	options, err := mapStepOptionsRecursive(failure.options, active)
+	options, err := mapStepOptionsRecursive(
+		mergeStepOptions(failure.step.stepOptions(), failure.options),
+		active,
+	)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
+	}
+	if failure.step.skipWaitFor() {
+		if options == nil {
+			options = &dexpb.StepOptions{}
+		}
+		options.SkipWaitFor = true
 	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
 		failure.step.stepType(), options, nil
@@ -294,6 +307,14 @@ func mapFlowRetryPolicy(
 func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 	if config == nil {
 		return nil, nil
+	}
+	if config.WorkerTarget != nil {
+		if err := validatePlaintextTarget(
+			config.WorkerTarget.Address,
+			config.WorkerTarget.Headless,
+		); err != nil {
+			return nil, fmt.Errorf("dex: invalid Worker target: %w", err)
+		}
 	}
 	searchMode, err := mapOptionalActiveStepSearchMode(config.ActiveStepSearchMode)
 	if err != nil {
@@ -717,6 +738,26 @@ func mapSearchFlowsPage(
 		if flow == nil {
 			return SearchFlowsPage{}, fmt.Errorf("dex: search flow entry is nil")
 		}
+		if flow.FlowId == "" || flow.RunId == "" || flow.FlowType == "" {
+			return SearchFlowsPage{}, fmt.Errorf("dex: search flow entry is incomplete")
+		}
+		status, err := mapFlowStatus(flow.FlowStatus)
+		if err != nil {
+			return SearchFlowsPage{}, err
+		}
+		if flow.StartTime == nil {
+			return SearchFlowsPage{}, fmt.Errorf("dex: search flow start time is missing")
+		}
+		if err := flow.StartTime.CheckValid(); err != nil {
+			return SearchFlowsPage{}, fmt.Errorf("dex: invalid search flow start time: %w", err)
+		}
+		closedAt := time.Time{}
+		if flow.CloseTime != nil {
+			if err := flow.CloseTime.CheckValid(); err != nil {
+				return SearchFlowsPage{}, fmt.Errorf("dex: invalid search flow close time: %w", err)
+			}
+			closedAt = flow.CloseTime.AsTime()
+		}
 		attributes, err := mapValues(flow.SearchAttributes)
 		if err != nil {
 			return SearchFlowsPage{}, err
@@ -724,6 +765,10 @@ func mapSearchFlowsPage(
 		flows = append(flows, SearchFlowEntry{
 			FlowID:           flow.FlowId,
 			RunID:            flow.RunId,
+			FlowType:         flow.FlowType,
+			Status:           status,
+			StartedAt:        flow.StartTime.AsTime(),
+			ClosedAt:         closedAt,
 			SearchAttributes: attributes,
 		})
 	}
@@ -747,7 +792,7 @@ func mapHealthInfo(info *dexpb.HealthInfo) (HealthInfo, error) {
 func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 	var stopType dexpb.StopType
 	switch options.Type {
-	case CancelFlow:
+	case 0, CancelFlow:
 		stopType = dexpb.StopType_STOP_TYPE_CANCEL
 	case TerminateFlow:
 		stopType = dexpb.StopType_STOP_TYPE_TERMINATE
@@ -761,6 +806,9 @@ func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 }
 
 func mapResetOptions(options ResetOptions) (*dexpb.ResetFlowRequest, error) {
+	if err := validateResetOptions(options); err != nil {
+		return nil, err
+	}
 	resetType, err := mapResetType(options.Type)
 	if err != nil {
 		return nil, err
@@ -781,16 +829,56 @@ func mapResetOptions(options ResetOptions) (*dexpb.ResetFlowRequest, error) {
 	}, nil
 }
 
-func mapWaitOptions(options WaitOptions) (int32, string, error) {
+func validateResetOptions(options ResetOptions) error {
+	hasHistoryEventID := options.HistoryEventID != 0
+	hasHistoryEventTime := !options.HistoryEventTime.IsZero()
+	hasStepType := options.StepType != ""
+	hasStepExecutionID := options.StepExecutionID != ""
+	switch options.Type {
+	case ResetByHistoryEventID:
+		if options.HistoryEventID <= 0 {
+			return fmt.Errorf("dex: reset history event ID must be positive")
+		}
+		if hasHistoryEventTime || hasStepType || hasStepExecutionID {
+			return fmt.Errorf("dex: reset history event ID cannot be combined with another selector")
+		}
+	case ResetToBeginning:
+		if hasHistoryEventID || hasHistoryEventTime || hasStepType || hasStepExecutionID {
+			return fmt.Errorf("dex: reset to beginning cannot include another selector")
+		}
+	case ResetByHistoryEventTime:
+		if !hasHistoryEventTime {
+			return fmt.Errorf("dex: reset history event time must not be zero")
+		}
+		if hasHistoryEventID || hasStepType || hasStepExecutionID {
+			return fmt.Errorf("dex: reset history event time cannot be combined with another selector")
+		}
+	case ResetByStepType:
+		if !hasStepType {
+			return fmt.Errorf("dex: reset step type must not be empty")
+		}
+		if hasHistoryEventID || hasHistoryEventTime || hasStepExecutionID {
+			return fmt.Errorf("dex: reset step type cannot be combined with another selector")
+		}
+	case ResetByStepExecutionID:
+		if !hasStepExecutionID {
+			return fmt.Errorf("dex: reset step execution ID must not be empty")
+		}
+		if hasHistoryEventID || hasHistoryEventTime || hasStepType {
+			return fmt.Errorf("dex: reset step execution ID cannot be combined with another selector")
+		}
+	default:
+		return fmt.Errorf("dex: unsupported reset type %d", options.Type)
+	}
+	return nil
+}
+
+func mapWaitOptions(options WaitOptions) (int32, error) {
 	timeout, err := durationSeconds32(options.Timeout)
 	if err != nil {
-		return 0, "", err
+		return 0, err
 	}
-	requestID, err := newRequestID()
-	if err != nil {
-		return 0, "", err
-	}
-	return timeout, requestID, nil
+	return timeout, nil
 }
 
 func mapWaitForFlowOptions(
@@ -805,23 +893,16 @@ func mapWaitForFlowOptions(
 
 func mapInvokeOptions(
 	options InvokeOptions,
-) (int32, []string, string, error) {
+) (int32, []string, error) {
 	timeout, err := durationSeconds32(options.Timeout)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
 	locks, err := mapAttributeLocks(options.LockAttributes)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, err
 	}
-	if len(locks) == 0 {
-		return timeout, locks, "", nil
-	}
-	requestID, err := newRequestID()
-	if err != nil {
-		return 0, nil, "", err
-	}
-	return timeout, locks, requestID, nil
+	return timeout, locks, nil
 }
 
 func mapSearchFlowsOptions(

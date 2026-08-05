@@ -13,10 +13,13 @@ package dex_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"google.golang.org/grpc/codes"
 )
@@ -113,7 +116,7 @@ func (contractFlow) GetFlowType() string {
 
 func (contractFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStepAsStart(waitForCommand),
+		dex.DefineStartStep(waitForCommand),
 		dex.DefineStep(executeOnly),
 	}
 }
@@ -174,12 +177,40 @@ func TestPublicContractsCompile(t *testing.T) {
 		t.Fatal("start flow options are missing")
 	}
 
-	worker, err := dex.NewWorker([]dex.Flow{flow}, dex.WorkerOptions{})
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cache, err := blobcache.New(&blobcache.Config{
+		Dir:      t.TempDir(),
+		MaxBytes: 1 << 20,
+		Logger:   logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cache.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if worker.WorkerTarget().Address != "localhost:8803" {
 		t.Fatal("worker target was not derived from the bind address")
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		WorkerTarget: worker.WorkerTarget(),
+		Logger:       logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if err := worker.Stop(context.Background()); err != nil {
 		t.Fatal(err)

@@ -1,7 +1,6 @@
 # Go SDK rewrite plan
 
-Status: Phases 1 through 4 are implemented. Phase 5 remains a
-boundary only and requires its own design review before implementation.
+Status: Phases 1 through 5 are implemented.
 
 ## Current source of truth
 
@@ -18,6 +17,9 @@ This plan is based on the current:
 - [`sdk-go/dex/rpc_registration.go`](../../../sdk-go/dex/rpc_registration.go)
 - [`sdk-go/dex/proto_mapper.go`](../../../sdk-go/dex/proto_mapper.go)
 - [`sdk-go/dex/hydration.go`](../../../sdk-go/dex/hydration.go)
+- [`sdk-go/dex/client.go`](../../../sdk-go/dex/client.go)
+- [`sdk-go/dex/options.go`](../../../sdk-go/dex/options.go)
+- [`sdk-go/dex/errors.go`](../../../sdk-go/dex/errors.go)
 - [`sdk-go/dex/blobcache/cache.go`](../../../sdk-go/dex/blobcache/cache.go)
 - [`docs/design/transient-step-movement.md`](../transient-step-movement.md)
 
@@ -50,10 +52,12 @@ adding aliases.
 - RPC may trigger next-step movements, but the current server rejects a close
   decision returned by RPC.
 - Channel sizes are supplied only to Worker RPC invocations.
-- Locking RPC, WaitForStepCompletion, and WaitForAttribute use Temporal
-  synchronous updates and require an SDK-generated request ID.
+- StartFlow, SetAttributes, InvokeRPC, WaitForStepCompletion, and
+  WaitForAttribute require a request ID. The SDK generates it, except that
+  StartFlow may use a caller-supplied business identifier. Locking RPC and the
+  two wait operations use that ID as a Temporal synchronous-update ID.
 - `WorkerTarget` belongs to `FlowConfig` and may describe a normal or headless
-  plaintext gRPC target.
+  plaintext gRPC target. `ClientOptions` may provide its StartFlow default.
 - Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
   existing cache into hydration; cache storage policy remains independently
   designed.
@@ -86,8 +90,8 @@ its storage, eviction, size, recovery, or test strategy.
 
 ### Phase 3 — registration assembly
 
-Build the private immutable registry used later by WorkerService. Validate flow,
-step, persistence, and fallback definitions; erase generic step and RPC
+Build the immutable registry used later by WorkerService and Client. Validate
+flow, step, persistence, and fallback definitions; erase generic step and RPC
 handlers; discover Flow method RPCs; and assemble scoped lookups. Phase 3 adds
 no WorkerService, invocation context, protobuf request handling, or transport.
 
@@ -100,8 +104,9 @@ generated WorkerService and hydration machinery private.
 
 ### Phase 5 — FlowService client and integration migration
 
-Provisional boundary only. Implement the Phase 1 client façade, migrate the Go
-integration suite, and run it against the default Temporal-backed Dex server.
+Implement the public FlowService client, connect response hydration and error
+mapping, migrate the Go integration suite, and run it against the default
+Temporal-backed Dex server.
 
 ## Phase 2 detailed design
 
@@ -183,20 +188,19 @@ run WorkerService, or execute public client methods.
 
 ### Registration surface
 
-Phase 3 adds no application-facing registry API. The SDK builds a private
-registry from `[]Flow`:
+The SDK builds one opaque immutable registry from `[]Flow`:
 
 ```go
-type registry struct {
+type Registry struct {
 	// unexported
 }
 
-func newRegistry(flows []Flow) (*registry, error)
+func NewRegistry(flows []Flow) (*Registry, error)
 ```
 
-Phase 4 calls this constructor while assembling WorkerService and keeps it
-behind the public Worker lifecycle API defined below.
-Application code continues to declare registration through `Flow.GetSteps`,
+The Phase 3 implementation may initially keep this wrapper private. Phase 5
+exports it so one validated instance can be shared by Client and Worker.
+Application code declares its contents through `Flow.GetSteps`,
 `Flow.GetPersistenceSchema`, and RPC methods on the Flow value.
 
 There is no mutable `AddFlow`, `AddStep`, or `AddRPC` API. Construction is
@@ -206,7 +210,7 @@ new public error hierarchy is needed.
 
 ### Registry structure and lookup scope
 
-The private registry owns:
+The registry owns:
 
 - a flow lookup keyed by durable flow type;
 - per-flow step lookups keyed by durable step type;
@@ -225,7 +229,7 @@ appropriate WorkerService error.
 
 ### Flow and persistence validation
 
-`newRegistry` evaluates each supplied Flow once. It rejects:
+`NewRegistry` evaluates each supplied Flow once. It rejects:
 
 - nil and typed-nil Flow values;
 - empty or duplicate durable flow types;
@@ -248,7 +252,7 @@ only when their index types agree.
 ### Generic step erasure
 
 `StepDef` keeps its public opaque shape, but `DefineStep` and
-`DefineStepAsStart` create a private generic adapter instead of storing an
+`DefineStartStep` create a private generic adapter instead of storing an
 unclassified `any`:
 
 ```go
@@ -283,7 +287,7 @@ Registration rejects:
 
 - an empty or duplicate durable step type within one flow;
 - a zero `StepDef`, nil handler, or typed-nil handler;
-- more than one `DefineStepAsStart` entry;
+- more than one `DefineStartStep` entry;
 - invalid step defaults or attribute locks, reporting the first illegal step
   in `GetSteps` order;
 - an execute-failure target outside the same flow;
@@ -391,8 +395,8 @@ Phase 3 does not implement:
 - FlowService client calls or RPC request-ID retries.
 
 Those runtime concerns remain in Phase 4 or Phase 5. Phase 3 only proves that a
-valid application definition can become an immutable, type-safe private
-registry.
+valid application definition can become an immutable, type-safe opaque
+Registry.
 
 ### Phase 3 exit gate
 
@@ -447,8 +451,8 @@ buffer commit/rollback, errors, and concurrency.
   Flow registration, starting-step, RPC reflection, and concurrency rules.
 - Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
   Phase 3 verification commands.
-- Add registry construction to SDK examples only when the Phase 4 worker
-  constructor gives applications a public entry point.
+- Add `NewRegistry` construction to SDK examples with the Phase 4 Worker entry
+  point.
 
 ### UI/UX
 
@@ -458,15 +462,22 @@ N/A: no in-repo web UI.
 
 ### Public worker surface
 
-Phase 4 adds one application-hosted worker. It owns the private Phase 3
-registry and the generated WorkerService gRPC server:
+Phase 4 adds one application-hosted worker. It references the shared Phase 3
+Registry and owns the generated WorkerService gRPC server:
 
 ```go
+type Logger interface {
+	Debug(msg string, keyvals ...interface{})
+	Info(msg string, keyvals ...interface{})
+	Warn(msg string, keyvals ...interface{})
+	Error(msg string, keyvals ...interface{})
+}
+
 type WorkerOptions struct {
 	BindAddress        string
 	WorkerTarget       WorkerTarget
 	FlowServiceAddress string
-	BlobCache          *blobcache.Cache
+	Logger             Logger
 }
 
 type Worker struct {
@@ -474,7 +485,8 @@ type Worker struct {
 }
 
 func NewWorker(
-	flows []Flow,
+	registry *Registry,
+	cache *blobcache.Cache,
 	options WorkerOptions,
 ) (*Worker, error)
 
@@ -483,14 +495,14 @@ func (worker *Worker) Start() error
 func (worker *Worker) Stop(ctx context.Context) error
 ```
 
-`NewWorker` calls `newRegistry` and returns registration or option errors before
-opening a listener. Construction remains atomic: an invalid flow set returns no
-Worker. The Worker retains the supplied Flow and Step values exactly as Phase 3
-specifies.
+`NewWorker` requires the already validated Registry and BlobCache. Passing nil
+for either required dependency panics. It returns option errors before opening
+a listener and retains no duplicate flow, step, RPC, or schema lookup.
 
 An empty `BindAddress` uses `:8803`. It controls only the local plaintext gRPC
-listener. `WorkerTarget` is the server-reachable target supplied later through
-`StartFlowOptions.ConfigOverride.WorkerTarget` or `UpdateFlowConfig`.
+listener. `WorkerTarget` is the server-reachable target normally supplied once
+through `ClientOptions.WorkerTarget`. A StartFlow config may override it, and
+`UpdateFlowConfig` may change it for an existing run.
 
 An empty `WorkerTarget.Address` derives from `BindAddress`. A concrete bind host
 and port are copied. An unspecified bind host such as `:8803`, `0.0.0.0:8803`,
@@ -500,16 +512,17 @@ for a Worker and Dex server with matching local network reachability;
 deployments with containers, pods, load balancers, or DNS must set the
 advertised address explicitly.
 
-`Worker.WorkerTarget()` returns a fresh copy of the resolved target for use in
-flow options. It does not mutate a caller-owned option value.
+`Worker.WorkerTarget()` returns a fresh copy of the resolved target for
+`ClientOptions`. It does not mutate a caller-owned option value.
 
-The bind address and WorkerTarget are not required to match. For example, a
-Worker may bind every local interface while Dex dials a headless Kubernetes
-service:
+The bind address and WorkerTarget are not required to match. Given the shared
+`registry` and `cache`, a Worker may bind every local interface while Dex dials
+a headless Kubernetes service:
 
 ```go
 worker, err := dex.NewWorker(
-	[]dex.Flow{Orders},
+	registry,
+	cache,
 	dex.WorkerOptions{
 		BindAddress: "0.0.0.0:8803",
 		WorkerTarget: dex.WorkerTarget{
@@ -518,36 +531,47 @@ worker, err := dex.NewWorker(
 		},
 	},
 )
+if err != nil {
+	return err
+}
+
+client, err := dex.NewClient(
+	registry,
+	cache,
+	dex.ClientOptions{
+		WorkerTarget: worker.WorkerTarget(),
+	},
+)
+if err != nil {
+	return err
+}
 
 runID, err := client.StartFlow(
 	ctx,
 	Orders,
 	"order-1",
 	OrderInput{},
-	dex.StartFlowOptions{
-		ConfigOverride: &dex.FlowConfig{
-			WorkerTarget: worker.WorkerTarget(),
-		},
-	},
+	dex.StartFlowOptions{},
 )
 ```
 
 `WorkerTarget.Headless` describes how the server resolves the advertised
 target; it does not change the local listener. The Worker resolves the empty
 address default but never automatically registers or updates the target for a
-flow.
+flow. Client applies its configured default only when StartFlow assembles the
+new run's FlowConfig.
 
 An empty `FlowServiceAddress` uses `localhost:8801`. The Worker uses this
 plaintext target only for private `LoadBlobs` calls. It does not expose
 `LoadBlobs`, construct the Phase 5 public Client, or make any FlowService call
 when a request has no blob arms.
 
-`BlobCache` is optional and constructor-injected. The caller owns it: stopping
-the Worker does not purge or close a shared cache. The Worker owns and closes
-its private FlowService gRPC connection.
+The caller owns the shared BlobCache. Stopping the Worker does not purge or
+close it. The Worker owns and closes only its private FlowService connection.
 
-The runtime uses `slog.Default` for lifecycle, cache, and recovered-panic logs.
-Phase 4 does not add a custom logging interface.
+`Logger` accepts structured debug, info, warning, and error messages. Nil uses
+the shared BlobCache logger, which defaults to `slog.Default`. A Worker override
+applies to Worker lifecycle, hydration, cache, and recovered-panic logs.
 
 `Start` binds the configured address, serves WorkerService, and blocks. It may
 be called once. A normal `Stop` makes `Start` return nil; bind and serve failures
@@ -565,13 +589,14 @@ uses `dexpb` to host or invoke the worker.
 
 ### Runtime structure
 
-The Worker owns these private components:
+The Worker references shared definitions and cache while owning its transport:
 
 ```text
 Worker
-  registry                 immutable Phase 3 descriptors
+  registry                 shared immutable Phase 3 descriptors
+  blob cache               shared caller-owned storage
   workerService            generated gRPC adapter
-  hydrationCoordinator     cache + private FlowService LoadBlobs client
+  valueHydrator            shared cache + private FlowService LoadBlobs client
   grpcServer / listener    plaintext WorkerService transport
   lifecycle state          start, drain, force-stop, terminal error
 ```
@@ -627,9 +652,9 @@ order:
 It calls the Phase 2 hydration seam once for that ordered list. Repeated blob
 references are deduplicated without changing reconstructed request order.
 
-The hydration coordinator resolves a blob as follows:
+The value hydrator resolves a blob as follows:
 
-1. try `BlobCache.Get` when a cache is configured;
+1. try `BlobCache.Get` from the required shared cache;
 2. decode and validate the cached payload against the blob arm;
 3. delete a missing or corrupt cache entry and treat it as a miss;
 4. batch all misses into one private `FlowService.LoadBlobs` request;
@@ -819,7 +844,7 @@ buffers have become unreachable.
 
 ### Concurrency and ownership
 
-The registry and registered definitions are immutable after `NewWorker`.
+The registry and registered definitions are immutable after `NewRegistry`.
 Separate invocation objects make concurrent calls independent, and the worker
 implementation must pass the race detector.
 
@@ -847,19 +872,19 @@ Phase 4 does not implement:
 
 ### Phase 4 exit gate
 
-1. Applications can construct and run a Worker from `[]Flow` without importing
-   `dexpb`.
+1. Applications can construct one Registry and run a Worker from it without
+   importing `dexpb`.
 2. WaitFor, Execute, and RPC dispatch through the Phase 3 registry over gRPC.
 3. Typed values, attributes, channels, locals, results, and decisions cross the
    proto boundary through Phase 2 codecs and registry-aware validation.
 4. Successful handlers commit their complete buffer; errors and panics commit
    nothing.
-5. Blob-backed request values hydrate through private LoadBlobs and optional
-   cache wiring before application decode.
+5. Blob-backed request values hydrate through private LoadBlobs and the shared
+   caller-owned cache before application decode.
 6. Graceful and forced shutdown have deterministic, race-free behavior.
 7. The Worker exposes its resolved target for flow options without making
    Client calls or updating flows automatically.
-8. No public Client transport or registration API is added.
+8. No public Client transport or mutable registration API is added.
 
 ### Tests
 
@@ -869,8 +894,10 @@ examples and external contract tests still do not import `dexpb`.
 
 Cover these scenarios:
 
-1. Worker construction rejects invalid registration and target configuration;
-   empty target addresses derive from concrete and wildcard bind addresses.
+1. Registry construction rejects invalid registration; Worker construction
+   rejects nil dependencies and invalid target configuration. Empty target
+   addresses derive from concrete and wildcard bind addresses, and Stop leaves
+   the caller-owned cache usable.
 2. `Start`/`Stop` lifecycle is one-shot, idempotent, and deadline-bounded.
 3. WaitFor dispatch decodes typed input and maps attributes, locals, events,
    channel publishes, timers, combinations, and immediate execution.
@@ -918,11 +945,582 @@ does not yet provide the public Client calls needed to start and drive runs.
   hydration, error, and shutdown semantics.
 - Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
   worker integration and race verification commands.
-- Update the Go examples to construct a Worker from their Flow values and show
-  signal-driven `Stop(ctx)` without importing generated protobufs.
+- Update the Go examples to construct one Registry and BlobCache, pass both to
+  the Worker, and show signal-driven `Stop(ctx)` without generated protobufs.
 - Update [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
   with cache ownership and Worker hydration wiring; do not change cache policy
   documentation.
+
+### UI/UX
+
+N/A: no in-repo web UI.
+
+## Phase 5 detailed design
+
+### Contract corrections before transport
+
+Phase 5 implements the current public Client surface, but five existing
+contracts must be corrected in the same change so the transport does not encode
+known inconsistencies:
+
+1. `StartFlowOptions.Timeout == nil` maps to zero seconds. FlowService must
+   accept zero as no workflow execution timeout and reject only negative
+   values. Positive values continue to round up to whole seconds.
+2. The current server requires `request_id` for StartFlow, SetAttributes, every
+   InvokeRPC, WaitForStepCompletion, and WaitForAttribute. Only StartFlow
+   exposes an override because its request ID may be a business identifier.
+   IDs for every other operation are generated and remain internal.
+3. `StepExecutionID.ExecutionNumber` remains optional. Nil means execution one.
+   SkipTimer keeps the existing proto and server contract; the Client formats
+   the effective step execution ID before sending it.
+4. SearchFlows already returns flow type, status, start time, and close time.
+   `SearchFlowEntry` must retain those fields instead of discarding them.
+5. Phase 4 currently constructs a private registry per Worker and accepts an
+   optional cache in WorkerOptions. Phase 5 exposes one immutable Registry and
+   requires the same caller-owned BlobCache in both Worker and Client.
+
+The existing StepExecutionID shape remains unchanged. SearchFlowEntry adds the
+server fields directly:
+
+```go
+type StepExecutionID struct {
+	StepType        string
+	ExecutionNumber *int32
+}
+
+type SearchFlowEntry struct {
+	FlowID           string
+	RunID            string
+	FlowType         string
+	Status           FlowStatus
+	StartedAt        time.Time
+	ClosedAt         time.Time
+	SearchAttributes map[string]Value
+}
+```
+
+`ClosedAt` is zero while a run is open. Unknown status enums and invalid proto
+timestamps are response-mapping errors. `StopOptions{}` maps to cancel, matching
+the existing server default.
+
+### Shared Registry and BlobCache
+
+Phase 5 exposes the Phase 3 registry as an opaque immutable dependency:
+
+```go
+type Registry struct {
+	// unexported
+}
+
+func NewRegistry(flows []Flow) (*Registry, error)
+```
+
+`NewRegistry` performs the existing atomic Phase 3 assembly. It retains the
+supplied Flow and Step values once, discovers RPC methods once, and validates
+the complete cross-flow index schema once. It returns no Registry on failure.
+Registry exposes no Add, Remove, lookup, or mutable map APIs.
+
+Applications construct one Registry and one disk blob cache, then pass the same
+pointers to Client and Worker:
+
+```go
+logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+registry, err := dex.NewRegistry([]dex.Flow{Orders})
+if err != nil {
+	return err
+}
+cache, err := blobcache.New(&blobcache.Config{
+	Dir:      "/var/tmp/orders-dex-blobs",
+	MaxBytes: 1 << 30,
+	Logger:   logger,
+})
+if err != nil {
+	return err
+}
+
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{Logger: logger})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(
+	registry,
+	cache,
+	dex.ClientOptions{
+		WorkerTarget: worker.WorkerTarget(),
+		Logger:       logger,
+	},
+)
+if err != nil {
+	return err
+}
+```
+
+There is no package-global Registry or BlobCache. Separate application groups
+may construct separate pairs. A Client-only process still constructs a Registry
+from the Flow definitions it uses, even though it does not invoke handlers.
+
+Registry is safe for concurrent reads and has no close operation. The caller
+owns BlobCache and closes it only after every Client and Worker using it has
+closed or stopped. Client.Close and Worker.Stop never close or purge these
+shared dependencies. Passing a nil Registry or BlobCache to either constructor
+panics because both are required; Phase 5 has no uncached runtime mode.
+
+### Public Client construction
+
+Phase 5 replaces the placeholder `Client.runtime` field with references to the
+shared Registry and BlobCache, one owned FlowService connection, and the
+internal response hydrator:
+
+```go
+type ClientOptions struct {
+	FlowServiceAddress string
+	WorkerTarget       *WorkerTarget
+	Logger             Logger
+}
+
+func NewClient(
+	registry *Registry,
+	cache *blobcache.Cache,
+	options ClientOptions,
+) (*Client, error)
+func (client *Client) Close() error
+```
+
+An empty `FlowServiceAddress` uses `localhost:8801`. It is a plaintext gRPC dial
+target. Phase 5 does not expose generated clients, `grpc.ClientConn`, dial
+options, TLS credentials, or an HTTP URL.
+
+`WorkerTarget` is the default advertised target for every StartFlow call made
+by the Client. Nil omits the default. A non-nil value requires a non-empty
+Address and is copied during Client construction, including Headless, so later
+caller mutation cannot change Client behavior.
+
+`Logger` overrides logging for this Client and its hydrator. Nil inherits the
+shared BlobCache logger; a nil cache logger defaults to `slog.Default`.
+
+This follows the iWF Go SDK's client-level
+[`WorkerUrl`](https://github.com/indeedeng/iwf-golang-sdk/blob/main/iwf/client_options.go)
+pattern while retaining Dex's typed Headless setting.
+
+`grpc.NewClient` is lazy, so `NewClient` validates the target and constructs the
+connection but does not assert server readiness. `HealthCheck` is the explicit
+readiness call.
+
+`Close` closes only the Client's gRPC connection. It does not mutate Registry
+or close BlobCache. `Close` is idempotent. Calls after Close return a stable
+local error.
+
+A Client is safe for concurrent use. Each call owns its request, request ID,
+encoded values, response values, and hydration pointer list. Closing a Client
+concurrently with a call may terminate that call through gRPC cancellation.
+
+Client construction does not construct a Worker or make a FlowService call.
+Applications normally pass `worker.WorkerTarget()` once through ClientOptions.
+The target is advertised only when StartFlow sends a new run request.
+
+### Common call pipeline and current-run targeting
+
+Every public method follows the same transport boundary:
+
+1. reject a nil context, closed Client, empty required ID, or invalid public
+   definition before issuing an RPC;
+2. validate and encode all request values without mutating caller-owned
+   options;
+3. select or generate any required request ID once;
+4. assemble one generated request with an empty `run_id`;
+5. call the generated FlowService stub with the caller's context;
+6. convert a gRPC failure through `convertRPCError`;
+7. hydrate all response blob arms in one ordered batch; and
+8. map and decode only after the complete response is valid.
+
+All methods other than StartFlow target the current run for `flowID`. An empty
+wire `run_id` lets the server follow Continue-as-New. ResetFlow returns the new
+run ID, while StartFlow returns the created or matched run ID. The public Client
+does not add a run-specific variant in Phase 5.
+
+Local validation, encoding, and decoding errors remain ordinary Go errors.
+Only errors received from FlowService become `*dex.Error`.
+
+The Client builds each protobuf request once. gRPC's pre-commit transparent
+retry therefore reuses the same request and request ID. Phase 5 does not add a
+semantic retry loop after a request may have reached application logic:
+PublishToChannel and signal-backed mutations are not deduplicated by the
+server. A new public method call gets a new generated ID, except when the caller
+reuses `StartFlowOptions.RequestID` intentionally.
+
+### Request ID ownership
+
+Request ID generation moves out of the Phase 2 pure mappers and into the Client
+entry methods. The Client generates one random UUID for:
+
+- StartFlow, unless `StartFlowOptions.RequestID` is non-nil;
+- every SetAttributes call, including the single-attribute helpers;
+- every InvokeRPC, whether it is locking or non-locking;
+- every WaitForStepCompletion call; and
+- every WaitForAttributeEqual or WaitForAttributeMapEqual call.
+
+A non-nil StartFlow override must be non-empty. It may be a stable business
+identifier, supports a logical retry spanning separate Client calls, and is
+the only public request-ID override. Normal application code may instead leave
+it nil for an SDK-generated UUID. Other Client option types do not expose a
+request-ID field.
+
+SetAttributes and non-locking RPC use the ID for external-value offload
+ownership even though their workflow operations are not synchronous updates.
+Locking RPC and both wait methods use it as the Temporal update ID. The ID is
+not exposed in results.
+
+### StartFlow assembly
+
+`Client.StartFlow` uses the supplied Flow's durable type to resolve the shared
+Registry descriptor. The Flow type must have been included in `NewRegistry`;
+the Client reuses its schema, starting-step selection, input type, and immutable
+step defaults. It does not reevaluate steps, persistence, or RPC methods.
+
+StartFlow clones `StartFlowOptions.ConfigOverride` before mapping it. A non-nil
+per-call `ConfigOverride.WorkerTarget` wins. Otherwise the Client's default
+WorkerTarget is inserted, creating a FlowConfig when necessary. If neither is
+set, the request omits WorkerTarget. Other per-call FlowConfig fields are
+preserved, and UpdateFlowConfig never inherits the Client default.
+
+When a starting step is declared:
+
+- `input` must be assignable to that step's registered input type;
+- the Client encodes the input and uses the registered durable step name; and
+- the Client maps the starting step's `GetStepOptions` defaults.
+
+When no starting step is declared, `input` must be nil and the Client omits the
+step type, input, and step options. This preserves flows that begin with RPC
+only and later move into a step.
+
+`StartFlowOptions.Timeout == nil` sends zero, meaning no workflow execution
+timeout. A non-nil duration must be non-negative; positive sub-second values
+round up. `StartDelay == nil` sends zero. A non-nil start delay must also be
+non-negative and rounds up when positive.
+
+Initial attributes are already constructed through `InitialAttribute` and
+`InitialAttributeMapValue`. Request assembly revalidates their physical names,
+encoded concrete values, index configuration, and uniqueness. Flow config,
+retry, reuse, cron, and already-started options use the Phase 2 mappers.
+
+The response must contain a non-empty run ID. `AlreadyStarted.IgnoreError`
+retains server behavior: the same flow ID returns the existing run only when
+the server accepts that option. The request ID override does not by itself
+change already-started behavior.
+
+Typical local Worker wiring remains explicit:
+
+```go
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(
+	registry,
+	cache,
+	dex.ClientOptions{
+		WorkerTarget: worker.WorkerTarget(),
+	},
+)
+if err != nil {
+	return err
+}
+defer client.Close()
+
+runID, err := client.StartFlow(
+	ctx,
+	Orders,
+	"order-1",
+	OrderInput{OrderID: "order-1"},
+	dex.StartFlowOptions{},
+)
+```
+
+### Channels and external attributes
+
+PublishToChannel accepts only a static `ChannelDef`; PublishToChannelMap accepts
+only a map definition plus a non-empty instance. The Client resolves the
+physical channel name through the definition, encodes every value before the
+RPC, and preserves variadic order. Zero values are a successful local no-op.
+One failed encoding prevents the complete publish.
+
+GetAttribute and SetAttribute accept only a static definition. Their map
+counterparts accept only a map definition and derive the physical key from the
+instance. A static/map mismatch or empty definition name is rejected locally.
+FlowService remains authoritative for whether that physical key belongs to the
+target flow.
+
+GetAttribute validates `valuePtr` before the RPC. A missing response entry
+returns `found=false` without decoding. A present entry is hydrated and decoded
+into the pointer. The Client rejects duplicate response keys and unexpected
+keys.
+
+GetAttributes is the heterogeneous static-attribute batch API. It rejects map
+definitions because a map definition alone does not identify a physical
+instance. It preserves request order on the wire and returns opaque Values
+keyed by concrete attribute name. An empty list returns an empty map without an
+RPC.
+
+SetAttribute and SetAttributeMap use the definition's registered index config.
+SetAttributes validates and encodes every `AttributeWrite`, rejects duplicate
+physical keys, generates one request ID, and sends one batch. An empty batch is
+a successful local no-op. Encoding completes before the RPC, so no partial
+batch is sent.
+
+Phase 5 does not add public attribute deletion or all-attribute query methods.
+Those operations require a separate public API decision rather than raw proto
+escape hatches.
+
+### RPC invocation
+
+InvokeRPC continues to accept a direct bound Flow method. The shared Registry
+matches its identity and signature to a descriptor discovered at construction,
+which supplies the durable method name and IN/OUT types. The Client neither
+invokes the method nor rediscovers Flow methods locally.
+
+Before transport, the Client:
+
+- rejects package functions, wrappers, unbound method expressions, and invalid
+  RPC signatures;
+- verifies that `input` is assignable to the method's IN type;
+- requires `outputPtr` to be a non-nil pointer compatible with OUT;
+- validates and resolves every attribute lock; and
+- encodes the input and generates one request ID.
+
+The response output is hydrated before it is decoded into `outputPtr`. A nil or
+empty output Value is a response error. The Client can validate method shape
+and value types, but it cannot prove that the remote Worker registered that
+bound method for the target flow ID; that failure returns the server's Worker
+error.
+
+RPC timeout zero keeps the server default. Positive values round up; negative
+values fail locally. Lock ordering is preserved and duplicate physical locks
+are rejected. RPC next-step movements remain entirely worker-side and do not
+appear in the public invocation response.
+
+### Wait, lifecycle, and administrative operations
+
+WaitForAttributeEqual and WaitForAttributeMapEqual resolve the definition,
+encode the expected concrete value, and generate one request ID. The map form
+requires an instance. Index configuration is irrelevant to equality. A value
+that would require server-side blob comparison is still rejected by the server
+with `FailedPrecondition`; response hydration cannot change update semantics.
+
+WaitForStepCompletion requires a non-empty step type. A nil execution number
+defaults to one; a non-nil value must be positive. Its wire execution number
+remains decimal text because that is the server contract. Both wait APIs
+preserve immediate-check semantics when `WaitOptions.Timeout == 0`; positive
+durations round up and negative durations fail locally.
+
+WaitForFlow leaves zero timeout as the server-configured maximum long poll. A
+successful response maps status and error metadata, then hydrates every
+requested completion output before returning. `NeedsResults=false` never
+requires result decoding. A long-poll timeout remains a `*dex.Error` with
+`DeadlineExceeded` and `ErrorLongPollTimeout`.
+
+SkipTimer requires a non-empty step type and exactly one TimerID selector: a
+non-empty condition ID or a non-negative index. A nil execution number defaults
+to one; a non-nil value must be positive. The Client formats the existing wire
+`step_execution_id` as `<stepType>-<effectiveExecutionNumber>` without changing
+the proto or server. Natural completion and a successful skip remain
+indistinguishable inside Execute.
+
+The remaining calls map as follows:
+
+| Client method | Phase 5 behavior |
+|---|---|
+| `StopFlow` | zero type cancels; terminate/fail preserve the optional reason |
+| `SearchFlows` | validates non-negative page size and maps full flow metadata |
+| `ResetFlow` | validates the field required by the selected reset type and returns a non-empty new run ID |
+| `UpdateFlowConfig` | maps a partial config and preserves pointer presence |
+| `TriggerContinueAsNew` | signals the current run |
+| `HealthCheck` | maps the returned health record; it is also the explicit readiness check |
+
+Reset validation is mutually exclusive: history ID must be positive, history
+time must be non-zero, and step type or step execution ID must be non-empty for
+their respective modes. Fields unrelated to the selected reset mode must be
+zero so impossible proto combinations fail before transport.
+
+SearchFlows passes query text and page token through unchanged. Page size zero
+keeps the server default. Search attributes are hydrated before being wrapped
+as opaque Values.
+
+### Response hydration
+
+The Client reuses the internal `valueHydrator` and `valueHydratorImpl` behavior
+from Phase 4 with its own FlowService stub and the shared required cache.
+Hydration remains private; applications never call LoadBlobs or see a blob arm.
+
+Each public response collects all Value pointers in deterministic response
+order and calls `HydrateValuesInPlace` once:
+
+- InvokeRPC: output;
+- GetAttribute/GetAttributes: attribute values;
+- WaitForFlow: step completion outputs; and
+- SearchFlows: every entry's search attributes.
+
+Repeated blob IDs are deduplicated inside that call. A response without blob
+arms makes no LoadBlobs RPC. Cached payload validation, corrupt-entry deletion,
+miss batching, response-kind validation, and admission behavior remain the
+Phase 4 contract.
+
+Hydration errors are classified at the boundary that owns the call. A remote
+LoadBlobs status becomes `*dex.Error` for a public Client call. A malformed,
+missing, wrong-kind, or still-blob response remains a local SDK response error.
+The Worker retains its WorkerError classification. The shared hydrator does not
+expose Worker-specific errors to Client applications.
+
+No partially hydrated public result is returned. Opaque `Value` instances hold
+only validated concrete representations, and `Value.Decode` never performs
+network I/O.
+
+### Error conversion and cancellation
+
+Every generated FlowService error passes through `convertRPCError` exactly
+once. It preserves gRPC code, Dex substatus, detail, and original Worker error.
+Unknown or absent Dex details map to `ErrorUncategorized`.
+
+Caller cancellation and deadlines propagate through gRPC. If gRPC returns
+their status, the Client exposes `*dex.Error` with `Canceled` or
+`DeadlineExceeded`. A context already done before request assembly returns its
+context error locally and sends no RPC.
+
+The Client never converts codec, reflection, option, response-shape, or closed
+Client failures into fake gRPC statuses. `errors.As(err, *dex.Error)` therefore
+continues to distinguish remote service failures from local SDK misuse.
+
+### Integration suite migration
+
+The existing `sdk-go/integ` suite targets the removed Workflow/State HTTP
+worker and generated proto types. Phase 5 replaces it with an external-package
+suite built entirely on Flow, Step, Worker, Client, Attribute, and Channel.
+Legacy tests are not adapted through compatibility aliases.
+
+The migrated suite creates one Registry and BlobCache, passes both to a real Go
+Worker and Client, and closes the cache after both consumers. The Worker uses a
+dynamically allocated local port and advertises its reachable WorkerTarget.
+Every test uses a unique flow ID. Polling and long-poll APIs replace sleeps used
+for convergence.
+
+The test target builds `dexcli` from the current checkout and uses `dexcli dev`
+to run Dex plus a local Temporal server. Proto, server validation, SDK, and
+integration tests therefore remain one atomic change. The suite waits on
+Client.HealthCheck and Temporal search attribute setup before running.
+
+The obsolete `sdk-go/dextest` mocks and Gin-based worker harness are deleted.
+Application projects that need mocks define a narrow interface around the
+Client methods they consume. Dependencies used only by those obsolete trees
+are removed from `sdk-go/go.mod`.
+
+### Phase exclusions
+
+Phase 5 does not add:
+
+- public generated protobuf or gRPC client access;
+- run-specific overloads for current-run methods;
+- GetFlowSummary, history, state-dump, or other web/debug FlowService APIs;
+- public LoadBlobs or cache mutation methods;
+- semantic retries that may replay signal-backed operations;
+- TLS, authentication, custom dial options, or service discovery;
+- custom value codecs or codec registries;
+- package-global Registry or BlobCache state;
+- mutable registration APIs; or
+- a compatibility Client, WorkerService, Workflow, or State API.
+
+Those surfaces require separate product and security design.
+
+### Phase 5 exit gate
+
+1. Application code can construct one Registry and BlobCache, share them with
+   Client and Worker, and drive a typed Flow without importing `dexpb`.
+2. Every approved Phase 1 Client method performs a real FlowService RPC or a
+   documented local no-op.
+3. Starting-step input/options, definitions, values, enums, durations, and
+   results cross the boundary through the Phase 2 codec and Phase 3 metadata.
+4. Required request IDs are selected once per logical call and reused by any
+   transparent retry; only StartFlow accepts a caller-supplied value.
+5. Blob-backed Client and Worker values hydrate privately through LoadBlobs and
+   their shared cache before application decode.
+6. Remote failures preserve Dex and Worker details; local misuse remains a
+   local Go error.
+7. The migrated Go end-to-end suite passes against the current
+   Temporal-backed Dex server without old SDK vocabulary or generated imports.
+
+### Tests
+
+Phase 5 adds real-gRPC Client integration tests with an in-process fake
+FlowService. These exercise transport branches that do not need Temporal:
+
+1. NewRegistry atomic validation; NewClient required dependencies, address and
+   WorkerTarget validation, defensive option copying, concurrent calls,
+   idempotent Close, calls after Close, and a cache usable after Close.
+2. StartFlow registry reuse without reevaluating steps, persistence, or RPC
+   methods; starting/no-start flows, nil/incompatible input, step defaults,
+   optional durations, initial attributes, Client WorkerTarget injection,
+   per-call precedence and omission, and request-ID override/generation.
+3. Static/map channel publishing, batch order, empty no-op, invalid definitions,
+   invalid UTF-8, raw bytes, and all-or-nothing request assembly.
+4. Static/map attribute get/set, batch ordering, missing values, duplicate keys,
+   index config, decode failures, and SetAttributes request IDs.
+5. Direct bound RPC identity, IN/OUT validation, locking and non-locking request
+   IDs, lock mapping, output hydration, and Worker error conversion.
+6. Wait time rounding, immediate checks, default execution number, existing
+   SkipTimer mapping, reset-mode validation, cancel default, config updates,
+   SearchFlows metadata, and HealthCheck.
+7. gRPC status with and without Dex details, caller cancellation, long-poll
+   timeout, malformed responses, and local errors that remain unwrapped.
+8. Client response hydration with cache hit, miss, corrupt entry, duplicate blob
+   ID, missing result, wrong kind, LoadBlobs status, and no-blob fast path.
+
+The rewritten `sdk-go/integ` suite migrates the former iWF Go SDK scenarios:
+
+1. basic transitions, execute-only steps, retry defaults, duplicate IDs, and
+   reuse after an abnormal exit;
+2. WaitFor and Execute failure policies, method timeouts, force-fail, flow
+   timeout, cancel, and explicit fail;
+3. channel publication from clients, RPCs, and parallel steps, including typed
+   results, combinations, natural timers, and SkipTimer;
+4. flows with no starting step or no steps, plus reflected RPC movements and
+   Worker error preservation;
+5. initial static/map attributes, buffered persistence, indexed types, batch
+   reads, and eventual SearchFlows visibility; and
+6. one Registry and BlobCache shared by the public Client and Worker without
+   generated protobuf imports.
+
+Run Phase 5 verification through the Makefile:
+
+```bash
+make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
+make -C sdk-go clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
+make -C sdk-go workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
+make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
+make -C sdk-go e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
+make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
+```
+
+`clientIntegTests` and `workerIntegTests` run with the race detector.
+`e2eTests` owns the current-checkout `dexcli` build, startup,
+readiness, test execution, failure logs, and cleanup. GitHub Actions runs all
+five SDK targets and uploads Temporal/Dex logs on an E2E failure.
+
+### Documentation
+
+- Keep this plan linked from [`docs/README.md`](../../README.md) and mark all
+  five phases implemented only after the exit gate passes.
+- Update [`sdk-go/README.md`](../../../sdk-go/README.md) with Registry and cache
+  construction, Client-level WorkerTarget defaults, current-run targeting,
+  request-ID ownership, starting-step behavior, hydration, errors, concurrency,
+  and Close.
+- Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with Client
+  integration and Temporal end-to-end commands and environment prerequisites.
+- Update the Go examples to construct one Registry and BlobCache, pass both to
+  Client and Worker, configure WorkerTarget once on Client, close them in
+  ownership order, and demonstrate every Client API including initial
+  attributes.
+- Update [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
+  to state that Client and Worker receive the same caller-owned cache.
+- Remove documentation for the legacy HTTP worker, generated application
+  imports, Workflow/State, and the obsolete `dextest` package.
 
 ### UI/UX
 
@@ -984,7 +1582,7 @@ flow together with its heterogeneous steps and RPCs belongs to Phase 3.
 `GetSteps` supplies every step through an opaque `StepDef`. Generic handler
 adapters remain internal implementation details, not public Phase 1 API.
 
-A flow declares at most one starting step with `DefineStepAsStart`. Other
+A flow declares at most one starting step with `DefineStartStep`. Other
 steps use `DefineStep`. A flow without a starting step starts with no step,
 matching dex-base and the current server contract.
 
@@ -1005,7 +1603,7 @@ type StepDef interface {
 }
 
 func DefineStep[IN any](step Step[IN]) StepDef
-func DefineStepAsStart[IN any](step Step[IN]) StepDef
+func DefineStartStep[IN any](step Step[IN]) StepDef
 
 type NoWaitFor[IN any] struct{}
 
@@ -1037,7 +1635,7 @@ A step that waits implements `WaitFor` and may implement `GetStepOptions`
 directly. It must not embed `NoWaitFor` or `StepDefaults`. `GetStepType` must
 return a non-empty, explicit durable name.
 
-`DefineStep` and `DefineStepAsStart` retain the handler's input type while
+`DefineStep` and `DefineStartStep` retain the handler's input type while
 building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step
 types and rejects flows with multiple starting steps.
 
@@ -1747,13 +2345,13 @@ change server-side wait semantics.
 
 Request IDs:
 
-- the SDK generates one UUID per logical `StartFlow`, locking `InvokeRPC`,
-  `WaitForStepCompletion`, or `WaitForAttributeEqual` call when the caller
-  does not supply one;
-- `StartFlowOptions.RequestID` lets applications override the generated ID;
-- transparent retries reuse it;
-- a non-locking RPC may omit the wire request ID, while locking RPC always sends
-  it.
+- the SDK generates one UUID per logical `SetAttributes`, `InvokeRPC`,
+  `WaitForStepCompletion`, or `WaitForAttributeEqual` call, and for StartFlow
+  when no override is supplied;
+- `StartFlowOptions.RequestID` may provide a non-empty business identifier;
+- no other Client option exposes a request-ID override;
+- transparent retries reuse it; and
+- locking RPC and the two wait operations use it as a Temporal update ID.
 
 ### Client result structs
 
@@ -1805,6 +2403,10 @@ type WaitForFlowResult struct {
 type SearchFlowEntry struct {
 	FlowID           string
 	RunID            string
+	FlowType         string
+	Status           FlowStatus
+	StartedAt        time.Time
+	ClosedAt         time.Time
 	SearchAttributes map[string]Value
 }
 
@@ -1946,16 +2548,18 @@ type ResetOptions struct {
 
 Pointer fields in `FlowConfig` preserve proto presence for partial overrides.
 `WorkerTarget` is configured through `FlowConfig`, not as a separate StartFlow
-argument.
+argument. Phase 5 adds `ClientOptions.WorkerTarget` as the default inserted into
+that FlowConfig.
 
-`StartFlowOptions.Timeout == nil` omits the Flow timeout.
+`StartFlowOptions.Timeout == nil` means no Flow execution timeout.
 `StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
-options come from the step wrapped by `DefineStepAsStart`; StartFlow has no
+options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.
 
 `WaitOptions.Timeout == 0` retains the server's immediate-check semantics for
 WaitForAttribute and WaitForStepCompletion. `WaitForFlowOptions` is separate
 because its zero duration means the server-configured maximum long poll.
+`StepExecutionID.ExecutionNumber == nil` selects execution one.
 
 `InitialAttributeDef` is sealed and constructed with typed helpers so initial
 values carry the definition's index configuration:
@@ -2095,7 +2699,7 @@ func (OrderFlow) GetFlowType() string {
 
 func (OrderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStepAsStart(WaitForCommand),
+		dex.DefineStartStep(WaitForCommand),
 	}
 }
 
@@ -2136,7 +2740,7 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    channels, and RPCs without importing `dexpb`.
 2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
    embeds `NoWaitFor[IN]`.
-3. `DefineStep`, `DefineStepAsStart`, `GoTo`, `MovementOf`, and `GoToMulti`
+3. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
    preserve target step input types.
 4. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
    `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.

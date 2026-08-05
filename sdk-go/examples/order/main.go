@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 var (
@@ -117,7 +118,7 @@ func (OrderFlow) GetFlowType() string {
 
 func (OrderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStepAsStart(WaitForCommand),
+		dex.DefineStartStep(WaitForCommand),
 	}
 }
 
@@ -132,13 +133,47 @@ var Orders = OrderFlow{}
 var _ dex.Flow = Orders
 
 func main() {
-	worker, err := dex.NewWorker([]dex.Flow{Orders}, dex.WorkerOptions{
-		BindAddress: ":8803",
-	})
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	registry, err := dex.NewRegistry([]dex.Flow{Orders})
 	if err != nil {
-		slog.Error("create order Worker", "error", err)
+		logger.Error("register order Flow", "error", err)
 		os.Exit(1)
 	}
+	cache, err := blobcache.New(&blobcache.Config{
+		Dir:      "/var/tmp/dex-order-example-blobs",
+		MaxBytes: 1 << 30,
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Error("create order blob cache", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := cache.Close(); err != nil {
+			logger.Error("close order blob cache", "error", err)
+		}
+	}()
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		BindAddress: ":8803",
+		Logger:      logger,
+	})
+	if err != nil {
+		logger.Error("create order Worker", "error", err)
+		os.Exit(1)
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		WorkerTarget: worker.WorkerTarget(),
+		Logger:       logger,
+	})
+	if err != nil {
+		logger.Error("create order Client", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Error("close order Client", "error", err)
+		}
+	}()
 
 	ctx, stopSignals := signal.NotifyContext(
 		context.Background(),
@@ -146,20 +181,20 @@ func main() {
 		syscall.SIGTERM,
 	)
 	defer stopSignals()
-	go stopOrderWorker(ctx, worker)
+	go stopOrderWorker(ctx, worker, logger)
 
-	slog.Info("starting order Worker", "target", worker.WorkerTarget().Address)
+	logger.Info("starting order Worker", "target", worker.WorkerTarget().Address)
 	if err := worker.Start(); err != nil {
-		slog.Error("run order Worker", "error", err)
+		logger.Error("run order Worker", "error", err)
 		os.Exit(1)
 	}
 }
 
-func stopOrderWorker(ctx context.Context, worker *dex.Worker) {
+func stopOrderWorker(ctx context.Context, worker *dex.Worker, logger dex.Logger) {
 	<-ctx.Done()
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := worker.Stop(stopCtx); err != nil {
-		slog.Error("stop order Worker", "error", err)
+		logger.Error("stop order Worker", "error", err)
 	}
 }

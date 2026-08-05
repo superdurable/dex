@@ -11,61 +11,189 @@
 package integ
 
 import (
-	"context"
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/stretchr/testify/assert"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
-func TestSignalWorkflow(t *testing.T) {
-	wfId := "TestSignalWorkflow" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := client.StartWorkflow(context.Background(), &signalWorkflow{}, wfId, 10, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-	err = client.SignalWorkflow(context.Background(), &signalWorkflow{}, wfId, "", testChannelName2, 10)
-	assert.Nil(t, err)
+var (
+	channelFlowFirst  = dex.DefineChannel[int]("first")
+	channelFlowSecond = dex.DefineChannel[int]("second")
+)
 
-	// wait for timer to be ready to be skipped
-	time.Sleep(time.Second)
-	err = client.SignalWorkflow(context.Background(), &signalWorkflow{}, wfId, "", testChannelName1, 100)
-	assert.Nil(t, err)
+type channelFlow struct{}
 
-	err = client.SkipTimerByCommandIndex(context.Background(), wfId, "", signalWorkflowState2{}, 1, 0)
-	assert.Nil(t, err)
-
-	var output int
-	err = client.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, 100, output)
-
-	err = client.SignalWorkflow(context.Background(), &signalWorkflow{}, "a wrong workflowId", "", testChannelName1, 100)
-	assert.True(t, dex.IsWorkflowNotExistsError(err))
+func (channelFlow) GetFlowType() string {
+	return "go-sdk-channel"
 }
 
-func TestSignalWorkflowWithUntypedClient(t *testing.T) {
-	unregisteredClient := dex.NewUnregisteredClient(nil)
+func (channelFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(channelFlowFirstStep{}),
+		dex.DefineStep(channelFlowSecondStep{}),
+	}
+}
 
-	wfType := dex.GetFinalWorkflowType(&signalWorkflow{})
-	wfId := "TestSignalWorkflowWithUntypedClient" + strconv.Itoa(int(time.Now().Unix()))
-	runId, err := unregisteredClient.StartWorkflow(context.Background(), wfType, dex.GetFinalWorkflowStateId(signalWorkflowState1{}), wfId, 10, nil, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, runId)
-	err = unregisteredClient.SignalWorkflow(context.Background(), wfId, "", testChannelName2, 10)
-	assert.Nil(t, err)
+func (channelFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{
+		channelFlowFirst,
+		channelFlowSecond,
+	}}
+}
 
-	// wait for timer to be ready to be skipped
-	time.Sleep(time.Second)
-	err = unregisteredClient.SignalWorkflow(context.Background(), wfId, "", testChannelName1, 100)
-	assert.Nil(t, err)
+type channelFlowFirstStep struct {
+	dex.DefaultStepOptions
+}
 
-	err = unregisteredClient.SkipTimerByCommandIndex(context.Background(), wfId, "", dex.GetFinalWorkflowStateId(signalWorkflowState2{}), 1, 0)
-	assert.Nil(t, err)
+func (channelFlowFirstStep) GetStepType() string {
+	return "first"
+}
 
+func (channelFlowFirstStep) WaitFor(
+	dex.Context,
+	struct{},
+) (dex.Wait, error) {
+	return dex.AnyOf(
+		channelFlowFirst.ForOne(),
+		channelFlowSecond.ForOne(),
+	), nil
+}
+
+func (channelFlowFirstStep) Execute(
+	ctx dex.Context,
+	_ struct{},
+) (dex.StepDecision, error) {
+	first, err := channelFlowFirst.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	second, err := channelFlowSecond.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if len(first) != 0 || len(second) != 1 || second[0] != 10 {
+		return dex.StepDecision{}, fmt.Errorf(
+			"unexpected first-step channel results: first=%v second=%v",
+			first,
+			second,
+		)
+	}
+	return dex.GoTo(channelFlowSecondStep{}, struct{}{}), nil
+}
+
+type channelFlowSecondStep struct {
+	dex.DefaultStepOptions
+}
+
+func (channelFlowSecondStep) GetStepType() string {
+	return "second"
+}
+
+func (channelFlowSecondStep) WaitFor(
+	dex.Context,
+	struct{},
+) (dex.Wait, error) {
+	return dex.AnyComboOf(dex.Combo(
+		channelFlowFirst.ForOne(),
+		dex.Timer(24*time.Hour, dex.WithConditionID("finish-timer")),
+	)), nil
+}
+
+func (channelFlowSecondStep) Execute(
+	ctx dex.Context,
+	_ struct{},
+) (dex.StepDecision, error) {
+	if !ctx.HasTimerFired() || !ctx.HasTimerFiredByIndex(0) {
+		return dex.StepDecision{}, fmt.Errorf("skipped timer was not reported as fired")
+	}
+	first, err := channelFlowFirst.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	second, err := channelFlowSecond.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if len(first) != 1 || first[0] != 100 || len(second) != 0 {
+		return dex.StepDecision{}, fmt.Errorf(
+			"unexpected second-step channel results: first=%v second=%v",
+			first,
+			second,
+		)
+	}
+	return dex.GracefulComplete(first[0]), nil
+}
+
+func TestChannelFlow(t *testing.T) {
+	runChannelFlow(t, channelFlowFirst, channelFlowSecond)
+}
+
+func TestChannelFlowWithErasedDefinitions(t *testing.T) {
+	var first dex.ChannelDef = channelFlowFirst
+	var second dex.ChannelDef = channelFlowSecond
+	runChannelFlow(t, first, second)
+}
+
+func runChannelFlow(
+	t *testing.T,
+	first dex.ChannelDef,
+	second dex.ChannelDef,
+) {
+	t.Helper()
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "channel")
+	_, err := integClient.StartFlow(
+		ctx,
+		channelFlow{},
+		flowID,
+		struct{}{},
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		second,
+		10,
+	))
+	require.NoError(t, integClient.WaitForStepCompletion(
+		ctx,
+		flowID,
+		dex.StepExecutionID{StepType: "first"},
+		dex.WaitOptions{Timeout: 20 * time.Second},
+	))
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		first,
+		100,
+	))
+	require.Eventually(t, func() bool {
+		err = integClient.SkipTimer(
+			ctx,
+			flowID,
+			dex.StepExecutionID{StepType: "second"},
+			dex.TimerID{Index: ptr.Any(int32(0))},
+		)
+		return err == nil
+	}, 20*time.Second, 100*time.Millisecond, "SkipTimer failed: %v", err)
+
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
 	var output int
-	err = unregisteredClient.GetSimpleWorkflowResult(context.Background(), wfId, "", &output)
-	assert.Nil(t, err)
-	assert.Equal(t, 100, output)
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, 100, output)
+
+	err = integClient.PublishToChannel(
+		ctx,
+		newFlowID(t, "missing-channel-flow"),
+		first,
+		100,
+	)
+	requireDexError(t, err, dex.ErrorFlowNotFound)
 }
