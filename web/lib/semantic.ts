@@ -14,11 +14,11 @@ function enumLabel(value: unknown, labels: Record<string, string>): string {
 export function durabilityLabel(value: unknown): string {
   return enumLabel(value, {
     0: 'Unspecified',
-    1: 'Synchronous',
-    2: 'Asynchronous',
+    1: 'sync',
+    2: 'async',
     STEP_DURABILITY_UNSPECIFIED: 'Unspecified',
-    STEP_DURABILITY_SYNC: 'Synchronous',
-    STEP_DURABILITY_ASYNC: 'Asynchronous',
+    STEP_DURABILITY_SYNC: 'sync',
+    STEP_DURABILITY_ASYNC: 'async',
   });
 }
 

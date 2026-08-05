@@ -8,6 +8,7 @@
 
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
+import { SemanticEventDetails } from './EventDetails';
 
 export function FlowOverview({
   summary,
@@ -41,7 +42,9 @@ export function FlowOverview({
           <div><p className="eyebrow">Run input</p><h2>{startKind}</h2></div>
         </div>
         {started ? (
-          <JsonView value={started.payload} label="Start payload" initiallyOpen />
+          <div className="semantic-event">
+            <SemanticEventDetails event={started} showStartHeading={false} />
+          </div>
         ) : (
           <p className="muted">The start event is not in the loaded history page.</p>
         )}
@@ -62,7 +65,7 @@ export function FlowOverview({
           </div>
         </div>
         {state?.flowConfig && <JsonView value={state.flowConfig} label="Flow config" />}
-        {closed && <JsonView value={closed.payload} label="Close result" />}
+        {closed && <JsonView value={closed.payload.results ?? []} label="Close result" />}
       </section>
     </div>
   );

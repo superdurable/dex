@@ -117,8 +117,8 @@ a {
 
 .brand-logo {
   position: absolute;
-  top: -4px;
-  left: -6px;
+  top: -7px;
+  left: -12px;
   width: 72px;
   height: 72px;
   max-width: none;
@@ -1248,7 +1248,7 @@ pre {
 
 .timeline-row {
   display: grid;
-  grid-template-columns: 145px 88px minmax(0, 1fr);
+  grid-template-columns: 145px var(--timeline-link-rail-width, 88px) minmax(0, 1fr);
   cursor: pointer;
 }
 
@@ -1599,6 +1599,10 @@ pre {
   grid-template-columns: 1fr 1fr;
 }
 
+.graph-methods > .graph-method:only-child {
+  grid-column: 1 / -1;
+}
+
 .graph-method {
   display: flex;
   min-width: 0;
@@ -1861,7 +1865,7 @@ pre {
   }
 
   .timeline-row {
-    grid-template-columns: 74px minmax(0, 1fr);
+    grid-template-columns: calc(var(--timeline-link-rail-width, 88px) - 14px) minmax(0, 1fr);
   }
 
   .timeline-time {
