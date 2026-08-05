@@ -609,6 +609,23 @@ func testWebHistoryAndSummary(
 		stepInput,
 		loadedCloseOutput.GetValues()[closeOutput.GetInternalBlobIdForStringValue()].GetStringValue(),
 	)
+	unknownStoreBlobID := "unknown-store|" + strings.SplitN(
+		closeOutput.GetInternalBlobIdForStringValue(),
+		"|",
+		2,
+	)[1]
+	partiallyLoaded, err := runtime.FlowClient.LoadBlobs(
+		ctx,
+		&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{
+			closeOutput,
+			{Kind: &dexpb.Value_InternalBlobIdForStringValue{
+				InternalBlobIdForStringValue: unknownStoreBlobID,
+			}},
+		}},
+	)
+	require.NoError(t, err)
+	require.Len(t, partiallyLoaded.GetValues(), 1)
+	require.Contains(t, partiallyLoaded.GetValues(), closeOutput.GetInternalBlobIdForStringValue())
 
 	waitResponse, err := runtime.FlowClient.WaitForHistoryEvent(
 		ctx,
@@ -623,6 +640,12 @@ func testWebHistoryAndSummary(
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, waitResponse.GetFlowStatus())
 	if storedInputRequest != nil && *dexServerAddress == "" {
 		require.NoError(t, os.RemoveAll(blobDirectory))
+		unavailableBlobs, loadErr := runtime.FlowClient.LoadBlobs(
+			ctx,
+			&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{closeOutput}},
+		)
+		require.NoError(t, loadErr)
+		require.Empty(t, unavailableBlobs.GetValues())
 		unavailable, unavailableErr := runtime.FlowClient.GetStepEventInputs(ctx, storedInputRequest)
 		require.NoError(t, unavailableErr)
 		require.Empty(t, unavailable.GetInputs())

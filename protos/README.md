@@ -57,7 +57,8 @@ inputs appear in `unavailable_event_ids`; they do not fail the whole batch.
 Returned requests have blob-backed `Value` fields hydrated.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
-by value kind and blob ID before loading.
+by value kind and blob ID before loading. Missing objects and unconfigured store
+IDs are omitted from the response map so callers can render them as unavailable.
 
 History events describe flows, step methods, RPCs, and channel publications.
 They do not expose workflow tasks, activities, markers, or raw backend events.

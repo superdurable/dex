@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"os"
+	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +34,8 @@ import (
 	"github.com/superdurable/dex/service/common/log/tag"
 	"go.temporal.io/sdk/client"
 )
+
+var errStoreNotFound = errors.New("store not found")
 
 type blobStoreImpl struct {
 	s3Client                    *s3.Client
@@ -258,7 +260,7 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 	storeConfig, ok := b.supportedStore[storeId]
 	if !ok {
 		b.readObjectErrorCounter.Inc(1)
-		return nil, errors.New("store not found for " + storeId)
+		return nil, fmt.Errorf("%w for %s", errStoreNotFound, storeId)
 	}
 	data, err := b.readObject(ctx, storeConfig, path)
 	if err != nil {
@@ -306,7 +308,7 @@ func (b *blobStoreImpl) readObject(
 
 // IsObjectNotFound reports whether a backend object is absent.
 func IsObjectNotFound(err error) bool {
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
 	var apiError smithy.APIError
@@ -314,6 +316,11 @@ func IsObjectNotFound(err error) bool {
 		return false
 	}
 	return apiError.ErrorCode() == "NoSuchKey" || apiError.ErrorCode() == "NotFound"
+}
+
+// IsObjectUnavailable reports whether persisted data cannot exist in this server configuration.
+func IsObjectUnavailable(err error) bool {
+	return errors.Is(err, errStoreNotFound) || IsObjectNotFound(err)
 }
 
 func putObject(ctx context.Context, client *s3.Client, bucketName string, key string, content []byte) error {
@@ -369,7 +376,7 @@ func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, work
 func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, workflowPath string) error {
 	storeConfig, ok := b.supportedStore[storeId]
 	if !ok {
-		return errors.New("store not found for " + storeId)
+		return fmt.Errorf("%w for %s", errStoreNotFound, storeId)
 	}
 	if storeConfig.StorageType == config.StorageTypeLocal {
 		return deleteLocalWorkflowObjects(ctx, storeConfig.LocalDirectory, b.pathPrefix+workflowPath)
@@ -488,7 +495,7 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 func (b *blobStoreImpl) ListWorkflowPaths(ctx context.Context, input ListObjectPathsInput) (*ListObjectPathsOutput, error) {
 	storeConfig, ok := b.supportedStore[input.StoreId]
 	if !ok {
-		return nil, errors.New("store not found for " + input.StoreId)
+		return nil, fmt.Errorf("%w for %s", errStoreNotFound, input.StoreId)
 	}
 	if storeConfig.StorageType == config.StorageTypeLocal {
 		return listLocalWorkflowPaths(

@@ -616,6 +616,9 @@ func (s *serviceImpl) LoadBlobs(ctx context.Context, req *dexpb.LoadBlobsRequest
 			return nil, makeInvalidRequestError(err.Error())
 		}
 		if err := blobstore.HydrateValue(ctx, hydrateValue, s.store); err != nil {
+			if blobstore.IsObjectUnavailable(err) {
+				continue
+			}
 			return nil, s.handleError(err)
 		}
 		values[blobId] = hydrateValue
@@ -669,7 +672,7 @@ func (s *serviceImpl) GetStepEventInputs(
 			key,
 		)
 		if loadErr != nil {
-			if blobstore.IsObjectNotFound(loadErr) {
+			if blobstore.IsObjectUnavailable(loadErr) {
 				response.UnavailableEventIds = append(response.UnavailableEventIds, key.GetEventId())
 				continue
 			}
