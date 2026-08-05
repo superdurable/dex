@@ -105,11 +105,7 @@ func (initializeStep) Execute(
 	if err := CustomerDetails.Set(ctx, customer); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoToMulti(
-		dex.MovementOf(trialStep{}, dex.None{}),
-		dex.MovementOf(cancelStep{}, dex.None{}),
-		dex.MovementOf(updateChargeAmountStep{}, dex.None{}),
-	), nil
+	return initializeSubscription(), nil
 }
 
 type trialStep struct {
@@ -129,9 +125,7 @@ func (step trialStep) WaitFor(
 	if err != nil {
 		return dex.Wait{}, err
 	}
-	// send welcome email
-	step.service.SendEmail(customer.Email, "welcome email", "hello content")
-	return dex.AllOf(dex.Timer(customer.Subscription.TrialPeriod)), nil
+	return waitForTrial(customer, step.service), nil
 }
 
 func (trialStep) Execute(
@@ -141,7 +135,7 @@ func (trialStep) Execute(
 	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(chargeCurrentBillStep{}, dex.None{}), nil
+	return executeTrial(), nil
 }
 
 const subscriptionOverKey = "subscription-over"
@@ -170,16 +164,17 @@ func (chargeCurrentBillStep) WaitFor(
 	if !found {
 		periodNumber = 0
 	}
-	if periodNumber >= customer.Subscription.MaxBillingPeriods {
+	wait, subscriptionOver := waitForCharge(customer, periodNumber)
+	if subscriptionOver {
 		if err := ctx.SetStepExecutionLocal(subscriptionOverKey, true); err != nil {
 			return dex.Wait{}, err
 		}
-		return dex.SkipWaitImmediately(), nil
+		return wait, nil
 	}
 	if err := BillingPeriodNumber.Set(ctx, periodNumber+1); err != nil {
 		return dex.Wait{}, err
 	}
-	return dex.AllOf(dex.Timer(customer.Subscription.BillingPeriod)), nil
+	return wait, nil
 }
 
 func (step chargeCurrentBillStep) Execute(
@@ -195,17 +190,7 @@ func (step chargeCurrentBillStep) Execute(
 	if err != nil {
 		return dex.StepDecision{}, err
 	}
-	if found && subscriptionOver {
-		step.service.SendEmail(customer.Email, "subscription over", "hello content")
-		// use force completing because the cancel state is still waiting for signal
-		return dex.ForceComplete("subscription ended"), nil
-	}
-	step.service.ChargeUser(
-		customer.Email,
-		customer.ID,
-		customer.Subscription.BillingPeriodCharge,
-	)
-	return dex.GoTo(chargeCurrentBillStep{}, dex.None{}), nil
+	return executeCharge(customer, found && subscriptionOver, step.service), nil
 }
 
 type cancelStep struct {
@@ -232,8 +217,7 @@ func (step cancelStep) Execute(
 	if err != nil {
 		return dex.StepDecision{}, err
 	}
-	step.service.SendEmail(customer.Email, "subscription canceled", "hello content")
-	return dex.ForceComplete("subscription canceled"), nil
+	return executeCancel(customer, step.service), nil
 }
 
 type updateChargeAmountStep struct {
@@ -259,18 +243,91 @@ func (updateChargeAmountStep) Execute(
 	if err != nil {
 		return dex.StepDecision{}, err
 	}
-	if len(amounts) != 1 {
-		return dex.StepDecision{}, fmt.Errorf("expected one charge amount, got %d", len(amounts))
-	}
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
 		return dex.StepDecision{}, err
 	}
-	customer.Subscription.BillingPeriodCharge = amounts[0]
-	if err := CustomerDetails.Set(ctx, customer); err != nil {
+	updatedCustomer, decision, err := executeUpdateChargeAmount(customer, amounts)
+	if err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(updateChargeAmountStep{}, dex.None{}), nil
+	if err := CustomerDetails.Set(ctx, updatedCustomer); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return decision, nil
+}
+
+func initializeSubscription() dex.StepDecision {
+	return dex.GoToMulti(
+		dex.MovementOf(trialStep{}, dex.None{}),
+		dex.MovementOf(cancelStep{}, dex.None{}),
+		dex.MovementOf(updateChargeAmountStep{}, dex.None{}),
+	)
+}
+
+func waitForTrial(
+	customer Customer,
+	applicationService subscriptionService,
+) dex.Wait {
+	// send welcome email
+	applicationService.SendEmail(customer.Email, "welcome email", "hello content")
+	return dex.AllOf(dex.Timer(customer.Subscription.TrialPeriod))
+}
+
+func executeTrial() dex.StepDecision {
+	return dex.GoTo(chargeCurrentBillStep{}, dex.None{})
+}
+
+func waitForCharge(customer Customer, periodNumber int) (dex.Wait, bool) {
+	if periodNumber >= customer.Subscription.MaxBillingPeriods {
+		return dex.SkipWaitImmediately(), true
+	}
+	return dex.AllOf(dex.Timer(customer.Subscription.BillingPeriod)), false
+}
+
+func executeCharge(
+	customer Customer,
+	subscriptionOver bool,
+	applicationService subscriptionService,
+) dex.StepDecision {
+	if subscriptionOver {
+		applicationService.SendEmail(customer.Email, "subscription over", "hello content")
+		// use force completing because the cancel state is still waiting for signal
+		return dex.ForceComplete("subscription ended")
+	}
+	applicationService.ChargeUser(
+		customer.Email,
+		customer.ID,
+		customer.Subscription.BillingPeriodCharge,
+	)
+	return dex.GoTo(chargeCurrentBillStep{}, dex.None{})
+}
+
+func executeCancel(
+	customer Customer,
+	applicationService subscriptionService,
+) dex.StepDecision {
+	applicationService.SendEmail(customer.Email, "subscription canceled", "hello content")
+	return dex.ForceComplete("subscription canceled")
+}
+
+func executeUpdateChargeAmount(
+	customer Customer,
+	amounts []int,
+) (Customer, dex.StepDecision, error) {
+	if len(amounts) != 1 {
+		return Customer{}, dex.StepDecision{}, fmt.Errorf(
+			"expected one charge amount, got %d",
+			len(amounts),
+		)
+	}
+	customer.Subscription.BillingPeriodCharge = amounts[0]
+	return customer, dex.GoTo(updateChargeAmountStep{}, dex.None{}), nil
+}
+
+type subscriptionService interface {
+	SendEmail(recipient, subject, content string)
+	ChargeUser(email, customerID string, amount int)
 }
 
 var (
