@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -160,10 +161,15 @@ func (t *cadenceClient) Close() {
 func (t *cadenceClient) StartInterpreterWorkflow(
 	ctx context.Context, options uclient.StartWorkflowOptions, args ...interface{},
 ) (runId string, err error) {
+	executionTimeout := options.WorkflowExecutionTimeout
+	if executionTimeout == 0 {
+		// Cadence requires a positive int32 timeout; its maximum represents Dex's unbounded timeout.
+		executionTimeout = time.Duration(math.MaxInt32) * time.Second
+	}
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                           options.ID,
 		TaskList:                     options.TaskQueue,
-		ExecutionStartToCloseTimeout: options.WorkflowExecutionTimeout,
+		ExecutionStartToCloseTimeout: executionTimeout,
 		SearchAttributes:             options.SearchAttributes,
 		Memo:                         options.Memo,
 	}
