@@ -64,10 +64,15 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 			testWebCurrentState(t, backendType, lazyLoading)
 		})
 	}
-	for _, conditionType := range []string{"any", "all"} {
-		t.Run("condition-results-"+conditionType, func(t *testing.T) {
-			testWebConditionResults(t, backendType, conditionType)
-		})
+	for _, durability := range []dexpb.StepDurability{
+		dexpb.StepDurability_STEP_DURABILITY_SYNC,
+		dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+	} {
+		for _, conditionType := range []string{"any", "all"} {
+			t.Run(fmt.Sprintf("condition-results-%s-%s", durability, conditionType), func(t *testing.T) {
+				testWebConditionResults(t, backendType, durability, conditionType)
+			})
+		}
 	}
 	t.Run("async-local-fallback", func(t *testing.T) {
 		testWebAsyncLocalFallback(t, backendType)
@@ -252,8 +257,13 @@ func webStringAttribute(key string, value string) *dexpb.AttributeWrite {
 	}
 }
 
-func testWebConditionResults(t *testing.T, backendType service.BackendType, conditionType string) {
-	flowType := "web-step-input-" + conditionType
+func testWebConditionResults(
+	t *testing.T,
+	backendType service.BackendType,
+	durability dexpb.StepDurability,
+	conditionType string,
+) {
+	flowType := fmt.Sprintf("web-step-input-%s-%s", durability, conditionType)
 	workerTarget := startWorker(t, &webStepInputHandler{flowType: flowType, conditionType: conditionType})
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:        backendType,
@@ -281,7 +291,7 @@ func testWebConditionResults(t *testing.T, backendType service.BackendType, cond
 				}},
 			}},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+				StepDurability: ptr.Any(durability),
 				WorkerTarget:   workerTarget,
 			},
 		},
@@ -306,44 +316,101 @@ func testWebConditionResults(t *testing.T, backendType service.BackendType, cond
 		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 	)
 	require.Positive(t, nextInternalEventID)
+	waitForEvent := firstStepEvent(events)
+	require.NotNil(t, waitForEvent)
 	executeEvent := firstExecuteEvent(events)
 	require.NotNil(t, executeEvent)
-	inputs, err := runtime.FlowClient.GetStepEventInputs(ctx, &dexpb.GetStepEventInputsRequest{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-		Keys: []*dexpb.StepEventInputKey{{
-			EventId:         flowEventIDForExecute(events),
-			StepExecutionId: executeEvent.GetExecution().GetStepExecutionId(),
-			MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-		}},
-	})
-	require.NoError(t, err)
-	require.Len(t, inputs.GetInputs(), 1)
-	request := inputs.GetInputs()[0].GetExecuteRequest()
-	require.Equal(t, largeWebTestValue("condition-step-input"), request.GetStepInput().GetStringValue())
-	require.Len(t, request.GetAttributes(), 1)
-	require.Equal(t, largeWebTestValue("condition-attribute"), request.GetAttributes()[0].GetValue().GetStringValue())
-	require.Len(t, request.GetStepExeLocals(), 1)
-	require.Equal(t, "condition-local", request.GetStepExeLocals()[0].GetKey())
+	var waitForRequest *dexpb.InvokeWaitForMethodRequest
+	var executeRequest *dexpb.InvokeExecuteMethodRequest
+	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC {
+		waitForRequest = waitForEvent.GetRequest()
+		executeRequest = executeEvent.GetRequest()
+		require.NotNil(t, waitForRequest)
+		require.NotNil(t, executeRequest)
+	} else {
+		require.Nil(t, waitForEvent.GetRequest())
+		require.Nil(t, executeEvent.GetRequest())
+		inputs, inputErr := runtime.FlowClient.GetStepEventInputs(ctx, &dexpb.GetStepEventInputsRequest{
+			FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
+			Keys: []*dexpb.StepEventInputKey{
+				{
+					EventId:         flowEventIDForWaitFor(events),
+					StepExecutionId: waitForEvent.GetExecution().GetStepExecutionId(),
+					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR,
+				},
+				{
+					EventId:         flowEventIDForExecute(events),
+					StepExecutionId: executeEvent.GetExecution().GetStepExecutionId(),
+					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
+				},
+			},
+		})
+		require.NoError(t, inputErr)
+		require.Empty(t, inputs.GetUnavailableEventIds())
+		require.Len(t, inputs.GetInputs(), 2)
+		waitForRequest = inputs.GetInputs()[0].GetWaitForRequest()
+		executeRequest = inputs.GetInputs()[1].GetExecuteRequest()
+	}
+	require.NotNil(t, waitForRequest)
+	require.NotNil(t, executeRequest)
+	require.Len(t, waitForRequest.GetAttributes(), 1)
+	require.Len(t, executeRequest.GetAttributes(), 1)
+	require.Len(t, executeRequest.GetStepExeLocals(), 1)
+	values := []*dexpb.Value{
+		waitForRequest.GetStepInput(),
+		waitForRequest.GetAttributes()[0].GetValue(),
+		executeRequest.GetStepInput(),
+		executeRequest.GetAttributes()[0].GetValue(),
+		executeRequest.GetStepExeLocals()[0].GetValue(),
+	}
+	for _, channelResult := range executeRequest.GetConditionResults().GetChannelResults() {
+		values = append(values, channelResult.GetValues()...)
+	}
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-step-input"),
+		resolvedWebStringValue(waitForRequest.GetStepInput(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-attribute"),
+		resolvedWebStringValue(waitForRequest.GetAttributes()[0].GetValue(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-step-input"),
+		resolvedWebStringValue(executeRequest.GetStepInput(), loadedValues),
+	)
+	require.Equal(
+		t,
+		largeWebTestValue("condition-attribute"),
+		resolvedWebStringValue(executeRequest.GetAttributes()[0].GetValue(), loadedValues),
+	)
+	require.Equal(t, "condition-local", executeRequest.GetStepExeLocals()[0].GetKey())
 	require.Equal(
 		t,
 		largeWebTestValue("condition-local"),
-		request.GetStepExeLocals()[0].GetValue().GetStringValue(),
+		resolvedWebStringValue(executeRequest.GetStepExeLocals()[0].GetValue(), loadedValues),
 	)
 	if conditionType == "any" {
-		require.Len(t, request.GetConditionResults().GetChannelResults(), 1)
-		require.Len(t, request.GetConditionResults().GetTimerResults(), 2)
+		require.Len(t, executeRequest.GetConditionResults().GetChannelResults(), 1)
+		require.Len(t, executeRequest.GetConditionResults().GetTimerResults(), 2)
 		require.Equal(
 			t,
 			largeWebTestValue("condition-channel-value"),
-			request.GetConditionResults().GetChannelResults()[0].GetValues()[0].GetStringValue(),
+			resolvedWebStringValue(
+				executeRequest.GetConditionResults().GetChannelResults()[0].GetValues()[0],
+				loadedValues,
+			),
 		)
-		for _, result := range request.GetConditionResults().GetTimerResults() {
+		for _, result := range executeRequest.GetConditionResults().GetTimerResults() {
 			require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_WAITING, result.GetConditionStatus())
 		}
 	} else {
-		require.Empty(t, request.GetConditionResults().GetChannelResults())
-		require.Len(t, request.GetConditionResults().GetTimerResults(), 2)
-		for _, result := range request.GetConditionResults().GetTimerResults() {
+		require.Empty(t, executeRequest.GetConditionResults().GetChannelResults())
+		require.Len(t, executeRequest.GetConditionResults().GetTimerResults(), 2)
+		for _, result := range executeRequest.GetConditionResults().GetTimerResults() {
 			require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, result.GetConditionStatus())
 		}
 	}
@@ -914,6 +981,44 @@ func assertStepMethodRequestValues(
 	require.Len(t, attributes, 1)
 	require.Equal(t, "web-test-attribute", attributes[0].GetKey())
 	require.Equal(t, expectedAttribute, attributes[0].GetValue().GetObjValue().GetPayload())
+}
+
+func loadWebBlobValues(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	values []*dexpb.Value,
+) map[string]*dexpb.Value {
+	t.Helper()
+	var blobValues []*dexpb.Value
+	blobIDs := map[string]struct{}{}
+	for _, value := range values {
+		blobID := value.GetInternalBlobIdForStringValue()
+		if blobID == "" {
+			blobID = value.GetInternalBlobIdForObjValue()
+		}
+		if blobID == "" {
+			continue
+		}
+		if _, exists := blobIDs[blobID]; !exists {
+			blobIDs[blobID] = struct{}{}
+			blobValues = append(blobValues, value)
+		}
+	}
+	if len(blobValues) == 0 {
+		return nil
+	}
+	response, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Values: blobValues})
+	require.NoError(t, err)
+	require.Len(t, response.GetValues(), len(blobValues))
+	return response.GetValues()
+}
+
+func resolvedWebStringValue(value *dexpb.Value, loadedValues map[string]*dexpb.Value) string {
+	if blobID := value.GetInternalBlobIdForStringValue(); blobID != "" {
+		return loadedValues[blobID].GetStringValue()
+	}
+	return value.GetStringValue()
 }
 
 func assertExternalChannelValuesLoad(
