@@ -20,7 +20,7 @@ func GoTo[IN any](
 	step Step[IN],
 	input IN,
 	options ...StepMoveOption,
-) StepDecision {
+) *StepDecision {
 	return GoToMulti(MovementOf(step, input, options...))
 }
 
@@ -39,15 +39,15 @@ func MovementOf[IN any](
 	return movement
 }
 
-func GoToMulti(movements ...StepMovement) StepDecision {
-	return StepDecision{
+func GoToMulti(movements ...StepMovement) *StepDecision {
+	return &StepDecision{
 		kind:      decisionNext,
 		movements: movements,
 	}
 }
 
-func GracefulComplete(output any) StepDecision {
-	return StepDecision{
+func GracefulComplete(output any) *StepDecision {
+	return &StepDecision{
 		kind: decisionClose,
 		close: CloseDecision{
 			kind:   closeGracefulComplete,
@@ -56,8 +56,8 @@ func GracefulComplete(output any) StepDecision {
 	}
 }
 
-func ForceComplete(output any) StepDecision {
-	return StepDecision{
+func ForceComplete(output any) *StepDecision {
+	return &StepDecision{
 		kind: decisionClose,
 		close: CloseDecision{
 			kind:   closeForceComplete,
@@ -66,8 +66,8 @@ func ForceComplete(output any) StepDecision {
 	}
 }
 
-func ForceFail(reason string) StepDecision {
-	return StepDecision{
+func ForceFail(reason string) *StepDecision {
+	return &StepDecision{
 		kind: decisionClose,
 		close: CloseDecision{
 			kind:   closeForceFail,
@@ -76,8 +76,8 @@ func ForceFail(reason string) StepDecision {
 	}
 }
 
-func DeadEnd() StepDecision {
-	return StepDecision{
+func DeadEnd() *StepDecision {
+	return &StepDecision{
 		kind:  decisionClose,
 		close: CloseDecision{kind: closeDeadEnd},
 	}
@@ -87,8 +87,8 @@ func ForceCompleteOnChannelsEmpty(
 	output any,
 	channels []ChannelDef,
 	otherwise ...StepMovement,
-) StepDecision {
-	return StepDecision{
+) *StepDecision {
+	return &StepDecision{
 		kind:      decisionConditionalClose,
 		movements: otherwise,
 		close: CloseDecision{

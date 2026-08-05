@@ -65,7 +65,7 @@ type clientTestRPCOutput struct {
 	Status string
 }
 
-func (clientTestStep) Execute(Context, clientTestInput) (StepDecision, error) {
+func (clientTestStep) Execute(Context, clientTestInput) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 

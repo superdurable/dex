@@ -75,22 +75,32 @@ type workerWaitingStep struct {
 func (workerWaitingStep) WaitFor(
 	ctx Context,
 	input workerTestInput,
-) (Wait, error) {
+) (*Wait, error) {
 	if err := workerTestStatus.Set(ctx, "waiting"); err != nil {
-		return Wait{}, err
+		return nil, err
 	}
-	statusValue, found, err := workerTestStatus.Get(ctx)
-	if err != nil || !found || statusValue != "waiting" {
-		return Wait{}, errors.New("buffered attribute write was not visible")
+	statusValue, err := workerTestStatus.Get(ctx)
+	if err != nil || statusValue != "waiting" {
+		return nil, errors.New("buffered attribute write was not visible")
+	}
+	_, err = workerTestItems.Get(ctx, "missing")
+	var missingItem *AttributeNotFoundError
+	if !errors.As(err, &missingItem) ||
+		missingItem.AttributeName != workerTestItems.AttributeName() ||
+		missingItem.Instance != "missing" {
+		return nil, errors.New("missing attribute map value returned the wrong error")
 	}
 	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
-		return Wait{}, err
+		return nil, err
 	}
 	if err := ctx.RecordEvent("waiting", input); err != nil {
-		return Wait{}, err
+		return nil, err
 	}
 	if err := workerTestByOrder.Publish(ctx, input.OrderID, "published"); err != nil {
-		return Wait{}, err
+		return nil, err
+	}
+	if input.Mode == "nil-wait" {
+		return nil, nil
 	}
 	if input.Mode == "immediate" {
 		return SkipWaitImmediately(), nil
@@ -110,52 +120,55 @@ func (workerWaitingStep) WaitFor(
 func (workerWaitingStep) Execute(
 	ctx Context,
 	input workerTestInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	if input.Mode == "empty" {
-		return StepDecision{}, nil
+		return nil, nil
 	}
 	if input.Mode == "error" {
 		if err := workerTestStatus.Set(ctx, "discarded"); err != nil {
-			return StepDecision{}, err
+			return nil, err
 		}
-		return StepDecision{}, errors.New("execute failed")
+		return nil, errors.New("execute failed")
 	}
 	if input.Mode == "missing-local-target" {
 		found, err := ctx.GetStepExecutionLocal("missing", nil)
 		if err == nil || found {
-			return StepDecision{}, errors.New("missing local accepted a nil target")
+			return nil, errors.New("missing local accepted a nil target")
 		}
 		return DeadEnd(), nil
 	}
 	values, err := workerTestCommands.GetConditionResults(ctx)
 	if err != nil {
-		return StepDecision{}, err
+		return nil, err
 	}
 	if len(values) != 2 || values[0] != "first" || values[1] != "second" {
-		return StepDecision{}, errors.New("channel results are out of order")
+		return nil, errors.New("channel results are out of order")
 	}
 	mapValues, err := workerTestByOrder.GetConditionResults(ctx, input.OrderID)
 	if err != nil {
-		return StepDecision{}, err
+		return nil, err
 	}
 	if len(mapValues) != 1 || mapValues[0] != "mapped" {
-		return StepDecision{}, errors.New("map channel results are invalid")
+		return nil, errors.New("map channel results are invalid")
 	}
 	var local workerTestInput
 	found, err := ctx.GetStepExecutionLocal("input", &local)
 	if err != nil || !found || local != input {
-		return StepDecision{}, errors.New("step-execution local is invalid")
+		return nil, errors.New("step-execution local is invalid")
 	}
 	timerFired := input.Mode == "timer"
 	if !ctx.WaitForMethodFailed() || ctx.HasTimerFired() != timerFired ||
 		ctx.HasTimerFiredByIndex(0) != timerFired {
-		return StepDecision{}, errors.New("condition helpers are invalid")
+		return nil, errors.New("condition helpers are invalid")
 	}
 	if err := workerTestStatus.Delete(ctx); err != nil {
-		return StepDecision{}, err
+		return nil, err
 	}
-	if _, found, err := workerTestStatus.Get(ctx); err != nil || found {
-		return StepDecision{}, errors.New("buffered attribute delete was not visible")
+	_, err = workerTestStatus.Get(ctx)
+	var notFound *AttributeNotFoundError
+	if !errors.As(err, &notFound) ||
+		notFound.AttributeName != workerTestStatus.AttributeName() {
+		return nil, errors.New("buffered attribute delete was not visible")
 	}
 	return GoTo(workerTestFinish, input), nil
 }
@@ -169,7 +182,7 @@ type workerFinishStep struct {
 func (workerFinishStep) Execute(
 	Context,
 	workerTestInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -359,9 +372,10 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 	defer closeService()
 
 	tests := []struct {
-		name string
-		call func() error
-		code codes.Code
+		name   string
+		call   func() error
+		code   codes.Code
+		detail string
 	}{
 		{
 			name: "unknown flow",
@@ -409,7 +423,27 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			code: codes.NotFound,
 		},
 		{
-			name: "empty decision",
+			name: "nil wait",
+			call: func() error {
+				_, err := client.InvokeWaitForMethod(
+					context.Background(),
+					&dexpb.InvokeWaitForMethodRequest{
+						Context:  workerStepContext(),
+						FlowType: GetFinalFlowType(workerFlow),
+						StepType: GetFinalStepType(workerTestWait),
+						StepInput: mustEncodeWorkerTestValue(
+							t,
+							workerTestInput{OrderID: "order-1", Mode: "nil-wait"},
+						),
+					},
+				)
+				return err
+			},
+			code:   codes.InvalidArgument,
+			detail: "WaitFor returned nil",
+		},
+		{
+			name: "nil decision",
 			call: func() error {
 				_, err := client.InvokeExecuteMethod(
 					context.Background(),
@@ -417,7 +451,8 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 				)
 				return err
 			},
-			code: codes.InvalidArgument,
+			code:   codes.InvalidArgument,
+			detail: "Execute returned nil",
 		},
 		{
 			name: "application error",
@@ -457,6 +492,9 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			require.Error(t, err)
 			rpcStatus := status.Convert(err)
 			require.Equal(t, testCase.code, rpcStatus.Code())
+			if testCase.detail != "" {
+				require.Contains(t, rpcStatus.Message(), testCase.detail)
+			}
 			requireWorkerErrorDetail(t, rpcStatus)
 		})
 	}
@@ -785,7 +823,7 @@ func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		decision StepDecision
+		decision *StepDecision
 		close    dexpb.CloseDecisionType
 	}{
 		{name: "graceful", decision: GracefulComplete("done"), close: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE},

@@ -35,7 +35,7 @@ type automaticRegistrationStep struct {
 func (automaticRegistrationStep) Execute(
 	Context,
 	registrationInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -46,7 +46,7 @@ type stepDefaultsWithoutWaitFor struct {
 func (stepDefaultsWithoutWaitFor) Execute(
 	Context,
 	registrationInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -80,7 +80,7 @@ func (step *registrationStep) GetStepOptions() *StepOptions {
 func (step *registrationStep) WaitFor(
 	_ Context,
 	input registrationInput,
-) (Wait, error) {
+) (*Wait, error) {
 	step.waitForInput = input
 	return SkipWaitImmediately(), nil
 }
@@ -88,7 +88,7 @@ func (step *registrationStep) WaitFor(
 func (step *registrationStep) Execute(
 	_ Context,
 	input registrationInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	step.executeInput = input
 	return DeadEnd(), nil
 }
@@ -105,7 +105,7 @@ func (step *executeOnlyRegistrationStep) GetStepType() string {
 func (*executeOnlyRegistrationStep) Execute(
 	Context,
 	registrationInput,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -121,7 +121,7 @@ func (step *stringRegistrationStep) GetStepType() string {
 func (*stringRegistrationStep) Execute(
 	Context,
 	string,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 

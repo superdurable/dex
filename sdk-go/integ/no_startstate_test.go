@@ -42,7 +42,7 @@ type noStartFinishStep struct {
 func (noStartFinishStep) Execute(
 	_ dex.Context,
 	input int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 

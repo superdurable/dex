@@ -18,8 +18,11 @@ import (
 
 func mapRegisteredWait(
 	flow *registeredFlow,
-	wait Wait,
+	wait *Wait,
 ) (*dexpb.WaitingCondition, *dexpb.StepMovement, error) {
+	if wait == nil {
+		return nil, nil, fmt.Errorf("dex: WaitFor returned nil")
+	}
 	if err := validateRegisteredWait(flow, wait); err != nil {
 		return nil, nil, err
 	}
@@ -37,7 +40,7 @@ func mapRegisteredWait(
 	return waiting, transient, nil
 }
 
-func validateRegisteredWait(flow *registeredFlow, wait Wait) error {
+func validateRegisteredWait(flow *registeredFlow, wait *Wait) error {
 	for _, condition := range wait.conditions {
 		if err := validateRegisteredCondition(flow, condition); err != nil {
 			return err
@@ -104,8 +107,11 @@ func mapTransientMovement(
 
 func mapRegisteredDecision(
 	flow *registeredFlow,
-	decision StepDecision,
+	decision *StepDecision,
 ) (*dexpb.StepDecision, error) {
+	if decision == nil {
+		return nil, fmt.Errorf("dex: Execute returned nil")
+	}
 	switch decision.kind {
 	case decisionNext:
 		if len(decision.movements) == 0 {

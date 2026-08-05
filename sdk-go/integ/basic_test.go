@@ -34,19 +34,19 @@ type basicFirstStep struct {
 	dex.StepDefaults
 }
 
-func (basicFirstStep) WaitFor(ctx dex.Context, input int) (dex.Wait, error) {
+func (basicFirstStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
 	if ctx.Attempt() < 1 || ctx.FirstAttemptAt().IsZero() {
-		return dex.Wait{}, fmt.Errorf("invalid first-step attempt metadata")
+		return nil, fmt.Errorf("invalid first-step attempt metadata")
 	}
 	if input < 0 {
-		return dex.Wait{}, fmt.Errorf("input must not be negative")
+		return nil, fmt.Errorf("input must not be negative")
 	}
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (basicFirstStep) Execute(ctx dex.Context, input int) (dex.StepDecision, error) {
+func (basicFirstStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
 	if ctx.Attempt() < 1 || ctx.FirstAttemptAt().IsZero() {
-		return dex.StepDecision{}, fmt.Errorf("invalid first-step attempt metadata")
+		return nil, fmt.Errorf("invalid first-step attempt metadata")
 	}
 	return dex.GoTo(basicSecondStep{}, input+1), nil
 }
@@ -55,7 +55,7 @@ type basicSecondStep struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (basicSecondStep) Execute(dex.Context, int) (dex.StepDecision, error) {
+func (basicSecondStep) Execute(dex.Context, int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(3), nil
 }
 
@@ -87,16 +87,16 @@ func (proceedOnWaitForFailureFirstStep) GetStepOptions() *dex.StepOptions {
 func (proceedOnWaitForFailureFirstStep) WaitFor(
 	dex.Context,
 	string,
-) (dex.Wait, error) {
-	return dex.Wait{}, fmt.Errorf("planned WaitFor failure")
+) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
 }
 
 func (proceedOnWaitForFailureFirstStep) Execute(
 	ctx dex.Context,
 	input string,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
-		return dex.StepDecision{}, fmt.Errorf("WaitFor failure was not reported")
+		return nil, fmt.Errorf("WaitFor failure was not reported")
 	}
 	return dex.GoTo(
 		proceedOnWaitForFailureSecondStep{},
@@ -111,14 +111,14 @@ type proceedOnWaitForFailureSecondStep struct {
 func (proceedOnWaitForFailureSecondStep) WaitFor(
 	dex.Context,
 	string,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.SkipWaitImmediately(), nil
 }
 
 func (proceedOnWaitForFailureSecondStep) Execute(
 	_ dex.Context,
 	input string,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + "_step2_wait_for_step2_execute"), nil
 }
 

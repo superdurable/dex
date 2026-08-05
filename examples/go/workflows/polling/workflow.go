@@ -67,9 +67,12 @@ type initializeStep struct {
 }
 
 func (initializeStep) Execute(
-	_ dex.Context,
+	ctx dex.Context,
 	maximumPolls int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
+	if err := CurrentPolls.Set(ctx, 0); err != nil {
+		return nil, err
+	}
 	return dex.GoToMulti(
 		dex.MovementOf(pollStep{}, maximumPolls),
 		dex.MovementOf(waitForTasksStep{}, nil),
@@ -83,7 +86,7 @@ type waitForTasksStep struct {
 func (waitForTasksStep) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AllOf(
 		TaskACompleted.ForOne(),
 		TaskBCompleted.ForOne(),
@@ -94,7 +97,7 @@ func (waitForTasksStep) WaitFor(
 func (waitForTasksStep) Execute(
 	dex.Context,
 	dex.None,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GracefulComplete("all tasks completed"), nil
 }
 
@@ -106,30 +109,27 @@ type pollStep struct {
 func (pollStep) WaitFor(
 	dex.Context,
 	int,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(dex.Timer(time.Second)), nil
 }
 
 func (step pollStep) Execute(
 	ctx dex.Context,
 	maximumPolls int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	step.service.CallAPI1("calling API1 for polling service C")
-	currentPolls, found, err := CurrentPolls.Get(ctx)
+	currentPolls, err := CurrentPolls.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
-	}
-	if !found {
-		currentPolls = 0
+		return nil, err
 	}
 	if currentPolls >= maximumPolls {
 		if err := TaskCCompleted.Publish(ctx, nil); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 		return dex.DeadEnd(), nil
 	}
 	if err := CurrentPolls.Set(ctx, currentPolls+1); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(pollStep{}, maximumPolls), nil
 }

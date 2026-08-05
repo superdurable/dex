@@ -61,7 +61,7 @@ func (*OrchestrationFlow) Swap(
 	ctx dex.Context,
 	newData string,
 ) (dex.RPCResult[string], error) {
-	oldData, _, err := Data.Get(ctx)
+	oldData, err := Data.Get(ctx)
 	if err != nil {
 		return dex.RPCResult[string]{}, err
 	}
@@ -79,10 +79,10 @@ type callAPI1Step struct {
 func (step callAPI1Step) Execute(
 	ctx dex.Context,
 	input string,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	step.service.CallAPI1(input)
 	if err := Data.Set(ctx, input); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoToMulti(
 		dex.MovementOf(callAPI2Step{}, nil),
@@ -98,10 +98,10 @@ type callAPI2Step struct {
 func (step callAPI2Step) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	data, _, err := Data.Get(ctx)
+) (*dex.StepDecision, error) {
+	data, err := Data.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	step.service.CallAPI2(data)
 	return dex.DeadEnd(), nil
@@ -115,7 +115,7 @@ type callAPI3Step struct {
 func (callAPI3Step) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(24*time.Hour),
 		Ready.ForOne(),
@@ -125,10 +125,10 @@ func (callAPI3Step) WaitFor(
 func (step callAPI3Step) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	data, _, err := Data.Get(ctx)
+) (*dex.StepDecision, error) {
+	data, err := Data.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	step.service.CallAPI3(data)
 	if ctx.HasTimerFired() {
@@ -145,10 +145,10 @@ type callAPI4Step struct {
 func (step callAPI4Step) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	data, _, err := Data.Get(ctx)
+) (*dex.StepDecision, error) {
+	data, err := Data.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	step.service.CallAPI4(data)
 	return dex.GracefulComplete(data), nil

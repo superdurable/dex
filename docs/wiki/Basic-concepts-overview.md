@@ -180,7 +180,7 @@ func (*OrchestrationFlow) Swap(
 	ctx dex.Context,
 	newData string,
 ) (dex.RPCResult[string], error) {
-	oldData, _, err := Data.Get(ctx)
+	oldData, err := Data.Get(ctx)
 	if err != nil {
 		return dex.RPCResult[string]{}, err
 	}

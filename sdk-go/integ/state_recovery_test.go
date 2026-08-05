@@ -41,8 +41,8 @@ func (executeRecoveryFailStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (executeRecoveryFailStep) Execute(dex.Context, string) (dex.StepDecision, error) {
-	return dex.StepDecision{}, fmt.Errorf("planned Execute failure")
+func (executeRecoveryFailStep) Execute(dex.Context, string) (*dex.StepDecision, error) {
+	return nil, fmt.Errorf("planned Execute failure")
 }
 
 type executeRecoveryFinishStep struct {
@@ -52,7 +52,7 @@ type executeRecoveryFinishStep struct {
 func (executeRecoveryFinishStep) Execute(
 	dex.Context,
 	string,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GracefulComplete("this is flow step 2"), nil
 }
 

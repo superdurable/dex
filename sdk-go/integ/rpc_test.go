@@ -11,6 +11,7 @@
 package integ
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -50,8 +51,12 @@ func (rpcFlow) Increment(
 	ctx dex.Context,
 	input int,
 ) (dex.RPCResult[rpcIncrementOutput], error) {
-	_, found, err := rpcFlowStatus.Get(ctx)
-	if err != nil {
+	_, err := rpcFlowStatus.Get(ctx)
+	statusFound := true
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		statusFound = false
+	} else if err != nil {
 		return dex.RPCResult[rpcIncrementOutput]{}, err
 	}
 	before := rpcFlowChannel.Size(ctx)
@@ -65,7 +70,7 @@ func (rpcFlow) Increment(
 		Value:       input + 1,
 		SizeBefore:  before,
 		SizeAfter:   rpcFlowChannel.Size(ctx),
-		StatusFound: found,
+		StatusFound: statusFound,
 	}}, nil
 }
 
@@ -83,27 +88,27 @@ type rpcFlowStep struct {
 func (rpcFlowStep) WaitFor(
 	dex.Context,
 	int,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(rpcFlowChannel.ForOne()), nil
 }
 
 func (rpcFlowStep) Execute(
 	ctx dex.Context,
 	input int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	values, err := rpcFlowChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(values) != 1 || values[0] != input+1 {
-		return dex.StepDecision{}, fmt.Errorf("unexpected RPC channel values %v", values)
+		return nil, fmt.Errorf("unexpected RPC channel values %v", values)
 	}
-	status, found, err := rpcFlowStatus.Get(ctx)
+	status, err := rpcFlowStatus.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if !found || status != "invoked" {
-		return dex.StepDecision{}, fmt.Errorf("RPC attribute write was not committed")
+	if status != "invoked" {
+		return nil, fmt.Errorf("RPC attribute write was not committed")
 	}
 	return dex.GracefulComplete(values[0] + 1), nil
 }

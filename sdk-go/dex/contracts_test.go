@@ -50,7 +50,7 @@ type noPayloadStep struct {
 func (noPayloadStep) Execute(
 	dex.Context,
 	dex.None,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
@@ -64,9 +64,9 @@ type waitingStep struct {
 func (waitingStep) WaitFor(
 	ctx dex.Context,
 	input stepInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	if err := statusAttribute.Set(ctx, input.OrderID); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.AnyComboOf(
 		dex.Combo(
@@ -82,13 +82,13 @@ func (waitingStep) WaitFor(
 func (waitingStep) Execute(
 	ctx dex.Context,
 	input stepInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.WaitForMethodFailed() || ctx.HasTimerFiredByIndex(0) {
 		return dex.ForceFail("wait failed"), nil
 	}
 	results, err := commandChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(results) == 0 {
 		return dex.DeadEnd(), nil
@@ -106,7 +106,7 @@ type executeOnlyStep struct {
 func (executeOnlyStep) Execute(
 	ctx dex.Context,
 	input stepInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	first := dex.MovementOf(waitForCommand, input)
 	second := dex.MovementOf(executeOnly, input)
 	return dex.GoToMulti(first, second), nil
@@ -249,8 +249,22 @@ func TestErrorSupportsErrorsAs(t *testing.T) {
 	}
 }
 
+func TestAttributeNotFoundErrorSupportsErrorsAs(t *testing.T) {
+	missing := error(&dex.AttributeNotFoundError{
+		AttributeName: "items",
+		Instance:      "order-1",
+	})
+	var target *dex.AttributeNotFoundError
+	if !errors.As(missing, &target) {
+		t.Fatal("attribute not-found error does not support errors.As")
+	}
+	if target.AttributeName != "items" || target.Instance != "order-1" {
+		t.Fatalf("unexpected attribute identity: %#v", target)
+	}
+}
+
 func compileAttributeOperations(ctx dex.Context) error {
-	if _, _, err := statusAttribute.Get(ctx); err != nil {
+	if _, err := statusAttribute.Get(ctx); err != nil {
 		return err
 	}
 	if err := statusAttribute.Set(ctx, "ready"); err != nil {
@@ -259,7 +273,7 @@ func compileAttributeOperations(ctx dex.Context) error {
 	if err := statusAttribute.Delete(ctx); err != nil {
 		return err
 	}
-	if _, _, err := itemsAttribute.Get(ctx, "order-1"); err != nil {
+	if _, err := itemsAttribute.Get(ctx, "order-1"); err != nil {
 		return err
 	}
 	if err := itemsAttribute.Set(ctx, "order-1", 1); err != nil {

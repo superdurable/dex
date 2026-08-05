@@ -52,19 +52,19 @@ type WaitForCommandStep struct {
 func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 
 	if err := ctx.SetStepExecutionLocal(
 		"snapshot",
 		OrderSnapshot{OrderID: input.OrderID},
 	); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := ctx.RecordEvent("waiting-for-command", input); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 
 	return dex.AnyOf(
@@ -79,26 +79,26 @@ func (WaitForCommandStep) WaitFor(
 func (WaitForCommandStep) Execute(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.ForceFail("command timed out"), nil
 	}
 
 	commands, err := Commands.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(commands) == 0 {
-		return dex.StepDecision{}, fmt.Errorf("command is missing")
+		return nil, fmt.Errorf("command is missing")
 	}
 
 	var snapshot OrderSnapshot
 	found, err := ctx.GetStepExecutionLocal("snapshot", &snapshot)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if !found {
-		return dex.StepDecision{}, fmt.Errorf("snapshot is missing")
+		return nil, fmt.Errorf("snapshot is missing")
 	}
 	return dex.GracefulComplete(snapshot), nil
 }

@@ -67,7 +67,7 @@ type checkBalanceStep struct {
 func (step checkBalanceStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if !step.service.CheckBalance(request.FromAccount, request.Amount) {
 		return dex.ForceFail("insufficient funds"), nil
 	}
@@ -87,13 +87,13 @@ func (createDebitMemoStep) GetStepOptions() *dex.StepOptions {
 func (step createDebitMemoStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := step.service.CreateDebitMemo(
 		request.FromAccount,
 		request.Amount,
 		request.Notes,
 	); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(debitStep{}, request), nil
 }
@@ -111,9 +111,9 @@ func (debitStep) GetStepOptions() *dex.StepOptions {
 func (step debitStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := step.service.Debit(request.FromAccount, request.Amount); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(createCreditMemoStep{}, request), nil
 }
@@ -131,13 +131,13 @@ func (createCreditMemoStep) GetStepOptions() *dex.StepOptions {
 func (step createCreditMemoStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := step.service.CreateCreditMemo(
 		request.ToAccount,
 		request.Amount,
 		request.Notes,
 	); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(creditStep{}, request), nil
 }
@@ -155,9 +155,9 @@ func (creditStep) GetStepOptions() *dex.StepOptions {
 func (step creditStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := step.service.Credit(request.ToAccount, request.Amount); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GracefulComplete(fmt.Sprintf(
 		"transfer is done from %s to %s for amount %d",
@@ -182,28 +182,28 @@ func (compensateStep) GetStepOptions() *dex.StepOptions {
 func (step compensateStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	// NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
 	// and check a flag to see if we should undo it or not
 	if err := step.service.UndoCredit(request.ToAccount, request.Amount); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := step.service.UndoCreateCreditMemo(
 		request.ToAccount,
 		request.Amount,
 		request.Notes,
 	); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := step.service.UndoCreateDebitMemo(
 		request.FromAccount,
 		request.Amount,
 		request.Notes,
 	); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := step.service.UndoDebit(request.FromAccount, request.Amount); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.ForceFail(fmt.Sprintf(
 		"transfer has failed from %s to %s for amount %d",

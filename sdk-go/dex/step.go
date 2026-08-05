@@ -36,7 +36,7 @@ type None = *none
 //	func (ApproveOrderStep) WaitFor(
 //		ctx dex.Context,
 //		input ApproveOrderInput,
-//	) (dex.Wait, error) {
+//	) (*dex.Wait, error) {
 //		return dex.AnyOf(
 //			ApprovalChannel.ForOne(),
 //			dex.Timer(input.Timeout, dex.WithConditionID("approval-timeout")),
@@ -46,7 +46,7 @@ type None = *none
 //	func (ApproveOrderStep) Execute(
 //		ctx dex.Context,
 //		input ApproveOrderInput,
-//	) (dex.StepDecision, error) {
+//	) (*dex.StepDecision, error) {
 //		if ctx.HasTimerFired() {
 //			return dex.ForceFail("approval timed out"), nil
 //		}
@@ -64,7 +64,7 @@ type None = *none
 //	func (ShipOrderStep) Execute(
 //		ctx dex.Context,
 //		input ShipOrderInput,
-//	) (dex.StepDecision, error) {
+//	) (*dex.StepDecision, error) {
 //		return dex.DeadEnd(), nil
 //	}
 //
@@ -84,7 +84,7 @@ type Step[IN any] interface {
 	//	ctx    invocation context (flow id, run id, step execution id, etc.)
 	//	input  typed step input for this execution
 	//
-	// Return a Wait built from Channel.ForOne / ForAll, Timer, AnyOf / AllOf, or
+	// Return a non-nil Wait built from Channel.ForOne / ForAll, Timer, AnyOf / AllOf, or
 	// SkipWaitImmediately. Attribute Set, RecordEvent, Publish, and
 	// SetStepExecutionLocal are allowed here; writes are accepted with the
 	// WaitFor response.
@@ -93,7 +93,7 @@ type Step[IN any] interface {
 	// StepDefaultsNoWaitFor[IN] instead of implementing a real WaitFor.
 	// Registration detects the marker and skips this method; the panic body must
 	// never run.
-	WaitFor(ctx Context, input IN) (Wait, error)
+	WaitFor(ctx Context, input IN) (*Wait, error)
 
 	// Execute decides what happens next after WaitFor conditions complete, or
 	// immediately when the step is execute-only (NoWaitFor / StepDefaultsNoWaitFor).
@@ -102,10 +102,10 @@ type Step[IN any] interface {
 	//	       step-execution locals set in WaitFor
 	//	input  the same typed step input passed to WaitFor
 	//
-	// Return a non-empty StepDecision (GoTo, GoToMulti, DeadEnd, GracefulComplete,
+	// Return a non-nil StepDecision (GoTo, GoToMulti, DeadEnd, GracefulComplete,
 	// ForceComplete, ForceFail, or a conditional close). Attribute / channel /
 	// event writes are allowed; they are accepted with the Execute response.
-	Execute(ctx Context, input IN) (StepDecision, error)
+	Execute(ctx Context, input IN) (*StepDecision, error)
 }
 
 // DefineStep wraps a non-starting Step for Flow.GetSteps.
@@ -133,8 +133,8 @@ type StepDef interface {
 	stepValue() any
 	isStarting() bool
 	skipWaitFor() bool
-	waitFor(Context, any) (Wait, error)
-	execute(Context, any) (StepDecision, error)
+	waitFor(Context, any) (*Wait, error)
+	execute(Context, any) (*StepDecision, error)
 }
 
 // NoWaitFor marks a Step as execute-only. Embed it (or StepDefaultsNoWaitFor) so
@@ -186,7 +186,7 @@ type StepDefaultsNoWaitFor[IN any] struct {
 	NoWaitFor[IN]
 }
 
-func (NoWaitFor[IN]) WaitFor(Context, IN) (Wait, error) {
+func (NoWaitFor[IN]) WaitFor(Context, IN) (*Wait, error) {
 	panic("NoWaitFor: framework must skip WaitFor")
 }
 
@@ -242,10 +242,10 @@ func (def typedStepDef[IN]) skipWaitFor() bool {
 func (def typedStepDef[IN]) waitFor(
 	ctx Context,
 	input any,
-) (Wait, error) {
+) (*Wait, error) {
 	typedInput, err := stepInput[IN](input)
 	if err != nil {
-		return Wait{}, err
+		return nil, err
 	}
 	return def.step.WaitFor(ctx, typedInput)
 }
@@ -253,10 +253,10 @@ func (def typedStepDef[IN]) waitFor(
 func (def typedStepDef[IN]) execute(
 	ctx Context,
 	input any,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	typedInput, err := stepInput[IN](input)
 	if err != nil {
-		return StepDecision{}, err
+		return nil, err
 	}
 	return def.step.Execute(ctx, typedInput)
 }

@@ -11,6 +11,7 @@
 package integ
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -96,46 +97,47 @@ type persistenceFirstStep struct {
 func (persistenceFirstStep) WaitFor(
 	ctx dex.Context,
 	input persistenceModel,
-) (dex.Wait, error) {
-	keyword, found, err := persistenceKeyword.Get(ctx)
+) (*dex.Wait, error) {
+	keyword, err := persistenceKeyword.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if !found || keyword != "init-keyword" {
-		return dex.Wait{}, fmt.Errorf("unexpected initial keyword %q", keyword)
+	if keyword != "init-keyword" {
+		return nil, fmt.Errorf("unexpected initial keyword %q", keyword)
 	}
-	searchText, found, err := persistenceSearchText.Get(ctx)
+	searchText, err := persistenceSearchText.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if !found || searchText != "init-text" {
-		return dex.Wait{}, fmt.Errorf("unexpected initial search text %q", searchText)
+	if searchText != "init-text" {
+		return nil, fmt.Errorf("unexpected initial search text %q", searchText)
 	}
-	_, found, err = persistenceData.Get(ctx)
+	_, err = persistenceData.Get(ctx)
+	if err == nil {
+		return nil, fmt.Errorf("data must not exist before its first write")
+	}
+	var notFound *dex.AttributeNotFoundError
+	if !errors.As(err, &notFound) {
+		return nil, err
+	}
+	item, err := persistenceMap.Get(ctx, "one")
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if found {
-		return dex.Wait{}, fmt.Errorf("data must not exist before its first write")
-	}
-	item, found, err := persistenceMap.Get(ctx, "one")
-	if err != nil {
-		return dex.Wait{}, err
-	}
-	if !found || item != 10 {
-		return dex.Wait{}, fmt.Errorf("unexpected initial map value %d", item)
+	if item != 10 {
+		return nil, fmt.Errorf("unexpected initial map value %d", item)
 	}
 	if err := persistenceData.Set(ctx, input); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := persistenceText.Set(ctx, "a string"); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := persistenceMap.Set(ctx, "one", 11); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := persistenceInt.Set(ctx, 1); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
@@ -143,26 +145,26 @@ func (persistenceFirstStep) WaitFor(
 func (persistenceFirstStep) Execute(
 	ctx dex.Context,
 	input persistenceModel,
-) (dex.StepDecision, error) {
-	integer, found, err := persistenceInt.Get(ctx)
+) (*dex.StepDecision, error) {
+	integer, err := persistenceInt.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if !found || integer != 1 {
-		return dex.StepDecision{}, fmt.Errorf("WaitFor integer write was not visible")
+	if integer != 1 {
+		return nil, fmt.Errorf("WaitFor integer write was not visible")
 	}
-	data, found, err := persistenceData.Get(ctx)
+	data, err := persistenceData.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if !found || data.Text != input.Text || data.Number != input.Number {
-		return dex.StepDecision{}, fmt.Errorf("WaitFor data write was not visible")
+	if data.Text != input.Text || data.Number != input.Number {
+		return nil, fmt.Errorf("WaitFor data write was not visible")
 	}
 	if err := persistenceDatetime.Set(ctx, data.Datetime); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := persistenceBool.Set(ctx, true); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoTo(persistenceSecondStep{}, struct{}{}), nil
 }
@@ -174,33 +176,30 @@ type persistenceSecondStep struct {
 func (persistenceSecondStep) WaitFor(
 	ctx dex.Context,
 	_ struct{},
-) (dex.Wait, error) {
-	data, found, err := persistenceData.Get(ctx)
+) (*dex.Wait, error) {
+	data, err := persistenceData.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if !found {
-		return dex.Wait{}, fmt.Errorf("persisted data is missing")
-	}
-	dateTime, found, err := persistenceDatetime.Get(ctx)
+	dateTime, err := persistenceDatetime.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if !found || !dateTime.Equal(data.Datetime) {
-		return dex.Wait{}, fmt.Errorf("persisted datetime does not round-trip")
+	if !dateTime.Equal(data.Datetime) {
+		return nil, fmt.Errorf("persisted datetime does not round-trip")
 	}
-	boolean, found, err := persistenceBool.Get(ctx)
+	boolean, err := persistenceBool.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	if !found || !boolean {
-		return dex.Wait{}, fmt.Errorf("persisted bool is false")
+	if !boolean {
+		return nil, fmt.Errorf("persisted bool is false")
 	}
 	if err := persistenceDouble.Set(ctx, 1); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := persistenceSearchText.Set(ctx, "Hail Dex!"); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
@@ -208,16 +207,16 @@ func (persistenceSecondStep) WaitFor(
 func (persistenceSecondStep) Execute(
 	ctx dex.Context,
 	_ struct{},
-) (dex.StepDecision, error) {
-	text, found, err := persistenceSearchText.Get(ctx)
+) (*dex.StepDecision, error) {
+	text, err := persistenceSearchText.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	if !found || text != "Hail Dex!" {
-		return dex.StepDecision{}, fmt.Errorf("unexpected persisted text %q", text)
+	if text != "Hail Dex!" {
+		return nil, fmt.Errorf("unexpected persisted text %q", text)
 	}
 	if err := persistenceKeyword.Set(ctx, "Dex"); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GracefulComplete("done"), nil
 }

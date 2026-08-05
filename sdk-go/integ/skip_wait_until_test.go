@@ -46,7 +46,7 @@ type executeOnlyFirstStep struct {
 func (executeOnlyFirstStep) Execute(
 	_ dex.Context,
 	input int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GoTo(executeOnlySecondStep{}, input+1), nil
 }
 
@@ -57,7 +57,7 @@ type executeOnlySecondStep struct {
 func (executeOnlySecondStep) Execute(
 	_ dex.Context,
 	input int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 
