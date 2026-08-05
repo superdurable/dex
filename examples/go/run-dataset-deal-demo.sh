@@ -140,6 +140,10 @@ curl --fail --silent --show-error \
   -H 'Content-Type: application/json' \
   --data-binary "@$process_payload" \
   "http://${api_address}/api/dataset-deal/processes" >/dev/null
+curl --fail --silent --show-error \
+  "http://${api_address}/api/dataset-deal/processes" | \
+  jq -e --arg process_id "$process_id" \
+    '.processes | any(.processID == $process_id)' >/dev/null
 
 tables=$(DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -p "$compose_project" \
@@ -227,11 +231,19 @@ pending_result=$(wait_for_execution "$pending_flow" \
   '.status == "RUNNING" and .currentState == "buyer-negotiation" and .pendingPreConditionName == ""')
 all_executions=$(curl --fail --silent --show-error "http://${api_address}/api/dataset-deal/executions")
 buyer_executions=$(curl --fail --silent --show-error \
-  "http://${api_address}/api/dataset-deal/executions?buyerID=${buyer_refund}")
+  "http://${api_address}/api/dataset-deal/executions?buyerID=${buyer_refund}&processID=${process_id}")
+process_executions=$(curl --fail --silent --show-error \
+  "http://${api_address}/api/dataset-deal/executions?processID=${process_id}")
 jq -e --arg full "$full_flow" --arg refund "$refund_flow" --arg pending "$pending_flow" \
   '[.executions[].flowID] | contains([$full, $refund, $pending])' <<<"$all_executions" >/dev/null
+jq -e --arg full "$full_flow" --arg refund "$refund_flow" --arg pending "$pending_flow" \
+  '[.executions[].flowID] | contains([$full, $refund, $pending])' <<<"$process_executions" >/dev/null
 jq -e --arg buyer "$buyer_refund" \
   '.executions | length == 1 and .[0].buyerID == $buyer' <<<"$buyer_executions" >/dev/null
+curl --fail --silent --show-error \
+  "http://${api_address}/dataset-deal/processes/${process_id}" >/dev/null
+curl --fail --silent --show-error \
+  "http://${api_address}/dataset-deal/executions/${full_flow}" >/dev/null
 
 echo "Dataset Deal DSL E2E passed"
 echo "  process: ${process_id}"

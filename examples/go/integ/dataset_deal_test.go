@@ -44,10 +44,15 @@ type datasetDealListResponse struct {
 	Executions []datasetdeal.DealExecution `json:"executions"`
 }
 
+type datasetDealProcessListResponse struct {
+	Processes []datasetdeal.DealProcess `json:"processes"`
+}
+
 func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	processID := newFlowID(t, "dataset-deal-process")
 	process := comprehensiveDealProcess(processID)
 	requestDatasetDealAPI(t, http.MethodPost, "/api/dataset-deal/processes", process, http.StatusCreated, nil)
+	assertDatasetDealProcessList(t, process)
 
 	buyerFullID := newFlowID(t, "buyer-full")
 	buyerRefundID := newFlowID(t, "buyer-refund")
@@ -58,7 +63,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 
 	assertDatasetDealPostgresStoresOnlyProcess(t, process)
 	assertProcessDefinitionSnapshot(t, full.FlowID, process)
-	replaceStoredProcessDefinition(t, processID)
+	updateStoredProcessDefinition(t, processID)
 
 	waitForDatasetDealExecution(t, full.FlowID, currentState("buyer-negotiation"))
 	sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
@@ -80,6 +85,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	})
 	fullExecution := waitForDatasetDealExecution(t, full.FlowID, executionCompleted)
 	require.Equal(t, "process-full-order", fullExecution.CurrentState)
+	require.Equal(t, process, fullExecution.ProcessDefinition)
 	require.Equal(t, "full", fullExecution.StateData["deliveredDataset"])
 	require.Equal(t, datasetdeal.TransportFullDatasetToBuyer, fullExecution.StateData["lastAction"])
 
@@ -99,6 +105,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	})
 	refundExecution := waitForDatasetDealExecution(t, refund.FlowID, executionCompleted)
 	require.Equal(t, "process-refund", refundExecution.CurrentState)
+	require.Equal(t, process, refundExecution.ProcessDefinition)
 	require.Equal(t, datasetdeal.TransferMoneyFromSellerToBuyer, refundExecution.StateData["lastAction"])
 
 	pendingExecution := waitForDatasetDealExecution(t, pending.FlowID, currentState("buyer-negotiation"))
@@ -117,6 +124,34 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	)
 	require.Len(t, buyerList.Executions, 1)
 	require.Equal(t, refund.FlowID, buyerList.Executions[0].FlowID)
+
+	var buyerAndProcessList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?buyerID="+buyerRefundID+"&processID="+processID,
+		nil,
+		http.StatusOK,
+		&buyerAndProcessList,
+	)
+	require.Len(t, buyerAndProcessList.Executions, 1)
+	require.Equal(t, refund.FlowID, buyerAndProcessList.Executions[0].FlowID)
+
+	var processList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?processID="+processID,
+		nil,
+		http.StatusOK,
+		&processList,
+	)
+	require.True(t, containsDatasetDealExecutions(
+		processList.Executions,
+		full.FlowID,
+		refund.FlowID,
+		pending.FlowID,
+	))
 
 	var allList datasetDealListResponse
 	requestDatasetDealAPI(t, http.MethodGet, "/api/dataset-deal/executions", nil, http.StatusOK, &allList)
@@ -145,6 +180,20 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 		}
 		return false
 	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", searchErr)
+}
+
+func assertDatasetDealProcessList(t *testing.T, process datasetdeal.DealProcess) {
+	t.Helper()
+	var response datasetDealProcessListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/processes",
+		nil,
+		http.StatusOK,
+		&response,
+	)
+	require.Contains(t, response.Processes, process)
 }
 
 func assertDatasetDealPostgresStoresOnlyProcess(
@@ -212,7 +261,7 @@ func assertProcessDefinitionSnapshot(
 	}
 }
 
-func replaceStoredProcessDefinition(t *testing.T, processID string) {
+func updateStoredProcessDefinition(t *testing.T, processID string) {
 	t.Helper()
 	replacement := datasetdeal.DealProcess{
 		ProcessID:        processID,
@@ -222,15 +271,24 @@ func replaceStoredProcessDefinition(t *testing.T, processID string) {
 			Name: "database-only-state",
 		}},
 	}
-	definition, err := json.Marshal(replacement)
-	require.NoError(t, err)
-	_, err = datasetDealDB.Exec(
-		integrationContext(t),
-		"UPDATE dataset_deal_processes SET definition = $2::jsonb WHERE process_id = $1",
-		processID,
-		definition,
+	requestDatasetDealAPI(
+		t,
+		http.MethodPut,
+		"/api/dataset-deal/processes/"+processID,
+		replacement,
+		http.StatusOK,
+		nil,
 	)
-	require.NoError(t, err)
+	var stored datasetdeal.DealProcess
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/processes/"+processID,
+		nil,
+		http.StatusOK,
+		&stored,
+	)
+	require.Equal(t, replacement, stored)
 }
 
 func comprehensiveDealProcess(processID string) datasetdeal.DealProcess {

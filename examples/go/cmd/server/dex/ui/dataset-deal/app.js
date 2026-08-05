@@ -21,287 +21,456 @@ THE SOFTWARE.
 */
 
 const state = {
-  role: 'seller',
-  process: null,
+  role: new URLSearchParams(window.location.search).get('role') || 'seller',
   actions: [],
+  processes: [],
   executions: [],
-  selectedFlowID: '',
+  filterProcessID: '',
+  process: null,
+  processIsNew: false,
+  execution: null,
+  selectedStateName: '',
+  messageCondition: '',
   messageData: {},
 };
 
-const elements = {
-  sellerWorkspace: document.querySelector('#seller-workspace'),
-  buyerWorkspace: document.querySelector('#buyer-workspace'),
-  buyerTitle: document.querySelector('#buyer-title'),
-  startPanel: document.querySelector('#start-execution').closest('.action-panel'),
-  processID: document.querySelector('#process-id'),
-  initialState: document.querySelector('#initial-state'),
-  initialData: document.querySelector('#initial-data'),
-  states: document.querySelector('#states'),
-  startProcessID: document.querySelector('#start-process-id'),
-  messageFlowID: document.querySelector('#message-flow-id'),
-  messageCondition: document.querySelector('#message-condition'),
-  messageData: document.querySelector('#message-data'),
-  executions: document.querySelector('#executions'),
-  executionTitle: document.querySelector('#execution-title'),
-  toast: document.querySelector('#toast'),
-  stateDataKeys: document.querySelector('#state-data-keys'),
-};
+const app = document.querySelector('#app');
+const toast = document.querySelector('#toast');
 
 async function initialize() {
-  const [process, actionResponse] = await Promise.all([
-    api('/dataset-deal/comprehensive-process.json'),
-    api('/api/dataset-deal/actions'),
-  ]);
-  state.process = normalizeProcess(process);
+  bindNavigation();
+  const actionResponse = await api('/api/dataset-deal/actions');
   state.actions = actionResponse.actions;
-  bindStaticControls();
-  renderProcess();
-  selectRole('seller');
-  await refreshExecutions();
+  await renderRoute();
 }
 
-function normalizeProcess(process) {
-  process.initialStateData ??= {};
-  process.states ??= [];
-  process.states.forEach((dealState) => {
-    dealState.preActions ??= [];
-    dealState.postActions ??= [];
-    if (dealState.postCondition) {
-      dealState.postCondition.decision ??= {
-        key: '',
-        cases: [],
-        elseState: process.initialState,
-      };
-      dealState.postCondition.decision.cases ??= [];
+function bindNavigation() {
+  document.querySelectorAll('.role').forEach((button) => {
+    button.addEventListener('click', () => navigate('/dataset-deal', button.dataset.role));
+  });
+  document.querySelector('.brand').addEventListener('click', (event) => {
+    event.preventDefault();
+    navigate('/dataset-deal');
+  });
+  window.addEventListener('popstate', () => renderRoute());
+}
+
+async function renderRoute() {
+  const role = new URLSearchParams(window.location.search).get('role');
+  if (role) state.role = role;
+  updateRoleSwitcher();
+  app.innerHTML = '<div class="loading">Loading Dataset Deal…</div>';
+  const route = currentRoute();
+  try {
+    if (route.kind === 'process') {
+      await loadProcessPage(route.id);
+      return;
     }
-  });
-  return process;
+    if (route.kind === 'execution') {
+      await loadExecutionPage(route.id);
+      return;
+    }
+    await loadDashboard();
+  } catch (error) {
+    renderError(error);
+  }
 }
 
-function bindStaticControls() {
-  document.querySelectorAll('.role').forEach((button) => {
-    button.addEventListener('click', () => selectRole(button.dataset.role));
-  });
-  document.querySelector('#create-process').addEventListener('click', createProcess);
-  document.querySelector('#add-state').addEventListener('click', addState);
-  document.querySelector('#add-initial-data').addEventListener('click', () => {
-    addUniqueKey(state.process.initialStateData, 'newKey', '');
-    renderProcess();
-  });
-  document.querySelector('#start-execution').addEventListener('click', startExecution);
-  document.querySelector('#add-message-data').addEventListener('click', () => {
-    addUniqueKey(state.messageData, 'newKey', '');
-    renderMessageData();
-  });
-  document.querySelector('#send-message').addEventListener('click', sendMessage);
-  document.querySelector('#refresh-executions').addEventListener('click', refreshExecutions);
-  elements.processID.addEventListener('input', () => {
-    state.process.processID = elements.processID.value;
-    elements.startProcessID.value = elements.processID.value;
-  });
-  elements.initialState.addEventListener('change', () => {
-    state.process.initialState = elements.initialState.value;
-  });
-  elements.messageFlowID.addEventListener('change', () => {
-    state.selectedFlowID = elements.messageFlowID.value;
-    renderConditionOptions();
-  });
-  elements.messageCondition.addEventListener('change', () => {
-    state.messageData = messageDefaults(elements.messageCondition.value);
-    renderMessageData();
-  });
+function currentRoute() {
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'dataset-deal') return { kind: 'dashboard' };
+  if (parts[1] === 'processes' && parts[2]) {
+    return { kind: 'process', id: decodeURIComponent(parts.slice(2).join('/')) };
+  }
+  if (parts[1] === 'executions' && parts[2]) {
+    return { kind: 'execution', id: decodeURIComponent(parts.slice(2).join('/')) };
+  }
+  return { kind: 'dashboard' };
 }
 
-function selectRole(role) {
+function navigate(path, role = state.role) {
+  const destination = new URL(path, window.location.origin);
+  destination.searchParams.set('role', role);
+  window.history.pushState({}, '', destination);
   state.role = role;
+  state.filterProcessID = '';
+  renderRoute();
+}
+
+function updateRoleSwitcher() {
   document.querySelectorAll('.role').forEach((button) => {
-    button.classList.toggle('active', button.dataset.role === role);
-  });
-  const seller = role === 'seller';
-  elements.sellerWorkspace.classList.toggle('hidden', !seller);
-  elements.buyerWorkspace.classList.remove('hidden');
-  elements.startPanel.classList.toggle('hidden', seller);
-  elements.buyerTitle.textContent = seller ? 'Respond across buyer deals' : `Run a deal as ${buyerLabel(role)}`;
-  elements.executionTitle.textContent = seller ? 'All buyer executions' : `${buyerLabel(role)} executions`;
-  refreshExecutions();
-}
-
-function renderProcess() {
-  elements.processID.value = state.process.processID;
-  elements.startProcessID.value = state.process.processID;
-  renderInitialStateOptions();
-  renderKeyValues(elements.initialData, state.process.initialStateData, () => renderProcess());
-  renderStateDataKeys();
-  renderStates();
-  renderConditionOptions();
-}
-
-function renderInitialStateOptions() {
-  elements.initialState.innerHTML = stateOptions(state.process.initialState);
-}
-
-function renderStates() {
-  elements.states.replaceChildren();
-  state.process.states.forEach((dealState, stateIndex) => {
-    const card = document.createElement('article');
-    card.className = 'state-card';
-    card.innerHTML = stateCardHTML(dealState, stateIndex);
-    bindStateCard(card, dealState, stateIndex);
-    elements.states.append(card);
+    button.classList.toggle('active', button.dataset.role === state.role);
   });
 }
 
-function stateCardHTML(dealState, stateIndex) {
-  const hasPostCondition = Boolean(dealState.postCondition);
-  const decision = dealState.postCondition?.decision ?? { key: '', cases: [], elseState: state.process.initialState };
-  return `
-    <div class="state-header">
-      <span class="state-index">${stateIndex + 1}</span>
-      <input data-field="name" value="${escapeHTML(dealState.name)}" aria-label="State name" />
-      <button class="icon-button" data-command="remove-state" aria-label="Remove state">×</button>
-    </div>
-    <div class="state-body">
-      <section class="state-section">
-        <h4>Pre-condition · optional external wait</h4>
-        <input data-field="pre-condition" value="${escapeHTML(dealState.preCondition?.name ?? '')}" placeholder="Channel instance name, or leave empty" />
-      </section>
-      ${actionSectionHTML('Pre-actions', 'pre', dealState.preActions)}
-      ${actionSectionHTML('Post-actions', 'post', dealState.postActions)}
-      <section class="state-section">
-        <label class="condition-toggle">
-          <input type="checkbox" data-field="has-post-condition" ${hasPostCondition ? 'checked' : ''} />
-          Continue to another state
-        </label>
-        <div class="post-condition ${hasPostCondition ? '' : 'hidden'}">
-          <label>Wait channel · optional<input data-field="post-wait" value="${escapeHTML(dealState.postCondition?.waitFor?.name ?? '')}" placeholder="Immediate when empty" /></label>
-          <div class="decision-grid">
-            <label>Compare stateData key<select data-field="decision-key">${keyOptions(decision.key)}</select></label>
-            <label>Else go to<select data-field="else-state">${stateOptions(decision.elseState)}</select></label>
-          </div>
-          <div class="field-label" style="margin-top:14px">Equal cases</div>
-          <div class="case-list">${decision.cases.map((entry, index) => caseRowHTML(entry, index)).join('')}</div>
-          <button class="ghost small" data-command="add-case">+ equality case</button>
+async function loadDashboard() {
+  state.process = null;
+  state.execution = null;
+  const [processResponse, executionResponse] = await Promise.all([
+    api('/api/dataset-deal/processes'),
+    api(executionListURL()),
+  ]);
+  state.processes = processResponse.processes;
+  state.executions = executionResponse.executions;
+  renderDashboard();
+}
+
+function executionListURL() {
+  const parameters = new URLSearchParams();
+  if (state.role !== 'seller') parameters.set('buyerID', state.role);
+  if (state.filterProcessID) parameters.set('processID', state.filterProcessID);
+  const query = parameters.toString();
+  return `/api/dataset-deal/executions${query ? `?${query}` : ''}`;
+}
+
+function renderDashboard() {
+  const seller = state.role === 'seller';
+  app.innerHTML = `
+    <div class="page">
+      <header class="page-heading">
+        <div>
+          <p class="eyebrow">${seller ? 'SELLER CONTROL ROOM' : `${buyerLabel(state.role).toUpperCase()} PORTFOLIO`}</p>
+          <h1>${seller ? 'Processes & executions' : 'My deal executions'}</h1>
+          <p>${seller
+            ? 'Choose a process to edit its state machine, or inspect any durable execution.'
+            : 'Start and inspect your dataset deals. Execution filters run directly against Dex visibility.'}</p>
         </div>
-      </section>
+        ${seller ? '<button id="new-process" class="primary">+ New process</button>' : ''}
+      </header>
+      <div class="dashboard ${seller ? '' : 'buyer'}">
+        ${seller ? processListPanelHTML() : ''}
+        ${executionListPanelHTML(seller)}
+      </div>
+    </div>`;
+  bindDashboard();
+}
+
+function processListPanelHTML() {
+  const contents = state.processes.length === 0
+    ? '<div class="empty">No process definitions yet.</div>'
+    : state.processes.map((process) => `
+      <button class="list-card process-card" data-process-id="${escapeHTML(process.processID)}">
+        <strong>${escapeHTML(process.processID)}</strong>
+        <small>${process.states.length} states · starts at ${escapeHTML(process.initialState)}</small>
+      </button>`).join('');
+  return `
+    <section class="panel">
+      <div class="panel-header"><h2>Processes</h2><small>${state.processes.length} definitions</small></div>
+      <div class="panel-body process-list">${contents}</div>
+    </section>`;
+}
+
+function executionListPanelHTML(seller) {
+  const processOptions = [
+    '<option value="">All processes</option>',
+    ...state.processes.map((process) => `<option value="${escapeHTML(process.processID)}" ${process.processID === state.filterProcessID ? 'selected' : ''}>${escapeHTML(process.processID)}</option>`),
+  ].join('');
+  const contents = state.executions.length === 0
+    ? '<div class="empty">No matching deal executions.</div>'
+    : state.executions.map(executionCardHTML).join('');
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div><h2>${seller ? 'Executions' : `${buyerLabel(state.role)} executions`}</h2><small>${state.executions.length} visible runs</small></div>
+        <div class="filter-bar">
+          <label>Filter by ProcessID<select id="process-filter">${processOptions}</select></label>
+          ${seller ? '' : `<button id="start-execution" class="primary" ${state.filterProcessID ? '' : 'disabled'}>Start selected process</button>`}
+          <button id="refresh-executions" class="ghost">Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body execution-list">${contents}</div>
+    </section>`;
+}
+
+function executionCardHTML(execution) {
+  return `
+    <button class="list-card execution-card" data-flow-id="${escapeHTML(execution.flowID)}">
+      <span class="identity"><strong>${escapeHTML(execution.processID)}</strong><small>${escapeHTML(execution.flowID)}</small></span>
+      <span><span class="cell-label">Buyer</span>${escapeHTML(execution.buyerID)}</span>
+      <span><span class="cell-label">Current state</span>${escapeHTML(execution.currentState || 'initializing')}</span>
+      <span class="pending"><span class="cell-label">Pending condition</span>${escapeHTML(execution.pendingPreConditionName || '—')}</span>
+      <span class="status ${statusClass(execution.status)}">${escapeHTML(execution.status)}</span>
+    </button>`;
+}
+
+function bindDashboard() {
+  document.querySelector('#new-process')?.addEventListener('click', () => navigate('/dataset-deal/processes/new'));
+  document.querySelector('#process-filter').addEventListener('change', async (event) => {
+    state.filterProcessID = event.target.value;
+    await refreshDashboardExecutions();
+  });
+  document.querySelector('#refresh-executions').addEventListener('click', refreshDashboardExecutions);
+  document.querySelector('#start-execution')?.addEventListener('click', startExecution);
+  document.querySelectorAll('.process-card').forEach((button) => {
+    button.addEventListener('click', () => navigate(`/dataset-deal/processes/${encodeURIComponent(button.dataset.processId)}`));
+  });
+  document.querySelectorAll('.execution-card').forEach((button) => {
+    button.addEventListener('click', () => navigate(`/dataset-deal/executions/${encodeURIComponent(button.dataset.flowId)}`));
+  });
+}
+
+async function refreshDashboardExecutions() {
+  try {
+    const response = await api(executionListURL());
+    state.executions = response.executions;
+    renderDashboard();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+async function startExecution() {
+  if (!state.filterProcessID) return showToast('Select a ProcessID first.', true);
+  try {
+    const response = await api('/api/dataset-deal/executions', {
+      method: 'POST',
+      body: JSON.stringify({ processID: state.filterProcessID, buyerID: state.role }),
+    });
+    showToast(`Started ${response.flowID}.`);
+    navigate(`/dataset-deal/executions/${encodeURIComponent(response.flowID)}`);
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+async function loadProcessPage(processID) {
+  state.execution = null;
+  state.processIsNew = processID === 'new';
+  const process = state.processIsNew
+    ? await api('/dataset-deal/comprehensive-process.json')
+    : await api(`/api/dataset-deal/processes/${encodeURIComponent(processID)}`);
+  state.process = normalizeProcess(structuredClone(process));
+  state.selectedStateName = state.process.initialState;
+  renderProcessPage();
+}
+
+function renderProcessPage() {
+  const selectedState = selectedProcessState();
+  app.innerHTML = `
+    <div class="page">
+      <a class="back-link" href="${dashboardURL()}" data-back>← Processes & executions</a>
+      <header class="page-heading">
+        <div>
+          <p class="eyebrow">PROCESS DESIGNER</p>
+          <h1>${state.processIsNew ? 'Create process' : escapeHTML(state.process.processID)}</h1>
+          <p>Edit the graph definition stored in PostgreSQL. Existing executions continue using their immutable Dex snapshots.</p>
+        </div>
+        <div class="heading-actions">
+          <button id="add-state" class="ghost">+ Add state</button>
+          <button id="save-process" class="primary">${state.processIsNew ? 'Create process' : 'Save changes'}</button>
+        </div>
+      </header>
+      <div class="process-shell">
+        ${graphPanelHTML('Process graph')}
+        <aside class="panel editor-panel">
+          ${processMetaHTML()}
+          ${stateEditorHTML(selectedState)}
+        </aside>
+      </div>
+    </div>`;
+  bindBackLink();
+  bindProcessEditor(selectedState);
+  renderGraph(state.process, state.selectedStateName, '', true);
+}
+
+function processMetaHTML() {
+  return `
+    <section class="editor-section stack">
+      <h3>Process settings</h3>
+      <label>Process ID<input id="process-id" value="${escapeHTML(state.process.processID)}" ${state.processIsNew ? '' : 'disabled'} /></label>
+      <label>Initial state<select id="initial-state">${stateOptions(state.process.initialState)}</select></label>
+      <div>
+        <div class="section-title"><h4>Initial stateData</h4><button id="add-initial-data" class="ghost small">+ key/value</button></div>
+        <div id="initial-data" class="row-list">${keyValueRowsHTML(state.process.initialStateData)}</div>
+      </div>
+    </section>`;
+}
+
+function stateEditorHTML(dealState) {
+  if (!dealState) return '<section class="editor-section"><div class="empty">Select a state in the graph.</div></section>';
+  const postCondition = dealState.postCondition;
+  const decision = postCondition?.decision ?? { key: '', cases: [], elseState: state.process.initialState };
+  return `
+    <section class="editor-section stack">
+      <div class="section-title"><h3>Selected state</h3><button id="remove-state" class="ghost small danger">Remove</button></div>
+      <label>State name<input id="state-name" value="${escapeHTML(dealState.name)}" /></label>
+      <label>Pre-condition channel<input id="pre-condition" value="${escapeHTML(dealState.preCondition?.name ?? '')}" placeholder="Enter immediately when empty" /></label>
+    </section>
+    ${actionEditorHTML('Pre-actions', 'pre', dealState.preActions)}
+    ${actionEditorHTML('Post-actions', 'post', dealState.postActions)}
+    <section class="editor-section stack">
+      <label class="toggle"><input id="has-post-condition" type="checkbox" ${postCondition ? 'checked' : ''} /> Continue to another state</label>
+      ${postCondition ? `
+        <label>Post-condition channel<input id="post-condition-wait" value="${escapeHTML(postCondition.waitFor?.name ?? '')}" placeholder="Evaluate immediately when empty" /></label>
+        <div class="form-grid">
+          <label>Compare stateData key<input id="decision-key" value="${escapeHTML(decision.key)}" list="state-data-keys" placeholder="Empty for unconditional" /></label>
+          <label>Else go to<select id="else-state">${stateOptions(decision.elseState)}</select></label>
+        </div>
+        <datalist id="state-data-keys">${Object.keys(state.process.initialStateData).map((key) => `<option value="${escapeHTML(key)}"></option>`).join('')}</datalist>
+        <div class="section-title"><h4>Equality cases</h4><button id="add-case" class="ghost small">+ case</button></div>
+        <div id="case-list" class="row-list">${decision.cases.map(caseRowHTML).join('')}</div>` : ''}
+    </section>`;
+}
+
+function actionEditorHTML(title, phase, actions) {
+  return `
+    <section class="editor-section">
+      <div class="section-title"><h4>${title} · ordered</h4><button class="ghost small" data-add-action="${phase}">+ action</button></div>
+      <div class="row-list" data-action-list="${phase}">${actions.map(actionRowHTML).join('')}</div>
+    </section>`;
+}
+
+function actionRowHTML(action, index) {
+  return `
+    <div class="action-row" data-index="${index}">
+      <select data-action-name>${actionOptions(action)}</select>
+      <button class="icon-button" data-move-up aria-label="Move up">↑</button>
+      <button class="icon-button" data-move-down aria-label="Move down">↓</button>
+      <button class="icon-button" data-remove aria-label="Remove">×</button>
     </div>`;
 }
 
-function actionSectionHTML(title, phase, actionNames) {
-  return `<section class="state-section">
-    <h4>${title} · ordered</h4>
-    <div class="action-list" data-phase="${phase}">
-      ${actionNames.map((name, index) => actionRowHTML(name, index)).join('')}
-    </div>
-    <button class="ghost small" data-command="add-action" data-phase="${phase}">+ action</button>
-  </section>`;
+function caseRowHTML(conditionCase, index) {
+  return `
+    <div class="case-row" data-index="${index}">
+      <input data-case-equals value="${escapeHTML(conditionCase.equals)}" placeholder="equals value" />
+      <select data-case-target>${stateOptions(conditionCase.goToState)}</select>
+      <button class="icon-button" data-remove-case aria-label="Remove">×</button>
+    </div>`;
 }
 
-function actionRowHTML(name, index) {
-  return `<div class="action-row" data-index="${index}">
-    <select data-field="action-name">${actionOptions(name)}</select>
-    <button class="icon-button" data-command="move-action-up" aria-label="Move up">↑</button>
-    <button class="icon-button" data-command="move-action-down" aria-label="Move down">↓</button>
-    <button class="icon-button" data-command="remove-action" aria-label="Remove action">×</button>
-  </div>`;
-}
-
-function caseRowHTML(entry, index) {
-  return `<div class="case-row" data-index="${index}">
-    <input data-field="case-equals" value="${escapeHTML(entry.equals)}" placeholder="equals value" />
-    <select data-field="case-target">${stateOptions(entry.goToState)}</select>
-    <button class="icon-button" data-command="remove-case" aria-label="Remove case">×</button>
-  </div>`;
-}
-
-function bindStateCard(card, dealState, stateIndex) {
-  card.querySelector('[data-field="name"]').addEventListener('change', (event) => {
-    renameState(dealState.name, event.target.value.trim());
+function bindProcessEditor(dealState) {
+  document.querySelector('#save-process').addEventListener('click', saveProcess);
+  document.querySelector('#add-state').addEventListener('click', addState);
+  document.querySelector('#process-id').addEventListener('input', (event) => {
+    state.process.processID = event.target.value.trim();
   });
-  card.querySelector('[data-command="remove-state"]').addEventListener('click', () => {
-    if (state.process.states.length === 1) return showToast('A process needs at least one state.', true);
-    state.process.states.splice(stateIndex, 1);
-    if (state.process.initialState === dealState.name) state.process.initialState = state.process.states[0].name;
-    renderProcess();
+  document.querySelector('#initial-state').addEventListener('change', (event) => {
+    state.process.initialState = event.target.value;
+    renderProcessPage();
   });
-  card.querySelector('[data-field="pre-condition"]').addEventListener('input', (event) => {
+  document.querySelector('#add-initial-data').addEventListener('click', () => {
+    addUniqueKey(state.process.initialStateData, 'newKey', '');
+    renderProcessPage();
+  });
+  bindKeyValueRows('#initial-data', state.process.initialStateData, renderProcessPage);
+  if (!dealState) return;
+  document.querySelector('#remove-state').addEventListener('click', removeSelectedState);
+  document.querySelector('#state-name').addEventListener('change', (event) => renameState(dealState.name, event.target.value.trim()));
+  document.querySelector('#pre-condition').addEventListener('input', (event) => {
     const name = event.target.value.trim();
     dealState.preCondition = name ? { name } : undefined;
   });
-  bindActionRows(card, dealState, 'pre');
-  bindActionRows(card, dealState, 'post');
-  bindPostCondition(card, dealState);
+  bindActionEditor(dealState, 'pre');
+  bindActionEditor(dealState, 'post');
+  bindPostConditionEditor(dealState);
 }
 
-function bindActionRows(card, dealState, phase) {
+function bindActionEditor(dealState, phase) {
   const property = phase === 'pre' ? 'preActions' : 'postActions';
-  card.querySelector(`[data-command="add-action"][data-phase="${phase}"]`).addEventListener('click', () => {
+  document.querySelector(`[data-add-action="${phase}"]`).addEventListener('click', () => {
     dealState[property].push(state.actions[0]);
-    renderStates();
+    renderProcessPage();
   });
-  card.querySelectorAll(`.action-list[data-phase="${phase}"] .action-row`).forEach((row) => {
+  document.querySelectorAll(`[data-action-list="${phase}"] .action-row`).forEach((row) => {
     const index = Number(row.dataset.index);
-    row.querySelector('[data-field="action-name"]').addEventListener('change', (event) => {
+    row.querySelector('[data-action-name]').addEventListener('change', (event) => {
       dealState[property][index] = event.target.value;
     });
-    row.querySelector('[data-command="remove-action"]').addEventListener('click', () => {
+    row.querySelector('[data-move-up]').addEventListener('click', () => moveItem(dealState[property], index, index - 1));
+    row.querySelector('[data-move-down]').addEventListener('click', () => moveItem(dealState[property], index, index + 1));
+    row.querySelector('[data-remove]').addEventListener('click', () => {
       dealState[property].splice(index, 1);
-      renderStates();
+      renderProcessPage();
     });
-    row.querySelector('[data-command="move-action-up"]').addEventListener('click', () => moveItem(dealState[property], index, index - 1));
-    row.querySelector('[data-command="move-action-down"]').addEventListener('click', () => moveItem(dealState[property], index, index + 1));
   });
 }
 
-function bindPostCondition(card, dealState) {
-  card.querySelector('[data-field="has-post-condition"]').addEventListener('change', (event) => {
-    dealState.postCondition = event.target.checked ? {
-      decision: { key: '', cases: [], elseState: state.process.initialState },
-    } : undefined;
-    renderStates();
+function bindPostConditionEditor(dealState) {
+  document.querySelector('#has-post-condition').addEventListener('change', (event) => {
+    dealState.postCondition = event.target.checked
+      ? { decision: { key: '', cases: [], elseState: state.process.initialState } }
+      : undefined;
+    renderProcessPage();
   });
   if (!dealState.postCondition) return;
-  card.querySelector('[data-field="post-wait"]').addEventListener('input', (event) => {
+  document.querySelector('#post-condition-wait').addEventListener('input', (event) => {
     const name = event.target.value.trim();
     dealState.postCondition.waitFor = name ? { name } : undefined;
   });
-  card.querySelector('[data-field="decision-key"]').addEventListener('change', (event) => {
-    dealState.postCondition.decision.key = event.target.value;
+  document.querySelector('#decision-key').addEventListener('input', (event) => {
+    dealState.postCondition.decision.key = event.target.value.trim();
   });
-  card.querySelector('[data-field="else-state"]').addEventListener('change', (event) => {
+  document.querySelector('#else-state').addEventListener('change', (event) => {
     dealState.postCondition.decision.elseState = event.target.value;
+    renderProcessPage();
   });
-  card.querySelector('[data-command="add-case"]').addEventListener('click', () => {
+  document.querySelector('#add-case').addEventListener('click', () => {
     dealState.postCondition.decision.cases.push({ equals: '', goToState: state.process.initialState });
-    renderStates();
+    renderProcessPage();
   });
-  card.querySelectorAll('.case-row').forEach((row) => {
+  document.querySelectorAll('#case-list .case-row').forEach((row) => {
     const index = Number(row.dataset.index);
-    row.querySelector('[data-field="case-equals"]').addEventListener('input', (event) => {
+    row.querySelector('[data-case-equals]').addEventListener('input', (event) => {
       dealState.postCondition.decision.cases[index].equals = event.target.value;
     });
-    row.querySelector('[data-field="case-target"]').addEventListener('change', (event) => {
+    row.querySelector('[data-case-target]').addEventListener('change', (event) => {
       dealState.postCondition.decision.cases[index].goToState = event.target.value;
+      renderProcessPage();
     });
-    row.querySelector('[data-command="remove-case"]').addEventListener('click', () => {
+    row.querySelector('[data-remove-case]').addEventListener('click', () => {
       dealState.postCondition.decision.cases.splice(index, 1);
-      renderStates();
+      renderProcessPage();
     });
   });
+}
+
+async function saveProcess() {
+  try {
+    const wasNew = state.processIsNew;
+    const path = wasNew
+      ? '/api/dataset-deal/processes'
+      : `/api/dataset-deal/processes/${encodeURIComponent(state.process.processID)}`;
+    await api(path, { method: wasNew ? 'POST' : 'PUT', body: JSON.stringify(state.process) });
+    state.processIsNew = false;
+    window.history.replaceState({}, '', detailURL('processes', state.process.processID));
+    showToast(`Process ${state.process.processID} ${wasNew ? 'created' : 'updated'}.`);
+    renderProcessPage();
+  } catch (error) {
+    showToast(error.message, true);
+  }
 }
 
 function addState() {
   const names = new Set(state.process.states.map((entry) => entry.name));
-  let number = state.process.states.length + 1;
-  while (names.has(`state-${number}`)) number += 1;
-  state.process.states.push({ name: `state-${number}`, preActions: [], postActions: [] });
-  renderProcess();
+  let index = state.process.states.length + 1;
+  while (names.has(`state-${index}`)) index += 1;
+  const dealState = { name: `state-${index}`, preActions: [], postActions: [] };
+  state.process.states.push(dealState);
+  state.selectedStateName = dealState.name;
+  renderProcessPage();
+}
+
+function removeSelectedState() {
+  if (state.process.states.length === 1) return showToast('A process needs at least one state.', true);
+  const removed = selectedProcessState();
+  state.process.states = state.process.states.filter((entry) => entry.name !== removed.name);
+  const fallback = state.process.states[0].name;
+  state.process.states.forEach((entry) => {
+    if (entry.postCondition?.decision.elseState === removed.name) entry.postCondition.decision.elseState = fallback;
+    entry.postCondition?.decision.cases.forEach((conditionCase) => {
+      if (conditionCase.goToState === removed.name) conditionCase.goToState = fallback;
+    });
+  });
+  if (state.process.initialState === removed.name) state.process.initialState = fallback;
+  state.selectedStateName = fallback;
+  renderProcessPage();
 }
 
 function renameState(previous, next) {
   if (!next || state.process.states.some((entry) => entry.name === next && entry.name !== previous)) {
     showToast('State names must be non-empty and unique.', true);
-    return renderProcess();
+    return renderProcessPage();
   }
   state.process.states.forEach((entry) => {
     if (entry.name === previous) entry.name = next;
@@ -311,143 +480,277 @@ function renameState(previous, next) {
     });
   });
   if (state.process.initialState === previous) state.process.initialState = next;
-  renderProcess();
+  state.selectedStateName = next;
+  renderProcessPage();
 }
 
 function moveItem(items, from, to) {
   if (to < 0 || to >= items.length) return;
   const [item] = items.splice(from, 1);
   items.splice(to, 0, item);
-  renderStates();
+  renderProcessPage();
 }
 
-async function createProcess() {
-  try {
-    await api('/api/dataset-deal/processes', {
-      method: 'POST',
-      body: JSON.stringify(state.process),
+async function loadExecutionPage(flowID) {
+  state.execution = await api(`/api/dataset-deal/executions/${encodeURIComponent(flowID)}`);
+  state.process = normalizeProcess(structuredClone(state.execution.processDefinition));
+  state.selectedStateName = state.execution.currentState || state.process.initialState;
+  state.messageCondition = suggestedCondition(state.execution, state.process);
+  state.messageData = messageDefaults(state.messageCondition);
+  renderExecutionPage();
+}
+
+function renderExecutionPage() {
+  const execution = state.execution;
+  const selectedState = selectedProcessState();
+  app.innerHTML = `
+    <div class="page">
+      <a class="back-link" href="${dashboardURL()}" data-back>← Processes & executions</a>
+      <header class="page-heading">
+        <div>
+          <p class="eyebrow">DURABLE EXECUTION</p>
+          <h1>${escapeHTML(execution.processID)}</h1>
+          <p>${escapeHTML(execution.flowID)}</p>
+        </div>
+        <div class="heading-actions"><span class="status ${statusClass(execution.status)}">${escapeHTML(execution.status)}</span><button id="refresh-execution" class="ghost">Refresh</button></div>
+      </header>
+      ${executionPropertiesHTML(execution)}
+      <div class="execution-shell">
+        ${graphPanelHTML('Execution graph')}
+        <aside class="panel editor-panel">
+          ${readOnlyStateHTML(selectedState)}
+          ${stateDataHTML(execution.stateData)}
+          ${conditionMessageHTML(execution)}
+        </aside>
+      </div>
+    </div>`;
+  bindBackLink();
+  document.querySelector('#refresh-execution').addEventListener('click', () => loadExecutionPage(execution.flowID));
+  bindConditionMessage(execution);
+  renderGraph(state.process, state.selectedStateName, execution.currentState, true);
+}
+
+function executionPropertiesHTML(execution) {
+  const values = [
+    ['Buyer', execution.buyerID],
+    ['Current state', execution.currentState || 'Initializing'],
+    ['Pending pre-condition', execution.pendingPreConditionName || '—'],
+    ['Action index', execution.currentActionIndexToExecute],
+    ['Started', formatDate(execution.startedAt)],
+    ['Closed', execution.closedAt ? formatDate(execution.closedAt) : '—'],
+  ];
+  return `<section class="property-grid">${values.map(([label, value]) => `<div class="property"><span>${label}</span><strong>${escapeHTML(value)}</strong></div>`).join('')}</section>`;
+}
+
+function readOnlyStateHTML(dealState) {
+  if (!dealState) return '<section class="editor-section"><div class="empty">Select a state in the graph.</div></section>';
+  const decision = dealState.postCondition?.decision;
+  const decisionText = !dealState.postCondition
+    ? 'Complete execution'
+    : decision.cases.length === 0
+      ? `Go to ${decision.elseState}`
+      : `${decision.key}: ${decision.cases.map((entry) => `${entry.equals} → ${entry.goToState}`).join(', ')}; else → ${decision.elseState}`;
+  return `
+    <section class="editor-section">
+      <h3>${escapeHTML(dealState.name)}</h3>
+      <div class="definition-summary">
+        <div><strong>Pre-condition:</strong> ${escapeHTML(dealState.preCondition?.name || 'immediate')}</div>
+        <div><strong>Pre-actions:</strong> ${escapeHTML(dealState.preActions.join(' → ') || 'none')}</div>
+        <div><strong>Post-actions:</strong> ${escapeHTML(dealState.postActions.join(' → ') || 'none')}</div>
+        <div><strong>Post-condition wait:</strong> ${escapeHTML(dealState.postCondition?.waitFor?.name || 'none')}</div>
+        <div><strong>Decision:</strong> ${escapeHTML(decisionText)}</div>
+      </div>
+    </section>`;
+}
+
+function stateDataHTML(stateData) {
+  const rows = Object.entries(stateData).sort(([first], [second]) => first.localeCompare(second));
+  return `
+    <section class="editor-section">
+      <h3>Current stateData</h3>
+      <table class="data-table"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>
+        ${rows.map(([key, value]) => `<tr><td><code>${escapeHTML(key)}</code></td><td>${escapeHTML(value)}</td></tr>`).join('')}
+      </tbody></table>
+    </section>`;
+}
+
+function conditionMessageHTML(execution) {
+  const conditions = conditionNames(state.process);
+  const selected = conditions.includes(state.messageCondition) ? state.messageCondition : conditions[0] || '';
+  state.messageCondition = selected;
+  return `
+    <section class="editor-section message-panel">
+      <h3>Send condition message</h3>
+      <label>Channel instance<select id="message-condition">${conditions.map((condition) => `<option value="${escapeHTML(condition)}" ${condition === selected ? 'selected' : ''}>${escapeHTML(condition)}</option>`).join('')}</select></label>
+      <div>
+        <div class="section-title"><h4>stateData updates</h4><button id="add-message-data" class="ghost small">+ key/value</button></div>
+        <div id="message-data" class="row-list">${keyValueRowsHTML(state.messageData)}</div>
+      </div>
+      <div class="message-actions"><button id="send-message" class="primary" ${execution.status === 'RUNNING' && selected ? '' : 'disabled'}>Send message</button></div>
+    </section>`;
+}
+
+function bindConditionMessage(execution) {
+  document.querySelector('#message-condition').addEventListener('change', (event) => {
+    state.messageCondition = event.target.value;
+    state.messageData = messageDefaults(state.messageCondition);
+    renderExecutionPage();
+  });
+  document.querySelector('#add-message-data').addEventListener('click', () => {
+    addUniqueKey(state.messageData, 'newKey', '');
+    renderExecutionPage();
+  });
+  bindKeyValueRows('#message-data', state.messageData, renderExecutionPage);
+  document.querySelector('#send-message').addEventListener('click', async () => {
+    try {
+      await api(`/api/dataset-deal/executions/${encodeURIComponent(execution.flowID)}/channels/${encodeURIComponent(state.messageCondition)}`, {
+        method: 'POST',
+        body: JSON.stringify({ data: state.messageData }),
+      });
+      showToast(`Sent ${state.messageCondition}.`);
+      window.setTimeout(() => loadExecutionPage(execution.flowID), 500);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+
+function graphPanelHTML(title) {
+  return `
+    <section class="panel graph-panel">
+      <div class="graph-toolbar">
+        <h2>${title}</h2>
+        <div class="graph-legend"><span><i class="legend-line"></i>single choice</span><span><i class="legend-line dashed"></i>branching choice</span></div>
+      </div>
+      <div class="graph-scroll"><div id="graph"></div></div>
+    </section>`;
+}
+
+function renderGraph(process, selectedState, currentState, interactive) {
+  const container = document.querySelector('#graph');
+  const nodeWidth = 220;
+  const nodeHeight = 82;
+  const horizontalGap = 130;
+  const verticalGap = 105;
+  const padding = 54;
+  const columns = Math.min(3, Math.max(1, process.states.length));
+  const rows = Math.ceil(process.states.length / columns);
+  const width = padding * 2 + columns * nodeWidth + (columns - 1) * horizontalGap;
+  const height = padding * 2 + rows * nodeHeight + Math.max(0, rows - 1) * verticalGap;
+  const positions = new Map();
+  process.states.forEach((dealState, index) => {
+    positions.set(dealState.name, {
+      x: padding + (index % columns) * (nodeWidth + horizontalGap),
+      y: padding + Math.floor(index / columns) * (nodeHeight + verticalGap),
     });
-    showToast(`Process ${state.process.processID} created.`);
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function startExecution() {
-  try {
-    const response = await api('/api/dataset-deal/executions', {
-      method: 'POST',
-      body: JSON.stringify({
-        processID: elements.startProcessID.value.trim(),
-        buyerID: state.role,
-      }),
-    });
-    state.selectedFlowID = response.flowID;
-    showToast(`Started ${response.flowID}.`);
-    await waitForExecutionVisible(response.flowID);
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function waitForExecutionVisible(flowID) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await refreshExecutions();
-    if (state.executions.some((execution) => execution.flowID === flowID)) return;
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-  }
-  throw new Error(`Execution ${flowID} is not visible yet. Refresh to try again.`);
-}
-
-async function sendMessage() {
-  const flowID = elements.messageFlowID.value;
-  const conditionName = elements.messageCondition.value;
-  if (!flowID || !conditionName) return showToast('Select an execution and channel instance.', true);
-  try {
-    await api(`/api/dataset-deal/executions/${encodeURIComponent(flowID)}/channels/${encodeURIComponent(conditionName)}`, {
-      method: 'POST',
-      body: JSON.stringify({ data: state.messageData }),
-    });
-    showToast(`Sent ${conditionName}.`);
-    window.setTimeout(refreshExecutions, 500);
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function refreshExecutions() {
-  try {
-    const query = state.role === 'seller' ? '' : `?buyerID=${encodeURIComponent(state.role)}`;
-    const response = await api(`/api/dataset-deal/executions${query}`);
-    state.executions = response.executions;
-    renderExecutions();
-    renderExecutionOptions();
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-function renderExecutions() {
-  if (state.executions.length === 0) {
-    elements.executions.innerHTML = '<tr><td colspan="7" class="empty-row">No deal executions yet.</td></tr>';
-    return;
-  }
-  elements.executions.innerHTML = state.executions.map((execution) => `
-    <tr>
-      <td><strong>${escapeHTML(execution.buyerID)}</strong></td>
-      <td>${escapeHTML(execution.processID)}<br><small>${escapeHTML(execution.flowID)}</small></td>
-      <td>${escapeHTML(execution.currentState || 'entering first state')}</td>
-      <td>${escapeHTML(execution.pendingPreConditionName || '—')}</td>
-      <td><span class="status ${execution.status === 'RUNNING' ? '' : 'terminal'} ${execution.status === 'COMPLETED' ? 'completed' : ''}">${escapeHTML(execution.status)}</span></td>
-      <td><pre class="data-preview">${escapeHTML(JSON.stringify(execution.stateData, null, 2))}</pre></td>
-      <td><button class="ghost small" data-use-flow="${escapeHTML(execution.flowID)}">Use</button></td>
-    </tr>`).join('');
-  elements.executions.querySelectorAll('[data-use-flow]').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.selectedFlowID = button.dataset.useFlow;
-      renderExecutionOptions();
-      elements.buyerWorkspace.scrollIntoView({ behavior: 'smooth' });
+  });
+  const edges = [];
+  process.states.forEach((dealState) => {
+    const choices = outgoingChoices(dealState);
+    choices.forEach((choice) => edges.push({ source: dealState.name, ...choice, branch: choices.length > 1 }));
+  });
+  container.innerHTML = `
+    <svg class="process-graph" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Deal process graph">
+      <defs>
+        <marker id="arrow-solid" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#557274"></path></marker>
+        <marker id="arrow-branch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef5b2a"></path></marker>
+      </defs>
+      ${edges.map((edge) => graphEdgeHTML(edge, positions, nodeWidth, nodeHeight)).join('')}
+      ${process.states.map((dealState) => graphNodeHTML(dealState, positions.get(dealState.name), nodeWidth, nodeHeight, selectedState, currentState, process.initialState)).join('')}
+    </svg>`;
+  if (!interactive) return;
+  container.querySelectorAll('.graph-node').forEach((node) => {
+    node.addEventListener('click', () => {
+      state.selectedStateName = node.dataset.stateName;
+      if (state.execution) renderExecutionPage();
+      else renderProcessPage();
     });
   });
 }
 
-function renderExecutionOptions() {
-  if (!state.executions.some((execution) => execution.flowID === state.selectedFlowID)) {
-    state.selectedFlowID = state.executions[0]?.flowID ?? '';
+function outgoingChoices(dealState) {
+  if (!dealState.postCondition) return [];
+  const decision = dealState.postCondition.decision;
+  const choices = decision.cases.map((conditionCase) => ({
+    target: conditionCase.goToState,
+    label: `${decision.key} = ${conditionCase.equals}`,
+  }));
+  choices.push({ target: decision.elseState, label: decision.cases.length === 0 ? 'next' : 'else' });
+  return choices;
+}
+
+function graphEdgeHTML(edge, positions, nodeWidth, nodeHeight) {
+  const source = positions.get(edge.source);
+  const target = positions.get(edge.target);
+  if (!source || !target) return '';
+  const startX = source.x + nodeWidth / 2;
+  const startY = source.y + nodeHeight;
+  const endX = target.x + nodeWidth / 2;
+  const endY = target.y;
+  let path;
+  let labelX;
+  let labelY;
+  if (edge.source === edge.target) {
+    path = `M ${source.x + nodeWidth} ${source.y + nodeHeight / 2} C ${source.x + nodeWidth + 80} ${source.y - 45}, ${source.x + nodeWidth + 80} ${source.y + nodeHeight + 45}, ${source.x + nodeWidth} ${source.y + nodeHeight / 2 + 10}`;
+    labelX = source.x + nodeWidth + 54;
+    labelY = source.y + nodeHeight / 2;
+  } else {
+    const bend = Math.max(45, Math.abs(endY - startY) / 2);
+    path = `M ${startX} ${startY} C ${startX} ${startY + bend}, ${endX} ${endY - bend}, ${endX} ${endY}`;
+    labelX = (startX + endX) / 2;
+    labelY = (startY + endY) / 2 - 7;
   }
-  elements.messageFlowID.innerHTML = state.executions.map((execution) =>
-    `<option value="${escapeHTML(execution.flowID)}" ${execution.flowID === state.selectedFlowID ? 'selected' : ''}>${escapeHTML(execution.buyerID)} · ${escapeHTML(execution.currentState || 'initializing')}</option>`
-  ).join('');
-  renderConditionOptions();
+  return `<path class="graph-edge ${edge.branch ? 'branch' : ''}" d="${path}" marker-end="url(#arrow-${edge.branch ? 'branch' : 'solid'})"></path><text class="edge-label" x="${labelX}" y="${labelY}" text-anchor="middle">${escapeHTML(edge.label)}</text>`;
 }
 
-function renderConditionOptions() {
-  if (!state.process) return;
-  const names = conditionNames();
-  const execution = state.executions.find((entry) => entry.flowID === state.selectedFlowID);
-  const suggested = suggestedCondition(execution);
-  const selected = names.includes(elements.messageCondition.value) ? elements.messageCondition.value : suggested || names[0];
-  elements.messageCondition.innerHTML = names.map((name) =>
-    `<option value="${escapeHTML(name)}" ${name === selected ? 'selected' : ''}>${escapeHTML(name)}</option>`
-  ).join('');
-  if (Object.keys(state.messageData).length === 0) state.messageData = messageDefaults(selected);
-  renderMessageData();
+function graphNodeHTML(dealState, position, width, height, selectedState, currentState, initialState) {
+  const classes = ['graph-node'];
+  if (dealState.name === selectedState) classes.push('selected');
+  if (dealState.name === currentState) classes.push('current');
+  const detail = dealState.name === currentState
+    ? 'CURRENT STATE'
+    : dealState.name === initialState
+      ? 'INITIAL STATE'
+      : dealState.postCondition ? 'TRANSITION STATE' : 'TERMINAL STATE';
+  return `
+    <g class="${classes.join(' ')}" data-state-name="${escapeHTML(dealState.name)}" transform="translate(${position.x} ${position.y})">
+      <rect width="${width}" height="${height}" rx="13"></rect>
+      <text x="18" y="34">${escapeHTML(dealState.name)}</text>
+      <text class="node-detail" x="18" y="57">${detail}</text>
+    </g>`;
 }
 
-function suggestedCondition(execution) {
-  if (!execution) return '';
-  if (execution.pendingPreConditionName) return execution.pendingPreConditionName;
-  const dealState = state.process.states.find((entry) => entry.name === execution.currentState);
-  return dealState?.postCondition?.waitFor?.name ?? '';
+function normalizeProcess(process) {
+  process.initialStateData ??= {};
+  process.states ??= [];
+  process.states.forEach((dealState) => {
+    dealState.preActions ??= [];
+    dealState.postActions ??= [];
+    if (dealState.postCondition) {
+      dealState.postCondition.decision ??= { key: '', cases: [], elseState: process.initialState };
+      dealState.postCondition.decision.cases ??= [];
+    }
+  });
+  return process;
 }
 
-function conditionNames() {
+function selectedProcessState() {
+  return state.process?.states.find((entry) => entry.name === state.selectedStateName);
+}
+
+function conditionNames(process) {
   const names = [];
-  state.process.states.forEach((dealState) => {
+  process.states.forEach((dealState) => {
     if (dealState.preCondition?.name) names.push(dealState.preCondition.name);
     if (dealState.postCondition?.waitFor?.name) names.push(dealState.postCondition.waitFor.name);
   });
   return [...new Set(names)];
+}
+
+function suggestedCondition(execution, process) {
+  if (execution.pendingPreConditionName) return execution.pendingPreConditionName;
+  const dealState = process.states.find((entry) => entry.name === execution.currentState);
+  return dealState?.postCondition?.waitFor?.name ?? conditionNames(process)[0] ?? '';
 }
 
 function messageDefaults(conditionName) {
@@ -463,57 +766,45 @@ function messageDefaults(conditionName) {
   }
 }
 
-function renderMessageData() {
-  renderKeyValues(elements.messageData, state.messageData, renderMessageData);
+function keyValueRowsHTML(values) {
+  return Object.entries(values).map(([key, value], index) => `
+    <div class="kv-row" data-index="${index}" data-key="${escapeHTML(key)}">
+      <input data-kv-key value="${escapeHTML(key)}" placeholder="key" />
+      <input data-kv-value value="${escapeHTML(value)}" placeholder="value" />
+      <button class="icon-button" data-kv-remove aria-label="Remove">×</button>
+    </div>`).join('');
 }
 
-function renderKeyValues(container, values, rerender) {
-  container.replaceChildren();
-  Object.entries(values).forEach(([key, value]) => {
-    const row = document.createElement('div');
-    row.className = 'kv-row';
-    row.innerHTML = `<input data-part="key" value="${escapeHTML(key)}" placeholder="key" /><input data-part="value" value="${escapeHTML(value)}" placeholder="value" /><button class="icon-button" aria-label="Remove">×</button>`;
-    row.querySelector('[data-part="key"]').addEventListener('change', (event) => {
+function bindKeyValueRows(selector, values, rerender) {
+  document.querySelectorAll(`${selector} .kv-row`).forEach((row) => {
+    const key = row.dataset.key;
+    row.querySelector('[data-kv-key]').addEventListener('change', (event) => {
       const nextKey = event.target.value.trim();
-      if (!nextKey || (nextKey !== key && Object.hasOwn(values, nextKey))) return showToast('Keys must be non-empty and unique.', true);
-      const currentValue = values[key];
+      if (!nextKey || (nextKey !== key && Object.hasOwn(values, nextKey))) {
+        showToast('Keys must be non-empty and unique.', true);
+        return rerender();
+      }
+      const value = values[key];
       delete values[key];
-      values[nextKey] = currentValue;
+      values[nextKey] = value;
       rerender();
     });
-    row.querySelector('[data-part="value"]').addEventListener('input', (event) => {
+    row.querySelector('[data-kv-value]').addEventListener('input', (event) => {
       values[key] = event.target.value;
     });
-    row.querySelector('button').addEventListener('click', () => {
+    row.querySelector('[data-kv-remove]').addEventListener('click', () => {
       delete values[key];
       rerender();
     });
-    container.append(row);
   });
 }
 
-function renderStateDataKeys() {
-  elements.stateDataKeys.innerHTML = Object.keys(state.process.initialStateData)
-    .map((key) => `<option value="${escapeHTML(key)}"></option>`).join('');
-}
-
 function stateOptions(selected) {
-  return state.process.states.map((entry) =>
-    `<option value="${escapeHTML(entry.name)}" ${entry.name === selected ? 'selected' : ''}>${escapeHTML(entry.name)}</option>`
-  ).join('');
-}
-
-function keyOptions(selected) {
-  const keys = ['', ...Object.keys(state.process.initialStateData)];
-  return keys.map((key) =>
-    `<option value="${escapeHTML(key)}" ${key === selected ? 'selected' : ''}>${escapeHTML(key || 'No comparison · default only')}</option>`
-  ).join('');
+  return state.process.states.map((dealState) => `<option value="${escapeHTML(dealState.name)}" ${dealState.name === selected ? 'selected' : ''}>${escapeHTML(dealState.name)}</option>`).join('');
 }
 
 function actionOptions(selected) {
-  return state.actions.map((name) =>
-    `<option value="${escapeHTML(name)}" ${name === selected ? 'selected' : ''}>${escapeHTML(name)}</option>`
-  ).join('');
+  return state.actions.map((action) => `<option value="${escapeHTML(action)}" ${action === selected ? 'selected' : ''}>${escapeHTML(action)}</option>`).join('');
 }
 
 function addUniqueKey(target, base, value) {
@@ -523,8 +814,37 @@ function addUniqueKey(target, base, value) {
   target[key] = value;
 }
 
+function bindBackLink() {
+  document.querySelector('[data-back]').addEventListener('click', (event) => {
+    event.preventDefault();
+    navigate('/dataset-deal');
+  });
+}
+
+function dashboardURL() {
+  return `/dataset-deal?role=${encodeURIComponent(state.role)}`;
+}
+
+function detailURL(kind, id) {
+  return `/dataset-deal/${kind}/${encodeURIComponent(id)}?role=${encodeURIComponent(state.role)}`;
+}
+
 function buyerLabel(role) {
   return role.replace('buyer', 'Buyer ');
+}
+
+function statusClass(status) {
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'RUNNING') return '';
+  return 'terminal';
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleString();
+}
+
+function renderError(error) {
+  app.innerHTML = `<div class="page"><div class="panel panel-body"><h2>Unable to load this page</h2><p>${escapeHTML(error.message)}</p><a class="ghost" href="${dashboardURL()}">Back to dashboard</a></div></div>`;
 }
 
 async function api(path, options = {}) {
@@ -538,11 +858,11 @@ async function api(path, options = {}) {
 }
 
 function showToast(message, error = false) {
-  elements.toast.textContent = message;
-  elements.toast.classList.toggle('error', error);
-  elements.toast.classList.add('visible');
+  toast.textContent = message;
+  toast.classList.toggle('error', error);
+  toast.classList.add('visible');
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => elements.toast.classList.remove('visible'), 3500);
+  showToast.timer = window.setTimeout(() => toast.classList.remove('visible'), 3500);
 }
 
 function escapeHTML(value) {
@@ -551,4 +871,4 @@ function escapeHTML(value) {
   })[character]);
 }
 
-initialize().catch((error) => showToast(error.message, true));
+initialize().catch(renderError);

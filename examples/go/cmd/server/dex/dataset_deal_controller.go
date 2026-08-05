@@ -41,7 +41,7 @@ import (
 var datasetDealUI embed.FS
 
 const (
-	datasetDealExecutionQuery     = "ProcessID IS NOT NULL"
+	datasetDealAllExecutionsQuery = "ProcessID IS NOT NULL"
 	datasetDealInitializeStepType = "datasetdeal.initializeStep"
 	datasetDealSearchPageSize     = int32(1000)
 )
@@ -89,12 +89,16 @@ func newDatasetDealController(
 
 func (controller *datasetDealController) registerRoutes(router *gin.Engine) {
 	router.GET("/dataset-deal", controller.index)
+	router.GET("/dataset-deal/processes/:processID", controller.index)
+	router.GET("/dataset-deal/executions/:flowID", controller.index)
 	router.GET("/dataset-deal/app.js", controller.script)
 	router.GET("/dataset-deal/styles.css", controller.styles)
 	router.GET("/dataset-deal/comprehensive-process.json", controller.processTemplate)
 	router.GET("/api/dataset-deal/actions", controller.listActions)
 	router.POST("/api/dataset-deal/processes", controller.createDealProcess)
+	router.GET("/api/dataset-deal/processes", controller.listDealProcesses)
 	router.GET("/api/dataset-deal/processes/:processID", controller.getDealProcess)
+	router.PUT("/api/dataset-deal/processes/:processID", controller.updateDealProcess)
 	router.POST("/api/dataset-deal/executions", controller.startDealExecution)
 	router.GET("/api/dataset-deal/executions", controller.listDealExecutions)
 	router.GET("/api/dataset-deal/executions/:flowID", controller.getDealExecution)
@@ -124,6 +128,15 @@ func (*datasetDealController) listActions(request *gin.Context) {
 	request.JSON(http.StatusOK, gin.H{"actions": datasetdeal.AvailableActionNames()})
 }
 
+func (controller *datasetDealController) listDealProcesses(request *gin.Context) {
+	processes, err := controller.repository.ListProcesses(request.Request.Context())
+	if err != nil {
+		controller.respondError(request, err)
+		return
+	}
+	request.JSON(http.StatusOK, gin.H{"processes": processes})
+}
+
 func (controller *datasetDealController) createDealProcess(request *gin.Context) {
 	var process datasetdeal.DealProcess
 	if err := request.ShouldBindJSON(&process); err != nil {
@@ -147,6 +160,28 @@ func (controller *datasetDealController) getDealProcess(request *gin.Context) {
 		request.Param("processID"),
 	)
 	if err != nil {
+		controller.respondError(request, err)
+		return
+	}
+	request.JSON(http.StatusOK, process)
+}
+
+func (controller *datasetDealController) updateDealProcess(request *gin.Context) {
+	processID := strings.TrimSpace(request.Param("processID"))
+	var process datasetdeal.DealProcess
+	if err := request.ShouldBindJSON(&process); err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if process.ProcessID != processID {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "processID cannot be changed"})
+		return
+	}
+	if err := datasetdeal.ValidateProcess(process); err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := controller.repository.UpdateProcess(request.Request.Context(), process); err != nil {
 		controller.respondError(request, err)
 		return
 	}
@@ -205,8 +240,10 @@ func (controller *datasetDealController) startDealExecution(request *gin.Context
 func (controller *datasetDealController) listDealExecutions(request *gin.Context) {
 	executions, err := controller.findDealExecutions(
 		request.Request.Context(),
-		datasetDealExecutionQuery,
-		strings.TrimSpace(request.Query("buyerID")),
+		datasetDealExecutionSearchQuery(
+			strings.TrimSpace(request.Query("processID")),
+			strings.TrimSpace(request.Query("buyerID")),
+		),
 	)
 	if err != nil {
 		controller.respondError(request, err)
@@ -220,11 +257,10 @@ func (controller *datasetDealController) getDealExecution(request *gin.Context) 
 	executions, err := controller.findDealExecutions(
 		request.Request.Context(),
 		fmt.Sprintf(
-			"WorkflowId = '%s' AND %s",
-			strings.ReplaceAll(flowID, "'", "''"),
-			datasetDealExecutionQuery,
+			"WorkflowId='%s' AND %s",
+			datasetDealSearchString(flowID),
+			datasetDealAllExecutionsQuery,
 		),
-		"",
 	)
 	if err != nil {
 		controller.respondError(request, err)
@@ -240,7 +276,6 @@ func (controller *datasetDealController) getDealExecution(request *gin.Context) 
 func (controller *datasetDealController) findDealExecutions(
 	ctx context.Context,
 	query string,
-	buyerID string,
 ) ([]datasetdeal.DealExecution, error) {
 	entries, err := controller.searchLatestExecutionRuns(ctx, query)
 	if err != nil {
@@ -252,9 +287,7 @@ func (controller *datasetDealController) findDealExecutions(
 		if projectErr != nil {
 			return nil, projectErr
 		}
-		if buyerID == "" || execution.BuyerID == buyerID {
-			executions = append(executions, execution)
-		}
+		executions = append(executions, execution)
 	}
 	sort.Slice(executions, func(first int, second int) bool {
 		return executions[first].StartedAt.After(executions[second].StartedAt)
@@ -304,6 +337,7 @@ func (controller *datasetDealController) projectDealExecution(
 		ctx,
 		entry.FlowID,
 		datasetdeal.ProcessID,
+		datasetdeal.ProcessDefinition,
 		datasetdeal.BuyerID,
 		datasetdeal.CurrentState,
 		datasetdeal.CurrentActionIndexToExecute,
@@ -315,6 +349,10 @@ func (controller *datasetDealController) projectDealExecution(
 		return datasetdeal.DealExecution{}, err
 	}
 	processID, err := decodeRequiredAttribute(values, datasetdeal.ProcessID)
+	if err != nil {
+		return datasetdeal.DealExecution{}, err
+	}
+	processDefinition, err := decodeRequiredAttribute(values, datasetdeal.ProcessDefinition)
 	if err != nil {
 		return datasetdeal.DealExecution{}, err
 	}
@@ -357,6 +395,7 @@ func (controller *datasetDealController) projectDealExecution(
 		FlowID:                   entry.FlowID,
 		RunID:                    entry.RunID,
 		ProcessID:                processID,
+		ProcessDefinition:        processDefinition,
 		BuyerID:                  buyerID,
 		CurrentState:             currentState,
 		CurrentActionIndex:       currentActionIndex,
@@ -367,6 +406,24 @@ func (controller *datasetDealController) projectDealExecution(
 		StartedAt:                entry.StartedAt,
 		ClosedAt:                 closedAt,
 	}, nil
+}
+
+func datasetDealExecutionSearchQuery(processID string, buyerID string) string {
+	filters := make([]string, 0, 2)
+	if buyerID != "" {
+		filters = append(filters, "BuyerID='"+datasetDealSearchString(buyerID)+"'")
+	}
+	if processID != "" {
+		filters = append(filters, "ProcessID='"+datasetDealSearchString(processID)+"'")
+	}
+	if len(filters) == 0 {
+		return datasetDealAllExecutionsQuery
+	}
+	return strings.Join(filters, " AND ")
+}
+
+func datasetDealSearchString(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
 }
 
 func (controller *datasetDealController) sendChannelMessage(request *gin.Context) {

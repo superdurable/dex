@@ -66,6 +66,7 @@ type DealExecution struct {
 	FlowID                   string            `json:"flowID"`
 	RunID                    string            `json:"runID"`
 	ProcessID                string            `json:"processID"`
+	ProcessDefinition        DealProcess       `json:"processDefinition"`
 	BuyerID                  string            `json:"buyerID"`
 	CurrentState             string            `json:"currentState"`
 	CurrentActionIndex       int               `json:"currentActionIndexToExecute"`
