@@ -13,6 +13,7 @@ export interface TimelineStepLink {
   waitForEventId: number;
   executeEventId: number;
   conditionWaitDurationMs: number | null;
+  lane: number;
 }
 
 export function newestTimelineEvents(events: FlowHistoryEvent[]): FlowHistoryEvent[] {
@@ -21,7 +22,7 @@ export function newestTimelineEvents(events: FlowHistoryEvent[]): FlowHistoryEve
 
 export function buildTimelineStepLinks(events: FlowHistoryEvent[]): TimelineStepLink[] {
   const pendingWaitFor = new Map<string, FlowHistoryEvent>();
-  const links: TimelineStepLink[] = [];
+  const links: Omit<TimelineStepLink, 'lane'>[] = [];
   const chronologicalEvents = [...events].sort((left, right) => left.eventId - right.eventId);
 
   for (const event of chronologicalEvents) {
@@ -42,7 +43,7 @@ export function buildTimelineStepLinks(events: FlowHistoryEvent[]): TimelineStep
     });
     pendingWaitFor.delete(stepExecutionId);
   }
-  return links;
+  return assignTimelineStepLinkLanes(links);
 }
 
 export function formatElapsedDuration(milliseconds: number | null): string {
@@ -80,4 +81,18 @@ function elapsedMilliseconds(start: string | null, end: string | null): number |
   const endMs = Date.parse(end);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
   return Math.max(0, endMs - startMs);
+}
+
+function assignTimelineStepLinkLanes(
+  links: Omit<TimelineStepLink, 'lane'>[],
+): TimelineStepLink[] {
+  const laneEndEventIds: number[] = [];
+  return [...links]
+    .sort((left, right) => left.waitForEventId - right.waitForEventId)
+    .map((link) => {
+      let lane = laneEndEventIds.findIndex((endEventId) => endEventId < link.waitForEventId);
+      if (lane < 0) lane = laneEndEventIds.length;
+      laneEndEventIds[lane] = link.executeEventId;
+      return { ...link, lane };
+    });
 }
