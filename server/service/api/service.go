@@ -626,151 +626,6 @@ func (s *serviceImpl) LoadBlobs(ctx context.Context, req *dexpb.LoadBlobsRequest
 	return &dexpb.LoadBlobsResponse{Values: values}, nil
 }
 
-func (s *serviceImpl) GetStepEventInputs(
-	ctx context.Context,
-	req *dexpb.GetStepEventInputsRequest,
-) (*dexpb.GetStepEventInputsResponse, error) {
-	if req == nil {
-		return nil, makeInvalidRequestError("flow ID and run ID are required")
-	}
-	execution := req.GetFlowExecutionId()
-	if execution.GetFlowId() == "" || execution.GetRunId() == "" {
-		return nil, makeInvalidRequestError("flow ID and run ID are required")
-	}
-	for _, key := range req.GetKeys() {
-		if key.GetEventId() <= 0 || key.GetStepExecutionId() == "" {
-			return nil, makeInvalidRequestError("positive event ID and step execution ID are required")
-		}
-		if _, err := stepEventInputMethod(key.GetMethodType()); err != nil {
-			return nil, makeInvalidRequestError(err.Error())
-		}
-	}
-	response := &dexpb.GetStepEventInputsResponse{}
-	if len(req.GetKeys()) == 0 {
-		return response, nil
-	}
-	if !s.extStore.Enabled {
-		for _, key := range req.GetKeys() {
-			response.UnavailableEventIds = append(response.UnavailableEventIds, key.GetEventId())
-		}
-		return response, nil
-	}
-	description, err := s.client.DescribeWorkflowExecution(
-		ctx,
-		execution.GetFlowId(),
-		execution.GetRunId(),
-		nil,
-	)
-	if err != nil {
-		return nil, s.handleError(err)
-	}
-	for _, key := range req.GetKeys() {
-		input, found, loadErr := s.loadStepEventInput(
-			ctx,
-			description.StartTime,
-			execution,
-			key,
-		)
-		if loadErr != nil {
-			if blobstore.IsObjectUnavailable(loadErr) {
-				response.UnavailableEventIds = append(response.UnavailableEventIds, key.GetEventId())
-				continue
-			}
-			return nil, s.handleError(loadErr)
-		}
-		if !found {
-			response.UnavailableEventIds = append(response.UnavailableEventIds, key.GetEventId())
-			continue
-		}
-		response.Inputs = append(response.Inputs, input)
-	}
-	return response, nil
-}
-
-func (s *serviceImpl) loadStepEventInput(
-	ctx context.Context,
-	runStarted time.Time,
-	execution *dexpb.FlowExecutionID,
-	key *dexpb.StepEventInputKey,
-) (*dexpb.StepEventInput, bool, error) {
-	method, err := stepEventInputMethod(key.GetMethodType())
-	if err != nil {
-		return nil, false, err
-	}
-	data, found, err := s.store.ReadStepEventInput(
-		ctx,
-		runStarted,
-		execution.GetFlowId(),
-		execution.GetRunId(),
-		key.GetStepExecutionId(),
-		method,
-	)
-	if err != nil || !found {
-		return nil, found, err
-	}
-	input := &dexpb.StepEventInput{EventId: key.GetEventId()}
-	switch key.GetMethodType() {
-	case dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR:
-		request := &dexpb.InvokeWaitForMethodRequest{}
-		if err := proto.Unmarshal(data, request); err != nil {
-			return nil, false, fmt.Errorf("unmarshal WaitFor step event input: %w", err)
-		}
-		if err := hydrateWaitForRequest(ctx, request, s.store); err != nil {
-			return nil, false, err
-		}
-		input.Request = &dexpb.StepEventInput_WaitForRequest{WaitForRequest: request}
-	case dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE:
-		request := &dexpb.InvokeExecuteMethodRequest{}
-		if err := proto.Unmarshal(data, request); err != nil {
-			return nil, false, fmt.Errorf("unmarshal Execute step event input: %w", err)
-		}
-		if err := hydrateExecuteRequest(ctx, request, s.store); err != nil {
-			return nil, false, err
-		}
-		input.Request = &dexpb.StepEventInput_ExecuteRequest{ExecuteRequest: request}
-	}
-	return input, true, nil
-}
-
-func stepEventInputMethod(methodType dexpb.StepMethodType) (string, error) {
-	switch methodType {
-	case dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR:
-		return blobstore.StepEventInputMethodWaitFor, nil
-	case dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE:
-		return blobstore.StepEventInputMethodExecute, nil
-	default:
-		return "", fmt.Errorf("valid step method type is required")
-	}
-}
-
-func hydrateWaitForRequest(
-	ctx context.Context,
-	request *dexpb.InvokeWaitForMethodRequest,
-	store blobstore.BlobStore,
-) error {
-	if err := blobstore.HydrateValue(ctx, request.GetStepInput(), store); err != nil {
-		return err
-	}
-	return blobstore.HydrateKVs(ctx, request.GetAttributes(), store)
-}
-
-func hydrateExecuteRequest(
-	ctx context.Context,
-	request *dexpb.InvokeExecuteMethodRequest,
-	store blobstore.BlobStore,
-) error {
-	if err := hydrateWaitForRequest(ctx, &dexpb.InvokeWaitForMethodRequest{
-		StepInput:  request.GetStepInput(),
-		Attributes: request.GetAttributes(),
-	}, store); err != nil {
-		return err
-	}
-	if err := blobstore.HydrateKVs(ctx, request.GetStepExeLocals(), store); err != nil {
-		return err
-	}
-	return blobstore.HydrateConditionResults(ctx, request.GetConditionResults(), store)
-}
-
 // blobArmForLoad requires a blob-id arm and returns a fresh Value for hydrate.
 func blobArmForLoad(value *dexpb.Value) (blobId string, hydrateValue *dexpb.Value, err error) {
 	if value == nil {
@@ -950,11 +805,181 @@ func (s *serviceImpl) GetHistoryEvents(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
+	if err := s.populateStoredStepEventInputs(
+		ctx,
+		req.GetFlowId(),
+		req.GetRunId(),
+		history.Events,
+	); err != nil {
+		return nil, s.handleError(err)
+	}
 	return &dexpb.GetHistoryEventsResponse{
 		Events:              history.Events,
 		NextPageToken:       history.NextPageToken,
 		NextInternalEventId: history.NextInternalEventID,
 	}, nil
+}
+
+func (s *serviceImpl) populateStoredStepEventInputs(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	events []*dexpb.FlowHistoryEvent,
+) error {
+	if !hasMissingStepEventInput(events) {
+		return nil
+	}
+	if !s.extStore.Enabled {
+		markMissingStepEventInputsUnavailable(events)
+		return nil
+	}
+	description, err := s.client.DescribeWorkflowExecution(ctx, flowID, runID, nil)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		stepExecutionID, method := missingStepEventInputKey(event)
+		if stepExecutionID == "" {
+			continue
+		}
+		input, found, loadErr := s.loadStoredStepEventInput(
+			ctx,
+			description.StartTime,
+			flowID,
+			runID,
+			stepExecutionID,
+			method,
+		)
+		if loadErr != nil {
+			if blobstore.IsObjectUnavailable(loadErr) {
+				markStepEventInputUnavailable(event)
+				continue
+			}
+			return loadErr
+		}
+		if !found {
+			markStepEventInputUnavailable(event)
+			continue
+		}
+		if err := applyStoredStepEventInput(event, input, method); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *serviceImpl) loadStoredStepEventInput(
+	ctx context.Context,
+	runStarted time.Time,
+	flowID string,
+	runID string,
+	stepExecutionID string,
+	method string,
+) (*dexpb.StepEventInput, bool, error) {
+	data, found, err := s.store.ReadStepEventInput(
+		ctx,
+		runStarted,
+		flowID,
+		runID,
+		stepExecutionID,
+		method,
+	)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	input := &dexpb.StepEventInput{}
+	if err := proto.Unmarshal(data, input); err != nil {
+		return nil, false, fmt.Errorf("unmarshal step event input: %w", err)
+	}
+	return input, true, nil
+}
+
+func hasMissingStepEventInput(events []*dexpb.FlowHistoryEvent) bool {
+	for _, event := range events {
+		stepExecutionID, _ := missingStepEventInputKey(event)
+		if stepExecutionID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func missingStepEventInputKey(event *dexpb.FlowHistoryEvent) (string, string) {
+	switch payload := event.GetPayload().(type) {
+	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
+		if payload.StepWaitForCompleted.GetRequest() == nil {
+			return payload.StepWaitForCompleted.GetExecution().GetStepExecutionId(), blobstore.StepEventInputMethodWaitFor
+		}
+	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
+		if payload.StepWaitForFailed.GetRequest() == nil {
+			return payload.StepWaitForFailed.GetExecution().GetStepExecutionId(), blobstore.StepEventInputMethodWaitFor
+		}
+	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
+		if payload.StepExecuteCompleted.GetRequest() == nil {
+			return payload.StepExecuteCompleted.GetExecution().GetStepExecutionId(), blobstore.StepEventInputMethodExecute
+		}
+	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
+		if payload.StepExecuteFailed.GetRequest() == nil {
+			return payload.StepExecuteFailed.GetExecution().GetStepExecutionId(), blobstore.StepEventInputMethodExecute
+		}
+	}
+	return "", ""
+}
+
+func markMissingStepEventInputsUnavailable(events []*dexpb.FlowHistoryEvent) {
+	for _, event := range events {
+		stepExecutionID, _ := missingStepEventInputKey(event)
+		if stepExecutionID != "" {
+			markStepEventInputUnavailable(event)
+		}
+	}
+}
+
+func markStepEventInputUnavailable(event *dexpb.FlowHistoryEvent) {
+	switch payload := event.GetPayload().(type) {
+	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
+		payload.StepWaitForCompleted.InputUnavailable = true
+	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
+		payload.StepWaitForFailed.InputUnavailable = true
+	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
+		payload.StepExecuteCompleted.InputUnavailable = true
+	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
+		payload.StepExecuteFailed.InputUnavailable = true
+	}
+}
+
+func applyStoredStepEventInput(
+	event *dexpb.FlowHistoryEvent,
+	input *dexpb.StepEventInput,
+	method string,
+) error {
+	switch payload := event.GetPayload().(type) {
+	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
+		if method != blobstore.StepEventInputMethodWaitFor || input.GetWaitForRequest() == nil {
+			return fmt.Errorf("stored input does not match WaitFor event %d", event.GetEventId())
+		}
+		payload.StepWaitForCompleted.Request = input.GetWaitForRequest()
+		payload.StepWaitForCompleted.Execution.MethodOptions = input.GetMethodOptions()
+	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
+		if method != blobstore.StepEventInputMethodWaitFor || input.GetWaitForRequest() == nil {
+			return fmt.Errorf("stored input does not match WaitFor event %d", event.GetEventId())
+		}
+		payload.StepWaitForFailed.Request = input.GetWaitForRequest()
+		payload.StepWaitForFailed.Execution.MethodOptions = input.GetMethodOptions()
+	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
+		if method != blobstore.StepEventInputMethodExecute || input.GetExecuteRequest() == nil {
+			return fmt.Errorf("stored input does not match Execute event %d", event.GetEventId())
+		}
+		payload.StepExecuteCompleted.Request = input.GetExecuteRequest()
+		payload.StepExecuteCompleted.Execution.MethodOptions = input.GetMethodOptions()
+	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
+		if method != blobstore.StepEventInputMethodExecute || input.GetExecuteRequest() == nil {
+			return fmt.Errorf("stored input does not match Execute event %d", event.GetEventId())
+		}
+		payload.StepExecuteFailed.Request = input.GetExecuteRequest()
+		payload.StepExecuteFailed.Execution.MethodOptions = input.GetMethodOptions()
+	}
+	return nil
 }
 
 func (s *serviceImpl) WaitForHistoryEvent(

@@ -18,6 +18,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/channel"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
@@ -683,6 +684,7 @@ func (i *Interpreter) processStepExecution(
 			&dexpb.InvokeWaitForMethodActivityInput{
 				WorkerTarget:                           flowConfiger.GetWorkerTarget(),
 				CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
+				MethodOptionsInternalOnly:              stepMethodOptions(activityOptions),
 				Request: &dexpb.InvokeWaitForMethodRequest{
 					Context:    executionContext,
 					FlowType:   basicInfo.FlowType,
@@ -971,6 +973,7 @@ func (i *Interpreter) invokeExecuteMethod(
 			WorkerTarget:                           flowConfiger.GetWorkerTarget(),
 			IsTransientStep:                        isTransientStep,
 			CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
+			MethodOptionsInternalOnly:              stepMethodOptions(activityOptions),
 			Request: &dexpb.InvokeExecuteMethodRequest{
 				Context:          executionContext,
 				FlowType:         basicInfo.FlowType,
@@ -1001,6 +1004,13 @@ func (i *Interpreter) invokeExecuteMethod(
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
+}
+
+func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOptions {
+	return &dexpb.StepMethodOptions{
+		TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
+		RetryPolicy:    retry.ActivityRetryPolicyWithDefaults(options.RetryPolicy),
+	}
 }
 
 func shouldProceedOnWaitForMethodError(step *dexpb.StepMovement) bool {

@@ -51,10 +51,13 @@ supports incremental refresh. `GetFlowState` returns the interpreter
 snapshot for a running flow.
 
 Successful async local activities do not place requests in backend history.
-`GetStepEventInputs` retrieves retained WaitFor/Execute requests by flow run,
-semantic event ID, step execution ID, and method type. Missing or cleaned-up
-inputs appear in `unavailable_event_ids`; they do not fail the whole batch.
-Returned requests have blob-backed `Value` fields hydrated.
+`GetHistoryEvents` fills those requests from run-scoped external storage before
+returning semantic events. Missing or cleaned-up input sets the event's
+`input_unavailable` field. Sync and async events therefore have the same shape.
+
+Each step method event also returns its effective timeout and retry policy.
+Regular Activity options come from the scheduled event; local Activity options
+are retained with the stored request.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store

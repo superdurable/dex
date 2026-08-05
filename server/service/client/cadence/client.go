@@ -643,6 +643,7 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&input,
 			durability,
+			cadenceStepMethodOptions(attributes),
 			previousFailures,
 		)
 	case strings.Contains(activityType, "InvokeExecuteMethod"):
@@ -655,6 +656,7 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&input,
 			durability,
+			cadenceStepMethodOptions(attributes),
 			previousFailures,
 		)
 	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
@@ -663,6 +665,30 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 	}
 	scheduledTypes[event.GetEventId()] = activityType
 	return nil
+}
+
+func cadenceStepMethodOptions(
+	attributes *shared.ActivityTaskScheduledEventAttributes,
+) *dexpb.StepMethodOptions {
+	options := &dexpb.StepMethodOptions{
+		TimeoutSeconds: attributes.GetStartToCloseTimeoutSeconds(),
+	}
+	policy := attributes.GetRetryPolicy()
+	if policy == nil {
+		return options
+	}
+	totalDuration := policy.GetExpirationIntervalInSeconds()
+	if totalDuration == int32((365*24*time.Hour)/time.Second) {
+		totalDuration = 0
+	}
+	options.RetryPolicy = &dexpb.RetryPolicy{
+		InitialIntervalSeconds: policy.GetInitialIntervalInSeconds(),
+		BackoffCoefficient:     float32(policy.GetBackoffCoefficient()),
+		MaximumIntervalSeconds: policy.GetMaximumIntervalInSeconds(),
+		MaximumAttempts:        policy.GetMaximumAttempts(),
+		TotalDurationSeconds:   totalDuration,
+	}
+	return options
 }
 
 func (t *cadenceClient) recordCadenceCompletedActivity(

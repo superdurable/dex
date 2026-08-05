@@ -30,23 +30,12 @@ import { Timeline } from './details/Timeline';
 
 type RunTab = 'overview' | 'steps' | 'timeline';
 
-interface StepEventInputsResult {
-  inputs: Array<{ eventId: number; request: Record<string, unknown> }>;
-  unavailableEventIds?: number[] | null;
-}
-
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 
 async function responseJSON<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
-}
-
-function stepMethodType(event: FlowHistoryEvent): 'waitFor' | 'execute' | null {
-  if (event.type.startsWith('StepWaitFor')) return 'waitFor';
-  if (event.type.startsWith('StepExecute')) return 'execute';
-  return null;
 }
 
 export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: string }) {
@@ -98,51 +87,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       || hydratingEventIDs.current.has(event.eventId)) return;
     hydratingEventIDs.current.add(event.eventId);
     try {
-      let eventWithInput = event;
-      const methodType = stepMethodType(event);
-      const request = event.payload.request;
-      const execution = event.payload.execution as Record<string, unknown> | undefined;
-      if (methodType && (!request || Object.keys(request as Record<string, unknown>).length === 0)) {
-        try {
-          const result = await responseJSON<StepEventInputsResult>(await fetch('/api/flows/step-event-inputs', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              flowId,
-              runId,
-              keys: [{
-                eventId: event.eventId,
-                stepExecutionId: String(execution?.stepExecutionId ?? ''),
-                methodType,
-              }],
-            }),
-            cache: 'no-store',
-          }));
-          const loaded = result.inputs.find((input) => input.eventId === event.eventId);
-          const unavailableEventIDs = result.unavailableEventIds ?? [];
-          const inputBlobUnavailable = !loaded && unavailableEventIDs.includes(event.eventId);
-          eventWithInput = {
-            ...event,
-            payload: {
-              ...event.payload,
-              ...(loaded ? { request: loaded.request } : {}),
-              ...(inputBlobUnavailable
-                ? { inputUnavailable: true }
-                : {}),
-            },
-          };
-          if (inputBlobUnavailable) {
-            addDataWarning(STEP_EVENT_INPUT_BLOB_UNAVAILABLE);
-          }
-        } catch {
-          eventWithInput = {
-            ...event,
-            payload: { ...event.payload, inputUnavailable: true },
-          };
-          addDataWarning(STEP_EVENT_INPUT_BLOB_UNAVAILABLE);
-        }
+      if (event.payload.inputUnavailable === true) {
+        addDataWarning(STEP_EVENT_INPUT_BLOB_UNAVAILABLE);
       }
-      const hydrated = await hydrateBlobs(eventWithInput, blobCache.current);
+      const hydrated = await hydrateBlobs(event, blobCache.current);
       setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
       hydratedEventIDs.current.add(event.eventId);
       if (hydrated.error) addDataWarning(hydrated.error);
@@ -151,7 +99,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     } finally {
       hydratingEventIDs.current.delete(event.eventId);
     }
-  }, [addDataWarning, flowId, runId]);
+  }, [addDataWarning]);
 
   const loadSummary = useCallback(async () => {
     const value = await responseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));

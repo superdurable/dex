@@ -75,7 +75,6 @@ service FlowService {
   rpc GetAttributes(GetAttributesRequest) returns (GetAttributesResponse);
   rpc SetAttributes(SetAttributesRequest) returns (google.protobuf.Empty);
   rpc LoadBlobs(LoadBlobsRequest) returns (LoadBlobsResponse);
-  rpc GetStepEventInputs(GetStepEventInputsRequest) returns (GetStepEventInputsResponse);
   rpc WaitForFlow(WaitForFlowRequest) returns (WaitForFlowResponse);
   rpc SearchFlows(SearchFlowsRequest) returns (SearchFlowsResponse);
   rpc GetFlowSummary(GetFlowSummaryRequest) returns (GetFlowSummaryResponse);
@@ -426,35 +425,13 @@ message GetFlowSummaryResponse {
   google.protobuf.Timestamp close_time = 7;
 }
 
-enum StepMethodType {
-  STEP_METHOD_TYPE_UNSPECIFIED = 0;
-  STEP_METHOD_TYPE_WAIT_FOR = 1;
-  STEP_METHOD_TYPE_EXECUTE = 2;
-}
-
-message StepEventInputKey {
-  int64 event_id = 1;
-  string step_execution_id = 2;
-  StepMethodType method_type = 3;
-}
-
-message GetStepEventInputsRequest {
-  FlowExecutionID flow_execution_id = 1;
-  repeated StepEventInputKey keys = 2;
-}
-
 message StepEventInput {
-  int64 event_id = 1;
+  StepMethodOptions method_options = 1;
 
   oneof request {
     InvokeWaitForMethodRequest wait_for_request = 2;
     InvokeExecuteMethodRequest execute_request = 3;
   }
-}
-
-message GetStepEventInputsResponse {
-  repeated StepEventInput inputs = 1;
-  repeated int64 unavailable_event_ids = 2;
 }
 
 message GetHistoryEventsRequest {
@@ -535,6 +512,11 @@ message StepMethodAttemptFailure {
   StepMethodFailure failure = 3;
 }
 
+message StepMethodOptions {
+  int32 timeout_seconds = 1;
+  RetryPolicy retry_policy = 2;
+}
+
 message StepMethodExecutionInfo {
   string step_execution_id = 1;
   string from_step_execution_id = 2;
@@ -545,30 +527,35 @@ message StepMethodExecutionInfo {
   google.protobuf.Timestamp first_started_time = 7;
   google.protobuf.Duration duration = 8;
   repeated StepMethodAttemptFailure previous_attempt_failures = 9;
+  StepMethodOptions method_options = 10;
 }
 
 message StepWaitForCompletedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeWaitForMethodRequest request = 2;
   InvokeWaitForMethodResponse response = 3;
+  bool input_unavailable = 4;
 }
 
 message StepWaitForFailedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeWaitForMethodRequest request = 2;
   StepMethodFailure failure = 3;
+  bool input_unavailable = 4;
 }
 
 message StepExecuteCompletedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeExecuteMethodRequest request = 2;
   InvokeExecuteMethodResponse response = 3;
+  bool input_unavailable = 4;
 }
 
 message StepExecuteFailedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeExecuteMethodRequest request = 2;
   StepMethodFailure failure = 3;
+  bool input_unavailable = 4;
 }
 
 message RpcExecutionCompletedEvent {
@@ -1011,6 +998,7 @@ message InvokeWaitForMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
   int64 current_run_started_timestamp_internal_only = 3;
+  StepMethodOptions method_options_internal_only = 4;
 }
 
 message InvokeWaitForMethodActivityOutput {
@@ -1023,6 +1011,7 @@ message InvokeExecuteMethodActivityInput {
   // Requires a DeadEnd close decision without next steps.
   bool is_transient_step = 3;
   int64 current_run_started_timestamp_internal_only = 4;
+  StepMethodOptions method_options_internal_only = 5;
 }
 
 message InvokeExecuteMethodActivityOutput {

@@ -39,6 +39,7 @@ type Builder struct {
 type scheduledActivity struct {
 	scheduledTime    time.Time
 	durability       dexpb.StepDurability
+	methodOptions    *dexpb.StepMethodOptions
 	waitInput        *dexpb.InvokeWaitForMethodActivityInput
 	executeInput     *dexpb.InvokeExecuteMethodActivityInput
 	previousFailures []*dexpb.StepMethodAttemptFailure
@@ -95,11 +96,13 @@ func (b *Builder) RecordWaitScheduled(
 	eventTime time.Time,
 	input *dexpb.InvokeWaitForMethodActivityInput,
 	durability dexpb.StepDurability,
+	methodOptions *dexpb.StepMethodOptions,
 	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	b.scheduledActivities[eventID] = &scheduledActivity{
 		scheduledTime:    eventTime,
 		durability:       durability,
+		methodOptions:    methodOptions,
 		waitInput:        input,
 		previousFailures: previousFailures,
 		priorAttempts:    previousAttemptCount(previousFailures),
@@ -111,11 +114,13 @@ func (b *Builder) RecordExecuteScheduled(
 	eventTime time.Time,
 	input *dexpb.InvokeExecuteMethodActivityInput,
 	durability dexpb.StepDurability,
+	methodOptions *dexpb.StepMethodOptions,
 	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	b.scheduledActivities[eventID] = &scheduledActivity{
 		scheduledTime:    eventTime,
 		durability:       durability,
+		methodOptions:    methodOptions,
 		executeInput:     input,
 		previousFailures: previousFailures,
 		priorAttempts:    previousAttemptCount(previousFailures),
@@ -178,6 +183,7 @@ func (b *Builder) RecordActivityCompleted(
 						eventTime,
 						finalAttempt,
 						scheduled.previousFailures,
+						scheduled.methodOptions,
 					),
 					Request:  scheduled.waitInput.GetRequest(),
 					Response: waitOutput.GetResponse(),
@@ -199,6 +205,7 @@ func (b *Builder) RecordActivityCompleted(
 						eventTime,
 						finalAttempt,
 						scheduled.previousFailures,
+						scheduled.methodOptions,
 					),
 					Request:  scheduled.executeInput.GetRequest(),
 					Response: executeOutput.GetResponse(),
@@ -239,6 +246,7 @@ func (b *Builder) RecordActivityFailed(
 						eventTime,
 						finalAttempt,
 						scheduled.previousFailures,
+						scheduled.methodOptions,
 					),
 					Request: scheduled.waitInput.GetRequest(),
 					Failure: failure,
@@ -260,6 +268,7 @@ func (b *Builder) RecordActivityFailed(
 						eventTime,
 						finalAttempt,
 						scheduled.previousFailures,
+						scheduled.methodOptions,
 					),
 					Request: scheduled.executeInput.GetRequest(),
 					Failure: failure,
@@ -532,6 +541,7 @@ func executionInfo(
 	completedTime time.Time,
 	finalAttempt int32,
 	previousFailures []*dexpb.StepMethodAttemptFailure,
+	methodOptions *dexpb.StepMethodOptions,
 ) *dexpb.StepMethodExecutionInfo {
 	return &dexpb.StepMethodExecutionInfo{
 		StepExecutionId:         context.GetStepExecutionId(),
@@ -543,6 +553,7 @@ func executionInfo(
 		FirstStartedTime:        timestamppb.New(startedTime),
 		Duration:                durationpb.New(completedTime.Sub(startedTime)),
 		PreviousAttemptFailures: previousFailures,
+		MethodOptions:           methodOptions,
 	}
 }
 

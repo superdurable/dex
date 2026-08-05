@@ -119,27 +119,16 @@ func testWebParallelAttributeSnapshots(t *testing.T, backendType service.Backend
 		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 	)
 	require.Positive(t, nextInternalEventID)
-	request := &dexpb.GetStepEventInputsRequest{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-	}
+	var executeRequests []*dexpb.InvokeExecuteMethodRequest
 	for _, event := range events {
 		execute := event.GetStepExecuteCompleted()
 		if execute == nil || execute.GetExecution().GetStepType() == handler.rootStep {
 			continue
 		}
-		request.Keys = append(request.Keys, &dexpb.StepEventInputKey{
-			EventId:         event.GetEventId(),
-			StepExecutionId: execute.GetExecution().GetStepExecutionId(),
-			MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-		})
+		executeRequests = append(executeRequests, execute.GetRequest())
 	}
-	require.Len(t, request.GetKeys(), 2)
-	inputs, err := runtime.FlowClient.GetStepEventInputs(ctx, request)
-	require.NoError(t, err)
-	require.Empty(t, inputs.GetUnavailableEventIds())
-	require.Len(t, inputs.GetInputs(), 2)
-	for _, input := range inputs.GetInputs() {
-		executeRequest := input.GetExecuteRequest()
+	require.Len(t, executeRequests, 2)
+	for _, executeRequest := range executeRequests {
 		require.NotNil(t, executeRequest)
 		require.Len(t, executeRequest.GetAttributes(), 1)
 		require.Equal(t, "snapshot", executeRequest.GetAttributes()[0].GetKey())
@@ -280,6 +269,24 @@ func testWebConditionResults(
 		FlowType:           flowType,
 		FlowTimeoutSeconds: 20,
 		StartStepType:      "condition-step",
+		StepOptions: &dexpb.StepOptions{
+			WaitForTimeoutSeconds: 11,
+			ExecuteTimeoutSeconds: 13,
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 2,
+				BackoffCoefficient:     3,
+				MaximumIntervalSeconds: 4,
+				MaximumAttempts:        5,
+				TotalDurationSeconds:   60,
+			},
+			ExecuteRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 3,
+				BackoffCoefficient:     4,
+				MaximumIntervalSeconds: 5,
+				MaximumAttempts:        6,
+				TotalDurationSeconds:   70,
+			},
+		},
 		StepInput: &dexpb.Value{Kind: &dexpb.Value_StringValue{
 			StringValue: largeWebTestValue("condition-step-input"),
 		}},
@@ -320,39 +327,18 @@ func testWebConditionResults(
 	require.NotNil(t, waitForEvent)
 	executeEvent := firstExecuteEvent(events)
 	require.NotNil(t, executeEvent)
-	var waitForRequest *dexpb.InvokeWaitForMethodRequest
-	var executeRequest *dexpb.InvokeExecuteMethodRequest
-	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC {
-		waitForRequest = waitForEvent.GetRequest()
-		executeRequest = executeEvent.GetRequest()
-		require.NotNil(t, waitForRequest)
-		require.NotNil(t, executeRequest)
-	} else {
-		require.Nil(t, waitForEvent.GetRequest())
-		require.Nil(t, executeEvent.GetRequest())
-		inputs, inputErr := runtime.FlowClient.GetStepEventInputs(ctx, &dexpb.GetStepEventInputsRequest{
-			FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-			Keys: []*dexpb.StepEventInputKey{
-				{
-					EventId:         flowEventIDForWaitFor(events),
-					StepExecutionId: waitForEvent.GetExecution().GetStepExecutionId(),
-					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR,
-				},
-				{
-					EventId:         flowEventIDForExecute(events),
-					StepExecutionId: executeEvent.GetExecution().GetStepExecutionId(),
-					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-				},
-			},
-		})
-		require.NoError(t, inputErr)
-		require.Empty(t, inputs.GetUnavailableEventIds())
-		require.Len(t, inputs.GetInputs(), 2)
-		waitForRequest = inputs.GetInputs()[0].GetWaitForRequest()
-		executeRequest = inputs.GetInputs()[1].GetExecuteRequest()
-	}
+	waitForRequest := waitForEvent.GetRequest()
+	executeRequest := executeEvent.GetRequest()
 	require.NotNil(t, waitForRequest)
 	require.NotNil(t, executeRequest)
+	waitForTotalDuration := int32(60)
+	executeTotalDuration := int32(70)
+	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC {
+		waitForTotalDuration = 20
+		executeTotalDuration = 20
+	}
+	assertStepMethodOptions(t, waitForEvent.GetExecution().GetMethodOptions(), 11, 2, 3, 4, 5, waitForTotalDuration)
+	assertStepMethodOptions(t, executeEvent.GetExecution().GetMethodOptions(), 13, 3, 4, 5, 6, executeTotalDuration)
 	require.Len(t, waitForRequest.GetAttributes(), 1)
 	require.Len(t, executeRequest.GetAttributes(), 1)
 	require.Len(t, executeRequest.GetStepExeLocals(), 1)
@@ -414,6 +400,25 @@ func testWebConditionResults(
 			require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, result.GetConditionStatus())
 		}
 	}
+}
+
+func assertStepMethodOptions(
+	t *testing.T,
+	options *dexpb.StepMethodOptions,
+	timeout int32,
+	initialInterval int32,
+	backoff float32,
+	maximumInterval int32,
+	maximumAttempts int32,
+	totalDuration int32,
+) {
+	t.Helper()
+	require.Equal(t, timeout, options.GetTimeoutSeconds())
+	require.Equal(t, initialInterval, options.GetRetryPolicy().GetInitialIntervalSeconds())
+	require.Equal(t, backoff, options.GetRetryPolicy().GetBackoffCoefficient())
+	require.Equal(t, maximumInterval, options.GetRetryPolicy().GetMaximumIntervalSeconds())
+	require.Equal(t, maximumAttempts, options.GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, totalDuration, options.GetRetryPolicy().GetTotalDurationSeconds())
 }
 
 type webStepInputHandler struct {
@@ -560,47 +565,26 @@ func testWebHistoryAndSummary(
 	)
 	firstExecute := firstExecuteEvent(firstRunEvents)
 	require.NotNil(t, firstExecute)
-	var storedInputRequest *dexpb.GetStepEventInputsRequest
-	if durability == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
-		require.Nil(t, firstStep.GetRequest())
-		require.Nil(t, firstExecute.GetRequest())
-		storedInputRequest = &dexpb.GetStepEventInputsRequest{
-			FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-			Keys: []*dexpb.StepEventInputKey{
-				{
-					EventId:         flowEventIDForWaitFor(firstRunEvents),
-					StepExecutionId: firstStep.GetExecution().GetStepExecutionId(),
-					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR,
-				},
-				{
-					EventId:         flowEventIDForExecute(firstRunEvents),
-					StepExecutionId: firstExecute.GetExecution().GetStepExecutionId(),
-					MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-				},
-			},
-		}
-		inputs, inputErr := runtime.FlowClient.GetStepEventInputs(ctx, storedInputRequest)
-		require.NoError(t, inputErr)
-		require.Empty(t, inputs.GetUnavailableEventIds())
-		require.Len(t, inputs.GetInputs(), 2)
-		assertStepMethodRequestValues(
-			t,
-			inputs.GetInputs()[0].GetWaitForRequest().GetStepInput(),
-			inputs.GetInputs()[0].GetWaitForRequest().GetAttributes(),
-			stepInput,
-			attributePayload,
-		)
-		assertStepMethodRequestValues(
-			t,
-			inputs.GetInputs()[1].GetExecuteRequest().GetStepInput(),
-			inputs.GetInputs()[1].GetExecuteRequest().GetAttributes(),
-			stepInput,
-			attributePayload,
-		)
-	} else {
-		require.NotNil(t, firstStep.GetRequest())
-		require.NotNil(t, firstExecute.GetRequest())
-	}
+	require.NotNil(t, firstStep.GetRequest())
+	require.NotNil(t, firstExecute.GetRequest())
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		firstStep.GetRequest().GetStepInput(),
+		firstStep.GetRequest().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		firstExecute.GetRequest().GetStepInput(),
+		firstExecute.GetRequest().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
 
 	continuedToRunID := continuedToRunID(firstRunEvents)
 	require.NotEmpty(t, continuedToRunID)
@@ -621,48 +605,28 @@ func testWebHistoryAndSummary(
 			len(continuedStart.GetStepsToResume()) > 0 ||
 			len(continuedStart.GetCompletedSteps()) > 0,
 	)
-	if durability == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
-		continuedStep := firstStepEvent(continuedEvents)
-		require.NotNil(t, continuedStep)
-		continuedExecute := firstExecuteEvent(continuedEvents)
-		require.NotNil(t, continuedExecute)
-		continuedInputs, inputErr := runtime.FlowClient.GetStepEventInputs(
-			ctx,
-			&dexpb.GetStepEventInputsRequest{
-				FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: continuedToRunID},
-				Keys: []*dexpb.StepEventInputKey{
-					{
-						EventId:         flowEventIDForWaitFor(continuedEvents),
-						StepExecutionId: continuedStep.GetExecution().GetStepExecutionId(),
-						MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR,
-					},
-					{
-						EventId:         flowEventIDForExecute(continuedEvents),
-						StepExecutionId: continuedExecute.GetExecution().GetStepExecutionId(),
-						MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-					},
-				},
-			},
-		)
-		require.NoError(t, inputErr)
-		require.Empty(t, continuedInputs.GetUnavailableEventIds())
-		require.Len(t, continuedInputs.GetInputs(), 2)
-		for _, input := range continuedInputs.GetInputs() {
-			requestStepInput := input.GetWaitForRequest().GetStepInput()
-			requestAttributes := input.GetWaitForRequest().GetAttributes()
-			if input.GetExecuteRequest() != nil {
-				requestStepInput = input.GetExecuteRequest().GetStepInput()
-				requestAttributes = input.GetExecuteRequest().GetAttributes()
-			}
-			assertStepMethodRequestValues(
-				t,
-				requestStepInput,
-				requestAttributes,
-				stepInput,
-				attributePayload,
-			)
-		}
-	}
+	continuedStep := firstStepEvent(continuedEvents)
+	require.NotNil(t, continuedStep)
+	continuedExecute := firstExecuteEvent(continuedEvents)
+	require.NotNil(t, continuedExecute)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		continuedStep.GetRequest().GetStepInput(),
+		continuedStep.GetRequest().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
+	assertStepMethodRequestValues(
+		t,
+		ctx,
+		runtime.FlowClient,
+		continuedExecute.GetRequest().GetStepInput(),
+		continuedExecute.GetRequest().GetAttributes(),
+		stepInput,
+		attributePayload,
+	)
 	closeOutput := firstWebCloseOutput(continuedEvents)
 	require.NotNil(t, closeOutput)
 	require.NotEmpty(t, closeOutput.GetInternalBlobIdForStringValue())
@@ -705,7 +669,7 @@ func testWebHistoryAndSummary(
 	require.NoError(t, err)
 	require.False(t, waitResponse.GetEventAvailable())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, waitResponse.GetFlowStatus())
-	if storedInputRequest != nil && *dexServerAddress == "" {
+	if durability == dexpb.StepDurability_STEP_DURABILITY_ASYNC && *dexServerAddress == "" {
 		require.NoError(t, os.RemoveAll(blobDirectory))
 		unavailableBlobs, loadErr := runtime.FlowClient.LoadBlobs(
 			ctx,
@@ -713,14 +677,11 @@ func testWebHistoryAndSummary(
 		)
 		require.NoError(t, loadErr)
 		require.Empty(t, unavailableBlobs.GetValues())
-		unavailable, unavailableErr := runtime.FlowClient.GetStepEventInputs(ctx, storedInputRequest)
-		require.NoError(t, unavailableErr)
-		require.Empty(t, unavailable.GetInputs())
-		require.ElementsMatch(
-			t,
-			[]int64{flowEventIDForWaitFor(firstRunEvents), flowEventIDForExecute(firstRunEvents)},
-			unavailable.GetUnavailableEventIds(),
+		unavailableEvents, _ := getAllWebHistoryEvents(
+			t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 		)
+		require.True(t, firstStepEvent(unavailableEvents).GetInputUnavailable())
+		require.True(t, firstExecuteEvent(unavailableEvents).GetInputUnavailable())
 	}
 }
 
@@ -790,19 +751,13 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 	require.Positive(t, nextInternalEventID)
 	executeEvent := firstExecuteEvent(events)
 	require.NotNil(t, executeEvent)
-	inputs, err := runtime.FlowClient.GetStepEventInputs(ctx, &dexpb.GetStepEventInputsRequest{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-		Keys: []*dexpb.StepEventInputKey{{
-			EventId:         flowEventIDForExecute(events),
-			StepExecutionId: executeEvent.GetExecution().GetStepExecutionId(),
-			MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE,
-		}},
-	})
-	require.NoError(t, err)
-	require.Empty(t, inputs.GetUnavailableEventIds())
-	require.Len(t, inputs.GetInputs(), 1)
-	channelResults := inputs.GetInputs()[0].GetExecuteRequest().GetConditionResults().GetChannelResults()
+	channelResults := executeEvent.GetRequest().GetConditionResults().GetChannelResults()
 	require.Len(t, channelResults, 4)
+	values := make([]*dexpb.Value, 0, len(channelResults))
+	for _, result := range channelResults {
+		values = append(values, result.GetValues()...)
+	}
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
 	for index, result := range channelResults {
 		require.Equal(t, signal.SignalName, result.GetChannelName())
 		require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, result.GetConditionStatus())
@@ -810,7 +765,7 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 		require.Equal(
 			t,
 			largeWebTestValue(fmt.Sprintf("channel-value-%d", index)),
-			result.GetValues()[0].GetStringValue(),
+			resolvedWebStringValue(result.GetValues()[0], loadedValues),
 		)
 	}
 	assertExternalChannelValuesLoad(t, ctx, runtime.FlowClient, events)
@@ -881,17 +836,7 @@ func testWebAsyncLocalFallback(t *testing.T, backendType service.BackendType) {
 		failedEvent.GetExecution().GetFromStepExecutionId(),
 	)
 	require.NotNil(t, failedEvent.GetRequest())
-	inputs, err := runtime.FlowClient.GetStepEventInputs(ctx, &dexpb.GetStepEventInputsRequest{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: flowID, RunId: startResponse.GetRunId()},
-		Keys: []*dexpb.StepEventInputKey{{
-			EventId:         flowEventIDForWaitFor(events),
-			StepExecutionId: failedEvent.GetExecution().GetStepExecutionId(),
-			MethodType:      dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR,
-		}},
-	})
-	require.NoError(t, err)
-	require.Empty(t, inputs.GetInputs())
-	require.Equal(t, []int64{flowEventIDForWaitFor(events)}, inputs.GetUnavailableEventIds())
+	require.False(t, failedEvent.GetInputUnavailable())
 }
 
 func getAllWebHistoryEvents(
@@ -941,24 +886,6 @@ func firstExecuteEvent(events []*dexpb.FlowHistoryEvent) *dexpb.StepExecuteCompl
 	return nil
 }
 
-func flowEventIDForWaitFor(events []*dexpb.FlowHistoryEvent) int64 {
-	for _, event := range events {
-		if event.GetStepWaitForCompleted() != nil || event.GetStepWaitForFailed() != nil {
-			return event.GetEventId()
-		}
-	}
-	return 0
-}
-
-func flowEventIDForExecute(events []*dexpb.FlowHistoryEvent) int64 {
-	for _, event := range events {
-		if event.GetStepExecuteCompleted() != nil {
-			return event.GetEventId()
-		}
-	}
-	return 0
-}
-
 func firstWebCloseOutput(events []*dexpb.FlowHistoryEvent) *dexpb.Value {
 	for _, event := range events {
 		results := event.GetFlowClosed().GetResults()
@@ -971,16 +898,28 @@ func firstWebCloseOutput(events []*dexpb.FlowHistoryEvent) *dexpb.Value {
 
 func assertStepMethodRequestValues(
 	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
 	stepInput *dexpb.Value,
 	attributes []*dexpb.KV,
 	expectedInput string,
 	expectedAttribute []byte,
 ) {
 	t.Helper()
-	require.Equal(t, expectedInput, stepInput.GetStringValue())
 	require.Len(t, attributes, 1)
 	require.Equal(t, "web-test-attribute", attributes[0].GetKey())
-	require.Equal(t, expectedAttribute, attributes[0].GetValue().GetObjValue().GetPayload())
+	loadedValues := loadWebBlobValues(
+		t,
+		ctx,
+		flowClient,
+		[]*dexpb.Value{stepInput, attributes[0].GetValue()},
+	)
+	require.Equal(t, expectedInput, resolvedWebStringValue(stepInput, loadedValues))
+	attribute := attributes[0].GetValue()
+	if blobID := attribute.GetInternalBlobIdForObjValue(); blobID != "" {
+		attribute = loadedValues[blobID]
+	}
+	require.Equal(t, expectedAttribute, attribute.GetObjValue().GetPayload())
 }
 
 func loadWebBlobValues(

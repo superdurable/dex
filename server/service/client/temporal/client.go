@@ -667,6 +667,7 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 			event.GetEventTime().AsTime(),
 			&input,
 			durability,
+			temporalStepMethodOptions(attributes),
 			previousFailures,
 		)
 	case strings.Contains(activityType, "InvokeExecuteMethod"):
@@ -679,6 +680,7 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 			event.GetEventTime().AsTime(),
 			&input,
 			durability,
+			temporalStepMethodOptions(attributes),
 			previousFailures,
 		)
 	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
@@ -687,6 +689,28 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 	}
 	scheduledTypes[event.GetEventId()] = activityType
 	return nil
+}
+
+func temporalStepMethodOptions(
+	attributes *history.ActivityTaskScheduledEventAttributes,
+) *dexpb.StepMethodOptions {
+	options := &dexpb.StepMethodOptions{
+		TimeoutSeconds: int32(attributes.GetStartToCloseTimeout().AsDuration() / time.Second),
+	}
+	policy := attributes.GetRetryPolicy()
+	if policy == nil {
+		return options
+	}
+	options.RetryPolicy = &dexpb.RetryPolicy{
+		InitialIntervalSeconds: int32(policy.GetInitialInterval().AsDuration() / time.Second),
+		BackoffCoefficient:     float32(policy.GetBackoffCoefficient()),
+		MaximumIntervalSeconds: int32(policy.GetMaximumInterval().AsDuration() / time.Second),
+		MaximumAttempts:        policy.GetMaximumAttempts(),
+		TotalDurationSeconds: int32(
+			attributes.GetScheduleToCloseTimeout().AsDuration() / time.Second,
+		),
+	}
+	return options
 }
 
 func (t *temporalClient) recordTemporalCompletedActivity(

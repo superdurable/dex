@@ -125,7 +125,10 @@ func (a *Activities) InvokeWaitForMethod(
 		activityInfo,
 		req.GetContext().GetStepExecutionId(),
 		blobstore.StepEventInputMethodWaitFor,
-		req,
+		&dexpb.StepEventInput{
+			MethodOptions: input.GetMethodOptionsInternalOnly(),
+			Request:       &dexpb.StepEventInput_WaitForRequest{WaitForRequest: req},
+		},
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
@@ -228,7 +231,10 @@ func (a *Activities) InvokeExecuteMethod(
 		activityInfo,
 		req.GetContext().GetStepExecutionId(),
 		blobstore.StepEventInputMethodExecute,
-		req,
+		&dexpb.StepEventInput{
+			MethodOptions: input.GetMethodOptionsInternalOnly(),
+			Request:       &dexpb.StepEventInput_ExecuteRequest{ExecuteRequest: req},
+		},
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
 	}
@@ -280,7 +286,7 @@ func (a *Activities) persistStepEventInput(
 	activityInfo interfaces.ActivityInfo,
 	stepExecutionID string,
 	method string,
-	request proto.Message,
+	input *dexpb.StepEventInput,
 ) error {
 	if !activityInfo.IsLocalActivity || !a.cfg.ExternalStorage.Enabled {
 		return nil
@@ -301,7 +307,7 @@ func (a *Activities) persistStepEventInput(
 		}
 		runStarted = description.StartTime
 	}
-	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
+	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(input)
 	if err != nil {
 		return fmt.Errorf("marshal step event input: %w", err)
 	}

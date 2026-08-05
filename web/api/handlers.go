@@ -21,7 +21,6 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 const maxRequestBytes = 1 << 20
@@ -41,7 +40,6 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
-	mux.HandleFunc("POST /api/flows/step-event-inputs", handler.getStepEventInputs)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("POST /api/flows/reset", handler.resetFlow)
@@ -146,77 +144,6 @@ func (h *handler) getHistoryEvents(response http.ResponseWriter, request *http.R
 		NextPageToken:       base64.StdEncoding.EncodeToString(result.GetNextPageToken()),
 		NextInternalEventID: result.GetNextInternalEventId(),
 	})
-}
-
-func (h *handler) getStepEventInputs(response http.ResponseWriter, request *http.Request) {
-	var body getStepEventInputsRequest
-	if err := decodeJSON(response, request, &body); err != nil {
-		WriteError(response, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	if body.FlowID == "" || body.RunID == "" {
-		WriteError(response, http.StatusBadRequest, "flowId and runId are required", nil)
-		return
-	}
-	keys := make([]*dexpb.StepEventInputKey, 0, len(body.Keys))
-	for _, key := range body.Keys {
-		methodType, err := stepMethodType(key.MethodType)
-		if err != nil || key.EventID <= 0 || key.StepExecutionID == "" {
-			if err == nil {
-				err = fmt.Errorf("positive eventId and stepExecutionId are required")
-			}
-			WriteError(response, http.StatusBadRequest, err.Error(), nil)
-			return
-		}
-		keys = append(keys, &dexpb.StepEventInputKey{
-			EventId:         key.EventID,
-			StepExecutionId: key.StepExecutionID,
-			MethodType:      methodType,
-		})
-	}
-	result, err := h.client.GetStepEventInputs(request.Context(), &dexpb.GetStepEventInputsRequest{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: body.FlowID, RunId: body.RunID},
-		Keys:            keys,
-	})
-	if err != nil {
-		writeGRPCError(response, err, "GetStepEventInputs")
-		return
-	}
-	inputs := make([]stepEventInput, 0, len(result.GetInputs()))
-	for _, input := range result.GetInputs() {
-		var requestMessage proto.Message
-		switch value := input.GetRequest().(type) {
-		case *dexpb.StepEventInput_WaitForRequest:
-			requestMessage = value.WaitForRequest
-		case *dexpb.StepEventInput_ExecuteRequest:
-			requestMessage = value.ExecuteRequest
-		default:
-			WriteError(response, http.StatusBadGateway, "step event input has no request", nil)
-			return
-		}
-		mapped, mapErr := protoMap(requestMessage)
-		if mapErr != nil {
-			WriteError(response, http.StatusBadGateway, mapErr.Error(), nil)
-			return
-		}
-		inputs = append(inputs, stepEventInput{EventID: input.GetEventId(), Request: mapped})
-	}
-	unavailableEventIDs := append([]int64{}, result.GetUnavailableEventIds()...)
-	writeJSON(response, http.StatusOK, getStepEventInputsResponse{
-		Inputs:              inputs,
-		UnavailableEventIDs: unavailableEventIDs,
-	})
-}
-
-func stepMethodType(value string) (dexpb.StepMethodType, error) {
-	switch value {
-	case "waitFor":
-		return dexpb.StepMethodType_STEP_METHOD_TYPE_WAIT_FOR, nil
-	case "execute":
-		return dexpb.StepMethodType_STEP_METHOD_TYPE_EXECUTE, nil
-	default:
-		return dexpb.StepMethodType_STEP_METHOD_TYPE_UNSPECIFIED, fmt.Errorf("methodType must be waitFor or execute")
-	}
 }
 
 func (h *handler) getFlowState(response http.ResponseWriter, request *http.Request) {

@@ -34,7 +34,6 @@ const (
 	FlowService_GetAttributes_FullMethodName         = "/dex.FlowService/GetAttributes"
 	FlowService_SetAttributes_FullMethodName         = "/dex.FlowService/SetAttributes"
 	FlowService_LoadBlobs_FullMethodName             = "/dex.FlowService/LoadBlobs"
-	FlowService_GetStepEventInputs_FullMethodName    = "/dex.FlowService/GetStepEventInputs"
 	FlowService_WaitForFlow_FullMethodName           = "/dex.FlowService/WaitForFlow"
 	FlowService_SearchFlows_FullMethodName           = "/dex.FlowService/SearchFlows"
 	FlowService_GetFlowSummary_FullMethodName        = "/dex.FlowService/GetFlowSummary"
@@ -63,7 +62,6 @@ type FlowServiceClient interface {
 	GetAttributes(ctx context.Context, in *GetAttributesRequest, opts ...grpc.CallOption) (*GetAttributesResponse, error)
 	SetAttributes(ctx context.Context, in *SetAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	LoadBlobs(ctx context.Context, in *LoadBlobsRequest, opts ...grpc.CallOption) (*LoadBlobsResponse, error)
-	GetStepEventInputs(ctx context.Context, in *GetStepEventInputsRequest, opts ...grpc.CallOption) (*GetStepEventInputsResponse, error)
 	WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*WaitForFlowResponse, error)
 	SearchFlows(ctx context.Context, in *SearchFlowsRequest, opts ...grpc.CallOption) (*SearchFlowsResponse, error)
 	GetFlowSummary(ctx context.Context, in *GetFlowSummaryRequest, opts ...grpc.CallOption) (*GetFlowSummaryResponse, error)
@@ -142,16 +140,6 @@ func (c *flowServiceClient) LoadBlobs(ctx context.Context, in *LoadBlobsRequest,
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LoadBlobsResponse)
 	err := c.cc.Invoke(ctx, FlowService_LoadBlobs_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *flowServiceClient) GetStepEventInputs(ctx context.Context, in *GetStepEventInputsRequest, opts ...grpc.CallOption) (*GetStepEventInputsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetStepEventInputsResponse)
-	err := c.cc.Invoke(ctx, FlowService_GetStepEventInputs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +298,6 @@ type FlowServiceServer interface {
 	GetAttributes(context.Context, *GetAttributesRequest) (*GetAttributesResponse, error)
 	SetAttributes(context.Context, *SetAttributesRequest) (*emptypb.Empty, error)
 	LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error)
-	GetStepEventInputs(context.Context, *GetStepEventInputsRequest) (*GetStepEventInputsResponse, error)
 	WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error)
 	SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error)
 	GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error)
@@ -352,9 +339,6 @@ func (UnimplementedFlowServiceServer) SetAttributes(context.Context, *SetAttribu
 }
 func (UnimplementedFlowServiceServer) LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LoadBlobs not implemented")
-}
-func (UnimplementedFlowServiceServer) GetStepEventInputs(context.Context, *GetStepEventInputsRequest) (*GetStepEventInputsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetStepEventInputs not implemented")
 }
 func (UnimplementedFlowServiceServer) WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitForFlow not implemented")
@@ -523,24 +507,6 @@ func _FlowService_LoadBlobs_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).LoadBlobs(ctx, req.(*LoadBlobsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FlowService_GetStepEventInputs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetStepEventInputsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FlowServiceServer).GetStepEventInputs(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FlowService_GetStepEventInputs_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).GetStepEventInputs(ctx, req.(*GetStepEventInputsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -827,10 +793,6 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LoadBlobs",
 			Handler:    _FlowService_LoadBlobs_Handler,
-		},
-		{
-			MethodName: "GetStepEventInputs",
-			Handler:    _FlowService_GetStepEventInputs_Handler,
 		},
 		{
 			MethodName: "WaitForFlow",

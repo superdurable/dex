@@ -24,7 +24,6 @@ type ApiService interface {
 	GetAttributes(context.Context, *dexpb.GetAttributesRequest) (*dexpb.GetAttributesResponse, error)
 	SetAttributes(context.Context, *dexpb.SetAttributesRequest) (*emptypb.Empty, error)
 	LoadBlobs(context.Context, *dexpb.LoadBlobsRequest) (*dexpb.LoadBlobsResponse, error)
-	GetStepEventInputs(context.Context, *dexpb.GetStepEventInputsRequest) (*dexpb.GetStepEventInputsResponse, error)
 	WaitForFlow(context.Context, *dexpb.WaitForFlowRequest) (*dexpb.WaitForFlowResponse, error)
 	SearchFlows(context.Context, *dexpb.SearchFlowsRequest) (*dexpb.SearchFlowsResponse, error)
 	GetFlowSummary(context.Context, *dexpb.GetFlowSummaryRequest) (*dexpb.GetFlowSummaryResponse, error)

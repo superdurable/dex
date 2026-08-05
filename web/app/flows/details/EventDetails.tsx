@@ -279,13 +279,21 @@ function bytes(value: unknown): string | undefined {
 }
 
 function WaitingConditionView({ value }: { value: unknown }) {
+  return (
+    <DetailSection title="WaitFor condition">
+      <WaitingConditionContent value={value} />
+    </DetailSection>
+  );
+}
+
+function WaitingConditionContent({ value }: { value: unknown }) {
   const condition = asData(value);
   if (!hasData(condition)) return null;
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
   const combinations = asDataArray(condition.conditionCombinations);
   return (
-    <DetailSection title="WaitFor condition">
+    <>
       <Fields values={[[
         'Completion rule',
         waitingConditionTypeLabel(condition.waitingConditionType),
@@ -326,7 +334,7 @@ function WaitingConditionView({ value }: { value: unknown }) {
           ))}
         </div>
       )}
-    </DetailSection>
+    </>
   );
 }
 
@@ -337,17 +345,15 @@ function unixTime(value: unknown): string | undefined {
   return new Date(timestamp * 1000).toLocaleString();
 }
 
-function ConditionResultsView({ value, showEmpty = false }: { value: unknown; showEmpty?: boolean }) {
+function ConditionResultsContent({ value, showEmpty = false }: { value: unknown; showEmpty?: boolean }) {
   const results = asData(value);
   if (!hasData(results)) {
-    return showEmpty ? (
-      <DetailSection title="Condition results"><p className="muted">No condition results</p></DetailSection>
-    ) : null;
+    return showEmpty ? <p className="muted">No condition results</p> : null;
   }
   const channels = asDataArray(results.channelResults);
   const timers = asDataArray(results.timerResults);
   return (
-    <DetailSection title="Condition results">
+    <>
       {results.waitForFailed === true && <p className="semantic-alert">WaitFor failed</p>}
       <div className="semantic-records">
         {channels.map((channel, index) => (
@@ -372,16 +378,24 @@ function ConditionResultsView({ value, showEmpty = false }: { value: unknown; sh
           </div>
         ))}
       </div>
-    </DetailSection>
+    </>
   );
 }
 
 function StepDecisionView({ value }: { value: unknown }) {
+  return (
+    <DetailSection title="Step decision">
+      <StepDecisionContent value={value} />
+    </DetailSection>
+  );
+}
+
+function StepDecisionContent({ value }: { value: unknown }) {
   const decision = asData(value);
   if (!hasData(decision)) return null;
   const close = asData(decision.closeDecision);
   return (
-    <DetailSection title="Step decision">
+    <>
       <StepMovements values={decision.nextSteps} />
       {hasData(close) && (
         <div className="semantic-record decision-record">
@@ -393,40 +407,46 @@ function StepDecisionView({ value }: { value: unknown }) {
           <ValueBlock label="Close input" value={close.closeInput} />
         </div>
       )}
-    </DetailSection>
+    </>
   );
 }
 
-function FailureView({ value }: { value: unknown }) {
+function FailureContent({ value }: { value: unknown }) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
   const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.errorType)
     : failure.errorType;
   return (
-    <DetailSection title="Failure">
-      <div className="semantic-alert">
-        {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
-        <Fields values={[
-          ['Type', errorType],
-          ['Retry state', failure.retryState],
-        ]} />
-        {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
-      </div>
-    </DetailSection>
+    <div className="semantic-alert">
+      {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
+      <Fields values={[
+        ['Type', errorType],
+        ['Retry state', failure.retryState],
+      ]} />
+      {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
+    </div>
   );
 }
 
 function EffectsView({ value }: { value: Data }) {
+  return (
+    <DetailSection title="Side effects">
+      <EffectsContent value={value} />
+    </DetailSection>
+  );
+}
+
+function EffectsContent({ value }: { value: Data }) {
   const attributes = value.upsertAttributes;
   const events = value.recordEvents;
   const channels = value.publishToChannel;
   const locals = value.upsertStepExeLocals;
   if (![attributes, events, channels, locals].some((entry) => Array.isArray(entry) && entry.length > 0)) return null;
   return (
-    <DetailSection title="Side effects">
+    <>
       {Array.isArray(attributes) && attributes.length > 0 && (
-        <div className="semantic-subsection"><h5>Attribute writes</h5><KeyValues values={attributes} /></div>
+        <div className="semantic-subsection"><h5>Upsert attributes</h5><KeyValues values={attributes} /></div>
       )}
       {Array.isArray(events) && events.length > 0 && (
         <div className="semantic-subsection"><h5>Recorded events</h5><KeyValues values={events} /></div>
@@ -435,9 +455,28 @@ function EffectsView({ value }: { value: Data }) {
         <div className="semantic-subsection"><h5>Step locals</h5><KeyValues values={locals} /></div>
       )}
       {Array.isArray(channels) && channels.length > 0 && (
-        <div className="semantic-subsection"><h5>Published channels</h5><ChannelMessages values={channels} /></div>
+        <div className="semantic-subsection"><h5>Channel publishes</h5><ChannelMessages values={channels} /></div>
       )}
-    </DetailSection>
+    </>
+  );
+}
+
+function StepMethodOptionsView({ value }: { value: unknown }) {
+  const options = asData(value);
+  if (!hasData(options)) return null;
+  const policy = asData(options.retryPolicy);
+  return (
+    <div className="semantic-subsection">
+      <h5>Step options</h5>
+      <Fields values={[
+        ['Timeout', seconds(options.timeoutSeconds)],
+        ['Retry initial interval', seconds(policy.initialIntervalSeconds)],
+        ['Retry backoff coefficient', policy.backoffCoefficient],
+        ['Retry maximum interval', seconds(policy.maximumIntervalSeconds)],
+        ['Retry maximum attempts', policy.maximumAttempts === 0 ? 'Unlimited' : policy.maximumAttempts],
+        ['Retry total duration', policy.totalDurationSeconds === 0 ? 'Unlimited' : seconds(policy.totalDurationSeconds)],
+      ]} />
+    </div>
   );
 }
 
@@ -452,8 +491,49 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
   const hasRequest = hasData(request);
   return (
     <>
-      <DetailSection title="Attempt info">
+      <DetailSection title="Input">
+        {hasRequest ? (
+          <>
+            <ValueBlock label="Step input" value={request.stepInput} showEmpty />
+            <div className="semantic-subsection">
+              <h5>Attributes</h5>
+              <KeyValues values={request.attributes} emptyLabel="No attributes" />
+            </div>
+            {!isWaitFor && (
+              <div className="semantic-subsection">
+                <h5>Condition results</h5>
+                <ConditionResultsContent value={request.conditionResults} showEmpty />
+              </div>
+            )}
+          </>
+        ) : payload.inputUnavailable === true ? (
+          <p className="muted">{STEP_EVENT_INPUT_BLOB_UNAVAILABLE}</p>
+        ) : <p className="muted">No input</p>}
+      </DetailSection>
+      <DetailSection title="Output">
+        {isWaitFor && hasData(asData(response.waitingCondition)) ? (
+          <div className="semantic-subsection">
+            <h5>WaitFor condition</h5>
+            <WaitingConditionContent value={response.waitingCondition} />
+          </div>
+        ) : !isWaitFor && hasData(asData(response.stepDecision)) ? (
+          <div className="semantic-subsection">
+            <h5>Step decision</h5>
+            <StepDecisionContent value={response.stepDecision} />
+          </div>
+        ) : null}
+        <EffectsContent value={response} />
+        {hasData(asData(payload.failure)) && (
+          <div className="semantic-subsection">
+            <h5>Failure</h5>
+            <FailureContent value={payload.failure} />
+          </div>
+        )}
+      </DetailSection>
+      <DetailSection title="Context">
         <Fields values={[
+          ['Execution ID', execution.stepExecutionId ?? context.stepExecutionId],
+          ['Scheduled from', execution.fromStepExecutionId ?? context.fromStepExecutionId],
           ['Durability', durabilityLabel(execution.durability)],
           ['Attempt', context.attempt],
           ['Final attempt', execution.finalAttempt],
@@ -461,45 +541,22 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           ['First started', execution.firstStartedTime],
           ['Duration', execution.duration],
         ]} />
-        {previousFailures.map((attempt, index) => (
-          <div className="semantic-record" key={index}>
-            <Fields values={[
-              ['Previous attempt', attempt.attempt],
-              ['Failed at', attempt.failedTime],
-            ]} />
-            <FailureView value={attempt.failure} />
-          </div>
-        ))}
-      </DetailSection>
-      <DetailSection title="Method execution context">
-        <Fields values={[
-          ['Execution ID', execution.stepExecutionId ?? context.stepExecutionId],
-          ['Scheduled from', execution.fromStepExecutionId ?? context.fromStepExecutionId],
-        ]} />
-      </DetailSection>
-      {hasRequest && (
-        <DetailSection title="Method input">
-          <ValueBlock label="Step input" value={request.stepInput} showEmpty />
+        <StepMethodOptionsView value={execution.methodOptions} />
+        {previousFailures.length > 0 && (
           <div className="semantic-subsection">
-            <h5>Attributes</h5>
-            <KeyValues values={request.attributes} emptyLabel="No attributes" />
+            <h5>Previous attempts</h5>
+            {previousFailures.map((attempt, index) => (
+              <div className="semantic-record" key={index}>
+                <Fields values={[
+                  ['Attempt', attempt.attempt],
+                  ['Failed at', attempt.failedTime],
+                ]} />
+                <FailureContent value={attempt.failure} />
+              </div>
+            ))}
           </div>
-          {Array.isArray(request.stepExeLocals) && request.stepExeLocals.length > 0 && (
-            <div className="semantic-subsection"><h5>Step locals</h5><KeyValues values={request.stepExeLocals} /></div>
-          )}
-        </DetailSection>
-      )}
-      {payload.inputUnavailable === true && (
-        <DetailSection title="Method input">
-          <p className="muted">{STEP_EVENT_INPUT_BLOB_UNAVAILABLE}</p>
-        </DetailSection>
-      )}
-      {isWaitFor
-        ? <WaitingConditionView value={response.waitingCondition} />
-        : <ConditionResultsView value={request.conditionResults} showEmpty={hasRequest} />}
-      <StepDecisionView value={response.stepDecision} />
-      <EffectsView value={response} />
-      <FailureView value={payload.failure} />
+        )}
+      </DetailSection>
     </>
   );
 }

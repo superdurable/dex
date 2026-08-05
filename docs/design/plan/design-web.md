@@ -269,6 +269,11 @@ message StepMethodAttemptFailure {
   StepMethodFailure failure = 3;
 }
 
+message StepMethodOptions {
+  int32 timeout_seconds = 1;
+  RetryPolicy retry_policy = 2;
+}
+
 message StepMethodExecutionInfo {
   string step_execution_id = 1;
   string from_step_execution_id = 2;
@@ -279,44 +284,50 @@ message StepMethodExecutionInfo {
   google.protobuf.Timestamp first_started_time = 7;
   google.protobuf.Duration duration = 8;
   repeated StepMethodAttemptFailure previous_attempt_failures = 9;
+  StepMethodOptions method_options = 10;
 }
 
 message StepWaitForCompletedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeWaitForMethodRequest request = 2;
   InvokeWaitForMethodResponse response = 3;
+  bool input_unavailable = 4;
 }
 
 message StepWaitForFailedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeWaitForMethodRequest request = 2;
   StepMethodFailure failure = 3;
+  bool input_unavailable = 4;
 }
 
 message StepExecuteCompletedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeExecuteMethodRequest request = 2;
   InvokeExecuteMethodResponse response = 3;
+  bool input_unavailable = 4;
 }
 
 message StepExecuteFailedEvent {
   StepMethodExecutionInfo execution = 1;
   InvokeExecuteMethodRequest request = 2;
   StepMethodFailure failure = 3;
+  bool input_unavailable = 4;
 }
 ```
 
-ASYNC local activity 不记录 input，因此 ASYNC event 的 `request` 可以 absent。Identity 和 lineage 来自：
+ASYNC local activity 不记录 input，因此 server 从 run-scoped external storage 补齐
+semantic event 的 `request`。Web 不区分 SYNC/ASYNC 的 input 来源。Identity 和 lineage 来自：
 
 - regular Activity scheduled input 的 `Context`；
 - successful LocalActivity marker output 的 `LocalActivityInput`；
 - fallback regular Activity scheduled input 的 `Context`。
 
-成功的 local activity 会把发送给 worker 的完整 request 单独保存到 external
-storage。Web 选择该 event 时批量调用 `GetStepEventInputs` 补齐 request；regular
-Activity 继续直接使用 history request。存储路径由 run、step execution 和 method
-确定，不增加 history token。未启用存储或数据已清理时，API 在
-`unavailable_event_ids` 中报告该 event。
+成功的 local activity 会把发送给 worker 的完整 request 和有效 method options
+保存到 external storage。`GetHistoryEvents` 自动补齐 local Activity event；regular
+Activity 从 scheduled event 获得 request、timeout 和 retry policy。存储路径由 run、
+step execution 和 method 确定。未启用存储或数据已清理时，event 设置
+`input_unavailable=true`。
 
 `from_step_execution_id` 只接受 server 写入的值：
 
@@ -366,30 +377,19 @@ RPC 启动的 step 从 `StepMovement.from_step_execution_id_internal_only` 中�
 
 ### 6.7 Step event input 与 blob hydration
 
-```proto
-message GetStepEventInputsRequest {
-  FlowExecutionID flow_execution_id = 1;
-  repeated StepEventInputKey keys = 2;
-}
-
-message GetStepEventInputsResponse {
-  repeated StepEventInput inputs = 1;
-  repeated int64 unavailable_event_ids = 2;
-}
-```
-
-local activity 成功后保存准确的 WaitFor/Execute worker request。Temporal 使用
-workflow start time；Cadence SDK 不提供该时间时，activity 用当前 flow ID 和 run ID
-执行 Describe 获取。文件位于：
+local activity 成功后保存准确的 WaitFor/Execute worker request。Workflow input
+传递 current run start time；缺失时 activity 使用当前 flow ID 和 run ID 执行 Describe。
+文件位于：
 
 ```text
 <namespace>/<run-start-date>$<encoded-flow-id>$<encoded-run-id>/
   <encoded-step-execution-id>/<method>.pb
 ```
 
-写入失败会让 local activity 失败并进入 regular Activity fallback。读取 API 在返回
-前 hydrate request 中的 step input、attributes、step locals 和 channel condition
-results。Web 不根据 event 顺序重建 attributes，也不推测 timer/channel results。
+写入失败会让 local activity 失败并进入 regular Activity fallback。`GetHistoryEvents`
+把存储的 request 合并到 semantic event；其中的 blob-backed `Value` 继续由通用
+`LoadBlobs` 路径按需加载。Web 不根据 event 顺序重建 attributes，也不推测
+timer/channel results。
 
 Web Go bridge 提供 `POST /api/blobs/load`，统一 string/object blob reference 的 JSON
 shape。前端递归收集所选 event 或 live state 中的 references，按 `kind + blob ID`
@@ -601,7 +601,7 @@ Phase 2 使用 `server/integ/`：
 Web Go integration：
 
 - `/api/blobs/load` 映射 string/object arms，并按 `kind + blob ID` 去重。
-- `/api/flows/step-event-inputs` 映射 batch requests、partial unavailable 和 gRPC errors。
+- history mapping 对 SYNC/ASYNC 返回相同的 step request、method options 和 unavailable 语义。
 
 Web Vitest：
 
