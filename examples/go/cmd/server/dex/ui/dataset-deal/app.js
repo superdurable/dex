@@ -630,33 +630,16 @@ function renderGraph(process, selectedState, currentState, interactive) {
   const container = document.querySelector('#graph');
   const nodeWidth = 220;
   const nodeHeight = 82;
-  const horizontalGap = 130;
-  const verticalGap = 105;
-  const padding = 54;
-  const columns = Math.min(3, Math.max(1, process.states.length));
-  const rows = Math.ceil(process.states.length / columns);
-  const width = padding * 2 + columns * nodeWidth + (columns - 1) * horizontalGap;
-  const height = padding * 2 + rows * nodeHeight + Math.max(0, rows - 1) * verticalGap;
-  const positions = new Map();
-  process.states.forEach((dealState, index) => {
-    positions.set(dealState.name, {
-      x: padding + (index % columns) * (nodeWidth + horizontalGap),
-      y: padding + Math.floor(index / columns) * (nodeHeight + verticalGap),
-    });
-  });
-  const edges = [];
-  process.states.forEach((dealState) => {
-    const choices = outgoingChoices(dealState);
-    choices.forEach((choice) => edges.push({ source: dealState.name, ...choice, branch: choices.length > 1 }));
-  });
+  const availableWidth = Math.max(nodeWidth, container.parentElement.clientWidth - 16);
+  const layout = buildGraphLayout(process, nodeWidth, nodeHeight, availableWidth);
   container.innerHTML = `
-    <svg class="process-graph" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Deal process graph">
+    <svg class="process-graph" viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}" role="img" aria-label="Deal process graph">
       <defs>
         <marker id="arrow-solid" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#557274"></path></marker>
         <marker id="arrow-branch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef5b2a"></path></marker>
       </defs>
-      ${edges.map((edge) => graphEdgeHTML(edge, positions, nodeWidth, nodeHeight)).join('')}
-      ${process.states.map((dealState) => graphNodeHTML(dealState, positions.get(dealState.name), nodeWidth, nodeHeight, selectedState, currentState, process.initialState)).join('')}
+      ${layout.edges.map((edge) => graphEdgeHTML(edge, layout.positions, nodeWidth, nodeHeight)).join('')}
+      ${process.states.map((dealState) => graphNodeHTML(dealState, layout.positions.get(dealState.name), nodeWidth, nodeHeight, selectedState, currentState, process.initialState)).join('')}
     </svg>`;
   if (!interactive) return;
   container.querySelectorAll('.graph-node').forEach((node) => {
@@ -666,6 +649,97 @@ function renderGraph(process, selectedState, currentState, interactive) {
       else renderProcessPage();
     });
   });
+}
+
+function buildGraphLayout(process, nodeWidth, nodeHeight, availableWidth) {
+  const horizontalGap = 70;
+  const rankGap = 120;
+  const rowGap = 60;
+  const horizontalPadding = 54;
+  const verticalPadding = 54;
+  const edges = [];
+  const outgoingByState = new Map();
+  process.states.forEach((dealState) => {
+    const choices = outgoingChoices(dealState);
+    const outgoing = choices.map((choice) => ({
+      source: dealState.name,
+      ...choice,
+      branch: choices.length > 1,
+    }));
+    outgoingByState.set(dealState.name, outgoing);
+    edges.push(...outgoing);
+  });
+
+  const ranks = new Map();
+  const discoveryOrder = [];
+  const initialState = process.states.some((dealState) => dealState.name === process.initialState)
+    ? process.initialState
+    : process.states[0]?.name;
+  if (initialState) {
+    ranks.set(initialState, 0);
+    discoveryOrder.push(initialState);
+  }
+  for (let cursor = 0; cursor < discoveryOrder.length; cursor += 1) {
+    const source = discoveryOrder[cursor];
+    const nextRank = ranks.get(source) + 1;
+    (outgoingByState.get(source) ?? []).forEach((edge) => {
+      if (!ranks.has(edge.target)) {
+        ranks.set(edge.target, nextRank);
+        discoveryOrder.push(edge.target);
+      }
+    });
+  }
+
+  const reachableMaxRank = Math.max(0, ...ranks.values());
+  process.states.forEach((dealState) => {
+    if (!ranks.has(dealState.name)) {
+      ranks.set(dealState.name, reachableMaxRank + 1);
+      discoveryOrder.push(dealState.name);
+    }
+  });
+
+  const statesByRank = new Map();
+  discoveryOrder.forEach((stateName) => {
+    const rank = ranks.get(stateName);
+    if (!statesByRank.has(rank)) statesByRank.set(rank, []);
+    statesByRank.get(rank).push(stateName);
+  });
+  const maximumRank = Math.max(0, ...ranks.values());
+  const graphWidth = Math.max(nodeWidth + horizontalPadding * 2, Math.floor(availableWidth));
+  const usableWidth = graphWidth - horizontalPadding * 2;
+  const maximumColumns = Math.max(1, Math.floor((usableWidth + horizontalGap) / (nodeWidth + horizontalGap)));
+  const positions = new Map();
+  let nextRankY = verticalPadding;
+  for (let rank = 0; rank <= maximumRank; rank += 1) {
+    const stateNames = statesByRank.get(rank) ?? [];
+    const rowCount = Math.max(1, Math.ceil(stateNames.length / maximumColumns));
+    for (let row = 0; row < rowCount; row += 1) {
+      const rowStates = stateNames.slice(row * maximumColumns, (row + 1) * maximumColumns);
+      const rowWidth = rowStates.length * nodeWidth + Math.max(0, rowStates.length - 1) * horizontalGap;
+      const startX = (graphWidth - rowWidth) / 2;
+      rowStates.forEach((stateName, column) => {
+        positions.set(stateName, {
+          x: startX + column * (nodeWidth + horizontalGap),
+          y: nextRankY + row * (nodeHeight + rowGap),
+        });
+      });
+    }
+    nextRankY += rowCount * nodeHeight + Math.max(0, rowCount - 1) * rowGap + rankGap;
+  }
+
+  let backwardIndex = 0;
+  const routedEdges = edges.map((edge) => {
+    if (ranks.get(edge.target) > ranks.get(edge.source)) return { ...edge, route: 'forward' };
+    const routed = { ...edge, route: 'backward', routeIndex: backwardIndex };
+    backwardIndex += 1;
+    return routed;
+  });
+  return {
+    positions,
+    edges: routedEdges,
+    width: graphWidth,
+    height: nextRankY - rankGap + verticalPadding,
+  };
 }
 
 function outgoingChoices(dealState) {
@@ -683,10 +757,6 @@ function graphEdgeHTML(edge, positions, nodeWidth, nodeHeight) {
   const source = positions.get(edge.source);
   const target = positions.get(edge.target);
   if (!source || !target) return '';
-  const startX = source.x + nodeWidth / 2;
-  const startY = source.y + nodeHeight;
-  const endX = target.x + nodeWidth / 2;
-  const endY = target.y;
   let path;
   let labelX;
   let labelY;
@@ -694,11 +764,24 @@ function graphEdgeHTML(edge, positions, nodeWidth, nodeHeight) {
     path = `M ${source.x + nodeWidth} ${source.y + nodeHeight / 2} C ${source.x + nodeWidth + 80} ${source.y - 45}, ${source.x + nodeWidth + 80} ${source.y + nodeHeight + 45}, ${source.x + nodeWidth} ${source.y + nodeHeight / 2 + 10}`;
     labelX = source.x + nodeWidth + 54;
     labelY = source.y + nodeHeight / 2;
+  } else if (edge.route === 'backward') {
+    const startX = source.x;
+    const startY = source.y + nodeHeight / 2;
+    const endX = target.x;
+    const endY = target.y + nodeHeight / 2;
+    const laneX = 20 + edge.routeIndex * 22;
+    path = `M ${startX} ${startY} C ${laneX} ${startY}, ${laneX} ${endY}, ${endX} ${endY}`;
+    labelX = laneX + 8;
+    labelY = (startY + endY) / 2 - 8;
   } else {
-    const bend = Math.max(45, Math.abs(endY - startY) / 2);
+    const startX = source.x + nodeWidth / 2;
+    const startY = source.y + nodeHeight;
+    const endX = target.x + nodeWidth / 2;
+    const endY = target.y;
+    const bend = Math.max(55, (endY - startY) * 0.35);
     path = `M ${startX} ${startY} C ${startX} ${startY + bend}, ${endX} ${endY - bend}, ${endX} ${endY}`;
     labelX = (startX + endX) / 2;
-    labelY = (startY + endY) / 2 - 7;
+    labelY = (startY + endY) / 2 - 8;
   }
   return `<path class="graph-edge ${edge.branch ? 'branch' : ''}" d="${path}" marker-end="url(#arrow-${edge.branch ? 'branch' : 'solid'})"></path><text class="edge-label" x="${labelX}" y="${labelY}" text-anchor="middle">${escapeHTML(edge.label)}</text>`;
 }
