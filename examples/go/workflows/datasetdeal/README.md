@@ -43,7 +43,7 @@ for validation, migrations, and action inputs.
         "decision": {
           "key": "acceptedProposedPrice",
           "cases": [{"equals": "true", "goToState": "process-sample-order"}],
-          "elseState": "seller-counteroffer"
+          "elseState": "buyer-negotiation"
         }
       }
     }
