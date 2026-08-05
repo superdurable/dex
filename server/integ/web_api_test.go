@@ -87,7 +87,6 @@ func testWebParallelAttributeSnapshots(t *testing.T, backendType service.Backend
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:        backendType,
-		LazyLoading:        ptr.Any(false),
 		LocalBlobDirectory: t.TempDir(),
 		LocalBlobThreshold: 10,
 	})
@@ -128,14 +127,19 @@ func testWebParallelAttributeSnapshots(t *testing.T, backendType service.Backend
 		executeRequests = append(executeRequests, execute.GetRequest())
 	}
 	require.Len(t, executeRequests, 2)
+	values := make([]*dexpb.Value, 0, len(executeRequests))
 	for _, executeRequest := range executeRequests {
 		require.NotNil(t, executeRequest)
 		require.Len(t, executeRequest.GetAttributes(), 1)
 		require.Equal(t, "snapshot", executeRequest.GetAttributes()[0].GetKey())
+		values = append(values, executeRequest.GetAttributes()[0].GetValue())
+	}
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
+	for _, executeRequest := range executeRequests {
 		require.Equal(
 			t,
 			largeWebTestValue("root-snapshot"),
-			executeRequest.GetAttributes()[0].GetValue().GetStringValue(),
+			resolvedWebStringValue(executeRequest.GetAttributes()[0].GetValue(), loadedValues),
 		)
 		expected := handler.executeRequest(executeRequest.GetContext().GetStepExecutionId())
 		require.NotNil(t, expected)
