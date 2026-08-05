@@ -23,3 +23,44 @@ CREATE TABLE IF NOT EXISTS dataset_deal_processes (
     definition JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS dataset_deal_executions (
+    flow_id TEXT PRIMARY KEY,
+    latest_run_id TEXT NOT NULL,
+    process_id TEXT NOT NULL REFERENCES dataset_deal_processes(process_id),
+    buyer_id TEXT NOT NULL,
+    process_definition JSONB NOT NULL,
+    state_data JSONB NOT NULL,
+    current_state TEXT NOT NULL DEFAULT '',
+    target_state TEXT NOT NULL DEFAULT '',
+    current_action_phase TEXT NOT NULL DEFAULT '',
+    current_action_index_to_execute INTEGER NOT NULL DEFAULT 0,
+    pending_condition_state TEXT NOT NULL DEFAULT '',
+    pending_condition_name TEXT NOT NULL DEFAULT '',
+    pending_condition_phase TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    version BIGINT NOT NULL DEFAULT 1,
+    last_step_execution_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    CHECK (current_action_phase IN ('', 'pre', 'post')),
+    CHECK (current_action_index_to_execute >= 0),
+    CHECK (pending_condition_phase IN ('', 'pre', 'post')),
+    CHECK (status IN ('PROCESSING', 'WAITING', 'COMPLETED'))
+);
+
+CREATE INDEX IF NOT EXISTS dataset_deal_executions_process_idx
+    ON dataset_deal_executions (process_id, created_at DESC, flow_id);
+
+CREATE INDEX IF NOT EXISTS dataset_deal_executions_buyer_process_idx
+    ON dataset_deal_executions (buyer_id, process_id, created_at DESC, flow_id);
+
+CREATE INDEX IF NOT EXISTS dataset_deal_executions_status_idx
+    ON dataset_deal_executions (status, created_at DESC, flow_id);
+
+CREATE INDEX IF NOT EXISTS dataset_deal_executions_current_state_idx
+    ON dataset_deal_executions (current_state, created_at DESC, flow_id);
+
+CREATE INDEX IF NOT EXISTS dataset_deal_executions_pending_condition_idx
+    ON dataset_deal_executions (pending_condition_name, created_at DESC, flow_id);

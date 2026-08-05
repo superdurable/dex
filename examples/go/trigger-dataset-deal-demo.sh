@@ -92,7 +92,7 @@ send_message() {
   curl --fail --silent --show-error \
     -H 'Content-Type: application/json' \
     --data "$(jq -cn --argjson data "$data" '{data: $data}')" \
-    "$api_url/api/dataset-deal/executions/${flow_id}/channels/${condition_name}" \
+    "$api_url/api/dataset-deal/executions/${flow_id}/conditions/${condition_name}" \
     >/dev/null
 }
 
@@ -121,33 +121,34 @@ full_flow=$(start_execution "$buyer_full" | jq -r '.flowID')
 refund_flow=$(start_execution "$buyer_refund" | jq -r '.flowID')
 pending_flow=$(start_execution "$buyer_pending" | jq -r '.flowID')
 
-wait_for_execution "$full_flow" '.currentState == "buyer-negotiation"' >/dev/null
+wait_for_execution "$full_flow" \
+  '.status == "WAITING" and .pendingConditionName == "buyer-proposal"' >/dev/null
 send_message "$full_flow" buyer-proposal \
   '{"proposedSamplePrice":"10","proposedFullPrice":"100","proposedSampleRefundPrice":"5"}'
-wait_for_execution "$full_flow" '.pendingPreConditionName == "seller-price-response"' >/dev/null
+wait_for_execution "$full_flow" '.pendingConditionName == "seller-price-response"' >/dev/null
 send_message "$full_flow" seller-price-response '{"acceptedProposedPrice":"false"}'
-wait_for_execution "$full_flow" '.currentState == "buyer-negotiation"' >/dev/null
+wait_for_execution "$full_flow" '.pendingConditionName == "buyer-proposal"' >/dev/null
 send_message "$full_flow" buyer-proposal \
   '{"proposedSamplePrice":"11","proposedFullPrice":"105","proposedSampleRefundPrice":"5"}'
-wait_for_execution "$full_flow" '.pendingPreConditionName == "seller-price-response"' >/dev/null
+wait_for_execution "$full_flow" '.pendingConditionName == "seller-price-response"' >/dev/null
 send_message "$full_flow" seller-price-response '{"acceptedProposedPrice":"true"}'
-wait_for_execution "$full_flow" '.pendingPreConditionName == "sample-feedback"' >/dev/null
+wait_for_execution "$full_flow" '.pendingConditionName == "sample-feedback"' >/dev/null
 send_message "$full_flow" sample-feedback '{"proceedToFullDataset":"true"}'
 full_result=$(wait_for_execution "$full_flow" \
   '.status == "COMPLETED" and .currentState == "process-full-order" and .stateData.deliveredDataset == "full"')
 
-wait_for_execution "$refund_flow" '.currentState == "buyer-negotiation"' >/dev/null
+wait_for_execution "$refund_flow" '.pendingConditionName == "buyer-proposal"' >/dev/null
 send_message "$refund_flow" buyer-proposal \
   '{"proposedSamplePrice":"12","proposedFullPrice":"120","proposedSampleRefundPrice":"6"}'
-wait_for_execution "$refund_flow" '.pendingPreConditionName == "seller-price-response"' >/dev/null
+wait_for_execution "$refund_flow" '.pendingConditionName == "seller-price-response"' >/dev/null
 send_message "$refund_flow" seller-price-response '{"acceptedProposedPrice":"true"}'
-wait_for_execution "$refund_flow" '.pendingPreConditionName == "sample-feedback"' >/dev/null
+wait_for_execution "$refund_flow" '.pendingConditionName == "sample-feedback"' >/dev/null
 send_message "$refund_flow" sample-feedback '{"proceedToFullDataset":"false"}'
 refund_result=$(wait_for_execution "$refund_flow" \
   '.status == "COMPLETED" and .currentState == "process-refund" and .stateData.lastAction == "transferMoneyFromSellerToBuyer"')
 
 pending_result=$(wait_for_execution "$pending_flow" \
-  '.status == "RUNNING" and .currentState == "buyer-negotiation" and .pendingPreConditionName == ""')
+  '.status == "WAITING" and .currentState == "buyer-negotiation" and .pendingConditionName == "buyer-proposal"')
 all_executions=$(curl --fail --silent --show-error "$api_url/api/dataset-deal/executions")
 buyer_executions=$(curl --fail --silent --show-error \
   "$api_url/api/dataset-deal/executions?buyerID=${buyer_refund}&processID=${process_id}")
@@ -168,5 +169,5 @@ echo "Dataset Deal DSL executions passed"
 echo "  process: ${process_id}"
 echo "  full:    $(jq -c '{flowID, currentState, status, stateData}' <<<"$full_result")"
 echo "  refund:  $(jq -c '{flowID, currentState, status, stateData}' <<<"$refund_result")"
-echo "  pending: $(jq -c '{flowID, currentState, status, pendingPreConditionName}' <<<"$pending_result")"
+echo "  pending: $(jq -c '{flowID, latestRunID, currentState, status, pendingConditionName}' <<<"$pending_result")"
 echo "  Deal UI: ${api_url}/dataset-deal"

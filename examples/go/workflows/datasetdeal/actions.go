@@ -36,11 +36,13 @@ const (
 )
 
 type ActionInput struct {
-	FlowID      string
-	ProcessID   string
-	BuyerID     string
-	TargetState string
-	StateData   map[string]string
+	FlowID          string
+	RunID           string
+	StepExecutionID string
+	ProcessID       string
+	BuyerID         string
+	TargetState     string
+	StateData       map[string]string
 }
 
 type actionHandler func(dex.Logger, ActionInput) (map[string]string, error)
@@ -100,6 +102,8 @@ func transferMoneyFromBuyerToSeller(
 	logger.Info(
 		"dataset deal transferred money from buyer to seller",
 		"flow_id", input.FlowID,
+		"run_id", input.RunID,
+		"step_execution_id", input.StepExecutionID,
 		"buyer_id", input.BuyerID,
 		"target_state", input.TargetState,
 		"sample_price", input.StateData["proposedSamplePrice"],
@@ -115,6 +119,8 @@ func transferMoneyFromSellerToBuyer(
 	logger.Info(
 		"dataset deal transferred refund from seller to buyer",
 		"flow_id", input.FlowID,
+		"run_id", input.RunID,
+		"step_execution_id", input.StepExecutionID,
 		"buyer_id", input.BuyerID,
 		"refund_price", input.StateData["proposedSampleRefundPrice"],
 	)
@@ -128,6 +134,8 @@ func transportFullDatasetToBuyer(
 	logger.Info(
 		"dataset deal transported full dataset to buyer",
 		"flow_id", input.FlowID,
+		"run_id", input.RunID,
+		"step_execution_id", input.StepExecutionID,
 		"buyer_id", input.BuyerID,
 	)
 	return map[string]string{"deliveredDataset": "full"}, nil
@@ -140,6 +148,8 @@ func transportSampleDatasetToBuyer(
 	logger.Info(
 		"dataset deal transported sample dataset to buyer",
 		"flow_id", input.FlowID,
+		"run_id", input.RunID,
+		"step_execution_id", input.StepExecutionID,
 		"buyer_id", input.BuyerID,
 	)
 	return map[string]string{"deliveredDataset": "sample"}, nil

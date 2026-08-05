@@ -21,50 +21,10 @@
 package datasetdeal
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/superdurable/dex/sdk-go/dex"
-)
-
-const (
-	ProcessIDSearchKey                = "ProcessID"
-	BuyerIDSearchKey                  = "BuyerID"
-	CurrentStateSearchKey             = "CurrentState"
-	PendingPreConditionStateSearchKey = "PendingPreConditionState"
-	PendingPreConditionNameSearchKey  = "PendingPreConditionName"
-)
-
-var (
-	StateData         = dex.DefineAttribute[map[string]string]("stateData")
-	ProcessDefinition = dex.DefineAttribute[DealProcess]("processDefinition")
-	ProcessID         = dex.DefineAttribute[string](
-		"processID",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: ProcessIDSearchKey}),
-	)
-	BuyerID = dex.DefineAttribute[string](
-		"buyerID",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: BuyerIDSearchKey}),
-	)
-	CurrentState = dex.DefineAttribute[string](
-		"currentState",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: CurrentStateSearchKey}),
-	)
-	CurrentActionIndexToExecute = dex.DefineAttribute[int]("currentActionIndexToExecute")
-	PendingPreConditionState    = dex.DefineAttribute[string](
-		"pendingPreConditionState",
-		dex.Indexed(dex.AttributeIndex{
-			Type:     dex.IndexKeyword,
-			IndexKey: PendingPreConditionStateSearchKey,
-		}),
-	)
-	PendingPreConditionName = dex.DefineAttribute[string](
-		"pendingPreConditionName",
-		dex.Indexed(dex.AttributeIndex{
-			Type:     dex.IndexKeyword,
-			IndexKey: PendingPreConditionNameSearchKey,
-		}),
-	)
-	ConditionMessages = dex.DefineChannelMap[map[string]string]("conditionMessages")
 )
 
 type DealFlow struct {
@@ -85,132 +45,219 @@ func NewDealFlow(repository Repository, logger dex.Logger) *DealFlow {
 
 func (flow *DealFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(initializeStep{flow: flow}),
-		dex.DefineStep(preConditionStep{flow: flow}),
+		dex.DefineStartStep(triggerStep{flow: flow}),
+		dex.DefineStep(advanceStateStep{flow: flow}),
 		dex.DefineStep(executeActionStep{flow: flow}),
-		dex.DefineStep(postConditionStep{flow: flow}),
 	}
 }
 
 func (*DealFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{
-			StateData,
-			ProcessDefinition,
-			ProcessID,
-			BuyerID,
-			CurrentState,
-			CurrentActionIndexToExecute,
-			PendingPreConditionState,
-			PendingPreConditionName,
-		},
-		Channels: []dex.ChannelDef{ConditionMessages},
-	}
+	return dex.PersistenceSchema{}
 }
 
-type initializeStep struct {
-	dex.StepDefaultsNoWaitFor[string]
+// TriggerStepExecutionID identifies the persisted trigger step.
+func TriggerStepExecutionID() dex.StepExecutionID {
+	return dex.StepExecutionID{StepType: dex.GetFinalStepType(triggerStep{})}
+}
+
+type triggerStep struct {
+	dex.StepDefaultsNoWaitFor[TriggerInput]
 	flow *DealFlow
 }
 
-func (step initializeStep) Execute(
+func (step triggerStep) Execute(
 	ctx dex.Context,
-	processID string,
+	input TriggerInput,
 ) (*dex.StepDecision, error) {
-	process, err := step.flow.repository.GetProcess(ctx, processID)
+	switch input.Type {
+	case startTriggerType:
+		return step.initializeExecution(ctx, input)
+	case conditionTriggerType:
+		return step.applyCondition(ctx, input)
+	default:
+		return nil, fmt.Errorf("unknown dataset deal trigger type %q", input.Type)
+	}
+}
+
+func (step triggerStep) initializeExecution(
+	ctx dex.Context,
+	input TriggerInput,
+) (*dex.StepDecision, error) {
+	process, err := step.flow.repository.GetProcess(ctx, input.ProcessID)
 	if err != nil {
 		return nil, err
 	}
 	if err := ValidateProcess(process); err != nil {
 		return nil, fmt.Errorf("stored deal process is invalid: %w", err)
 	}
-	if _, err := BuyerID.Get(ctx); err != nil {
+	stateData := process.InitialStateData
+	if stateData == nil {
+		stateData = make(map[string]string)
+	}
+	execution := DealExecution{
+		FlowID:              ctx.FlowID(),
+		LatestRunID:         ctx.RunID(),
+		ProcessID:           input.ProcessID,
+		ProcessDefinition:   process,
+		BuyerID:             input.BuyerID,
+		TargetState:         process.InitialState,
+		StateData:           stateData,
+		Status:              ExecutionProcessing,
+		LastStepExecutionID: ctx.StepExecutionID(),
+	}
+	execution, err = step.flow.repository.CreateExecution(ctx, execution)
+	if errors.Is(err, ErrExecutionExists) {
+		existing, getErr := step.flow.repository.GetExecution(ctx, ctx.FlowID())
+		if getErr != nil {
+			return nil, getErr
+		}
+		if existing.LatestRunID != ctx.RunID() ||
+			existing.LastStepExecutionID != ctx.StepExecutionID() {
+			return nil, err
+		}
+		execution = existing
+	} else if err != nil {
 		return nil, err
 	}
-	if err := ProcessID.Set(ctx, processID); err != nil {
+	return step.flow.executionDecision(execution)
+}
+
+func (step triggerStep) applyCondition(
+	ctx dex.Context,
+	input TriggerInput,
+) (*dex.StepDecision, error) {
+	execution, err := step.flow.repository.GetExecution(ctx, ctx.FlowID())
+	if err != nil {
 		return nil, err
 	}
-	if err := ProcessDefinition.Set(ctx, process); err != nil {
+	if stepAlreadyCommitted(ctx, execution) {
+		return step.flow.conditionDecision(execution, input.ConditionName)
+	}
+	if execution.Status != ExecutionWaiting {
+		return nil, ErrExecutionNotWaiting
+	}
+	if execution.PendingConditionName != input.ConditionName {
+		return nil, fmt.Errorf(
+			"%w: expected %q, received %q",
+			ErrConditionNotPending,
+			execution.PendingConditionName,
+			input.ConditionName,
+		)
+	}
+	state, phase, err := execution.ProcessDefinition.Condition(input.ConditionName)
+	if err != nil {
 		return nil, err
 	}
-	if err := StateData.Set(ctx, process.InitialStateData); err != nil {
+	if state.Name != execution.PendingConditionState || phase != execution.PendingConditionPhase {
+		return nil, fmt.Errorf("pending condition cursor does not match process definition")
+	}
+	if err := mergeStateData(execution.StateData, input.Data); err != nil {
 		return nil, err
 	}
-	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+	execution.LatestRunID = ctx.RunID()
+	execution.Status = ExecutionProcessing
+	execution.PendingConditionState = ""
+	execution.PendingConditionName = ""
+	execution.PendingConditionPhase = ""
+	execution.CurrentActionPhase = ""
+	execution.CurrentActionIndex = 0
+	switch phase {
+	case PreConditionPhase:
+		execution.TargetState = state.Name
+	case PostConditionPhase:
+		execution.TargetState = evaluateDecision(state.PostCondition.Decision, execution.StateData)
+	default:
+		return nil, fmt.Errorf("unknown condition phase %q", phase)
+	}
+	execution, err = step.flow.commitExecution(ctx, execution)
+	if err != nil {
+		return nil, err
+	}
+	return step.flow.conditionDecision(execution, input.ConditionName)
+}
+
+func (flow *DealFlow) conditionDecision(
+	execution DealExecution,
+	conditionName string,
+) (*dex.StepDecision, error) {
+	_, phase, err := execution.ProcessDefinition.Condition(conditionName)
+	if err != nil {
 		return nil, err
 	}
 	return dex.GoTo(
-		preConditionStep{flow: step.flow},
-		stateStepInput{StateName: process.InitialState},
+		advanceStateStep{flow: flow},
+		stateStepInput{
+			StateName:             execution.TargetState,
+			PreConditionSatisfied: phase == PreConditionPhase,
+		},
 	), nil
 }
 
-type preConditionStep struct {
-	dex.StepDefaults
+type advanceStateStep struct {
+	dex.StepDefaultsNoWaitFor[stateStepInput]
 	flow *DealFlow
 }
 
-func (step preConditionStep) WaitFor(
-	ctx dex.Context,
-	input stateStepInput,
-) (*dex.Wait, error) {
-	process, err := ProcessDefinition.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	state, err := process.State(input.StateName)
-	if err != nil {
-		return nil, err
-	}
-	if state.PreCondition == nil {
-		return dex.SkipWaitImmediately(), nil
-	}
-	if err := PendingPreConditionState.Set(ctx, state.Name); err != nil {
-		return nil, err
-	}
-	if err := PendingPreConditionName.Set(ctx, state.PreCondition.Name); err != nil {
-		return nil, err
-	}
-	return dex.AllOf(ConditionMessages.ForOne(state.PreCondition.Name)), nil
-}
-
-func (step preConditionStep) Execute(
+func (step advanceStateStep) Execute(
 	ctx dex.Context,
 	input stateStepInput,
 ) (*dex.StepDecision, error) {
-	process, err := ProcessDefinition.Get(ctx)
+	execution, err := step.flow.repository.GetExecution(ctx, ctx.FlowID())
 	if err != nil {
 		return nil, err
 	}
-	state, err := process.State(input.StateName)
+	if stepAlreadyCommitted(ctx, execution) {
+		return step.flow.executionDecision(execution)
+	}
+	if err := validateProcessingExecution(ctx, execution); err != nil {
+		return nil, err
+	}
+	if execution.TargetState != input.StateName {
+		return nil, fmt.Errorf(
+			"target state %q does not match step input %q",
+			execution.TargetState,
+			input.StateName,
+		)
+	}
+	state, err := execution.ProcessDefinition.State(input.StateName)
 	if err != nil {
 		return nil, err
 	}
-	if state.PreCondition != nil {
-		updates, resultErr := conditionUpdates(ctx, state.PreCondition.Name)
-		if resultErr != nil {
-			return nil, resultErr
-		}
-		if err := mergeStateData(ctx, updates); err != nil {
+	if !input.PreConditionSatisfied && state.PreCondition != nil {
+		execution.Status = ExecutionWaiting
+		execution.PendingConditionState = state.Name
+		execution.PendingConditionName = state.PreCondition.Name
+		execution.PendingConditionPhase = PreConditionPhase
+		execution.CurrentActionPhase = ""
+		execution.CurrentActionIndex = 0
+		execution, err = step.flow.commitExecution(ctx, execution)
+		if err != nil {
 			return nil, err
 		}
-		if err := PendingPreConditionState.Delete(ctx); err != nil {
-			return nil, err
-		}
-		if err := PendingPreConditionName.Delete(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return nil, err
+		return dex.GracefulComplete(execution), nil
 	}
 	if len(state.PreActions) > 0 {
-		return dex.GoTo(
-			executeActionStep{flow: step.flow},
-			actionStepInput{StateName: state.Name, Phase: preActionPhase},
-		), nil
+		execution.CurrentActionPhase = PreActionPhase
+		execution.CurrentActionIndex = 0
+		execution, err = step.flow.commitExecution(ctx, execution)
+		if err != nil {
+			return nil, err
+		}
+		return step.flow.executionDecision(execution)
 	}
-	return step.flow.gotoState(ctx, state)
+	execution.CurrentState = state.Name
+	execution.CurrentActionPhase = ""
+	execution.CurrentActionIndex = 0
+	if len(state.PostActions) > 0 {
+		execution.CurrentActionPhase = PostActionPhase
+	} else if err := finishState(&execution, state); err != nil {
+		return nil, err
+	}
+	execution, err = step.flow.commitExecution(ctx, execution)
+	if err != nil {
+		return nil, err
+	}
+	return step.flow.executionDecision(execution)
 }
 
 type executeActionStep struct {
@@ -222,11 +269,22 @@ func (step executeActionStep) Execute(
 	ctx dex.Context,
 	input actionStepInput,
 ) (*dex.StepDecision, error) {
-	process, err := ProcessDefinition.Get(ctx)
+	execution, err := step.flow.repository.GetExecution(ctx, ctx.FlowID())
 	if err != nil {
 		return nil, err
 	}
-	state, err := process.State(input.StateName)
+	if stepAlreadyCommitted(ctx, execution) {
+		return step.flow.executionDecision(execution)
+	}
+	if err := validateProcessingExecution(ctx, execution); err != nil {
+		return nil, err
+	}
+	if execution.TargetState != input.StateName ||
+		execution.CurrentActionPhase != input.Phase ||
+		execution.CurrentActionIndex != input.ActionIndex {
+		return nil, fmt.Errorf("action cursor does not match step input")
+	}
+	state, err := execution.ProcessDefinition.State(input.StateName)
 	if err != nil {
 		return nil, err
 	}
@@ -234,180 +292,151 @@ func (step executeActionStep) Execute(
 	if err != nil {
 		return nil, err
 	}
-	actionIndex, err := CurrentActionIndexToExecute.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if actionIndex < 0 || actionIndex >= len(actions) {
+	if input.ActionIndex < 0 || input.ActionIndex >= len(actions) {
 		return nil, fmt.Errorf(
 			"action index %d is invalid for %s actions in state %q",
-			actionIndex,
+			input.ActionIndex,
 			input.Phase,
 			state.Name,
 		)
 	}
-	actionInput := ActionInput{
-		FlowID:      ctx.FlowID(),
-		TargetState: state.Name,
-	}
-	actionInput.ProcessID, err = ProcessID.Get(ctx)
+	updates, err := step.flow.actions.execute(actions[input.ActionIndex], ActionInput{
+		FlowID:          execution.FlowID,
+		RunID:           ctx.RunID(),
+		StepExecutionID: ctx.StepExecutionID(),
+		ProcessID:       execution.ProcessID,
+		BuyerID:         execution.BuyerID,
+		TargetState:     state.Name,
+		StateData:       execution.StateData,
+	})
 	if err != nil {
 		return nil, err
 	}
-	actionInput.BuyerID, err = BuyerID.Get(ctx)
-	if err != nil {
+	if err := mergeStateData(execution.StateData, updates); err != nil {
 		return nil, err
 	}
-	actionInput.StateData, err = StateData.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	updates, err := step.flow.actions.execute(actions[actionIndex], actionInput)
-	if err != nil {
-		return nil, err
-	}
-	if err := mergeStateData(ctx, updates); err != nil {
-		return nil, err
-	}
-	nextActionIndex := actionIndex + 1
-	if err := CurrentActionIndexToExecute.Set(ctx, nextActionIndex); err != nil {
-		return nil, err
-	}
+	nextActionIndex := input.ActionIndex + 1
 	if nextActionIndex < len(actions) {
-		return dex.GoTo(executeActionStep{flow: step.flow}, input), nil
+		execution.CurrentActionIndex = nextActionIndex
+	} else {
+		execution.CurrentActionPhase = ""
+		execution.CurrentActionIndex = 0
+		switch input.Phase {
+		case PreActionPhase:
+			execution.CurrentState = state.Name
+			if len(state.PostActions) > 0 {
+				execution.CurrentActionPhase = PostActionPhase
+			} else if err := finishState(&execution, state); err != nil {
+				return nil, err
+			}
+		case PostActionPhase:
+			if err := finishState(&execution, state); err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unknown action phase %q", input.Phase)
+		}
 	}
-	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return nil, err
-	}
-	if input.Phase == preActionPhase {
-		return step.flow.gotoState(ctx, state)
-	}
-	return dex.GoTo(
-		postConditionStep{flow: step.flow},
-		stateStepInput{StateName: state.Name},
-	), nil
-}
-
-type postConditionStep struct {
-	dex.StepDefaults
-	flow *DealFlow
-}
-
-func (step postConditionStep) WaitFor(
-	ctx dex.Context,
-	input stateStepInput,
-) (*dex.Wait, error) {
-	process, err := ProcessDefinition.Get(ctx)
+	execution, err = step.flow.commitExecution(ctx, execution)
 	if err != nil {
 		return nil, err
 	}
-	state, err := process.State(input.StateName)
-	if err != nil {
-		return nil, err
-	}
-	if state.PostCondition == nil || state.PostCondition.WaitFor == nil {
-		return dex.SkipWaitImmediately(), nil
-	}
-	return dex.AllOf(ConditionMessages.ForOne(state.PostCondition.WaitFor.Name)), nil
+	return step.flow.executionDecision(execution)
 }
 
-func (step postConditionStep) Execute(
-	ctx dex.Context,
-	input stateStepInput,
+func (flow *DealFlow) executionDecision(
+	execution DealExecution,
 ) (*dex.StepDecision, error) {
-	process, err := ProcessDefinition.Get(ctx)
-	if err != nil {
-		return nil, err
+	switch execution.Status {
+	case ExecutionWaiting, ExecutionCompleted:
+		return dex.GracefulComplete(execution), nil
+	case ExecutionProcessing:
+	default:
+		return nil, fmt.Errorf("unknown execution status %q", execution.Status)
 	}
-	state, err := process.State(input.StateName)
-	if err != nil {
-		return nil, err
-	}
-	if state.PostCondition == nil {
-		stateData, err := StateData.Get(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return dex.GracefulComplete(stateData), nil
-	}
-	if state.PostCondition.WaitFor != nil {
-		updates, resultErr := conditionUpdates(ctx, state.PostCondition.WaitFor.Name)
-		if resultErr != nil {
-			return nil, resultErr
-		}
-		if err := mergeStateData(ctx, updates); err != nil {
-			return nil, err
-		}
-	}
-	stateData, err := StateData.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	nextState := evaluateDecision(state.PostCondition.Decision, stateData)
-	return dex.GoTo(
-		preConditionStep{flow: step.flow},
-		stateStepInput{StateName: nextState},
-	), nil
-}
-
-func (flow *DealFlow) gotoState(
-	ctx dex.Context,
-	state StateDefinition,
-) (*dex.StepDecision, error) {
-	if err := CurrentState.Set(ctx, state.Name); err != nil {
-		return nil, err
-	}
-	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
-		return nil, err
-	}
-	if len(state.PostActions) > 0 {
+	if execution.CurrentActionPhase != "" {
 		return dex.GoTo(
 			executeActionStep{flow: flow},
-			actionStepInput{StateName: state.Name, Phase: postActionPhase},
+			actionStepInput{
+				StateName:   execution.TargetState,
+				Phase:       execution.CurrentActionPhase,
+				ActionIndex: execution.CurrentActionIndex,
+			},
 		), nil
 	}
+	if execution.TargetState == "" {
+		return nil, fmt.Errorf("processing execution has no target state")
+	}
 	return dex.GoTo(
-		postConditionStep{flow: flow},
-		stateStepInput{StateName: state.Name},
+		advanceStateStep{flow: flow},
+		stateStepInput{StateName: execution.TargetState},
 	), nil
 }
 
-func actionsForPhase(state StateDefinition, phase actionPhase) ([]string, error) {
+func (flow *DealFlow) commitExecution(
+	ctx dex.Context,
+	execution DealExecution,
+) (DealExecution, error) {
+	execution.LastStepExecutionID = ctx.StepExecutionID()
+	return flow.repository.UpdateExecution(ctx, execution)
+}
+
+func stepAlreadyCommitted(ctx dex.Context, execution DealExecution) bool {
+	return execution.LatestRunID == ctx.RunID() &&
+		execution.LastStepExecutionID == ctx.StepExecutionID()
+}
+
+func validateProcessingExecution(ctx dex.Context, execution DealExecution) error {
+	if execution.LatestRunID != ctx.RunID() {
+		return fmt.Errorf(
+			"execution run %q does not match trigger run %q",
+			execution.LatestRunID,
+			ctx.RunID(),
+		)
+	}
+	if execution.Status != ExecutionProcessing {
+		return fmt.Errorf("execution status %q is not processing", execution.Status)
+	}
+	return nil
+}
+
+func finishState(execution *DealExecution, state StateDefinition) error {
+	execution.CurrentActionPhase = ""
+	execution.CurrentActionIndex = 0
+	if state.PostCondition == nil {
+		execution.Status = ExecutionCompleted
+		execution.TargetState = ""
+		execution.PendingConditionState = ""
+		execution.PendingConditionName = ""
+		execution.PendingConditionPhase = ""
+		return nil
+	}
+	if state.PostCondition.WaitFor != nil {
+		execution.Status = ExecutionWaiting
+		execution.PendingConditionState = state.Name
+		execution.PendingConditionName = state.PostCondition.WaitFor.Name
+		execution.PendingConditionPhase = PostConditionPhase
+		return nil
+	}
+	execution.Status = ExecutionProcessing
+	execution.TargetState = evaluateDecision(state.PostCondition.Decision, execution.StateData)
+	return nil
+}
+
+func actionsForPhase(state StateDefinition, phase ActionPhase) ([]string, error) {
 	switch phase {
-	case preActionPhase:
+	case PreActionPhase:
 		return state.PreActions, nil
-	case postActionPhase:
+	case PostActionPhase:
 		return state.PostActions, nil
 	default:
 		return nil, fmt.Errorf("unknown action phase %q", phase)
 	}
 }
 
-func conditionUpdates(
-	ctx dex.Context,
-	conditionName string,
-) (map[string]string, error) {
-	results, err := ConditionMessages.GetConditionResults(ctx, conditionName)
-	if err != nil {
-		return nil, err
-	}
-	if len(results) != 1 {
-		return nil, fmt.Errorf(
-			"condition %q expected one message, received %d",
-			conditionName,
-			len(results),
-		)
-	}
-	return results[0], nil
-}
-
-func mergeStateData(ctx dex.Context, updates map[string]string) error {
-	stateData, err := StateData.Get(ctx)
-	if err != nil {
-		return err
-	}
-	if stateData == nil {
-		stateData = make(map[string]string, len(updates))
+func mergeStateData(stateData map[string]string, updates map[string]string) error {
+	if stateData == nil && len(updates) > 0 {
+		return fmt.Errorf("dataset deal stateData must not be nil")
 	}
 	for key, value := range updates {
 		if key == "" {
@@ -415,7 +444,7 @@ func mergeStateData(ctx dex.Context, updates map[string]string) error {
 		}
 		stateData[key] = value
 	}
-	return StateData.Set(ctx, stateData)
+	return nil
 }
 
 func evaluateDecision(

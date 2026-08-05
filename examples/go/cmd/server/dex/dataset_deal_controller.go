@@ -21,12 +21,10 @@
 package dex
 
 import (
-	"context"
 	"embed"
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -41,9 +39,7 @@ import (
 var datasetDealUI embed.FS
 
 const (
-	datasetDealAllExecutionsQuery = "ProcessID IS NOT NULL"
-	datasetDealInitializeStepType = "datasetdeal.initializeStep"
-	datasetDealSearchPageSize     = int32(1000)
+	datasetDealTriggerTimeout = 30 * time.Second
 )
 
 type datasetDealController struct {
@@ -62,7 +58,7 @@ type startDealExecutionResponse struct {
 	RunID  string `json:"runID"`
 }
 
-type channelMessageRequest struct {
+type conditionMessageRequest struct {
 	Data map[string]string `json:"data"`
 }
 
@@ -103,8 +99,8 @@ func (controller *datasetDealController) registerRoutes(router *gin.Engine) {
 	router.GET("/api/dataset-deal/executions", controller.listDealExecutions)
 	router.GET("/api/dataset-deal/executions/:flowID", controller.getDealExecution)
 	router.POST(
-		"/api/dataset-deal/executions/:flowID/channels/:conditionName",
-		controller.sendChannelMessage,
+		"/api/dataset-deal/executions/:flowID/conditions/:conditionName",
+		controller.triggerCondition,
 	)
 }
 
@@ -205,20 +201,15 @@ func (controller *datasetDealController) startDealExecution(request *gin.Context
 		controller.respondError(request, err)
 		return
 	}
-	initialBuyerID, err := sdk.InitialAttribute(datasetdeal.BuyerID, input.BuyerID)
-	if err != nil {
-		controller.respondError(request, err)
-		return
-	}
 	flowID := input.ProcessID + "-" + uuid.NewString()
 	runID, err := controller.client.StartFlow(
 		requestContext,
 		controller.flow,
 		flowID,
-		input.ProcessID,
+		datasetdeal.StartTrigger(input.ProcessID, input.BuyerID),
 		sdk.StartFlowOptions{
-			Attributes: []sdk.InitialAttributeDef{initialBuyerID},
-			RequestID:  ptr.Any(flowID),
+			IDReusePolicy: sdk.IDReuseAllowIfNotRunning,
+			RequestID:     ptr.Any(uuid.NewString()),
 		},
 	)
 	if err != nil {
@@ -228,8 +219,8 @@ func (controller *datasetDealController) startDealExecution(request *gin.Context
 	if err := controller.client.WaitForStepCompletion(
 		requestContext,
 		flowID,
-		sdk.StepExecutionID{StepType: datasetDealInitializeStepType},
-		sdk.WaitOptions{Timeout: 30 * time.Second},
+		datasetdeal.TriggerStepExecutionID(),
+		sdk.WaitOptions{Timeout: datasetDealTriggerTimeout},
 	); err != nil {
 		controller.respondError(request, err)
 		return
@@ -238,12 +229,20 @@ func (controller *datasetDealController) startDealExecution(request *gin.Context
 }
 
 func (controller *datasetDealController) listDealExecutions(request *gin.Context) {
-	executions, err := controller.findDealExecutions(
+	status := datasetdeal.ExecutionStatus(strings.ToUpper(strings.TrimSpace(request.Query("status"))))
+	if status != "" && !status.Valid() {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "invalid execution status"})
+		return
+	}
+	executions, err := controller.repository.ListExecutions(
 		request.Request.Context(),
-		datasetDealExecutionSearchQuery(
-			strings.TrimSpace(request.Query("processID")),
-			strings.TrimSpace(request.Query("buyerID")),
-		),
+		datasetdeal.ExecutionFilter{
+			BuyerID:              strings.TrimSpace(request.Query("buyerID")),
+			ProcessID:            strings.TrimSpace(request.Query("processID")),
+			Status:               status,
+			CurrentState:         strings.TrimSpace(request.Query("currentState")),
+			PendingConditionName: strings.TrimSpace(request.Query("pendingConditionName")),
+		},
 	)
 	if err != nil {
 		controller.respondError(request, err)
@@ -253,181 +252,19 @@ func (controller *datasetDealController) listDealExecutions(request *gin.Context
 }
 
 func (controller *datasetDealController) getDealExecution(request *gin.Context) {
-	flowID := request.Param("flowID")
-	executions, err := controller.findDealExecutions(
+	execution, err := controller.repository.GetExecution(
 		request.Request.Context(),
-		fmt.Sprintf(
-			"WorkflowId='%s' AND %s",
-			datasetDealSearchString(flowID),
-			datasetDealAllExecutionsQuery,
-		),
+		request.Param("flowID"),
 	)
 	if err != nil {
 		controller.respondError(request, err)
 		return
 	}
-	if len(executions) == 0 {
-		controller.respondError(request, datasetdeal.ErrExecutionNotFound)
-		return
-	}
-	request.JSON(http.StatusOK, executions[0])
+	request.JSON(http.StatusOK, execution)
 }
 
-func (controller *datasetDealController) findDealExecutions(
-	ctx context.Context,
-	query string,
-) ([]datasetdeal.DealExecution, error) {
-	entries, err := controller.searchLatestExecutionRuns(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	executions := make([]datasetdeal.DealExecution, 0, len(entries))
-	for _, entry := range entries {
-		execution, projectErr := controller.projectDealExecution(ctx, entry)
-		if projectErr != nil {
-			return nil, projectErr
-		}
-		executions = append(executions, execution)
-	}
-	sort.Slice(executions, func(first int, second int) bool {
-		return executions[first].StartedAt.After(executions[second].StartedAt)
-	})
-	return executions, nil
-}
-
-func (controller *datasetDealController) searchLatestExecutionRuns(
-	ctx context.Context,
-	query string,
-) ([]sdk.SearchFlowEntry, error) {
-	latestByFlowID := make(map[string]sdk.SearchFlowEntry)
-	nextPageToken := ""
-	for {
-		page, err := controller.client.SearchFlows(
-			ctx,
-			query,
-			datasetDealSearchPageSize,
-			nextPageToken,
-		)
-		if err != nil {
-			return nil, err
-		}
-		for _, entry := range page.Flows {
-			current, found := latestByFlowID[entry.FlowID]
-			if !found || entry.StartedAt.After(current.StartedAt) {
-				latestByFlowID[entry.FlowID] = entry
-			}
-		}
-		if page.NextPageToken == "" {
-			break
-		}
-		nextPageToken = page.NextPageToken
-	}
-	entries := make([]sdk.SearchFlowEntry, 0, len(latestByFlowID))
-	for _, entry := range latestByFlowID {
-		entries = append(entries, entry)
-	}
-	return entries, nil
-}
-
-func (controller *datasetDealController) projectDealExecution(
-	ctx context.Context,
-	entry sdk.SearchFlowEntry,
-) (datasetdeal.DealExecution, error) {
-	values, err := controller.client.GetAttributes(
-		ctx,
-		entry.FlowID,
-		datasetdeal.ProcessID,
-		datasetdeal.ProcessDefinition,
-		datasetdeal.BuyerID,
-		datasetdeal.CurrentState,
-		datasetdeal.CurrentActionIndexToExecute,
-		datasetdeal.PendingPreConditionState,
-		datasetdeal.PendingPreConditionName,
-		datasetdeal.StateData,
-	)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	processID, err := decodeRequiredAttribute(values, datasetdeal.ProcessID)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	processDefinition, err := decodeRequiredAttribute(values, datasetdeal.ProcessDefinition)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	buyerID, err := decodeRequiredAttribute(values, datasetdeal.BuyerID)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	stateData, err := decodeRequiredAttribute(values, datasetdeal.StateData)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	currentState, err := decodeOptionalAttribute(values, datasetdeal.CurrentState)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	currentActionIndex, err := decodeOptionalAttribute(
-		values,
-		datasetdeal.CurrentActionIndexToExecute,
-	)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	pendingState, err := decodeOptionalAttribute(values, datasetdeal.PendingPreConditionState)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	pendingName, err := decodeOptionalAttribute(values, datasetdeal.PendingPreConditionName)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	status, err := datasetDealStatus(entry.Status)
-	if err != nil {
-		return datasetdeal.DealExecution{}, err
-	}
-	var closedAt *time.Time
-	if !entry.ClosedAt.IsZero() {
-		closedAt = ptr.Any(entry.ClosedAt)
-	}
-	return datasetdeal.DealExecution{
-		FlowID:                   entry.FlowID,
-		RunID:                    entry.RunID,
-		ProcessID:                processID,
-		ProcessDefinition:        processDefinition,
-		BuyerID:                  buyerID,
-		CurrentState:             currentState,
-		CurrentActionIndex:       currentActionIndex,
-		PendingPreConditionState: pendingState,
-		PendingPreConditionName:  pendingName,
-		StateData:                stateData,
-		Status:                   status,
-		StartedAt:                entry.StartedAt,
-		ClosedAt:                 closedAt,
-	}, nil
-}
-
-func datasetDealExecutionSearchQuery(processID string, buyerID string) string {
-	filters := make([]string, 0, 2)
-	if buyerID != "" {
-		filters = append(filters, "BuyerID='"+datasetDealSearchString(buyerID)+"'")
-	}
-	if processID != "" {
-		filters = append(filters, "ProcessID='"+datasetDealSearchString(processID)+"'")
-	}
-	if len(filters) == 0 {
-		return datasetDealAllExecutionsQuery
-	}
-	return strings.Join(filters, " AND ")
-}
-
-func datasetDealSearchString(value string) string {
-	return strings.ReplaceAll(value, "'", "''")
-}
-
-func (controller *datasetDealController) sendChannelMessage(request *gin.Context) {
-	var message channelMessageRequest
+func (controller *datasetDealController) triggerCondition(request *gin.Context) {
+	var message conditionMessageRequest
 	if err := request.ShouldBindJSON(&message); err != nil {
 		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -435,100 +272,74 @@ func (controller *datasetDealController) sendChannelMessage(request *gin.Context
 	flowID := request.Param("flowID")
 	conditionName := request.Param("conditionName")
 	requestContext := request.Request.Context()
-	var process datasetdeal.DealProcess
-	found, err := controller.client.GetAttribute(
+	execution, err := controller.repository.GetExecution(
 		requestContext,
 		flowID,
-		datasetdeal.ProcessDefinition,
-		&process,
 	)
 	if err != nil {
 		controller.respondError(request, err)
 		return
 	}
-	if !found {
-		controller.respondError(request, datasetdeal.ErrExecutionNotFound)
+	if execution.Status != datasetdeal.ExecutionWaiting {
+		controller.respondError(request, datasetdeal.ErrExecutionNotWaiting)
 		return
 	}
-	if !process.HasCondition(conditionName) {
-		request.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "condition is not defined by this deal process"},
-		)
+	if execution.PendingConditionName != conditionName {
+		controller.respondError(request, datasetdeal.ErrConditionNotPending)
 		return
 	}
-	if err := controller.client.PublishToChannelMap(
+	runID, err := controller.client.StartFlow(
 		requestContext,
+		controller.flow,
 		flowID,
-		datasetdeal.ConditionMessages,
-		conditionName,
-		message.Data,
-	); err != nil {
+		datasetdeal.ConditionTrigger(conditionName, message.Data),
+		sdk.StartFlowOptions{
+			IDReusePolicy: sdk.IDReuseAllowIfNotRunning,
+			RequestID:     ptr.Any(uuid.NewString()),
+		},
+	)
+	if err != nil {
 		controller.respondError(request, err)
 		return
 	}
-	request.JSON(http.StatusAccepted, gin.H{"flowID": flowID, "conditionName": conditionName})
-}
-
-func decodeRequiredAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (T, error) {
-	value, found, err := decodeAttribute(values, attribute)
+	result, err := controller.client.WaitForFlow(
+		requestContext,
+		flowID,
+		sdk.WaitForFlowOptions{Timeout: datasetDealTriggerTimeout},
+	)
 	if err != nil {
-		return value, err
+		controller.respondError(request, err)
+		return
 	}
-	if !found {
-		return value, fmt.Errorf("attribute %q is missing", attribute.AttributeName())
+	if result.Status != sdk.FlowCompleted {
+		latest, getErr := controller.repository.GetExecution(requestContext, flowID)
+		if getErr != nil {
+			controller.respondError(request, getErr)
+			return
+		}
+		if latest.LatestRunID != runID &&
+			(latest.Status != datasetdeal.ExecutionWaiting ||
+				latest.PendingConditionName != conditionName) {
+			controller.respondError(request, datasetdeal.ErrExecutionConflict)
+			return
+		}
+		controller.respondError(request, fmt.Errorf(
+			"trigger run ended with status %d: %s",
+			result.Status,
+			result.ErrorMessage,
+		))
+		return
 	}
-	return value, nil
-}
-
-func decodeOptionalAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (T, error) {
-	value, _, err := decodeAttribute(values, attribute)
-	return value, err
-}
-
-func decodeAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (value T, found bool, err error) {
-	encoded, found := values[attribute.AttributeName()]
-	if !found {
-		return value, false, nil
+	execution, err = controller.repository.GetExecution(requestContext, flowID)
+	if err != nil {
+		controller.respondError(request, err)
+		return
 	}
-	if err := encoded.Decode(&value); err != nil {
-		return value, false, fmt.Errorf(
-			"decode attribute %q: %w",
-			attribute.AttributeName(),
-			err,
-		)
+	if execution.LatestRunID != runID {
+		controller.respondError(request, errors.New("latest trigger run ID does not match response"))
+		return
 	}
-	return value, true, nil
-}
-
-func datasetDealStatus(status sdk.FlowStatus) (string, error) {
-	switch status {
-	case sdk.FlowRunning:
-		return "RUNNING", nil
-	case sdk.FlowCompleted:
-		return "COMPLETED", nil
-	case sdk.FlowFailed:
-		return "FAILED", nil
-	case sdk.FlowTimedOut:
-		return "TIMED_OUT", nil
-	case sdk.FlowTerminated:
-		return "TERMINATED", nil
-	case sdk.FlowCanceled:
-		return "CANCELED", nil
-	case sdk.FlowContinuedAsNew:
-		return "CONTINUED_AS_NEW", nil
-	default:
-		return "", fmt.Errorf("unknown dataset deal flow status %d", status)
-	}
+	request.JSON(http.StatusOK, execution)
 }
 
 func (*datasetDealController) serveUIFile(
@@ -552,6 +363,13 @@ func (*datasetDealController) respondError(request *gin.Context, err error) {
 	case errors.Is(err, datasetdeal.ErrProcessNotFound),
 		errors.Is(err, datasetdeal.ErrExecutionNotFound):
 		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, datasetdeal.ErrExecutionExists),
+		errors.Is(err, datasetdeal.ErrExecutionConflict),
+		errors.Is(err, datasetdeal.ErrExecutionNotWaiting),
+		errors.Is(err, datasetdeal.ErrConditionNotPending):
+		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.As(err, &sdkError) && sdkError.SubStatus == sdk.ErrorFlowAlreadyStarted:
+		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.As(err, &sdkError) && sdkError.SubStatus == sdk.ErrorFlowNotFound:
 		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:

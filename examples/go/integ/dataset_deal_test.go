@@ -57,135 +57,84 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	buyerFullID := newFlowID(t, "buyer-full")
 	buyerRefundID := newFlowID(t, "buyer-refund")
 	buyerPendingID := newFlowID(t, "buyer-pending")
+	buyerConcurrentID := newFlowID(t, "buyer-concurrent")
 	full := startDatasetDealExecution(t, processID, buyerFullID)
 	refund := startDatasetDealExecution(t, processID, buyerRefundID)
 	pending := startDatasetDealExecution(t, processID, buyerPendingID)
+	concurrent := startDatasetDealExecution(t, processID, buyerConcurrentID)
 
-	assertDatasetDealPostgresStoresOnlyProcess(t, process)
+	assertDatasetDealPostgresState(
+		t,
+		process,
+		full.FlowID,
+		refund.FlowID,
+		pending.FlowID,
+		concurrent.FlowID,
+	)
 	assertProcessDefinitionSnapshot(t, full.FlowID, process)
 	updateStoredProcessDefinition(t, processID)
 
-	waitForDatasetDealExecution(t, full.FlowID, currentState("buyer-negotiation"))
-	sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
+	fullExecution := waitForDatasetDealExecution(t, full.FlowID, pendingCondition("buyer-proposal"))
+	require.Equal(t, full.RunID, fullExecution.LatestRunID)
+	fullExecution = sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
 		"proposedSamplePrice":       "10",
 		"proposedFullPrice":         "100",
 		"proposedSampleRefundPrice": "5",
 	})
-	waitForDatasetDealExecution(t, full.FlowID, pendingCondition("seller-price-response"))
-	sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
+	require.Equal(t, "seller-price-response", fullExecution.PendingConditionName)
+	fullExecution = sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
 		"acceptedProposedPrice": "false",
 	})
-	waitForDatasetDealExecution(t, full.FlowID, currentState("buyer-negotiation"))
-	sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
+	require.Equal(t, "buyer-proposal", fullExecution.PendingConditionName)
+	fullExecution = sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
 		"proposedSamplePrice":       "11",
 		"proposedFullPrice":         "105",
 		"proposedSampleRefundPrice": "5",
 	})
-	waitForDatasetDealExecution(t, full.FlowID, pendingCondition("seller-price-response"))
-	sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
+	require.Equal(t, "seller-price-response", fullExecution.PendingConditionName)
+	fullExecution = sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
 		"acceptedProposedPrice": "true",
 	})
-	waitForDatasetDealExecution(t, full.FlowID, pendingCondition("sample-feedback"))
-	sendDatasetDealMessage(t, full.FlowID, "sample-feedback", map[string]string{
+	require.Equal(t, "sample-feedback", fullExecution.PendingConditionName)
+	fullExecution = sendDatasetDealMessage(t, full.FlowID, "sample-feedback", map[string]string{
 		"proceedToFullDataset": "true",
 	})
-	fullExecution := waitForDatasetDealExecution(t, full.FlowID, executionCompleted)
+	require.Equal(t, datasetdeal.ExecutionCompleted, fullExecution.Status)
 	require.Equal(t, "process-full-order", fullExecution.CurrentState)
 	require.Equal(t, process, fullExecution.ProcessDefinition)
 	require.Equal(t, "full", fullExecution.StateData["deliveredDataset"])
 	require.Equal(t, datasetdeal.TransportFullDatasetToBuyer, fullExecution.StateData["lastAction"])
+	require.NotEqual(t, full.RunID, fullExecution.LatestRunID)
+	require.NotNil(t, fullExecution.CompletedAt)
+	assertDatasetDealTriggerRuns(t, full.FlowID, full.RunID, fullExecution.LatestRunID, 6)
+	assertActionStepsCommitted(t, full.FlowID)
 
-	waitForDatasetDealExecution(t, refund.FlowID, currentState("buyer-negotiation"))
+	waitForDatasetDealExecution(t, refund.FlowID, pendingCondition("buyer-proposal"))
 	sendDatasetDealMessage(t, refund.FlowID, "buyer-proposal", map[string]string{
 		"proposedSamplePrice":       "12",
 		"proposedFullPrice":         "120",
 		"proposedSampleRefundPrice": "6",
 	})
-	waitForDatasetDealExecution(t, refund.FlowID, pendingCondition("seller-price-response"))
 	sendDatasetDealMessage(t, refund.FlowID, "seller-price-response", map[string]string{
 		"acceptedProposedPrice": "true",
 	})
-	waitForDatasetDealExecution(t, refund.FlowID, pendingCondition("sample-feedback"))
-	sendDatasetDealMessage(t, refund.FlowID, "sample-feedback", map[string]string{
+	refundExecution := sendDatasetDealMessage(t, refund.FlowID, "sample-feedback", map[string]string{
 		"proceedToFullDataset": "false",
 	})
-	refundExecution := waitForDatasetDealExecution(t, refund.FlowID, executionCompleted)
+	require.Equal(t, datasetdeal.ExecutionCompleted, refundExecution.Status)
 	require.Equal(t, "process-refund", refundExecution.CurrentState)
 	require.Equal(t, process, refundExecution.ProcessDefinition)
 	require.Equal(t, datasetdeal.TransferMoneyFromSellerToBuyer, refundExecution.StateData["lastAction"])
+	require.NotNil(t, refundExecution.CompletedAt)
 
-	pendingExecution := waitForDatasetDealExecution(t, pending.FlowID, currentState("buyer-negotiation"))
+	pendingExecution := waitForDatasetDealExecution(t, pending.FlowID, pendingCondition("buyer-proposal"))
 	require.Equal(t, buyerPendingID, pendingExecution.BuyerID)
-	require.Equal(t, "RUNNING", pendingExecution.Status)
-	require.Empty(t, pendingExecution.PendingPreConditionName)
+	require.Equal(t, datasetdeal.ExecutionWaiting, pendingExecution.Status)
+	require.Equal(t, datasetdeal.PostConditionPhase, pendingExecution.PendingConditionPhase)
 
-	var buyerList datasetDealListResponse
-	requestDatasetDealAPI(
-		t,
-		http.MethodGet,
-		"/api/dataset-deal/executions?buyerID="+buyerRefundID,
-		nil,
-		http.StatusOK,
-		&buyerList,
-	)
-	require.Len(t, buyerList.Executions, 1)
-	require.Equal(t, refund.FlowID, buyerList.Executions[0].FlowID)
-
-	var buyerAndProcessList datasetDealListResponse
-	requestDatasetDealAPI(
-		t,
-		http.MethodGet,
-		"/api/dataset-deal/executions?buyerID="+buyerRefundID+"&processID="+processID,
-		nil,
-		http.StatusOK,
-		&buyerAndProcessList,
-	)
-	require.Len(t, buyerAndProcessList.Executions, 1)
-	require.Equal(t, refund.FlowID, buyerAndProcessList.Executions[0].FlowID)
-
-	var processList datasetDealListResponse
-	requestDatasetDealAPI(
-		t,
-		http.MethodGet,
-		"/api/dataset-deal/executions?processID="+processID,
-		nil,
-		http.StatusOK,
-		&processList,
-	)
-	require.True(t, containsDatasetDealExecutions(
-		processList.Executions,
-		full.FlowID,
-		refund.FlowID,
-		pending.FlowID,
-	))
-
-	var allList datasetDealListResponse
-	requestDatasetDealAPI(t, http.MethodGet, "/api/dataset-deal/executions", nil, http.StatusOK, &allList)
-	require.True(t, containsDatasetDealExecutions(allList.Executions, full.FlowID, refund.FlowID, pending.FlowID))
-	require.True(t, executionsStartedDescending(allList.Executions))
-	require.NotNil(t, fullExecution.ClosedAt)
-	require.NotNil(t, refundExecution.ClosedAt)
-
-	ctx := integrationContext(t)
-	var searchPage dex.SearchFlowsPage
-	var searchErr error
-	require.Eventually(t, func() bool {
-		searchPage, searchErr = integClient.SearchFlows(
-			ctx,
-			datasetdeal.BuyerIDSearchKey+" = '"+buyerFullID+"'",
-			100,
-			"",
-		)
-		if searchErr != nil {
-			return false
-		}
-		for _, entry := range searchPage.Flows {
-			if entry.FlowID == full.FlowID {
-				return true
-			}
-		}
-		return false
-	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", searchErr)
+	assertConcurrentDatasetDealTrigger(t, concurrent)
+	assertDatasetDealConflicts(t, full.FlowID, pending.FlowID)
+	assertDatasetDealLists(t, processID, buyerRefundID, full, refund, pending, concurrent)
 }
 
 func assertDatasetDealProcessList(t *testing.T, process datasetdeal.DealProcess) {
@@ -202,9 +151,10 @@ func assertDatasetDealProcessList(t *testing.T, process datasetdeal.DealProcess)
 	require.Contains(t, response.Processes, process)
 }
 
-func assertDatasetDealPostgresStoresOnlyProcess(
+func assertDatasetDealPostgresState(
 	t *testing.T,
 	process datasetdeal.DealProcess,
+	flowIDs ...string,
 ) {
 	t.Helper()
 	ctx := integrationContext(t)
@@ -217,12 +167,30 @@ func assertDatasetDealPostgresStoresOnlyProcess(
 	var stored datasetdeal.DealProcess
 	require.NoError(t, json.Unmarshal(definition, &stored))
 	require.Equal(t, process, stored)
-	var executionTable *string
-	require.NoError(t, datasetDealDB.QueryRow(
-		ctx,
-		"SELECT to_regclass('public.dataset_deal_executions')",
-	).Scan(&executionTable))
-	require.Nil(t, executionTable)
+	for _, flowID := range flowIDs {
+		var count int
+		require.NoError(t, datasetDealDB.QueryRow(
+			ctx,
+			"SELECT COUNT(*) FROM dataset_deal_executions WHERE flow_id = $1",
+			flowID,
+		).Scan(&count))
+		require.Equal(t, 1, count)
+	}
+	for _, indexName := range []string{
+		"dataset_deal_executions_process_idx",
+		"dataset_deal_executions_buyer_process_idx",
+		"dataset_deal_executions_status_idx",
+		"dataset_deal_executions_current_state_idx",
+		"dataset_deal_executions_pending_condition_idx",
+	} {
+		var index *string
+		require.NoError(t, datasetDealDB.QueryRow(
+			ctx,
+			"SELECT to_regclass($1)",
+			"public."+indexName,
+		).Scan(&index))
+		require.NotNil(t, index)
+	}
 }
 
 func assertProcessDefinitionSnapshot(
@@ -231,40 +199,9 @@ func assertProcessDefinitionSnapshot(
 	process datasetdeal.DealProcess,
 ) {
 	t.Helper()
-	var snapshot datasetdeal.DealProcess
-	found, err := integClient.GetAttribute(
-		integrationContext(t),
-		flowID,
-		datasetdeal.ProcessDefinition,
-		&snapshot,
-	)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, process, snapshot)
-
-	values, err := integClient.GetAttributes(
-		integrationContext(t),
-		flowID,
-		datasetdeal.StateData,
-		datasetdeal.ProcessDefinition,
-		datasetdeal.ProcessID,
-		datasetdeal.BuyerID,
-		datasetdeal.CurrentState,
-		datasetdeal.CurrentActionIndexToExecute,
-		datasetdeal.PendingPreConditionState,
-		datasetdeal.PendingPreConditionName,
-	)
-	require.NoError(t, err)
-	for _, key := range []string{
-		"stateData",
-		"processDefinition",
-		"processID",
-		"buyerID",
-		"currentState",
-		"currentActionIndexToExecute",
-	} {
-		require.Contains(t, values, key)
-	}
+	execution := getDatasetDealExecution(t, flowID)
+	require.Equal(t, process, execution.ProcessDefinition)
+	require.Equal(t, process.InitialStateData, execution.StateData)
 }
 
 func updateStoredProcessDefinition(t *testing.T, processID string) {
@@ -295,6 +232,245 @@ func updateStoredProcessDefinition(t *testing.T, processID string) {
 		&stored,
 	)
 	require.Equal(t, replacement, stored)
+}
+
+func assertDatasetDealTriggerRuns(
+	t *testing.T,
+	flowID string,
+	firstRunID string,
+	latestRunID string,
+	minimumRuns int,
+) {
+	t.Helper()
+	ctx := integrationContext(t)
+	var page dex.SearchFlowsPage
+	var searchErr error
+	require.Eventually(t, func() bool {
+		page, searchErr = integClient.SearchFlows(
+			ctx,
+			"WorkflowId='"+flowID+"'",
+			100,
+			"",
+		)
+		if searchErr != nil || len(page.Flows) < minimumRuns {
+			return false
+		}
+		seen := make(map[string]bool, len(page.Flows))
+		for _, entry := range page.Flows {
+			seen[entry.RunID] = true
+		}
+		return seen[firstRunID] && seen[latestRunID]
+	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", searchErr)
+}
+
+func assertActionStepsCommitted(t *testing.T, flowID string) {
+	t.Helper()
+	var version int64
+	var lastStepExecutionID string
+	require.NoError(t, datasetDealDB.QueryRow(
+		integrationContext(t),
+		`SELECT version, last_step_execution_id
+		 FROM dataset_deal_executions
+		 WHERE flow_id = $1`,
+		flowID,
+	).Scan(&version, &lastStepExecutionID))
+	require.Greater(t, version, int64(10))
+	require.NotEmpty(t, lastStepExecutionID)
+}
+
+func assertDatasetDealConflicts(t *testing.T, completedFlowID string, waitingFlowID string) {
+	t.Helper()
+	requestDatasetDealAPI(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/api/dataset-deal/executions/%s/conditions/sample-feedback", completedFlowID),
+		map[string]any{"data": map[string]string{}},
+		http.StatusConflict,
+		nil,
+	)
+	requestDatasetDealAPI(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/api/dataset-deal/executions/%s/conditions/wrong-condition", waitingFlowID),
+		map[string]any{"data": map[string]string{}},
+		http.StatusConflict,
+		nil,
+	)
+}
+
+func assertConcurrentDatasetDealTrigger(
+	t *testing.T,
+	start datasetDealStartResponse,
+) {
+	t.Helper()
+	waitForDatasetDealExecution(t, start.FlowID, pendingCondition("buyer-proposal"))
+	ctx := integrationContext(t)
+	transaction, err := datasetDealDB.Begin(ctx)
+	require.NoError(t, err)
+	transactionOpen := true
+	t.Cleanup(func() {
+		if transactionOpen {
+			require.NoError(t, transaction.Rollback(context.Background()))
+		}
+	})
+	var lockedFlowID string
+	require.NoError(t, transaction.QueryRow(
+		ctx,
+		`SELECT flow_id
+		 FROM dataset_deal_executions
+		 WHERE flow_id = $1
+		 FOR UPDATE`,
+		start.FlowID,
+	).Scan(&lockedFlowID))
+	require.Equal(t, start.FlowID, lockedFlowID)
+
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- requestDatasetDealAPIWithoutAssertions(
+			t,
+			http.MethodPost,
+			fmt.Sprintf(
+				"/api/dataset-deal/executions/%s/conditions/buyer-proposal",
+				start.FlowID,
+			),
+			map[string]any{"data": map[string]string{
+				"proposedSamplePrice":       "20",
+				"proposedFullPrice":         "200",
+				"proposedSampleRefundPrice": "10",
+			}},
+			http.StatusOK,
+			new(datasetdeal.DealExecution),
+		)
+	}()
+
+	var runningRunID string
+	var searchErr error
+	require.Eventually(t, func() bool {
+		var page dex.SearchFlowsPage
+		page, searchErr = integClient.SearchFlows(
+			ctx,
+			"WorkflowId='"+start.FlowID+"'",
+			100,
+			"",
+		)
+		if searchErr != nil {
+			return false
+		}
+		for _, entry := range page.Flows {
+			if entry.RunID != start.RunID && entry.Status == dex.FlowRunning {
+				runningRunID = entry.RunID
+				return true
+			}
+		}
+		return false
+	}, 20*time.Second, 100*time.Millisecond, "trigger Run did not start: %v", searchErr)
+	require.NotEmpty(t, runningRunID)
+
+	requestDatasetDealAPI(
+		t,
+		http.MethodPost,
+		fmt.Sprintf(
+			"/api/dataset-deal/executions/%s/conditions/buyer-proposal",
+			start.FlowID,
+		),
+		map[string]any{"data": map[string]string{}},
+		http.StatusConflict,
+		nil,
+	)
+	require.NoError(t, transaction.Rollback(ctx))
+	transactionOpen = false
+
+	var firstErr error
+	require.Eventually(t, func() bool {
+		select {
+		case firstErr = <-firstResult:
+			return true
+		default:
+			return false
+		}
+	}, 20*time.Second, 100*time.Millisecond)
+	require.NoError(t, firstErr)
+	execution := getDatasetDealExecution(t, start.FlowID)
+	require.Equal(t, runningRunID, execution.LatestRunID)
+	require.Equal(t, datasetdeal.ExecutionWaiting, execution.Status)
+	require.Equal(t, "seller-price-response", execution.PendingConditionName)
+}
+
+func assertDatasetDealLists(
+	t *testing.T,
+	processID string,
+	buyerRefundID string,
+	full datasetDealStartResponse,
+	refund datasetDealStartResponse,
+	pending datasetDealStartResponse,
+	concurrent datasetDealStartResponse,
+) {
+	t.Helper()
+	var buyerList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?buyerID="+buyerRefundID,
+		nil,
+		http.StatusOK,
+		&buyerList,
+	)
+	require.Len(t, buyerList.Executions, 1)
+	require.Equal(t, refund.FlowID, buyerList.Executions[0].FlowID)
+
+	var buyerAndProcessList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?buyerID="+buyerRefundID+"&processID="+processID,
+		nil,
+		http.StatusOK,
+		&buyerAndProcessList,
+	)
+	require.Len(t, buyerAndProcessList.Executions, 1)
+	require.Equal(t, refund.FlowID, buyerAndProcessList.Executions[0].FlowID)
+
+	var completedList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?processID="+processID+"&status=COMPLETED",
+		nil,
+		http.StatusOK,
+		&completedList,
+	)
+	require.True(t, containsDatasetDealExecutions(completedList.Executions, full.FlowID, refund.FlowID))
+
+	var waitingList datasetDealListResponse
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?status=WAITING&currentState=buyer-negotiation&pendingConditionName=buyer-proposal",
+		nil,
+		http.StatusOK,
+		&waitingList,
+	)
+	require.True(t, containsDatasetDealExecutions(waitingList.Executions, pending.FlowID))
+
+	var allList datasetDealListResponse
+	requestDatasetDealAPI(t, http.MethodGet, "/api/dataset-deal/executions", nil, http.StatusOK, &allList)
+	require.True(t, containsDatasetDealExecutions(
+		allList.Executions,
+		full.FlowID,
+		refund.FlowID,
+		pending.FlowID,
+		concurrent.FlowID,
+	))
+	require.True(t, executionsCreatedDescending(allList.Executions))
+
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions?status=invalid",
+		nil,
+		http.StatusBadRequest,
+		nil,
+	)
 }
 
 func comprehensiveDealProcess(processID string) datasetdeal.DealProcess {
@@ -372,6 +548,13 @@ func startDatasetDealExecution(
 	}, http.StatusCreated, &response)
 	require.NotEmpty(t, response.FlowID)
 	require.NotEmpty(t, response.RunID)
+	var count int
+	require.NoError(t, datasetDealDB.QueryRow(
+		integrationContext(t),
+		"SELECT COUNT(*) FROM dataset_deal_executions WHERE flow_id = $1",
+		response.FlowID,
+	).Scan(&count))
+	require.Equal(t, 1, count)
 	return response
 }
 
@@ -380,16 +563,32 @@ func sendDatasetDealMessage(
 	flowID string,
 	conditionName string,
 	data map[string]string,
-) {
+) datasetdeal.DealExecution {
 	t.Helper()
+	var execution datasetdeal.DealExecution
 	requestDatasetDealAPI(
 		t,
 		http.MethodPost,
-		fmt.Sprintf("/api/dataset-deal/executions/%s/channels/%s", flowID, conditionName),
+		fmt.Sprintf("/api/dataset-deal/executions/%s/conditions/%s", flowID, conditionName),
 		map[string]any{"data": data},
-		http.StatusAccepted,
-		nil,
+		http.StatusOK,
+		&execution,
 	)
+	return execution
+}
+
+func getDatasetDealExecution(t *testing.T, flowID string) datasetdeal.DealExecution {
+	t.Helper()
+	var execution datasetdeal.DealExecution
+	requestDatasetDealAPI(
+		t,
+		http.MethodGet,
+		"/api/dataset-deal/executions/"+flowID,
+		nil,
+		http.StatusOK,
+		&execution,
+	)
+	return execution
 }
 
 func waitForDatasetDealExecution(
@@ -416,23 +615,18 @@ func waitForDatasetDealExecution(
 
 func pendingCondition(conditionName string) func(datasetdeal.DealExecution) bool {
 	return func(execution datasetdeal.DealExecution) bool {
-		return execution.PendingPreConditionName == conditionName
-	}
-}
-
-func currentState(stateName string) func(datasetdeal.DealExecution) bool {
-	return func(execution datasetdeal.DealExecution) bool {
-		return execution.CurrentState == stateName
+		return execution.Status == datasetdeal.ExecutionWaiting &&
+			execution.PendingConditionName == conditionName
 	}
 }
 
 func executionCompleted(execution datasetdeal.DealExecution) bool {
-	return execution.Status == "COMPLETED"
+	return execution.Status == datasetdeal.ExecutionCompleted
 }
 
-func executionsStartedDescending(executions []datasetdeal.DealExecution) bool {
+func executionsCreatedDescending(executions []datasetdeal.DealExecution) bool {
 	for index := 1; index < len(executions); index++ {
-		if executions[index].StartedAt.After(executions[index-1].StartedAt) {
+		if executions[index].CreatedAt.After(executions[index-1].CreatedAt) {
 			return false
 		}
 	}

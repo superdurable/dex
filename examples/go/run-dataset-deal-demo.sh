@@ -102,8 +102,6 @@ if ! $temporal_ready; then
   exit 1
 fi
 
-./dataset-deal/register-search-attributes.sh "$temporal_address"
-
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_BIND_ADDRESS="127.0.0.1:${worker_port}" \
@@ -137,7 +135,8 @@ tables=$(DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -f dataset-deal/docker-compose.yml \
   exec -T postgres psql -U dataset_deal -d dataset_deal -Atc \
   "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
-if [[ "$tables" != "dataset_deal_processes" ]]; then
+expected_tables=$'dataset_deal_executions\ndataset_deal_processes'
+if [[ "$tables" != "$expected_tables" ]]; then
   echo "unexpected Dataset Deal tables: ${tables}" >&2
   exit 1
 fi

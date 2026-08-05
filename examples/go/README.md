@@ -15,7 +15,6 @@ Start PostgreSQL and Dex, then build and run the examples:
 ```bash
 docker compose -f dataset-deal/docker-compose.yml up -d --wait
 dexcli dev --temporal-db-filename /tmp/dex-examples.db
-./dataset-deal/register-search-attributes.sh localhost:7233
 make bins
 ./dex-samples
 ```
@@ -69,7 +68,8 @@ details.
 - [Polling and channel coordination](./workflows/polling)
 - [Dataset Deal DSL](./workflows/datasetdeal)
 
-Dataset Deal stores reusable seller process definitions in PostgreSQL. Each
-execution snapshots its definition and exposes all runtime state through Dex.
+Dataset Deal stores reusable seller processes and execution state in PostgreSQL.
+Each execution snapshots its definition, while each Dex Run handles one start
+or condition trigger.
 Its UI separates seller/buyer execution lists from editable process graphs and
 read-only execution graphs that highlight the current state.

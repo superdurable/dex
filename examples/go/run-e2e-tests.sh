@@ -85,7 +85,6 @@ if ! $temporal_ready; then
 fi
 
 temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
-./dataset-deal/register-search-attributes.sh "$temporal_address"
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \

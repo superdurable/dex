@@ -26,6 +26,9 @@ const state = {
   processes: [],
   executions: [],
   filterProcessID: '',
+  filterStatus: '',
+  filterCurrentState: '',
+  filterPendingConditionName: '',
   process: null,
   processIsNew: false,
   execution: null,
@@ -94,6 +97,9 @@ function navigate(path, role = state.role) {
   window.history.pushState({}, '', destination);
   state.role = role;
   state.filterProcessID = '';
+  state.filterStatus = '';
+  state.filterCurrentState = '';
+  state.filterPendingConditionName = '';
   renderRoute();
 }
 
@@ -119,6 +125,9 @@ function executionListURL() {
   const parameters = new URLSearchParams();
   if (state.role !== 'seller') parameters.set('buyerID', state.role);
   if (state.filterProcessID) parameters.set('processID', state.filterProcessID);
+  if (state.filterStatus) parameters.set('status', state.filterStatus);
+  if (state.filterCurrentState) parameters.set('currentState', state.filterCurrentState);
+  if (state.filterPendingConditionName) parameters.set('pendingConditionName', state.filterPendingConditionName);
   const query = parameters.toString();
   return `/api/dataset-deal/executions${query ? `?${query}` : ''}`;
 }
@@ -133,7 +142,7 @@ function renderDashboard() {
           <h1>${seller ? 'Processes & executions' : 'My deal executions'}</h1>
           <p>${seller
             ? 'Choose a process to edit its state machine, or inspect any durable execution.'
-            : 'Start and inspect your dataset deals. Execution filters run directly against Dex visibility.'}</p>
+            : 'Start and inspect your dataset deals. Execution filters run directly against PostgreSQL.'}</p>
         </div>
         ${seller ? '<button id="new-process" class="primary">+ New process</button>' : ''}
       </header>
@@ -165,15 +174,21 @@ function executionListPanelHTML(seller) {
     '<option value="">All processes</option>',
     ...state.processes.map((process) => `<option value="${escapeHTML(process.processID)}" ${process.processID === state.filterProcessID ? 'selected' : ''}>${escapeHTML(process.processID)}</option>`),
   ].join('');
+  const statusOptions = ['', 'PROCESSING', 'WAITING', 'COMPLETED']
+    .map((status) => `<option value="${status}" ${status === state.filterStatus ? 'selected' : ''}>${status || 'All statuses'}</option>`)
+    .join('');
   const contents = state.executions.length === 0
     ? '<div class="empty">No matching deal executions.</div>'
     : state.executions.map(executionCardHTML).join('');
   return `
     <section class="panel">
       <div class="panel-header">
-        <div><h2>${seller ? 'Executions' : `${buyerLabel(state.role)} executions`}</h2><small>${state.executions.length} visible runs</small></div>
+        <div><h2>${seller ? 'Executions' : `${buyerLabel(state.role)} executions`}</h2><small>${state.executions.length} stored executions</small></div>
         <div class="filter-bar">
           <label>Filter by ProcessID<select id="process-filter">${processOptions}</select></label>
+          <label>Status<select id="status-filter">${statusOptions}</select></label>
+          <label>Current state<input id="current-state-filter" value="${escapeHTML(state.filterCurrentState)}" placeholder="Any state" /></label>
+          <label>Pending condition<input id="pending-condition-filter" value="${escapeHTML(state.filterPendingConditionName)}" placeholder="Any condition" /></label>
           ${seller ? '' : `<button id="start-execution" class="primary" ${state.filterProcessID ? '' : 'disabled'}>Start selected process</button>`}
           <button id="refresh-executions" class="ghost">Refresh</button>
         </div>
@@ -188,7 +203,7 @@ function executionCardHTML(execution) {
       <span class="identity"><strong>${escapeHTML(execution.processID)}</strong><small>${escapeHTML(execution.flowID)}</small></span>
       <span><span class="cell-label">Buyer</span>${escapeHTML(execution.buyerID)}</span>
       <span><span class="cell-label">Current state</span>${escapeHTML(execution.currentState || 'initializing')}</span>
-      <span class="pending"><span class="cell-label">Pending condition</span>${escapeHTML(execution.pendingPreConditionName || '—')}</span>
+      <span class="pending"><span class="cell-label">Pending condition</span>${escapeHTML(execution.pendingConditionName || '—')}</span>
       <span class="status ${statusClass(execution.status)}">${escapeHTML(execution.status)}</span>
     </button>`;
 }
@@ -197,6 +212,18 @@ function bindDashboard() {
   document.querySelector('#new-process')?.addEventListener('click', () => navigate('/dataset-deal/processes/new'));
   document.querySelector('#process-filter').addEventListener('change', async (event) => {
     state.filterProcessID = event.target.value;
+    await refreshDashboardExecutions();
+  });
+  document.querySelector('#status-filter').addEventListener('change', async (event) => {
+    state.filterStatus = event.target.value;
+    await refreshDashboardExecutions();
+  });
+  document.querySelector('#current-state-filter').addEventListener('change', async (event) => {
+    state.filterCurrentState = event.target.value.trim();
+    await refreshDashboardExecutions();
+  });
+  document.querySelector('#pending-condition-filter').addEventListener('change', async (event) => {
+    state.filterPendingConditionName = event.target.value.trim();
     await refreshDashboardExecutions();
   });
   document.querySelector('#refresh-executions').addEventListener('click', refreshDashboardExecutions);
@@ -495,9 +522,15 @@ async function loadExecutionPage(flowID) {
   state.execution = await api(`/api/dataset-deal/executions/${encodeURIComponent(flowID)}`);
   state.process = normalizeProcess(structuredClone(state.execution.processDefinition));
   state.selectedStateName = state.execution.currentState || state.process.initialState;
-  state.messageCondition = suggestedCondition(state.execution, state.process);
+  state.messageCondition = suggestedCondition(state.execution);
   state.messageData = messageDefaults(state.messageCondition);
   renderExecutionPage();
+  if (state.execution.status === 'PROCESSING') {
+    window.setTimeout(() => {
+      const route = currentRoute();
+      if (route.kind === 'execution' && route.id === flowID) loadExecutionPage(flowID);
+    }, 500);
+  }
 }
 
 function renderExecutionPage() {
@@ -533,11 +566,16 @@ function renderExecutionPage() {
 function executionPropertiesHTML(execution) {
   const values = [
     ['Buyer', execution.buyerID],
+    ['Latest trigger RunID', execution.latestRunID],
     ['Current state', execution.currentState || 'Initializing'],
-    ['Pending pre-condition', execution.pendingPreConditionName || '—'],
+    ['Target state', execution.targetState || '—'],
+    ['Pending condition', execution.pendingConditionName || '—'],
+    ['Pending phase', execution.pendingConditionPhase || '—'],
+    ['Action phase', execution.currentActionPhase || '—'],
     ['Action index', execution.currentActionIndexToExecute],
-    ['Started', formatDate(execution.startedAt)],
-    ['Closed', execution.closedAt ? formatDate(execution.closedAt) : '—'],
+    ['Created', formatDate(execution.createdAt)],
+    ['Updated', formatDate(execution.updatedAt)],
+    ['Completed', execution.completedAt ? formatDate(execution.completedAt) : '—'],
   ];
   return `<section class="property-grid">${values.map(([label, value]) => `<div class="property"><span>${label}</span><strong>${escapeHTML(value)}</strong></div>`).join('')}</section>`;
 }
@@ -575,27 +613,21 @@ function stateDataHTML(stateData) {
 }
 
 function conditionMessageHTML(execution) {
-  const conditions = conditionNames(state.process);
-  const selected = conditions.includes(state.messageCondition) ? state.messageCondition : conditions[0] || '';
+  const selected = execution.pendingConditionName || '';
   state.messageCondition = selected;
   return `
     <section class="editor-section message-panel">
       <h3>Send condition message</h3>
-      <label>Channel instance<select id="message-condition">${conditions.map((condition) => `<option value="${escapeHTML(condition)}" ${condition === selected ? 'selected' : ''}>${escapeHTML(condition)}</option>`).join('')}</select></label>
+      <label>Pending condition<select id="message-condition" disabled>${selected ? `<option value="${escapeHTML(selected)}">${escapeHTML(selected)}</option>` : '<option value="">No pending condition</option>'}</select></label>
       <div>
         <div class="section-title"><h4>stateData updates</h4><button id="add-message-data" class="ghost small">+ key/value</button></div>
         <div id="message-data" class="row-list">${keyValueRowsHTML(state.messageData)}</div>
       </div>
-      <div class="message-actions"><button id="send-message" class="primary" ${execution.status === 'RUNNING' && selected ? '' : 'disabled'}>Send message</button></div>
+      <div class="message-actions"><button id="send-message" class="primary" ${execution.status === 'WAITING' && selected ? '' : 'disabled'}>Send message</button></div>
     </section>`;
 }
 
 function bindConditionMessage(execution) {
-  document.querySelector('#message-condition').addEventListener('change', (event) => {
-    state.messageCondition = event.target.value;
-    state.messageData = messageDefaults(state.messageCondition);
-    renderExecutionPage();
-  });
   document.querySelector('#add-message-data').addEventListener('click', () => {
     addUniqueKey(state.messageData, 'newKey', '');
     renderExecutionPage();
@@ -603,12 +635,14 @@ function bindConditionMessage(execution) {
   bindKeyValueRows('#message-data', state.messageData, renderExecutionPage);
   document.querySelector('#send-message').addEventListener('click', async () => {
     try {
-      await api(`/api/dataset-deal/executions/${encodeURIComponent(execution.flowID)}/channels/${encodeURIComponent(state.messageCondition)}`, {
+      state.execution = await api(`/api/dataset-deal/executions/${encodeURIComponent(execution.flowID)}/conditions/${encodeURIComponent(state.messageCondition)}`, {
         method: 'POST',
         body: JSON.stringify({ data: state.messageData }),
       });
-      showToast(`Sent ${state.messageCondition}.`);
-      window.setTimeout(() => loadExecutionPage(execution.flowID), 500);
+      showToast(`Triggered ${state.messageCondition}.`);
+      state.messageCondition = suggestedCondition(state.execution);
+      state.messageData = messageDefaults(state.messageCondition);
+      renderExecutionPage();
     } catch (error) {
       showToast(error.message, true);
     }
@@ -821,19 +855,8 @@ function selectedProcessState() {
   return state.process?.states.find((entry) => entry.name === state.selectedStateName);
 }
 
-function conditionNames(process) {
-  const names = [];
-  process.states.forEach((dealState) => {
-    if (dealState.preCondition?.name) names.push(dealState.preCondition.name);
-    if (dealState.postCondition?.waitFor?.name) names.push(dealState.postCondition.waitFor.name);
-  });
-  return [...new Set(names)];
-}
-
-function suggestedCondition(execution, process) {
-  if (execution.pendingPreConditionName) return execution.pendingPreConditionName;
-  const dealState = process.states.find((entry) => entry.name === execution.currentState);
-  return dealState?.postCondition?.waitFor?.name ?? conditionNames(process)[0] ?? '';
+function suggestedCondition(execution) {
+  return execution.pendingConditionName || '';
 }
 
 function messageDefaults(conditionName) {
@@ -918,7 +941,7 @@ function buyerLabel(role) {
 
 function statusClass(status) {
   if (status === 'COMPLETED') return 'completed';
-  if (status === 'RUNNING') return '';
+  if (status === 'PROCESSING' || status === 'WAITING') return '';
   return 'terminal';
 }
 

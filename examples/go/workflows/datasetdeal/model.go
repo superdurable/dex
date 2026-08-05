@@ -63,35 +63,106 @@ type EqualCase struct {
 }
 
 type DealExecution struct {
-	FlowID                   string            `json:"flowID"`
-	RunID                    string            `json:"runID"`
-	ProcessID                string            `json:"processID"`
-	ProcessDefinition        DealProcess       `json:"processDefinition"`
-	BuyerID                  string            `json:"buyerID"`
-	CurrentState             string            `json:"currentState"`
-	CurrentActionIndex       int               `json:"currentActionIndexToExecute"`
-	PendingPreConditionState string            `json:"pendingPreConditionState"`
-	PendingPreConditionName  string            `json:"pendingPreConditionName"`
-	StateData                map[string]string `json:"stateData"`
-	Status                   string            `json:"status"`
-	StartedAt                time.Time         `json:"startedAt"`
-	ClosedAt                 *time.Time        `json:"closedAt,omitempty"`
+	FlowID                string            `json:"flowID"`
+	LatestRunID           string            `json:"latestRunID"`
+	ProcessID             string            `json:"processID"`
+	ProcessDefinition     DealProcess       `json:"processDefinition"`
+	BuyerID               string            `json:"buyerID"`
+	CurrentState          string            `json:"currentState"`
+	TargetState           string            `json:"targetState"`
+	CurrentActionPhase    ActionPhase       `json:"currentActionPhase"`
+	CurrentActionIndex    int               `json:"currentActionIndexToExecute"`
+	PendingConditionState string            `json:"pendingConditionState"`
+	PendingConditionName  string            `json:"pendingConditionName"`
+	PendingConditionPhase ConditionPhase    `json:"pendingConditionPhase"`
+	StateData             map[string]string `json:"stateData"`
+	Status                ExecutionStatus   `json:"status"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	UpdatedAt             time.Time         `json:"updatedAt"`
+	CompletedAt           *time.Time        `json:"completedAt,omitempty"`
+	Version               int64             `json:"-"`
+	LastStepExecutionID   string            `json:"-"`
 }
 
-type actionPhase string
+type ExecutionStatus string
 
 const (
-	preActionPhase  actionPhase = "pre"
-	postActionPhase actionPhase = "post"
+	ExecutionProcessing ExecutionStatus = "PROCESSING"
+	ExecutionWaiting    ExecutionStatus = "WAITING"
+	ExecutionCompleted  ExecutionStatus = "COMPLETED"
 )
 
+type ActionPhase string
+
+const (
+	PreActionPhase  ActionPhase = "pre"
+	PostActionPhase ActionPhase = "post"
+)
+
+type ConditionPhase string
+
+const (
+	PreConditionPhase  ConditionPhase = "pre"
+	PostConditionPhase ConditionPhase = "post"
+)
+
+type ExecutionFilter struct {
+	BuyerID              string
+	ProcessID            string
+	Status               ExecutionStatus
+	CurrentState         string
+	PendingConditionName string
+}
+
+type triggerType string
+
+const (
+	startTriggerType     triggerType = "start"
+	conditionTriggerType triggerType = "condition"
+)
+
+type TriggerInput struct {
+	Type          triggerType       `json:"type"`
+	ProcessID     string            `json:"processID,omitempty"`
+	BuyerID       string            `json:"buyerID,omitempty"`
+	ConditionName string            `json:"conditionName,omitempty"`
+	Data          map[string]string `json:"data,omitempty"`
+}
+
+func StartTrigger(processID string, buyerID string) TriggerInput {
+	return TriggerInput{
+		Type:      startTriggerType,
+		ProcessID: processID,
+		BuyerID:   buyerID,
+	}
+}
+
+func ConditionTrigger(conditionName string, data map[string]string) TriggerInput {
+	return TriggerInput{
+		Type:          conditionTriggerType,
+		ConditionName: conditionName,
+		Data:          data,
+	}
+}
+
+func (status ExecutionStatus) Valid() bool {
+	switch status {
+	case ExecutionProcessing, ExecutionWaiting, ExecutionCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
 type stateStepInput struct {
-	StateName string `json:"stateName"`
+	StateName             string `json:"stateName"`
+	PreConditionSatisfied bool   `json:"preConditionSatisfied"`
 }
 
 type actionStepInput struct {
-	StateName string      `json:"stateName"`
-	Phase     actionPhase `json:"phase"`
+	StateName   string      `json:"stateName"`
+	Phase       ActionPhase `json:"phase"`
+	ActionIndex int         `json:"actionIndex"`
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -148,17 +219,19 @@ func (process DealProcess) State(name string) (StateDefinition, error) {
 	return StateDefinition{}, fmt.Errorf("state %q is not defined", name)
 }
 
-func (process DealProcess) HasCondition(name string) bool {
+func (process DealProcess) Condition(
+	name string,
+) (StateDefinition, ConditionPhase, error) {
 	for _, state := range process.States {
 		if state.PreCondition != nil && state.PreCondition.Name == name {
-			return true
+			return state, PreConditionPhase, nil
 		}
 		if state.PostCondition != nil && state.PostCondition.WaitFor != nil &&
 			state.PostCondition.WaitFor.Name == name {
-			return true
+			return state, PostConditionPhase, nil
 		}
 	}
-	return false
+	return StateDefinition{}, "", fmt.Errorf("condition %q is not defined", name)
 }
 
 func validateState(

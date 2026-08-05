@@ -4,23 +4,26 @@ This example lets one seller define a reusable finite-state deal process for a
 dataset product. Each buyer starts an independent deal execution from the same
 stored process.
 
-The seller's DSL is stored as JSON in PostgreSQL. Initialization copies it into
-a Dex attribute, and four fixed steps interpret that immutable execution
-snapshot. Seller-authored states do not require dynamic SDK registration:
+The seller's DSL and each execution are stored in PostgreSQL. Each short Dex
+Run processes one trigger against the execution's immutable process snapshot.
+Seller-authored states do not require dynamic SDK registration:
 
 ```text
-initialize → pre-condition → execute one action → post-condition
-                  ↑                  │                 │
-                  └──────────────────┴──── next state ─┘
+trigger → advance state → execute one action → advance state
+             ↑                     │                 │
+             └── next state ─────┴── next action ──┘
 ```
 
-- `preCondition` optionally waits for one external channel message before the
-  state becomes pending.
+- `preCondition` optionally pauses the execution before the state is entered.
 - `preActions` run in order before `currentState` changes.
 - `postActions` run in order after `currentState` changes.
-- `postCondition` may wait for an external message, then evaluates structured
+- `postCondition` may pause for an external message, then evaluates structured
   equality cases against `stateData` and selects the next state.
 - Omitting `postCondition` completes the deal execution.
+
+Starting an execution and submitting a pre/post condition each create a new Dex
+Run under the same FlowID. Runs finish at the next external condition or the
+terminal state; they never remain open waiting for a channel.
 
 The example uses `map[string]string` for `stateData` to keep the visual builder
 generic. A production deal system should use a versioned, strongly typed model
@@ -51,9 +54,8 @@ for validation, migrations, and action inputs.
 }
 ```
 
-State and external-condition names must be unique within a process. Conditions
-use instances of the `ConditionMessages` channel map. A message and each action
-output merge string key/value pairs into `stateData`.
+State and external-condition names must be unique within a process. A condition
+message and each action output merge string key/value pairs into `stateData`.
 
 The built-in actions only log simulated work:
 
@@ -62,37 +64,32 @@ The built-in actions only log simulated work:
 - `transportFullDatasetToBuyer`
 - `transportSampleDatasetToBuyer`
 
-`currentActionIndexToExecute` schedules exactly one action per step execution,
-then loops until the ordered list is complete.
+Each action has its own step execution and PostgreSQL commit. The action receives
+the RunID and StepExecutionID as an idempotency key. A retry whose step ID was
+already committed rebuilds the next movement without applying the action again.
 
-## Persistence and search
+## Persistence and execution state
 
-PostgreSQL stores only seller-authored process definitions. The initialize step
-loads and validates one definition, then stores it in the `processDefinition`
-Dex attribute. Later steps and channel validation use that snapshot, so editing
-the PostgreSQL definition cannot change an existing execution.
+PostgreSQL stores seller-authored process definitions and execution rows. The
+start trigger loads and validates one definition, then copies it into the
+execution row. Later triggers use that snapshot, so editing the seller's process
+cannot change an existing execution.
 
-Execution status and state come entirely from Dex visibility plus one batched
-attribute read per flow. Visibility is eventually consistent; the REST API,
-UI, and E2E checks use bounded retries when a new execution has not appeared.
-Seller ProcessID filters and buyer ProcessID filters are combined directly with
-the buyer's `BuyerID` in Dex `SearchFlows` queries.
+PostgreSQL is the execution source of truth. `PROCESSING` means a trigger Run is
+advancing, `WAITING` means an external pre/post condition is required, and
+`COMPLETED` means a terminal state was reached. Version-checked updates serialize
+each state/action commit. A repeated StepExecutionID is treated as a replay.
 
-Register these Temporal keyword search attributes before starting executions:
+Execution list filters query PostgreSQL directly and can combine:
 
-- `ProcessID`
-- `BuyerID`
-- `CurrentState`
-- `PendingPreConditionState`
-- `PendingPreConditionName`
+- `buyerID`
+- `processID`
+- `status`
+- `currentState`
+- `pendingConditionName`
 
-Durable attribute keys are `stateData`, `processDefinition`, `processID`,
-`buyerID`, `currentState`, `currentActionIndexToExecute`,
-`pendingPreConditionState`, and `pendingPreConditionName`. The channel-map key
-is `conditionMessages`.
-
-`schema.sql` creates only `dataset_deal_processes`. The Go server runs it
-idempotently at startup.
+`schema.sql` creates both Dataset Deal tables and the indexes used by these
+filters. The Go server runs it idempotently at startup.
 
 ## REST API
 
@@ -103,14 +100,19 @@ idempotently at startup.
 | `GET` | `/api/dataset-deal/processes/:processID` | Read a process |
 | `PUT` | `/api/dataset-deal/processes/:processID` | Validate and update a process |
 | `POST` | `/api/dataset-deal/executions` | Start a buyer execution and wait for initialization |
-| `GET` | `/api/dataset-deal/executions?processID=deal-v1` | List one process's executions |
-| `GET` | `/api/dataset-deal/executions?buyerID=buyer1&processID=deal-v1` | List one buyer's matching executions |
+| `GET` | `/api/dataset-deal/executions?processID=deal-v1&status=WAITING` | List matching executions |
+| `GET` | `/api/dataset-deal/executions?buyerID=buyer1&currentState=review` | List one buyer's matching executions |
 | `GET` | `/api/dataset-deal/executions/:flowID` | Read one execution snapshot |
-| `POST` | `/api/dataset-deal/executions/:flowID/channels/:conditionName` | Merge external condition data |
+| `POST` | `/api/dataset-deal/executions/:flowID/conditions/:conditionName` | Run one pending condition trigger |
 
-The execution flow ID is `<processID>-<UUID>`. The start API initializes the
-buyer as an indexed attribute and waits for `datasetdeal.initializeStep` to
-complete.
+The execution FlowID is `<processID>-<UUID>`. The start API waits only for the
+starting trigger step, guaranteeing the execution row exists before returning.
+Its remaining steps continue asynchronously. A condition API waits for its full
+Run and returns the latest execution snapshot.
+
+All triggers use the same FlowID, a new RunID and `IDReuseAllowIfNotRunning`.
+Submitting while another Run is active, using the wrong condition, or submitting
+after completion returns HTTP 409.
 
 ## Run and verify
 
@@ -121,8 +123,8 @@ make datasetDealDemo
 ```
 
 The script starts PostgreSQL with Docker Compose, initializes the schema,
-starts Dex with its bundled Temporal dev server, registers search attributes,
-starts the Go worker/API, and drives three executions:
+starts Dex with its bundled Temporal dev server, starts the Go worker/API, and
+drives three executions:
 
 - buyer 1 rejects one counteroffer, accepts the next, then buys the full data;
 - buyer 2 accepts and requests a sample refund;
@@ -153,7 +155,10 @@ runtime data, and provide the shared condition-message form.
 ## Tests
 
 `make e2eTests` runs the same comprehensive flow against real Dex, Temporal,
-WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search.
+WorkerService, FlowService, PostgreSQL, REST handlers, and execution indexes.
+
+Temporal `SearchFlows` can inspect trigger Run history grouped by FlowID. REST
+execution lists always come from PostgreSQL.
 
 ## Documentation
 
