@@ -210,6 +210,9 @@ send_message "$full_flow" buyer-proposal \
   '{"proposedSamplePrice":"10","proposedFullPrice":"100","proposedSampleRefundPrice":"5"}'
 wait_for_execution "$full_flow" '.pendingPreConditionName == "seller-price-response"' >/dev/null
 send_message "$full_flow" seller-price-response '{"acceptedProposedPrice":"false"}'
+wait_for_execution "$full_flow" '.currentState == "buyer-negotiation"' >/dev/null
+send_message "$full_flow" buyer-proposal \
+  '{"proposedSamplePrice":"11","proposedFullPrice":"105","proposedSampleRefundPrice":"5"}'
 wait_for_execution "$full_flow" '.pendingPreConditionName == "seller-price-response"' >/dev/null
 send_message "$full_flow" seller-price-response '{"acceptedProposedPrice":"true"}'
 wait_for_execution "$full_flow" '.pendingPreConditionName == "sample-feedback"' >/dev/null

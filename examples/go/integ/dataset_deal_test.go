@@ -75,6 +75,12 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
 		"acceptedProposedPrice": "false",
 	})
+	waitForDatasetDealExecution(t, full.FlowID, currentState("buyer-negotiation"))
+	sendDatasetDealMessage(t, full.FlowID, "buyer-proposal", map[string]string{
+		"proposedSamplePrice":       "11",
+		"proposedFullPrice":         "105",
+		"proposedSampleRefundPrice": "5",
+	})
 	waitForDatasetDealExecution(t, full.FlowID, pendingCondition("seller-price-response"))
 	sendDatasetDealMessage(t, full.FlowID, "seller-price-response", map[string]string{
 		"acceptedProposedPrice": "true",
@@ -318,7 +324,7 @@ func comprehensiveDealProcess(processID string) datasetdeal.DealProcess {
 					Cases: []datasetdeal.EqualCase{
 						{Equals: "true", GoToState: "process-sample-order"},
 					},
-					ElseState: "seller-counteroffer",
+					ElseState: "buyer-negotiation",
 				}},
 			},
 			{
