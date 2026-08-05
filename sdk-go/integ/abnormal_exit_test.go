@@ -38,8 +38,8 @@ func (abnormalExitStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (abnormalExitStep) Execute(dex.Context, struct{}) (dex.StepDecision, error) {
-	return dex.StepDecision{}, fmt.Errorf("abnormal exit step")
+func (abnormalExitStep) Execute(dex.Context, struct{}) (*dex.StepDecision, error) {
+	return nil, fmt.Errorf("abnormal exit step")
 }
 
 func TestAbnormalExitFlow(t *testing.T) {

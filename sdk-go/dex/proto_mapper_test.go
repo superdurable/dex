@@ -33,7 +33,7 @@ func (step mapperStep) GetStepOptions() *StepOptions {
 	return step.options
 }
 
-func (mapperStep) Execute(Context, int) (StepDecision, error) {
+func (mapperStep) Execute(Context, int) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -82,7 +82,10 @@ func TestWaitMappingAssignsStableConditionIDs(t *testing.T) {
 
 func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 	channel := DefineChannel[string]("commands")
-	_, err := mapWait(AllOf())
+	_, err := mapWait(nil)
+	require.ErrorContains(t, err, "must not be nil")
+
+	_, err = mapWait(AllOf())
 	require.ErrorContains(t, err, "at least one")
 
 	_, err = mapWait(AllOf(
@@ -105,6 +108,9 @@ func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 }
 
 func TestStepDecisionAndOptionsMapping(t *testing.T) {
+	_, err := mapStepDecision(nil)
+	require.ErrorContains(t, err, "must not be nil")
+
 	status := DefineAttribute[string]("status")
 	defaults := &StepOptions{
 		ExecuteTimeout:    5 * time.Second,

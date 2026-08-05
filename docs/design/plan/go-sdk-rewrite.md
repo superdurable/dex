@@ -44,7 +44,7 @@ adding aliases.
 - WaitFor may carry one server-supported transient step movement. The Go SDK
   uses this internally and does not expose it to applications.
 - `StepDecision` has normal next steps and a separate `CloseDecision`.
-- A normal Execute must return a non-empty decision. Only conditional
+- A normal Execute must return a non-nil, non-empty decision. Only conditional
   force-complete may combine a close decision with fallback next steps.
 - `Context.from_step_execution_id` exposes step-execution lineage.
 - WaitFor, Execute, and RPC may write attributes, record events, and publish
@@ -275,8 +275,8 @@ type StepDef interface {
 	stepValue() any
 	isStarting() bool
 	skipWaitFor() bool
-	waitFor(Context, any) (Wait, error)
-	execute(Context, any) (StepDecision, error)
+	waitFor(Context, any) (*Wait, error)
+	execute(Context, any) (*StepDecision, error)
 }
 ```
 
@@ -727,9 +727,9 @@ Map operations derive the physical key with the Phase 2 escaping rule. Get
 first observes the invocation's latest buffered write:
 
 - a buffered Set decodes that value;
-- a buffered Delete returns `found=false`;
+- a buffered Delete returns `*AttributeNotFoundError`;
 - otherwise Get reads the hydrated request snapshot; and
-- a missing key returns the typed zero value with `found=false`.
+- a missing key returns the typed zero value plus `*AttributeNotFoundError`.
 
 Set and Delete encode immediately. A failed encode leaves the previous buffer
 unchanged. Multiple writes to one physical key use last-write-wins and emit one
@@ -803,7 +803,7 @@ transient Execute to return only `DeadEnd()`.
 ### Execute response
 
 Execute receives condition results and source-step locals, calls the registered
-typed handler, and requires a non-empty `StepDecision`.
+typed handler, and requires a non-nil, non-empty `StepDecision`.
 
 Every movement is resolved through `registeredFlow.resolveMovement`. Mapping
 uses the registered target's immutable defaults plus the explicit movement
@@ -913,10 +913,11 @@ Cover these scenarios:
    order, including static and map channels.
 6. RPC reflection dispatch preserves typed input/output, movement validation,
    attributes, events, publishes, and channel sizes including local publishes.
-7. Set-then-Get and Delete-then-Get observe buffered state; duplicate events
-   and malformed incoming keys fail.
-8. Returned errors, gRPC status errors, panics, cancellation, and mapping
-   failures return WorkerError details and commit no buffered mutations.
+7. Set-then-Get observes buffered state; Delete-then-Get returns
+   `*AttributeNotFoundError`; duplicate events and malformed keys fail.
+8. Nil Wait/StepDecision results, returned errors, gRPC status errors, panics,
+   cancellation, and mapping failures return WorkerError details and commit no
+   buffered mutations.
 9. Unknown flow/step/RPC, a WaitFor request for `NoWaitFor`, undeclared schema
    handles, and lookalike movement targets return the planned status codes.
 10. A fake FlowService plus real disk cache covers cache hit, miss, corrupt
@@ -1602,8 +1603,8 @@ Every application step implements the same `Step[IN]` interface:
 type Step[IN any] interface {
 	GetStepType() string
 	GetStepOptions() *StepOptions
-	WaitFor(ctx Context, input IN) (Wait, error)
-	Execute(ctx Context, input IN) (StepDecision, error)
+	WaitFor(ctx Context, input IN) (*Wait, error)
+	Execute(ctx Context, input IN) (*StepDecision, error)
 }
 
 type none struct{}
@@ -1633,7 +1634,7 @@ type StepDefaultsNoWaitFor[IN any] struct {
 	NoWaitFor[IN]
 }
 
-func (NoWaitFor[IN]) WaitFor(Context, IN) (Wait, error) {
+func (NoWaitFor[IN]) WaitFor(Context, IN) (*Wait, error) {
 	panic("NoWaitFor: framework must skip WaitFor")
 }
 
@@ -1683,7 +1684,7 @@ type ApproveOrderStep struct {
 func (ApproveOrderStep) WaitFor(
 	ctx dex.Context,
 	input ApproveOrderInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		ApprovalChannel.ForOne(),
 		dex.Timer(
@@ -1696,13 +1697,13 @@ func (ApproveOrderStep) WaitFor(
 func (ApproveOrderStep) Execute(
 	ctx dex.Context,
 	input ApproveOrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.ForceFail("approval timed out"), nil
 	}
 	approvals, err := ApprovalChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	_ = approvals
 	return dex.GoTo(ShipOrder, ShipOrderInput{
@@ -1720,7 +1721,7 @@ type ShipOrderStep struct {
 func (ShipOrderStep) Execute(
 	ctx dex.Context,
 	input ShipOrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
@@ -1776,13 +1777,13 @@ Step-execution locals deliberately do not carry a Go type:
 
 ```go
 if err := ctx.SetStepExecutionLocal("snapshot", snapshot); err != nil {
-	return dex.Wait{}, err
+	return nil, err
 }
 
 var snapshot OrderSnapshot
 found, err := ctx.GetStepExecutionLocal("snapshot", &snapshot)
 if err != nil {
-	return dex.StepDecision{}, err
+	return nil, err
 }
 ```
 
@@ -1855,14 +1856,14 @@ key. Physical keys and their escaping are internal SDK details.
 Invocation operations take `Context` explicitly:
 
 ```go
-func (a Attribute[T]) Get(ctx Context) (value T, found bool, err error)
+func (a Attribute[T]) Get(ctx Context) (value T, err error)
 func (a Attribute[T]) Set(ctx Context, value T) error
 func (a Attribute[T]) Delete(ctx Context) error
 
 func (a AttributeMap[T]) Get(
 	ctx Context,
 	instance string,
-) (value T, found bool, err error)
+) (value T, err error)
 func (a AttributeMap[T]) Set(
 	ctx Context,
 	instance string,
@@ -1871,9 +1872,10 @@ func (a AttributeMap[T]) Set(
 func (a AttributeMap[T]) Delete(ctx Context, instance string) error
 ```
 
-`found` distinguishes a missing attribute from the zero value. `Delete` maps to
-the proto null arm. A delete retains the definition's index configuration so an
-indexed value is also removed from visibility.
+A missing invocation attribute returns its typed zero value plus
+`*AttributeNotFoundError`; callers use `errors.As` when absence is expected.
+`Delete` maps to the proto null arm. A delete retains the definition's index
+configuration so an indexed value is also removed from visibility.
 
 Indexing is opt-in:
 
@@ -2027,11 +2029,11 @@ type ConditionOption interface {
 	applyCondition(*conditionValue)
 }
 
-func SkipWaitImmediately() Wait
-func AllOf(conditions ...Condition) Wait
-func AnyOf(conditions ...Condition) Wait
+func SkipWaitImmediately() *Wait
+func AllOf(conditions ...Condition) *Wait
+func AnyOf(conditions ...Condition) *Wait
 func Combo(conditions ...Condition) ConditionCombination
-func AnyComboOf(combinations ...ConditionCombination) Wait
+func AnyComboOf(combinations ...ConditionCombination) *Wait
 func Timer(
 	duration time.Duration,
 	options ...ConditionOption,
@@ -2080,7 +2082,7 @@ func GoTo[IN any](
 	step Step[IN],
 	input IN,
 	options ...StepMoveOption,
-) StepDecision
+) *StepDecision
 
 func MovementOf[IN any](
 	step Step[IN],
@@ -2088,17 +2090,17 @@ func MovementOf[IN any](
 	options ...StepMoveOption,
 ) StepMovement
 
-func GoToMulti(movements ...StepMovement) StepDecision
-func GracefulComplete(output any) StepDecision
-func ForceComplete(output any) StepDecision
-func ForceFail(reason string) StepDecision
-func DeadEnd() StepDecision
+func GoToMulti(movements ...StepMovement) *StepDecision
+func GracefulComplete(output any) *StepDecision
+func ForceComplete(output any) *StepDecision
+func ForceFail(reason string) *StepDecision
+func DeadEnd() *StepDecision
 
 func ForceCompleteOnChannelsEmpty(
 	output any,
 	channels []ChannelDef,
 	otherwise ...StepMovement,
-) StepDecision
+) *StepDecision
 ```
 
 Rules enforced by construction or Phase 3 validation:
@@ -2114,7 +2116,7 @@ Rules enforced by construction or Phase 3 validation:
 - normal movements never expose the server-owned lineage field.
 
 An RPC may return optional next-step movements but cannot close the flow.
-Execute must return a valid, non-empty `StepDecision`.
+Execute must return a valid, non-nil, non-empty `StepDecision`.
 
 ### Step options
 
@@ -2607,6 +2609,18 @@ No old reset, memo, loading-policy, or worker-URL fields are retained.
 
 ### Public errors
 
+Invocation attribute misses return a typed local error:
+
+```go
+type AttributeNotFoundError struct {
+	AttributeName string
+	Instance      string
+}
+```
+
+`Instance` is populated for `AttributeMap` reads. The error supports
+`errors.As` and is never converted to a gRPC status.
+
 All FlowService failures are returned as an SDK error that preserves both gRPC
 status and Dex details:
 
@@ -2657,19 +2671,19 @@ type WaitForCommandStep struct {
 func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 
 	if err := ctx.SetStepExecutionLocal(
 		"snapshot",
 		OrderSnapshot{OrderID: input.OrderID},
 	); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	if err := ctx.RecordEvent("waiting-for-command", input); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 
 	return dex.AnyOf(
@@ -2684,24 +2698,24 @@ func (WaitForCommandStep) WaitFor(
 func (WaitForCommandStep) Execute(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.ForceFail("command timed out"), nil
 	}
 
 	commands, err := Commands.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	_ = commands
 
 	var snapshot OrderSnapshot
 	found, err := ctx.GetStepExecutionLocal("snapshot", &snapshot)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if !found {
-		return dex.StepDecision{}, fmt.Errorf("snapshot is missing")
+		return nil, fmt.Errorf("snapshot is missing")
 	}
 	return dex.GracefulComplete(snapshot), nil
 }
@@ -2730,8 +2744,8 @@ var Orders = OrderFlow{}
 var _ dex.Flow = Orders
 ```
 
-The exact zero values returned on an error are not part of normal application
-style; they only satisfy Go's return rules.
+Step handlers return nil with an error. Other exact zero values only satisfy
+Go's return rules.
 
 ## Phase 1 deliverables
 
@@ -2763,7 +2777,8 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 5. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
    `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.
 6. Static and map attributes expose typed Get/Set/Delete methods that take
-   `Context`, while physical keys remain internal behind sealed lock values.
+   `Context`; missing reads return `*AttributeNotFoundError`, while physical
+   keys remain internal behind sealed lock values.
 7. Static and map channels expose Publish, all five count forms, and the
    `myCh.Size(ctx)` / `myChMap.Size(ctx, key)` RPC shape.
 8. A Wait combines timers and channel conditions through All, Any, and

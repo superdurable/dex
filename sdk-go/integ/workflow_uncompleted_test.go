@@ -35,7 +35,7 @@ type forceFailStep struct {
 func (forceFailStep) Execute(
 	dex.Context,
 	struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.ForceFail("a failing message"), nil
 }
 
@@ -58,14 +58,14 @@ func (waitForFailureStep) GetStepOptions() *dex.StepOptions {
 func (waitForFailureStep) WaitFor(
 	dex.Context,
 	struct{},
-) (dex.Wait, error) {
-	return dex.Wait{}, fmt.Errorf("test WaitFor failing")
+) (*dex.Wait, error) {
+	return nil, fmt.Errorf("test WaitFor failing")
 }
 
 func (waitForFailureStep) Execute(
 	dex.Context,
 	struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.ForceFail("must not execute"), nil
 }
 
@@ -91,15 +91,15 @@ func (waitForTimeoutStep) GetStepOptions() *dex.StepOptions {
 func (waitForTimeoutStep) WaitFor(
 	ctx dex.Context,
 	_ struct{},
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	<-ctx.Done()
-	return dex.Wait{}, ctx.Err()
+	return nil, ctx.Err()
 }
 
 func (waitForTimeoutStep) Execute(
 	dex.Context,
 	struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.ForceFail("must not execute"), nil
 }
 

@@ -23,6 +23,23 @@ var (
 	errInvalidInvocationContext = errors.New("dex: invalid invocation context")
 )
 
+// AttributeNotFoundError reports a missing invocation attribute.
+type AttributeNotFoundError struct {
+	AttributeName string
+	Instance      string
+}
+
+func (e *AttributeNotFoundError) Error() string {
+	if e.Instance == "" {
+		return fmt.Sprintf("dex: attribute %q not found", e.AttributeName)
+	}
+	return fmt.Sprintf(
+		"dex: attribute map %q instance %q not found",
+		e.AttributeName,
+		e.Instance,
+	)
+}
+
 type Error struct {
 	Code                codes.Code
 	SubStatus           ErrorSubStatus

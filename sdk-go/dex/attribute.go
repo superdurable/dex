@@ -32,13 +32,20 @@ type AttributeDef interface {
 	attributeIsMap() bool
 }
 
-func (a Attribute[T]) Get(ctx Context) (value T, found bool, err error) {
+// Get returns the current value. Missing values return AttributeNotFoundError.
+func (a Attribute[T]) Get(ctx Context) (value T, err error) {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
-		return value, false, errInvalidInvocationContext
+		return value, errInvalidInvocationContext
 	}
-	found, err = invocation.getAttribute(a.name, &value)
-	return value, found, err
+	found, err := invocation.getAttribute(a.name, &value)
+	if err != nil {
+		return value, err
+	}
+	if !found {
+		return value, &AttributeNotFoundError{AttributeName: a.name}
+	}
+	return value, nil
 }
 
 func (a Attribute[T]) Set(ctx Context, value T) error {
@@ -85,16 +92,26 @@ func DefineAttributeMap[T any](name string, options ...AttributeOption) Attribut
 	return AttributeMap[T]{name: name, index: config.index}
 }
 
+// Get returns the current map value. Missing instances return AttributeNotFoundError.
 func (a AttributeMap[T]) Get(
 	ctx Context,
 	instance string,
-) (value T, found bool, err error) {
+) (value T, err error) {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
-		return value, false, errInvalidInvocationContext
+		return value, errInvalidInvocationContext
 	}
-	found, err = invocation.getAttributeMap(a.name, instance, &value)
-	return value, found, err
+	found, err := invocation.getAttributeMap(a.name, instance, &value)
+	if err != nil {
+		return value, err
+	}
+	if !found {
+		return value, &AttributeNotFoundError{
+			AttributeName: a.name,
+			Instance:      instance,
+		}
+	}
+	return value, nil
 }
 
 func (a AttributeMap[T]) Set(ctx Context, instance string, value T) error {

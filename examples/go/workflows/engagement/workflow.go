@@ -89,11 +89,11 @@ func (*EngagementFlow) Decline(
 	ctx dex.Context,
 	note string,
 ) (dex.RPCResult[Status], error) {
-	status, found, err := EngagementStatus.Get(ctx)
+	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
-	if !found || status != StatusInitiated {
+	if status != StatusInitiated {
 		return dex.RPCResult[Status]{}, fmt.Errorf(
 			"can only decline an initiated engagement; current status is %q",
 			status,
@@ -114,11 +114,11 @@ func (*EngagementFlow) Accept(
 	ctx dex.Context,
 	note string,
 ) (dex.RPCResult[Status], error) {
-	status, found, err := EngagementStatus.Get(ctx)
+	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
 		return dex.RPCResult[Status]{}, err
 	}
-	if !found || (status != StatusInitiated && status != StatusDeclined) {
+	if status != StatusInitiated && status != StatusDeclined {
 		return dex.RPCResult[Status]{}, fmt.Errorf(
 			"can only accept an initiated or declined engagement; current status is %q",
 			status,
@@ -139,19 +139,19 @@ func (*EngagementFlow) Accept(
 }
 
 func describe(ctx dex.Context) (EngagementDescription, error) {
-	status, _, err := EngagementStatus.Get(ctx)
+	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
 		return EngagementDescription{}, err
 	}
-	employerID, _, err := EmployerID.Get(ctx)
+	employerID, err := EmployerID.Get(ctx)
 	if err != nil {
 		return EngagementDescription{}, err
 	}
-	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	jobSeekerID, err := JobSeekerID.Get(ctx)
 	if err != nil {
 		return EngagementDescription{}, err
 	}
-	notes, _, err := Notes.Get(ctx)
+	notes, err := Notes.Get(ctx)
 	if err != nil {
 		return EngagementDescription{}, err
 	}
@@ -170,7 +170,7 @@ func updateStatus(ctx dex.Context, status Status, note string) error {
 	if err := LastUpdateTimestamp.Set(ctx, time.Now().UnixMilli()); err != nil {
 		return err
 	}
-	currentNotes, _, err := Notes.Get(ctx)
+	currentNotes, err := Notes.Get(ctx)
 	if err != nil {
 		return err
 	}
@@ -187,21 +187,21 @@ type initializeStep struct {
 func (initializeStep) Execute(
 	ctx dex.Context,
 	input EngagementInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := EmployerID.Set(ctx, input.EmployerID); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := JobSeekerID.Set(ctx, input.JobSeekerID); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := EngagementStatus.Set(ctx, StatusInitiated); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := LastUpdateTimestamp.Set(ctx, time.Now().UnixMilli()); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := Notes.Set(ctx, input.Notes); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GoToMulti(
 		dex.MovementOf(processTimeoutStep{}, nil),
@@ -218,7 +218,7 @@ type processTimeoutStep struct {
 func (processTimeoutStep) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(60*24*time.Hour),
 		CompleteProcess.ForOne(),
@@ -228,10 +228,10 @@ func (processTimeoutStep) WaitFor(
 func (step processTimeoutStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	description, err := describe(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	result := "timeout"
 	if description.CurrentStatus == StatusAccepted {
@@ -254,7 +254,7 @@ type reminderStep struct {
 func (reminderStep) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(5*time.Second),
 		OptOutReminder.ForOne(),
@@ -264,27 +264,27 @@ func (reminderStep) WaitFor(
 func (step reminderStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	status, _, err := EngagementStatus.Get(ctx)
+) (*dex.StepDecision, error) {
+	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if status != StatusInitiated {
 		return dex.DeadEnd(), nil
 	}
 	optOuts, err := OptOutReminder.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(optOuts) > 0 {
 		if err := updateStatus(ctx, status, "user opted out of reminders"); err != nil {
-			return dex.StepDecision{}, err
+			return nil, err
 		}
 		return dex.DeadEnd(), nil
 	}
-	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	jobSeekerID, err := JobSeekerID.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
 	return dex.GoTo(reminderStep{}, nil), nil
@@ -298,14 +298,14 @@ type notifyExternalSystemStep struct {
 func (step notifyExternalSystemStep) Execute(
 	ctx dex.Context,
 	status Status,
-) (dex.StepDecision, error) {
-	employerID, _, err := EmployerID.Get(ctx)
+) (*dex.StepDecision, error) {
+	employerID, err := EmployerID.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	jobSeekerID, err := JobSeekerID.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	step.service.UpdateExternalSystem(fmt.Sprintf(
 		"notify engagement from employer %s to job seeker %s for status %s",

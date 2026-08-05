@@ -309,7 +309,7 @@ func callWaitForHandler(
 	step *registeredStep,
 	invocation *invocationContext,
 	input any,
-) (Wait, error) {
+) (*Wait, error) {
 	defer invocation.finish()
 	return step.handler.waitFor(invocation, input)
 }
@@ -318,7 +318,7 @@ func callExecuteHandler(
 	step *registeredStep,
 	invocation *invocationContext,
 	input any,
-) (StepDecision, error) {
+) (*StepDecision, error) {
 	defer invocation.finish()
 	return step.handler.execute(invocation, input)
 }

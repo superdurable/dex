@@ -343,7 +343,10 @@ func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
 	}
 }
 
-func mapWait(wait Wait) (*dexpb.WaitingCondition, error) {
+func mapWait(wait *Wait) (*dexpb.WaitingCondition, error) {
+	if wait == nil {
+		return nil, fmt.Errorf("dex: wait must not be nil")
+	}
 	switch wait.kind {
 	case skipWaitImmediately:
 		return nil, nil
@@ -517,7 +520,10 @@ func (mapper *conditionMapper) result(
 	}
 }
 
-func mapStepDecision(decision StepDecision) (*dexpb.StepDecision, error) {
+func mapStepDecision(decision *StepDecision) (*dexpb.StepDecision, error) {
+	if decision == nil {
+		return nil, fmt.Errorf("dex: step decision must not be nil")
+	}
 	switch decision.kind {
 	case decisionNext:
 		if len(decision.movements) == 0 {

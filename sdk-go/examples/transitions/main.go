@@ -38,7 +38,7 @@ type ApproveOrderStep struct {
 func (ApproveOrderStep) WaitFor(
 	ctx dex.Context,
 	input ApproveOrderInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		ApprovalChannel.ForOne(),
 		dex.Timer(
@@ -51,13 +51,13 @@ func (ApproveOrderStep) WaitFor(
 func (ApproveOrderStep) Execute(
 	ctx dex.Context,
 	input ApproveOrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.ForceFail("approval timed out"), nil
 	}
 	approvals, err := ApprovalChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(approvals) == 0 || !approvals[0].Approved {
 		return dex.ForceFail("order rejected"), nil
@@ -77,7 +77,7 @@ type ShipOrderStep struct {
 func (ShipOrderStep) Execute(
 	ctx dex.Context,
 	input ShipOrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 

@@ -80,7 +80,7 @@ func (*SubscriptionFlow) Describe(
 	ctx dex.Context,
 	_ dex.None,
 ) (dex.RPCResult[Subscription], error) {
-	customer, _, err := CustomerDetails.Get(ctx)
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
 		return dex.RPCResult[Subscription]{}, err
 	}
@@ -94,9 +94,9 @@ type initializeStep struct {
 func (initializeStep) Execute(
 	ctx dex.Context,
 	customer Customer,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := CustomerDetails.Set(ctx, customer); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return initializeSubscription(), nil
 }
@@ -109,10 +109,10 @@ type trialStep struct {
 func (step trialStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.Wait, error) {
-	customer, _, err := CustomerDetails.Get(ctx)
+) (*dex.Wait, error) {
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return waitForTrial(customer, step.service), nil
 }
@@ -120,9 +120,9 @@ func (step trialStep) WaitFor(
 func (trialStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return executeTrial(), nil
 }
@@ -137,27 +137,24 @@ type chargeCurrentBillStep struct {
 func (chargeCurrentBillStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.Wait, error) {
-	customer, _, err := CustomerDetails.Get(ctx)
+) (*dex.Wait, error) {
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
-	periodNumber, found, err := BillingPeriodNumber.Get(ctx)
+	periodNumber, err := BillingPeriodNumber.Get(ctx)
 	if err != nil {
-		return dex.Wait{}, err
-	}
-	if !found {
-		periodNumber = 0
+		return nil, err
 	}
 	wait, subscriptionOver := waitForCharge(customer, periodNumber)
 	if subscriptionOver {
 		if err := ctx.SetStepExecutionLocal(subscriptionOverKey, true); err != nil {
-			return dex.Wait{}, err
+			return nil, err
 		}
 		return wait, nil
 	}
 	if err := BillingPeriodNumber.Set(ctx, periodNumber+1); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return wait, nil
 }
@@ -165,15 +162,15 @@ func (chargeCurrentBillStep) WaitFor(
 func (step chargeCurrentBillStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	customer, _, err := CustomerDetails.Get(ctx)
+) (*dex.StepDecision, error) {
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	var subscriptionOver bool
 	found, err := ctx.GetStepExecutionLocal(subscriptionOverKey, &subscriptionOver)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return executeCharge(customer, found && subscriptionOver, step.service), nil
 }
@@ -186,17 +183,17 @@ type cancelStep struct {
 func (cancelStep) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AllOf(CancelSubscription.ForOne()), nil
 }
 
 func (step cancelStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
-	customer, _, err := CustomerDetails.Get(ctx)
+) (*dex.StepDecision, error) {
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return executeCancel(customer, step.service), nil
 }
@@ -208,33 +205,33 @@ type updateChargeAmountStep struct {
 func (updateChargeAmountStep) WaitFor(
 	dex.Context,
 	dex.None,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AllOf(UpdateChargeAmount.ForOne()), nil
 }
 
 func (updateChargeAmountStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	amounts, err := UpdateChargeAmount.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
-	customer, _, err := CustomerDetails.Get(ctx)
+	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	updatedCustomer, decision, err := executeUpdateChargeAmount(customer, amounts)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := CustomerDetails.Set(ctx, updatedCustomer); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return decision, nil
 }
 
-func initializeSubscription() dex.StepDecision {
+func initializeSubscription() *dex.StepDecision {
 	return dex.GoToMulti(
 		dex.MovementOf(trialStep{}, nil),
 		dex.MovementOf(cancelStep{}, nil),
@@ -245,17 +242,17 @@ func initializeSubscription() dex.StepDecision {
 func waitForTrial(
 	customer Customer,
 	applicationService subscriptionService,
-) dex.Wait {
+) *dex.Wait {
 	// send welcome email
 	applicationService.SendEmail(customer.Email, "welcome email", "hello content")
 	return dex.AllOf(dex.Timer(customer.Subscription.TrialPeriod))
 }
 
-func executeTrial() dex.StepDecision {
+func executeTrial() *dex.StepDecision {
 	return dex.GoTo(chargeCurrentBillStep{}, nil)
 }
 
-func waitForCharge(customer Customer, periodNumber int) (dex.Wait, bool) {
+func waitForCharge(customer Customer, periodNumber int) (*dex.Wait, bool) {
 	if periodNumber >= customer.Subscription.MaxBillingPeriods {
 		return dex.SkipWaitImmediately(), true
 	}
@@ -266,7 +263,7 @@ func executeCharge(
 	customer Customer,
 	subscriptionOver bool,
 	applicationService subscriptionService,
-) dex.StepDecision {
+) *dex.StepDecision {
 	if subscriptionOver {
 		applicationService.SendEmail(customer.Email, "subscription over", "hello content")
 		// use force completing because the cancel state is still waiting for signal
@@ -283,7 +280,7 @@ func executeCharge(
 func executeCancel(
 	customer Customer,
 	applicationService subscriptionService,
-) dex.StepDecision {
+) *dex.StepDecision {
 	applicationService.SendEmail(customer.Email, "subscription canceled", "hello content")
 	return dex.ForceComplete("subscription canceled")
 }
@@ -291,9 +288,9 @@ func executeCancel(
 func executeUpdateChargeAmount(
 	customer Customer,
 	amounts []int,
-) (Customer, dex.StepDecision, error) {
+) (Customer, *dex.StepDecision, error) {
 	if len(amounts) != 1 {
-		return Customer{}, dex.StepDecision{}, fmt.Errorf(
+		return Customer{}, nil, fmt.Errorf(
 			"expected one charge amount, got %d",
 			len(amounts),
 		)

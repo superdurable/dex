@@ -34,16 +34,16 @@ type timerStep struct {
 func (timerStep) WaitFor(
 	_ dex.Context,
 	seconds int,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AllOf(dex.Timer(time.Duration(seconds) * time.Second)), nil
 }
 
 func (timerStep) Execute(
 	ctx dex.Context,
 	seconds int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if !ctx.HasTimerFired() || !ctx.HasTimerFiredByIndex(0) {
-		return dex.StepDecision{}, fmt.Errorf("natural timer was not reported as fired")
+		return nil, fmt.Errorf("natural timer was not reported as fired")
 	}
 	return dex.GracefulComplete(seconds + 1), nil
 }

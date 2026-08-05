@@ -31,9 +31,9 @@ type WaitForCommandStep struct {
 func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.AnyOf(
 		Commands.ForOne(dex.WithConditionID("command")),
@@ -47,13 +47,13 @@ func (WaitForCommandStep) WaitFor(
 func (WaitForCommandStep) Execute(
 	ctx dex.Context,
 	input OrderInput,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.ForceFail("command timed out"), nil
 	}
 	commands, err := Commands.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GracefulComplete(commands), nil
 }
@@ -91,6 +91,10 @@ the absence of a payload explicit.
 Flow RPCs are methods matching `dex.RPC[IN, OUT]`. Attributes and channels stay
 strongly typed inside handlers. Step-execution locals and recorded events accept
 arbitrary values through `dex.Context`.
+
+Invocation attribute reads return `(value, error)`. A missing static or map
+attribute returns `*dex.AttributeNotFoundError`, which callers can inspect with
+`errors.As` when absence is expected.
 
 ## Registration
 

@@ -190,13 +190,13 @@ And example to read/write the persistence:
 func (step callAPI1Step) Execute(
 	ctx dex.Context,
 	input string,
-) (dex.StepDecision, error) {
-	oldData, _, err := Data.Get(ctx)
+) (*dex.StepDecision, error) {
+	oldData, err := Data.Get(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if err := Data.Set(ctx, input); err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	return dex.GracefulComplete(oldData), nil
 }

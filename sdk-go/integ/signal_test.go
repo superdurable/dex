@@ -50,7 +50,7 @@ type channelFlowFirstStep struct {
 func (channelFlowFirstStep) WaitFor(
 	dex.Context,
 	struct{},
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		channelFlowFirst.ForOne(),
 		channelFlowSecond.ForOne(),
@@ -60,17 +60,17 @@ func (channelFlowFirstStep) WaitFor(
 func (channelFlowFirstStep) Execute(
 	ctx dex.Context,
 	_ struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	first, err := channelFlowFirst.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	second, err := channelFlowSecond.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(first) != 0 || len(second) != 1 || second[0] != 10 {
-		return dex.StepDecision{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unexpected first-step channel results: first=%v second=%v",
 			first,
 			second,
@@ -86,7 +86,7 @@ type channelFlowSecondStep struct {
 func (channelFlowSecondStep) WaitFor(
 	dex.Context,
 	struct{},
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyComboOf(dex.Combo(
 		channelFlowFirst.ForOne(),
 		dex.Timer(24*time.Hour, dex.WithConditionID("finish-timer")),
@@ -96,20 +96,20 @@ func (channelFlowSecondStep) WaitFor(
 func (channelFlowSecondStep) Execute(
 	ctx dex.Context,
 	_ struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	if !ctx.HasTimerFired() || !ctx.HasTimerFiredByIndex(0) {
-		return dex.StepDecision{}, fmt.Errorf("skipped timer was not reported as fired")
+		return nil, fmt.Errorf("skipped timer was not reported as fired")
 	}
 	first, err := channelFlowFirst.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	second, err := channelFlowSecond.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(first) != 1 || first[0] != 100 || len(second) != 0 {
-		return dex.StepDecision{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unexpected second-step channel results: first=%v second=%v",
 			first,
 			second,

@@ -22,23 +22,23 @@ type Wait struct {
 	transient    *StepMovement
 }
 
-func SkipWaitImmediately() Wait {
-	return Wait{kind: skipWaitImmediately}
+func SkipWaitImmediately() *Wait {
+	return &Wait{kind: skipWaitImmediately}
 }
 
-func AllOf(conditions ...Condition) Wait {
-	return Wait{kind: waitAllOf, conditions: conditions}
+func AllOf(conditions ...Condition) *Wait {
+	return &Wait{kind: waitAllOf, conditions: conditions}
 }
 
-func AnyOf(conditions ...Condition) Wait {
-	return Wait{kind: waitAnyOf, conditions: conditions}
+func AnyOf(conditions ...Condition) *Wait {
+	return &Wait{kind: waitAnyOf, conditions: conditions}
 }
 
-func AnyComboOf(combinations ...ConditionCombination) Wait {
-	return Wait{kind: waitAnyComboOf, combinations: combinations}
+func AnyComboOf(combinations ...ConditionCombination) *Wait {
+	return &Wait{kind: waitAnyComboOf, combinations: combinations}
 }
 
-func withTransientMovement(wait Wait, movement StepMovement) Wait {
+func withTransientMovement(wait *Wait, movement StepMovement) *Wait {
 	wait.transient = &movement
 	return wait
 }

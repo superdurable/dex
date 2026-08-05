@@ -49,7 +49,7 @@ type interStepStartStep struct {
 func (interStepStartStep) Execute(
 	dex.Context,
 	struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.GoToMulti(
 		dex.MovementOf(interStepWaitStep{}, struct{}{}),
 		dex.MovementOf(interStepPublishStep{}, 2),
@@ -63,7 +63,7 @@ type interStepWaitStep struct {
 func (interStepWaitStep) WaitFor(
 	dex.Context,
 	struct{},
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	return dex.AnyOf(
 		interStepFirstChannel.ForOne(),
 		interStepSecondChannel.ForOne(),
@@ -73,17 +73,17 @@ func (interStepWaitStep) WaitFor(
 func (interStepWaitStep) Execute(
 	ctx dex.Context,
 	_ struct{},
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	first, err := interStepFirstChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	second, err := interStepSecondChannel.GetConditionResults(ctx)
 	if err != nil {
-		return dex.StepDecision{}, err
+		return nil, err
 	}
 	if len(first) != 0 || len(second) != 1 || second[0] != 2 {
-		return dex.StepDecision{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unexpected channel results: first=%v second=%v",
 			first,
 			second,
@@ -99,9 +99,9 @@ type interStepPublishStep struct {
 func (interStepPublishStep) WaitFor(
 	ctx dex.Context,
 	input int,
-) (dex.Wait, error) {
+) (*dex.Wait, error) {
 	if err := interStepSecondChannel.Publish(ctx, input); err != nil {
-		return dex.Wait{}, err
+		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
@@ -109,7 +109,7 @@ func (interStepPublishStep) WaitFor(
 func (interStepPublishStep) Execute(
 	dex.Context,
 	int,
-) (dex.StepDecision, error) {
+) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
