@@ -1,0 +1,63 @@
+{
+  "processID": "comprehensive-dataset-deal",
+  "initialState": "buyer-negotiation",
+  "initialStateData": {
+    "acceptedProposedPrice": "false",
+    "proceedToFullDataset": "false",
+    "proposedFullPrice": "",
+    "proposedSamplePrice": "",
+    "proposedSampleRefundPrice": ""
+  },
+  "states": [
+    {
+      "name": "buyer-negotiation",
+      "postCondition": {
+        "waitFor": {"name": "buyer-proposal"},
+        "decision": {"elseState": "seller-counteroffer"}
+      }
+    },
+    {
+      "name": "seller-counteroffer",
+      "preCondition": {"name": "seller-price-response"},
+      "postCondition": {
+        "decision": {
+          "key": "acceptedProposedPrice",
+          "cases": [
+            {"equals": "true", "goToState": "process-sample-order"}
+          ],
+          "elseState": "seller-counteroffer"
+        }
+      }
+    },
+    {
+      "name": "process-sample-order",
+      "preActions": ["transferMoneyFromBuyerToSeller"],
+      "postActions": ["transportSampleDatasetToBuyer"],
+      "postCondition": {
+        "decision": {"elseState": "wait-sample-feedback"}
+      }
+    },
+    {
+      "name": "wait-sample-feedback",
+      "preCondition": {"name": "sample-feedback"},
+      "postCondition": {
+        "decision": {
+          "key": "proceedToFullDataset",
+          "cases": [
+            {"equals": "true", "goToState": "process-full-order"}
+          ],
+          "elseState": "process-refund"
+        }
+      }
+    },
+    {
+      "name": "process-full-order",
+      "preActions": ["transferMoneyFromBuyerToSeller"],
+      "postActions": ["transportFullDatasetToBuyer"]
+    },
+    {
+      "name": "process-refund",
+      "preActions": ["transferMoneyFromSellerToBuyer"]
+    }
+  ]
+}

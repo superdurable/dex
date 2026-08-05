@@ -26,8 +26,11 @@ dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
 temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19233}"
 temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19333}"
+postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
 dex_address="127.0.0.1:${dex_port}"
 temporal_address="127.0.0.1:${temporal_port}"
+postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
+compose_project="dataset-deal-e2e-$$"
 log_file="/tmp/test-go-examples-e2e-services.log"
 test_dir=$(mktemp -d)
 dexcli_pid=""
@@ -37,9 +40,18 @@ cleanup() {
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
+  DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+    -p "$compose_project" \
+    -f dataset-deal/docker-compose.yml \
+    down --volumes >/dev/null 2>&1 || true
   rm -r "$test_dir"
 }
 trap cleanup EXIT
+
+DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+  -p "$compose_project" \
+  -f dataset-deal/docker-compose.yml \
+  up -d --wait
 
 make -C ../../cli build
 : >"$log_file"
@@ -73,9 +85,11 @@ if ! $temporal_ready; then
 fi
 
 temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
+./dataset-deal/register-search-attributes.sh "$temporal_address"
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \
+DATASET_DEAL_POSTGRES_URL="$postgres_url" \
 GOWORK=off \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \

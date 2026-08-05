@@ -25,46 +25,63 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	exampleserver "github.com/superdurable/dex/examples/go/cmd/server/dex"
 	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 var (
-	integClient *dex.Client
-	flowCounter atomic.Int64
+	integClient       *dex.Client
+	datasetDealAPIURL string
+	datasetDealDB     *pgxpool.Pool
+	flowCounter       atomic.Int64
 )
 
 type integrationEnvironment struct {
 	cache        *blobcache.Cache
 	cacheDir     string
 	client       *dex.Client
+	database     *pgxpool.Pool
+	apiServer    *httptest.Server
 	worker       *dex.Worker
 	workerResult chan error
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
-	registry, err := dex.NewRegistry(workflows.Flows())
+	database, dealRepository, err := newIntegrationDatasetDealRepository()
 	if err != nil {
+		return nil, err
+	}
+	dealFlow := datasetdeal.NewDealFlow(dealRepository, nil)
+	registry, err := dex.NewRegistry(workflows.Flows(dealFlow))
+	if err != nil {
+		database.Close()
 		return nil, err
 	}
 	cacheDir, err := os.MkdirTemp("", "dex-go-examples-integ-")
 	if err != nil {
+		database.Close()
 		return nil, err
 	}
 	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 64 << 20})
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, os.RemoveAll(cacheDir))
 	}
 	workerPort, err := availablePort()
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
 	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
@@ -75,6 +92,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		},
 	})
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
 	workerResult := make(chan error, 1)
@@ -88,12 +106,16 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		database.Close()
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close(), os.RemoveAll(cacheDir))
 	}
+	apiServer := httptest.NewServer(exampleserver.NewRouter(client, dealFlow, dealRepository))
 	environment := &integrationEnvironment{
 		cache:        cache,
 		cacheDir:     cacheDir,
 		client:       client,
+		database:     database,
+		apiServer:    apiServer,
 		worker:       worker,
 		workerResult: workerResult,
 	}
@@ -101,6 +123,29 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		return nil, errors.Join(err, environment.Close())
 	}
 	return environment, nil
+}
+
+func newIntegrationDatasetDealRepository() (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
+	postgresURL := os.Getenv("DATASET_DEAL_POSTGRES_URL")
+	if postgresURL == "" {
+		return nil, nil, fmt.Errorf("DATASET_DEAL_POSTGRES_URL is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	database, err := pgxpool.New(ctx, postgresURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
+	}
+	if err := database.Ping(ctx); err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
+	}
+	repository := datasetdeal.NewPostgresRepository(database)
+	if err := repository.EnsureSchema(ctx); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
+	return database, repository, nil
 }
 
 func (environment *integrationEnvironment) waitUntilReady() error {
@@ -121,12 +166,14 @@ func (environment *integrationEnvironment) waitUntilReady() error {
 }
 
 func (environment *integrationEnvironment) Close() error {
+	environment.apiServer.Close()
 	clientErr := environment.client.Close()
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	stopErr := environment.worker.Stop(stopCtx)
 	workerErr := <-environment.workerResult
 	cacheErr := environment.cache.Close()
+	environment.database.Close()
 	removeErr := os.RemoveAll(environment.cacheDir)
 	return errors.Join(clientErr, stopErr, workerErr, cacheErr, removeErr)
 }
@@ -138,6 +185,8 @@ func TestMain(tests *testing.M) {
 		os.Exit(1)
 	}
 	integClient = environment.client
+	datasetDealAPIURL = environment.apiServer.URL
+	datasetDealDB = environment.database
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

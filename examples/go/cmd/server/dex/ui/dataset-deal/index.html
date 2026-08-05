@@ -1,0 +1,144 @@
+<!--
+Copyright (c) 2022-2026 Super Durable, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dataset Deal DSL</title>
+    <link rel="stylesheet" href="/dataset-deal/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SUPER DURABLE · LIVE EXAMPLE</p>
+        <h1>Dataset Deal <span>DSL</span></h1>
+        <p class="hero-copy">Design a seller-controlled deal machine, then walk three buyers through durable executions.</p>
+      </div>
+      <div class="role-switcher" aria-label="Act as">
+        <span>Act as</span>
+        <button class="role active" data-role="seller">Seller</button>
+        <button class="role" data-role="buyer1">Buyer 1</button>
+        <button class="role" data-role="buyer2">Buyer 2</button>
+        <button class="role" data-role="buyer3">Buyer 3</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="seller-workspace" class="workspace">
+        <div class="section-heading">
+          <div>
+            <p class="section-number">01 / SELLER STUDIO</p>
+            <h2>Compose the deal machine</h2>
+          </div>
+          <button id="create-process" class="primary">Create process</button>
+        </div>
+
+        <div class="process-meta panel">
+          <label>
+            Process ID
+            <input id="process-id" autocomplete="off" />
+          </label>
+          <label>
+            Initial state
+            <select id="initial-state"></select>
+          </label>
+          <div>
+            <div class="field-label">Initial stateData</div>
+            <div id="initial-data" class="kv-list"></div>
+            <button id="add-initial-data" class="ghost small">+ key/value</button>
+          </div>
+        </div>
+
+        <div class="builder-toolbar">
+          <h3>States</h3>
+          <button id="add-state" class="ghost">+ Add state</button>
+        </div>
+        <div id="states" class="state-grid"></div>
+      </section>
+
+      <section id="buyer-workspace" class="workspace hidden">
+        <div class="section-heading">
+          <div>
+            <p class="section-number">02 / BUYER CONSOLE</p>
+            <h2 id="buyer-title">Run a deal as Buyer 1</h2>
+          </div>
+        </div>
+        <div class="buyer-grid">
+          <div class="panel action-panel">
+            <h3>Start execution</h3>
+            <label>
+              Process ID
+              <input id="start-process-id" value="comprehensive-dataset-deal" />
+            </label>
+            <button id="start-execution" class="primary">Start deal execution</button>
+          </div>
+          <div class="panel action-panel">
+            <h3>Send condition data</h3>
+            <label>
+              Execution
+              <select id="message-flow-id"></select>
+            </label>
+            <label>
+              Channel instance
+              <select id="message-condition"></select>
+            </label>
+            <div class="field-label">stateData updates</div>
+            <div id="message-data" class="kv-list"></div>
+            <button id="add-message-data" class="ghost small">+ key/value</button>
+            <button id="send-message" class="primary">Send channel message</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace executions-workspace">
+        <div class="section-heading">
+          <div>
+            <p class="section-number">03 / DURABLE EXECUTIONS</p>
+            <h2 id="execution-title">All buyer executions</h2>
+          </div>
+          <button id="refresh-executions" class="ghost">Refresh</button>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Buyer</th>
+                <th>Process</th>
+                <th>Current state</th>
+                <th>Pending condition</th>
+                <th>Status</th>
+                <th>State data</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="executions"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <datalist id="state-data-keys"></datalist>
+    <script type="module" src="/dataset-deal/app.js"></script>
+  </body>
+</html>

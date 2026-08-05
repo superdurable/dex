@@ -40,12 +40,13 @@ var (
 	Subscription  = subscription.NewSubscriptionFlow(applicationService)
 )
 
-func Flows() []dex.Flow {
-	return []dex.Flow{
+func Flows(additional ...dex.Flow) []dex.Flow {
+	flows := []dex.Flow{
 		Engagement,
 		Microservices,
 		MoneyTransfer,
 		Polling,
 		Subscription,
 	}
+	return append(flows, additional...)
 }
