@@ -130,7 +130,6 @@ export function Timeline({
     <div className="timeline-wrap">
       <div className="view-toolbar">
         <div>
-          <p className="eyebrow">Dex semantic history</p>
           <h2>{events.length} events</h2>
         </div>
       </div>
