@@ -7,15 +7,16 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { describe, expect, it } from 'vitest';
-import { buildStepGraph } from './graph';
+import { buildStepGraph, END_NODE_ID } from './graph';
 import type { FlowHistoryEvent } from './types';
 
 function event(
   eventId: number,
   type: FlowHistoryEvent['type'],
   execution: Record<string, unknown> = {},
+  payload: Record<string, unknown> = {},
 ): FlowHistoryEvent {
-  return { eventId, eventTime: null, type, payload: { execution } };
+  return { eventId, eventTime: null, type, payload: { ...payload, execution } };
 }
 
 describe('step graph', () => {
@@ -77,5 +78,34 @@ describe('step graph', () => {
       source: '__rpc/approve',
       target: 'Approval-1',
     });
+  });
+
+  it('connects only the step with a close decision to the terminal node', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepWaitForCompleted', {
+        stepExecutionId: 'trial-1',
+        fromStepExecutionId: 'initialize-1',
+        stepType: 'trial',
+      }),
+      event(2, 'StepWaitForCompleted', {
+        stepExecutionId: 'cancel-1',
+        fromStepExecutionId: 'initialize-1',
+        stepType: 'cancel',
+      }),
+      event(3, 'StepExecuteCompleted', {
+        stepExecutionId: 'cancel-1',
+        fromStepExecutionId: 'initialize-1',
+        stepType: 'cancel',
+      }, {
+        response: { stepDecision: { closeDecision: { closeDecisionType: 3 } } },
+      }),
+      event(4, 'FlowClosed'),
+    ]);
+
+    expect(graph.edges.filter((edge) => edge.target === END_NODE_ID)).toEqual([{
+      id: 'cancel-1->__end__',
+      source: 'cancel-1',
+      target: '__end__',
+    }]);
   });
 });

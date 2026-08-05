@@ -28,7 +28,7 @@ interface StepNodeData extends Record<string, unknown> {
   model: StepGraphNode;
 }
 
-type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Completed' | 'Failed' | 'Pending' | 'Not used';
+type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Completed' | 'Failed' | 'Not started';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const response = node.waitFor?.payload.response;
@@ -54,6 +54,11 @@ function channelNames(condition: Record<string, unknown>): string[] {
   });
 }
 
+function skipsWaitFor(node: StepGraphNode): boolean {
+  const options = node.active?.movement?.stepOptions;
+  return Boolean(options && typeof options === 'object' && (options as Record<string, unknown>).skipWaitFor === true);
+}
+
 function ConditionIcon({ type }: { type: 'timer' | 'channel' }) {
   if (type === 'timer') {
     return (
@@ -77,16 +82,15 @@ function waitForStatus(node: StepGraphNode): MethodStatus {
   if (node.waitFor?.type === 'StepWaitForFailed') return 'Failed';
   if (node.active?.phase === 'Waiting') return 'Waiting';
   if (node.waitFor) return 'Started';
-  if (node.transient) return 'Not used';
   if (node.active) return 'Running';
-  return 'Pending';
+  return 'Not started';
 }
 
 function executeStatus(node: StepGraphNode): MethodStatus {
   if (node.execute?.type === 'StepExecuteFailed') return 'Failed';
   if (node.execute) return 'Completed';
   if (node.active?.phase === 'Active' && node.waitFor) return 'Running';
-  return 'Pending';
+  return 'Not started';
 }
 
 function MethodSection({
@@ -131,6 +135,9 @@ function StepNodeLabel({
   const channelCount = conditionCount(condition, 'channelConditions');
   const channels = [...new Set(channelNames(condition))];
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
+  const showWaitFor = Boolean(
+    node.waitFor || (!node.transient && !skipsWaitFor(node) && node.active && !node.execute),
+  );
   return (
     <div className="graph-step-label">
       <div className="graph-step-heading">
@@ -139,29 +146,31 @@ function StepNodeLabel({
         <code>{node.id}</code>
       </div>
       <div className="graph-methods">
-        <MethodSection
-          name="WaitFor"
-          status={waitForStatus(node)}
-          event={node.waitFor}
-          onSelect={onSelect}
-        >
-          {(timerCount > 0 || channelCount > 0) && (
-            <small className="graph-conditions">
-              {timerCount > 0 && (
-                <i title={`${timerCount} timer condition${timerCount === 1 ? '' : 's'}`}>
-                  <ConditionIcon type="timer" />
-                  {timerCount} timer{timerCount === 1 ? '' : 's'}
-                </i>
-              )}
-              {channelCount > 0 && (
-                <i title={channelSummary}>
-                  <ConditionIcon type="channel" />
-                  <span>{channelSummary}</span>
-                </i>
-              )}
-            </small>
-          )}
-        </MethodSection>
+        {showWaitFor && (
+          <MethodSection
+            name="WaitFor"
+            status={waitForStatus(node)}
+            event={node.waitFor}
+            onSelect={onSelect}
+          >
+            {(timerCount > 0 || channelCount > 0) && (
+              <small className="graph-conditions">
+                {timerCount > 0 && (
+                  <i title={`${timerCount} timer condition${timerCount === 1 ? '' : 's'}`}>
+                    <ConditionIcon type="timer" />
+                    {timerCount} timer{timerCount === 1 ? '' : 's'}
+                  </i>
+                )}
+                {channelCount > 0 && (
+                  <i title={channelSummary}>
+                    <ConditionIcon type="channel" />
+                    <span>{channelSummary}</span>
+                  </i>
+                )}
+              </small>
+            )}
+          </MethodSection>
+        )}
         <MethodSection
           name="Execute"
           status={executeStatus(node)}

@@ -44,6 +44,7 @@ export function buildStepGraph(
   activeSteps: ActiveStepExecution[] = [],
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
+  const closingStepExecutionIDs = new Set<string>();
   nodes.set(START_NODE_ID, {
     id: START_NODE_ID,
     label: 'Flow start',
@@ -61,6 +62,9 @@ export function buildStepGraph(
     const failed = event.type.endsWith('Failed');
     const waitFor = event.type.startsWith('StepWaitFor') ? event : existing?.waitFor;
     const execute = event.type.startsWith('StepExecute') ? event : existing?.execute;
+    if (event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
+      closingStepExecutionIDs.add(id);
+    }
     nodes.set(id, {
       id,
       label: stringField(info.stepType) || id,
@@ -122,13 +126,23 @@ export function buildStepGraph(
   }
 
   if (closed) {
-    const stepIdsWithChildren = new Set(edges.map((edge) => edge.source));
-    for (const node of nodes.values()) {
-      if (node.kind === 'step' && !stepIdsWithChildren.has(node.id)) {
-        edges.push({ id: `${node.id}->${END_NODE_ID}`, source: node.id, target: END_NODE_ID });
-      }
+    for (const stepExecutionID of closingStepExecutionIDs) {
+      edges.push({
+        id: `${stepExecutionID}->${END_NODE_ID}`,
+        source: stepExecutionID,
+        target: END_NODE_ID,
+      });
     }
   }
 
   return { nodes: [...nodes.values()], edges };
+}
+
+function hasCloseDecision(event: FlowHistoryEvent): boolean {
+  const response = event.payload.response;
+  if (!response || typeof response !== 'object') return false;
+  const stepDecision = (response as Record<string, unknown>).stepDecision;
+  if (!stepDecision || typeof stepDecision !== 'object') return false;
+  const closeDecision = (stepDecision as Record<string, unknown>).closeDecision;
+  return Boolean(closeDecision && typeof closeDecision === 'object');
 }

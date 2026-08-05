@@ -95,10 +95,10 @@ function displayScalar(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+function DetailSection({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <section className="semantic-section">
-      <h4>{title}</h4>
+      {title && <h4>{title}</h4>}
       {children}
     </section>
   );
@@ -474,11 +474,11 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
   );
 }
 
-function InitialStartDetails({ payload }: { payload: Data }) {
+function InitialStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
   const start = asData(payload.initialStart);
   return (
     <>
-      <DetailSection title="Initial start">
+      <DetailSection title={showHeading ? 'Initial start' : undefined}>
         <Fields values={[['Start step', start.startStepType]]} />
         <ValueBlock label="Step input" value={start.stepInput} />
         <StepOptionsView value={start.stepOptions} />
@@ -491,13 +491,13 @@ function InitialStartDetails({ payload }: { payload: Data }) {
   );
 }
 
-function ContinuedStartDetails({ payload }: { payload: Data }) {
+function ContinuedStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
   const continued = asData(payload.continuedStart);
   const resumes = asDataArray(continued.stepsToResume);
   const pendingChannels = asData(continued.pendingChannelMessages);
   return (
     <>
-      <DetailSection title="Continued run">
+      <DetailSection title={showHeading ? 'Continued run' : undefined}>
         <Fields values={[['Previous run ID', continued.previousRunId]]} />
       </DetailSection>
       {Array.isArray(continued.stepsToStart) && continued.stepsToStart.length > 0 && (
@@ -581,14 +581,20 @@ function RPCDetails({ payload }: { payload: Data }) {
   );
 }
 
-function SemanticEventDetails({ event }: { event: FlowHistoryEvent }) {
+export function SemanticEventDetails({
+  event,
+  showStartHeading = true,
+}: {
+  event: FlowHistoryEvent;
+  showStartHeading?: boolean;
+}) {
   if (event.type.startsWith('StepWaitFor') || event.type.startsWith('StepExecute')) {
     return <StepMethodDetails event={event} />;
   }
   if (event.type === 'FlowStartedOrContinued') {
     return hasData(asData(event.payload.continuedStart))
-      ? <ContinuedStartDetails payload={event.payload} />
-      : <InitialStartDetails payload={event.payload} />;
+      ? <ContinuedStartDetails payload={event.payload} showHeading={showStartHeading} />
+      : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
   if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} />;

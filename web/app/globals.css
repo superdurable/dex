@@ -117,8 +117,8 @@ a {
 
 .brand-logo {
   position: absolute;
-  top: -4px;
-  left: -6px;
+  top: -7px;
+  left: -12px;
   width: 72px;
   height: 72px;
   max-width: none;
@@ -1597,6 +1597,10 @@ pre {
 .graph-methods {
   display: grid;
   grid-template-columns: 1fr 1fr;
+}
+
+.graph-methods > .graph-method:only-child {
+  grid-column: 1 / -1;
 }
 
 .graph-method {
