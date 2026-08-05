@@ -1082,6 +1082,21 @@ pre {
   grid-template-columns: 1fr;
 }
 
+.run-sidebar .semantic-fields-compact {
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+}
+
+.semantic-fields-compact > div {
+  display: grid;
+  align-items: baseline;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px;
+}
+
+.semantic-fields-compact dt {
+  margin-bottom: 0;
+}
+
 .json-view {
   margin-top: 8px;
   overflow: hidden;

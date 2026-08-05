@@ -115,11 +115,11 @@ function DetailSection({ title, children }: { title?: string; children: React.Re
   );
 }
 
-function Fields({ values }: { values: Field[] }) {
+function Fields({ values, compact = false }: { values: Field[]; compact?: boolean }) {
   const visible = values.filter(([, value]) => isPresent(value));
   if (visible.length === 0) return null;
   return (
-    <dl className="semantic-fields">
+    <dl className={`semantic-fields${compact ? ' semantic-fields-compact' : ''}`}>
       {visible.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
@@ -468,7 +468,7 @@ function StepMethodOptionsView({ value }: { value: unknown }) {
   return (
     <div className="semantic-subsection">
       <h5>Step options</h5>
-      <Fields values={[
+      <Fields compact values={[
         ['Timeout', seconds(options.timeoutSeconds)],
         ['Retry initial interval', seconds(policy.initialIntervalSeconds)],
         ['Retry backoff coefficient', policy.backoffCoefficient],
@@ -531,7 +531,7 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
         )}
       </DetailSection>
       <DetailSection title="Context">
-        <Fields values={[
+        <Fields compact values={[
           ['Execution ID', execution.stepExecutionId ?? context.stepExecutionId],
           ['Scheduled from', execution.fromStepExecutionId ?? context.fromStepExecutionId],
           ['Durability', durabilityLabel(execution.durability)],
