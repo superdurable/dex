@@ -81,7 +81,7 @@ func (*SubscriptionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 func (*SubscriptionFlow) Describe(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.RPCResult[Subscription], error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -106,9 +106,9 @@ func (initializeStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(trialStep{}, struct{}{}),
-		dex.MovementOf(cancelStep{}, struct{}{}),
-		dex.MovementOf(updateChargeAmountStep{}, struct{}{}),
+		dex.MovementOf(trialStep{}, dex.NoInput{}),
+		dex.MovementOf(cancelStep{}, dex.NoInput{}),
+		dex.MovementOf(updateChargeAmountStep{}, dex.NoInput{}),
 	), nil
 }
 
@@ -123,7 +123,7 @@ func (trialStep) GetStepType() string {
 
 func (step trialStep) WaitFor(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.Wait, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -136,12 +136,12 @@ func (step trialStep) WaitFor(
 
 func (trialStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(chargeCurrentBillStep{}, struct{}{}), nil
+	return dex.GoTo(chargeCurrentBillStep{}, dex.NoInput{}), nil
 }
 
 const subscriptionOverKey = "subscription-over"
@@ -157,7 +157,7 @@ func (chargeCurrentBillStep) GetStepType() string {
 
 func (chargeCurrentBillStep) WaitFor(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.Wait, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -184,7 +184,7 @@ func (chargeCurrentBillStep) WaitFor(
 
 func (step chargeCurrentBillStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -205,7 +205,7 @@ func (step chargeCurrentBillStep) Execute(
 		customer.ID,
 		customer.Subscription.BillingPeriodCharge,
 	)
-	return dex.GoTo(chargeCurrentBillStep{}, struct{}{}), nil
+	return dex.GoTo(chargeCurrentBillStep{}, dex.NoInput{}), nil
 }
 
 type cancelStep struct {
@@ -219,14 +219,14 @@ func (cancelStep) GetStepType() string {
 
 func (cancelStep) WaitFor(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.Wait, error) {
 	return dex.AllOf(CancelSubscription.ForOne()), nil
 }
 
 func (step cancelStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	customer, _, err := CustomerDetails.Get(ctx)
 	if err != nil {
@@ -246,14 +246,14 @@ func (updateChargeAmountStep) GetStepType() string {
 
 func (updateChargeAmountStep) WaitFor(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.Wait, error) {
 	return dex.AllOf(UpdateChargeAmount.ForOne()), nil
 }
 
 func (updateChargeAmountStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	amounts, err := UpdateChargeAmount.GetConditionResults(ctx)
 	if err != nil {
@@ -270,10 +270,10 @@ func (updateChargeAmountStep) Execute(
 	if err := CustomerDetails.Set(ctx, customer); err != nil {
 		return dex.StepDecision{}, err
 	}
-	return dex.GoTo(updateChargeAmountStep{}, struct{}{}), nil
+	return dex.GoTo(updateChargeAmountStep{}, dex.NoInput{}), nil
 }
 
 var (
-	_ dex.Flow                        = (*SubscriptionFlow)(nil)
-	_ dex.RPC[struct{}, Subscription] = (*SubscriptionFlow)(nil).Describe
+	_ dex.Flow                           = (*SubscriptionFlow)(nil)
+	_ dex.RPC[dex.NoInput, Subscription] = (*SubscriptionFlow)(nil).Describe
 )

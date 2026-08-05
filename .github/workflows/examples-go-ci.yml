@@ -16,7 +16,7 @@ on:
 
 jobs:
   unit:
-    name: Published SDK build
+    name: SDK build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,7 +27,7 @@ jobs:
         with:
           go-version-file: examples/go/go.mod
           cache-dependency-path: examples/go/go.sum
-      - name: Verify sdk-go v0.1.0
+      - name: Verify SDK base version
         env:
           GOWORK: "off"
         run: test "$(go list -m -f '{{.Version}}' github.com/superdurable/dex/sdk-go)" = "v0.1.0"

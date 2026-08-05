@@ -15,6 +15,10 @@ import (
 	"reflect"
 )
 
+// NoInput identifies a handler without input.
+// It rejects arbitrary payloads unlike any, while naming the intent hidden by struct{}.
+type NoInput struct{}
+
 // Step is one node in a Flow's durable state machine. IN is the typed input
 // passed into WaitFor and Execute for this step.
 //

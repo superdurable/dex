@@ -82,7 +82,7 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 func (*EngagementFlow) Describe(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.RPCResult[EngagementDescription], error) {
 	description, err := describe(ctx)
 	return dex.RPCResult[EngagementDescription]{Output: description}, err
@@ -211,8 +211,8 @@ func (initializeStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(processTimeoutStep{}, struct{}{}),
-		dex.MovementOf(reminderStep{}, struct{}{}),
+		dex.MovementOf(processTimeoutStep{}, dex.NoInput{}),
+		dex.MovementOf(reminderStep{}, dex.NoInput{}),
 		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),
 	), nil
 }
@@ -228,7 +228,7 @@ func (processTimeoutStep) GetStepType() string {
 
 func (processTimeoutStep) WaitFor(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(60*24*time.Hour),
@@ -238,7 +238,7 @@ func (processTimeoutStep) WaitFor(
 
 func (step processTimeoutStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	description, err := describe(ctx)
 	if err != nil {
@@ -268,7 +268,7 @@ func (reminderStep) GetStepType() string {
 
 func (reminderStep) WaitFor(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(5*time.Second),
@@ -278,7 +278,7 @@ func (reminderStep) WaitFor(
 
 func (step reminderStep) Execute(
 	ctx dex.Context,
-	_ struct{},
+	_ dex.NoInput,
 ) (dex.StepDecision, error) {
 	status, _, err := EngagementStatus.Get(ctx)
 	if err != nil {
@@ -302,7 +302,7 @@ func (step reminderStep) Execute(
 		return dex.StepDecision{}, err
 	}
 	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
-	return dex.GoTo(reminderStep{}, struct{}{}), nil
+	return dex.GoTo(reminderStep{}, dex.NoInput{}), nil
 }
 
 type notifyExternalSystemStep struct {
@@ -336,8 +336,8 @@ func (step notifyExternalSystemStep) Execute(
 }
 
 var (
-	_ dex.Flow                                 = (*EngagementFlow)(nil)
-	_ dex.RPC[struct{}, EngagementDescription] = (*EngagementFlow)(nil).Describe
-	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Decline
-	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Accept
+	_ dex.Flow                                    = (*EngagementFlow)(nil)
+	_ dex.RPC[dex.NoInput, EngagementDescription] = (*EngagementFlow)(nil).Describe
+	_ dex.RPC[string, Status]                     = (*EngagementFlow)(nil).Decline
+	_ dex.RPC[string, Status]                     = (*EngagementFlow)(nil).Accept
 )

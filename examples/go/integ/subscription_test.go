@@ -67,7 +67,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		ctx,
 		flowID,
 		workflows.Subscription.Describe,
-		struct{}{},
+		dex.NoInput{},
 		&current,
 		dex.InvokeOptions{},
 	))
@@ -83,7 +83,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 			ctx,
 			flowID,
 			workflows.Subscription.Describe,
-			struct{}{},
+			dex.NoInput{},
 			&current,
 			dex.InvokeOptions{},
 		)

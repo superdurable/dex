@@ -225,7 +225,7 @@ func (server *sampleServer) describeSubscription(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		workflows.Subscription.Describe,
-		struct{}{},
+		sdk.NoInput{},
 		&output,
 		sdk.InvokeOptions{},
 	)
@@ -252,7 +252,7 @@ func (server *sampleServer) describeEngagement(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		workflows.Engagement.Describe,
-		struct{}{},
+		sdk.NoInput{},
 		&output,
 		sdk.InvokeOptions{},
 	)

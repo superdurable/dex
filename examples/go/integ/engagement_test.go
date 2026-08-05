@@ -60,7 +60,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		ctx,
 		flowID,
 		workflows.Engagement.Describe,
-		struct{}{},
+		dex.NoInput{},
 		&description,
 		dex.InvokeOptions{},
 	))

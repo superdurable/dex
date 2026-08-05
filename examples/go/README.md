@@ -1,6 +1,8 @@
 # Dex Go examples
 
-These examples use the published `github.com/superdurable/dex/sdk-go v0.1.0` module. They do not import generated protobufs or replace the SDK with a local checkout.
+These examples target `github.com/superdurable/dex/sdk-go v0.1.0` plus the
+pending `dex.NoInput` API. Their module temporarily replaces the SDK with this
+repository's `sdk-go` directory until the next release.
 
 The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP controller on `127.0.0.1:8080`. One Registry and disk BlobCache are shared by its Worker and Client.
 

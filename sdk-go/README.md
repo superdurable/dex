@@ -90,6 +90,9 @@ Flows use `dex.DefineStartStep` for at most one starting step and
 Execute-only steps embed `dex.StepDefaults[IN]`. Step transitions use
 `dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.
 
+Use `dex.NoInput` for Steps and RPCs without input. Unlike `any`, it rejects
+accidental payloads; unlike `struct{}`, it makes the handler contract explicit.
+
 Flow RPCs are methods matching `dex.RPC[IN, OUT]`. Attributes and channels stay
 strongly typed inside handlers. Step-execution locals and recorded events accept
 arbitrary values through `dex.Context`.

@@ -42,6 +42,24 @@ type stepInput struct {
 	OrderID string
 }
 
+type noInputStep struct {
+	dex.StepDefaults[dex.NoInput]
+}
+
+func (noInputStep) GetStepType() string {
+	return "no-input"
+}
+
+func (noInputStep) Execute(
+	dex.Context,
+	dex.NoInput,
+) (dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
+}
+
+var noInput = noInputStep{}
+var _ dex.Step[dex.NoInput] = noInput
+
 type waitingStep struct {
 	dex.DefaultStepOptions
 }
@@ -144,11 +162,21 @@ func (contractFlow) Update(
 	}, nil
 }
 
+func (contractFlow) Describe(
+	dex.Context,
+	dex.NoInput,
+) (dex.RPCResult[command], error) {
+	return dex.RPCResult[command]{Output: command{Name: "described"}}, nil
+}
+
 var flow = contractFlow{}
 var _ dex.Flow = flow
 var _ dex.RPC[stepInput, command] = flow.Update
+var _ dex.RPC[dex.NoInput, command] = flow.Describe
 
 func TestPublicContractsCompile(t *testing.T) {
+	_ = dex.MovementOf(noInput, dex.NoInput{})
+
 	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {
 		t.Fatal(err)

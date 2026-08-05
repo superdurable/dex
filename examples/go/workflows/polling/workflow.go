@@ -79,7 +79,7 @@ func (initializeStep) Execute(
 ) (dex.StepDecision, error) {
 	return dex.GoToMulti(
 		dex.MovementOf(pollStep{}, maximumPolls),
-		dex.MovementOf(waitForTasksStep{}, struct{}{}),
+		dex.MovementOf(waitForTasksStep{}, dex.NoInput{}),
 	), nil
 }
 
@@ -93,7 +93,7 @@ func (waitForTasksStep) GetStepType() string {
 
 func (waitForTasksStep) WaitFor(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.Wait, error) {
 	return dex.AllOf(
 		TaskACompleted.ForOne(),
@@ -104,7 +104,7 @@ func (waitForTasksStep) WaitFor(
 
 func (waitForTasksStep) Execute(
 	dex.Context,
-	struct{},
+	dex.NoInput,
 ) (dex.StepDecision, error) {
 	return dex.GracefulComplete("all tasks completed"), nil
 }
