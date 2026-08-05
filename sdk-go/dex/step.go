@@ -15,6 +15,11 @@ import (
 	"reflect"
 )
 
+type none struct{}
+
+// None is the nil-only SDK payload, rejecting arbitrary values unlike any and clarifying struct{} intent.
+type None = *none
+
 // Step is one node in a Flow's durable state machine. IN is the typed input
 // passed into WaitFor and Execute for this step.
 //

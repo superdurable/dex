@@ -1,6 +1,9 @@
-### How to run
-* start a Dex server following the [instructions](https://github.com/superdurable/dex#how-to-use)
-* build and run this project `make bins && ./dex-samples start`
-* start a workflow: `http://localhost:8803/moneytransfer/start?fromAccount=test1&toAccount=test2&amount=100&notes=hello`
-* watch in WebUI `http://localhost:8233/namespaces/default/workflows`
-* modify the workflow code to try injecting some errors, and shorten the retry, to see what will happen
+# Money transfer saga
+
+The Flow checks the source balance, creates debit and credit memos, and moves funds. Each external operation has an Execute retry policy and proceeds to the compensation Step after exhausting retries.
+
+With the sample server running:
+
+```text
+http://localhost:8080/moneytransfer/start?fromAccount=test1&toAccount=test2&amount=100&notes=hello
+```

@@ -21,90 +21,103 @@
 package dex
 
 import (
-	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/engagement"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"net/http"
-	"strings"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-func descEngagement(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := engagement.EngagementWorkflow{}
-		var rpcOutput engagement.EngagementDescription
-		err := client.InvokeRPC(context.Background(), wfId, "", wf.Describe, nil, &rpcOutput)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, rpcOutput)
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+type engagementController struct {
+	client *sdk.Client
 }
 
-func optOutReminder(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := engagement.EngagementWorkflow{}
-		err := client.SignalWorkflow(context.Background(), wf, wfId, "", engagement.SignalChannelOptOutReminder, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+func newEngagementController(client *sdk.Client) *engagementController {
+	return &engagementController{client: client}
 }
 
-func declineEngagement(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := engagement.EngagementWorkflow{}
-		err := client.InvokeRPC(context.Background(), wfId, "", wf.Decline, nil, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+func (controller *engagementController) registerRoutes(router *gin.Engine) {
+	router.GET("/engagement/start", controller.start)
+	router.GET("/engagement/describe", controller.describe)
+	router.GET("/engagement/optout", controller.optOutReminder)
+	router.GET("/engagement/decline", controller.decline)
+	router.GET("/engagement/accept", controller.accept)
+	router.GET("/engagement/list", controller.list)
 }
 
-func acceptEngagement(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := engagement.EngagementWorkflow{}
-		err := client.InvokeRPC(context.Background(), wfId, "", wf.Accept, nil, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
-		return
+func (controller *engagementController) start(request *gin.Context) {
+	flowID := newFlowID("engagement")
+	input := engagement.EngagementInput{
+		EmployerID:  "test-employer-id",
+		JobSeekerID: "test-job-seeker-id",
+		Notes:       "test-notes",
 	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+	startFlow(request, controller.client, workflows.Engagement, flowID, input)
 }
 
-func listEngagements(c *gin.Context) {
-	query := c.Query("query")
-	if query != "" {
-		if strings.HasPrefix(query, "'") {
-			query = strings.Trim(query, "'")
-		}
-		resp, err := client.SearchWorkflow(context.Background(), dexpb.WorkflowSearchRequest{
-			Query: query,
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, resp)
-		}
+func (controller *engagementController) describe(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
 		return
 	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+	var output engagement.EngagementDescription
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		workflows.Engagement.Describe,
+		nil,
+		&output,
+		sdk.InvokeOptions{},
+	)
+	respond(request, output, err)
+}
+
+func (controller *engagementController) optOutReminder(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		engagement.OptOutReminder,
+		nil,
+	)
+	respond(request, struct{}{}, err)
+}
+
+func (controller *engagementController) decline(request *gin.Context) {
+	controller.update(request, workflows.Engagement.Decline)
+}
+
+func (controller *engagementController) accept(request *gin.Context) {
+	controller.update(request, workflows.Engagement.Accept)
+}
+
+func (controller *engagementController) update(
+	request *gin.Context,
+	rpc sdk.RPC[string, engagement.Status],
+) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output engagement.Status
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		rpc,
+		request.Query("notes"),
+		&output,
+		sdk.InvokeOptions{},
+	)
+	respond(request, output, err)
+}
+
+func (controller *engagementController) list(request *gin.Context) {
+	query, found := requiredQuery(request, "query")
+	if !found {
+		return
+	}
+	page, err := controller.client.SearchFlows(request.Request.Context(), query, 100, "")
+	respond(request, page, err)
 }

@@ -21,61 +21,19 @@
 package subscription
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/superdurable/dex/examples/go/workflows/service"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"time"
 )
 
-type SubscriptionWorkflow struct {
-	dex.DefaultWorkflowType
-
-	svc service.MyService
-}
-
-func NewSubscriptionWorkflow(svc service.MyService) dex.ObjectWorkflow {
-	return &SubscriptionWorkflow{
-		svc: svc,
-	}
-}
-
-const (
-	keyBillingPeriodNum = "billingPeriodNum"
-	keyCustomer         = "customer"
-
-	SignalCancelSubscription              = "cancelSubscription"
-	SignalUpdateBillingPeriodChargeAmount = "updateBillingPeriodChargeAmount"
+var (
+	BillingPeriodNumber = dex.DefineAttribute[int]("billing-period-number")
+	CustomerDetails     = dex.DefineAttribute[Customer]("customer")
+	CancelSubscription  = dex.DefineChannel[dex.None]("cancel-subscription")
+	UpdateChargeAmount  = dex.DefineChannel[int]("update-charge-amount")
 )
-
-func (b SubscriptionWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(NewInitState()),
-		dex.NonStartingStateDef(NewTrialState(b.svc)),
-		dex.NonStartingStateDef(NewChargeCurrentBillState(b.svc)),
-		dex.NonStartingStateDef(NewCancelState(b.svc)),
-		dex.NonStartingStateDef(NewUpdateChargeAmountState()),
-	}
-}
-
-func (b SubscriptionWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.DataAttributeDef(keyBillingPeriodNum),
-		dex.DataAttributeDef(keyCustomer),
-	}
-}
-
-func (b SubscriptionWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalCancelSubscription),
-		dex.SignalChannelDef(SignalUpdateBillingPeriodChargeAmount),
-		dex.RPCMethodDef(b.Describe, nil),
-	}
-}
-
-func (b SubscriptionWorkflow) Describe(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
-	return customer.Subscription, nil
-}
 
 type Subscription struct {
 	TrialPeriod         time.Duration
@@ -87,155 +45,292 @@ type Subscription struct {
 type Customer struct {
 	FirstName    string
 	LastName     string
-	Id           string
+	ID           string
 	Email        string
 	Subscription Subscription
 }
 
-func NewInitState() dex.WorkflowState {
-	return initState{}
+type SubscriptionFlow struct {
+	service service.MyService
 }
 
-type initState struct {
-	dex.WorkflowStateDefaults
+func NewSubscriptionFlow(applicationService service.MyService) *SubscriptionFlow {
+	return &SubscriptionFlow{service: applicationService}
 }
 
-func (b initState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	var customer Customer
-	input.Get(&customer)
-	persistence.SetDataAttribute(keyCustomer, customer)
-	return dex.EmptyCommandRequest(), nil
+func (*SubscriptionFlow) GetFlowType() string {
+	return "subscription"
 }
 
-func (b initState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	return dex.MultiNextStates(trialState{}, cancelState{}, updateChargeAmountState{}), nil
-}
-
-func NewTrialState(svc service.MyService) dex.WorkflowState {
-	return trialState{
-		svc: svc,
+func (flow *SubscriptionFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(initializeStep{}),
+		dex.DefineStep(trialStep{service: flow.service}),
+		dex.DefineStep(chargeCurrentBillStep{service: flow.service}),
+		dex.DefineStep(cancelStep{service: flow.service}),
+		dex.DefineStep(updateChargeAmountStep{}),
 	}
 }
 
-type trialState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
-}
-
-func (b trialState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
-
-	// send welcome email
-	b.svc.SendEmail(customer.Email, "welcome email", "hello content")
-
-	return dex.AllCommandsCompletedRequest(
-		dex.NewTimerCommandByDuration("", customer.Subscription.TrialPeriod),
-	), nil
-}
-
-func (b trialState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	persistence.SetDataAttribute(keyBillingPeriodNum, 0)
-	return dex.SingleNextState(chargeCurrentBillState{}, nil), nil
-}
-
-func NewChargeCurrentBillState(svc service.MyService) dex.WorkflowState {
-	return chargeCurrentBillState{
-		svc: svc,
+func (*SubscriptionFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{BillingPeriodNumber, CustomerDetails},
+		Channels:   []dex.ChannelDef{CancelSubscription, UpdateChargeAmount},
 	}
 }
 
-type chargeCurrentBillState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
-}
-
-const subscriptionOverKey = "subscriptionOver"
-
-func (b chargeCurrentBillState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
-
-	var periodNum int
-	persistence.GetDataAttribute(keyBillingPeriodNum, &periodNum)
-
-	if periodNum >= customer.Subscription.MaxBillingPeriods {
-		persistence.SetStateExecutionLocal(subscriptionOverKey, true)
-		return dex.EmptyCommandRequest(), nil
+func (*SubscriptionFlow) Describe(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.RPCResult[Subscription], error) {
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[Subscription]{}, err
 	}
-
-	persistence.SetDataAttribute(keyBillingPeriodNum, periodNum+1)
-
-	return dex.AllCommandsCompletedRequest(
-		dex.NewTimerCommandByDuration("", customer.Subscription.BillingPeriod),
-	), nil
+	return dex.RPCResult[Subscription]{Output: customer.Subscription}, nil
 }
 
-func (b chargeCurrentBillState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
+type initializeStep struct {
+	dex.StepDefaults[Customer]
+}
 
-	var subscriptionOver bool
-	persistence.GetStateExecutionLocal(subscriptionOverKey, &subscriptionOver)
+func (initializeStep) GetStepType() string {
+	return "initialize"
+}
+
+func (initializeStep) Execute(
+	ctx dex.Context,
+	customer Customer,
+) (dex.StepDecision, error) {
+	if err := CustomerDetails.Set(ctx, customer); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return initializeSubscription(), nil
+}
+
+type trialStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
+}
+
+func (trialStep) GetStepType() string {
+	return "trial"
+}
+
+func (step trialStep) WaitFor(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.Wait, error) {
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.Wait{}, err
+	}
+	return waitForTrial(customer, step.service), nil
+}
+
+func (trialStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return executeTrial(), nil
+}
+
+const subscriptionOverKey = "subscription-over"
+
+type chargeCurrentBillStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
+}
+
+func (chargeCurrentBillStep) GetStepType() string {
+	return "charge-current-bill"
+}
+
+func (chargeCurrentBillStep) WaitFor(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.Wait, error) {
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.Wait{}, err
+	}
+	periodNumber, found, err := BillingPeriodNumber.Get(ctx)
+	if err != nil {
+		return dex.Wait{}, err
+	}
+	if !found {
+		periodNumber = 0
+	}
+	wait, subscriptionOver := waitForCharge(customer, periodNumber)
 	if subscriptionOver {
-		b.svc.SendEmail(customer.Email, "subscription over", "hello content")
+		if err := ctx.SetStepExecutionLocal(subscriptionOverKey, true); err != nil {
+			return dex.Wait{}, err
+		}
+		return wait, nil
+	}
+	if err := BillingPeriodNumber.Set(ctx, periodNumber+1); err != nil {
+		return dex.Wait{}, err
+	}
+	return wait, nil
+}
+
+func (step chargeCurrentBillStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	var subscriptionOver bool
+	found, err := ctx.GetStepExecutionLocal(subscriptionOverKey, &subscriptionOver)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	return executeCharge(customer, found && subscriptionOver, step.service), nil
+}
+
+type cancelStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
+}
+
+func (cancelStep) GetStepType() string {
+	return "cancel"
+}
+
+func (cancelStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (dex.Wait, error) {
+	return dex.AllOf(CancelSubscription.ForOne()), nil
+}
+
+func (step cancelStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	return executeCancel(customer, step.service), nil
+}
+
+type updateChargeAmountStep struct {
+	dex.DefaultStepOptions
+}
+
+func (updateChargeAmountStep) GetStepType() string {
+	return "update-charge-amount"
+}
+
+func (updateChargeAmountStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (dex.Wait, error) {
+	return dex.AllOf(UpdateChargeAmount.ForOne()), nil
+}
+
+func (updateChargeAmountStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	amounts, err := UpdateChargeAmount.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	customer, _, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	updatedCustomer, decision, err := executeUpdateChargeAmount(customer, amounts)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := CustomerDetails.Set(ctx, updatedCustomer); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return decision, nil
+}
+
+func initializeSubscription() dex.StepDecision {
+	return dex.GoToMulti(
+		dex.MovementOf(trialStep{}, nil),
+		dex.MovementOf(cancelStep{}, nil),
+		dex.MovementOf(updateChargeAmountStep{}, nil),
+	)
+}
+
+func waitForTrial(
+	customer Customer,
+	applicationService subscriptionService,
+) dex.Wait {
+	// send welcome email
+	applicationService.SendEmail(customer.Email, "welcome email", "hello content")
+	return dex.AllOf(dex.Timer(customer.Subscription.TrialPeriod))
+}
+
+func executeTrial() dex.StepDecision {
+	return dex.GoTo(chargeCurrentBillStep{}, nil)
+}
+
+func waitForCharge(customer Customer, periodNumber int) (dex.Wait, bool) {
+	if periodNumber >= customer.Subscription.MaxBillingPeriods {
+		return dex.SkipWaitImmediately(), true
+	}
+	return dex.AllOf(dex.Timer(customer.Subscription.BillingPeriod)), false
+}
+
+func executeCharge(
+	customer Customer,
+	subscriptionOver bool,
+	applicationService subscriptionService,
+) dex.StepDecision {
+	if subscriptionOver {
+		applicationService.SendEmail(customer.Email, "subscription over", "hello content")
 		// use force completing because the cancel state is still waiting for signal
-		return dex.ForceCompletingWorkflow, nil
+		return dex.ForceComplete("subscription ended")
 	}
-
-	b.svc.ChargeUser(customer.Email, customer.Id, customer.Subscription.BillingPeriodCharge)
-
-	return dex.SingleNextState(chargeCurrentBillState{}, nil), nil
+	applicationService.ChargeUser(
+		customer.Email,
+		customer.ID,
+		customer.Subscription.BillingPeriodCharge,
+	)
+	return dex.GoTo(chargeCurrentBillStep{}, nil)
 }
 
-func NewCancelState(svc service.MyService) dex.WorkflowState {
-	return cancelState{
-		svc: svc,
+func executeCancel(
+	customer Customer,
+	applicationService subscriptionService,
+) dex.StepDecision {
+	applicationService.SendEmail(customer.Email, "subscription canceled", "hello content")
+	return dex.ForceComplete("subscription canceled")
+}
+
+func executeUpdateChargeAmount(
+	customer Customer,
+	amounts []int,
+) (Customer, dex.StepDecision, error) {
+	if len(amounts) != 1 {
+		return Customer{}, dex.StepDecision{}, fmt.Errorf(
+			"expected one charge amount, got %d",
+			len(amounts),
+		)
 	}
+	customer.Subscription.BillingPeriodCharge = amounts[0]
+	return customer, dex.GoTo(updateChargeAmountStep{}, nil), nil
 }
 
-type cancelState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
+type subscriptionService interface {
+	SendEmail(recipient, subject, content string)
+	ChargeUser(email, customerID string, amount int)
 }
 
-func (b cancelState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	return dex.AllCommandsCompletedRequest(
-		dex.NewSignalCommand("", SignalCancelSubscription),
-	), nil
-}
-
-func (b cancelState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
-
-	b.svc.SendEmail(customer.Email, "subscription canceled", "hello content")
-	return dex.ForceCompletingWorkflow, nil
-}
-
-func NewUpdateChargeAmountState() dex.WorkflowState {
-	return updateChargeAmountState{}
-}
-
-type updateChargeAmountState struct {
-	dex.WorkflowStateDefaults
-}
-
-func (b updateChargeAmountState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	return dex.AllCommandsCompletedRequest(
-		dex.NewSignalCommand("", SignalUpdateBillingPeriodChargeAmount),
-	), nil
-}
-
-func (b updateChargeAmountState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var customer Customer
-	persistence.GetDataAttribute(keyCustomer, &customer)
-
-	var newAmount int
-	commandResults.GetSignalCommandResultByChannel(SignalUpdateBillingPeriodChargeAmount).SignalValue.Get(&newAmount)
-
-	customer.Subscription.BillingPeriodCharge = newAmount
-	persistence.SetDataAttribute(keyCustomer, customer)
-
-	return dex.SingleNextState(updateChargeAmountState{}, nil), nil
-}
+var (
+	_ dex.Flow                        = (*SubscriptionFlow)(nil)
+	_ dex.RPC[dex.None, Subscription] = (*SubscriptionFlow)(nil).Describe
+)

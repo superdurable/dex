@@ -11,6 +11,7 @@
 package dex
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -31,6 +32,7 @@ const (
 
 var (
 	byteSliceType = reflect.TypeFor[[]byte]()
+	noneType      = reflect.TypeFor[None]()
 	timeType      = reflect.TypeFor[time.Time]()
 )
 
@@ -50,6 +52,12 @@ func encodeValue(value any) (*dexpb.Value, error) {
 	}
 
 	reflected := reflect.ValueOf(value)
+	if reflected.Type() == noneType {
+		if reflected.IsNil() {
+			return encodeJSONObject(nil)
+		}
+		return nil, fmt.Errorf("dex: None payload must be nil")
+	}
 	if isNilValue(reflected) {
 		return encodeJSONObject(nil)
 	}
@@ -269,6 +277,10 @@ func decodeObject(
 	}
 	switch object.Encoding {
 	case jsonEncoding:
+		if target.Type() == noneType &&
+			!bytes.Equal(bytes.TrimSpace(object.Payload), []byte("null")) {
+			return fmt.Errorf("dex: None payload must be JSON null")
+		}
 		if err := json.Unmarshal(object.Payload, valuePtr); err != nil {
 			return fmt.Errorf("dex: decode JSON value: %w", err)
 		}

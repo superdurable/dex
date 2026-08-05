@@ -22,38 +22,84 @@ package integ
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
+	"github.com/superdurable/dex/examples/go/workflows/subscription"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestMoneyTransferStart(t *testing.T) {
+func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 	ctx := integrationContext(t)
-	flowID := newFlowID(t, "money-transfer")
-	input := moneytransfer.TransferRequest{
-		FromAccount: "from-ci",
-		ToAccount:   "to-ci",
-		Amount:      42,
-		Notes:       "examples/go integration",
+	flowID := newFlowID(t, "subscription")
+	customer := subscription.Customer{
+		FirstName: "Example",
+		LastName:  "Customer",
+		ID:        flowID,
+		Email:     "customer@example.com",
+		Subscription: subscription.Subscription{
+			TrialPeriod:         30 * time.Second,
+			BillingPeriod:       30 * time.Second,
+			MaxBillingPeriods:   2,
+			BillingPeriodCharge: 100,
+		},
 	}
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.MoneyTransfer,
+		workflows.Subscription,
 		flowID,
-		input,
+		customer,
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
+	require.NoError(t, integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		subscription.CustomerDetails,
+		customer,
+		dex.WaitOptions{Timeout: 20 * time.Second},
+	))
+
+	var current subscription.Subscription
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		workflows.Subscription.Describe,
+		nil,
+		&current,
+		dex.InvokeOptions{},
+	))
+	require.Equal(t, 100, current.BillingPeriodCharge)
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		subscription.UpdateChargeAmount,
+		250,
+	))
+	require.Eventually(t, func() bool {
+		err = integClient.InvokeRPC(
+			ctx,
+			flowID,
+			workflows.Subscription.Describe,
+			nil,
+			&current,
+			dex.InvokeOptions{},
+		)
+		return err == nil && current.BillingPeriodCharge == 250
+	}, 20*time.Second, 200*time.Millisecond, "Describe failed: %v", err)
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		subscription.CancelSubscription,
+		nil,
+	))
 
 	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status)
 	require.Len(t, result.Completions, 1)
 	var output string
 	require.NoError(t, result.Completions[0].Output.Decode(&output))
-	require.Contains(t, output, "transfer is done")
-	require.Contains(t, output, "from-ci")
-	require.Contains(t, output, "to-ci")
+	require.Equal(t, "subscription canceled", output)
 }

@@ -30,24 +30,22 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var registry = dex.NewRegistry()
+var (
+	applicationService = service.NewMyService()
 
-func init() {
+	Engagement    = engagement.NewEngagementFlow(applicationService)
+	Microservices = microservices.NewOrchestrationFlow(applicationService)
+	MoneyTransfer = moneytransfer.NewMoneyTransferFlow(applicationService)
+	Polling       = polling.NewPollingFlow(applicationService)
+	Subscription  = subscription.NewSubscriptionFlow(applicationService)
+)
 
-	svc := service.NewMyService()
-
-	err := registry.AddWorkflows(
-		subscription.NewSubscriptionWorkflow(svc),
-		engagement.NewEngagementWorkflow(svc),
-		microservices.NewMicroserviceOrchestrationWorkflow(svc),
-		moneytransfer.NewMoneyTransferWorkflow(svc),
-		polling.NewPollingWorkflow(svc),
-	)
-	if err != nil {
-		panic(err)
+func Flows() []dex.Flow {
+	return []dex.Flow{
+		Engagement,
+		Microservices,
+		MoneyTransfer,
+		Polling,
+		Subscription,
 	}
-}
-
-func GetRegistry() dex.Registry {
-	return registry
 }

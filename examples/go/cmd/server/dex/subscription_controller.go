@@ -21,57 +21,94 @@
 package dex
 
 import (
-	"context"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
-	"github.com/superdurable/dex/sdk-go/dex"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/subscription"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-func cancelSubscription(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		err := client.SignalWorkflow(c.Request.Context(), &subscription.SubscriptionWorkflow{}, wfId, "", subscription.SignalCancelSubscription, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+type subscriptionController struct {
+	client *sdk.Client
 }
 
-func descSubscription(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := subscription.SubscriptionWorkflow{}
-		var rpcOutput subscription.Subscription
-		err := client.InvokeRPC(context.Background(), wfId, "", wf.Describe, nil, &rpcOutput)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, rpcOutput)
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+func newSubscriptionController(client *sdk.Client) *subscriptionController {
+	return &subscriptionController{client: client}
 }
 
-func updateSubscriptionChargeAmount(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	newChargeAmountStr := c.Query("newChargeAmount")
-	newAmount, err := strconv.Atoi(newChargeAmountStr)
+func (controller *subscriptionController) registerRoutes(router *gin.Engine) {
+	router.GET("/subscription/start", controller.start)
+	router.GET("/subscription/cancel", controller.cancel)
+	router.GET("/subscription/updateChargeAmount", controller.updateChargeAmount)
+	router.GET("/subscription/describe", controller.describe)
+}
 
-	if wfId != "" && err == nil {
-		err := client.SignalWorkflow(c.Request.Context(), &subscription.SubscriptionWorkflow{}, wfId, "", subscription.SignalUpdateBillingPeriodChargeAmount, newAmount)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, dex.GetOpenApiErrorBody(err))
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
+func (controller *subscriptionController) start(request *gin.Context) {
+	flowID := newFlowID("subscription")
+	customer := subscription.Customer{
+		FirstName: "Quanzheng",
+		LastName:  "Long",
+		ID:        "qlong",
+		Email:     "qlong@example.com",
+		Subscription: subscription.Subscription{
+			TrialPeriod:         20 * time.Second,
+			BillingPeriod:       10 * time.Second,
+			MaxBillingPeriods:   10,
+			BillingPeriodCharge: 100,
+		},
+	}
+	startFlow(request, controller.client, workflows.Subscription, flowID, customer)
+}
+
+func (controller *subscriptionController) cancel(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
 		return
 	}
-	c.JSON(http.StatusBadRequest, "must provide correct workflowId and newChargeAmount via URL parameter")
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		subscription.CancelSubscription,
+		nil,
+	)
+	respond(request, struct{}{}, err)
+}
+
+func (controller *subscriptionController) updateChargeAmount(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	amount, err := strconv.Atoi(request.Query("newChargeAmount"))
+	if err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "newChargeAmount must be an integer"})
+		return
+	}
+	err = controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		subscription.UpdateChargeAmount,
+		amount,
+	)
+	respond(request, struct{}{}, err)
+}
+
+func (controller *subscriptionController) describe(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output subscription.Subscription
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		workflows.Subscription.Describe,
+		nil,
+		&output,
+		sdk.InvokeOptions{},
+	)
+	respond(request, output, err)
 }

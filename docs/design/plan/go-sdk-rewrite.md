@@ -1550,7 +1550,7 @@ Phase 1 owns these conceptual files under `sdk-go/dex/`:
 
 ```text
 flow.go             Flow and persistence declaration
-step.go             Step, StepDef, NoWaitFor, StepDefaults
+step.go             Step, StepDef, None, NoWaitFor, StepDefaults
 context.go          Context, invocation metadata, locals, and events
 attribute.go        Attribute, AttributeMap, indexing, invocation operations
 channel.go          Channel, ChannelMap, publish, size, bounded conditions
@@ -1598,6 +1598,9 @@ type Step[IN any] interface {
 	Execute(ctx Context, input IN) (StepDecision, error)
 }
 
+type none struct{}
+type None = *none
+
 type StepDef interface {
 	// unexported
 }
@@ -1624,6 +1627,11 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
 ```
+
+`None` is a pointer alias for a Step, RPC, or Channel with no application
+payload. Applications pass `nil`; the unexported pointed-to type prevents
+constructing a non-nil payload and preserves compile-time rejection unlike
+`any`.
 
 An Execute-only step embeds `StepDefaults[IN]`, or embeds `NoWaitFor[IN]` and
 implements `GetStepOptions` itself. `NoWaitFor` supplies the interface method
@@ -2740,25 +2748,27 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    channels, and RPCs without importing `dexpb`.
 2. Waiting and Execute-only handlers satisfy the same `Step[IN]`; the latter
    embeds `NoWaitFor[IN]`.
-3. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
+3. `None` preserves typed Step, RPC, and Channel declarations without accepting
+   arbitrary payloads.
+4. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
    preserve target step input types.
-4. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
+5. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
    `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.
-5. Static and map attributes expose typed Get/Set/Delete methods that take
+6. Static and map attributes expose typed Get/Set/Delete methods that take
    `Context`, while physical keys remain internal behind sealed lock values.
-6. Static and map channels expose Publish, all five count forms, and the
+7. Static and map channels expose Publish, all five count forms, and the
    `myCh.Size(ctx)` / `myChMap.Size(ctx, key)` RPC shape.
-7. A Wait combines timers and channel conditions through All, Any, and
+8. A Wait combines timers and channel conditions through All, Any, and
    AnyCombo.
-8. Static and map channel result methods return `[]T` without exposing raw
+9. Static and map channel result methods return `[]T` without exposing raw
    condition-result types.
-9. The `Context.HasTimerFired` and `HasTimerFiredByIndex` signatures compile.
-10. Execute can return `GoTo`, `GoToMulti`, all close decisions, and conditional
+10. The `Context.HasTimerFired` and `HasTimerFiredByIndex` signatures compile.
+11. Execute can return `GoTo`, `GoToMulti`, all close decisions, and conditional
     force-complete fallback using channel definitions directly.
-11. Step-execution local Set accepts `any`, Get accepts a caller-provided
+12. Step-execution local Set accepts `any`, Get accepts a caller-provided
     pointer, and `RecordEvent(name, any)` compiles.
-12. `Context.WaitForMethodFailed` compiles for Execute implementations.
-13. Non-generic client methods use server identifiers directly and return only
+13. `Context.WaitForMethodFailed` compiles for Execute implementations.
+14. Non-generic client methods use server identifiers directly and return only
     run ID from starts.
 
 Package-internal tests cover native and JSON values, indexed attributes,

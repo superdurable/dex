@@ -21,125 +21,132 @@
 package polling
 
 import (
+	"time"
+
 	"github.com/superdurable/dex/examples/go/workflows/service"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"time"
 )
 
-func NewPollingWorkflow(svc service.MyService) dex.ObjectWorkflow {
-
-	return &PollingWorkflow{
-		svc: svc,
-	}
-}
-
-const (
-	dataAttrCurrPolls = "currPolls" // tracks how many polls have been done
-
-	SignalChannelTaskACompleted = "taskACompleted"
-	SignalChannelTaskBCompleted = "taskBCompleted"
-
-	InternalChannelTaskCCompleted = "taskCCompleted"
+var (
+	CurrentPolls   = dex.DefineAttribute[int]("current-polls")
+	TaskACompleted = dex.DefineChannel[dex.None]("task-a-completed")
+	TaskBCompleted = dex.DefineChannel[dex.None]("task-b-completed")
+	TaskCCompleted = dex.DefineChannel[dex.None]("task-c-completed")
 )
 
-type PollingWorkflow struct {
-	dex.WorkflowDefaults
-
-	svc service.MyService
+type PollingFlow struct {
+	service service.MyService
 }
 
-func (e PollingWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(&initState{}),
-		dex.NonStartingStateDef(&pollState{svc: e.svc}),
-		dex.NonStartingStateDef(&checkAndCompleteState{svc: e.svc}),
+func NewPollingFlow(applicationService service.MyService) *PollingFlow {
+	return &PollingFlow{service: applicationService}
+}
+
+func (*PollingFlow) GetFlowType() string {
+	return "polling"
+}
+
+func (flow *PollingFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(initializeStep{}),
+		dex.DefineStep(pollStep{service: flow.service}),
+		dex.DefineStep(waitForTasksStep{}),
 	}
 }
 
-func (e PollingWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.DataAttributeDef(dataAttrCurrPolls),
+func (*PollingFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{CurrentPolls},
+		Channels: []dex.ChannelDef{
+			TaskACompleted,
+			TaskBCompleted,
+			TaskCCompleted,
+		},
 	}
 }
 
-func (e PollingWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalChannelTaskACompleted),
-		dex.SignalChannelDef(SignalChannelTaskBCompleted),
-		dex.InternalChannelDef(InternalChannelTaskCCompleted),
-	}
+type initializeStep struct {
+	dex.StepDefaults[int]
 }
 
-type initState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
+func (initializeStep) GetStepType() string {
+	return "initialize"
 }
 
-func (i initState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var maxPollsRequired int
-	input.Get(&maxPollsRequired)
-
-	return dex.MultiNextStatesWithInput(
-		dex.NewStateMovement(pollState{}, maxPollsRequired),
-		dex.NewStateMovement(checkAndCompleteState{}, nil),
+func (initializeStep) Execute(
+	_ dex.Context,
+	maximumPolls int,
+) (dex.StepDecision, error) {
+	return dex.GoToMulti(
+		dex.MovementOf(pollStep{}, maximumPolls),
+		dex.MovementOf(waitForTasksStep{}, nil),
 	), nil
 }
 
-type checkAndCompleteState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
+type waitForTasksStep struct {
+	dex.DefaultStepOptions
 }
 
-func (i checkAndCompleteState) WaitUntil(
-	ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication,
-) (*dex.CommandRequest, error) {
-	return dex.AllCommandsCompletedRequest(
-		dex.NewSignalCommand("", SignalChannelTaskACompleted),
-		dex.NewSignalCommand("", SignalChannelTaskBCompleted),
-		dex.NewInternalChannelCommand("", InternalChannelTaskCCompleted),
+func (waitForTasksStep) GetStepType() string {
+	return "wait-for-tasks"
+}
+
+func (waitForTasksStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (dex.Wait, error) {
+	return dex.AllOf(
+		TaskACompleted.ForOne(),
+		TaskBCompleted.ForOne(),
+		TaskCCompleted.ForOne(),
 	), nil
 }
 
-func (i checkAndCompleteState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	return dex.GracefulCompletingWorkflow, nil
+func (waitForTasksStep) Execute(
+	dex.Context,
+	dex.None,
+) (dex.StepDecision, error) {
+	return dex.GracefulComplete("all tasks completed"), nil
 }
 
-type pollState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
+type pollStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
 }
 
-func (i pollState) WaitUntil(
-	ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication,
-) (*dex.CommandRequest, error) {
-
-	return dex.AnyCommandCompletedRequest(
-		dex.NewTimerCommand("", time.Now().Add(time.Second*2)),
-	), nil
+func (pollStep) GetStepType() string {
+	return "poll-task-c"
 }
 
-func (i pollState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var maxPollsRequired int
-	input.Get(&maxPollsRequired)
+func (pollStep) WaitFor(
+	dex.Context,
+	int,
+) (dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(time.Second)), nil
+}
 
-	i.svc.CallAPI1("calling API1 for polling service C")
-
-	var currPolls int
-	persistence.GetDataAttribute(dataAttrCurrPolls, &currPolls)
-	if currPolls >= maxPollsRequired {
-		communication.PublishInternalChannel(InternalChannelTaskCCompleted, nil)
-		return dex.DeadEnd, nil
+func (step pollStep) Execute(
+	ctx dex.Context,
+	maximumPolls int,
+) (dex.StepDecision, error) {
+	step.service.CallAPI1("calling API1 for polling service C")
+	currentPolls, found, err := CurrentPolls.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
 	}
-
-	persistence.SetDataAttribute(dataAttrCurrPolls, currPolls+1)
-	// loop back to check
-	return dex.SingleNextState(pollState{}, maxPollsRequired), nil
+	if !found {
+		currentPolls = 0
+	}
+	if currentPolls >= maximumPolls {
+		if err := TaskCCompleted.Publish(ctx, nil); err != nil {
+			return dex.StepDecision{}, err
+		}
+		return dex.DeadEnd(), nil
+	}
+	if err := CurrentPolls.Set(ctx, currentPolls+1); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoTo(pollStep{}, maximumPolls), nil
 }
+
+var _ dex.Flow = (*PollingFlow)(nil)

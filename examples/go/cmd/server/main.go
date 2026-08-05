@@ -21,12 +21,18 @@
 package main
 
 import (
+	"context"
+	"log"
+	"os/signal"
+	"syscall"
+
 	"github.com/superdurable/dex/examples/go/cmd/server/dex"
-	"os"
 )
 
-// main entry point for the dex server
 func main() {
-	app := dex.BuildCLI()
-	app.Run(os.Args)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := dex.Run(ctx); err != nil {
+		log.Fatal(err)
+	}
 }

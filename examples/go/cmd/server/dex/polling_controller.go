@@ -21,43 +21,61 @@
 package dex
 
 import (
-	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/dex/examples/go/workflows/polling"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/polling"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-func startPollingWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	pollingCompletionThreshold := c.Query("pollingCompletionThreshold")
-
-	pollingCompletionThresholdInt, err := strconv.Atoi(pollingCompletionThreshold)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, "must provide correct pollingCompletionThreshold via URL parameter")
-		return
-	}
-
-	_, err = client.StartWorkflow(c.Request.Context(), polling.PollingWorkflow{}, wfId, 0, pollingCompletionThresholdInt, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v is started", wfId))
-	return
+type pollingController struct {
+	client *sdk.Client
 }
 
-func signalPollingWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	channel := c.Query("channel")
+func newPollingController(client *sdk.Client) *pollingController {
+	return &pollingController{client: client}
+}
 
-	err := client.SignalWorkflow(c.Request.Context(), polling.PollingWorkflow{}, wfId, "", channel, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err.Error())
+func (controller *pollingController) registerRoutes(router *gin.Engine) {
+	router.GET("/polling/start", controller.start)
+	router.GET("/polling/complete", controller.completeTask)
+}
+
+func (controller *pollingController) start(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
 		return
 	}
+	maximumPolls, err := strconv.Atoi(request.Query("pollingCompletionThreshold"))
+	if err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "pollingCompletionThreshold must be an integer"})
+		return
+	}
+	startFlow(request, controller.client, workflows.Polling, flowID, maximumPolls)
+}
 
-	c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v is signal", wfId))
-	return
+func (controller *pollingController) completeTask(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var channel sdk.ChannelDef
+	switch request.Query("channel") {
+	case polling.TaskACompleted.ChannelName():
+		channel = polling.TaskACompleted
+	case polling.TaskBCompleted.ChannelName():
+		channel = polling.TaskBCompleted
+	default:
+		request.JSON(http.StatusBadRequest, gin.H{"error": "channel must identify task A or task B"})
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		channel,
+		nil,
+	)
+	respond(request, struct{}{}, err)
 }

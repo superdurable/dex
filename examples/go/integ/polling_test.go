@@ -25,35 +25,44 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
+	"github.com/superdurable/dex/examples/go/workflows/polling"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestMoneyTransferStart(t *testing.T) {
+func TestPollingStartAndChannels(t *testing.T) {
 	ctx := integrationContext(t)
-	flowID := newFlowID(t, "money-transfer")
-	input := moneytransfer.TransferRequest{
-		FromAccount: "from-ci",
-		ToAccount:   "to-ci",
-		Amount:      42,
-		Notes:       "examples/go integration",
-	}
+	flowID := newFlowID(t, "polling")
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.MoneyTransfer,
+		workflows.Polling,
 		flowID,
-		input,
+		1,
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		polling.TaskACompleted,
+		nil,
+	))
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		polling.TaskBCompleted,
+		nil,
+	))
 
 	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status)
 	require.Len(t, result.Completions, 1)
 	var output string
 	require.NoError(t, result.Completions[0].Output.Decode(&output))
-	require.Contains(t, output, "transfer is done")
-	require.Contains(t, output, "from-ci")
-	require.Contains(t, output, "to-ci")
+	require.Equal(t, "all tasks completed", output)
+	var pollCount int
+	found, err := integClient.GetAttribute(ctx, flowID, polling.CurrentPolls, &pollCount)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 1, pollCount)
 }

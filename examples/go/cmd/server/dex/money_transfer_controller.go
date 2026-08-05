@@ -21,40 +21,39 @@
 package dex
 
 import (
-	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
 	"net/http"
 	"strconv"
-	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-func startMoneyTransferWorkflow(c *gin.Context) {
-	fromAccount := c.Query("fromAccount")
-	toAccount := c.Query("toAccount")
-	amount := c.Query("amount")
-	notes := c.Query("notes")
+type moneyTransferController struct {
+	client *sdk.Client
+}
 
-	amountInt, err := strconv.Atoi(amount)
+func newMoneyTransferController(client *sdk.Client) *moneyTransferController {
+	return &moneyTransferController{client: client}
+}
+
+func (controller *moneyTransferController) registerRoutes(router *gin.Engine) {
+	router.GET("/moneytransfer/start", controller.start)
+}
+
+func (controller *moneyTransferController) start(request *gin.Context) {
+	amount, err := strconv.Atoi(request.Query("amount"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, "must provide correct amount via URL parameter")
+		request.JSON(http.StatusBadRequest, gin.H{"error": "amount must be an integer"})
 		return
 	}
-
-	req := moneytransfer.TransferRequest{
-		FromAccount: fromAccount,
-		ToAccount:   toAccount,
-		Notes:       notes,
-		Amount:      amountInt,
+	flowID := newFlowID("money-transfer")
+	input := moneytransfer.TransferRequest{
+		FromAccount: request.Query("fromAccount"),
+		ToAccount:   request.Query("toAccount"),
+		Amount:      amount,
+		Notes:       request.Query("notes"),
 	}
-	wfId := fmt.Sprintf("money_transfer-%d", time.Now().Unix())
-
-	_, err = client.StartWorkflow(c.Request.Context(), moneytransfer.MoneyTransferWorkflow{}, wfId, 3600, req, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v", wfId))
-	return
+	startFlow(request, controller.client, workflows.MoneyTransfer, flowID, input)
 }

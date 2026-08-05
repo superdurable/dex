@@ -26,18 +26,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/microservices"
+	"github.com/superdurable/dex/examples/go/workflows/engagement"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestMicroserviceStartRPCAndChannel(t *testing.T) {
+func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	ctx := integrationContext(t)
-	flowID := newFlowID(t, "microservice")
+	flowID := newFlowID(t, "engagement")
+	input := engagement.EngagementInput{
+		EmployerID:  "employer-ci",
+		JobSeekerID: "job-seeker-ci",
+		Notes:       "created",
+	}
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.Microservices,
+		workflows.Engagement,
 		flowID,
-		"initial-data",
+		input,
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
@@ -45,32 +50,71 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 	require.NoError(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
-		microservices.Data,
-		"initial-data",
+		engagement.EngagementStatus,
+		engagement.StatusInitiated,
 		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 
-	var oldData string
+	var description engagement.EngagementDescription
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Microservices.Swap,
-		"updated-data",
-		&oldData,
+		workflows.Engagement.Describe,
+		nil,
+		&description,
 		dex.InvokeOptions{},
 	))
-	require.Equal(t, "initial-data", oldData)
+	require.Equal(t, engagement.StatusInitiated, description.CurrentStatus)
 	require.NoError(t, integClient.PublishToChannel(
 		ctx,
 		flowID,
-		microservices.Ready,
+		engagement.OptOutReminder,
 		nil,
 	))
+
+	var status engagement.Status
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		workflows.Engagement.Decline,
+		"declined in integration test",
+		&status,
+		dex.InvokeOptions{},
+	))
+	require.Equal(t, engagement.StatusDeclined, status)
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		workflows.Engagement.Accept,
+		"accepted in integration test",
+		&status,
+		dex.InvokeOptions{},
+	))
+	require.Equal(t, engagement.StatusAccepted, status)
+
+	var searchPage dex.SearchFlowsPage
+	require.Eventually(t, func() bool {
+		searchPage, err = integClient.SearchFlows(
+			ctx,
+			engagement.StatusSearchKey+" = 'Accepted'",
+			100,
+			"",
+		)
+		if err != nil {
+			return false
+		}
+		for _, entry := range searchPage.Flows {
+			if entry.FlowID == flowID {
+				return true
+			}
+		}
+		return false
+	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", err)
 
 	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status)
 	require.Len(t, result.Completions, 1)
 	var output string
 	require.NoError(t, result.Completions[0].Output.Decode(&output))
-	require.Equal(t, "updated-data", output)
+	require.Equal(t, "done", output)
 }

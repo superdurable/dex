@@ -24,212 +24,165 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dextest"
-	"go.uber.org/mock/gomock"
 )
-
-// mockgen -source=workflows/subscription/my_service.go -destination=workflows/subscription/my_service_mock.go --package=subscription
 
 var testCustomer = Customer{
 	FirstName: "Quanzheng",
 	LastName:  "Long",
-	Id:        "123",
+	ID:        "123",
 	Email:     "qlong.seattle@gmail.com",
 	Subscription: Subscription{
 		BillingPeriod:       time.Second,
 		MaxBillingPeriods:   10,
-		TrialPeriod:         time.Second * 2,
+		TrialPeriod:         2 * time.Second,
 		BillingPeriodCharge: 100,
 	},
 }
 
-var testCustomerObj = dextest.NewTestObject(testCustomer)
+func TestInitializeSubscription(t *testing.T) {
+	decision := initializeSubscription()
 
-var mockWfCtx *dextest.MockWorkflowContext
-var mockPersistence *dextest.MockPersistence
-var mockCommunication *dextest.MockCommunication
-var emptyCmdResults = dex.CommandResults{}
-var emptyObj = dextest.NewTestObject(nil)
-var mockSvc *service.MockMyService
-
-func beforeEach(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	mockSvc = service.NewMockMyService(ctrl)
-	mockWfCtx = dextest.NewMockWorkflowContext(ctrl)
-	mockPersistence = dextest.NewMockPersistence(ctrl)
-	mockCommunication = dextest.NewMockCommunication(ctrl)
-}
-
-func TestInitState_WaitUntil(t *testing.T) {
-	beforeEach(t)
-
-	state := NewInitState()
-
-	mockPersistence.EXPECT().SetDataAttribute(keyCustomer, testCustomer)
-	cmdReq, err := state.WaitUntil(mockWfCtx, testCustomerObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.EmptyCommandRequest(), cmdReq)
-}
-
-func TestInitState_Execute(t *testing.T) {
-	beforeEach(t)
-
-	state := NewInitState()
-	input := dextest.NewTestObject(testCustomer)
-
-	decision, err := state.Execute(mockWfCtx, input, emptyCmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.MultiNextStates(
-		trialState{}, cancelState{}, updateChargeAmountState{},
+	require.Equal(t, dex.GoToMulti(
+		dex.MovementOf(trialStep{}, nil),
+		dex.MovementOf(cancelStep{}, nil),
+		dex.MovementOf(updateChargeAmountStep{}, nil),
 	), decision)
 }
 
-func TestTrialState_WaitUntil(t *testing.T) {
-	beforeEach(t)
+func TestWaitForTrial(t *testing.T) {
+	applicationService := &recordingService{}
 
-	state := NewTrialState(mockSvc)
+	wait := waitForTrial(testCustomer, applicationService)
 
-	mockSvc.EXPECT().SendEmail(testCustomer.Email, gomock.Any(), gomock.Any())
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.AllCommandsCompletedRequest(
-		dex.NewTimerCommandByDuration("", testCustomer.Subscription.TrialPeriod),
-	), cmdReq)
+	require.Equal(t, dex.AllOf(dex.Timer(testCustomer.Subscription.TrialPeriod)), wait)
+	require.Equal(t, []recordedEmail{{
+		recipient: testCustomer.Email,
+		subject:   "welcome email",
+		content:   "hello content",
+	}}, applicationService.emails)
 }
 
-func TestTrialState_Execute(t *testing.T) {
-	beforeEach(t)
+func TestExecuteTrial(t *testing.T) {
+	decision := executeTrial()
 
-	state := NewTrialState(mockSvc)
-
-	mockPersistence.EXPECT().SetDataAttribute(keyBillingPeriodNum, 0)
-
-	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.SingleNextState(
-		chargeCurrentBillState{}, nil,
-	), decision)
+	require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
 }
 
-func TestChargeCurrentBillStateStart_waitForDuration(t *testing.T) {
-	beforeEach(t)
+func TestWaitForCharge(t *testing.T) {
+	t.Run("active subscription", func(t *testing.T) {
+		wait, subscriptionOver := waitForCharge(testCustomer, 0)
 
-	state := NewChargeCurrentBillState(mockSvc)
+		require.False(t, subscriptionOver)
+		require.Equal(t, dex.AllOf(dex.Timer(testCustomer.Subscription.BillingPeriod)), wait)
+	})
 
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockPersistence.EXPECT().GetDataAttribute(keyBillingPeriodNum, gomock.Any()).SetArg(1, 0)
-	mockPersistence.EXPECT().SetDataAttribute(keyBillingPeriodNum, 1)
+	t.Run("completed subscription", func(t *testing.T) {
+		wait, subscriptionOver := waitForCharge(
+			testCustomer,
+			testCustomer.Subscription.MaxBillingPeriods,
+		)
 
-	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.AllCommandsCompletedRequest(
-		dex.NewTimerCommandByDuration("", testCustomer.Subscription.BillingPeriod),
-	), cmdReq)
+		require.True(t, subscriptionOver)
+		require.Equal(t, dex.SkipWaitImmediately(), wait)
+	})
 }
 
-func TestChargeCurrentBillStateStart_subscriptionOver(t *testing.T) {
-	beforeEach(t)
+func TestExecuteCharge(t *testing.T) {
+	t.Run("charge and continue", func(t *testing.T) {
+		applicationService := &recordingService{}
 
-	state := NewChargeCurrentBillState(mockSvc)
+		decision := executeCharge(testCustomer, false, applicationService)
 
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockPersistence.EXPECT().GetDataAttribute(keyBillingPeriodNum, gomock.Any()).SetArg(1, testCustomer.Subscription.MaxBillingPeriods)
-	mockPersistence.EXPECT().SetStateExecutionLocal(subscriptionOverKey, true)
+		require.Empty(t, applicationService.emails)
+		require.Equal(t, []recordedCharge{{
+			email:      testCustomer.Email,
+			customerID: testCustomer.ID,
+			amount:     testCustomer.Subscription.BillingPeriodCharge,
+		}}, applicationService.charges)
+		require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
+	})
 
-	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.EmptyCommandRequest(), cmdReq)
+	t.Run("complete subscription", func(t *testing.T) {
+		applicationService := &recordingService{}
+
+		decision := executeCharge(testCustomer, true, applicationService)
+
+		require.Empty(t, applicationService.charges)
+		require.Equal(t, []recordedEmail{{
+			recipient: testCustomer.Email,
+			subject:   "subscription over",
+			content:   "hello content",
+		}}, applicationService.emails)
+		require.Equal(t, dex.ForceComplete("subscription ended"), decision)
+	})
 }
 
-func TestChargeCurrentBillStateDecide_subscriptionNotOver(t *testing.T) {
-	beforeEach(t)
+func TestCancelSubscription(t *testing.T) {
+	applicationService := &recordingService{}
 
-	state := NewChargeCurrentBillState(mockSvc)
+	wait, err := (cancelStep{}).WaitFor(nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, dex.AllOf(CancelSubscription.ForOne()), wait)
 
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockPersistence.EXPECT().GetStateExecutionLocal(subscriptionOverKey, gomock.Any())
-	mockSvc.EXPECT().ChargeUser(testCustomer.Email, testCustomer.Id, testCustomer.Subscription.BillingPeriodCharge)
-
-	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.SingleNextState(&chargeCurrentBillState{}, nil), decision)
+	decision := executeCancel(testCustomer, applicationService)
+	require.Equal(t, []recordedEmail{{
+		recipient: testCustomer.Email,
+		subject:   "subscription canceled",
+		content:   "hello content",
+	}}, applicationService.emails)
+	require.Equal(t, dex.ForceComplete("subscription canceled"), decision)
 }
 
-func TestChargeCurrentBillStateDecide_subscriptionOver(t *testing.T) {
-	beforeEach(t)
+func TestUpdateChargeAmount(t *testing.T) {
+	wait, err := (updateChargeAmountStep{}).WaitFor(nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, dex.AllOf(UpdateChargeAmount.ForOne()), wait)
 
-	state := NewChargeCurrentBillState(mockSvc)
-
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockPersistence.EXPECT().GetStateExecutionLocal(subscriptionOverKey, gomock.Any()).SetArg(1, true)
-	mockSvc.EXPECT().SendEmail(testCustomer.Email, gomock.Any(), gomock.Any())
-
-	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.ForceCompletingWorkflow, decision)
+	updatedCustomer, decision, err := executeUpdateChargeAmount(testCustomer, []int{200})
+	require.NoError(t, err)
+	require.Equal(t, 200, updatedCustomer.Subscription.BillingPeriodCharge)
+	require.Equal(t, dex.GoTo(updateChargeAmountStep{}, nil), decision)
 }
 
-func TestUpdateChargeAmountState_WaitUntil(t *testing.T) {
-	beforeEach(t)
+func TestUpdateChargeAmountRejectsUnexpectedResults(t *testing.T) {
+	for _, amounts := range [][]int{nil, {100, 200}} {
+		_, _, err := executeUpdateChargeAmount(testCustomer, amounts)
 
-	state := NewUpdateChargeAmountState()
-
-	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.AllCommandsCompletedRequest(dex.NewSignalCommand("", SignalUpdateBillingPeriodChargeAmount)), cmdReq)
-}
-
-func TestUpdateChargeAmountState_Execute(t *testing.T) {
-	beforeEach(t)
-
-	state := NewUpdateChargeAmountState()
-
-	cmdResults := dex.CommandResults{
-		Signals: []dex.SignalCommandResult{
-			{
-				ChannelName: SignalUpdateBillingPeriodChargeAmount,
-				SignalValue: dextest.NewTestObject(200),
-				Status:      dexpb.RECEIVED,
-			},
-		},
+		require.Error(t, err)
 	}
-
-	updatedCustomer := testCustomer
-	updatedCustomer.Subscription.BillingPeriodCharge = 200
-
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockPersistence.EXPECT().SetDataAttribute(keyCustomer, updatedCustomer)
-
-	decision, err := state.Execute(mockWfCtx, emptyObj, cmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.SingleNextState(&updateChargeAmountState{}, nil), decision)
 }
 
-func TestCancelState_WaitUntil(t *testing.T) {
-	beforeEach(t)
-
-	state := NewCancelState(mockSvc)
-
-	cmdReq, err := state.WaitUntil(mockWfCtx, emptyObj, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.AllCommandsCompletedRequest(dex.NewSignalCommand("", SignalCancelSubscription)), cmdReq)
+type recordedEmail struct {
+	recipient string
+	subject   string
+	content   string
 }
 
-func TestCancelState_Execute(t *testing.T) {
-	beforeEach(t)
+type recordedCharge struct {
+	email      string
+	customerID string
+	amount     int
+}
 
-	state := NewCancelState(mockSvc)
+type recordingService struct {
+	emails  []recordedEmail
+	charges []recordedCharge
+}
 
-	mockPersistence.EXPECT().GetDataAttribute(keyCustomer, gomock.Any()).SetArg(1, testCustomer)
-	mockSvc.EXPECT().SendEmail(testCustomer.Email, gomock.Any(), gomock.Any())
+func (recorder *recordingService) SendEmail(recipient, subject, content string) {
+	recorder.emails = append(recorder.emails, recordedEmail{
+		recipient: recipient,
+		subject:   subject,
+		content:   content,
+	})
+}
 
-	decision, err := state.Execute(mockWfCtx, emptyObj, emptyCmdResults, mockPersistence, mockCommunication)
-	assert.Nil(t, err)
-	assert.Equal(t, dex.ForceCompletingWorkflow, decision)
+func (recorder *recordingService) ChargeUser(email, customerID string, amount int) {
+	recorder.charges = append(recorder.charges, recordedCharge{
+		email:      email,
+		customerID: customerID,
+		amount:     amount,
+	})
 }

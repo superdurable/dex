@@ -22,246 +22,322 @@ package engagement
 
 import (
 	"fmt"
-	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
+
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func NewEngagementWorkflow(svc service.MyService) dex.ObjectWorkflow {
+const StatusSearchKey = "CustomKeywordField"
 
-	return &EngagementWorkflow{
-		svc: svc,
-	}
-}
-
-type EngagementWorkflow struct {
-	dex.DefaultWorkflowType
-
-	svc service.MyService
-}
-
-func (e EngagementWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(NewInitState()),
-		dex.NonStartingStateDef(NewProcessTimoutState(e.svc)),
-		dex.NonStartingStateDef(NewReminderState(e.svc)),
-		dex.NonStartingStateDef(NewNotifyExternalSystemState(e.svc)),
-	}
-}
-
-func (e EngagementWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.SearchAttributeDef(keyEmployerId, dexpb.KEYWORD),
-		dex.SearchAttributeDef(keyJobSeekerId, dexpb.KEYWORD),
-		dex.SearchAttributeDef(keyStatus, dexpb.KEYWORD),
-		dex.SearchAttributeDef(keyLastUpdateTimestamp, dexpb.INT),
-
-		dex.DataAttributeDef(keyNotes),
-	}
-}
-
-func (e EngagementWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalChannelOptOutReminder),
-		dex.InternalChannelDef(InternalChannelCompleteProcess),
-
-		dex.RPCMethodDef(e.Describe, nil),
-		dex.RPCMethodDef(e.Decline, nil),
-		dex.RPCMethodDef(e.Accept, nil),
-	}
-}
-
-const (
-	keyEmployerId          = "EmployerId"
-	keyJobSeekerId         = "JobSeekerId"
-	keyStatus              = "EngagementStatus"
-	keyLastUpdateTimestamp = "LastUpdateTimeMillis"
-	keyNotes               = "notes"
-
-	SignalChannelOptOutReminder    = "OptOutReminder"
-	InternalChannelCompleteProcess = "CompleteProcess"
+var (
+	EmployerID       = dex.DefineAttribute[string]("EmployerId")
+	JobSeekerID      = dex.DefineAttribute[string]("JobSeekerId")
+	EngagementStatus = dex.DefineAttribute[Status](
+		"EngagementStatus",
+		dex.Indexed(dex.AttributeIndex{
+			Type:     dex.IndexKeyword,
+			IndexKey: StatusSearchKey,
+		}),
+	)
+	LastUpdateTimestamp = dex.DefineAttribute[int64]("LastUpdateTimeMillis")
+	Notes               = dex.DefineAttribute[string]("notes")
+	OptOutReminder      = dex.DefineChannel[dex.None]("OptOutReminder")
+	CompleteProcess     = dex.DefineChannel[dex.None]("CompleteProcess")
 )
 
-func (e EngagementWorkflow) Describe(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
+type EngagementFlow struct {
+	service service.MyService
+}
 
-	status := persistence.GetSearchAttributeKeyword(keyStatus)
-	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
-	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
-	var notes string
-	persistence.GetDataAttribute(keyNotes, &notes)
+func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
+	return &EngagementFlow{service: applicationService}
+}
 
-	return EngagementDescription{
-		EmployerId:    employerId,
-		JobSeekerId:   jobSeekerId,
-		Notes:         notes,
-		CurrentStatus: Status(status),
+func (flow *EngagementFlow) GetFlowType() string {
+	return "engagement"
+}
+
+func (flow *EngagementFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(initializeStep{}),
+		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(reminderStep{service: flow.service}),
+		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+	}
+}
+
+func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{
+			EmployerID,
+			JobSeekerID,
+			EngagementStatus,
+			LastUpdateTimestamp,
+			Notes,
+		},
+		Channels: []dex.ChannelDef{OptOutReminder, CompleteProcess},
+	}
+}
+
+func (*EngagementFlow) Describe(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.RPCResult[EngagementDescription], error) {
+	description, err := describe(ctx)
+	return dex.RPCResult[EngagementDescription]{Output: description}, err
+}
+
+func (*EngagementFlow) Decline(
+	ctx dex.Context,
+	note string,
+) (dex.RPCResult[Status], error) {
+	status, found, err := EngagementStatus.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[Status]{}, err
+	}
+	if !found || status != StatusInitiated {
+		return dex.RPCResult[Status]{}, fmt.Errorf(
+			"can only decline an initiated engagement; current status is %q",
+			status,
+		)
+	}
+	if err := updateStatus(ctx, StatusDeclined, note); err != nil {
+		return dex.RPCResult[Status]{}, err
+	}
+	return dex.RPCResult[Status]{
+		Output: StatusDeclined,
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(notifyExternalSystemStep{}, StatusDeclined),
+		},
 	}, nil
 }
 
-func (e EngagementWorkflow) Decline(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
-
-	status := Status(persistence.GetSearchAttributeKeyword(keyStatus))
-	if status != StatusInitiated {
-		return nil, fmt.Errorf("can only decline in INITIATED status, current is %v", status)
+func (*EngagementFlow) Accept(
+	ctx dex.Context,
+	note string,
+) (dex.RPCResult[Status], error) {
+	status, found, err := EngagementStatus.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[Status]{}, err
 	}
-
-	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusDeclined))
-	persistence.SetSearchAttributeInt(keyLastUpdateTimestamp, time.Now().Unix())
-	communication.TriggerStateMovements(dex.NewStateMovement(notifyExternalSystemState{}, string(StatusDeclined)))
-
-	var notes string
-	input.Get(&notes)
-
-	var currentNotes string
-	persistence.GetDataAttribute(keyNotes, &currentNotes)
-	persistence.SetDataAttribute(keyNotes, currentNotes+";"+notes)
-	return nil, nil
-}
-
-func (e EngagementWorkflow) Accept(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
-
-	status := Status(persistence.GetSearchAttributeKeyword(keyStatus))
-	if status != StatusInitiated && status != StatusDeclined {
-		return nil, fmt.Errorf("can only decline in INITIATED or DECLINED status, current is %v", status)
+	if !found || (status != StatusInitiated && status != StatusDeclined) {
+		return dex.RPCResult[Status]{}, fmt.Errorf(
+			"can only accept an initiated or declined engagement; current status is %q",
+			status,
+		)
 	}
-
-	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusAccepted))
-	persistence.SetSearchAttributeInt(keyLastUpdateTimestamp, time.Now().Unix())
-	communication.TriggerStateMovements(dex.NewStateMovement(notifyExternalSystemState{}, string(StatusAccepted)))
-
-	var notes string
-	input.Get(&notes)
-
-	var currentNotes string
-	persistence.GetDataAttribute(keyNotes, &currentNotes)
-	persistence.SetDataAttribute(keyNotes, currentNotes+";"+notes)
-	return nil, nil
-}
-
-func NewInitState() dex.WorkflowState {
-	return initState{}
-}
-
-type initState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-}
-
-func (i initState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var engInput EngagementInput
-	input.Get(&engInput)
-
-	persistence.SetSearchAttributeKeyword(keyEmployerId, engInput.EmployerId)
-	persistence.SetSearchAttributeKeyword(keyJobSeekerId, engInput.JobSeekerId)
-	persistence.SetSearchAttributeKeyword(keyStatus, string(StatusInitiated))
-
-	persistence.SetDataAttribute(keyNotes, engInput.Notes)
-	return dex.MultiNextStatesWithInput(
-		dex.NewStateMovement(processTimoutState{}, nil),
-		dex.NewStateMovement(reminderState{}, nil),
-		dex.NewStateMovement(notifyExternalSystemState{}, StatusInitiated),
-	), nil
-}
-
-func NewProcessTimoutState(svc service.MyService) dex.WorkflowState {
-	return processTimoutState{
-		svc: svc,
+	if err := updateStatus(ctx, StatusAccepted, note); err != nil {
+		return dex.RPCResult[Status]{}, err
 	}
-}
-
-type processTimoutState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
-}
-
-func (p processTimoutState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	return dex.AnyCommandCompletedRequest(
-		dex.NewTimerCommand("", time.Now().Add(time.Hour*24*60)), // ~ 2 months
-		dex.NewInternalChannelCommand("", InternalChannelCompleteProcess),
-	), nil
-}
-
-func (p processTimoutState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	status := persistence.GetSearchAttributeKeyword(keyStatus)
-	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
-	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
-	updateStatus := "timeout"
-	if status == string(StatusAccepted) {
-		updateStatus = "done"
+	if err := CompleteProcess.Publish(ctx, nil); err != nil {
+		return dex.RPCResult[Status]{}, err
 	}
-	p.svc.UpdateExternalSystem(fmt.Sprintf("notify engagement from employer %v, jobSeeker %v for status %v", employerId, jobSeekerId, status))
-	return dex.GracefulCompleteWorkflow(updateStatus), nil
-}
-
-func NewReminderState(svc service.MyService) dex.WorkflowState {
-	return reminderState{
-		svc: svc,
-	}
-}
-
-type reminderState struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
-}
-
-func (r reminderState) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	return dex.AnyCommandCompletedRequest(
-		dex.NewTimerCommand("", time.Now().Add(time.Second*5)), // use 5 seconds for demo, should be 24 hours in real world
-		dex.NewSignalCommand("", SignalChannelOptOutReminder),
-	), nil
-}
-
-func (r reminderState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	status := persistence.GetSearchAttributeKeyword(keyStatus)
-	if status != string(StatusInitiated) {
-		return dex.DeadEnd, nil
-	}
-	optoutSignalCommandResult := commandResults.Signals[0]
-	if optoutSignalCommandResult.Status == dexpb.RECEIVED {
-		var currentNotes string
-		persistence.GetDataAttribute(keyNotes, &currentNotes)
-		persistence.SetDataAttribute(keyNotes, currentNotes+";"+"User optout reminder")
-
-		return dex.DeadEnd, nil
-	}
-
-	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
-	r.svc.SendEmail(jobSeekerId, "Reminder:xxx please respond", "Hello xxx, ...")
-	return dex.SingleNextState(reminderState{}, nil), nil
-}
-
-func NewNotifyExternalSystemState(svc service.MyService) dex.WorkflowState {
-	return notifyExternalSystemState{
-		svc: svc,
-	}
-}
-
-type notifyExternalSystemState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
-}
-
-func (n notifyExternalSystemState) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var status Status
-	input.Get(&status)
-
-	jobSeekerId := persistence.GetSearchAttributeKeyword(keyJobSeekerId)
-	employerId := persistence.GetSearchAttributeKeyword(keyEmployerId)
-	n.svc.UpdateExternalSystem(fmt.Sprintf("notify engagement from employerId %v to jobSeekerId %v for status %v ", employerId, jobSeekerId, status))
-	return dex.DeadEnd, nil
-}
-
-// GetStateOptions customize the state options
-// By default, all state execution will retry infinitely (until workflow timeout).
-// This may not work for some dependency as we may want to retry for only a certain times
-func (n notifyExternalSystemState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			BackoffCoefficient:             dexpb.PtrFloat32(2),
-			MaximumAttempts:                dexpb.PtrInt32(100),
-			MaximumAttemptsDurationSeconds: dexpb.PtrInt32(3600),
-			MaximumIntervalSeconds:         dexpb.PtrInt32(60),
-			InitialIntervalSeconds:         dexpb.PtrInt32(3),
+	return dex.RPCResult[Status]{
+		Output: StatusAccepted,
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(notifyExternalSystemStep{}, StatusAccepted),
 		},
-	}
+	}, nil
 }
+
+func describe(ctx dex.Context) (EngagementDescription, error) {
+	status, _, err := EngagementStatus.Get(ctx)
+	if err != nil {
+		return EngagementDescription{}, err
+	}
+	employerID, _, err := EmployerID.Get(ctx)
+	if err != nil {
+		return EngagementDescription{}, err
+	}
+	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	if err != nil {
+		return EngagementDescription{}, err
+	}
+	notes, _, err := Notes.Get(ctx)
+	if err != nil {
+		return EngagementDescription{}, err
+	}
+	return EngagementDescription{
+		EmployerID:    employerID,
+		JobSeekerID:   jobSeekerID,
+		Notes:         notes,
+		CurrentStatus: status,
+	}, nil
+}
+
+func updateStatus(ctx dex.Context, status Status, note string) error {
+	if err := EngagementStatus.Set(ctx, status); err != nil {
+		return err
+	}
+	if err := LastUpdateTimestamp.Set(ctx, time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	currentNotes, _, err := Notes.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if note != "" {
+		currentNotes += ";" + note
+	}
+	return Notes.Set(ctx, currentNotes)
+}
+
+type initializeStep struct {
+	dex.StepDefaults[EngagementInput]
+}
+
+func (initializeStep) GetStepType() string {
+	return "initialize"
+}
+
+func (initializeStep) Execute(
+	ctx dex.Context,
+	input EngagementInput,
+) (dex.StepDecision, error) {
+	if err := EmployerID.Set(ctx, input.EmployerID); err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := JobSeekerID.Set(ctx, input.JobSeekerID); err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := EngagementStatus.Set(ctx, StatusInitiated); err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := LastUpdateTimestamp.Set(ctx, time.Now().UnixMilli()); err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := Notes.Set(ctx, input.Notes); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoToMulti(
+		dex.MovementOf(processTimeoutStep{}, nil),
+		dex.MovementOf(reminderStep{}, nil),
+		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),
+	), nil
+}
+
+type processTimeoutStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
+}
+
+func (processTimeoutStep) GetStepType() string {
+	return "process-timeout"
+}
+
+func (processTimeoutStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(60*24*time.Hour),
+		CompleteProcess.ForOne(),
+	), nil
+}
+
+func (step processTimeoutStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	description, err := describe(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	result := "timeout"
+	if description.CurrentStatus == StatusAccepted {
+		result = "done"
+	}
+	step.service.UpdateExternalSystem(fmt.Sprintf(
+		"engagement from employer %s to job seeker %s finished with status %s",
+		description.EmployerID,
+		description.JobSeekerID,
+		description.CurrentStatus,
+	))
+	return dex.GracefulComplete(result), nil
+}
+
+type reminderStep struct {
+	dex.DefaultStepOptions
+	service service.MyService
+}
+
+func (reminderStep) GetStepType() string {
+	return "reminder"
+}
+
+func (reminderStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(5*time.Second),
+		OptOutReminder.ForOne(),
+	), nil
+}
+
+func (step reminderStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (dex.StepDecision, error) {
+	status, _, err := EngagementStatus.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if status != StatusInitiated {
+		return dex.DeadEnd(), nil
+	}
+	optOuts, err := OptOutReminder.GetConditionResults(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if len(optOuts) > 0 {
+		if err := updateStatus(ctx, status, "user opted out of reminders"); err != nil {
+			return dex.StepDecision{}, err
+		}
+		return dex.DeadEnd(), nil
+	}
+	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
+	return dex.GoTo(reminderStep{}, nil), nil
+}
+
+type notifyExternalSystemStep struct {
+	dex.StepDefaults[Status]
+	service service.MyService
+}
+
+func (notifyExternalSystemStep) GetStepType() string {
+	return "notify-external-system"
+}
+
+func (step notifyExternalSystemStep) Execute(
+	ctx dex.Context,
+	status Status,
+) (dex.StepDecision, error) {
+	employerID, _, err := EmployerID.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	jobSeekerID, _, err := JobSeekerID.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	step.service.UpdateExternalSystem(fmt.Sprintf(
+		"notify engagement from employer %s to job seeker %s for status %s",
+		employerID,
+		jobSeekerID,
+		status,
+	))
+	return dex.DeadEnd(), nil
+}
+
+var (
+	_ dex.Flow                                 = (*EngagementFlow)(nil)
+	_ dex.RPC[dex.None, EngagementDescription] = (*EngagementFlow)(nil).Describe
+	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Decline
+	_ dex.RPC[string, Status]                  = (*EngagementFlow)(nil).Accept
+)

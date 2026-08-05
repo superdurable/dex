@@ -1,4 +1,4 @@
-// Copyright (c) 2021 Cadence workflow OSS organization
+// Copyright (c) 2022-2026 Super Durable, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -21,169 +21,168 @@
 package dex
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/engagement"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/urfave/cli"
-	"log"
-	"net/http"
-	"strconv"
-	"sync"
-	"time"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
-// BuildCLI is the main entry point for the dex server
-func BuildCLI() *cli.App {
-	app := cli.NewApp()
-	app.Name = "dex golang samples"
-	app.Usage = "dex golang samples"
-	app.Version = "beta"
+type sampleServer struct {
+	client       *sdk.Client
+	worker       *sdk.Worker
+	cache        *blobcache.Cache
+	httpServer   *http.Server
+	workerResult chan error
+	httpResult   chan error
+}
 
-	app.Commands = []cli.Command{
-		{
-			Name:    "start",
-			Aliases: []string{""},
-			Usage:   "start dex golang samples",
-			Action:  start,
-		},
+func Run(ctx context.Context) error {
+	server, err := newSampleServer()
+	if err != nil {
+		return err
 	}
-	return app
+	return server.Run(ctx)
 }
 
-func start(c *cli.Context) {
-	fmt.Println("start running samples")
-	closeFn := startWorkflowWorker()
-	// TODO improve the waiting with process signal
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	wg.Wait()
-	closeFn()
+func newSampleServer() (*sampleServer, error) {
+	registry, err := sdk.NewRegistry(workflows.Flows())
+	if err != nil {
+		return nil, fmt.Errorf("register example flows: %w", err)
+	}
+	cache, err := blobcache.New(&blobcache.Config{
+		Dir:      environmentOr("DEX_BLOB_CACHE_DIR", filepath.Join(os.TempDir(), "dex-go-examples-blobs")),
+		MaxBytes: 1 << 30,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create blob cache: %w", err)
+	}
+	workerOptions := sdk.WorkerOptions{
+		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+	}
+	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
+		workerOptions.WorkerTarget.Address = target
+	}
+	worker, err := sdk.NewWorker(registry, cache, workerOptions)
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	client, err := sdk.NewClient(registry, cache, sdk.ClientOptions{
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		WorkerTarget:       worker.WorkerTarget(),
+	})
+	if err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close())
+	}
+	server := &sampleServer{
+		client:       client,
+		worker:       worker,
+		cache:        cache,
+		workerResult: make(chan error, 1),
+		httpResult:   make(chan error, 1),
+	}
+	server.httpServer = &http.Server{
+		Addr:    environmentOr("DEX_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8080"),
+		Handler: server.router(),
+	}
+	return server, nil
 }
 
-var client = dex.NewClient(workflows.GetRegistry(), nil)
-var workerService = dex.NewWorkerService(workflows.GetRegistry(), nil)
+func environmentOr(name string, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
 
-func startWorkflowWorker() (closeFunc func()) {
+func (server *sampleServer) router() http.Handler {
 	router := gin.Default()
-	router.POST(dex.WorkflowStateWaitUntilApi, apiV1WorkflowStateStart)
-	router.POST(dex.WorkflowStateExecuteApi, apiV1WorkflowStateDecide)
-	router.POST(dex.WorkflowWorkerRPCAPI, apiV1WorkflowWorkerRpc)
+	newSubscriptionController(server.client).registerRoutes(router)
+	newEngagementController(server.client).registerRoutes(router)
+	newMicroserviceController(server.client).registerRoutes(router)
+	newMoneyTransferController(server.client).registerRoutes(router)
+	newPollingController(server.client).registerRoutes(router)
+	return router
+}
 
-	engagementInput := engagement.EngagementInput{
-		EmployerId:  "test-employer-id",
-		JobSeekerId: "test-jobSeeker-id",
-		Notes:       "test-notes",
-	}
-
-	customer := subscription.Customer{
-		FirstName: "Quanzheng",
-		LastName:  "Long",
-		Id:        "qlong",
-		Email:     "qlong.seattle@gmail.com",
-		Subscription: subscription.Subscription{
-			TrialPeriod:         time.Second * 20,
-			BillingPeriod:       time.Second * 10,
-			MaxBillingPeriods:   10,
-			BillingPeriodCharge: 100,
-		},
-	}
-
-	router.GET("/subscription/start", startWorklfow(&subscription.SubscriptionWorkflow{}, customer))
-	router.GET("/subscription/cancel", cancelSubscription)
-	router.GET("/subscription/updateChargeAmount", updateSubscriptionChargeAmount)
-	router.GET("/subscription/describe", descSubscription)
-
-	router.GET("/engagement/start", startWorklfow(&engagement.EngagementWorkflow{}, engagementInput))
-	router.GET("/engagement/describe", descEngagement)
-	router.GET("/engagement/optout", optOutReminder)
-	router.GET("/engagement/decline", declineEngagement)
-	router.GET("/engagement/accept", acceptEngagement)
-	router.GET("/engagement/list", listEngagements)
-
-	router.GET("/microservice/start", startMicroserviceWorkflow)
-	router.GET("/microservice/swap", swapDataMicroserviceWorkflow)
-	router.GET("/microservice/signal", signalMicroserviceWorkflow)
-
-	router.GET("/moneytransfer/start", startMoneyTransferWorkflow)
-
-	router.GET("/polling/start", startPollingWorkflow)
-	router.GET("/polling/complete", signalPollingWorkflow)
-
-	wfServer := &http.Server{
-		Addr:    ":" + dex.DefaultWorkerPort,
-		Handler: router,
-	}
+func (server *sampleServer) Run(ctx context.Context) error {
 	go func() {
-		if err := wfServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
-		}
+		server.workerResult <- server.worker.Start()
 	}()
-	return func() { wfServer.Close() }
-}
-
-func startWorklfow(wf dex.ObjectWorkflow, input interface{}) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		wfId := "TestSample" + strconv.Itoa(int(time.Now().Unix()))
-		runId, err := client.StartWorkflow(c.Request.Context(), wf, wfId, 3600, input, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-			return
+	go func() {
+		err := server.httpServer.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
 		}
-		c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v runId: %v", wfId, runId))
-		return
+		server.httpResult <- err
+	}()
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case err := <-server.workerResult:
+		runErr = err
+	case err := <-server.httpResult:
+		runErr = err
 	}
+	return errors.Join(runErr, server.close())
 }
 
-func apiV1WorkflowStateStart(c *gin.Context) {
-	var req dexpb.WorkflowStateWaitUntilRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := workerService.HandleWorkflowStateWaitUntil(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-	return
-}
-func apiV1WorkflowStateDecide(c *gin.Context) {
-	var req dexpb.WorkflowStateExecuteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := workerService.HandleWorkflowStateExecute(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-	return
+func (server *sampleServer) close() error {
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	httpErr := server.httpServer.Shutdown(stopCtx)
+	workerErr := server.worker.Stop(stopCtx)
+	clientErr := server.client.Close()
+	cacheErr := server.cache.Close()
+	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 
-func apiV1WorkflowWorkerRpc(c *gin.Context) {
-	var req dexpb.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+func startFlow(
+	request *gin.Context,
+	client *sdk.Client,
+	flow sdk.Flow,
+	flowID string,
+	input any,
+) {
+	runID, err := client.StartFlow(
+		request.Request.Context(),
+		flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+}
 
-	resp, err := workerService.HandleWorkflowWorkerRPC(c.Request.Context(), req)
+func requiredQuery(request *gin.Context, name string) (string, bool) {
+	value := request.Query(name)
+	if value == "" {
+		request.JSON(http.StatusBadRequest, gin.H{"error": name + " is required"})
+		return "", false
+	}
+	return value, true
+}
+
+func respond(request *gin.Context, value any, err error) {
 	if err != nil {
-		c.JSON(501, dexpb.WorkerErrorResponse{
-			Detail:    dexpb.PtrString(err.Error()),
-			ErrorType: dexpb.PtrString("test-error-type"),
-		})
+		request.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, resp)
-	return
+	request.JSON(http.StatusOK, value)
+}
+
+func newFlowID(prefix string) string {
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }

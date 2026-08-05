@@ -1,11 +1,22 @@
 name: Go examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/go/**"
+      - "cli/**"
+      - ".github/workflows/examples-go-ci.yml"
+  pull_request:
+    paths:
+      - "examples/go/**"
+      - "cli/**"
+      - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
 
 jobs:
   unit:
-    name: Build + unit tests
+    name: SDK build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -16,19 +27,21 @@ jobs:
         with:
           go-version-file: examples/go/go.mod
           cache-dependency-path: examples/go/go.sum
-      - name: Build against published sdk-go
+      - name: Verify SDK base version
         env:
           GOWORK: "off"
-        run: |
-          go mod download
-          go build ./...
+        run: test "$(go list -m -f '{{.Version}}' github.com/superdurable/dex/sdk-go)" = "v0.1.0"
+      - name: Build
+        env:
+          GOWORK: "off"
+        run: make bins
       - name: Unit tests
         env:
           GOWORK: "off"
-        run: go test ./workflows/...
+        run: make unitTests
 
-  integ:
-    name: Integration tests
+  e2e:
+    name: End-to-end tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,59 +52,19 @@ jobs:
         with:
           go-version-file: examples/go/go.mod
           cache-dependency-path: examples/go/go.sum
-      - name: Start Dex environment
-        working-directory: sdk-go
-        env:
-          DEX_SERVER_IMAGE: superdurable/dex-server:latest
-        run: |
-          docker pull "$DEX_SERVER_IMAGE"
-          docker compose -f integ/docker-compose.yml up -d
-      - name: Wait for Dex server
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          echo "Waiting for Elasticsearch..."
-          for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
-              echo "Elasticsearch ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 5
-          done
-          echo "Waiting for search attributes..."
-          for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
-              echo "Search attributes ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 120 ]; then
-              echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
-              docker logs temporal-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 2
-          done
-          echo "Waiting for Dex healthcheck..."
-          for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "Dex server healthy (attempt $i)"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Timed out waiting for Dex server"
-          docker logs dex-server 2>&1 | tail -80 || true
-          exit 1
-      - name: Integration tests
-        env:
-          GOWORK: "off"
-        run: go test -v -count=1 -timeout 10m ./integ/...
-      - name: Dump docker logs
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
+      - name: End-to-end tests
+        run: make e2eTests
+      - name: Upload service logs
         if: always()
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-examples-e2e-services
+          path: /tmp/test-go-examples-e2e-services.log
+          if-no-files-found: ignore

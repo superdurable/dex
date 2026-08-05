@@ -29,14 +29,14 @@ const (
 )
 
 type EngagementInput struct {
-	EmployerId  string
-	JobSeekerId string
+	EmployerID  string
+	JobSeekerID string
 	Notes       string
 }
 
 type EngagementDescription struct {
-	EmployerId    string
-	JobSeekerId   string
+	EmployerID    string
+	JobSeekerID   string
 	Notes         string
 	CurrentStatus Status
 }

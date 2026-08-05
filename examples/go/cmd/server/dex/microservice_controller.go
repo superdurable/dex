@@ -21,56 +21,61 @@
 package dex
 
 import (
-	"context"
-	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/microservices"
-	"net/http"
+	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-func startMicroserviceWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := microservices.OrchestrationWorkflow{}
-		runId, err := client.StartWorkflow(c.Request.Context(), wf, wfId, 3600, "test initial data", nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-			return
-		}
-		c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v runId: %v", wfId, runId))
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+type microserviceController struct {
+	client *sdk.Client
 }
 
-func signalMicroserviceWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	if wfId != "" {
-		wf := microservices.OrchestrationWorkflow{}
-		err := client.SignalWorkflow(context.Background(), wf, wfId, "", microservices.SignalChannelReady, nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, struct{}{})
-		}
-		return
-	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+func newMicroserviceController(client *sdk.Client) *microserviceController {
+	return &microserviceController{client: client}
 }
 
-func swapDataMicroserviceWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	newData := c.Query("data")
-	if wfId != "" {
-		wf := microservices.OrchestrationWorkflow{}
-		var output string
-		err := client.InvokeRPC(context.Background(), wfId, "", wf.Swap, newData, &output)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-		} else {
-			c.JSON(http.StatusOK, output)
-		}
+func (controller *microserviceController) registerRoutes(router *gin.Engine) {
+	router.GET("/microservice/start", controller.start)
+	router.GET("/microservice/swap", controller.swapData)
+	router.GET("/microservice/signal", controller.signal)
+}
+
+func (controller *microserviceController) start(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
 		return
 	}
-	c.JSON(http.StatusBadRequest, "must provide workflowId via URL parameter")
+	startFlow(request, controller.client, workflows.Microservices, flowID, "test initial data")
+}
+
+func (controller *microserviceController) swapData(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output string
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		workflows.Microservices.Swap,
+		request.Query("data"),
+		&output,
+		sdk.InvokeOptions{},
+	)
+	respond(request, output, err)
+}
+
+func (controller *microserviceController) signal(request *gin.Context) {
+	flowID, found := requiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		microservices.Ready,
+		nil,
+	)
+	respond(request, struct{}{}, err)
 }

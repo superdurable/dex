@@ -22,35 +22,11 @@ package moneytransfer
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
-
-func NewMoneyTransferWorkflow(svc service.MyService) dex.ObjectWorkflow {
-
-	return &MoneyTransferWorkflow{
-		svc: svc,
-	}
-}
-
-type MoneyTransferWorkflow struct {
-	dex.WorkflowDefaults
-
-	svc service.MyService
-}
-
-func (e MoneyTransferWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(&checkBalanceState{svc: e.svc}),
-		dex.NonStartingStateDef(&createDebitMemoState{svc: e.svc}),
-		dex.NonStartingStateDef(&debitState{svc: e.svc}),
-		dex.NonStartingStateDef(&createCreditMemoState{svc: e.svc}),
-		dex.NonStartingStateDef(&creditState{svc: e.svc}),
-		dex.NonStartingStateDef(&compensateState{svc: e.svc}),
-	}
-}
 
 type TransferRequest struct {
 	FromAccount string
@@ -59,188 +35,216 @@ type TransferRequest struct {
 	Notes       string
 }
 
-type checkBalanceState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+type MoneyTransferFlow struct {
+	service service.MyService
 }
 
-func (i checkBalanceState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var request TransferRequest
-	input.Get(&request)
-
-	hasSufficientFunds := i.svc.CheckBalance(request.FromAccount, request.Amount)
-	if !hasSufficientFunds {
-		return dex.ForceFailWorkflow("insufficient funds"), nil
-	}
-
-	return dex.SingleNextState(&createDebitMemoState{}, request), nil
+func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFlow {
+	return &MoneyTransferFlow{service: applicationService}
 }
 
-type createDebitMemoState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+func (*MoneyTransferFlow) GetFlowType() string {
+	return "money-transfer"
 }
 
-func (i createDebitMemoState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var request TransferRequest
-	input.Get(&request)
-
-	err := i.svc.CreateDebitMemo(request.FromAccount, request.Amount, request.Notes)
-	if err != nil {
-		return nil, err
-	}
-
-	// uncomment this to test error case 
-	//if true {
-	//	return nil, fmt.Errorf("test error for testing error handling")
-	//}
-
-	return dex.SingleNextState(&debitState{}, request), nil
-}
-
-func (i createDebitMemoState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
-			// uncomment this to test a short retry
-			//MaximumAttemptsDurationSeconds: ptr.Any(int32(3)),
-		},
-		ExecuteApiFailureProceedState: &compensateState{},
+func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
+		dex.DefineStep(createDebitMemoStep{service: flow.service}),
+		dex.DefineStep(debitStep{service: flow.service}),
+		dex.DefineStep(createCreditMemoStep{service: flow.service}),
+		dex.DefineStep(creditStep{service: flow.service}),
+		dex.DefineStep(compensateStep{service: flow.service}),
 	}
 }
 
-type debitState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+func (*MoneyTransferFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
 }
 
-func (i debitState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var request TransferRequest
-	input.Get(&request)
+type checkBalanceStep struct {
+	dex.StepDefaults[TransferRequest]
+	service service.MyService
+}
 
-	err := i.svc.Debit(request.FromAccount, request.Amount)
-	if err != nil {
-		return nil, err
+func (checkBalanceStep) GetStepType() string {
+	return "check-balance"
+}
+
+func (step checkBalanceStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
+	if !step.service.CheckBalance(request.FromAccount, request.Amount) {
+		return dex.ForceFail("insufficient funds"), nil
 	}
-
-	return dex.SingleNextState(&createCreditMemoState{}, request), nil
+	return dex.GoTo(createDebitMemoStep{}, request), nil
 }
 
-func (i debitState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
-		},
-		ExecuteApiFailureProceedState: &compensateState{},
+type createDebitMemoStep struct {
+	dex.NoWaitFor[TransferRequest]
+	service service.MyService
+}
+
+func (createDebitMemoStep) GetStepType() string {
+	return "create-debit-memo"
+}
+
+func (createDebitMemoStep) GetStepOptions() *dex.StepOptions {
+	return compensatedStepOptions(time.Hour)
+}
+
+func (step createDebitMemoStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
+	if err := step.service.CreateDebitMemo(
+		request.FromAccount,
+		request.Amount,
+		request.Notes,
+	); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoTo(debitStep{}, request), nil
+}
+
+type debitStep struct {
+	dex.NoWaitFor[TransferRequest]
+	service service.MyService
+}
+
+func (debitStep) GetStepType() string {
+	return "debit"
+}
+
+func (debitStep) GetStepOptions() *dex.StepOptions {
+	return compensatedStepOptions(time.Hour)
+}
+
+func (step debitStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
+	if err := step.service.Debit(request.FromAccount, request.Amount); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoTo(createCreditMemoStep{}, request), nil
+}
+
+type createCreditMemoStep struct {
+	dex.NoWaitFor[TransferRequest]
+	service service.MyService
+}
+
+func (createCreditMemoStep) GetStepType() string {
+	return "create-credit-memo"
+}
+
+func (createCreditMemoStep) GetStepOptions() *dex.StepOptions {
+	return compensatedStepOptions(time.Hour)
+}
+
+func (step createCreditMemoStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
+	if err := step.service.CreateCreditMemo(
+		request.ToAccount,
+		request.Amount,
+		request.Notes,
+	); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoTo(creditStep{}, request), nil
+}
+
+type creditStep struct {
+	dex.NoWaitFor[TransferRequest]
+	service service.MyService
+}
+
+func (creditStep) GetStepType() string {
+	return "credit"
+}
+
+func (creditStep) GetStepOptions() *dex.StepOptions {
+	return compensatedStepOptions(time.Hour)
+}
+
+func (step creditStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
+	if err := step.service.Credit(request.ToAccount, request.Amount); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf(
+		"transfer is done from %s to %s for amount %d",
+		request.FromAccount,
+		request.ToAccount,
+		request.Amount,
+	)), nil
+}
+
+type compensateStep struct {
+	dex.NoWaitFor[TransferRequest]
+	service service.MyService
+}
+
+func (compensateStep) GetStepType() string {
+	return "compensate"
+}
+
+func (compensateStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
 	}
 }
 
-type createCreditMemoState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
-}
-
-func (i createCreditMemoState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var request TransferRequest
-	input.Get(&request)
-
-	err := i.svc.CreateCreditMemo(request.ToAccount, request.Amount, request.Notes)
-	if err != nil {
-		return nil, err
-	}
-
-	return dex.SingleNextState(&creditState{}, request), nil
-}
-
-func (i createCreditMemoState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
-		},
-		ExecuteApiFailureProceedState: &compensateState{},
-	}
-}
-
-type creditState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
-}
-
-func (i creditState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
-	var request TransferRequest
-	input.Get(&request)
-
-	err := i.svc.Credit(request.ToAccount, request.Amount)
-	if err != nil {
-		return nil, err
-	}
-
-	return dex.GracefulCompleteWorkflow(fmt.Sprintf("transfer is done from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
-}
-
-func (i creditState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			MaximumAttemptsDurationSeconds: ptr.Any(int32(3600)),
-		},
-		ExecuteApiFailureProceedState: &compensateState{},
-	}
-}
-
-type compensateState struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
-}
-
-func (i compensateState) Execute(
-	ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence,
-	communication dex.Communication,
-) (*dex.StateDecision, error) {
+func (step compensateStep) Execute(
+	_ dex.Context,
+	request TransferRequest,
+) (dex.StepDecision, error) {
 	// NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
 	// and check a flag to see if we should undo it or not
-
-	var request TransferRequest
-	input.Get(&request)
-
-	err := i.svc.UndoCredit(request.ToAccount, request.Amount)
-	if err != nil {
-		return nil, err
+	if err := step.service.UndoCredit(request.ToAccount, request.Amount); err != nil {
+		return dex.StepDecision{}, err
 	}
-	err = i.svc.UndoCreateCreditMemo(request.ToAccount, request.Amount, request.Notes)
-	if err != nil {
-		return nil, err
+	if err := step.service.UndoCreateCreditMemo(
+		request.ToAccount,
+		request.Amount,
+		request.Notes,
+	); err != nil {
+		return dex.StepDecision{}, err
 	}
-	err = i.svc.UndoCreateDebitMemo(request.FromAccount, request.Amount, request.Notes)
-	if err != nil {
-		return nil, err
+	if err := step.service.UndoCreateDebitMemo(
+		request.FromAccount,
+		request.Amount,
+		request.Notes,
+	); err != nil {
+		return dex.StepDecision{}, err
 	}
-	err = i.svc.UndoDebit(request.FromAccount, request.Amount)
-	if err != nil {
-		return nil, err
+	if err := step.service.UndoDebit(request.FromAccount, request.Amount); err != nil {
+		return dex.StepDecision{}, err
 	}
-
-	return dex.ForceFailWorkflow(fmt.Sprintf("transfer has failed: from %v to %v for amount %v", request.FromAccount, request.ToAccount, request.Amount)), nil
+	return dex.ForceFail(fmt.Sprintf(
+		"transfer has failed from %s to %s for amount %d",
+		request.FromAccount,
+		request.ToAccount,
+		request.Amount,
+	)), nil
 }
 
-func (i compensateState) GetStateOptions() *dex.StateOptions {
-	return &dex.StateOptions{
-		ExecuteApiRetryPolicy: &dexpb.RetryPolicy{
-			MaximumAttemptsDurationSeconds: ptr.Any(int32(86400)),
-		},
+func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{TotalDuration: totalDuration},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			compensateStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
+			},
+		),
 	}
 }
+
+var _ dex.Flow = (*MoneyTransferFlow)(nil)

@@ -39,6 +39,10 @@ jobs:
             sdk_rust:
               - 'sdk-rust/**'
               - '.github/workflows/sdk-rust-ci.yml'
+            examples_go:
+              - 'examples/go/**'
+              - 'cli/**'
+              - '.github/workflows/examples-go-ci.yml'
             web:
               - 'web/**'
               - 'protos/**'
@@ -73,6 +77,7 @@ jobs:
           FILTER_SERVER: ${{ steps.filter.outputs.server }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
+          FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
           FILTER_COPYRIGHT: ${{ steps.filter.outputs.copyright }}
         run: |
@@ -80,12 +85,13 @@ jobs:
 
           expected=()
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Web CI" "Copyright")
+            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Go examples CI" "Web CI" "Copyright")
           else
             expected+=("CLA")
             [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
+            [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
           fi

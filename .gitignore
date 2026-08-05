@@ -11,7 +11,7 @@
 *.out
 coverage.out
 dex-server
-dex-samples
+examples/go/dex-samples
 cli/dexcli
 .bin/
 .build/

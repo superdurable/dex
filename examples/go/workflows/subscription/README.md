@@ -1,49 +1,12 @@
-This subscription workflow is to match the use case described in
-* [Temporal TypeScript tutorials](https://learn.temporal.io/tutorials/typescript/subscriptions/)
-* [Temporal go sample](https://github.com/temporalio/subscription-workflow-project-template-go)
-* [Temporal Java Sample](https://github.com/temporalio/subscription-workflow-project-template-java)
-* [Cadence Java example](https://cadenceworkflow.io/docs/concepts/workflows/#example)
+# Subscription
 
-## Use case statement
-Build an application for a limited time Subscription (eg a 36 month Phone plan) that satisfies these conditions:
+The Flow sends a welcome email, waits through the trial and billing timers, and charges for a bounded number of periods. Concurrent Steps accept typed charge updates and cancellation messages. `Describe` is a typed Flow RPC.
 
-1. When the user signs up, send a welcome email and start a free trial for **TrialPeriod**.
+With the sample server running:
 
-2. When the TrialPeriod expires, start the billing process. 
- * If the user cancels during the trial, send a trial cancellation email.
-
-3. Billing Process:
- * As long as you have not exceeded **MaxBillingPeriods**, charge the customer for the **BillingPeriodChargeAmount**.
- * Then wait for the next **BillingPeriod**.
- * If the customer cancels during a billing period, send a subscription cancellation email.
- * If Subscription has ended normally (exceeded MaxBillingPeriods without cancellation), send a subscription ended email.
-
-4. At any point while subscriptions are ongoing, be able to look up and change any customer's amount charged and current status and info. 
-
-Of course, this all has to be fault tolerant, scalable to millions of customers, testable, maintainable, and observable.
-
-## Controller
-And controller is a very thin layer of calling Dex client APIs and workflow RPC stub APIs. See [subscriptionController](../../cmd/server/dex/subscription_controller.go).
-
-## How to run
-
-
-To start a subscription workflow:
-* Open http://localhost:8803/subscription/start
-
-It will return you a **workflowId**.
-
-The controller is hard coded to start with 20s as trial period, 10s as billing period, $100 as period charge amount for 10 max billing periods
-
-To update the period charge amount :
-* Open http://localhost:8803/subscription/updateChargeAmount?workflowId=<TheWorkflowId>&newChargeAmount=<The new amount>
-
-To cancel the subscription:
-* Open http://localhost:8803/subscription/cancel?workflowId=<TheWorkflowId>
-
-To describe the subscription:
-* Open http://localhost:8803/subscription/describe?workflowId=<TheWorkflowId>
-
-This is a Dex state diagram to visualize the workflow design:
-![subscription state diagram](https://user-images.githubusercontent.com/4523955/217110240-5dfe1d33-0b7c-49f2-8c12-b0d91c4eb970.png)
-
+```text
+http://localhost:8080/subscription/start
+http://localhost:8080/subscription/describe?workflowId=<flow-id>
+http://localhost:8080/subscription/updateChargeAmount?workflowId=<flow-id>&newChargeAmount=250
+http://localhost:8080/subscription/cancel?workflowId=<flow-id>
+```

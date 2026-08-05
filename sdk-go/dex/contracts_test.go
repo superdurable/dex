@@ -29,9 +29,10 @@ var (
 		"status",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 	)
-	itemsAttribute = dex.DefineAttributeMap[int]("items")
-	commandChannel = dex.DefineChannel[command]("commands")
-	commandByOrder = dex.DefineChannelMap[command]("commands-by-order")
+	itemsAttribute   = dex.DefineAttributeMap[int]("items")
+	commandChannel   = dex.DefineChannel[command]("commands")
+	commandByOrder   = dex.DefineChannelMap[command]("commands-by-order")
+	noPayloadChannel = dex.DefineChannel[dex.None]("no-payload")
 )
 
 type command struct {
@@ -41,6 +42,24 @@ type command struct {
 type stepInput struct {
 	OrderID string
 }
+
+type noPayloadStep struct {
+	dex.StepDefaults[dex.None]
+}
+
+func (noPayloadStep) GetStepType() string {
+	return "no-payload"
+}
+
+func (noPayloadStep) Execute(
+	dex.Context,
+	dex.None,
+) (dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
+}
+
+var noPayload = noPayloadStep{}
+var _ dex.Step[dex.None] = noPayload
 
 type waitingStep struct {
 	dex.DefaultStepOptions
@@ -130,6 +149,7 @@ func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		Channels: []dex.ChannelDef{
 			commandChannel,
 			commandByOrder,
+			noPayloadChannel,
 		},
 	}
 }
@@ -144,11 +164,22 @@ func (contractFlow) Update(
 	}, nil
 }
 
+func (contractFlow) Describe(
+	dex.Context,
+	dex.None,
+) (dex.RPCResult[command], error) {
+	return dex.RPCResult[command]{Output: command{Name: "described"}}, nil
+}
+
 var flow = contractFlow{}
 var _ dex.Flow = flow
 var _ dex.RPC[stepInput, command] = flow.Update
+var _ dex.RPC[dex.None, command] = flow.Describe
 
 func TestPublicContractsCompile(t *testing.T) {
+	_ = dex.MovementOf(noPayload, nil)
+	_ = noPayloadChannel.ForOne()
+
 	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {
 		t.Fatal(err)
