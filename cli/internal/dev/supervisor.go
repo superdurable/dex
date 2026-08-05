@@ -66,16 +66,9 @@ func newSupervisor(cfg *Config, stdout io.Writer, stderr io.Writer) *supervisor 
 }
 
 func (s *supervisor) Run(ctx context.Context) (runErr error) {
-	blobStoreDirectory, temporaryBlobStore, err := s.prepareBlobStoreDirectory()
+	blobStoreDirectory, err := s.prepareBlobStoreDirectory()
 	if err != nil {
 		return err
-	}
-	if temporaryBlobStore {
-		defer func() {
-			if cleanupErr := os.RemoveAll(blobStoreDirectory); cleanupErr != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("remove temporary blob store: %w", cleanupErr))
-			}
-		}()
 	}
 	listeners, err := reserveOwnedListeners(s.cfg)
 	if err != nil {
@@ -187,43 +180,19 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, runErr)
 }
 
-func (s *supervisor) prepareBlobStoreDirectory() (string, bool, error) {
-	if s.cfg.BlobStoreDirectory != "" {
-		directory, err := filepath.Abs(s.cfg.BlobStoreDirectory)
-		if err != nil {
-			return "", false, fmt.Errorf("resolve blob store directory: %w", err)
-		}
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return "", false, fmt.Errorf("create blob store directory: %w", err)
-		}
-		return directory, false, nil
+func (s *supervisor) prepareBlobStoreDirectory() (string, error) {
+	directory := s.cfg.BlobStoreDirectory
+	if s.cfg.TemporalDBFilename != "" && s.cfg.blobStoreDirectoryDefault {
+		directory = s.cfg.TemporalDBFilename + ".dex-blobs"
 	}
-	if s.cfg.TemporalDBFilename != "" {
-		directory, err := filepath.Abs(s.cfg.TemporalDBFilename + ".dex-blobs")
-		if err != nil {
-			return "", false, fmt.Errorf("resolve blob store directory: %w", err)
-		}
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return "", false, fmt.Errorf("create blob store directory: %w", err)
-		}
-		return directory, false, nil
-	}
-	directory, err := os.MkdirTemp("", "dexcli-blobs-*")
+	directory, err := filepath.Abs(directory)
 	if err != nil {
-		return "", false, fmt.Errorf("create temporary blob store: %w", err)
+		return "", fmt.Errorf("resolve blob store directory: %w", err)
 	}
-	if s.cfg.TemporalAddress != "" {
-		if _, err := fmt.Fprintln(
-			s.stderr,
-			"Warning: step inputs and large values will not survive dexcli restart; use --blob-store-dir to persist them.",
-		); err != nil {
-			return "", false, errors.Join(
-				fmt.Errorf("write blob store warning: %w", err),
-				os.RemoveAll(directory),
-			)
-		}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", fmt.Errorf("create blob store directory: %w", err)
 	}
-	return directory, true, nil
+	return directory, nil
 }
 
 func (s *supervisor) startDexRuntime(

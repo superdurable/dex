@@ -31,7 +31,9 @@ import (
 
 func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	ports := freePorts(t, 4)
-	cfg := defaultConfig()
+	cfg := testConfig(t)
+	blobStoreDirectory := filepath.Join(t.TempDir(), "blobs")
+	cfg.BlobStoreDirectory = blobStoreDirectory
 	cfg.TemporalPort = ports[0]
 	cfg.TemporalUIPort = ports[1]
 	cfg.DexPort = ports[2]
@@ -78,6 +80,9 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if !strings.Contains(output.String(), "Dex development environment is ready") {
 		t.Fatalf("missing readiness output: %s", output.String())
 	}
+	if _, err := os.Stat(blobStoreDirectory); err != nil {
+		t.Fatalf("blob store was not retained after shutdown: %v", err)
+	}
 	for _, port := range ports {
 		listener, err := net.Listen("tcp", net.JoinHostPort(cfg.BindAddress, strconv.Itoa(port)))
 		if err != nil {
@@ -91,7 +96,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 
 func TestExternalTemporalRemainsRunning(t *testing.T) {
 	ports := freePorts(t, 4)
-	localConfig := defaultConfig()
+	localConfig := testConfig(t)
 	localConfig.TemporalPort = ports[0]
 	localConfig.TemporalUIPort = ports[1]
 	output := &synchronizedBuffer{}
@@ -118,7 +123,8 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	temporalClient.Close()
 	cancelStartup()
 
-	externalConfig := defaultConfig()
+	externalConfig := testConfig(t)
+	externalConfig.BlobStoreDirectory = filepath.Join(t.TempDir(), "blobs")
 	externalConfig.TemporalAddress = localConfig.temporalAddress()
 	externalConfig.DexPort = ports[2]
 	externalConfig.WebPort = ports[3]
@@ -157,38 +163,60 @@ func TestBlobStoreDirectorySelection(t *testing.T) {
 	root := t.TempDir()
 	output := &synchronizedBuffer{}
 
-	explicitConfig := defaultConfig()
-	explicitConfig.BlobStoreDirectory = filepath.Join(root, "explicit")
-	directory, temporary, err := newSupervisor(explicitConfig, output, output).prepareBlobStoreDirectory()
+	explicitDirectory := filepath.Join(root, "explicit")
+	explicitConfig, err := parseConfig([]string{
+		"--blob-store-dir", explicitDirectory,
+		"--temporal-db-filename", filepath.Join(root, "ignored-temporal.db"),
+	}, output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if temporary || directory != explicitConfig.BlobStoreDirectory {
-		t.Fatalf("unexpected explicit directory: directory=%q temporary=%t", directory, temporary)
+	directory, err := newSupervisor(explicitConfig, output, output).prepareBlobStoreDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directory != explicitDirectory {
+		t.Fatalf("unexpected explicit directory: %q", directory)
 	}
 
-	databaseConfig := defaultConfig()
+	databaseConfig := testConfig(t)
 	databaseConfig.TemporalDBFilename = filepath.Join(root, "temporal.db")
-	directory, temporary, err = newSupervisor(databaseConfig, output, output).prepareBlobStoreDirectory()
+	directory, err = newSupervisor(databaseConfig, output, output).prepareBlobStoreDirectory()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if temporary || directory != databaseConfig.TemporalDBFilename+".dex-blobs" {
-		t.Fatalf("unexpected database directory: directory=%q temporary=%t", directory, temporary)
+	if directory != databaseConfig.TemporalDBFilename+".dex-blobs" {
+		t.Fatalf("unexpected database directory: %q", directory)
 	}
 
-	externalConfig := defaultConfig()
-	externalConfig.TemporalAddress = "127.0.0.1:7233"
-	directory, temporary, err = newSupervisor(externalConfig, output, output).prepareBlobStoreDirectory()
+	defaultStoreConfig, err := parseConfig(nil, output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !temporary || !strings.Contains(output.String(), "will not survive dexcli restart") {
-		t.Fatalf("unexpected temporary directory result: directory=%q temporary=%t output=%q", directory, temporary, output.String())
-	}
-	if err := os.RemoveAll(directory); err != nil {
+	expectedDefault, err := defaultBlobStoreDirectory()
+	if err != nil {
 		t.Fatal(err)
 	}
+	if defaultStoreConfig.BlobStoreDirectory != expectedDefault {
+		t.Fatalf("unexpected default directory: %q", defaultStoreConfig.BlobStoreDirectory)
+	}
+	defaultStoreConfig.BlobStoreDirectory = filepath.Join(root, "default")
+	directory, err = newSupervisor(defaultStoreConfig, output, output).prepareBlobStoreDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directory != defaultStoreConfig.BlobStoreDirectory {
+		t.Fatalf("unexpected prepared default directory: %q", directory)
+	}
+}
+
+func testConfig(t *testing.T) *Config {
+	t.Helper()
+	cfg, err := defaultConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
 }
 
 func waitForHealthyWeb(t *testing.T, url string, runFinished <-chan error) {

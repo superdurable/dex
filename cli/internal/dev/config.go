@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +48,7 @@ type Config struct {
 	TemporalUIPort int
 	// TemporalDBFilename defaults to in-memory storage.
 	TemporalDBFilename string
-	// BlobStoreDirectory persists Dex blobs when set. Default follows the Temporal database lifecycle.
+	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent store.
 	BlobStoreDirectory string
 	// OpenBrowser defaults false and opens Dex Web after readiness.
 	OpenBrowser bool
@@ -56,23 +58,15 @@ type Config struct {
 	ShutdownTimeout time.Duration
 
 	explicitLocalFlags map[string]bool
-}
-
-func defaultConfig() *Config {
-	return &Config{
-		BindAddress:       defaultBindAddress,
-		DexPort:           defaultDexPort,
-		WebPort:           defaultWebPort,
-		TemporalNamespace: defaultTemporalNamespace,
-		TemporalPort:      defaultTemporalPort,
-		TemporalUIPort:    defaultTemporalUIPort,
-		StartupTimeout:    45 * time.Second,
-		ShutdownTimeout:   10 * time.Second,
-	}
+	// blobStoreDirectoryDefault defaults true and allows TemporalDBFilename to select its adjacent store.
+	blobStoreDirectoryDefault bool
 }
 
 func parseConfig(args []string, output io.Writer) (*Config, error) {
-	cfg := defaultConfig()
+	cfg, err := defaultConfig()
+	if err != nil {
+		return nil, err
+	}
 	flags := flag.NewFlagSet("dexcli dev", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&cfg.BindAddress, "bind-address", cfg.BindAddress, "address for local services")
@@ -83,7 +77,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	flags.IntVar(&cfg.TemporalPort, "temporal-port", cfg.TemporalPort, "local Temporal gRPC port")
 	flags.IntVar(&cfg.TemporalUIPort, "temporal-ui-port", cfg.TemporalUIPort, "local Temporal Web port")
 	flags.StringVar(&cfg.TemporalDBFilename, "temporal-db-filename", "", "local Temporal SQLite file")
-	flags.StringVar(&cfg.BlobStoreDirectory, "blob-store-dir", "", "Dex blob storage directory")
+	flags.StringVar(
+		&cfg.BlobStoreDirectory,
+		"blob-store-dir",
+		cfg.BlobStoreDirectory,
+		"Dex blob storage directory",
+	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", false, "open Dex Web after startup")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage: dexcli dev [flags]")
@@ -100,6 +99,8 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		switch item.Name {
 		case "temporal-port", "temporal-ui-port", "temporal-db-filename":
 			cfg.explicitLocalFlags[item.Name] = true
+		case "blob-store-dir":
+			cfg.blobStoreDirectoryDefault = false
 		}
 	})
 	if err := cfg.validate(); err != nil {
@@ -108,9 +109,39 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	return cfg, nil
 }
 
+func defaultConfig() (*Config, error) {
+	blobStoreDirectory, err := defaultBlobStoreDirectory()
+	if err != nil {
+		return nil, err
+	}
+	return &Config{
+		BindAddress:               defaultBindAddress,
+		DexPort:                   defaultDexPort,
+		WebPort:                   defaultWebPort,
+		TemporalNamespace:         defaultTemporalNamespace,
+		TemporalPort:              defaultTemporalPort,
+		TemporalUIPort:            defaultTemporalUIPort,
+		BlobStoreDirectory:        blobStoreDirectory,
+		StartupTimeout:            45 * time.Second,
+		ShutdownTimeout:           10 * time.Second,
+		blobStoreDirectoryDefault: true,
+	}, nil
+}
+
+func defaultBlobStoreDirectory() (string, error) {
+	homeDirectory, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory for Dex blob storage: %w", err)
+	}
+	return filepath.Join(homeDirectory, ".dex", "blobs"), nil
+}
+
 func (c *Config) validate() error {
 	if net.ParseIP(c.BindAddress) == nil {
 		return fmt.Errorf("bind address must be an IP address: %q", c.BindAddress)
+	}
+	if strings.TrimSpace(c.BlobStoreDirectory) == "" {
+		return fmt.Errorf("blob store directory is required")
 	}
 	for name, port := range map[string]int{
 		"dex-port":         c.DexPort,

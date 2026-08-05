@@ -201,9 +201,10 @@ func (h *handler) getStepEventInputs(response http.ResponseWriter, request *http
 		}
 		inputs = append(inputs, stepEventInput{EventID: input.GetEventId(), Request: mapped})
 	}
+	unavailableEventIDs := append([]int64{}, result.GetUnavailableEventIds()...)
 	writeJSON(response, http.StatusOK, getStepEventInputsResponse{
 		Inputs:              inputs,
-		UnavailableEventIDs: result.GetUnavailableEventIds(),
+		UnavailableEventIDs: unavailableEventIDs,
 	})
 }
 

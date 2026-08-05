@@ -126,8 +126,16 @@ function Fields({ values }: { values: Field[] }) {
   );
 }
 
-function ValueBlock({ label, value }: { label: string; value: unknown }) {
-  if (!isPresent(value)) return null;
+function ValueBlock({
+  label,
+  value,
+  showEmpty = false,
+}: {
+  label: string;
+  value: unknown;
+  showEmpty?: boolean;
+}) {
+  if (!isPresent(value) && !showEmpty) return null;
   const decoded = decodedValue(value);
   return (
     <div className="semantic-value">
@@ -325,9 +333,13 @@ function unixTime(value: unknown): string | undefined {
   return new Date(timestamp * 1000).toLocaleString();
 }
 
-function ConditionResultsView({ value }: { value: unknown }) {
+function ConditionResultsView({ value, showEmpty = false }: { value: unknown; showEmpty?: boolean }) {
   const results = asData(value);
-  if (!hasData(results)) return null;
+  if (!hasData(results)) {
+    return showEmpty ? (
+      <DetailSection title="Condition results"><p className="muted">No condition results</p></DetailSection>
+    ) : null;
+  }
   const channels = asDataArray(results.channelResults);
   const timers = asDataArray(results.timerResults);
   return (
@@ -433,6 +445,7 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
   const response = asData(payload.response);
   const previousFailures = asDataArray(execution.previousAttemptFailures);
   const isWaitFor = event.type.startsWith('StepWaitFor');
+  const hasRequest = hasData(request);
   return (
     <>
       <DetailSection title="Attempt info">
@@ -460,12 +473,13 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           ['Scheduled from', execution.fromStepExecutionId ?? context.fromStepExecutionId],
         ]} />
       </DetailSection>
-      {(isPresent(request.stepInput) || Array.isArray(request.attributes) || Array.isArray(request.stepExeLocals)) && (
+      {hasRequest && (
         <DetailSection title="Method input">
-          <ValueBlock label="Step input" value={request.stepInput} />
-          {Array.isArray(request.attributes) && request.attributes.length > 0 && (
-            <div className="semantic-subsection"><h5>Attributes</h5><KeyValues values={request.attributes} /></div>
-          )}
+          <ValueBlock label="Step input" value={request.stepInput} showEmpty />
+          <div className="semantic-subsection">
+            <h5>Attributes</h5>
+            <KeyValues values={request.attributes} emptyLabel="No attributes" />
+          </div>
           {Array.isArray(request.stepExeLocals) && request.stepExeLocals.length > 0 && (
             <div className="semantic-subsection"><h5>Step locals</h5><KeyValues values={request.stepExeLocals} /></div>
           )}
@@ -476,7 +490,7 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
       )}
       {isWaitFor
         ? <WaitingConditionView value={response.waitingCondition} />
-        : <ConditionResultsView value={request.conditionResults} />}
+        : <ConditionResultsView value={request.conditionResults} showEmpty={hasRequest} />}
       <StepDecisionView value={response.stepDecision} />
       <EffectsView value={response} />
       <FailureView value={payload.failure} />

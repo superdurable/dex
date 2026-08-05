@@ -28,7 +28,7 @@ type RunTab = 'overview' | 'steps' | 'timeline';
 
 interface StepEventInputsResult {
   inputs: Array<{ eventId: number; request: Record<string, unknown> }>;
-  unavailableEventIds: number[];
+  unavailableEventIds?: number[] | null;
 }
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
@@ -96,31 +96,39 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       const request = event.payload.request;
       const execution = event.payload.execution as Record<string, unknown> | undefined;
       if (methodType && (!request || Object.keys(request as Record<string, unknown>).length === 0)) {
-        const result = await responseJSON<StepEventInputsResult>(await fetch('/api/flows/step-event-inputs', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            flowId,
-            runId,
-            keys: [{
-              eventId: event.eventId,
-              stepExecutionId: String(execution?.stepExecutionId ?? ''),
-              methodType,
-            }],
-          }),
-          cache: 'no-store',
-        }));
-        const loaded = result.inputs.find((input) => input.eventId === event.eventId);
-        eventWithInput = {
-          ...event,
-          payload: {
-            ...event.payload,
-            ...(loaded ? { request: loaded.request } : {}),
-            ...(result.unavailableEventIds.includes(event.eventId)
-              ? { inputUnavailable: true }
-              : {}),
-          },
-        };
+        try {
+          const result = await responseJSON<StepEventInputsResult>(await fetch('/api/flows/step-event-inputs', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              flowId,
+              runId,
+              keys: [{
+                eventId: event.eventId,
+                stepExecutionId: String(execution?.stepExecutionId ?? ''),
+                methodType,
+              }],
+            }),
+            cache: 'no-store',
+          }));
+          const loaded = result.inputs.find((input) => input.eventId === event.eventId);
+          const unavailableEventIDs = result.unavailableEventIds ?? [];
+          eventWithInput = {
+            ...event,
+            payload: {
+              ...event.payload,
+              ...(loaded ? { request: loaded.request } : {}),
+              ...(!loaded && unavailableEventIDs.includes(event.eventId)
+                ? { inputUnavailable: true }
+                : {}),
+            },
+          };
+        } catch {
+          eventWithInput = {
+            ...event,
+            payload: { ...event.payload, inputUnavailable: true },
+          };
+        }
       }
       const hydrated = await hydrateBlobs(eventWithInput, blobCache.current);
       setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));

@@ -32,11 +32,12 @@ import (
 
 type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	waitStarted            chan struct{}
-	waitCanceled           chan struct{}
-	loadBlobsRequests      chan *dexpb.LoadBlobsRequest
-	stepEventInputRequests chan *dexpb.GetStepEventInputsRequest
-	loadBlobsError         error
+	waitStarted             chan struct{}
+	waitCanceled            chan struct{}
+	loadBlobsRequests       chan *dexpb.LoadBlobsRequest
+	stepEventInputRequests  chan *dexpb.GetStepEventInputsRequest
+	stepEventInputsResponse *dexpb.GetStepEventInputsResponse
+	loadBlobsError          error
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
@@ -162,6 +163,23 @@ func TestWebServerLoadsBlobsAndStepEventInputs(t *testing.T) {
 		t.Fatalf("unexpected GetStepEventInputs request: %+v", inputRequest)
 	}
 
+	emptyHarness := newHarness(t, &flowService{
+		stepEventInputsResponse: &dexpb.GetStepEventInputsResponse{},
+	})
+	emptyResponse := postJSON(t, emptyHarness.http.URL+"/api/flows/step-event-inputs", `{
+        "flowId":"flow-1",
+        "runId":"run-1",
+        "keys":[{"eventId":10,"stepExecutionId":"step-1","methodType":"waitFor"}]
+      }`)
+	defer emptyResponse.Body.Close()
+	var emptyResult struct {
+		UnavailableEventIDs *[]int64 `json:"unavailableEventIds"`
+	}
+	decodeResponse(t, emptyResponse, &emptyResult)
+	if emptyResult.UnavailableEventIDs == nil || len(*emptyResult.UnavailableEventIDs) != 0 {
+		t.Fatalf("expected an empty unavailableEventIds array: %+v", emptyResult)
+	}
+
 	errorHarness := newHarness(t, &flowService{
 		loadBlobsError: status.Error(codes.Unavailable, "blob store offline"),
 	})
@@ -272,7 +290,12 @@ func (s *flowService) GetStepEventInputs(
 	_ context.Context,
 	request *dexpb.GetStepEventInputsRequest,
 ) (*dexpb.GetStepEventInputsResponse, error) {
-	s.stepEventInputRequests <- request
+	if s.stepEventInputRequests != nil {
+		s.stepEventInputRequests <- request
+	}
+	if s.stepEventInputsResponse != nil {
+		return s.stepEventInputsResponse, nil
+	}
 	return &dexpb.GetStepEventInputsResponse{
 		Inputs: []*dexpb.StepEventInput{{
 			EventId: 10,
