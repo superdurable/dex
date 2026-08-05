@@ -21,143 +21,159 @@
 package microservices
 
 import (
-	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/sdk-go/dex"
 	"time"
+
+	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func NewMicroserviceOrchestrationWorkflow(svc service.MyService) dex.ObjectWorkflow {
-
-	return &OrchestrationWorkflow{
-		svc: svc,
-	}
-}
-
-type OrchestrationWorkflow struct {
-	dex.DefaultWorkflowType
-
-	svc service.MyService
-}
-
-func (e OrchestrationWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(NewState1(e.svc)),
-		dex.NonStartingStateDef(NewState2(e.svc)),
-		dex.NonStartingStateDef(NewState3(e.svc)),
-		dex.NonStartingStateDef(NewState4(e.svc)),
-	}
-}
-
-func (e OrchestrationWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.DataAttributeDef(keyData),
-	}
-}
-
-func (e OrchestrationWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalChannelReady),
-
-		dex.RPCMethodDef(e.Swap, nil),
-	}
-}
-
-const (
-	keyData = "data"
-
-	SignalChannelReady = "Ready"
+var (
+	Data  = dex.DefineAttribute[string]("data")
+	Ready = dex.DefineChannel[struct{}]("Ready")
 )
 
-func (e OrchestrationWorkflow) Swap(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
-
-	var oldData string
-	persistence.GetDataAttribute(keyData, &oldData)
-	var newData string
-	input.Get(&newData)
-	persistence.SetDataAttribute(keyData, newData)
-
-	return oldData, nil
+type OrchestrationFlow struct {
+	service service.MyService
 }
 
-func NewState1(svc service.MyService) dex.WorkflowState {
-	return state1{svc: svc}
+func NewOrchestrationFlow(applicationService service.MyService) *OrchestrationFlow {
+	return &OrchestrationFlow{service: applicationService}
 }
 
-type state1 struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+func (*OrchestrationFlow) GetFlowType() string {
+	return "microservice-orchestration"
 }
 
-func (i state1) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var inString string
-	input.Get(&inString)
+func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(callAPI1Step{service: flow.service}),
+		dex.DefineStep(callAPI2Step{service: flow.service}),
+		dex.DefineStep(callAPI3Step{service: flow.service}),
+		dex.DefineStep(callAPI4Step{service: flow.service}),
+	}
+}
 
-	i.svc.CallAPI1(inString)
+func (*OrchestrationFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Data},
+		Channels:   []dex.ChannelDef{Ready},
+	}
+}
 
-	persistence.SetDataAttribute(keyData, inString)
-	return dex.MultiNextStatesWithInput(
-		dex.NewStateMovement(state2{}, nil),
-		dex.NewStateMovement(state3{}, nil),
+func (*OrchestrationFlow) Swap(
+	ctx dex.Context,
+	newData string,
+) (dex.RPCResult[string], error) {
+	oldData, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[string]{}, err
+	}
+	if err := Data.Set(ctx, newData); err != nil {
+		return dex.RPCResult[string]{}, err
+	}
+	return dex.RPCResult[string]{Output: oldData}, nil
+}
+
+type callAPI1Step struct {
+	dex.StepDefaults[string]
+	service service.MyService
+}
+
+func (callAPI1Step) GetStepType() string {
+	return "call-api-1"
+}
+
+func (step callAPI1Step) Execute(
+	ctx dex.Context,
+	input string,
+) (dex.StepDecision, error) {
+	step.service.CallAPI1(input)
+	if err := Data.Set(ctx, input); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GoToMulti(
+		dex.MovementOf(callAPI2Step{}, struct{}{}),
+		dex.MovementOf(callAPI3Step{}, struct{}{}),
 	), nil
 }
 
-func NewState2(svc service.MyService) dex.WorkflowState {
-	return state2{svc: svc}
+type callAPI2Step struct {
+	dex.StepDefaults[struct{}]
+	service service.MyService
 }
 
-type state2 struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+func (callAPI2Step) GetStepType() string {
+	return "call-api-2"
 }
 
-func (i state2) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var data string
-	persistence.GetDataAttribute(keyData, &data)
-
-	i.svc.CallAPI2(data)
-	return dex.DeadEnd, nil
+func (step callAPI2Step) Execute(
+	ctx dex.Context,
+	_ struct{},
+) (dex.StepDecision, error) {
+	data, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	step.service.CallAPI2(data)
+	return dex.DeadEnd(), nil
 }
 
-func NewState3(svc service.MyService) dex.WorkflowState {
-	return state3{svc: svc}
+type callAPI3Step struct {
+	dex.DefaultStepOptions
+	service service.MyService
 }
 
-type state3 struct {
-	dex.WorkflowStateDefaults
-	svc service.MyService
+func (callAPI3Step) GetStepType() string {
+	return "call-api-3"
 }
 
-func (i state3) WaitUntil(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (*dex.CommandRequest, error) {
-	return dex.AnyCommandCompletedRequest(
-		dex.NewTimerCommand("", time.Now().Add(time.Hour*24)),
-		dex.NewSignalCommand("", SignalChannelReady),
+func (callAPI3Step) WaitFor(
+	dex.Context,
+	struct{},
+) (dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(24*time.Hour),
+		Ready.ForOne(),
 	), nil
 }
 
-func (i state3) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var data string
-	persistence.GetDataAttribute(keyData, &data)
-	i.svc.CallAPI3(data)
-
-	if commandResults.Timers[0].Status == dexpb.FIRED {
-		return dex.SingleNextState(state4{}, nil), nil
+func (step callAPI3Step) Execute(
+	ctx dex.Context,
+	_ struct{},
+) (dex.StepDecision, error) {
+	data, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
 	}
-	return dex.GracefulCompletingWorkflow, nil
+	step.service.CallAPI3(data)
+	if ctx.HasTimerFired() {
+		return dex.GoTo(callAPI4Step{}, struct{}{}), nil
+	}
+	return dex.GracefulComplete(data), nil
 }
 
-func NewState4(svc service.MyService) dex.WorkflowState {
-	return state4{svc: svc}
+type callAPI4Step struct {
+	dex.StepDefaults[struct{}]
+	service service.MyService
 }
 
-type state4 struct {
-	dex.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+func (callAPI4Step) GetStepType() string {
+	return "call-api-4"
 }
 
-func (i state4) Execute(ctx dex.WorkflowContext, input dex.Object, commandResults dex.CommandResults, persistence dex.Persistence, communication dex.Communication) (*dex.StateDecision, error) {
-	var data string
-	persistence.GetDataAttribute(keyData, &data)
-	i.svc.CallAPI4(data)
-	return dex.GracefulCompletingWorkflow, nil
+func (step callAPI4Step) Execute(
+	ctx dex.Context,
+	_ struct{},
+) (dex.StepDecision, error) {
+	data, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	step.service.CallAPI4(data)
+	return dex.GracefulComplete(data), nil
 }
+
+var (
+	_ dex.Flow                = (*OrchestrationFlow)(nil)
+	_ dex.RPC[string, string] = (*OrchestrationFlow)(nil).Swap
+)

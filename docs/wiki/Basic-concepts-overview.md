@@ -41,14 +41,14 @@ More notes:
 
 A user application defines an ObjectWorkflow by implementing:
 * [Java Interface](../../sdk-java/src/main/java/io/dex/core/ObjectWorkflow.java)
-* [Golang Interface](../../sdk-go/dex/workflow.go) 
+* [Golang Interface](../../sdk-go/dex/flow.go)
 * [Python Base Class](../../sdk-python/dex/workflow.py)
 
-Once workflow is implemented, register the workflows into `Registry` of SDK, and expose an RESTful endpoint for Dex server to call using `WorkerService` of the SDK.
+Once a workflow is implemented, register it with the SDK and host its WorkerService for Dex.
 
 Underneath, SDK will invoke the corresponding Workflow/WorkflowState/RPC code when being called by Dex server:
 * Java Example to use [Spring to register workflow beans](../../examples/java/src/main/java/io/dex/config/DexConfig.java), and set up [WorkerControllers](../../examples/java/src/main/java/io/dex/controller/DexWorkerApiController.java)
-* Golang Example to [register workflows](../../examples/go/workflows/registry.go), and use [Golang Gin server to start worker controller](../../examples/go/cmd/server/dex/dex.go#L72).
+* Golang example to [collect Flows](../../examples/go/workflows/registry.go) and [share a Registry and BlobCache](../../examples/go/cmd/server/dex/dex.go) between the gRPC Worker and Client.
 * Python example to [register workflows](../../examples/python/signup/dex_config.py), and use Flask to set up [WorkerControllers](../../examples/python/signup/main.py#L54).
 
 #### Java
@@ -144,54 +144,48 @@ class UserSignupWorkflow(ObjectWorkflow):
 ```
 
 #### Golang
-Golang interface doesn't have default method implementation. So to make it "skippable", you just need to add the default implementation `dex.WorkflowDefaults` of all:
+
+Go applications implement `dex.Flow` and typed `dex.Step[IN]` values. Execute-only Steps embed `dex.StepDefaults[IN]`; waiting Steps implement `WaitFor`. Exported Flow methods matching `dex.RPC[IN, OUT]` are registered automatically.
+
+This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Go Flow definition:
+
 ```golang
-type MyWorkflow struct {
-	dex.WorkflowDefaults
-}
-```
+var (
+	Data  = dex.DefineAttribute[string]("data")
+	Ready = dex.DefineChannel[struct{}]("Ready")
+)
 
-Also, Golang doesn't have equivalence to Java's annotation or Python's decorator. An RPC must be registered under CommunicationSchema.
-
-This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Golang workflow definition:
-```golang
-type OrchestrationWorkflow struct {
-	dex.WorkflowDefaults
-
-	svc service.MyService
+type OrchestrationFlow struct {
+	service service.MyService
 }
 
-func (e OrchestrationWorkflow) GetWorkflowStates() []dex.StateDef {
-	return []dex.StateDef{
-		dex.StartingStateDef(NewState1(e.svc)),
-		dex.NonStartingStateDef(NewState2(e.svc)),
-		dex.NonStartingStateDef(NewState3(e.svc)),
-		dex.NonStartingStateDef(NewState4(e.svc)),
+func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(callAPI1Step{service: flow.service}),
+		dex.DefineStep(callAPI2Step{service: flow.service}),
+		dex.DefineStep(callAPI3Step{service: flow.service}),
+		dex.DefineStep(callAPI4Step{service: flow.service}),
 	}
 }
 
-func (e OrchestrationWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.DataAttributeDef(keyData),
+func (*OrchestrationFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Data},
+		Channels:   []dex.ChannelDef{Ready},
 	}
 }
 
-func (e OrchestrationWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalChannelReady),
-
-		dex.RPCMethodDef(e.MyRPC, nil),
+func (*OrchestrationFlow) Swap(
+	ctx dex.Context,
+	newData string,
+) (dex.RPCResult[string], error) {
+	oldData, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.RPCResult[string]{}, err
 	}
-}
-
-func (e OrchestrationWorkflow) MyRPC(ctx dex.WorkflowContext, input dex.Object, persistence dex.Persistence, communication dex.Communication) (interface{}, error) {
-
-	var oldData string
-	persistence.GetDataAttribute(keyData, &oldData)
-	var newData string
-	input.Get(&newData)
-	persistence.SetDataAttribute(keyData, newData)
-
-	return oldData, nil
+	if err := Data.Set(ctx, newData); err != nil {
+		return dex.RPCResult[string]{}, err
+	}
+	return dex.RPCResult[string]{Output: oldData}, nil
 }
 ```

@@ -1,47 +1,41 @@
 # Dex Go examples
 
-Samples for [Dex Golang SDK](https://github.com/superdurable/dex/tree/main/sdk-go) that runs
-against [Dex server](https://github.com/superdurable/dex)
+These examples use the published `github.com/superdurable/dex/sdk-go v0.1.0` module. They do not import generated protobufs or replace the SDK with a local checkout.
 
-## Setup
+The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP controller on `127.0.0.1:8080`. One Registry and disk BlobCache are shared by its Worker and Client.
 
-1. Start a Dex server following the [instructions](https://github.com/superdurable/dex#how-to-run-this-server)
-2. Run this project
-  * To build the binary, run `make bins` 
-  * To run the sample service: run `./dex-samples start`
+## Run locally
 
-_Note that by default this project will listen on 8803 port(default worker port for Dex Golang SDK)_
+Start Dex, then build and run the examples:
 
-## Product Use case samples
+```bash
+dexcli dev --temporal-db-filename /tmp/dex-examples.db
+make bins
+./dex-samples
+```
 
-### [Money Transfer Workflow/SAGA Patten](./workflows/moneytransfer)
-This example shows how to transfer money from one account to another account.
-The transfer involves multiple steps. When any step fails, the whole transfer is canceled with some compensation steps.
+The defaults connect to Dex at `localhost:8801`. These environment variables override the local addresses:
 
-### [Microservice orchestration](./workflows/microservices)
-This is the code that is [shown in Dex server as an example of microservice orchestration](https://github.com/superdurable/dex#example-microservice-orchestration).
+- `DEX_FLOW_SERVICE_ADDRESS`: Dex gRPC target.
+- `DEX_WORKER_BIND_ADDRESS`: WorkerService bind address.
+- `DEX_WORKER_TARGET`: address advertised to Dex when it differs from the bind address.
+- `DEX_EXAMPLES_HTTP_ADDRESS`: HTTP controller bind address.
+- `DEX_BLOB_CACHE_DIR`: shared Client/Worker blob-cache directory.
 
-### [JobSeeker Engagement workflow](./workflows/engagement)
-<img width="709" alt="Screenshot 2023-04-21 at 8 53 25 AM" src="https://user-images.githubusercontent.com/4523955/233680837-6a6267a0-4b31-419e-87f0-667bb48582d1.png">
-This engagement workflow is for: 
+When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 
-* An engagement is initiated by an employer to reach out to a jobSeeker(via email/SMS/etc)
-* The jobSeeker could respond with decline or accept
-* If jobSeeker doesn't respond, it will get reminder
-* An engagement can change from declined to accepted, but cannot change from accepted to declined
+## Verify every example
 
+The E2E suite starts Dex through `dexcli dev` and runs every start, channel publish, and RPC path:
 
-### [Subscription](./workflows/subscription) workflow
+```bash
+make e2eTests
+```
 
-This [Subscription workflow](https://github.com/superdurable/dex/tree/main/examples/go/workflows/subscription) (with unit tests) is to match the use case described in
-* [Temporal TypeScript tutorials](https://learn.temporal.io/tutorials/typescript/subscriptions/)
-* [Temporal go sample](https://github.com/temporalio/subscription-workflow-project-template-go)
-* [Temporal Java Sample](https://github.com/temporalio/subscription-workflow-project-template-java)
-* [Cadence Java example](https://cadenceworkflow.io/docs/concepts/workflows/#example)
+## Examples
 
-
-### [Task orchestration with polling & signal](./workflows/polling)
-Orchestrating three services:
-* Task A: receive a signal when completing
-* Task B: receive a signal when completing
-* Task C: polling until completion
+- [Money transfer saga](./workflows/moneytransfer)
+- [Microservice orchestration](./workflows/microservices)
+- [Employer/job-seeker engagement](./workflows/engagement)
+- [Subscription](./workflows/subscription)
+- [Polling and channel coordination](./workflows/polling)

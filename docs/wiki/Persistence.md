@@ -173,37 +173,32 @@ persistence.set_data_attribute(data_attribute_status, "verified")
 ### Golang
 <!--- ## END-GITHUB-ONLY ## --->
 
-Due to the limitation of Golang, the Golang SDK doesn't let you define "type" of an attribute. So there is no type checking in the SDK.
+The Go SDK defines typed Attributes. Reads, writes, initial values, and indexed values retain the declared Go type.
 
 This is an [example](../../examples/go/workflows/microservices/workflow.go) of a Golang workflow definition with persistence:
 ```go
-type OrchestrationWorkflow struct {
-	dex.WorkflowDefaults
-}
+var Data = dex.DefineAttribute[string]("data")
 
-func (e OrchestrationWorkflow) GetPersistenceSchema() []dex.PersistenceFieldDef {
-	return []dex.PersistenceFieldDef{
-		dex.DataAttributeDef(keyData),
-	}
-}
-
-func (e OrchestrationWorkflow) GetCommunicationSchema() []dex.CommunicationMethodDef {
-	return []dex.CommunicationMethodDef{
-		dex.SignalChannelDef(SignalChannelReady),
-
-		dex.RPCMethodDef(e.MyRPC, nil),
+func (*OrchestrationFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Data},
 	}
 }
 ```
 And example to read/write the persistence:
 ```go
-func (s *MyState)Execute(...){
-	var oldData string
-	persistence.GetDataAttribute(keyData, &oldData)
-	var newData string
-	input.Get(&newData)
-	persistence.SetDataAttribute(keyData, newData)
-        ...
+func (step callAPI1Step) Execute(
+	ctx dex.Context,
+	input string,
+) (dex.StepDecision, error) {
+	oldData, _, err := Data.Get(ctx)
+	if err != nil {
+		return dex.StepDecision{}, err
+	}
+	if err := Data.Set(ctx, input); err != nil {
+		return dex.StepDecision{}, err
+	}
+	return dex.GracefulComplete(oldData), nil
 }
 ```
 <!---

@@ -18,46 +18,51 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package dex
+package integ
 
 import (
-	"fmt"
-	"github.com/gin-gonic/gin"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/polling"
-	"net/http"
-	"strconv"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func startPollingWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	pollingCompletionThreshold := c.Query("pollingCompletionThreshold")
+func TestPollingStartAndChannels(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "polling")
+	runID, err := integClient.StartFlow(
+		ctx,
+		workflows.Polling,
+		flowID,
+		1,
+		dex.StartFlowOptions{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, runID)
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		polling.TaskACompleted,
+		struct{}{},
+	))
+	require.NoError(t, integClient.PublishToChannel(
+		ctx,
+		flowID,
+		polling.TaskBCompleted,
+		struct{}{},
+	))
 
-	pollingCompletionThresholdInt, err := strconv.Atoi(pollingCompletionThreshold)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, "must provide correct pollingCompletionThreshold via URL parameter")
-		return
-	}
-
-	_, err = client.StartWorkflow(c.Request.Context(), polling.PollingWorkflow{}, wfId, 0, pollingCompletionThresholdInt, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v is started", wfId))
-	return
-}
-
-func signalPollingWorkflow(c *gin.Context) {
-	wfId := c.Query("workflowId")
-	channel := c.Query("channel")
-
-	err := client.SignalWorkflow(c.Request.Context(), polling.PollingWorkflow{}, wfId, "", channel, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, fmt.Sprintf("workflowId: %v is signal", wfId))
-	return
+	result := waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Len(t, result.Completions, 1)
+	var output string
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, "all tasks completed", output)
+	var pollCount int
+	found, err := integClient.GetAttribute(ctx, flowID, polling.CurrentPolls, &pollCount)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 1, pollCount)
 }

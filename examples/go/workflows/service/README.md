@@ -1,6 +1,3 @@
-### Command to build this `my_service_mock.go`
+# Example application service
 
-Run this at the root of the project:
-```shell
-mockgen -source=workflows/service/my_service.go -package=service -destination=workflows/service/my_service_mock.go
-```
+`MyService` represents the external email, billing, account, and microservice dependencies called from Steps. The included implementation logs calls and returns successful transfer operations so the examples run without additional services.

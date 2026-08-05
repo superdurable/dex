@@ -21,91 +21,177 @@
 package integ
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log"
-	"net/http"
+	"net"
 	"os"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 var (
-	client        = dex.NewClient(workflows.GetRegistry(), nil)
-	workerService = dex.NewWorkerService(workflows.GetRegistry(), nil)
+	integClient *dex.Client
+	flowCounter atomic.Int64
 )
 
-func TestMain(m *testing.M) {
-	gin.SetMode(gin.ReleaseMode)
-	closeFn := startWorkflowWorker()
-	// Give the worker a moment to bind before tests start workflows.
-	time.Sleep(time.Second)
-	code := m.Run()
-	closeFn()
-	os.Exit(code)
+type integrationEnvironment struct {
+	cache        *blobcache.Cache
+	cacheDir     string
+	client       *dex.Client
+	worker       *dex.Worker
+	workerResult chan error
 }
 
-func startWorkflowWorker() func() {
-	router := gin.New()
-	router.POST(dex.WorkflowStateWaitUntilApi, handleWaitUntil)
-	router.POST(dex.WorkflowStateExecuteApi, handleExecute)
-	router.POST(dex.WorkflowWorkerRPCAPI, handleRPC)
-
-	server := &http.Server{
-		Addr:    ":" + dex.DefaultWorkerPort,
-		Handler: router,
+func newIntegrationEnvironment() (*integrationEnvironment, error) {
+	registry, err := dex.NewRegistry(workflows.Flows())
+	if err != nil {
+		return nil, err
 	}
+	cacheDir, err := os.MkdirTemp("", "dex-go-examples-integ-")
+	if err != nil {
+		return nil, err
+	}
+	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 64 << 20})
+	if err != nil {
+		return nil, errors.Join(err, os.RemoveAll(cacheDir))
+	}
+	workerPort, err := availablePort()
+	if err != nil {
+		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		BindAddress:        net.JoinHostPort("127.0.0.1", workerPort),
+		FlowServiceAddress: flowServiceAddress(),
+		WorkerTarget: dex.WorkerTarget{
+			Address: net.JoinHostPort(workerHost(), workerPort),
+		},
+	})
+	if err != nil {
+		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
+	}
+	workerResult := make(chan error, 1)
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("worker listen: %v", err)
-		}
+		workerResult <- worker.Start()
 	}()
-	fmt.Println("examples/go integ worker listening on", dex.DefaultWorkerPort)
-	return func() { _ = server.Close() }
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: flowServiceAddress(),
+		WorkerTarget:       worker.WorkerTarget(),
+	})
+	if err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close(), os.RemoveAll(cacheDir))
+	}
+	environment := &integrationEnvironment{
+		cache:        cache,
+		cacheDir:     cacheDir,
+		client:       client,
+		worker:       worker,
+		workerResult: workerResult,
+	}
+	if err := environment.waitUntilReady(); err != nil {
+		return nil, errors.Join(err, environment.Close())
+	}
+	return environment, nil
 }
 
-func handleWaitUntil(c *gin.Context) {
-	var req dexpb.WorkflowStateWaitUntilRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+func (environment *integrationEnvironment) waitUntilReady() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := environment.client.HealthCheck(ctx); err == nil {
+			return nil
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for Dex health: %w", ctx.Err())
+		}
 	}
-	resp, err := workerService.HandleWorkflowStateWaitUntil(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, resp)
 }
 
-func handleExecute(c *gin.Context) {
-	var req dexpb.WorkflowStateExecuteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	resp, err := workerService.HandleWorkflowStateExecute(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, resp)
+func (environment *integrationEnvironment) Close() error {
+	clientErr := environment.client.Close()
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stopErr := environment.worker.Stop(stopCtx)
+	workerErr := <-environment.workerResult
+	cacheErr := environment.cache.Close()
+	removeErr := os.RemoveAll(environment.cacheDir)
+	return errors.Join(clientErr, stopErr, workerErr, cacheErr, removeErr)
 }
 
-func handleRPC(c *gin.Context) {
-	var req dexpb.WorkflowWorkerRpcRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	resp, err := workerService.HandleWorkflowWorkerRPC(c.Request.Context(), req)
+func TestMain(tests *testing.M) {
+	environment, err := newIntegrationEnvironment()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	c.JSON(http.StatusOK, resp)
+	integClient = environment.client
+	exitCode := tests.Run()
+	if err := environment.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		exitCode = 1
+	}
+	os.Exit(exitCode)
+}
+
+func integrationContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func newFlowID(t *testing.T, prefix string) string {
+	t.Helper()
+	sequence := flowCounter.Add(1)
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatInt(sequence, 10)
+}
+
+func waitForFlow(t *testing.T, flowID string) dex.WaitForFlowResult {
+	t.Helper()
+	result, err := integClient.WaitForFlow(
+		integrationContext(t),
+		flowID,
+		dex.WaitForFlowOptions{NeedsResults: true, Timeout: 45 * time.Second},
+	)
+	require.NoError(t, err)
+	return result
+}
+
+func availablePort() (string, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		return "", err
+	}
+	return strconv.Itoa(port), nil
+}
+
+func flowServiceAddress() string {
+	if address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS"); address != "" {
+		return address
+	}
+	return "127.0.0.1:8801"
+}
+
+func workerHost() string {
+	if host := os.Getenv("DEX_WORKER_HOST"); host != "" {
+		return host
+	}
+	return "127.0.0.1"
 }
