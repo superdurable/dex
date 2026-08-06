@@ -65,7 +65,6 @@ from dex.contracts.state import (
     Wait,
 )
 from dex.contracts.step import (
-    ExecuteFailure,
     RetryPolicy,
     Step,
     StepDecision,
@@ -104,7 +103,6 @@ __all__ = [
     "CodecRegistry",
     "ConditionCombination",
     "Context",
-    "ExecuteFailure",
     "Flow",
     "FlowConfig",
     "FlowInfo",

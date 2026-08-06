@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Generic, Iterator, TypeVar
+from typing import Any, Awaitable, Generic, Iterator, TypeAlias, TypeVar
 
 from dex.contracts.state import (
     AttributeLock,
@@ -25,7 +25,9 @@ from dex.contracts.state import (
 )
 
 InputT = TypeVar("InputT")
+ResultT = TypeVar("ResultT")
 StartT = TypeVar("StartT")
+MaybeAwaitable: TypeAlias = ResultT | Awaitable[ResultT]
 
 
 class StepDurability(Enum):
@@ -48,19 +50,6 @@ class RetryPolicy:
 
 
 @dataclass(frozen=True)
-class ExecuteFailure(Generic[InputT]):
-    step: Step[InputT]
-    options: StepOptions | None = None
-
-    @staticmethod
-    def proceed_to(
-        step: Step[InputT],
-        options: StepOptions | None = None,
-    ) -> ExecuteFailure[InputT]:
-        return ExecuteFailure(step, options)
-
-
-@dataclass(frozen=True)
 class StepOptions:
     wait_for_method_timeout: timedelta | None = None
     execute_method_timeout: timedelta | None = None
@@ -71,15 +60,31 @@ class StepOptions:
     execute_durability: StepDurability | None = None
     wait_for_lock_attributes: tuple[AttributeLock, ...] = ()
     execute_lock_attributes: tuple[AttributeLock, ...] = ()
-    execute_failure: ExecuteFailure[Any] | None = None
+    _execute_failure_target: Step[Any] | None = None
+    _execute_failure_options: StepOptions | None = None
+
+    def on_execute_failure_proceed_to(
+        self,
+        step: Step[Any],
+        options: StepOptions | None = None,
+    ) -> StepOptions:
+        return replace(
+            self,
+            _execute_failure_target=step,
+            _execute_failure_options=options,
+        )
 
 
 class Step(Generic[InputT], ABC):
     @abstractmethod
-    def execute(self, context: Context, input: InputT) -> StepDecision:
+    def execute(
+        self,
+        context: Context,
+        input: InputT,
+    ) -> MaybeAwaitable[StepDecision]:
         raise NotImplementedError
 
-    def wait_for(self, context: Context, input: InputT) -> Wait:
+    def wait_for(self, context: Context, input: InputT) -> MaybeAwaitable[Wait]:
         del context, input
         raise RuntimeError("framework must skip the default wait_for")
 

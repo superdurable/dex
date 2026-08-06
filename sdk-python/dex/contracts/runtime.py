@@ -20,7 +20,7 @@ from dex.contracts.blob_cache import BlobCache
 from dex.contracts.codec import Value
 from dex.contracts.flow import Flow, InitialAttribute, Registry, RPCResult
 from dex.contracts.state import Attribute, AttributeMap, Channel, ChannelMap, Context
-from dex.contracts.step import RetryPolicy, StepDurability
+from dex.contracts.step import MaybeAwaitable, RetryPolicy, StepDurability
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -174,7 +174,7 @@ class Client:
     @overload
     def invoke_rpc(
         self,
-        rpc_method: Callable[[Context, InputT], RPCResult[OutputT]],
+        rpc_method: Callable[[Context, InputT], MaybeAwaitable[RPCResult[OutputT]]],
         flow_id: str,
         input: InputT,
         *,
@@ -184,7 +184,7 @@ class Client:
     @overload
     def invoke_rpc(
         self,
-        rpc_method: Callable[[Context], RPCResult[OutputT]],
+        rpc_method: Callable[[Context], MaybeAwaitable[RPCResult[OutputT]]],
         flow_id: str,
         *,
         run_id: str = "",
@@ -193,7 +193,7 @@ class Client:
     @overload
     def invoke_rpc(
         self,
-        rpc_method: Callable[[Context, InputT], None],
+        rpc_method: Callable[[Context, InputT], MaybeAwaitable[None]],
         flow_id: str,
         input: InputT,
         *,
@@ -203,7 +203,7 @@ class Client:
     @overload
     def invoke_rpc(
         self,
-        rpc_method: Callable[[Context], None],
+        rpc_method: Callable[[Context], MaybeAwaitable[None]],
         flow_id: str,
         *,
         run_id: str = "",

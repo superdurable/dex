@@ -105,6 +105,36 @@ class OrderFlow(Flow[OrderInput]):
         return RPCResult(OrderOutput(accepted=True))
 
 
+class AsyncApproveOrder(Step[OrderInput]):
+    async def execute(
+        self,
+        context: Context,
+        input: OrderInput,
+    ) -> StepDecision:
+        del context, input
+        return graceful_complete()
+
+    async def wait_for(self, context: Context, input: OrderInput) -> Wait:
+        del context, input
+        return Wait.skip_immediately()
+
+
+class AsyncOrderFlow(Flow[OrderInput]):
+    approve = AsyncApproveOrder()
+
+    def get_steps(self) -> StepList[OrderInput]:
+        return StepList.start_step(self.approve)
+
+    @rpc(name="GetOrderAsync")
+    async def get_order(
+        self,
+        context: Context,
+        input: OrderInput,
+    ) -> RPCResult[OrderOutput]:
+        del context, input
+        return RPCResult(OrderOutput(accepted=True))
+
+
 ORDERS = OrderFlow()
 
 
@@ -126,6 +156,11 @@ def test_registry_infers_handler_codecs_from_annotations() -> None:
     output = OrderOutput(True)
     assert input_codec.decode(input_codec.encode(input)) == input
     assert output_codec.decode(output_codec.encode(output)) == output
+
+
+def test_registry_accepts_async_step_and_rpc_handlers() -> None:
+    registry = Registry((AsyncOrderFlow(),))
+    assert len(registry.flows) == 1
 
 
 def test_registry_rejects_duplicate_interfaces() -> None:

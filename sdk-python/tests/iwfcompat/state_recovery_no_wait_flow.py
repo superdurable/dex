@@ -10,7 +10,6 @@
 
 from dex import (
     Context,
-    ExecuteFailure,
     Flow,
     Step,
     StepDecision,
@@ -35,7 +34,7 @@ class FailingNoWaitStep(Step[int]):
         raise RuntimeError("execute failure")
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_failure=ExecuteFailure.proceed_to(self.recover))
+        return StepOptions().on_execute_failure_proceed_to(self.recover)
 
 
 class StateRecoveryNoWaitFlow(Flow[int]):

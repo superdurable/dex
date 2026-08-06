@@ -7,9 +7,9 @@ Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 The rewrite targets Python 3.11+ and exposes strongly typed workflow contracts
 from `dex`. This phase includes definitions, attributes, channels, waits,
-decisions, codecs, registry validation, and synchronous client shapes. Client and
-worker transport intentionally raise `PhaseNotImplementedError` until the shared
-Rust Core is connected.
+decisions, codecs, registry validation, synchronous client calls, and synchronous
+or asynchronous worker handlers. Client and worker transport intentionally raise
+`PhaseNotImplementedError` until the shared Rust Core is connected.
 
 ```python
 from datetime import timedelta
@@ -76,7 +76,8 @@ Applications implement two generic interfaces from [`dex.contracts`](dex/contrac
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
   binds the Flow input to the starting Step input. Use `StepList.empty()` when
   a Flow has no Steps.
-- `Step[INPUT]` implements synchronous `execute` and optionally `wait_for`.
+- `Step[INPUT]` implements `execute` and optionally `wait_for`; either handler
+  may be synchronous or asynchronous.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
