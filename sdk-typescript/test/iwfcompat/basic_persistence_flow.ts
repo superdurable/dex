@@ -44,6 +44,9 @@ class PersistenceStep implements Step<string> {
   }
 
   public execute(context: Context, input: string): StepDecision {
+    if (context.getStepExecutionLocal("local", stringCodec) !== input) {
+      throw new Error("step execution local did not survive waitFor");
+    }
     this.flow.keyword.set(context, input);
     this.flow.integer.set(context, 1);
     this.flow.datetime.set(context, new Date("2023-04-17T21:17:49Z"));

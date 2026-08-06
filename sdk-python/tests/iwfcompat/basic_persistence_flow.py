@@ -40,6 +40,8 @@ class PersistenceStep(Step[str]):
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: str) -> StepDecision:
+        if context.get_step_execution_local("local", str) != input:
+            raise RuntimeError("step execution local did not survive wait_for")
         self.flow.keyword.set(context, input)
         self.flow.integer.set(context, 1)
         self.flow.datetime.set(

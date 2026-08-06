@@ -24,6 +24,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 
 import java.time.Instant;
+import java.util.Objects;
 
 final class BasicPersistenceFlow implements Flow<String> {
     final Attribute<String> initial = Attribute.define("data-obj-0", String.class);
@@ -79,6 +80,11 @@ final class BasicPersistenceFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
+            if (!Objects.equals(
+                    input,
+                    context.getStepExecutionLocal("local", String.class))) {
+                throw new IllegalStateException("step execution local did not survive waitFor");
+            }
             keyword.set(context, input);
             integer.set(context, 1);
             datetime.set(context, Instant.parse("2023-04-17T21:17:49Z"));
