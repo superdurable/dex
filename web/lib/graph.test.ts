@@ -13,10 +13,10 @@ import type { FlowHistoryEvent } from './types';
 function event(
   eventId: number,
   type: FlowHistoryEvent['type'],
-  execution: Record<string, unknown> = {},
+  context: Record<string, unknown> = {},
   payload: Record<string, unknown> = {},
 ): FlowHistoryEvent {
-  return { eventId, eventTime: null, type, payload: { ...payload, execution } };
+  return { eventId, eventTime: null, type, payload: { ...payload, context } };
 }
 
 describe('step graph', () => {
@@ -97,7 +97,7 @@ describe('step graph', () => {
         fromStepExecutionId: 'initialize-1',
         stepType: 'cancel',
       }, {
-        response: { stepDecision: { closeDecision: { closeDecisionType: 3 } } },
+        output: { stepDecision: { closeDecision: { closeDecisionType: 3 } } },
       }),
       event(4, 'FlowClosed'),
     ]);

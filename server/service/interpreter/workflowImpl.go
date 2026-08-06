@@ -675,23 +675,26 @@ func (i *Interpreter) processStepExecution(
 			attributes = loadedAttributes
 		}
 
+		activityInput := &dexpb.InvokeWaitForMethodActivityInput{
+			WorkerTarget: flowConfiger.GetWorkerTarget(),
+			Request: &dexpb.InvokeWaitForMethodRequest{
+				Context:    executionContext,
+				FlowType:   basicInfo.FlowType,
+				StepType:   step.GetStepType(),
+				StepInput:  step.GetStepInput(),
+				Attributes: attributes,
+			},
+		}
 		var activityOutput dexpb.InvokeWaitForMethodActivityOutput
 		waitForMethErr = provider.ExecuteActivity(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
 			i.activities.InvokeWaitForMethod,
-			&dexpb.InvokeWaitForMethodActivityInput{
-				WorkerTarget:                           flowConfiger.GetWorkerTarget(),
-				CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
-				MethodOptionsInternalOnly:              stepMethodOptions(activityOptions),
-				Request: &dexpb.InvokeWaitForMethodRequest{
-					Context:    executionContext,
-					FlowType:   basicInfo.FlowType,
-					StepType:   step.GetStepType(),
-					StepInput:  step.GetStepInput(),
-					Attributes: attributes,
-				},
+			activityInput,
+			&dexpb.InternalLocalActivityInput{
+				CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,
+				MethodOptions:              stepMethodOptions(activityOptions),
 			},
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
@@ -963,26 +966,29 @@ func (i *Interpreter) invokeExecuteMethod(
 	}
 
 	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
+	activityInput := &dexpb.InvokeExecuteMethodActivityInput{
+		WorkerTarget:    flowConfiger.GetWorkerTarget(),
+		IsTransientStep: isTransientStep,
+		Request: &dexpb.InvokeExecuteMethodRequest{
+			Context:          executionContext,
+			FlowType:         basicInfo.FlowType,
+			StepType:         step.GetStepType(),
+			StepInput:        step.GetStepInput(),
+			Attributes:       attributes,
+			StepExeLocals:    stepExeLocals,
+			ConditionResults: conditionResults,
+		},
+	}
 	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
 	exeMethErr := provider.ExecuteActivity(
 		&activityOutput,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		ctx,
 		i.activities.InvokeExecuteMethod,
-		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget:                           flowConfiger.GetWorkerTarget(),
-			IsTransientStep:                        isTransientStep,
-			CurrentRunStartedTimestampInternalOnly: basicInfo.RunStartedTimestamp,
-			MethodOptionsInternalOnly:              stepMethodOptions(activityOptions),
-			Request: &dexpb.InvokeExecuteMethodRequest{
-				Context:          executionContext,
-				FlowType:         basicInfo.FlowType,
-				StepType:         step.GetStepType(),
-				StepInput:        step.GetStepInput(),
-				Attributes:       attributes,
-				StepExeLocals:    stepExeLocals,
-				ConditionResults: conditionResults,
-			},
+		activityInput,
+		&dexpb.InternalLocalActivityInput{
+			CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,
+			MethodOptions:              stepMethodOptions(activityOptions),
 		},
 	)
 	// always unlock regardless of step success/failure
@@ -1043,6 +1049,7 @@ func (i *Interpreter) BlobStoreCleanup(
 		&dexpb.CleanupBlobStoreActivityInput{
 			StoreId: storeId,
 		},
+		nil,
 	); err != nil {
 		return 0, err
 	}

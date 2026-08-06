@@ -7,13 +7,15 @@ The production Web server is Go. It serves an embedded React SPA and translates
 same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
 Temporal/Cadence credentials and backend history never enter the browser.
 
-`GetHistoryEvents` returns the same complete step event shape for sync and async
-durability. `POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser
-recursively hydrates the selected event and current flow state, dedupes by blob
-kind and ID, and caches loaded values across tabs.
-Missing values are labeled `Value blob unavailable`; missing local-activity
-requests are labeled `Step event input blob unavailable`. Neither exposes blob
-IDs or storage paths.
+`GetHistoryEvents` returns the same `input`, `output`, and `context` step-event
+shape for sync, async, and async-fallback execution. Timeline, Step graph,
+Reset, and Selected event use that common structure.
+
+`POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser recursively
+hydrates the selected event and current flow state, dedupes by blob kind and ID,
+and caches loaded values across tabs. Missing values are labeled
+`Value blob unavailable`; missing async input snapshots are labeled
+`Step event input unavailable`. Neither exposes blob IDs or storage paths.
 
 ## Run through dexcli
 

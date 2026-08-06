@@ -60,16 +60,16 @@ export function formatElapsedDuration(milliseconds: number | null): string {
 }
 
 function executionID(event: FlowHistoryEvent): string {
-  const execution = event.payload.execution;
-  if (!execution || typeof execution !== 'object') return '';
-  const value = (execution as Record<string, unknown>).stepExecutionId;
+  const context = event.payload.context;
+  if (!context || typeof context !== 'object') return '';
+  const value = (context as Record<string, unknown>).stepExecutionId;
   return typeof value === 'string' ? value : '';
 }
 
 function executeStartedTime(event: FlowHistoryEvent): string | null {
-  const execution = event.payload.execution;
-  if (execution && typeof execution === 'object') {
-    const value = (execution as Record<string, unknown>).firstStartedTime;
+  const context = event.payload.context;
+  if (context && typeof context === 'object') {
+    const value = (context as Record<string, unknown>).startedTime;
     if (typeof value === 'string') return value;
   }
   return event.eventTime;

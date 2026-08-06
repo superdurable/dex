@@ -1,7 +1,7 @@
 # Dex Web Phase 1 设计
 
-状态：Draft
-日期：2026-07-30
+状态：Implementation in progress
+日期：2026-08-05
 
 ## 1. Phase 1 范围
 
@@ -13,12 +13,12 @@ Phase 1 确定：
 - Run 实时状态的 query 数据；
 - 搜索页和 Run 详情页的信息架构。
 
-Phase 1 不实现 Web 或 server API。后续阶段：
+实现顺序：
 
-1. 实现 server API、history converter 和 integration tests。
-2. 实现搜索页、Run Overview、Timeline 和实时刷新。
-3. 实现 Step Graph、Event Graph、实时状态和 Reset。
-4. 完成大 history 性能、响应式和发布工作。
+1. 定稿 public history event 和 internal async snapshot proto。
+2. 实现 Temporal/Cadence history converter、local snapshot persistence 和 server tests。
+3. 将 Timeline、Step Graph、Reset 和 Selected Event 迁移到统一 `input/output/context`。
+4. 完成 Web blob hydration tests、E2E、文档和发布验证。
 
 ## 2. 核心原则
 
@@ -263,71 +263,103 @@ message StepMethodFailure {
   string retry_state = 4;
 }
 
-message StepMethodAttemptFailure {
-  int32 attempt = 1;
-  google.protobuf.Timestamp failed_time = 2;
-  StepMethodFailure failure = 3;
-}
-
 message StepMethodOptions {
   int32 timeout_seconds = 1;
   RetryPolicy retry_policy = 2;
 }
 
-message StepMethodExecutionInfo {
+message StepMethodEventInput {
+  bool unavailable = 1;
+  Value step_input = 2;
+  ConditionResults condition_results = 3;
+  repeated KV attributes = 4;
+  repeated KV step_execution_locals = 5;
+}
+
+message StepMethodEventContext {
   string step_execution_id = 1;
   string from_step_execution_id = 2;
   string step_type = 3;
-  int32 final_attempt = 4;
-  StepDurability durability = 5;
-  optional bool is_transient_step = 6;
-  google.protobuf.Timestamp first_started_time = 7;
-  google.protobuf.Duration duration = 8;
-  repeated StepMethodAttemptFailure previous_attempt_failures = 9;
-  StepMethodOptions method_options = 10;
+  StepDurability durability = 4;
+  int32 final_attempt = 5;
+  google.protobuf.Timestamp started_time = 6;
+  google.protobuf.Duration duration = 7;
+  StepMethodOptions method_options = 8;
+  optional bool is_transient_step = 9;
+}
+
+message StepWaitForCompletedOutput {
+  WaitingCondition wait_for_condition = 1;
+  repeated AttributeWrite upsert_attributes = 2;
+  repeated ChannelMessage publish_to_channel = 3;
+  repeated KV record_events = 4;
+  repeated KV upsert_step_execution_locals = 5;
+  StepMovement transient_step_movement = 6;
+}
+
+message StepExecuteCompletedOutput {
+  StepDecision step_decision = 1;
+  repeated AttributeWrite upsert_attributes = 2;
+  repeated ChannelMessage publish_to_channel = 3;
+  repeated KV record_events = 4;
+  repeated KV upsert_step_execution_locals = 5;
+}
+
+message StepMethodFailedOutput {
+  StepMethodFailure failure = 1;
 }
 
 message StepWaitForCompletedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeWaitForMethodRequest request = 2;
-  InvokeWaitForMethodResponse response = 3;
-  bool input_unavailable = 4;
+  StepMethodEventInput input = 1;
+  StepWaitForCompletedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepWaitForFailedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeWaitForMethodRequest request = 2;
-  StepMethodFailure failure = 3;
-  bool input_unavailable = 4;
+  StepMethodEventInput input = 1;
+  StepMethodFailedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepExecuteCompletedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeExecuteMethodRequest request = 2;
-  InvokeExecuteMethodResponse response = 3;
-  bool input_unavailable = 4;
+  StepMethodEventInput input = 1;
+  StepExecuteCompletedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepExecuteFailedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeExecuteMethodRequest request = 2;
-  StepMethodFailure failure = 3;
-  bool input_unavailable = 4;
+  StepMethodEventInput input = 1;
+  StepMethodFailedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 ```
 
-ASYNC local activity 不记录 input，因此 server 从 run-scoped external storage 补齐
-semantic event 的 `request`。Web 不区分 SYNC/ASYNC 的 input 来源。Identity 和 lineage 来自：
+四种 step method event 都使用同样的三层结构：
 
-- regular Activity scheduled input 的 `Context`；
-- successful LocalActivity marker output 的 `LocalActivityInput`；
-- fallback regular Activity scheduled input 的 `Context`。
+- `input`：worker 调用时的 `step_input`、完整 attributes snapshot、Execute 的
+  `condition_results`，以及 step execution locals；
+- `output`：WaitFor 的 waiting condition 或 Execute 的 step decision，加上该次调用的
+  attributes、channel、record event 和 step-local side effects；失败 event 只返回最终
+  terminal failure；
+- `context`：step execution identity、lineage、durability、final attempt、started time、
+  duration 和 method options。
 
-成功的 local activity 会把发送给 worker 的完整 request 和有效 method options
-保存到 external storage。`GetHistoryEvents` 自动补齐 local Activity event；regular
-Activity 从 scheduled event 获得 request、timeout 和 retry policy。存储路径由 run、
-step execution 和 method 确定。未启用存储或数据已清理时，event 设置
-`input_unavailable=true`。
+不返回 previous attempt failures。SYNC Activity retry 的 last failure 已存在于 backend
+ActivityTaskStarted event，Dex semantic event 不重复暴露；ASYNC local failure 只用于触发
+regular Activity fallback，也不展示为用户事件。
+
+Web 只消费统一的 `input/output/context`，不根据 durability 选择额外 API。Server 在
+`GetHistoryEvents` 内部按实际执行路径补齐数据：
+
+| 执行路径 | Input 来源 | Context/options 来源 |
+|---|---|---|
+| SYNC regular Activity | ActivityTaskScheduled input | scheduled event metadata 和 input context |
+| ASYNC local success | run-scoped async input snapshot | LocalActivity marker 与 async input snapshot |
+| ASYNC local failure + regular fallback | fallback ActivityTaskScheduled input | scheduled event metadata；durability 仍为 ASYNC |
+
+local snapshot 不存在、external storage 未启用或数据已清理时，server 返回
+`input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
+独立 Value blob 加载失败。
 
 `from_step_execution_id` 只接受 server 写入的值：
 
@@ -342,8 +374,8 @@ step execution 和 method 确定。未启用存储或数据已清理时，event 
 | SYNC success | Activity scheduled/started/retries/completed | 一个 completed event |
 | SYNC terminal failure | Activity scheduled/started/retries/failed | 一个 failed event |
 | ASYNC success | LocalActivity marker result | 一个 completed event |
-| ASYNC local failure + fallback success | failure marker + regular Activity lifecycle | 一个 completed event，marker failure 放入 previous attempts |
-| ASYNC local failure + fallback failure | failure marker + regular Activity failure | 一个 failed event，保留全部 attempts |
+| ASYNC local failure + fallback success | failure marker + regular Activity lifecycle | 一个 completed event；不展示 local failure |
+| ASYNC local failure + fallback failure | failure marker + regular Activity failure | 一个 failed event；只展示 terminal failure |
 
 `durability` 表示请求的 Dex durability。ASYNC fallback 最终由 regular Activity 完成时仍返回 `STEP_DURABILITY_ASYNC`。
 
@@ -377,8 +409,48 @@ RPC 启动的 step 从 `StepMovement.from_step_execution_id_internal_only` 中�
 
 ### 6.7 Step event input 与 blob hydration
 
-local activity 成功后保存准确的 WaitFor/Execute worker request。Workflow input
-传递 current run start time；缺失时 activity 使用当前 flow ID 和 run ID 执行 Describe。
+两个 internal message 的职责严格分开：
+
+```proto
+message InternalLocalActivityInput {
+  int64 current_run_started_timestamp = 1;
+  StepMethodOptions method_options = 2;
+}
+
+message InternalAsyncStepInputSnapshot {
+  StepMethodOptions method_options = 1;
+
+  oneof request {
+    InvokeWaitForMethodRequest wait_for_request = 2;
+    InvokeExecuteMethodRequest execute_request = 3;
+  }
+}
+```
+
+- `InternalLocalActivityInput` 是 workflow provider 只给 local activity 的第二个参数，
+  用于携带当前 run start time 和无法从 local marker 恢复的 method options；
+- `InternalAsyncStepInputSnapshot` 是成功 local activity 写入 external storage 的 protobuf，
+  保存准确发送给 worker 的 request 和 method options；
+- `InvokeWaitForMethodActivityInput` 和 `InvokeExecuteMethodActivityInput` 保持不变，避免
+  增大 regular Activity history；
+- SYNC regular activity 同一个第二参数位置传 `nil`，可以产生极小 null payload；
+- ASYNC local activity 传 `InternalLocalActivityInput`，fallback regular activity 传 `nil`。
+
+workflow provider 使用同一个 activity function，不增加 wrapper activity：
+
+```go
+ExecuteActivity(
+    valuePtr interface{},
+    durability dexpb.StepDurability,
+    ctx UnifiedContext,
+    activity interface{},
+    regularInput interface{},
+    localActivityOnlyInput interface{},
+) error
+```
+
+local activity 成功后保存准确的 WaitFor/Execute worker request。缺失 run start time 时，
+activity 使用当前 flow ID 和准确 run ID 执行 Describe。
 文件位于：
 
 ```text
@@ -387,15 +459,20 @@ local activity 成功后保存准确的 WaitFor/Execute worker request。Workflo
 ```
 
 写入失败会让 local activity 失败并进入 regular Activity fallback。`GetHistoryEvents`
-把存储的 request 合并到 semantic event；其中的 blob-backed `Value` 继续由通用
-`LoadBlobs` 路径按需加载。Web 不根据 event 顺序重建 attributes，也不推测
-timer/channel results。
+把 snapshot 转换成公共 `StepMethodEventInput` 并合并到 semantic event。regular
+Activity 直接由 scheduled event 转成同一公共结构。Web 不根据 event 顺序重建
+attributes，也不推测 timer/channel results。
+
+公共 event 内仍可能包含 blob-backed `Value`。这些 Value 继续由通用 `LoadBlobs`
+路径按需加载，不与 async input snapshot 的 availability 混为一谈。
 
 Web Go bridge 提供 `POST /api/blobs/load`，统一 string/object blob reference 的 JSON
 shape。前端递归收集所选 event 或 live state 中的 references，按 `kind + blob ID`
-去重并批量加载；缓存跨 Overview、Step Graph 和 Timeline 共用。失败时保留页面并
-Value blob 缺失显示 “Value blob unavailable”；step event input blob 缺失显示
-“Step event input blob unavailable”。Raw JSON 不泄露 blob ID 或 object path。
+去重并批量加载；缓存跨 Overview、Step Graph 和 Timeline 共用。失败时保留页面：
+
+- `input.unavailable=true` 显示 “Step event input unavailable”；
+- 单个 blob-backed Value 无法加载显示 “Value blob unavailable”；
+- Raw JSON 不泄露 blob ID、store ID 或 object path。
 
 ## 7. WaitForHistoryEvent
 
@@ -538,12 +615,12 @@ Sections：
 │ Flows / flow-id / run-id                         [Refresh][Copy] │
 │ Status | Start/Close/Duration | History length/size | Run chain │
 ├──────────────────────────────────────────────────────────────────┤
-│ [Overview] [Step Graph] [Timeline] [Event Graph]                 │
+│ [Overview] [Step Graph] [Timeline]                               │
 ├────────────────────────────────────────┬─────────────────────────┤
-│ Current tab                            │ Live State / Details    │
-│                                        │ Attributes              │
-│                                        │ Active/waiting steps    │
-│                                        │ Timers/channels/retries │
+│ Current tab                            │ Selected event          │
+│                                        │ Input                   │
+│                                        │ Output                  │
+│                                        │ Context / Raw JSON      │
 └────────────────────────────────────────┴─────────────────────────┘
 ```
 
@@ -560,21 +637,25 @@ Step Graph：
 - WaitFor/Execute sections；
 - active、waiting、retrying、completed、failed；
 - fan-out、join、failed-and-proceed；
-- transient step badge；
 - CloseDecision 的 conditional/graceful/force/fail/dead-end 语义。
 
 Timeline：
 
 - 只展示 Dex semantic events；
-- completed/failed method event 展开 attempts、request、response 和 failure；
+- 默认倒序，最新 event 位于顶部；
+- 同一个 step execution 的 WaitForCondition started 和 Execute 用独立 lane 连线；
+- completed/failed method event 展开统一的 Input、Output、Context；
 - long poll 增量更新；
 - 大 history 使用 semantic pagination 和虚拟列表。
 
-Event Graph：
+Selected event：
 
-- 一个 Dex semantic event 一个节点；
-- step lineage、RPC source、Continue-As-New 和 close edge；
-- 不展示 workflow task、activity 或 marker 节点。
+- `Input`：step input、Execute condition results、attributes、step locals；
+- `Output`：WaitFor condition 或 Execute decision，以及 side effects；失败时显示 terminal failure；
+- `Context`：execution ID、from、durability、final attempt、started、duration、step options；
+- UI 不显示 previous attempts 或 transient-step 字段；
+- SYNC 和 ASYNC 使用完全相同的 renderer；
+- Raw JSON tab 使用 hydrated public event，不泄露 internal snapshot 或 blob location。
 
 ## 10. Tests
 
@@ -583,7 +664,7 @@ Phase 2 使用 `server/integ/`：
 - Temporal/Cadence summary：canonical run、request ID、flow type 和 execution timestamps。
 - Search：保留 custom search attributes，并返回 flow type/status/start/close。
 - Temporal/Cadence × SYNC/ASYNC：相同逻辑 flow 产生相同 Dex semantic events。
-- Activity retries 聚合为一个 completed/failed event。
+- Activity retries 聚合为一个 completed/failed event，只返回 final attempt 或 terminal failure。
 - ASYNC local failure 与 regular fallback 跨 raw page 聚合。
 - `estimate_page_size=1` 强制覆盖跨 native page 的不完整 operation 聚合。
 - starting、RPC、fan-out、Continue-As-New lineage。
@@ -594,19 +675,28 @@ Phase 2 使用 `server/integ/`：
 - Current state：CAN-resumed waiting step、queued resume request 和 transient Execute。
 - Execute 前移除 resume entry 后，CAN drain 不丢 step 或重复执行。
 - Temporal/Cadence × SYNC/ASYNC：WaitFor/Execute 显示调用时 step input、attributes 和 condition results。
+- SYNC scheduled input 和 ASYNC snapshot 都映射为完全相同的 `input/output/context` shape。
+- regular Activity input proto 保持不变；第二个 activity argument 为 null 时 Temporal/Cadence 都能解码。
+- ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。
+- method options：SYNC 从 scheduled metadata 转换，ASYNC 从 `InternalLocalActivityInput` 保存并恢复。
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
-- local failure fallback 使用 regular Activity history request；关闭存储或清理后返回 unavailable。
+- local failure fallback 使用 regular Activity history request，且不暴露 local failure。
+- sync retry 和 async fallback event 都不返回 previous attempt failures。
+- 关闭存储或清理后只对缺失的 async snapshot 返回 `input.unavailable=true`。
 - local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
 
 Web Go integration：
 
 - `/api/blobs/load` 映射 string/object arms，并按 `kind + blob ID` 去重。
-- history mapping 对 SYNC/ASYNC 返回相同的 step request、method options 和 unavailable 语义。
+- history mapping 对 SYNC/ASYNC 返回相同的 step Input、Output、Context 和 unavailable 语义。
 
 Web Vitest：
 
 - 递归发现和替换 step input、attributes、channels、continued state 和 condition results。
 - batch cache 避免切换 tab 后重复加载。
+- timeline、step graph、reset dialog 和 selected event 不再读取旧的 execution/request/response。
+- Input 按 step input、condition results、attributes、locals 排列；Output 和 Context 使用新结构。
+- step snapshot unavailable 与单个 Value blob unavailable 使用不同提示。
 - 加载失败显示 unavailable，结构化 details 和 Raw JSON 都不泄露 blob ID。
 
 Web E2E：
@@ -618,9 +708,10 @@ Web E2E：
 
 ## 11. Documentation
 
-- 本文是 Phase 1 的 server API 和页面信息架构。
-- Phase 2 实现 proto 时更新 `protos/README.md`。
-- 创建 Web 工程时新增 `web/README.md`。
+- 本文同步记录 public history event、internal async snapshot 和 Web details 的最终结构。
+- `protos/README.md` 记录 `GetHistoryEvents` 自动补齐 input 及两种 unavailable 语义。
+- `web/README.md` 记录统一 event renderer、Value blob hydration 和缓存行为。
+- `CONTRIBUTING.md` 仅在开发命令或生成流程变化时更新。
 - 不修改 `sdk-java`。
 
 ## 12. UI/UX
@@ -628,3 +719,6 @@ Web E2E：
 Web 功能覆盖本地 `dex-base/web` 与 `durableworkflow/iwf-web` 的功能并集，但全部使用 Dex terminology。
 
 Temporal/Cadence 缺失的数据展示为 `—`。ASYNC local activity 在 marker 持久化前无法审计，UI 显示 “active, history pending”，不伪造 started event、worker 或 failure。
+
+Selected Event 固定按 Input、Output、Context 顺序展示。SYNC/ASYNC 不改变页面结构；
+`input.unavailable` 与 Value blob unavailable 分别说明 snapshot 缺失和单个值缺失。

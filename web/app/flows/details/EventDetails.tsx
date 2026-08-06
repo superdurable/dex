@@ -16,7 +16,7 @@ import {
 } from '@/lib/blobs';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
-  STEP_EVENT_INPUT_BLOB_UNAVAILABLE,
+  STEP_EVENT_INPUT_UNAVAILABLE,
   VALUE_BLOB_UNAVAILABLE,
 } from '@/lib/unavailable';
 import {
@@ -30,9 +30,12 @@ import {
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
+import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatElapsedDuration } from '@/lib/timeline';
+import { usePreferences } from '@/app/providers';
 
 type Data = Record<string, unknown>;
-type Field = [label: string, value: unknown];
+type Field = [label: string, value: unknown, wide?: boolean];
 
 const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   FlowStartedOrContinued: 'Flow started',
@@ -101,7 +104,7 @@ function decodedValue(value: unknown): unknown {
 
 function displayScalar(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string' || typeof value === 'number') return String(value);
   return JSON.stringify(value);
 }
@@ -120,8 +123,8 @@ function Fields({ values, compact = false }: { values: Field[]; compact?: boolea
   if (visible.length === 0) return null;
   return (
     <dl className={`semantic-fields${compact ? ' semantic-fields-compact' : ''}`}>
-      {visible.map(([label, value]) => (
-        <div key={label}>
+      {visible.map(([label, value, wide]) => (
+        <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
           <dd>{displayScalar(value)}</dd>
         </div>
@@ -240,21 +243,22 @@ function listText(value: unknown): string | undefined {
   return Array.isArray(value) && value.length > 0 ? value.map(String).join(', ') : undefined;
 }
 
-function StepMovements({ values }: { values: unknown }) {
+function StepMovements({ values, showFrom = true }: { values: unknown; showFrom?: boolean }) {
   const movements = asDataArray(values);
   if (movements.length === 0) return null;
   return (
     <div className="semantic-records">
-      {movements.map((movement, index) => (
-        <div className="semantic-record" key={`${String(movement.stepType)}-${index}`}>
-          <Fields values={[
-            ['Step', movement.stepType],
-            ['From', movement.fromStepExecutionIdInternalOnly],
-          ]} />
-          <ValueBlock label="Input" value={movement.stepInput} />
-          <StepOptionsView value={movement.stepOptions} />
-        </div>
-      ))}
+      {movements.map((movement, index) => {
+        const fields: Field[] = [['Step type', movement.stepType]];
+        if (showFrom) fields.push(['From', movement.fromStepExecutionIdInternalOnly]);
+        return (
+          <div className="semantic-record" key={`${String(movement.stepType)}-${index}`}>
+            <Fields compact values={fields} />
+            <ValueBlock label="Input" value={movement.stepInput} />
+            <StepOptionsView value={movement.stepOptions} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -287,6 +291,7 @@ function WaitingConditionView({ value }: { value: unknown }) {
 }
 
 function WaitingConditionContent({ value }: { value: unknown }) {
+  const { timezone } = usePreferences();
   const condition = asData(value);
   if (!hasData(condition)) return null;
   const channels = asDataArray(condition.channelConditions);
@@ -320,7 +325,7 @@ function WaitingConditionContent({ value }: { value: unknown }) {
               <Fields values={[
                 ['Condition ID', timer.conditionId],
                 ['Delay', seconds(timer.durationSeconds)],
-                ['Fires at', unixTime(timer.firingUnixTimestampSeconds)],
+                ['Fires at', unixTime(timer.firingUnixTimestampSeconds, timezone)],
               ]} />
             </div>
           ))}
@@ -338,11 +343,11 @@ function WaitingConditionContent({ value }: { value: unknown }) {
   );
 }
 
-function unixTime(value: unknown): string | undefined {
+function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {
   if (!isPresent(value)) return undefined;
   const timestamp = Number(value);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return undefined;
-  return new Date(timestamp * 1000).toLocaleString();
+  return formatDate(new Date(timestamp * 1000).toISOString(), timezone);
 }
 
 function ConditionResultsContent({ value, showEmpty = false }: { value: unknown; showEmpty?: boolean }) {
@@ -396,7 +401,7 @@ function StepDecisionContent({ value }: { value: unknown }) {
   const close = asData(decision.closeDecision);
   return (
     <>
-      <StepMovements values={decision.nextSteps} />
+      <StepMovements values={decision.nextSteps} showFrom={false} />
       {hasData(close) && (
         <div className="semantic-record decision-record">
           <strong>{closeDecisionTypeLabel(close.closeDecisionType)}</strong>
@@ -441,7 +446,7 @@ function EffectsContent({ value }: { value: Data }) {
   const attributes = value.upsertAttributes;
   const events = value.recordEvents;
   const channels = value.publishToChannel;
-  const locals = value.upsertStepExeLocals;
+  const locals = value.upsertStepExecutionLocals;
   if (![attributes, events, channels, locals].some((entry) => Array.isArray(entry) && entry.length > 0)) return null;
   return (
     <>
@@ -481,84 +486,91 @@ function StepMethodOptionsView({ value }: { value: unknown }) {
 }
 
 function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
+  const { timezone } = usePreferences();
   const payload = event.payload;
-  const execution = asData(payload.execution);
-  const request = asData(payload.request);
-  const context = asData(request.context);
-  const response = asData(payload.response);
-  const previousFailures = asDataArray(execution.previousAttemptFailures);
+  const input = asData(payload.input);
+  const output = asData(payload.output);
+  const context = asData(payload.context);
   const isWaitFor = event.type.startsWith('StepWaitFor');
-  const hasRequest = hasData(request);
+  const hasInput = payload.input !== undefined && input.unavailable !== true;
   return (
     <>
       <DetailSection title="Input">
-        {hasRequest ? (
+        {input.unavailable === true ? (
+          <p className="muted">{STEP_EVENT_INPUT_UNAVAILABLE}</p>
+        ) : hasInput ? (
           <>
-            <ValueBlock label="Step input" value={request.stepInput} showEmpty />
-            <div className="semantic-subsection">
-              <h5>Attributes</h5>
-              <KeyValues values={request.attributes} emptyLabel="No attributes" />
-            </div>
+            <ValueBlock label="Step input" value={input.stepInput} showEmpty />
             {!isWaitFor && (
               <div className="semantic-subsection">
                 <h5>Condition results</h5>
-                <ConditionResultsContent value={request.conditionResults} showEmpty />
+                <ConditionResultsContent value={input.conditionResults} showEmpty />
+              </div>
+            )}
+            <div className="semantic-subsection">
+              <h5>Attributes</h5>
+              <KeyValues values={input.attributes} emptyLabel="No attributes" />
+            </div>
+            {!isWaitFor && Array.isArray(input.stepExecutionLocals) && input.stepExecutionLocals.length > 0 && (
+              <div className="semantic-subsection">
+                <h5>Step locals</h5>
+                <KeyValues values={input.stepExecutionLocals} />
               </div>
             )}
           </>
-        ) : payload.inputUnavailable === true ? (
-          <p className="muted">{STEP_EVENT_INPUT_BLOB_UNAVAILABLE}</p>
         ) : <p className="muted">No input</p>}
       </DetailSection>
       <DetailSection title="Output">
-        {isWaitFor && hasData(asData(response.waitingCondition)) ? (
+        {isWaitFor && hasData(asData(output.waitForCondition)) ? (
           <div className="semantic-subsection">
             <h5>WaitFor condition</h5>
-            <WaitingConditionContent value={response.waitingCondition} />
+            <WaitingConditionContent value={output.waitForCondition} />
           </div>
-        ) : !isWaitFor && hasData(asData(response.stepDecision)) ? (
+        ) : !isWaitFor && hasData(asData(output.stepDecision)) ? (
           <div className="semantic-subsection">
             <h5>Step decision</h5>
-            <StepDecisionContent value={response.stepDecision} />
+            <StepDecisionContent value={output.stepDecision} />
           </div>
         ) : null}
-        <EffectsContent value={response} />
-        {hasData(asData(payload.failure)) && (
+        <EffectsContent value={output} />
+        {hasData(asData(output.failure)) && (
           <div className="semantic-subsection">
             <h5>Failure</h5>
-            <FailureContent value={payload.failure} />
+            <FailureContent value={output.failure} />
           </div>
         )}
       </DetailSection>
       <DetailSection title="Context">
         <Fields compact values={[
-          ['Execution ID', execution.stepExecutionId ?? context.stepExecutionId],
-          ['Scheduled from', execution.fromStepExecutionId ?? context.fromStepExecutionId],
-          ['Durability', durabilityLabel(execution.durability)],
-          ['Attempt', context.attempt],
-          ['Final attempt', execution.finalAttempt],
-          ['First attempt', context.firstAttemptTimestamp],
-          ['First started', execution.firstStartedTime],
-          ['Duration', execution.duration],
+          ['Execution ID', context.stepExecutionId],
+          ['From', context.fromStepExecutionId],
+          ['Durability', durabilityLabel(context.durability)],
+          ['Final attempt', context.finalAttempt],
+          ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined, true],
+          ['Duration', protobufDuration(context.duration)],
         ]} />
-        <StepMethodOptionsView value={execution.methodOptions} />
-        {previousFailures.length > 0 && (
-          <div className="semantic-subsection">
-            <h5>Previous attempts</h5>
-            {previousFailures.map((attempt, index) => (
-              <div className="semantic-record" key={index}>
-                <Fields values={[
-                  ['Attempt', attempt.attempt],
-                  ['Failed at', attempt.failedTime],
-                ]} />
-                <FailureContent value={attempt.failure} />
-              </div>
-            ))}
-          </div>
-        )}
+        <StepMethodOptionsView value={context.methodOptions} />
       </DetailSection>
     </>
   );
+}
+
+function protobufDuration(value: unknown): string | undefined {
+  if (!isPresent(value)) return undefined;
+  if (typeof value === 'string') {
+    const match = /^(-?\d+(?:\.\d+)?)s$/.exec(value);
+    if (match) return formatElapsedDuration(Number(match[1]) * 1000);
+  }
+  const duration = asData(value);
+  const seconds = Number(duration.seconds);
+  const nanos = Number(duration.nanos);
+  if (Number.isFinite(seconds) || Number.isFinite(nanos)) {
+    return formatElapsedDuration(
+      (Number.isFinite(seconds) ? seconds * 1000 : 0) +
+      (Number.isFinite(nanos) ? nanos / 1_000_000 : 0),
+    );
+  }
+  return displayScalar(value);
 }
 
 function InitialStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {

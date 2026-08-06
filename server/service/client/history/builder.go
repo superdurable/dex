@@ -42,8 +42,6 @@ type scheduledActivity struct {
 	methodOptions    *dexpb.StepMethodOptions
 	waitInput        *dexpb.InvokeWaitForMethodActivityInput
 	executeInput     *dexpb.InvokeExecuteMethodActivityInput
-	previousFailures []*dexpb.StepMethodAttemptFailure
-	priorAttempts    int32
 	firstStartedTime time.Time
 	finalAttempt     int32
 }
@@ -97,15 +95,12 @@ func (b *Builder) RecordWaitScheduled(
 	input *dexpb.InvokeWaitForMethodActivityInput,
 	durability dexpb.StepDurability,
 	methodOptions *dexpb.StepMethodOptions,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	b.scheduledActivities[eventID] = &scheduledActivity{
-		scheduledTime:    eventTime,
-		durability:       durability,
-		methodOptions:    methodOptions,
-		waitInput:        input,
-		previousFailures: previousFailures,
-		priorAttempts:    previousAttemptCount(previousFailures),
+		scheduledTime: eventTime,
+		durability:    durability,
+		methodOptions: methodOptions,
+		waitInput:     input,
 	}
 }
 
@@ -115,15 +110,12 @@ func (b *Builder) RecordExecuteScheduled(
 	input *dexpb.InvokeExecuteMethodActivityInput,
 	durability dexpb.StepDurability,
 	methodOptions *dexpb.StepMethodOptions,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	b.scheduledActivities[eventID] = &scheduledActivity{
-		scheduledTime:    eventTime,
-		durability:       durability,
-		methodOptions:    methodOptions,
-		executeInput:     input,
-		previousFailures: previousFailures,
-		priorAttempts:    previousAttemptCount(previousFailures),
+		scheduledTime: eventTime,
+		durability:    durability,
+		methodOptions: methodOptions,
+		executeInput:  input,
 	}
 }
 
@@ -131,7 +123,6 @@ func (b *Builder) RecordActivityStarted(
 	eventTime time.Time,
 	scheduledEventID int64,
 	attempt int32,
-	lastFailure *dexpb.StepMethodFailure,
 ) {
 	scheduled := b.scheduledActivities[scheduledEventID]
 	if scheduled == nil {
@@ -142,15 +133,6 @@ func (b *Builder) RecordActivityStarted(
 	}
 	if attempt > scheduled.finalAttempt {
 		scheduled.finalAttempt = attempt
-	}
-	if attempt > 1 && lastFailure != nil {
-		scheduled.previousFailures = append(
-			scheduled.previousFailures,
-			&dexpb.StepMethodAttemptFailure{
-				Attempt: scheduled.priorAttempts + attempt - 1,
-				Failure: lastFailure,
-			},
-		)
 	}
 }
 
@@ -168,47 +150,49 @@ func (b *Builder) RecordActivityCompleted(
 	startedTime, finalAttempt := scheduled.executionTiming()
 	switch {
 	case scheduled.waitInput != nil && waitOutput != nil:
-		b.recordTransientStep(waitOutput.GetResponse().GetTransientStepMovement())
+		request := scheduled.waitInput.GetRequest()
+		response := waitOutput.GetResponse()
+		b.recordTransientStep(response.GetTransientStepMovement())
 		b.events = append(b.events, newEvent(
 			eventID,
 			eventTime,
 			&dexpb.FlowHistoryEvent_StepWaitForCompleted{
 				StepWaitForCompleted: &dexpb.StepWaitForCompletedEvent{
-					Execution: executionInfo(
-						scheduled.waitInput.GetRequest().GetContext(),
-						scheduled.waitInput.GetRequest().GetStepType(),
+					Input:  waitEventInput(request),
+					Output: waitCompletedOutput(response),
+					Context: stepMethodEventContext(
+						request.GetContext(),
+						request.GetStepType(),
 						scheduled.durability,
 						false,
 						startedTime,
 						eventTime,
 						finalAttempt,
-						scheduled.previousFailures,
 						scheduled.methodOptions,
 					),
-					Request:  scheduled.waitInput.GetRequest(),
-					Response: waitOutput.GetResponse(),
 				},
 			},
 		))
 	case scheduled.executeInput != nil && executeOutput != nil:
+		request := scheduled.executeInput.GetRequest()
+		response := executeOutput.GetResponse()
 		b.events = append(b.events, newEvent(
 			eventID,
 			eventTime,
 			&dexpb.FlowHistoryEvent_StepExecuteCompleted{
 				StepExecuteCompleted: &dexpb.StepExecuteCompletedEvent{
-					Execution: executionInfo(
-						scheduled.executeInput.GetRequest().GetContext(),
-						scheduled.executeInput.GetRequest().GetStepType(),
+					Input:  executeEventInput(request),
+					Output: executeCompletedOutput(response),
+					Context: stepMethodEventContext(
+						request.GetContext(),
+						request.GetStepType(),
 						scheduled.durability,
 						scheduled.executeInput.GetIsTransientStep(),
 						startedTime,
 						eventTime,
 						finalAttempt,
-						scheduled.previousFailures,
 						scheduled.methodOptions,
 					),
-					Request:  scheduled.executeInput.GetRequest(),
-					Response: executeOutput.GetResponse(),
 				},
 			},
 		))
@@ -232,46 +216,46 @@ func (b *Builder) RecordActivityFailed(
 	startedTime, finalAttempt := scheduled.executionTiming()
 	switch {
 	case scheduled.waitInput != nil:
+		request := scheduled.waitInput.GetRequest()
 		b.events = append(b.events, newEvent(
 			eventID,
 			eventTime,
 			&dexpb.FlowHistoryEvent_StepWaitForFailed{
 				StepWaitForFailed: &dexpb.StepWaitForFailedEvent{
-					Execution: executionInfo(
-						scheduled.waitInput.GetRequest().GetContext(),
-						scheduled.waitInput.GetRequest().GetStepType(),
+					Input:  waitEventInput(request),
+					Output: &dexpb.StepMethodFailedOutput{Failure: failure},
+					Context: stepMethodEventContext(
+						request.GetContext(),
+						request.GetStepType(),
 						scheduled.durability,
 						false,
 						startedTime,
 						eventTime,
 						finalAttempt,
-						scheduled.previousFailures,
 						scheduled.methodOptions,
 					),
-					Request: scheduled.waitInput.GetRequest(),
-					Failure: failure,
 				},
 			},
 		))
 	case scheduled.executeInput != nil:
+		request := scheduled.executeInput.GetRequest()
 		b.events = append(b.events, newEvent(
 			eventID,
 			eventTime,
 			&dexpb.FlowHistoryEvent_StepExecuteFailed{
 				StepExecuteFailed: &dexpb.StepExecuteFailedEvent{
-					Execution: executionInfo(
-						scheduled.executeInput.GetRequest().GetContext(),
-						scheduled.executeInput.GetRequest().GetStepType(),
+					Input:  executeEventInput(request),
+					Output: &dexpb.StepMethodFailedOutput{Failure: failure},
+					Context: stepMethodEventContext(
+						request.GetContext(),
+						request.GetStepType(),
 						scheduled.durability,
 						scheduled.executeInput.GetIsTransientStep(),
 						startedTime,
 						eventTime,
 						finalAttempt,
-						scheduled.previousFailures,
 						scheduled.methodOptions,
 					),
-					Request: scheduled.executeInput.GetRequest(),
-					Failure: failure,
 				},
 			},
 		))
@@ -287,7 +271,6 @@ func (b *Builder) RecordLocalWaitCompleted(
 	eventTime time.Time,
 	output *dexpb.InvokeWaitForMethodActivityOutput,
 	finalAttempt int32,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	response := output.GetResponse()
 	b.recordTransientStep(response.GetTransientStepMovement())
@@ -296,13 +279,12 @@ func (b *Builder) RecordLocalWaitCompleted(
 		eventTime,
 		&dexpb.FlowHistoryEvent_StepWaitForCompleted{
 			StepWaitForCompleted: &dexpb.StepWaitForCompletedEvent{
-				Execution: localExecutionInfo(
+				Output: waitCompletedOutput(response),
+				Context: localStepMethodEventContext(
 					response.GetLocalActivityInput(),
 					false,
 					finalAttempt,
-					previousFailures,
 				),
-				Response: response,
 			},
 		},
 	))
@@ -313,7 +295,6 @@ func (b *Builder) RecordLocalExecuteCompleted(
 	eventTime time.Time,
 	output *dexpb.InvokeExecuteMethodActivityOutput,
 	finalAttempt int32,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
 ) {
 	response := output.GetResponse()
 	localInput := response.GetLocalActivityInput()
@@ -323,13 +304,12 @@ func (b *Builder) RecordLocalExecuteCompleted(
 		eventTime,
 		&dexpb.FlowHistoryEvent_StepExecuteCompleted{
 			StepExecuteCompleted: &dexpb.StepExecuteCompletedEvent{
-				Execution: localExecutionInfo(
+				Output: executeCompletedOutput(response),
+				Context: localStepMethodEventContext(
 					localInput,
 					isTransient,
 					finalAttempt,
-					previousFailures,
 				),
-				Response: response,
 			},
 		},
 	))
@@ -461,7 +441,7 @@ func (s *scheduledActivity) executionTiming() (time.Time, int32) {
 	if finalAttempt <= 0 {
 		finalAttempt = 1
 	}
-	return startedTime, s.priorAttempts + finalAttempt
+	return startedTime, finalAttempt
 }
 
 func (b *Builder) recordTransientStep(movement *dexpb.StepMovement) {
@@ -488,16 +468,6 @@ func (b *Builder) consumeTransientStep(input *dexpb.LocalActivityInput) bool {
 
 func transientStepKey(fromStepExecutionID string, stepType string) string {
 	return fromStepExecutionID + "\x00" + stepType
-}
-
-func previousAttemptCount(failures []*dexpb.StepMethodAttemptFailure) int32 {
-	var count int32
-	for _, failure := range failures {
-		if failure.GetAttempt() > count {
-			count = failure.GetAttempt()
-		}
-	}
-	return count
 }
 
 func newEvent(
@@ -532,7 +502,44 @@ func newEvent(
 	return event
 }
 
-func executionInfo(
+func waitEventInput(request *dexpb.InvokeWaitForMethodRequest) *dexpb.StepMethodEventInput {
+	return &dexpb.StepMethodEventInput{
+		StepInput:  request.GetStepInput(),
+		Attributes: request.GetAttributes(),
+	}
+}
+
+func executeEventInput(request *dexpb.InvokeExecuteMethodRequest) *dexpb.StepMethodEventInput {
+	return &dexpb.StepMethodEventInput{
+		StepInput:           request.GetStepInput(),
+		ConditionResults:    request.GetConditionResults(),
+		Attributes:          request.GetAttributes(),
+		StepExecutionLocals: request.GetStepExeLocals(),
+	}
+}
+
+func waitCompletedOutput(response *dexpb.InvokeWaitForMethodResponse) *dexpb.StepWaitForCompletedOutput {
+	return &dexpb.StepWaitForCompletedOutput{
+		WaitForCondition:          response.GetWaitingCondition(),
+		UpsertAttributes:          response.GetUpsertAttributes(),
+		PublishToChannel:          response.GetPublishToChannel(),
+		RecordEvents:              response.GetRecordEvents(),
+		UpsertStepExecutionLocals: response.GetUpsertStepExeLocals(),
+		TransientStepMovement:     response.GetTransientStepMovement(),
+	}
+}
+
+func executeCompletedOutput(response *dexpb.InvokeExecuteMethodResponse) *dexpb.StepExecuteCompletedOutput {
+	return &dexpb.StepExecuteCompletedOutput{
+		StepDecision:              response.GetStepDecision(),
+		UpsertAttributes:          response.GetUpsertAttributes(),
+		PublishToChannel:          response.GetPublishToChannel(),
+		RecordEvents:              response.GetRecordEvents(),
+		UpsertStepExecutionLocals: response.GetUpsertStepExeLocals(),
+	}
+}
+
+func stepMethodEventContext(
 	context *dexpb.Context,
 	stepType string,
 	durability dexpb.StepDurability,
@@ -540,40 +547,36 @@ func executionInfo(
 	startedTime time.Time,
 	completedTime time.Time,
 	finalAttempt int32,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
 	methodOptions *dexpb.StepMethodOptions,
-) *dexpb.StepMethodExecutionInfo {
-	return &dexpb.StepMethodExecutionInfo{
-		StepExecutionId:         context.GetStepExecutionId(),
-		FromStepExecutionId:     context.GetFromStepExecutionId(),
-		StepType:                stepType,
-		FinalAttempt:            finalAttempt,
-		Durability:              durability,
-		IsTransientStep:         &isTransient,
-		FirstStartedTime:        timestamppb.New(startedTime),
-		Duration:                durationpb.New(completedTime.Sub(startedTime)),
-		PreviousAttemptFailures: previousFailures,
-		MethodOptions:           methodOptions,
+) *dexpb.StepMethodEventContext {
+	return &dexpb.StepMethodEventContext{
+		StepExecutionId:     context.GetStepExecutionId(),
+		FromStepExecutionId: context.GetFromStepExecutionId(),
+		StepType:            stepType,
+		Durability:          durability,
+		FinalAttempt:        finalAttempt,
+		StartedTime:         timestamppb.New(startedTime),
+		Duration:            durationpb.New(completedTime.Sub(startedTime)),
+		MethodOptions:       methodOptions,
+		IsTransientStep:     &isTransient,
 	}
 }
 
-func localExecutionInfo(
+func localStepMethodEventContext(
 	input *dexpb.LocalActivityInput,
 	isTransient bool,
 	finalAttempt int32,
-	previousFailures []*dexpb.StepMethodAttemptFailure,
-) *dexpb.StepMethodExecutionInfo {
+) *dexpb.StepMethodEventContext {
 	if finalAttempt <= 0 {
 		finalAttempt = 1
 	}
-	return &dexpb.StepMethodExecutionInfo{
-		StepExecutionId:         input.GetCurrentStepExecutionId(),
-		FromStepExecutionId:     input.GetFromStepExecutionId(),
-		StepType:                stepTypeFromExecutionID(input.GetCurrentStepExecutionId()),
-		FinalAttempt:            finalAttempt,
-		Durability:              dexpb.StepDurability_STEP_DURABILITY_ASYNC,
-		IsTransientStep:         &isTransient,
-		PreviousAttemptFailures: previousFailures,
+	return &dexpb.StepMethodEventContext{
+		StepExecutionId:     input.GetCurrentStepExecutionId(),
+		FromStepExecutionId: input.GetFromStepExecutionId(),
+		StepType:            stepTypeFromExecutionID(input.GetCurrentStepExecutionId()),
+		Durability:          dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+		FinalAttempt:        finalAttempt,
+		IsTransientStep:     &isTransient,
 	}
 }
 

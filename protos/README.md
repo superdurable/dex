@@ -50,14 +50,20 @@ Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
 supports incremental refresh. `GetFlowState` returns the interpreter
 snapshot for a running flow.
 
-Successful async local activities do not place requests in backend history.
-`GetHistoryEvents` fills those requests from run-scoped external storage before
-returning semantic events. Missing or cleaned-up input sets the event's
-`input_unavailable` field. Sync and async events therefore have the same shape.
+Step method events expose the same `input`, `output`, and `context` structure
+for sync, async, and async-fallback execution. Regular Activity inputs come from
+scheduled history; successful local Activity inputs come from run-scoped
+external storage. Missing or cleaned-up snapshots set `input.unavailable=true`.
 
-Each step method event also returns its effective timeout and retry policy.
-Regular Activity options come from the scheduled event; local Activity options
-are retained with the stored request.
+Each event context includes the effective method timeout and retry policy.
+Regular Activity options come from scheduled metadata; local Activity options
+are retained with the stored request. Regular Activity input messages remain
+unchanged and use a null second Activity argument.
+
+`LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
+is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the
+run-scoped request and method-options record; neither internal type is returned
+by `FlowService`.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store

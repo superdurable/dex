@@ -473,7 +473,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 	)
 	builder := historybuilder.NewBuilder(workflowID, runID)
 	scheduledTypes := map[int64]string{}
-	fallbackFailures := map[string][]*dexpb.StepMethodAttemptFailure{}
+	localFallbackCounts := map[string]int{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
 		if err != nil {
@@ -482,7 +482,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 		if err := t.addTemporalHistoryEvent(
 			builder,
 			scheduledTypes,
-			fallbackFailures,
+			localFallbackCounts,
 			event,
 		); err != nil {
 			return nil, err
@@ -522,7 +522,7 @@ func (t *temporalClient) WaitForWorkflowHistoryEvent(
 func (t *temporalClient) addTemporalHistoryEvent(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *history.HistoryEvent,
 ) error {
 	eventTime := event.GetEventTime().AsTime()
@@ -540,7 +540,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		return t.recordTemporalScheduledActivity(
 			builder,
 			scheduledTypes,
-			fallbackFailures,
+			localFallbackCounts,
 			event,
 		)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_STARTED:
@@ -549,10 +549,6 @@ func (t *temporalClient) addTemporalHistoryEvent(
 			eventTime,
 			attributes.GetScheduledEventId(),
 			attributes.GetAttempt(),
-			temporalStepFailure(
-				attributes.GetLastFailure(),
-				enums.RETRY_STATE_IN_PROGRESS.String(),
-			),
 		)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
 		return t.recordTemporalCompletedActivity(builder, scheduledTypes, event)
@@ -584,7 +580,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	case enums.EVENT_TYPE_MARKER_RECORDED:
 		return t.recordTemporalLocalActivity(
 			builder,
-			fallbackFailures,
+			localFallbackCounts,
 			event,
 		)
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
@@ -643,23 +639,25 @@ func (t *temporalClient) addTemporalHistoryEvent(
 func (t *temporalClient) recordTemporalScheduledActivity(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *history.HistoryEvent,
 ) error {
 	attributes := event.GetActivityTaskScheduledEventAttributes()
 	activityType := attributes.GetActivityType().GetName()
 	durability := dexpb.StepDurability_STEP_DURABILITY_SYNC
 	method := activityMethod(activityType)
-	var previousFailures []*dexpb.StepMethodAttemptFailure
-	if failures := fallbackFailures[method]; len(failures) > 0 {
+	if localFallbackCounts[method] > 0 {
 		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
-		previousFailures = failures
-		delete(fallbackFailures, method)
+		localFallbackCounts[method]--
+		if localFallbackCounts[method] == 0 {
+			delete(localFallbackCounts, method)
+		}
 	}
 	switch {
 	case strings.Contains(activityType, "InvokeWaitForMethod"):
 		var input dexpb.InvokeWaitForMethodActivityInput
-		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input); err != nil {
+		var localInput *dexpb.InternalLocalActivityInput
+		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input, &localInput); err != nil {
 			return err
 		}
 		builder.RecordWaitScheduled(
@@ -668,11 +666,11 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 			&input,
 			durability,
 			temporalStepMethodOptions(attributes),
-			previousFailures,
 		)
 	case strings.Contains(activityType, "InvokeExecuteMethod"):
 		var input dexpb.InvokeExecuteMethodActivityInput
-		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input); err != nil {
+		var localInput *dexpb.InternalLocalActivityInput
+		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input, &localInput); err != nil {
 			return err
 		}
 		builder.RecordExecuteScheduled(
@@ -681,7 +679,6 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 			&input,
 			durability,
 			temporalStepMethodOptions(attributes),
-			previousFailures,
 		)
 	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
 	default:
@@ -757,7 +754,7 @@ func (t *temporalClient) recordTemporalCompletedActivity(
 
 func (t *temporalClient) recordTemporalLocalActivity(
 	builder *historybuilder.Builder,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *history.HistoryEvent,
 ) error {
 	attributes := event.GetMarkerRecordedEventAttributes()
@@ -770,22 +767,9 @@ func (t *temporalClient) recordTemporalLocalActivity(
 	}
 	result := attributes.GetDetails()["result"]
 	if result == nil {
-		method := activityMethod(marker.ActivityType)
-		fallbackFailures[method] = append(
-			fallbackFailures[method],
-			&dexpb.StepMethodAttemptFailure{
-				Attempt:    marker.Attempt,
-				FailedTime: event.GetEventTime(),
-				Failure: temporalStepFailure(
-					attributes.GetFailure(),
-					enums.RETRY_STATE_IN_PROGRESS.String(),
-				),
-			},
-		)
+		localFallbackCounts[activityMethod(marker.ActivityType)]++
 		return nil
 	}
-	previousFailures := fallbackFailures[activityMethod(marker.ActivityType)]
-	delete(fallbackFailures, activityMethod(marker.ActivityType))
 	switch {
 	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
 		var output dexpb.InvokeWaitForMethodActivityOutput
@@ -797,7 +781,6 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			event.GetEventTime().AsTime(),
 			&output,
 			marker.Attempt,
-			previousFailures,
 		)
 	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
 		var output dexpb.InvokeExecuteMethodActivityOutput
@@ -809,7 +792,6 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			event.GetEventTime().AsTime(),
 			&output,
 			marker.Attempt,
-			previousFailures,
 		)
 	case strings.Contains(marker.ActivityType, "DumpFlowForContinueAsNew"):
 		var output dexpb.DumpFlowForContinueAsNewActivityOutput

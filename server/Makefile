@@ -194,7 +194,7 @@ cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 
 ci-web-api-temporal-test:
-	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60
+	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort)
 
 ci-web-api-cadence-test:
 	$Q go test -v ./integ -timeout 5m -run '^TestWebAPICadence$$' -search=false -temporal=false -dependencyWaitSeconds=180

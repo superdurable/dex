@@ -71,7 +71,9 @@ func NewActivities(
 
 // InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.
 func (a *Activities) InvokeWaitForMethod(
-	ctx context.Context, input *dexpb.InvokeWaitForMethodActivityInput,
+	ctx context.Context,
+	input *dexpb.InvokeWaitForMethodActivityInput,
+	localInput *dexpb.InternalLocalActivityInput,
 ) (*dexpb.InvokeWaitForMethodActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
@@ -121,13 +123,15 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 	if err := a.persistStepEventInput(
 		ctx,
-		input.GetCurrentRunStartedTimestampInternalOnly(),
+		localInput.GetCurrentRunStartedTimestamp(),
 		activityInfo,
 		req.GetContext().GetStepExecutionId(),
 		blobstore.StepEventInputMethodWaitFor,
-		&dexpb.StepEventInput{
-			MethodOptions: input.GetMethodOptionsInternalOnly(),
-			Request:       &dexpb.StepEventInput_WaitForRequest{WaitForRequest: req},
+		&dexpb.InternalAsyncStepInputSnapshot{
+			MethodOptions: localInput.GetMethodOptions(),
+			Request: &dexpb.InternalAsyncStepInputSnapshot_WaitForRequest{
+				WaitForRequest: req,
+			},
 		},
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
@@ -176,7 +180,9 @@ func (a *Activities) InvokeWaitForMethod(
 
 // InvokeExecuteMethod calls WorkerService.InvokeExecuteMethod.
 func (a *Activities) InvokeExecuteMethod(
-	ctx context.Context, input *dexpb.InvokeExecuteMethodActivityInput,
+	ctx context.Context,
+	input *dexpb.InvokeExecuteMethodActivityInput,
+	localInput *dexpb.InternalLocalActivityInput,
 ) (*dexpb.InvokeExecuteMethodActivityOutput, error) {
 	provider := a.activityProvider
 	logger := provider.GetLogger(ctx)
@@ -227,13 +233,15 @@ func (a *Activities) InvokeExecuteMethod(
 	}
 	if err := a.persistStepEventInput(
 		ctx,
-		input.GetCurrentRunStartedTimestampInternalOnly(),
+		localInput.GetCurrentRunStartedTimestamp(),
 		activityInfo,
 		req.GetContext().GetStepExecutionId(),
 		blobstore.StepEventInputMethodExecute,
-		&dexpb.StepEventInput{
-			MethodOptions: input.GetMethodOptionsInternalOnly(),
-			Request:       &dexpb.StepEventInput_ExecuteRequest{ExecuteRequest: req},
+		&dexpb.InternalAsyncStepInputSnapshot{
+			MethodOptions: localInput.GetMethodOptions(),
+			Request: &dexpb.InternalAsyncStepInputSnapshot_ExecuteRequest{
+				ExecuteRequest: req,
+			},
 		},
 	); err != nil {
 		return nil, composeInternalActivityError(provider, err)
@@ -286,7 +294,7 @@ func (a *Activities) persistStepEventInput(
 	activityInfo interfaces.ActivityInfo,
 	stepExecutionID string,
 	method string,
-	input *dexpb.StepEventInput,
+	input *dexpb.InternalAsyncStepInputSnapshot,
 ) error {
 	if !activityInfo.IsLocalActivity || !a.cfg.ExternalStorage.Enabled {
 		return nil

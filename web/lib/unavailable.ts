@@ -7,4 +7,4 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 export const VALUE_BLOB_UNAVAILABLE = 'Value blob unavailable';
-export const STEP_EVENT_INPUT_BLOB_UNAVAILABLE = 'Step event input blob unavailable';
+export const STEP_EVENT_INPUT_UNAVAILABLE = 'Step event input unavailable';

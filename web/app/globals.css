@@ -1093,6 +1093,10 @@ pre {
   gap: 5px;
 }
 
+.semantic-fields-compact > .semantic-field-wide {
+  grid-column: 1 / -1;
+}
+
 .semantic-fields-compact dt {
   margin-bottom: 0;
 }
