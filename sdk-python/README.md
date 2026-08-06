@@ -70,7 +70,7 @@ See [samples](../examples/python) for use case examples.
 
 ## Concepts
 
-Applications implement two generic interfaces from [`dex.contracts`](dex/contracts.py):
+Applications implement two generic interfaces from [`dex.contracts`](dex/contracts/):
 
 - `Flow[START_INPUT]` returns `StepList.start_step(...)`, followed by optional
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
