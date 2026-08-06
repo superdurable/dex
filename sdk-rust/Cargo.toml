@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license-file = "LICENSE"
 repository = "https://github.com/superdurable/dex"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 crc32c = "0.6"

@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Super Durable Source License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
+from dex import (
+    Attribute,
+    AttributeIndex,
+    AttributeMap,
+    Channel,
+    Context,
+    Flow,
+    IndexType,
+    PersistenceSchema,
+    Step,
+    StepDecision,
+    StepDef,
+    Wait,
+    go_to,
+    graceful_complete,
+    rpc,
+)
+
+
+class LockCompleteStep(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
+        return graceful_complete("lock complete")
+
+
+class LockWaitStep(Step[None]):
+    def __init__(self, channel: Channel[None], second: LockCompleteStep) -> None:
+        self.channel = channel
+        self.second = second
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.any_of(self.channel.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
+        return go_to(self.second, None)
+
+
+class RpcLockingFlow(Flow[None]):
+    channel = Channel[None]("rpc-channel", type(None))
+    data = Attribute("rpc-lock-data", str)
+    counter = Attribute(
+        "rpc-lock-counter",
+        int,
+        AttributeIndex(IndexType.INT),
+    )
+    items = AttributeMap("rpc-lock-items", str)
+
+    def __init__(self) -> None:
+        self.second = LockCompleteStep()
+        self.first = LockWaitStep(self.channel, self.second)
+
+    def get_steps(self) -> tuple[StepDef, ...]:
+        return (
+            StepDef.start_step(self.first),
+            StepDef.non_start_step(self.second),
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema(
+            attributes=(self.data, self.counter, self.items),
+            channels=(self.channel,),
+        )
+
+    @rpc(lock_attributes=(data.lock(), counter.lock()))
+    def with_locking(self, context: Context) -> None:
+        self.data.set(context, "locked")
+        self.counter.set(context, 1)
+        self.channel.publish(context, None)
+
+    @rpc(lock_attributes=(items.lock("order-1"),))
+    def with_attribute_map_lock(self, context: Context) -> None:
+        self.items.set(context, "order-1", "locked")
+
+    @rpc
+    def without_locking(self, context: Context) -> None:
+        self.channel.publish(context, None)

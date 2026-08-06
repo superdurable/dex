@@ -51,8 +51,8 @@ func ProceedToOnExecuteFailure[IN any](
 }
 
 type StepOptions struct {
-	WaitForTimeout        time.Duration
-	ExecuteTimeout        time.Duration
+	WaitForMethodTimeout  time.Duration
+	ExecuteMethodTimeout  time.Duration
 	WaitForRetry          *RetryPolicy
 	ExecuteRetry          *RetryPolicy
 	WaitForFailure        WaitForFailurePolicy

@@ -6,6 +6,102 @@ See [samples](../examples/java) for how to use this SDK to build your workflow.
 
 Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable.io](https://superdurable.io)).
 
+## New user contracts
+
+The canonical rewrite API is under `io.superdurable.dex`. This phase includes
+strongly typed workflow definitions, persistence handles, registry
+validation, and the synchronous client/worker shapes. Transport methods fail
+with `UnsupportedOperationException` until the shared Rust Core is connected.
+
+Java workflows and steps are interfaces, while RPCs keep the annotation and
+typed-stub model:
+
+```java
+public final class IncrementStep implements Step<Long> {
+    @Override
+    public Class<Long> getInputType() {
+        return Long.class;
+    }
+
+    @Override
+    public StepDecision execute(Context context, Long input) {
+        return StepDecision.gracefulComplete(input + 1L);
+    }
+}
+
+public final class CounterFlow implements Flow<Long> {
+    private final IncrementStep start = new IncrementStep();
+
+    @Override
+    public List<StepDef> getSteps() {
+        return Collections.singletonList(StepDef.startStep(start));
+    }
+
+    @RPC(name = "increment", timeoutSeconds = 10)
+    public RPCResult<Long> increment(Context context, Long amount) {
+        return RPCResult.of(amount + 1L);
+    }
+}
+
+CounterFlow stub = client.newRpcStub(CounterFlow.class, flowId, runId);
+long value = client.invokeRPC(stub::increment, 1L);
+```
+
+`Step<I>` declares `Class<I> getInputType()`; parameterized Step inputs are not
+supported. Steps, attributes, and channels declare Java classes, not codecs:
+
+```java
+Attribute<String> status = Attribute.define("status", String.class);
+Channel<Void> wakeup = Channel.define("wakeup", Void.class);
+```
+
+Wait factories read from the domain nouns they create:
+
+```java
+return Wait.allOf(
+        Timer.byDuration(Duration.ofSeconds(1)));
+```
+
+`StepOptions.waitForMethodTimeout(...)` and `executeMethodTimeout(...)` bound
+the two handler calls. Timer and channel conditions determine how long a Step
+waits.
+
+`ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
+accept a configured mapper when needed. Java does not expose a public Codec API.
+`Flow.getSteps()` returns non-generic `StepDef` wrappers. Use
+`StepDef.startStep(step)` once at most and `StepDef.nonStartStep(step)` for all
+other Steps.
+Client result decoding takes the output class and uses the configured mapper:
+
+```java
+String output = client.waitForFlow("flow-123", String.class);
+```
+
+Persistence schemas use factory methods instead of builders. Definitions may
+be passed directly, as one mixed list, or as separate attribute and channel
+lists:
+
+```java
+PersistenceSchema.of(counter, commands);
+PersistenceSchema.of(definitions);
+PersistenceSchema.of(attributes, channels);
+```
+
+Initial values bind each persistence definition to its Java value type directly
+in `StartFlowOptions.Builder`:
+
+```java
+StartFlowOptions options = StartFlowOptions.newBuilder()
+        .addAttribute(status, "created")
+        .addAttribute(items, "order-1", 1)
+        .build();
+```
+
+The legacy IWF integration inventory has a compile-only port under
+[`src/test/java/io/superdurable/dex/iwfcompat`](src/test/java/io/superdurable/dex/iwfcompat/README.md).
+It exercises all 16 upstream scenario groups against the new typed API without
+starting a server.
+
 ## License
 
 [Super Durable Source License 1.0](LICENSE), with legacy portions under their
@@ -41,17 +137,11 @@ implementation 'io.superdurable:dex-sdk:0.0.2'
 
 ## Concepts
 
-To implement a workflow, the two most core interfaces are
-
-* [Workflow interface](src/main/java/io/dex/core/ObjectWorkflow.java)
-  defines the workflow definition
-
-* [WorkflowState interface](src/main/java/io/dex/core/WorkflowState.java)
-  defines the workflow states for workflow definitions
-
-A workflow can contain any number of WorkflowStates.
-
-See more in https://github.com/superdurable/dex#what-is-dex
+Applications implement [`Flow<I>`](src/main/java/io/superdurable/dex/Flow.java)
+and [`Step<I>`](src/main/java/io/superdurable/dex/Step.java). A Flow declares
+all registered Steps and the optional start marker in one `getSteps()` list,
+plus its persistence schema and annotated RPC methods. Registry validates these
+definitions before Client or Worker startup.
 
 ## How to build & run
 
@@ -106,78 +196,3 @@ use the local publishing command:
     * `integ/`: the integration tests
       * `XyzTest.java`: a file for test cases
       * `xyz/`: the Dex workflow implementation for the integration test cases
-
-# Development Plan
-
-## 1.0
-
-- [x] Start workflow API
-- [x] Executing `start`/`decide` APIs and completing workflow
-- [x] Parallel execution of multiple states
-- [x] Timer command
-- [x] Signal command
-- [x] SearchAttribute
-- [x] DataAttribute
-- [x] StateExecutionLocal
-- [x] Signal workflow API
-- [x] Get workflow DataAttributes/SearchAttributes API
-- [x] Get workflow API
-- [x] Search workflow API
-- [x] Cancel workflow API
-- [x] Reset workflow API
-- [x] InternalChannel command
-- [x] AnyCommandCompleted Decider trigger type
-- [x] More workflow start options: IdReusePolicy, cron schedule, retry
-- [x] StateOption: WaitUntil/Execute API timeout and retry policy
-- [x] Reset workflow by stateId/StateExecutionId
-
-## 1.1
-
-- [x] New search attribute types: Double, Bool, Datetime, Keyword array, Text
-- [x] Workflow start options: initial search attributes
-
-## 1.2
-
-- [x] Skip timer API for testing/operation
-- [x] Decider trigger type: any command combination
-
-## 1.3
-
-- [x] Support failing workflow with results
-- [x] Improve workflow uncompleted error return(canceled, failed, timeout, terminated)
-
-### 1.4
-
-- [x] Support PROCEED_ON_FAILURE for WaitUntilApiFailurePolicy
-
-### 2.0
-
-- [x] Renaming some concepts/APIs with breaking changes(see releaste notes)
-- [x] Support workflow RPC
-
-### 2.1
-
-- [x] Support caching on persistence
-
-### 2.2
-
-- [x] Support atomic conditional complete workflow by checking signal/internal channel emptiness
-
-### 2.3
-
-- [x] Support dynamic data/search attributes and internal/signal channel definition
-- [x] Support state options overridden dynamically
-- [x] Support describe workflow API
-
-### 2.4
-
-- [x] Support execute API failure policy
-- [x] Support RPC persistence locking policy
-
-### 2.5
-
-- [x] Add waitForStateExecutionCompletion API
-
-### 2.6
-
-- [x] Small breaking changes to IdReusePolicy for fixing typo

@@ -42,6 +42,10 @@ dist/
 # Rust
 sdk-rust/target/
 
+# TypeScript
+sdk-typescript/node_modules/
+sdk-typescript/dist/
+
 # Logs / local
 *.log
 test.log

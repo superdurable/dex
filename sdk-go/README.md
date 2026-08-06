@@ -84,6 +84,9 @@ Flows use `dex.DefineStartStep` for at most one starting step and
 Execute-only steps embed `dex.StepDefaultsNoWaitFor[IN]`. Step transitions use
 `dex.GoTo`, or `dex.MovementOf` with `dex.GoToMulti`.
 
+`StepOptions.WaitForMethodTimeout` and `ExecuteMethodTimeout` bound the two
+handler calls. Timer and channel conditions determine how long a Step waits.
+
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
 the absence of a payload explicit.

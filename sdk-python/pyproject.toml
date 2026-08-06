@@ -1,40 +1,48 @@
-[tool.poetry]
+[project]
 name = "dex-python-sdk"
 version = "0.0.1"
 description = "Python SDK for the Dex workflow engine"
-authors = ["Super Durable"]
+authors = [{name = "Super Durable"}]
 readme = "README.md"
 license = "LicenseRef-Super-Durable-1.0"
-packages = [{include = "dex"}]
-include = [
-    {path = "LEGACY_NOTICES.md", format = ["sdist", "wheel"]},
-    {path = "LICENSES", format = ["sdist", "wheel"]},
+license-files = ["LICENSE", "LEGACY_NOTICES.md", "LICENSES/**"]
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio>=1.60",
+    "httpx==0.28.1",
+    "protobuf>=4.25",
 ]
-repository = "https://github.com/superdurable/dex"
-homepage = "https://github.com/superdurable/dex/tree/main/sdk-python"
 
-[tool.poetry.dependencies]
-python = "^3.9"
-python-dateutil = { version = "^2.8.2", python = "<3.11" }
-httpx = "0.28.1"
-grpcio = ">=1.60"
-protobuf = ">=4.25"
+[project.urls]
+Homepage = "https://github.com/superdurable/dex/tree/main/sdk-python"
+Repository = "https://github.com/superdurable/dex"
 
-[tool.poetry.dev-dependencies]
-pytest = "^8.3.5"
-mypy = "^1.15.0"
-isort = "^6.0.1"
-pre-commit = "^4.2.0"
-wemake-python-styleguide = "^0.19.2"
-pytest-cov = "^6.1.1"
-anyio = "^4.9.0"
-pytest-env = "^1.1.5"
+[dependency-groups]
+dev = [
+    "anyio>=4.9,<5",
+    "black==24.10.0",
+    "flask>=2.3.2,<3",
+    "isort>=6.0.1,<7",
+    "mypy>=1.15,<2",
+    "pre-commit>=4.2,<5",
+    "pyright>=1.1.403,<2",
+    "pytest>=8.3.5,<9",
+    "pytest-cov>=6.1.1,<7",
+    "pytest-env>=1.1.5,<2",
+    "ruff==0.8.1",
+    "wemake-python-styleguide>=0.19.2,<0.20",
+]
 
-[tool.poetry.group.test.dependencies]
-flask = "^2.3.2"
+[tool.uv]
+required-version = "==0.12.2"
+
+[tool.uv.build-backend]
+module-name = "dex"
+module-root = ""
+source-include = ["LEGACY_NOTICES.md", "LICENSES/**"]
 
 [tool.ruff]
-ignore = ["E501"]
+lint.ignore = ["E501"]
 
 [tool.isort]
 profile = "black"
@@ -52,8 +60,7 @@ allow_untyped_decorators = true
 warn_unused_ignores = false
 warn_return_any = false
 namespace_packages = true
-plugins = ["pydantic.mypy"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11.32,<0.13"]
+build-backend = "uv_build"

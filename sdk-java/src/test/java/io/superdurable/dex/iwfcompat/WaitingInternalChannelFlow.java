@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+package io.superdurable.dex.iwfcompat;
+
+import io.superdurable.dex.Channel;
+import io.superdurable.dex.Context;
+import io.superdurable.dex.Flow;
+import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.Step;
+import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.Wait;
+
+import java.util.Collections;
+import java.util.List;
+
+final class WaitingInternalChannelFlow implements Flow<Integer> {
+    final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
+    private final Step<Integer> start = new Step<Integer>() {
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Integer input) {
+            return Wait.allOf(channel.forN(2));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer input) {
+            int output = input;
+            for (Integer value : channel.getConditionResults(context)) {
+                output += value;
+            }
+            return StepDecision.gracefulComplete(output);
+        }
+    };
+
+    @Override
+    public List<StepDef> getSteps() {
+        return Collections.singletonList(StepDef.startStep(start));
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(channel);
+    }
+}

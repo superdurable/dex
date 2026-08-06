@@ -1884,7 +1884,7 @@ type IndexType uint8
 
 const (
 	IndexKeyword IndexType = iota + 1
-	IndexText
+	IndexFullText
 	IndexKeywordArray
 	IndexInt
 	IndexDouble
@@ -2166,8 +2166,8 @@ func ProceedToOnExecuteFailure[IN any](
 ) *ExecuteFailure
 
 type StepOptions struct {
-	WaitForTimeout  time.Duration
-	ExecuteTimeout  time.Duration
+	WaitForMethodTimeout  time.Duration
+	ExecuteMethodTimeout  time.Duration
 	WaitForRetry    *RetryPolicy
 	ExecuteRetry    *RetryPolicy
 	WaitForFailure  WaitForFailurePolicy

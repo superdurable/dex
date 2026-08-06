@@ -157,13 +157,13 @@ func mapStepOptionsRecursive(
 	active[options] = true
 	defer delete(active, options)
 
-	waitForTimeout, err := durationSeconds32(options.WaitForTimeout)
+	waitForMethodTimeout, err := durationSeconds32(options.WaitForMethodTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("dex: WaitFor timeout: %w", err)
+		return nil, fmt.Errorf("dex: WaitFor method timeout: %w", err)
 	}
-	executeTimeout, err := durationSeconds32(options.ExecuteTimeout)
+	executeMethodTimeout, err := durationSeconds32(options.ExecuteMethodTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("dex: Execute timeout: %w", err)
+		return nil, fmt.Errorf("dex: Execute method timeout: %w", err)
 	}
 	waitForRetry, err := mapRetryPolicy(options.WaitForRetry)
 	if err != nil {
@@ -199,8 +199,8 @@ func mapStepOptionsRecursive(
 		return nil, err
 	}
 	return &dexpb.StepOptions{
-		WaitForTimeoutSeconds:            waitForTimeout,
-		ExecuteTimeoutSeconds:            executeTimeout,
+		WaitForTimeoutSeconds:            waitForMethodTimeout,
+		ExecuteTimeoutSeconds:            executeMethodTimeout,
 		WaitForRetryPolicy:               waitForRetry,
 		ExecuteRetryPolicy:               executeRetry,
 		WaitForFailurePolicy:             waitForFailure,
@@ -996,11 +996,11 @@ func mergeStepOptions(defaults *StepOptions, overrides *StepOptions) *StepOption
 		return defaults
 	}
 	merged := *defaults
-	if overrides.WaitForTimeout != 0 {
-		merged.WaitForTimeout = overrides.WaitForTimeout
+	if overrides.WaitForMethodTimeout != 0 {
+		merged.WaitForMethodTimeout = overrides.WaitForMethodTimeout
 	}
-	if overrides.ExecuteTimeout != 0 {
-		merged.ExecuteTimeout = overrides.ExecuteTimeout
+	if overrides.ExecuteMethodTimeout != 0 {
+		merged.ExecuteMethodTimeout = overrides.ExecuteMethodTimeout
 	}
 	if overrides.WaitForRetry != nil {
 		merged.WaitForRetry = overrides.WaitForRetry

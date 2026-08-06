@@ -10,8 +10,8 @@
 
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
-# Generated protobuf client is excluded (paths differ standalone vs monorepo).
-exclude: ^(dex/dexpb/|sdk-python/dex/dexpb/)
+# Generated protobuf client is excluded.
+exclude: ^sdk-python/dex/dexpb/
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -53,14 +53,8 @@ repos:
 
   - id: mypy
     name: Validate types with MyPy
-    entry: bash -euo pipefail -c 'cd sdk-python && poetry run mypy dex'
+    entry: bash -c 'cd sdk-python && uv run --frozen mypy dex'
     language: system
     types: [python]
     pass_filenames: false
-    files: ^sdk-python/
-
-  - id: no-nexus
-    name: Remove nexus references
-    entry: sdk-python/.githooks/no-nexus.sh
-    language: script
-    files: ^sdk-python/poetry\.lock$
+    files: ^sdk-python/(dex|tests)/

@@ -61,18 +61,20 @@ jobs:
           echo "Timed out waiting for Dex server"
           docker logs dex-server 2>&1 | tail -80 || true
           exit 1
-      - uses: actions/setup-python@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
+          version: "0.12.2"
           python-version: "3.9"
-      - name: Install Poetry
-        run: pipx install poetry
-      - name: Install dependencies (PyPI dex-sdk)
-        run: poetry install --no-interaction
+          working-directory: examples/python
+          enable-cache: true
+      - name: Install dependencies (PyPI dex-python-sdk)
+        run: uv sync --locked
       - name: Verify published package
         run: |
-          poetry run python -c "import dex, importlib.metadata as m; print(m.version('dex-sdk')); assert m.version('dex-sdk') == '0.0.1'"
+          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.0.1'"
       - name: Integ tests
-        run: poetry run pytest -vv tests/
+        run: uv run --frozen pytest -vv tests/
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

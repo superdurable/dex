@@ -4,15 +4,9 @@ repos:
 
   - id: mypy
     name: Validate types with MyPy
-    entry: poetry run mypy
+    entry: uv run mypy
     language: system
     types: [python]
     pass_filenames: false
     args:
-    - "dex"
-
-  - id: no-nexus
-    name: Remove nexus references
-    entry: .githooks/no-nexus.sh
-    language: script
-    types: [file] # Example: run on all files, adjust as needed
+    - "."

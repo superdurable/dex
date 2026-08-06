@@ -1,94 +1,297 @@
 # Multi-language Rust SDK Core
 
-Status: draft.
+Status: user-contract phase implementation.
 
 ## Decision
 
-Dex SDKs will share an embedded Rust Core. Core owns worker transport,
-invocation lifecycle, backpressure, shutdown, protocol-level telemetry, and
-the shared disk blob cache. Each language layer owns its public API, type
-conversion, registry, and user code execution.
+Python, Java, TypeScript, and later language SDKs share an embedded Rust Core.
+Core owns Registry validation, WorkerService and FlowService transport,
+invocation state, context buffering, value hydration, errors, lifecycle, and
+the disk blob cache. Language packages own their idiomatic public API, runtime
+type tokens and codecs, and execution of user functions.
 
-Core will not invoke user functions directly from Rust runtime threads. A
-language worker polls Core for an invocation, executes the registered function,
-and returns a completion. This follows the activation/completion boundary used
-by Temporal SDK Core without adopting Temporal's workflow coroutine model.
+The Go SDK remains independent and is the behavioral reference. Non-Go SDKs
+must implement the Go integration suite and the legacy Java IWF integration
+suite using their new APIs.
 
-Dex step methods are remote worker operations. The server-side interpreter owns
-durability and replay, so language SDKs may support both synchronous and
-asynchronous step methods.
+The current phase implements only application-facing contracts and pure value
+codecs. It does not connect gRPC, FFI, Registry runtime assembly, or user-code
+execution. This follows the staged Go SDK rewrite: later runtime work must fit
+the published contracts instead of redesigning them.
 
 ## Goals
 
-- Share worker correctness across Rust, Java, Python, TypeScript, PHP, C#,
-  Ruby, and future SDKs.
-- Keep language runtimes and object models outside Core.
-- Preserve the canonical `WorkerService` contract in `protos/dex.proto`.
-- Apply bounded backpressure before invoking user code.
-- Share one blob-cache contract across non-Go language SDKs.
-- Make shutdown, cancellation, deadlines, and error propagation explicit.
-- Test Core independently from every language bridge.
+- Preserve the same Flow, Step, Attribute, Channel, Wait, Decision, and RPC
+  semantics in every language.
+- Make normal application APIs strongly typed without exposing protobufs.
+- Share worker and client correctness in Rust instead of reimplementing it in
+  every language.
+- Support Python 3.11+, Java 8+, and Node 22/24 first.
+- Keep Java Client and Worker APIs synchronous.
+- Keep Python Client, Worker, Step, and RPC APIs synchronous.
+- Share the existing Rust DXBC blob cache across non-Go SDKs.
+- Keep future C#, Ruby, PHP, and C ABI bridges possible without changing Core.
 
 ## Non-goals
 
-- Core does not define each language's user-facing API.
+- The current phase does not perform network calls or invoke user code.
 - Core does not serialize arbitrary language objects.
-- Core does not provide a durable coroutine scheduler.
-- Core does not expose Rust structs as a stable cross-language ABI.
-- The first phase does not replace existing SDKs.
+- Core does not call Python, Java, or JavaScript from Tokio threads.
+- This phase does not publish a native Rust SDK.
+- The rewrite does not preserve obsolete SDK APIs or configuration fields.
 
-## Architecture
+## Public type model
+
+Each language exposes equivalent typed concepts with idiomatic names:
+
+```text
+Flow<START_INPUT>          Java, Python, and TypeScript
+Step<INPUT>                Java, Python, and TypeScript
+typed RPC method           annotated or decorated method
+Attribute<T> / AttributeMap<T>
+Channel<T> / ChannelMap<T>
+Codec<T> / TypeToken<T>
+BlobCache / BlobCacheConfig
+WorkerTarget / ClientOptions / WorkerOptions
+```
+
+Normal Client and handler APIs do not accept a durable name plus an untyped
+object. Type relationships are carried by definitions:
+
+```text
+startFlow(Flow<I>, flowId, I input)
+invokeRPC(typed method, flowId, I input) -> O
+goTo(Step<I>, I input)
+attribute.set(Context, T)
+channel.publish(Context, T)
+```
+
+Definitions use a derived durable name by default and allow an explicit
+override. Cross-language applications must use explicit matching names.
+
+The language Registry validates handler signatures and TypeToken/Codec pairs.
+Core later validates durable names, references, options, and encoded wire kinds
+from a serialized RegistrySpec. Registry construction is atomic and immutable.
+
+### Values and codecs
+
+Built-in codecs map to canonical Dex Value arms:
+
+| Logical value | Wire representation |
+| --- | --- |
+| UTF-8 string | `string_value` |
+| boolean | `bool_value` |
+| signed 64-bit integer | `int_value` |
+| finite floating point | `double_value` |
+| bytes | `obj_value`, `rawbytes` |
+| structured value | `obj_value`, `json` |
+| application null | JSON `null` |
+
+The protobuf null arm remains reserved for attribute deletion. Custom
+`Codec<T>` implementations must map to a canonical Value and cannot introduce
+an opaque language-only wire format.
+
+Python integers are range-checked as int64. Java `long` maps to int64.
+TypeScript `bigint` maps to int64 and `number` maps to double, avoiding silent
+loss of 64-bit precision.
+
+Python dataclasses, Java Jackson `JavaType`, and TypeScript runtime decoders
+provide structured JSON codecs. Erased or parameterized types require an
+explicit TypeToken or codec.
+
+## Language contracts
+
+### Python
+
+Python authors implement generic `Flow[I]` and `Step[I]` interfaces. RPC remains
+a metadata-only method decorator, preserving the original callable and its
+typing. Registry derives built-in and dataclass codecs from method annotations;
+only unsupported types and custom encodings require `CodecRegistry`
+registration. Handler methods use synchronous `def` signatures. PEP 561
+metadata, mypy, and pyright verify the public types.
+
+`Flow.get_steps()` returns `StepDef.start_step(step)` and
+`StepDef.non_start_step(step)` wrappers. There is no separate start-Step getter.
+
+Factories are owned by the domain noun they create, so waits read naturally:
+
+```python
+Wait.all_of(Timer.by_duration(duration))
+```
+
+Handlers later run in a bounded Python executor. User code is never invoked on
+a Tokio worker thread.
+
+### Java
+
+Java targets Java 8 and exposes synchronous Client and Worker APIs. Handlers
+run on a bounded JVM ExecutorService. The public API does not expose
+CompletionStage.
+
+Java authors implement `Flow<I>` and `Step<I>` interfaces directly. `I` keeps
+the starting-step input and every step transition type checked. A Flow instance
+also owns its annotated RPC methods; there is no untyped RPC-handler field.
+`Flow.getSteps()` returns non-generic `StepDef` wrappers, using
+`StepDef.startStep(step)` at most once and `StepDef.nonStartStep(step)` for the
+remaining Steps. There is no separate start-Step getter.
+
+Java preserves the legacy strongly typed RPCStub call shape:
+
+```java
+OrderFlow rpcStub = client.newRpcStub(OrderFlow.class, flowId, runId);
+GetOrderOutput output = client.invokeRPC(rpcStub::getOrder, input);
+String flowOutput = client.waitForFlow(flowId, String.class);
+```
+
+`waitForFlow` resolves the output class using `ClientOptions.objectMapper`.
+
+Worker RPC methods use `@RPC`:
+
+```java
+@RPC(
+    name = "GetOrder",
+    timeoutSeconds = 10,
+    lockAttributes = {"status"}
+)
+public RPCResult<GetOrderOutput> getOrder(
+        Context context,
+        GetOrderInput input) {
+    return RPCResult.of(new GetOrderOutput());
+}
+```
+
+Annotation elements may use annotation types and arrays of annotation types.
+Attribute-map locks therefore use nested annotations:
+
+```java
+@RPC(lockAttributeMaps = {
+    @RPCAttributeMapLock(attribute = "items", instance = "order-1")
+})
+```
+
+All `@RPC` elements have defaults. Reflection returns those values, including
+non-null empty arrays, whenever the method has `@RPC`.
+
+Registry reads the annotation once and validates its durable name, timeout,
+attribute locks, and signature. RPCStub invocation reuses that metadata;
+`invokeRPC` does not accept per-call InvokeOptions. Request IDs remain internal.
+
+Each `Step<I>` returns its concrete `Class<I>` through `getInputType()`. Step
+inputs do not support parameterized types. `ClientOptions` and `WorkerOptions`
+provide default Jackson `ObjectMapper` instances and accept configured mappers.
+Steps, attributes, attribute maps, channels, channel maps, execution locals,
+and events declare `Class<T>`. Java exposes no public Codec abstraction.
+
+Nested factories form a readable phrase at the call site:
+
+```java
+Wait.allOf(Timer.byDuration(duration))
+```
+
+The new annotation retains only current server semantics:
+
+- optional durable name override;
+- non-negative timeout seconds;
+- registered attribute locks; and
+- registered attribute-map locks with static instances.
+
+Legacy partial loading, separate data/search attribute loading, and memo-cache
+bypass fields are removed. BlobCache is an immutable payload cache, not the old
+memo consistency mechanism. Read-modify-write consistency uses attribute locks.
+
+Java retains typed function/procedure method-reference shapes for zero or one
+input. No registered Client API accepts a raw RPC string and Object input.
+
+### TypeScript
+
+TypeScript authors implement generic `Flow<I>` and `Step<I>` interfaces. A
+typed method decorator adds RPC metadata without replacing the method. Client
+network methods return Promise because Node I/O cannot be synchronously blocked
+safely. Handlers are synchronous and execute on the Node event loop.
+
+`Flow.getSteps()` returns `StepDef.startStep(step)` and
+`StepDef.nonStartStep(step)` wrappers. Its discriminated StepDef type retains
+the starting input type while erasing heterogeneous non-starting Step inputs.
+
+TypeScript requires explicit `getFlowType()` and `getStepType()` methods.
+Registry never derives durable names from `constructor.name`.
+
+Its equivalent fluent wait expression is:
+
+```typescript
+Wait.allOf(Timer.byDuration(durationMs))
+```
+
+JSON codecs require a runtime decoder; generic casts without validation are not
+provided for values returned by Core.
+
+## Future Core architecture
 
 ```mermaid
 flowchart LR
-    S["Dex server"] -->|"WorkerService gRPC"| T["Rust transport"]
-    T --> C["Dex Core"]
-    C -->|"poll invocation"| B["Language bridge"]
-    B --> L["Language SDK runtime"]
-    L --> U["User step or RPC method"]
-    U --> L
-    L -->|"complete invocation"| B
-    B --> C
-    C --> T
-    T --> S
+    S["Dex Server"] <-->|"canonical gRPC"| R["dex-runtime"]
+    R --> C["dex-core"]
+    C --> Q["bounded activation queue"]
+    Q --> P["PyO3 bridge"]
+    Q --> J["JNI bridge"]
+    Q --> N["Node-API bridge"]
+    P --> PY["Python handlers"]
+    J --> JV["Java handlers"]
+    N --> TS["TypeScript handlers"]
+    C --> B["DXBC BlobCache"]
 ```
 
-The Rust workspace is split by responsibility:
+The Rust workspace will contain:
 
 | Component | Responsibility |
 | --- | --- |
-| `dex-core` | Invocation lifecycle, bounded queue, completion routing, shutdown |
-| `dex-core::BlobCache` | Disk persistence, admission, eviction, recovery, integrity |
-| `dex-core-protocol` | Generated internal poll/completion protobuf messages |
-| `dex-worker-grpc` | `WorkerService` implementation using canonical Dex IDL |
-| `dex-sdk` | Native Rust public SDK |
-| `dex-bridge-jni` | Java 8-compatible JNI bridge |
-| language bridges | PyO3, Node-API, C ABI, or managed-runtime adapters |
+| `dex-protocol` | Checked-in generated server and private bridge protobufs |
+| `dex-core` | Registry, values, invocation sessions, errors, and BlobCache |
+| `dex-runtime` | Tokio, tonic WorkerService, and FlowService client |
+| `dex-bridge-python` | PyO3 and Python dispatch adapter |
+| `dex-bridge-jni` | Java 8 JNI bridge |
+| `dex-bridge-node` | napi-rs Node-API bridge |
 
-Only `dex-core` is implemented in the first phase. The other crates will be
-added when their contracts are exercised.
+Published packages do not require a system Rust or protoc installation.
+
+## Activation boundary
+
+Core never directly invokes a language callback. Worker transport validates and
+hydrates a request, creates an invocation session, and places a versioned
+activation on a bounded queue. A language dispatcher polls, executes the typed
+handler, and completes the activation once.
+
+Context operations use invocation commands against Core-owned state. Core
+implements read-your-writes and deterministic response buffers for attributes,
+channels, step locals, events, waits, decisions, and RPC movements.
+
+The private protocol starts at version 1. Runtime creation performs an exact
+version handshake, and every activation and completion carries the version.
+Unknown, duplicate, late, cancelled, or already-completed IDs fail explicitly.
+
+Bridge functions expose opaque handles, owned bytes, and structured errors.
+They do not expose Rust layouts, borrowed buffers, or unwinding.
 
 ## Blob cache
 
-Rust Core provides the disk blob cache used by Python, TypeScript, Java, C#,
-PHP, Ruby, and the native Rust SDK. The Go SDK keeps its existing independent
-implementation and does not link Rust Core.
+Rust Core continues to provide the Go-compatible DXBC version 1 blob cache.
+Go does not link it. The shared contract includes immutable IDs, CRC32C,
+TinyLFU/SampledLFU admission, recovery, cleanup backlog, and owned buffers.
 
-The Rust and Go implementations share the same public behavior and disk-format
-contract:
+The Rust and Go implementations share these observable behaviors:
 
-- blob IDs are immutable content identifiers;
-- payloads remain opaque bytes outside language heaps;
 - a miss, oversized value, or policy rejection is not an application failure;
 - capacity counts the 24-byte header, blob ID, and payload;
-- reads are concurrent while mutations and lifecycle changes are serialized;
-- orderly `close` does not delete committed files, while `delete_all` leaves
-  an open cache empty and reusable;
-- startup removes interrupted writes and corrupt files, then reconciles the
-  configured capacity newest-first; and
-- one directory is exclusively owned by one process.
+- reads may proceed concurrently while mutations and lifecycle changes are
+  serialized;
+- `put` returns whether the value was retained, including identical reuse;
+- `delete_all` leaves the open cache empty and reusable;
+- `close` preserves committed files for the next process;
+- startup removes interrupted writes and corruption, then reconciles the
+  configured budget newest-first; and
+- one directory is exclusively owned by one cache process.
 
-Files use the Go cache's `DXBC` version 1 format:
+Files use DXBC version 1:
 
 ```text
 magic[4] = "DXBC"
@@ -101,259 +304,101 @@ blob_id bytes
 payload bytes
 ```
 
-CRC32C covers the blob ID and payload. The path is
-`blobs/ab/cd/<sha256(blob-id)>.blob`; temporary files are committed by atomic
-rename. Unknown versions, invalid lengths, nonzero reserved bytes, path-hash
-mismatches, and checksum failures are recoverable corruption.
+CRC32C covers the blob ID and payload. Rust uses the `crc32c` crate so supported
+x86-64 and ARM targets use hardware instructions. Cache paths are
+`blobs/ab/cd/<sha256(blob-id)>.blob`; a file is synchronized and atomically
+renamed into place. Unknown versions, invalid lengths, nonzero reserved bytes,
+path-hash mismatches, and checksum failures are recoverable corruption.
 
-File contents are synchronized before rename, but the parent directory is not
-synchronized. An operating-system or power failure may therefore lose the
-newest directory entry; recovery treats that as a cache miss. The cache is not
-authoritative. If power-loss durability becomes a requirement, both the Rust
-and Go implementations must add directory synchronization under an explicit
-durability policy.
+Stretto 0.9 stores metadata only and supplies TinyLFU admission plus SampledLFU
+eviction. It matches the Ristretto policy family used by Go, but exact admission
+and victim choices are timing-dependent and are not a portable contract.
 
-The in-memory policy stores metadata only. Rust Core uses the Stretto 0.9
-release series for TinyLFU admission and SampledLFU eviction. Stretto is a Rust
-implementation of Ristretto, the policy used by the Go cache. Exact admission
-and victim choices remain timing-dependent and are not a portable contract.
+Go panics if an admitted policy entry remains pending after synchronization.
+Rust intentionally returns a reconciliation error to avoid unwinding into a
+host language. This unreachable invariant is the sole intentional behavioral
+deviation.
 
-Go panics if an admitted entry remains pending after policy synchronization.
-Rust intentionally returns a reconciliation error instead, protecting host
-runtimes from a Core invariant failure. This unreachable failure mode is not
-part of the public cache contract.
+Cache filesystem work runs on a blocking pool when called from an event-loop
+bridge. The cache is non-authoritative: a missing directory entry after power
+loss is a cache miss. Parent-directory fsync is not promised unless both Go and
+Rust add an explicit durability policy.
 
-The public Rust operations map directly to bridge operations:
+## Threading, cancellation, and shutdown
 
-| Rust operation | Result |
-| --- | --- |
-| `get(id)` | owned bytes on hit, `None` on miss |
-| `put(id, bytes)` | `true` when retained, `false` when rejected |
-| `delete(id)` | removes one cache entry |
-| `delete_all()` | purges storage and keeps the cache reusable |
-| `close()` | joins policy threads and preserves committed files |
-
-The cross-language bridge exposes owned byte buffers and opaque cache handles.
-Cache filesystem calls are synchronous and must run on a bridge blocking
-executor when invoked from an event-loop language. Each open cache owns
-Stretto's two synchronous policy threads until `close` or drop.
-
-## Two protocol boundaries
-
-### Server protocol
-
-`protos/dex.proto` remains authoritative between the Dex server and a worker.
-The Rust gRPC adapter decodes `InvokeWaitForMethod`,
-`InvokeExecuteMethod`, and `InvokeWorkerRPC` requests and dispatches their
-serialized request payloads to Core.
-
-The adapter maps a language completion back to the matching gRPC response.
-Transport errors and user-code failures remain distinct.
-
-### Core protocol
-
-The language boundary uses a small versioned protocol:
-
-```text
-Invocation {
-  protocol_version
-  invocation_id
-  kind
-  request_bytes
-}
-
-Completion {
-  protocol_version
-  invocation_id
-  success_bytes | failure
-}
-```
-
-Request and response bytes contain canonical protobuf messages. Bridges do not
-reconstruct all Dex messages as FFI structs.
-
-The initial protocol version is `1`. Core stamps every invocation, and a bridge
-must echo that version with its completion. Core rejects a mismatched completion
-without consuming the pending invocation. A future worker handshake will
-validate versions before accepting work.
-
-## Invocation lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Queued
-    Queued --> Dispatched: "language poll"
-    Dispatched --> Completed: "success or failure"
-    Queued --> Cancelled: "request cancelled"
-    Dispatched --> Cancelled: "deadline or shutdown"
-    Completed --> [*]
-    Cancelled --> [*]
-```
-
-Core assigns an opaque nonzero invocation ID. The transport waits on a one-shot
-completion channel. The language bridge returns only that ID and serialized
-completion data.
-
-Completions are accepted once. Unknown, cancelled, or already-completed IDs are
-errors. Queue capacity is mandatory and positive.
-
-## Concurrency and threading
-
-Core uses a Tokio runtime for networking and protocol tasks. Language execution
-never runs on a Tokio worker thread.
-
-Each language layer selects its execution strategy:
+Core uses Tokio for transport and protocol work, never for application
+callbacks. A bridge may poll ahead only up to its configured language
+concurrency, and the Core activation queue provides bounded backpressure.
 
 | Language code | Execution |
 | --- | --- |
-| Python `async def` | Python asyncio event loop |
-| Python `def` | Bounded Python thread pool |
-| TypeScript | JavaScript event loop or Worker Thread policy |
-| Java `CompletionStage` | JVM asynchronous completion |
-| Java synchronous method | Bounded `ExecutorService` |
-| Rust async | Configured Rust executor |
-| Rust sync | Bounded blocking pool |
-| C#, Ruby, PHP | Native runtime scheduler or bounded worker pool |
+| Python synchronous handler | bounded Python executor |
+| Java synchronous handler | bounded `ExecutorService` |
+| TypeScript handler | JavaScript event loop |
+| C#, Ruby, PHP | runtime scheduler or bounded executor |
 
-A bridge may poll ahead only up to its configured language concurrency.
-Core queue capacity limits accepted work beyond that point.
+Shutdown first stops transport admission and polling, then waits for in-flight
+work up to a grace period. Async tasks receive native cancellation. Synchronous
+threads receive a cooperative cancellation signal; Core never injects an
+exception into an arbitrary language thread.
 
-Python sync methods remain supported. CPU-bound Python code still requires a
-process, subinterpreter, or native code that releases the GIL for parallelism.
+## Errors and packaging
 
-## Bridge strategy
+Core distinguishes configuration, lifecycle, transport, protocol, user-code,
+cancellation, and deadline failures. User failures retain language type,
+message, stack trace, and optional structured details. Every bridge catches
+panic or exception escape at its native boundary.
 
-Rust uses `dex-core` directly.
+Language packages bundle platform-specific Core artifacts. The initial matrix
+is Linux glibc and musl on x86-64/arm64, macOS on x86-64/arm64, and Windows
+x86-64. No published package requires a system Rust or protoc installation.
 
-Java, Python, and TypeScript receive dedicated ergonomic bridges:
-
-- Java: JNI plus `CompletableFuture` polling and completion.
-- Python: PyO3 plus a Python asyncio awaitable.
-- TypeScript: Node-API plus Promise-based polling.
-
-The Java bridge targets the SDK's current Java 8 baseline. It does not require
-Project Panama. JNI entry points exchange owned byte arrays and opaque handles;
-Java user methods execute on JVM-managed executors, never Rust Tokio threads.
-
-C#, Ruby, and PHP can initially share a C ABI bridge with:
-
-- opaque runtime and worker handles;
-- owned byte buffers;
-- asynchronous poll and completion functions;
-- explicit allocation and destruction functions; and
-- numeric error codes plus serialized error details.
-
-The C ABI must not expose Rust layouts, unwinding, borrowed buffers, or runtime
-specific callback objects.
-
-## Sync and async user methods
-
-Registration accepts both synchronous and asynchronous methods. The language
-layer determines the method form before invocation.
-
-Async methods execute on the language event loop. They must not perform
-blocking I/O.
-
-Sync methods execute in a bounded executor. Timing out the caller does not
-safely terminate a running thread, so cancellation is cooperative. A context
-API will expose deadlines and cancellation state.
-
-## Cancellation and shutdown
-
-Shutdown has two phases:
-
-1. Stop accepting new transport requests and close Core polling.
-2. Wait for in-flight work up to a configured grace period, then cancel it.
-
-Async language work should receive native task cancellation. Sync work receives
-a cooperative cancellation signal. Core never injects an exception into an
-arbitrary language thread.
-
-The initial `dex-core` scaffold implements immediate shutdown. Graceful
-transport draining is added with the gRPC adapter.
-
-## Errors
-
-Core distinguishes:
-
-- configuration and lifecycle errors;
-- transport errors;
-- bridge protocol errors;
-- user-code failures; and
-- cancellation or deadline failures.
-
-User failures retain a language type, message, stack trace, and optional
-serialized details. A bridge must not stringify every failure into a transport
-error.
-
-Rust panics, Java exceptions crossing JNI, Python exceptions crossing PyO3, and
-native exceptions crossing the C ABI are caught at their bridge boundary.
-
-## Packaging
-
-Core artifacts are built per supported platform. Language packages bundle the
-matching native library.
-
-The target matrix starts with:
-
-- Linux glibc x86-64 and arm64;
-- Linux musl x86-64 and arm64;
-- macOS x86-64 and arm64; and
-- Windows x86-64.
-
-No bridge may depend on a system Rust installation.
-
-Java publishes one API JAR plus platform-native artifacts selected by the build
-or extracted by a loader. Unsupported platforms fail during worker startup.
-
-## Observability
-
-Core emits structured metrics and traces for:
-
-- queue wait and execution latency;
-- outstanding and queued invocation counts;
-- poll and completion failures;
-- cancellation and deadline causes; and
-- bridge and protocol versions.
-
-Language SDKs add workflow, step, and RPC identifiers after applying their
-logging and data-handling policies.
+Core metrics cover queue wait, execution latency, outstanding work, poll and
+completion failures, cancellation causes, and protocol versions. Language
+layers add Flow, Step, and RPC identifiers under their logging policies.
 
 ## Implementation phases
 
-1. Build and test the language-neutral invocation engine.
-2. Implement the shared disk blob cache.
-3. Generate the internal Core protocol crate.
-4. Implement `WorkerService` with tonic.
-5. Add the native Rust SDK layer.
-6. Add the Java 8 JNI bridge and JVM execution adapter.
-7. Replace the Python HTTP worker with PyO3 and asyncio/thread-pool dispatch.
-8. Add Node-API and the shared C ABI bridge.
-9. Add packaging, compatibility, and cross-language conformance suites.
+1. Implement the Python, Java, and TypeScript public contracts, codecs, and
+   compile/type tests without transport.
+2. Add `dex-protocol`, RegistrySpec, canonical Values, and the Core invocation
+   session model.
+3. Add tonic WorkerService, FlowService Client, hydration, lifecycle, and
+   graceful shutdown.
+4. Prove minimal PyO3, JNI, and Node-API E2E paths.
+5. Complete Python, then Java, then TypeScript runtime integrations.
+6. Run full per-language conformance and cross-language E2E suites.
+7. Add packaging and the future stable C ABI.
 
 ## Tests
 
-- Integration: dispatch, poll, and complete a successful invocation.
-- Integration: preserve structured user failures through completion routing.
-- Integration: reject unsupported completion protocol versions without
-  consuming the invocation.
-- Integration: reject duplicate and unknown completions.
-- Integration: wake blocked pollers and requests during shutdown.
-- Integration: prove queue capacity applies backpressure before dispatch.
-- Integration: round-trip opaque blob bytes and enforce immutable IDs.
-- Integration: enforce the logical byte budget under concurrent cache access.
-- Integration: preserve valid files and reconcile corruption across restart.
-- Integration: verify Rust reads Go-compatible `DXBC` version 1 fixtures.
-- E2E: run each bridge against the same `WorkerService` conformance suite.
-- E2E: exercise sync and async user methods, cancellation, and worker shutdown.
-- E2E: verify Java 8 JNI loading, `CompletableFuture`, and `ExecutorService`.
+The user-contract phase uses tests reachable without transport:
+
+- Python pytest contract tests plus strict mypy and pyright fixtures.
+- Java 8 compilation and contract tests for generics, annotations, RPCStub,
+  definitions, waits, decisions, attributes, and channels.
+- TypeScript `tsc --strict`, runtime contract tests, and negative type fixtures.
+- BlobCache config and synchronous typed operation contracts in every language.
+- Codec round trips, overflow, malformed values, null/delete distinction, and
+  unsupported wire kinds in every language.
+
+Runtime phases add a checked-in `sdk-conformance` manifest. Every non-Go SDK
+must implement every scenario in `sdk-go/integ` and every behavioral scenario
+in the legacy Java IWF integration tests. Terminology migrates to the new model;
+obsolete APIs are not restored. A missing legacy equivalent requires explicit
+approval and cannot be silently skipped.
+
+Cross-language E2E includes Java RPCStub to Python workers, Python clients to
+Java workers, TypeScript clients to Java RPCs, canonical JSON/int64/bytes, blob
+hydration, explicit durable names, failures, cancellation, and shutdown.
 
 ## Documentation
 
-- Maintain `sdk-rust/README.md` as the workspace and bridge entry point.
-- Update `protos/README.md` when the tonic adapter is added.
-- Update each language SDK README when it migrates to Core.
-- Add contributor build and release instructions before publishing artifacts.
+- Keep this document as the architecture and phased delivery source of truth.
+- Keep `sdk-rust/README.md` aligned with workspace and bridge responsibilities.
+- Document public contracts and threading in each language SDK README.
+- Add `sdk-conformance/README.md` with Go and legacy Java test mappings before
+  runtime feature-complete status.
 
 ## UI/UX
 

@@ -209,7 +209,7 @@ class Client:
         if not response.objects:
             raise RuntimeError("data attributes not returned")
 
-        res = {}
+        res: dict[str, Any] = {}
         for kv in response.objects:
             k = unset_to_none(kv.key)
             if k and kv.value:

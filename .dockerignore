@@ -1,2 +1,4 @@
 cli/dexcli
 examples/go/dex-samples
+sdk-typescript/node_modules/
+sdk-typescript/dist/

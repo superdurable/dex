@@ -1,7 +1,61 @@
 
-# dex-python-sdk
+# Dex SDK for Python
 
 Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
+
+## New user contracts
+
+The rewrite targets Python 3.11+ and exposes strongly typed workflow contracts
+from `dex`. This phase includes definitions, attributes, channels, waits,
+decisions, codecs, registry validation, and synchronous client shapes. Client and
+worker transport intentionally raise `PhaseNotImplementedError` until the shared
+Rust Core is connected.
+
+```python
+from datetime import timedelta
+
+import dex
+
+counter = dex.Attribute("counter", int)
+
+class Run(dex.Step[str]):
+    def wait_for(
+        self, context: dex.Context, input: str
+    ) -> dex.Wait:
+        return dex.Wait.all_of(
+            dex.Timer.by_duration(timedelta(seconds=1))
+        )
+
+    def execute(
+        self, context: dex.Context, input: str
+    ) -> dex.StepDecision:
+        return dex.graceful_complete(input)
+
+class CounterFlow(dex.Flow[str]):
+    run = Run()
+
+    def get_flow_type(self) -> str:
+        return "Counter"
+
+    def get_steps(self) -> tuple[dex.StepDef, ...]:
+        return (dex.StepDef.start_step(self.run),)
+
+    def get_persistence_schema(self) -> dex.PersistenceSchema:
+        return dex.PersistenceSchema(attributes=(counter,))
+
+    @dex.rpc(name="Increment")
+    def increment(
+        self, context: dex.Context, input: int
+    ) -> dex.RPCResult[int]:
+        return dex.RPCResult(input + 1)
+
+flow = CounterFlow()
+registry = dex.Registry((flow,))
+```
+
+Registry derives codecs from declared Python types and handler annotations.
+Built-in scalar types and dataclasses need no codec arguments. Register an
+explicit codec only for a custom encoding or a type Registry cannot derive.
 
 ```
 pip install dex-python-sdk==0.0.1
@@ -11,51 +65,41 @@ See [samples](../examples/python) for use case examples.
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - [Dex server](https://github.com/superdurable/dex#how-to-use)
 
 ## Concepts
 
-To implement a workflow, the two most core interfaces are
+Applications implement two generic interfaces from [`dex.contracts`](dex/contracts.py):
 
-* [Workflow interface](https://github.com/superdurable/dex/blob/main/sdk-python/dex/workflow.py)
-  defines the workflow definition
+- `Flow[START_INPUT]` returns `StepDef.start_step(...)` and
+  `StepDef.non_start_step(...)` values from one `get_steps()` method, and also
+  declares its persistence schema and typed RPC methods.
+- `Step[INPUT]` implements synchronous `execute` and optionally `wait_for`.
 
-* [WorkflowState interface](https://github.com/superdurable/dex/blob/main/sdk-python/dex/workflow_state.py)
-  defines the workflow states for workflow definitions
+`StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
+two handler calls. Timer and channel conditions determine how long a Step waits.
 
-A workflow can contain any number of WorkflowStates.
+`Registry` validates every Flow, Step, RPC signature, durable name, lock, and
+codec before Client or Worker startup. `Client` methods use these typed objects
+instead of raw Flow, Step, or RPC strings.
 
-See more in https://github.com/superdurable/dex#what-is-dex
+The complete legacy IWF integration inventory has a compile-only port under
+[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 29 Flow fixtures and 16
+scenario files show the Python programming model without starting a server.
 
+## Implementation status
 
-# Development Plan
+The new public contracts and validation are implemented. Client transport,
+Worker transport, and the native bridge will be connected through Rust Core in
+a later phase.
 
-## 1.0 -- the basic and most frequently needed features
-- [x] Start workflow API
-- [x] Executing `wait_until`/`execute` APIs and completing workflow
-- [x] Parallel execution of multiple states
-- [x] GetWorkflowResultsWithWait API
-- [x] StateOption: WaitUntil(optional)/Execute API timeout and retry policy
-- [x] Get workflow with wait API
-- [x] Timer command
-- [x] AnyCommandCompleted and AllCommandCompleted waitingType
-- [x] InternalChannel command
-- [x] DataAttribute
-- [x] Stop workflow API
-- [x] Improve workflow uncompleted error return(canceled, failed, timeout, terminated)
-- [x] Support execute API failure policy
-- [x] Support workflow RPC
-- [x] Signal command
-- [x] Reset workflow API
-- [x] Skip timer API for testing/operation
+## Running dex-server locally
 
-### Running dex-server locally
-
-#### Option 1: use docker compose
+### Option 1: use docker compose
 See [dex README](https://github.com/superdurable/dex#using-docker-image--docker-compose)
 
-#### Option 2: VSCode Dev Container
+### Option 2: VSCode Dev Container
 
 Dev Container is an easy way to get dex-server running locally. Follow these steps to launch a dev container:
 - Install Docker, VSCode, and [VSCode Dev Container plugin](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
@@ -69,18 +113,13 @@ Dev Container is an easy way to get dex-server running locally. Follow these ste
 
 ## How To Contribute
 
-This project uses [Poetry](https://python-poetry.org/) as a dependency manager. Check out Poetry's [documentation on how to install it](https://python-poetry.org/docs/#installing-with-the-official-installer) on your system before proceeding.
-
-> ❗Note: If you use Conda or Pyenv as your environment / package manager, avoid dependency conflicts by doing the following first:
-1. Before installing Poetry, create and activate a new Conda env (e.g. conda create -n langchain python=3.9)
-2. Install Poetry (see above)
-3. Tell Poetry to use the virtualenv python environment (poetry config virtualenvs.prefer-active-python true)
-4. Continue with the following steps.
+This project uses [uv](https://docs.astral.sh/uv/) for Python versions,
+dependencies, virtual environments, locking, building, and publishing.
 
 To install requirements:
 
 ```bash
-poetry install
+uv sync --locked
 ```
 
 #### Update IDL
@@ -99,7 +138,7 @@ Checked-in Python stubs land in `dex/dexpb/`.
 To run linting for this project:
 
 ```bash
-poetry run pre-commit run --show-diff-on-failure --color=always --all-files
+uv run --frozen pre-commit run --show-diff-on-failure --color=always --all-files
 ```
 
 ## Code of Conduct
@@ -109,7 +148,7 @@ This project is governed by the [Contributor Covenant v 1.4.1](CODE_OF_CONDUCT.m
 
 1. Bump `version` in `pyproject.toml` (and the `pip install` line above).
 2. Create a GitHub Release with tag `sdk-python-vX.Y.Z` (for example `sdk-python-v0.0.1`), or run the **Publish Python SDK to PyPI** workflow manually.
-3. CI runs `poetry publish --build` using the `PYPI_TOKEN` repository secret.
+3. CI runs `uv build --no-sources` and `uv publish` using the `PYPI_TOKEN` repository secret.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo tag conventions.
 

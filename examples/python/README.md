@@ -11,11 +11,11 @@ samples for [Dex Python SDK](https://github.com/superdurable/dex/tree/main/sdk-p
 1. Start Dex server, using [docker](https://github.com/superdurable/dex?tab=readme-ov-file#using-all-in-one-docker-image) or [docker-compose](https://github.com/superdurable/dex?tab=readme-ov-file#using-docker-image--docker-compose)
 2. Install dependencies and run the sample code
 ```
-poetry install
+uv sync --locked
 # Run case 1
-poetry run python moneytransfer/main.py
+uv run --frozen python moneytransfer/main.py
 # or, run case 2
-poetry run python signup/main.py
+uv run --frozen python signup/main.py
 ```
 
 ## Case1: [Money transfer workflow/SAGA Patten](./moneytransfer)
@@ -151,6 +151,6 @@ def signup_verify():
 
 ### development tips
 
-When updating dex-sdk if the dependency is not updated:
+When updating dex-python-sdk if the dependency is not updated:
 
-`poetry cache clear pypi --all && poetry update`
+`uv cache clean dex-python-sdk && uv lock --upgrade-package dex-python-sdk`

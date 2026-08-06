@@ -39,7 +39,7 @@ var (
 	)
 	persistenceSearchText = dex.DefineAttribute[string](
 		"search-text",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexText, IndexKey: searchTextKey}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText, IndexKey: searchTextKey}),
 	)
 	persistenceBool = dex.DefineAttribute[bool](
 		"bool",

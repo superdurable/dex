@@ -1,0 +1,45 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+package io.superdurable.dex.iwfcompat;
+
+import io.superdurable.dex.Client;
+import io.superdurable.dex.ResetFlowOptions;
+import io.superdurable.dex.ResetType;
+
+public final class ResetTest {
+    void compileLockingRpcReapply(final Client client) {
+        client.startFlow(IwfFlows.RPC_LOCKING, "reset-locking", null);
+        final RpcLockingFlow stub = client.newRpcStub(
+                RpcLockingFlow.class,
+                "reset-locking");
+        client.invokeRPC(stub::withLocking);
+        client.invokeRPC(stub::withAttributeMapLock);
+        final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+                .reason("replay locking RPC")
+                .skipLockingRpcReapply(false)
+                .build();
+        final String runId = client.resetFlow("reset-locking", options);
+        consume(runId);
+    }
+
+    void compileSkipRpcAndChannelReapply(final Client client) {
+        final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.STEP_TYPE)
+                .stepType("LockWaitStep")
+                .skipLockingRpcReapply(true)
+                .skipChannelMessagesReapply(true)
+                .build();
+        final String runId = client.resetFlow("reset-locking", options);
+        consume(runId);
+    }
+
+    private static void consume(final Object value) {
+    }
+}
