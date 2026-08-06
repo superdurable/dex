@@ -73,15 +73,19 @@ export function FlowStatePanel({
   return (
     <div className="sidebar-stack" ref={sidebar}>
       {selectedEvent && (
-        <section className="sidebar-section">
-          <p className="eyebrow">Selected event</p>
-          <h3>{eventTitle(selectedEvent)}</h3>
-          <div className="event-meta">
-            <span>Event {selectedEvent.eventId}</span>
-            <span>{selectedEvent.eventTime || 'No timestamp'}</span>
-          </div>
-          <EventDetails event={selectedEvent} history={history} />
-        </section>
+        <>
+          <header className="selected-event-anchor" data-selected-event-target>
+            <p className="eyebrow">Selected event</p>
+            <h3>{eventTitle(selectedEvent)}</h3>
+            <div className="event-meta">
+              <span>Event {selectedEvent.eventId}</span>
+              <span>{selectedEvent.eventTime || 'No timestamp'}</span>
+            </div>
+          </header>
+          <section className="sidebar-section selected-event-body">
+            <EventDetails event={selectedEvent} history={history} />
+          </section>
+        </>
       )}
 
       <section className="sidebar-section">
