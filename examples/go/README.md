@@ -1,8 +1,6 @@
 # Dex Go examples
 
-These examples target `github.com/superdurable/dex/sdk-go v0.1.0` plus the
-pending `dex.None` API. Their module temporarily replaces the SDK with this
-repository's `sdk-go` directory until the next release.
+These examples target `github.com/superdurable/dex/sdk-go v0.1.1`.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
 
