@@ -26,9 +26,9 @@ from typing import (
     overload,
 )
 
-from dex.contracts._common import require_name
-from dex.contracts.codec import Codec, CodecRegistry
-from dex.contracts.state import (
+from dex._contract_utils import require_name
+from dex.codec import Codec, CodecRegistry
+from dex.state import (
     Attribute,
     AttributeLock,
     AttributeMap,
@@ -37,7 +37,7 @@ from dex.contracts.state import (
     Context,
     Wait,
 )
-from dex.contracts.step import Step, StepDecision, StepList, StepMovement, _StepDef
+from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
 
 OutputT = TypeVar("OutputT")
 StartT = TypeVar("StartT")

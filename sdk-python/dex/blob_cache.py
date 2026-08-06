@@ -11,7 +11,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from dex.contracts._common import PhaseNotImplementedError
+from dex._contract_utils import PhaseNotImplementedError
 
 
 @dataclass(frozen=True)

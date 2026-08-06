@@ -16,7 +16,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Any, Awaitable, Generic, Iterator, TypeAlias, TypeVar
 
-from dex.contracts.state import (
+from dex.state import (
     AttributeLock,
     Channel,
     ChannelMap,

@@ -16,12 +16,12 @@ from enum import Enum
 from types import TracebackType
 from typing import Any, Callable, Mapping, TypeVar, overload
 
-from dex.contracts._common import PhaseNotImplementedError, require_name
-from dex.contracts.blob_cache import BlobCache
-from dex.contracts.codec import Value
-from dex.contracts.flow import Flow, Registry, RPCResult
-from dex.contracts.state import Attribute, AttributeMap, Channel, ChannelMap, Context
-from dex.contracts.step import MaybeAwaitable, RetryPolicy, StepDurability
+from dex._contract_utils import PhaseNotImplementedError, require_name
+from dex.blob_cache import BlobCache
+from dex.codec import Value
+from dex.flow import Flow, Registry, RPCResult
+from dex.state import Attribute, AttributeMap, Channel, ChannelMap, Context
+from dex.step import MaybeAwaitable, RetryPolicy, StepDurability
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")

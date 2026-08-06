@@ -15,7 +15,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Any, Generic, Protocol, Sequence, TypeVar, cast
 
-from dex.contracts._common import require_name, validate_condition_id
+from dex._contract_utils import require_name, validate_condition_id
 
 ValueT = TypeVar("ValueT")
 
