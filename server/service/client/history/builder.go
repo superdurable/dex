@@ -44,6 +44,7 @@ type scheduledActivity struct {
 	executeInput     *dexpb.InvokeExecuteMethodActivityInput
 	firstStartedTime time.Time
 	finalAttempt     int32
+	lastFailure      *dexpb.StepMethodFailure
 }
 
 func NewBuilder(flowID string, runID string) *Builder {
@@ -123,6 +124,7 @@ func (b *Builder) RecordActivityStarted(
 	eventTime time.Time,
 	scheduledEventID int64,
 	attempt int32,
+	lastFailure *dexpb.StepMethodFailure,
 ) {
 	scheduled := b.scheduledActivities[scheduledEventID]
 	if scheduled == nil {
@@ -133,6 +135,13 @@ func (b *Builder) RecordActivityStarted(
 	}
 	if attempt > scheduled.finalAttempt {
 		scheduled.finalAttempt = attempt
+	}
+	if scheduled.durability != dexpb.StepDurability_STEP_DURABILITY_SYNC || attempt <= 1 {
+		return
+	}
+	scheduled.lastFailure = lastFailure
+	if lastFailure != nil {
+		lastFailure.Attempt = attempt - 1
 	}
 }
 
@@ -169,6 +178,7 @@ func (b *Builder) RecordActivityCompleted(
 						eventTime,
 						finalAttempt,
 						scheduled.methodOptions,
+						scheduled.lastFailure,
 					),
 				},
 			},
@@ -192,6 +202,7 @@ func (b *Builder) RecordActivityCompleted(
 						eventTime,
 						finalAttempt,
 						scheduled.methodOptions,
+						scheduled.lastFailure,
 					),
 				},
 			},
@@ -214,6 +225,7 @@ func (b *Builder) RecordActivityFailed(
 		return fmt.Errorf("scheduled activity %d is missing", scheduledEventID)
 	}
 	startedTime, finalAttempt := scheduled.executionTiming()
+	failure.Attempt = finalAttempt
 	switch {
 	case scheduled.waitInput != nil:
 		request := scheduled.waitInput.GetRequest()
@@ -233,6 +245,7 @@ func (b *Builder) RecordActivityFailed(
 						eventTime,
 						finalAttempt,
 						scheduled.methodOptions,
+						scheduled.lastFailure,
 					),
 				},
 			},
@@ -255,6 +268,7 @@ func (b *Builder) RecordActivityFailed(
 						eventTime,
 						finalAttempt,
 						scheduled.methodOptions,
+						scheduled.lastFailure,
 					),
 				},
 			},
@@ -548,6 +562,7 @@ func stepMethodEventContext(
 	completedTime time.Time,
 	finalAttempt int32,
 	methodOptions *dexpb.StepMethodOptions,
+	lastFailure *dexpb.StepMethodFailure,
 ) *dexpb.StepMethodEventContext {
 	return &dexpb.StepMethodEventContext{
 		StepExecutionId:     context.GetStepExecutionId(),
@@ -559,6 +574,7 @@ func stepMethodEventContext(
 		Duration:            durationpb.New(completedTime.Sub(startedTime)),
 		MethodOptions:       methodOptions,
 		IsTransientStep:     &isTransient,
+		LastFailureInfo:     lastFailure,
 	}
 }
 

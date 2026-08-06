@@ -419,16 +419,24 @@ function StepDecisionContent({ value }: { value: unknown }) {
 function FailureContent({ value }: { value: unknown }) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
+  const details = asData(failure.details);
   const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.errorType)
     : failure.errorType;
   return (
     <div className="semantic-alert">
       {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
-      <Fields values={[
-        ['Type', errorType],
+      <Fields compact values={[
+        ['Attempt', failure.attempt],
+        ['Error type', errorType],
         ['Retry state', failure.retryState],
       ]} />
+      {hasData(details) && <Fields compact values={[
+        ['Detail', details.detail],
+        ['Worker error type', details.originalWorkerErrorType],
+        ['Worker error detail', details.originalWorkerErrorDetail],
+        ['Worker gRPC status', details.originalWorkerErrorStatus],
+      ]} />}
       {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
     </div>
   );
@@ -491,6 +499,7 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
   const input = asData(payload.input);
   const output = asData(payload.output);
   const context = asData(payload.context);
+  const lastFailure = asData(context.lastFailureInfo);
   const isWaitFor = event.type.startsWith('StepWaitFor');
   const hasInput = payload.input !== undefined && input.unavailable !== true;
   return (
@@ -550,6 +559,12 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           ['Duration', protobufDuration(context.duration)],
         ]} />
         <StepMethodOptionsView value={context.methodOptions} />
+        {hasData(lastFailure) && (
+          <div className="semantic-subsection">
+            <h5>Last failure</h5>
+            <FailureContent value={lastFailure} />
+          </div>
+        )}
       </DetailSection>
     </>
   );

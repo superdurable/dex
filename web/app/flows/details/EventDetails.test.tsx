@@ -73,6 +73,55 @@ describe('selected step event details', () => {
     expect(markup).not.toContain('previousAttempt');
   });
 
+  it('renders the latest sync failure in context', () => {
+    const event = executeEvent(1);
+    event.payload.context = {
+      ...event.payload.context as Record<string, unknown>,
+      lastFailureInfo: {
+        attempt: 1,
+        message: 'worker unavailable',
+        errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
+        retryState: 'RETRY_STATE_IN_PROGRESS',
+        stackTrace: 'worker stack',
+        details: {
+          detail: 'sync retry failure',
+          originalWorkerErrorType: 'UnavailableWorker',
+          originalWorkerErrorDetail: 'try again',
+          originalWorkerErrorStatus: 14,
+        },
+      },
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Last failure');
+    expect(markup).toContain('Attempt');
+    expect(markup).toContain('Worker method failed');
+    expect(markup).toContain('sync retry failure');
+    expect(markup).toContain('UnavailableWorker');
+    expect(markup).toContain('try again');
+    expect(markup).toContain('worker stack');
+    expect(markup).not.toContain('Previous attempts');
+  });
+
+  it('renders the terminal failure attempt with the same failure component', () => {
+    const event = executeEvent(1);
+    event.type = 'StepExecuteFailed';
+    event.payload.output = {
+      failure: {
+        attempt: 2,
+        message: 'retry exhausted',
+        retryState: 'RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED',
+        details: { detail: 'terminal worker failure' },
+      },
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Failure');
+    expect(markup).toContain('retry exhausted');
+    expect(markup).toContain('terminal worker failure');
+    expect(markup).toContain('2');
+  });
+
   it('distinguishes an unavailable step input from a missing value blob', () => {
     const event = executeEvent(2);
     event.payload.input = { unavailable: true };
