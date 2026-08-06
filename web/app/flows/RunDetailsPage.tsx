@@ -8,6 +8,11 @@
 
 import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
 import {
@@ -31,6 +36,33 @@ import { Timeline } from './details/Timeline';
 type RunTab = 'overview' | 'steps' | 'timeline';
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
+const sidebarWidthStorageKey = 'dex.run.selected-event-width';
+const defaultSidebarWidth = 340;
+const minimumSidebarWidth = 280;
+const maximumSidebarWidth = 720;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(maximumSidebarWidth, Math.max(minimumSidebarWidth, width));
+}
+
+function storedSidebarWidth(): number {
+  if (typeof window === 'undefined') return defaultSidebarWidth;
+  try {
+    const width = Number.parseInt(window.localStorage.getItem(sidebarWidthStorageKey) || '', 10);
+    return Number.isFinite(width) ? clampSidebarWidth(width) : defaultSidebarWidth;
+  } catch (storageError) {
+    console.warn('Unable to read the selected event width preference.', storageError);
+    return defaultSidebarWidth;
+  }
+}
+
+function persistSidebarWidth(width: number) {
+  try {
+    window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+  } catch (storageError) {
+    console.warn('Unable to save the selected event width preference.', storageError);
+  }
+}
 
 async function responseJSON<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
@@ -55,16 +87,65 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
+  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const [resizingSidebar, setResizingSidebar] = useState(false);
   const waitGeneration = useRef(0);
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarResizeStart = useRef({ pointerX: 0, width: sidebarWidth });
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const addDataWarning = useCallback((warning: string) => {
     setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
   }, []);
+  const updateSidebarWidth = useCallback((width: number) => {
+    const nextWidth = clampSidebarWidth(width);
+    sidebarWidthRef.current = nextWidth;
+    setSidebarWidth(nextWidth);
+    return nextWidth;
+  }, []);
+  const startSidebarResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    sidebarResizeStart.current = {
+      pointerX: event.clientX,
+      width: sidebarWidthRef.current,
+    };
+    setResizingSidebar(true);
+  }, []);
+  const resizeSidebarWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    let nextWidth = sidebarWidthRef.current;
+    if (event.key === 'ArrowLeft') nextWidth += 24;
+    else if (event.key === 'ArrowRight') nextWidth -= 24;
+    else if (event.key === 'Home') nextWidth = minimumSidebarWidth;
+    else if (event.key === 'End') nextWidth = maximumSidebarWidth;
+    else return;
+    event.preventDefault();
+    persistSidebarWidth(updateSidebarWidth(nextWidth));
+  }, [updateSidebarWidth]);
+
+  useEffect(() => {
+    if (!resizingSidebar) return;
+    const resize = (event: PointerEvent) => {
+      const start = sidebarResizeStart.current;
+      updateSidebarWidth(start.width + start.pointerX - event.clientX);
+    };
+    const finish = () => {
+      persistSidebarWidth(sidebarWidthRef.current);
+      setResizingSidebar(false);
+    };
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', finish, { once: true });
+    window.addEventListener('pointercancel', finish, { once: true });
+    return () => {
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+    };
+  }, [resizingSidebar, updateSidebarWidth]);
 
   const loadState = useCallback(async (statusCode: number) => {
     if (terminalStatuses.has(statusCode)) {
@@ -302,7 +383,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
         ))}
       </div>
 
-      <div className="run-content">
+      <div
+        className={`run-content ${resizingSidebar ? 'is-resizing-sidebar' : ''}`}
+        style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+      >
         <section className="run-primary">
           {tab === 'overview' && summary && (
             <FlowOverview summary={summary} events={displayedHistory} state={state} />
@@ -343,7 +427,25 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           )}
         </section>
         <aside className="run-sidebar">
-          <FlowStatePanel state={state} selectedEvent={selected} summary={summary} />
+          <button
+            type="button"
+            className="run-sidebar-resizer"
+            role="separator"
+            aria-label="Resize selected event panel"
+            aria-orientation="vertical"
+            aria-valuemin={minimumSidebarWidth}
+            aria-valuemax={maximumSidebarWidth}
+            aria-valuenow={sidebarWidth}
+            onDoubleClick={() => persistSidebarWidth(updateSidebarWidth(defaultSidebarWidth))}
+            onKeyDown={resizeSidebarWithKeyboard}
+            onPointerDown={startSidebarResize}
+          />
+          <FlowStatePanel
+            state={state}
+            selectedEvent={selected}
+            summary={summary}
+            history={displayedHistory}
+          />
         </aside>
       </div>
 

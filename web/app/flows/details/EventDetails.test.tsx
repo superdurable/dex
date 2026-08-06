@@ -31,6 +31,7 @@ function executeEvent(durability: number): FlowHistoryEvent {
       context: {
         stepExecutionId: 'charge-1',
         fromStepExecutionId: 'authorize-1',
+        stepType: 'charge',
         durability,
         finalAttempt: 2,
         startedTime: '2026-08-05T23:44:31.700000000Z',
@@ -45,10 +46,13 @@ function executeEvent(durability: number): FlowHistoryEvent {
   };
 }
 
-function renderDetails(event: FlowHistoryEvent): string {
+function renderDetails(
+  event: FlowHistoryEvent,
+  history: FlowHistoryEvent[] = [event],
+): string {
   return renderToStaticMarkup(
     <PreferencesProvider>
-      <SemanticEventDetails event={event} />
+      <SemanticEventDetails event={event} history={history} />
     </PreferencesProvider>,
   );
 }
@@ -80,5 +84,172 @@ describe('selected step event details', () => {
 
     expect(markup).toContain(STEP_EVENT_INPUT_UNAVAILABLE);
     expect(markup).not.toContain('Value blob unavailable');
+  });
+
+  it('derives Execute failure and locking options from the source step decision', () => {
+    const event = executeEvent(1);
+    const source: FlowHistoryEvent = {
+      eventId: 8,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'StepExecuteCompleted',
+      payload: {
+        context: { stepExecutionId: 'authorize-1', stepType: 'authorize' },
+        output: {
+          stepDecision: {
+            nextSteps: [{
+              stepType: 'charge',
+              stepInput: { stringValue: 'charge' },
+              fromStepExecutionIdInternalOnly: 'authorize-1',
+              stepOptions: {
+                executeFailurePolicy: 2,
+                executeFailureProceedStepType: 'recover-charge',
+                executeLockAttributeKeys: ['account', 'balance'],
+                waitForFailurePolicy: 1,
+                waitForLockAttributeKeys: ['should-not-render'],
+              },
+            }],
+          },
+        },
+      },
+    };
+
+    const markup = renderDetails(event, [source, event]);
+
+    expect(markup).toContain('Failure policy');
+    expect(markup).toContain('Proceed to configured step');
+    expect(markup).toContain('recover-charge');
+    expect(markup).toContain('Locking attributes');
+    expect(markup).toContain('account, balance');
+    expect(markup).not.toContain('should-not-render');
+  });
+
+  it('derives initial WaitFor options from the flow start event', () => {
+    const event: FlowHistoryEvent = {
+      ...executeEvent(2),
+      eventId: 10,
+      type: 'StepWaitForCompleted',
+      payload: {
+        ...executeEvent(2).payload,
+        context: {
+          ...executeEvent(2).payload.context as Record<string, unknown>,
+          fromStepExecutionId: '__start__',
+        },
+      },
+    };
+    const start: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        initialStart: {
+          startStepType: 'charge',
+          stepOptions: {
+            waitForFailurePolicy: 2,
+            waitForLockAttributeKeys: ['ready'],
+            executeLockAttributeKeys: ['should-not-render'],
+          },
+        },
+      },
+    };
+
+    const markup = renderDetails(event, [start, event]);
+
+    expect(markup).toContain('Proceed');
+    expect(markup).toContain('ready');
+    expect(markup).not.toContain('should-not-render');
+  });
+
+  it('derives options from an exact continued step resume', () => {
+    const event = executeEvent(2);
+    event.payload.context = {
+      ...event.payload.context as Record<string, unknown>,
+      fromStepExecutionId: 'previous-run-step-1',
+    };
+    const continued: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        continuedStart: {
+          stepsToResume: [{
+            stepExecutionId: 'charge-1',
+            step: {
+              stepType: 'charge',
+              stepOptions: {
+                executeFailurePolicy: 1,
+                executeLockAttributeKeys: ['continued-account'],
+              },
+            },
+          }],
+        },
+      },
+    };
+
+    const markup = renderDetails(event, [continued, event]);
+
+    expect(markup).toContain('Fail flow');
+    expect(markup).toContain('continued-account');
+  });
+
+  it('derives options from a continued step movement', () => {
+    const event = executeEvent(2);
+    event.payload.context = {
+      ...event.payload.context as Record<string, unknown>,
+      fromStepExecutionId: 'previous-run-step-1',
+    };
+    const continued: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        continuedStart: {
+          stepsToStart: [{
+            stepType: 'charge',
+            fromStepExecutionIdInternalOnly: 'previous-run-step-1',
+            stepOptions: {
+              executeFailurePolicy: 2,
+              executeFailureProceedStepType: 'continued-recovery',
+              executeLockAttributeKeys: ['continued-movement-account'],
+            },
+          }],
+        },
+      },
+    };
+
+    const markup = renderDetails(event, [continued, event]);
+
+    expect(markup).toContain('Proceed to configured step');
+    expect(markup).toContain('continued-recovery');
+    expect(markup).toContain('continued-movement-account');
+  });
+
+  it('derives options from an RPC movement', () => {
+    const event = executeEvent(2);
+    event.payload.context = {
+      ...event.payload.context as Record<string, unknown>,
+      fromStepExecutionId: '__rpc/charge',
+    };
+    const rpc: FlowHistoryEvent = {
+      eventId: 7,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'RpcExecutionCompleted',
+      payload: {
+        rpcName: 'charge',
+        stepDecision: {
+          nextSteps: [{
+            stepType: 'charge',
+            stepOptions: {
+              executeFailurePolicy: 1,
+              executeLockAttributeKeys: ['rpc-account'],
+            },
+          }],
+        },
+      },
+    };
+
+    const markup = renderDetails(event, [rpc, event]);
+
+    expect(markup).toContain('Fail flow');
+    expect(markup).toContain('rpc-account');
   });
 });
