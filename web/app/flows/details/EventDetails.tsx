@@ -32,6 +32,7 @@ import {
 } from '@/lib/semantic';
 import { formatDate, type TimezonePreference } from '@/lib/format';
 import { formatElapsedDuration } from '@/lib/timeline';
+import { findSourceStepOptions } from '@/lib/stepOptions';
 import { usePreferences } from '@/app/providers';
 
 type Data = Record<string, unknown>;
@@ -474,10 +475,25 @@ function EffectsContent({ value }: { value: Data }) {
   );
 }
 
-function StepMethodOptionsView({ value }: { value: unknown }) {
+function StepMethodOptionsView({
+  value,
+  stepOptions,
+  isWaitFor,
+}: {
+  value: unknown;
+  stepOptions: unknown;
+  isWaitFor: boolean;
+}) {
   const options = asData(value);
-  if (!hasData(options)) return null;
+  const movementOptions = asData(stepOptions);
+  if (!hasData(options) && !hasData(movementOptions)) return null;
   const policy = asData(options.retryPolicy);
+  const failurePolicy = isWaitFor
+    ? movementOptions.waitForFailurePolicy
+    : movementOptions.executeFailurePolicy;
+  const lockingAttributes = isWaitFor
+    ? movementOptions.waitForLockAttributeKeys
+    : movementOptions.executeLockAttributeKeys;
   return (
     <div className="semantic-subsection">
       <h5>Step options</h5>
@@ -488,12 +504,25 @@ function StepMethodOptionsView({ value }: { value: unknown }) {
         ['Retry maximum interval', seconds(policy.maximumIntervalSeconds)],
         ['Retry maximum attempts', policy.maximumAttempts === 0 ? 'Unlimited' : policy.maximumAttempts],
         ['Retry total duration', policy.totalDurationSeconds === 0 ? 'Unlimited' : seconds(policy.totalDurationSeconds)],
+        ['Failure policy', isPresent(failurePolicy)
+          ? isWaitFor
+            ? waitForFailurePolicyLabel(failurePolicy)
+            : executeFailurePolicyLabel(failurePolicy)
+          : undefined],
+        ['Failure proceeds to', isWaitFor ? undefined : movementOptions.executeFailureProceedStepType],
+        ['Locking attributes', listText(lockingAttributes), true],
       ]} />
     </div>
   );
 }
 
-function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
+function StepMethodDetails({
+  event,
+  history,
+}: {
+  event: FlowHistoryEvent;
+  history: FlowHistoryEvent[];
+}) {
   const { timezone } = usePreferences();
   const payload = event.payload;
   const input = asData(payload.input);
@@ -555,10 +584,14 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           ['From', context.fromStepExecutionId],
           ['Durability', durabilityLabel(context.durability)],
           ['Final attempt', context.finalAttempt],
-          ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined, true],
+          ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined],
           ['Duration', protobufDuration(context.duration)],
         ]} />
-        <StepMethodOptionsView value={context.methodOptions} />
+        <StepMethodOptionsView
+          value={context.methodOptions}
+          stepOptions={findSourceStepOptions(event, history)}
+          isWaitFor={isWaitFor}
+        />
         {hasData(lastFailure) && (
           <div className="semantic-subsection">
             <h5>Last failure</h5>
@@ -697,13 +730,15 @@ function RPCDetails({ payload }: { payload: Data }) {
 
 export function SemanticEventDetails({
   event,
+  history = [event],
   showStartHeading = true,
 }: {
   event: FlowHistoryEvent;
+  history?: FlowHistoryEvent[];
   showStartHeading?: boolean;
 }) {
   if (event.type.startsWith('StepWaitFor') || event.type.startsWith('StepExecute')) {
-    return <StepMethodDetails event={event} />;
+    return <StepMethodDetails event={event} history={history} />;
   }
   if (event.type === 'FlowStartedOrContinued') {
     return hasData(asData(event.payload.continuedStart))
@@ -721,8 +756,10 @@ export function SemanticEventDetails({
 
 export function EventDetails({
   event,
+  history,
 }: {
   event: FlowHistoryEvent;
+  history: FlowHistoryEvent[];
 }) {
   const [view, setView] = useState<'details' | 'raw'>('details');
   return (
@@ -733,7 +770,7 @@ export function EventDetails({
           <button aria-selected={view === 'raw'} className={view === 'raw' ? 'active' : ''} role="tab" type="button" onClick={() => setView('raw')}>Raw JSON</button>
         </div>
         {view === 'details'
-          ? <div className="semantic-event"><SemanticEventDetails event={event} /></div>
+          ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} /></div>
           : <pre className="raw-event-json">{JSON.stringify(event.payload, storedValueJSONReplacer, 2)}</pre>}
       </div>
     </div>

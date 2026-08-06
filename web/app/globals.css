@@ -827,9 +827,15 @@ pre {
 
 .run-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) var(--run-sidebar-width, 340px);
   gap: 18px;
   padding-top: 18px;
+}
+
+.run-content.is-resizing-sidebar,
+.run-content.is-resizing-sidebar * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .run-primary {
@@ -837,13 +843,76 @@ pre {
 }
 
 .run-sidebar {
+  position: relative;
   min-width: 0;
+}
+
+.run-sidebar-resizer {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.run-sidebar-resizer::before,
+.run-sidebar-resizer::after {
+  position: absolute;
+  left: 50%;
+  content: "";
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.run-sidebar-resizer::before {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+
+.run-sidebar-resizer::after {
+  top: 96px;
+  width: 4px;
+  height: 42px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.run-sidebar-resizer:hover::before,
+.run-sidebar-resizer:hover::after,
+.run-sidebar-resizer:focus-visible::before,
+.run-sidebar-resizer:focus-visible::after,
+.is-resizing-sidebar .run-sidebar-resizer::before,
+.is-resizing-sidebar .run-sidebar-resizer::after {
+  opacity: 1;
+}
+
+.run-sidebar-resizer:hover::after,
+.run-sidebar-resizer:focus-visible::after,
+.is-resizing-sidebar .run-sidebar-resizer::after {
+  background: var(--brand);
+}
+
+.run-sidebar-resizer:focus-visible {
+  outline: none;
 }
 
 .sidebar-stack {
   position: sticky;
   top: 88px;
-  overflow: hidden;
+  max-height: calc(100vh - 104px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: white;
@@ -1808,8 +1877,16 @@ pre {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .run-sidebar-resizer {
+    display: none;
+  }
+
   .sidebar-stack {
     position: static;
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
   }
 
   .metric-grid {
