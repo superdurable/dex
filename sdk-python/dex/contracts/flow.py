@@ -34,13 +34,17 @@ from dex.contracts.state import (
     AttributeMap,
     Channel,
     ChannelMap,
+    Context,
+    Wait,
 )
-from dex.contracts.step import Step, StepList, StepMovement, _StepDef
+from dex.contracts.step import Step, StepDecision, StepList, StepMovement, _StepDef
 
 OutputT = TypeVar("OutputT")
 StartT = TypeVar("StartT")
-ValueT = TypeVar("ValueT")
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
+_PersistenceDefinition = (
+    Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any]
+)
 
 
 @dataclass(frozen=True)
@@ -99,22 +103,29 @@ class PersistenceSchema:
     attributes: tuple[Attribute[Any] | AttributeMap[Any], ...] = ()
     channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
 
-
-@dataclass(frozen=True)
-class InitialAttribute(Generic[ValueT]):
-    attribute: Attribute[ValueT]
-    value: ValueT
+    @staticmethod
+    def of(*definitions: _PersistenceDefinition) -> PersistenceSchema:
+        attributes: list[Attribute[Any] | AttributeMap[Any]] = []
+        channels: list[Channel[Any] | ChannelMap[Any]] = []
+        for definition in definitions:
+            if isinstance(definition, (Attribute, AttributeMap)):
+                attributes.append(definition)
+            elif isinstance(definition, (Channel, ChannelMap)):
+                channels.append(definition)
+            else:
+                raise TypeError("unsupported persistence definition")
+        return PersistenceSchema(tuple(attributes), tuple(channels))
 
 
 class Flow(Generic[StartT], ABC):
     def get_flow_type(self) -> str:
-        return type(self).__qualname__
+        return type(self).__name__
 
     def get_steps(self) -> StepList[StartT]:
         return StepList.empty()
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema()
+        return PersistenceSchema.of()
 
 
 @dataclass(frozen=True)
@@ -198,6 +209,8 @@ class Registry:
             )
 
         schema = flow.get_persistence_schema()
+        if not isinstance(schema, PersistenceSchema):
+            raise TypeError("Flow persistence schema must be a PersistenceSchema")
         registered_rpcs: list[_RegisteredRPC] = []
         rpc_names: set[str] = set()
         for attribute_name in dir(flow):
@@ -210,23 +223,87 @@ class Registry:
             if rpc_name in rpc_names:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             rpc_names.add(rpc_name)
-            if any(
-                all(lock.attribute is not attribute for attribute in schema.attributes)
-                for lock in options.lock_attributes
-            ):
-                raise ValueError(f"RPC {rpc_name} locks an unregistered attribute")
+            Registry._validate_rpc_locks(rpc_name, options, schema)
             registered_rpcs.append(Registry._rpc_codecs(method, codec_registry))
         return registered_steps, registered_rpcs
 
     @staticmethod
+    def _validate_rpc_locks(
+        rpc_name: str,
+        options: _RPCOptions,
+        schema: PersistenceSchema,
+    ) -> None:
+        lock_identities: set[tuple[int, str | None]] = set()
+        for lock in options.lock_attributes:
+            if not isinstance(lock, AttributeLock):
+                raise TypeError(f"RPC {rpc_name} has an invalid attribute lock")
+            if all(lock.attribute is not attribute for attribute in schema.attributes):
+                raise ValueError(f"RPC {rpc_name} locks an unregistered attribute")
+            if isinstance(lock.attribute, AttributeMap):
+                if lock.instance is None:
+                    raise ValueError(
+                        f"RPC {rpc_name} attribute-map lock needs an instance"
+                    )
+                require_name(lock.instance)
+            elif lock.instance is not None:
+                raise ValueError(
+                    f"RPC {rpc_name} attribute lock cannot have an instance"
+                )
+            identity = (id(lock.attribute), lock.instance)
+            if identity in lock_identities:
+                raise ValueError(f"RPC {rpc_name} has a duplicate attribute lock")
+            lock_identities.add(identity)
+
+    @staticmethod
     def _step_input_codec(step: Step[Any], codec_registry: CodecRegistry) -> Codec[Any]:
-        parameters = tuple(signature(step.execute).parameters.values())
-        hints = get_type_hints(step.execute)
-        if len(parameters) != 2 or "input" not in hints:
-            raise TypeError(
-                f"Step {step.get_step_type()} execute must annotate context and input"
+        input_type = Registry._step_handler_input_type(
+            step,
+            "execute",
+            step.execute,
+            StepDecision,
+        )
+        if type(step).wait_for is not Step.wait_for:
+            wait_input_type = Registry._step_handler_input_type(
+                step,
+                "wait_for",
+                step.wait_for,
+                Wait,
             )
-        return codec_registry.resolve(hints["input"])
+            if wait_input_type != input_type:
+                raise TypeError(
+                    f"Step {step.get_step_type()} handlers must use the same input type"
+                )
+        return codec_registry.resolve(input_type)
+
+    @staticmethod
+    def _step_handler_input_type(
+        step: Step[Any],
+        handler_name: str,
+        handler: Callable[..., Any],
+        return_type: type[Any],
+    ) -> Any:
+        parameters = tuple(signature(handler).parameters.values())
+        hints = get_type_hints(handler)
+        if len(parameters) != 2:
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} must accept context and input"
+            )
+        context_parameter, input_parameter = parameters
+        if hints.get(context_parameter.name) is not Context:
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} context must be Context"
+            )
+        input_type = hints.get(input_parameter.name)
+        if input_type is None:
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} input must be annotated"
+            )
+        if hints.get("return") is not return_type:
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} must return "
+                f"{return_type.__name__}"
+            )
+        return input_type
 
     @staticmethod
     def _rpc_codecs(
@@ -236,6 +313,10 @@ class Registry:
         hints = get_type_hints(method)
         if len(parameters) not in (1, 2) or "return" not in hints:
             raise TypeError("RPC must annotate Context, optional input, and return")
+        if hints.get(parameters[0].name) is not Context:
+            raise TypeError("RPC context must be Context")
+        if len(parameters) == 2 and parameters[1].name not in hints:
+            raise TypeError("RPC input must be annotated")
         input_codec = (
             codec_registry.resolve(hints[parameters[1].name])
             if len(parameters) == 2

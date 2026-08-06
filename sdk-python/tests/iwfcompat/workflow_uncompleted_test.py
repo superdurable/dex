@@ -12,12 +12,16 @@ from datetime import timedelta
 
 from dex import Client, StartFlowOptions, StopFlowOptions, StopType
 
-from . import iwf_flows
+from .empty_decision_flow import EmptyDecisionFlow
+from .force_fail_flow import ForceFailFlow
+from .signal_flow import SignalFlow
+from .state_failure_flow import StateFailureFlow
+from .state_timeout_flow import StateTimeoutFlow
 
 
 def compile_wait_and_flow_timeouts(client: Client) -> None:
     options = StartFlowOptions(timeout=timedelta(seconds=1))
-    client.start_flow(iwf_flows.SIGNAL, "wait-timeout", 0, options)
+    client.start_flow(SignalFlow(), "wait-timeout", 0, options)
     output: int = client.wait_for_flow(
         "wait-timeout",
         int,
@@ -39,7 +43,7 @@ def compile_cancellation_termination_and_failure(client: Client) -> None:
 
 
 def compile_worker_failure_modes(client: Client) -> None:
-    client.start_flow(iwf_flows.FORCE_FAIL, "force-fail", 0)
-    client.start_flow(iwf_flows.STATE_FAILURE, "state-failure", 0)
-    client.start_flow(iwf_flows.STATE_TIMEOUT, "state-timeout", 0)
-    client.start_flow(iwf_flows.EMPTY_DECISION, "empty-decision", 0)
+    client.start_flow(ForceFailFlow(), "force-fail", 0)
+    client.start_flow(StateFailureFlow(), "state-failure", 0)
+    client.start_flow(StateTimeoutFlow(), "state-timeout", 0)
+    client.start_flow(EmptyDecisionFlow(), "empty-decision", 0)

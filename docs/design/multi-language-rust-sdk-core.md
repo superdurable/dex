@@ -28,7 +28,7 @@ the published contracts instead of redesigning them.
   every language.
 - Support Python 3.11+, Java 8+, and Node 22/24 first.
 - Keep Java Client and Worker APIs synchronous.
-- Keep Python Client, Worker, Step, and RPC APIs synchronous.
+- Keep Python Client and Worker APIs synchronous; accept sync and async handlers.
 - Share the existing Rust DXBC blob cache across non-Go SDKs.
 - Keep future C#, Ruby, PHP, and C ABI bridges possible without changing Core.
 
@@ -107,11 +107,13 @@ Python authors implement generic `Flow[I]` and `Step[I]` interfaces. RPC remains
 a metadata-only method decorator, preserving the original callable and its
 typing. Registry derives built-in and dataclass codecs from method annotations;
 only unsupported types and custom encodings require `CodecRegistry`
-registration. Handler methods use synchronous `def` signatures. PEP 561
-metadata, mypy, and pyright verify the public types.
+registration. PEP 561 metadata, mypy, and pyright verify the public types. Step
+and RPC handlers may use `def` or `async def` without changing Client call
+sites.
 
-`Flow.get_steps()` returns `StepDef.start_step(step)` and
-`StepDef.non_start_step(step)` wrappers. There is no separate start-Step getter.
+`Flow.get_steps()` returns `StepList.start_step(step).other_steps(...)`. The
+generic start Step retains the Flow input type while heterogeneous later Steps
+are erased. There is no separate start-Step getter.
 
 Factories are owned by the domain noun they create, so waits read naturally:
 
@@ -119,8 +121,13 @@ Factories are owned by the domain noun they create, so waits read naturally:
 Wait.all_of(Timer.by_duration(duration))
 ```
 
-Handlers later run in a bounded Python executor. User code is never invoked on
-a Tokio worker thread.
+Synchronous handlers later run in a bounded Python executor. Async handlers run
+on a bridge-owned Python event loop. User code is never invoked on a Tokio
+worker thread.
+
+The published Python package must expose one Client and Worker API. Existing
+legacy root modules such as `dex.client` must be removed when the Rust bridge
+replaces them; they must not remain as alternate public imports.
 
 ### Java
 
@@ -333,6 +340,7 @@ concurrency, and the Core activation queue provides bounded backpressure.
 | Language code | Execution |
 | --- | --- |
 | Python synchronous handler | bounded Python executor |
+| Python asynchronous handler | bridge-owned Python event loop |
 | Java synchronous handler | bounded `ExecutorService` |
 | TypeScript handler | JavaScript event loop |
 | C#, Ruby, PHP | runtime scheduler or bounded executor |

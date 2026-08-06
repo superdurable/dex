@@ -10,11 +10,13 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .dead_end_flow import DeadEndFlow
+from .no_state_flow import NoStateFlow
+from .rpc_flow import RpcFlow
 
 
 def compile_locking(client: Client) -> None:
-    flow = iwf_flows.NO_STATE
+    flow = NoStateFlow()
     client.start_flow(flow, "rpc-lock", None)
     first: int = client.invoke_rpc(flow.increase_counter, "rpc-lock")
     second: int = client.invoke_rpc(flow.get_counter, "rpc-lock")
@@ -22,7 +24,7 @@ def compile_locking(client: Client) -> None:
 
 
 def compile_functions_and_procedures(client: Client) -> None:
-    flow = iwf_flows.RPC
+    flow = RpcFlow()
     client.start_flow(flow, "rpc", 0)
     client.invoke_rpc(flow.no_persistence, "rpc")
     one: int = client.invoke_rpc(flow.function_one, "rpc", "input")
@@ -38,10 +40,12 @@ def compile_functions_and_procedures(client: Client) -> None:
 
 
 def compile_rpc_error_and_channel_size(client: Client) -> None:
-    ignored: int = client.invoke_rpc(iwf_flows.NO_STATE.fail, "rpc-error", "error")
+    no_state = NoStateFlow()
+    dead_end = DeadEndFlow()
+    ignored: int = client.invoke_rpc(no_state.fail, "rpc-error", "error")
     published: int = client.invoke_rpc(
-        iwf_flows.DEAD_END.publish_internal,
+        dead_end.publish_internal,
         "channel-size",
     )
-    size: int = client.invoke_rpc(iwf_flows.DEAD_END.signal_size, "channel-size")
+    size: int = client.invoke_rpc(dead_end.signal_size, "channel-size")
     del ignored, published, size

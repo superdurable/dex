@@ -88,6 +88,9 @@ class SignalFlow(Flow[int]):
         return StepList.start_step(self.start).other_steps(self.combination)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            channels=(self.first, self.second, self.third, self.signal_map)
+        return PersistenceSchema.of(
+            self.first,
+            self.second,
+            self.third,
+            self.signal_map,
         )

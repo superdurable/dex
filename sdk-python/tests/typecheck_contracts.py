@@ -10,16 +10,21 @@ from dataclasses import dataclass
 from typing import cast
 
 from dex import (
+    Attribute,
+    AttributeMap,
     BlobCache,
     Client,
     Context,
     Flow,
+    PersistenceSchema,
     Registry,
     RPCResult,
+    StartFlowOptions,
     Step,
     StepList,
     StepDecision,
     Wait,
+    Worker,
     graceful_complete,
     rpc,
 )
@@ -97,3 +102,20 @@ async_output: Output = async_client.invoke_rpc(
     "async-flow-id",
     Input("input"),
 )
+
+status = Attribute("status", str)
+items = AttributeMap("items", int)
+persistence: PersistenceSchema = PersistenceSchema.of(status, items)
+start_options: StartFlowOptions = (
+    StartFlowOptions()
+    .with_attribute(status, "ready")
+    .with_attribute(items, "order-1", 1)
+)
+
+
+def compile_lifecycle(client: Client, worker: Worker) -> None:
+    client.trigger_continue_as_new("flow-id")
+    with client:
+        pass
+    with worker:
+        pass

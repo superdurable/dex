@@ -114,6 +114,8 @@ class StateOptionsFlow(Flow[None]):
         return StepList.start_step(self.first).other_steps(self.second, self.third)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(self.wait_value, self.execute_value, self.both_value)
+        return PersistenceSchema.of(
+            self.wait_value,
+            self.execute_value,
+            self.both_value,
         )

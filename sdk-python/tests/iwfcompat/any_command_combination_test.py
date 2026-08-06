@@ -12,13 +12,13 @@ from datetime import timedelta
 
 from dex import Client, StartFlowOptions
 
-from . import iwf_flows
+from .any_combination_fail_flow import AnyCombinationFailFlow
 
 
 def compile_state_api_failure(client: Client) -> None:
     options = StartFlowOptions(timeout=timedelta(seconds=10))
     client.start_flow(
-        iwf_flows.ANY_COMBINATION_FAIL,
+        AnyCombinationFailFlow(),
         "any-combination",
         0,
         options,

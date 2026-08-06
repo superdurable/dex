@@ -10,12 +10,12 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .state_options_override_flow import StateOptionsOverrideFlow
 
 
 def compile_movement_options_override(client: Client) -> None:
     client.start_flow(
-        iwf_flows.STATE_OPTIONS_OVERRIDE,
+        StateOptionsOverrideFlow(),
         "options-override",
         "input",
     )

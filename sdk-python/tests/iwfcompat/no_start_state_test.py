@@ -10,18 +10,20 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .dead_end_flow import DeadEndFlow
+from .no_start_flow import NoStartFlow
+from .no_state_flow import NoStateFlow
 
 
 def compile_no_start_step(client: Client) -> None:
-    flow = iwf_flows.NO_START
+    flow = NoStartFlow()
     client.start_flow(flow, "no-start", None)
     output: int = client.invoke_rpc(flow.invoke, "no-start", "input")
     del output
 
 
 def compile_no_step(client: Client) -> None:
-    flow = iwf_flows.NO_STATE
+    flow = NoStateFlow()
     client.start_flow(flow, "no-step", None)
     output: int = client.invoke_rpc(flow.increase_counter, "no-step")
     client.stop_flow("no-step")
@@ -29,7 +31,7 @@ def compile_no_step(client: Client) -> None:
 
 
 def compile_dead_end(client: Client) -> None:
-    flow = iwf_flows.DEAD_END
+    flow = DeadEndFlow()
     client.start_flow(flow, "dead-end", None)
     size: int = client.invoke_rpc(flow.publish_internal, "dead-end")
     del size

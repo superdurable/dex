@@ -31,6 +31,7 @@ MaybeAwaitable: TypeAlias = ResultT | Awaitable[ResultT]
 
 
 class StepDurability(Enum):
+    DEFAULT = "default"
     SYNC = "sync"
     ASYNC = "async"
 
@@ -55,9 +56,9 @@ class StepOptions:
     execute_method_timeout: timedelta | None = None
     wait_for_retry: RetryPolicy | None = None
     execute_retry: RetryPolicy | None = None
-    wait_for_failure: WaitForFailurePolicy | None = None
-    wait_for_durability: StepDurability | None = None
-    execute_durability: StepDurability | None = None
+    wait_for_failure: WaitForFailurePolicy = WaitForFailurePolicy.FAIL_FLOW
+    wait_for_durability: StepDurability = StepDurability.DEFAULT
+    execute_durability: StepDurability = StepDurability.DEFAULT
     wait_for_lock_attributes: tuple[AttributeLock, ...] = ()
     execute_lock_attributes: tuple[AttributeLock, ...] = ()
     _execute_failure_target: Step[Any] | None = None
@@ -89,7 +90,7 @@ class Step(Generic[InputT], ABC):
         raise RuntimeError("framework must skip the default wait_for")
 
     def get_step_type(self) -> str:
-        return type(self).__qualname__
+        return type(self).__name__
 
     def get_step_options(self) -> StepOptions | None:
         return None

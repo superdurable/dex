@@ -44,9 +44,9 @@ jobs:
       - name: Test contracts
         run: uv run --frozen pytest tests/test_contracts.py
       - name: Check static types with mypy
-        run: uv run --frozen mypy --strict tests/typecheck_contracts.py
+        run: uv run --frozen mypy --strict tests/typecheck_contracts.py tests/iwfcompat
       - name: Check static types with pyright
-        run: uv run --frozen pyright tests/typecheck_contracts.py
+        run: uv run --frozen pyright tests/typecheck_contracts.py tests/iwfcompat
 
   lint:
     runs-on: ubuntu-latest

@@ -10,15 +10,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
+from types import TracebackType
 from typing import Any, Callable, Mapping, TypeVar, overload
 
 from dex.contracts._common import PhaseNotImplementedError, require_name
 from dex.contracts.blob_cache import BlobCache
 from dex.contracts.codec import Value
-from dex.contracts.flow import Flow, InitialAttribute, Registry, RPCResult
+from dex.contracts.flow import Flow, Registry, RPCResult
 from dex.contracts.state import Attribute, AttributeMap, Channel, ChannelMap, Context
 from dex.contracts.step import MaybeAwaitable, RetryPolicy, StepDurability
 
@@ -64,16 +65,62 @@ class FlowConfig:
 
 
 @dataclass(frozen=True)
+class _AttributeInitialization:
+    definition: Attribute[Any] | AttributeMap[Any]
+    instance: str | None
+    value: object
+
+
+@dataclass(frozen=True)
 class StartFlowOptions:
     timeout: timedelta | None = None
     start_delay: timedelta | None = None
     id_reuse_policy: IdReusePolicy = IdReusePolicy.DEFAULT
     cron_schedule: str | None = None
     retry_policy: RetryPolicy | None = None
-    attributes: tuple[InitialAttribute[Any], ...] = ()
+    _attribute_initializations: tuple[_AttributeInitialization, ...] = ()
     config_override: FlowConfig | None = None
     ignore_already_started: bool = False
     request_id: str | None = None
+
+    @overload
+    def with_attribute(
+        self,
+        attribute: Attribute[ValueT],
+        value: ValueT,
+        /,
+    ) -> StartFlowOptions: ...
+
+    @overload
+    def with_attribute(
+        self,
+        attribute: AttributeMap[ValueT],
+        instance: str,
+        value: ValueT,
+        /,
+    ) -> StartFlowOptions: ...
+
+    def with_attribute(
+        self,
+        attribute: Attribute[Any] | AttributeMap[Any],
+        /,
+        *args: object,
+    ) -> StartFlowOptions:
+        if isinstance(attribute, Attribute) and len(args) == 1:
+            initialization = _AttributeInitialization(attribute, None, args[0])
+        elif isinstance(attribute, AttributeMap) and len(args) == 2:
+            instance = args[0]
+            if not isinstance(instance, str):
+                raise TypeError("attribute-map instance must be a string")
+            require_name(instance)
+            initialization = _AttributeInitialization(attribute, instance, args[1])
+        else:
+            raise TypeError("with_attribute received invalid arguments")
+        return replace(
+            self,
+            _attribute_initializations=self._attribute_initializations
+            + (initialization,),
+        )
 
 
 @dataclass(frozen=True)
@@ -156,11 +203,22 @@ class Client:
         self,
         registry: Registry,
         blob_cache: BlobCache,
-        options: ClientOptions = ClientOptions(),
+        options: ClientOptions | None = None,
     ) -> None:
         self.registry = registry
         self.blob_cache = blob_cache
-        self.options = options
+        self.options = options or ClientOptions()
+
+    def __enter__(self) -> Client:
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def start_flow(
         self,
@@ -359,6 +417,9 @@ class Client:
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
         raise PhaseNotImplementedError("Client transport belongs to a later phase")
 
+    def trigger_continue_as_new(self, flow_id: str) -> None:
+        raise PhaseNotImplementedError("Client transport belongs to a later phase")
+
     def close(self) -> None:
         raise PhaseNotImplementedError("Client transport belongs to a later phase")
 
@@ -368,17 +429,31 @@ class Worker:
         self,
         registry: Registry,
         blob_cache: BlobCache,
-        options: WorkerOptions = WorkerOptions(),
+        options: WorkerOptions | None = None,
     ) -> None:
         self.registry = registry
         self.blob_cache = blob_cache
-        self.options = options
+        self.options = options or WorkerOptions()
+
+    def __enter__(self) -> Worker:
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def start(self) -> None:
         raise PhaseNotImplementedError("Worker runtime belongs to a later phase")
 
     def stop(self) -> None:
         raise PhaseNotImplementedError("Worker runtime belongs to a later phase")
+
+    def close(self) -> None:
+        self.stop()
 
 
 @dataclass(frozen=True)

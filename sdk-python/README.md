@@ -17,6 +17,7 @@ from datetime import timedelta
 import dex
 
 counter = dex.Attribute("counter", int)
+counters_by_region = dex.AttributeMap("counters-by-region", int)
 
 class Run(dex.Step[str]):
     def wait_for(
@@ -41,7 +42,7 @@ class CounterFlow(dex.Flow[str]):
         return dex.StepList.start_step(self.run)
 
     def get_persistence_schema(self) -> dex.PersistenceSchema:
-        return dex.PersistenceSchema(attributes=(counter,))
+        return dex.PersistenceSchema.of(counter, counters_by_region)
 
     @dex.rpc(name="Increment")
     def increment(
@@ -56,6 +57,18 @@ registry = dex.Registry((flow,))
 Registry derives codecs from declared Python types and handler annotations.
 Built-in scalar types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
+`PersistenceSchema.of(...)` accepts attributes and channels together and
+partitions them by definition type.
+
+Initial attributes retain their value types without a public wrapper class:
+
+```python
+options = (
+    dex.StartFlowOptions()
+    .with_attribute(counter, 1)
+    .with_attribute(counters_by_region, "us-west", 1)
+)
+```
 
 ```
 pip install dex-python-sdk==0.0.1

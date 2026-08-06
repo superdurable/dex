@@ -80,14 +80,12 @@ class BasicPersistenceFlow(Flow[str]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(
-                self.initial,
-                self.data,
-                self.model,
-                self.data_map,
-                self.keyword,
-                self.integer,
-                self.datetime,
-            )
+        return PersistenceSchema.of(
+            self.initial,
+            self.data,
+            self.model,
+            self.data_map,
+            self.keyword,
+            self.integer,
+            self.datetime,
         )

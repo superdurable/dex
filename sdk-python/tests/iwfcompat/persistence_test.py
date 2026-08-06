@@ -10,14 +10,19 @@
 
 from datetime import datetime
 
-from dex import Client, InitialAttribute, StartFlowOptions
+from dex import Client, StartFlowOptions
 
-from . import iwf_flows
+from .basic_persistence_flow import BasicPersistenceFlow
+from .set_attributes_flow import SetAttributesFlow
 
 
 def compile_persistence_reads(client: Client) -> None:
-    flow = iwf_flows.BASIC_PERSISTENCE
-    options = StartFlowOptions(attributes=(InitialAttribute(flow.initial, "initial"),))
+    flow = BasicPersistenceFlow()
+    options = (
+        StartFlowOptions()
+        .with_attribute(flow.initial, "initial")
+        .with_attribute(flow.data_map, "one", "initial-map")
+    )
     client.start_flow(flow, "persistence", "input", options)
     data: str = client.get_attribute("persistence", flow.data)
     integer: int = client.get_attribute("persistence", flow.integer)
@@ -29,7 +34,7 @@ def compile_persistence_reads(client: Client) -> None:
 
 
 def compile_persistence_writes(client: Client) -> None:
-    flow = iwf_flows.SET_ATTRIBUTES
+    flow = SetAttributesFlow()
     client.start_flow(flow, "set-attributes", "input")
     client.set_attribute("set-attributes", flow.data, "value")
     client.set_attribute("set-attributes", flow.data_map, "one", "value")

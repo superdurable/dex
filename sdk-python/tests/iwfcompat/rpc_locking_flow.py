@@ -65,10 +65,7 @@ class RpcLockingFlow(Flow[None]):
         return StepList.start_step(self.first).other_steps(self.second)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(self.data, self.counter, self.items),
-            channels=(self.channel,),
-        )
+        return PersistenceSchema.of(self.data, self.counter, self.items, self.channel)
 
     @rpc(lock_attributes=(data.lock(), counter.lock()))
     def with_locking(self, context: Context) -> None:

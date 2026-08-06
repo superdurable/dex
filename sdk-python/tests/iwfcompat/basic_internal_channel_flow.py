@@ -80,4 +80,4 @@ class BasicInternalChannelFlow(Flow[int]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(channels=(self.first_channel, self.channel_map))
+        return PersistenceSchema.of(self.first_channel, self.channel_map)

@@ -12,11 +12,11 @@ from datetime import timedelta
 
 from dex import Client, StepExecutionId
 
-from . import iwf_flows
+from .timer_flow import TimerFlow
 
 
 def compile_timer_and_step_wait(client: Client) -> None:
-    client.start_flow(iwf_flows.TIMER, "timer", 1)
+    client.start_flow(TimerFlow(), "timer", 1)
     client.wait_for_step_completion(
         "timer",
         StepExecutionId("TimerStep"),

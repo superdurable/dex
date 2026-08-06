@@ -38,7 +38,7 @@ class DeadEndFlow(Flow[None]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(channels=(self.idle_signal,))
+        return PersistenceSchema.of(self.idle_signal)
 
     @rpc
     def signal_size(self, context: Context) -> RPCResult[int]:

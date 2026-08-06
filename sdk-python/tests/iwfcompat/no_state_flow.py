@@ -15,7 +15,7 @@ class NoStateFlow(Flow[None]):
     counter = Attribute("counter", int)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(attributes=(self.counter,))
+        return PersistenceSchema.of(self.counter)
 
     @rpc(lock_attributes=(counter.lock(),))
     def increase_counter(self, context: Context) -> RPCResult[int]:

@@ -10,10 +10,10 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .state_options_flow import StateOptionsFlow
 
 
 def compile_timeout_retry_durability_and_locks(client: Client) -> None:
-    client.start_flow(iwf_flows.STATE_OPTIONS, "state-options", None)
+    client.start_flow(StateOptionsFlow(), "state-options", None)
     output: str = client.wait_for_flow("state-options", str)
     del output

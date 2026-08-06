@@ -10,11 +10,11 @@
 
 from dex import Client, ResetFlowOptions, ResetType
 
-from . import iwf_flows
+from .rpc_locking_flow import RpcLockingFlow
 
 
 def compile_locking_rpc_reapply(client: Client) -> None:
-    flow = iwf_flows.RPC_LOCKING
+    flow = RpcLockingFlow()
     client.start_flow(flow, "reset-locking", None)
     client.invoke_rpc(flow.with_locking, "reset-locking")
     client.invoke_rpc(flow.with_attribute_map_lock, "reset-locking")

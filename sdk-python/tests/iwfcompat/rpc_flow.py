@@ -65,10 +65,7 @@ class RpcFlow(Flow[int]):
         return StepList.start_step(self.first).other_steps(self.second)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(self.data, self.keyword),
-            channels=(self.internal,),
-        )
+        return PersistenceSchema.of(self.data, self.keyword, self.internal)
 
     @rpc
     def no_persistence(self, context: Context) -> None:

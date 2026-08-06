@@ -21,7 +21,12 @@ from dex import (
     WorkerTarget,
 )
 
-from . import iwf_flows
+from .abnormal_exit_flow import AbnormalExitFlow
+from .basic_flow import BasicFlow
+from .empty_input_flow import EmptyInputFlow
+from .mixed_wait_flow import MixedWaitFlow
+from .model_input_flow import ModelInputFlow
+from .proceed_on_wait_failure_flow import ProceedOnWaitFailureFlow
 from .shared import ModelInput
 
 
@@ -30,15 +35,16 @@ def compile_basic_and_reuse(client: Client) -> None:
         timeout=timedelta(seconds=10),
         id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING,
     )
-    client.start_flow(iwf_flows.BASIC, "basic", 10, options)
+    basic = BasicFlow()
+    client.start_flow(basic, "basic", 10, options)
     output: int = client.wait_for_flow("basic", int)
-    client.start_flow(iwf_flows.ABNORMAL_EXIT, "abnormal", 10, options)
-    client.start_flow(iwf_flows.BASIC, "abnormal", output, options)
+    client.start_flow(AbnormalExitFlow(), "abnormal", 10, options)
+    client.start_flow(basic, "abnormal", output, options)
 
 
 def compile_empty_and_model_inputs(client: Client) -> None:
-    client.start_flow(iwf_flows.EMPTY_INPUT, "empty", None)
-    client.start_flow(iwf_flows.MODEL_INPUT, "model", ModelInput(value=10))
+    client.start_flow(EmptyInputFlow(), "empty", None)
+    client.start_flow(ModelInputFlow(), "model", ModelInput(value=10))
 
 
 def compile_failure_policy_and_config_override(client: Client) -> None:
@@ -48,12 +54,12 @@ def compile_failure_policy_and_config_override(client: Client) -> None:
     )
     options = StartFlowOptions(config_override=config)
     client.start_flow(
-        iwf_flows.PROCEED_ON_WAIT_FAILURE,
+        ProceedOnWaitFailureFlow(),
         "recover",
         "input",
         options,
     )
-    client.start_flow(iwf_flows.MIXED_WAIT, "mixed", 0, options)
+    client.start_flow(MixedWaitFlow(), "mixed", 0, options)
     client.update_flow_config("mixed", config)
 
 

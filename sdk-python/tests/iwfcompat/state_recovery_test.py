@@ -10,18 +10,19 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .state_recovery_flow import StateRecoveryFlow
+from .state_recovery_no_wait_flow import StateRecoveryNoWaitFlow
 
 
 def compile_wait_and_execute_recovery(client: Client) -> None:
-    client.start_flow(iwf_flows.STATE_RECOVERY, "state-recovery", 1)
+    client.start_flow(StateRecoveryFlow(), "state-recovery", 1)
     output: int = client.wait_for_flow("state-recovery", int)
     del output
 
 
 def compile_execute_only_recovery(client: Client) -> None:
     client.start_flow(
-        iwf_flows.STATE_RECOVERY_NO_WAIT,
+        StateRecoveryNoWaitFlow(),
         "state-recovery-no-wait",
         1,
     )

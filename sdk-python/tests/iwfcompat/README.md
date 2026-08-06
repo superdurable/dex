@@ -1,8 +1,8 @@
 # IWF integration compile port
 
 This directory mirrors the complete Java `iwfcompat` inventory: 28 Flow
-fixtures and 16 integration scenario files. Every Flow has its own module;
-`iwf_flows.py` only creates the shared instances used by scenarios.
+fixtures and 16 integration scenario files. Every scenario imports and creates
+the Flow classes it exercises directly.
 
 The scenario functions are intentionally not pytest tests. They describe the
 typed Client call sites without contacting a Dex server.
@@ -22,6 +22,10 @@ uv run --frozen pyright tests/iwfcompat
   readable.
 - RPC methods remain normal bound methods and are passed directly to
   `Client.invoke_rpc`.
+- `PersistenceSchema.of(...)` groups attributes and channels without parallel
+  keyword tuples.
+- `StartFlowOptions.with_attribute(...)` binds Attribute and AttributeMap
+  values without a public wrapper type.
 - Attribute-map locks retain the instance through
   `items.lock("order-1")`.
 - Synchronous Client shapes match Java and Go while preserving Python naming.

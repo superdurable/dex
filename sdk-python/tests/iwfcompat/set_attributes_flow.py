@@ -68,16 +68,14 @@ class SetAttributesFlow(Flow[str]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(
-                self.data,
-                self.data_map,
-                self.keyword,
-                self.text,
-                self.decimal,
-                self.integer,
-                self.bool,
-                self.keywords,
-                self.datetime,
-            )
+        return PersistenceSchema.of(
+            self.data,
+            self.data_map,
+            self.keyword,
+            self.text,
+            self.decimal,
+            self.integer,
+            self.bool,
+            self.keywords,
+            self.datetime,
         )

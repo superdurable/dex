@@ -24,7 +24,6 @@ from dex.contracts.codec import (
 )
 from dex.contracts.flow import (
     Flow,
-    InitialAttribute,
     PersistenceSchema,
     Registry,
     RPCResult,
@@ -110,7 +109,6 @@ __all__ = [
     "HealthInfo",
     "IdReusePolicy",
     "IndexType",
-    "InitialAttribute",
     "JsonCodec",
     "PersistenceSchema",
     "PhaseNotImplementedError",

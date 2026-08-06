@@ -61,10 +61,7 @@ class ConditionalCompleteFlow(Flow[bool]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(
-            attributes=(self.counter,),
-            channels=(self.signal, self.internal),
-        )
+        return PersistenceSchema.of(self.counter, self.signal, self.internal)
 
     @rpc
     def publish_to_internal_channel(self, context: Context) -> None:

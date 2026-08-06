@@ -72,4 +72,4 @@ class AnyCombinationFailFlow(Flow[int]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(channels=(self.first, self.second, self.third))
+        return PersistenceSchema.of(self.first, self.second, self.third)

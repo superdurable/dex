@@ -10,11 +10,11 @@
 
 from dex import Client
 
-from . import iwf_flows
+from .conditional_complete_flow import ConditionalCompleteFlow
 
 
 def compile_signal_channel(client: Client) -> None:
-    flow = iwf_flows.CONDITIONAL_COMPLETE
+    flow = ConditionalCompleteFlow()
     client.start_flow(flow, "conditional-signal", True)
     client.publish("conditional-signal", flow.signal, None)
     output: int = client.wait_for_flow("conditional-signal", int)
@@ -22,7 +22,7 @@ def compile_signal_channel(client: Client) -> None:
 
 
 def compile_internal_channel(client: Client) -> None:
-    flow = iwf_flows.CONDITIONAL_COMPLETE
+    flow = ConditionalCompleteFlow()
     client.start_flow(flow, "conditional-internal", False)
     client.invoke_rpc(
         flow.publish_to_internal_channel,

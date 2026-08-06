@@ -10,7 +10,7 @@
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -18,6 +18,7 @@ from dex import (
     INT64,
     STRING,
     Attribute,
+    AttributeMap,
     BlobCache,
     BlobCacheConfig,
     Channel,
@@ -33,9 +34,12 @@ from dex import (
     Step,
     StepList,
     StepDecision,
+    StepDurability,
+    StepOptions,
     Timer,
     Wait,
     WireKind,
+    WaitForFailurePolicy,
     graceful_complete,
     open_blob_cache,
     rpc,
@@ -97,7 +101,7 @@ class OrderFlow(Flow[OrderInput]):
         return StepList.start_step(self.approve).other_steps(self.archive)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema(attributes=(STATUS,), channels=(COMMANDS,))
+        return PersistenceSchema.of(STATUS, COMMANDS)
 
     @rpc(name="GetOrder", lock_attributes=(STATUS.lock(),))
     def get_order(self, context: Context, input: OrderInput) -> RPCResult[OrderOutput]:
@@ -148,6 +152,30 @@ def test_typed_interfaces_construct_without_runtime() -> None:
     assert not definitions[1].is_start_step
 
 
+def test_python_defaults_match_java_contracts() -> None:
+    class Container:
+        class NestedStep(Step[int]):
+            def execute(self, context: Context, input: int) -> StepDecision:
+                del context, input
+                return graceful_complete()
+
+    options = StepOptions()
+    assert Container.NestedStep().get_step_type() == "NestedStep"
+    assert AsyncOrderFlow().get_flow_type() == "AsyncOrderFlow"
+    assert options.wait_for_failure is WaitForFailurePolicy.FAIL_FLOW
+    assert options.wait_for_durability is StepDurability.DEFAULT
+    assert options.execute_durability is StepDurability.DEFAULT
+
+
+def test_persistence_schema_groups_definition_types() -> None:
+    items = AttributeMap("items", int)
+    schema = PersistenceSchema.of(STATUS, items, COMMANDS)
+    assert schema.attributes == (STATUS, items)
+    assert schema.channels == (COMMANDS,)
+    with pytest.raises(TypeError, match="unsupported persistence definition"):
+        PersistenceSchema.of(cast(Any, object()))
+
+
 def test_registry_infers_handler_codecs_from_annotations() -> None:
     registry = Registry((ORDERS,))
     input_codec = registry.codec_registry.resolve(OrderInput)
@@ -166,6 +194,57 @@ def test_registry_accepts_async_step_and_rpc_handlers() -> None:
 def test_registry_rejects_duplicate_interfaces() -> None:
     with pytest.raises(ValueError, match="duplicate Flow Orders"):
         Registry((ORDERS, ORDERS))
+
+
+def test_registry_rejects_invalid_handler_signatures() -> None:
+    class WrongContextStep(Step[int]):
+        def execute(self, context: object, input: int) -> StepDecision:
+            del context, input
+            return graceful_complete()
+
+    class WrongContextFlow(Flow[int]):
+        start = WrongContextStep()
+
+        def get_steps(self) -> StepList[int]:
+            return StepList.start_step(self.start)
+
+    with pytest.raises(TypeError, match="context must be Context"):
+        Registry((WrongContextFlow(),))
+
+
+def test_registry_rejects_mismatched_wait_for_input() -> None:
+    class MismatchedStep(Step[int]):
+        def wait_for(self, context: Context, input: str) -> Wait:
+            del context, input
+            return Wait.skip_immediately()
+
+        def execute(self, context: Context, input: int) -> StepDecision:
+            del context, input
+            return graceful_complete()
+
+    class MismatchedFlow(Flow[int]):
+        start = MismatchedStep()
+
+        def get_steps(self) -> StepList[int]:
+            return StepList.start_step(self.start)
+
+    with pytest.raises(TypeError, match="handlers must use the same input type"):
+        Registry((MismatchedFlow(),))
+
+
+def test_registry_rejects_duplicate_rpc_locks() -> None:
+    locked = Attribute("locked", str)
+
+    class DuplicateLockFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(locked)
+
+        @rpc(lock_attributes=(locked.lock(), locked.lock()))
+        def update(self, context: Context) -> None:
+            del context
+
+    with pytest.raises(ValueError, match="duplicate attribute lock"):
+        Registry((DuplicateLockFlow(),))
 
 
 def test_builtin_codecs_enforce_wire_types_and_ranges() -> None:
