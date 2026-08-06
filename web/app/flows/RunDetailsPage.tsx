@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -34,6 +34,13 @@ import { StepGraph } from './details/StepGraph';
 import { Timeline } from './details/Timeline';
 
 type RunTab = 'overview' | 'steps' | 'timeline';
+
+interface SelectedEventConnector {
+  height: number;
+  path: string;
+  tone: 'default' | 'execute' | 'wait-for';
+  width: number;
+}
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const sidebarWidthStorageKey = 'dex.run.selected-event-width';
@@ -64,6 +71,12 @@ function persistSidebarWidth(width: number) {
   }
 }
 
+function selectedEventConnectorTone(event: FlowHistoryEvent): SelectedEventConnector['tone'] {
+  if (event.type.startsWith('StepWaitFor')) return 'wait-for';
+  if (event.type.startsWith('StepExecute')) return 'execute';
+  return 'default';
+}
+
 async function responseJSON<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
@@ -89,12 +102,14 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [selectedEventConnector, setSelectedEventConnector] = useState<SelectedEventConnector | null>(null);
   const waitGeneration = useRef(0);
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarResizeStart = useRef({ pointerX: 0, width: sidebarWidth });
+  const runContent = useRef<HTMLDivElement>(null);
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
@@ -322,6 +337,60 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     const startEvent = history.find((event) => event.type === 'FlowStartedOrContinued');
     if (startEvent) void hydrateEvent(startEvent);
   }, [hydrateEvent, history, tab]);
+
+  useLayoutEffect(() => {
+    const content = runContent.current;
+    const selectedEventID = selectedEvent?.eventId;
+    if (!content || tab !== 'timeline' || !selectedEventID) {
+      setSelectedEventConnector(null);
+      return;
+    }
+    const source = content.querySelector<HTMLElement>(`[data-event-id="${selectedEventID}"] .event-card`);
+    const target = content.querySelector<HTMLElement>('[data-selected-event-target]');
+    if (!source || !target) {
+      setSelectedEventConnector(null);
+      return;
+    }
+    let animationFrame = 0;
+    const update = () => {
+      animationFrame = 0;
+      if (window.innerWidth <= 1100) {
+        setSelectedEventConnector(null);
+        return;
+      }
+      const contentRect = content.getBoundingClientRect();
+      const sourceRect = source.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const startX = sourceRect.right - contentRect.left + 4;
+      const startY = sourceRect.top + sourceRect.height / 2 - contentRect.top;
+      const endX = targetRect.left - contentRect.left - 4;
+      const endY = targetRect.top + Math.min(48, targetRect.height / 2) - contentRect.top;
+      const bendX = startX + (endX - startX) / 2;
+      setSelectedEventConnector({
+        height: content.scrollHeight,
+        path: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`,
+        tone: selectedEventConnectorTone(selectedEvent),
+        width: content.scrollWidth,
+      });
+    };
+    const scheduleUpdate = () => {
+      if (!animationFrame) animationFrame = window.requestAnimationFrame(update);
+    };
+    const observer = new ResizeObserver(scheduleUpdate);
+    observer.observe(content);
+    observer.observe(source);
+    observer.observe(target);
+    window.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('scroll', scheduleUpdate, true);
+    scheduleUpdate();
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('scroll', scheduleUpdate, true);
+    };
+  }, [selectedEvent, sidebarWidth, tab]);
+
   const runChain = useMemo(() => {
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
@@ -385,8 +454,20 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
 
       <div
         className={`run-content ${resizingSidebar ? 'is-resizing-sidebar' : ''}`}
+        ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
       >
+        {selectedEventConnector && (
+          <svg
+            aria-hidden="true"
+            className={`selected-event-connector tone-${selectedEventConnector.tone}`}
+            height={selectedEventConnector.height}
+            viewBox={`0 0 ${selectedEventConnector.width} ${selectedEventConnector.height}`}
+            width={selectedEventConnector.width}
+          >
+            <path d={selectedEventConnector.path} />
+          </svg>
+        )}
         <section className="run-primary">
           {tab === 'overview' && summary && (
             <FlowOverview summary={summary} events={displayedHistory} state={state} />

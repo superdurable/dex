@@ -21,9 +21,12 @@ interface StepLinkPath {
   label: string;
   lane: number;
   path: string;
+  waitForEventId: number;
+  executeEventId: number;
   duration: string;
   durationX: number;
   durationY: number;
+  durationWidth: number;
 }
 
 interface StepLinkLayout {
@@ -38,6 +41,12 @@ function eventTone(event: FlowHistoryEvent) {
   if (event.type.endsWith('Completed')) return 'completed';
   if (event.type === 'FlowClosed') return 'closed';
   return 'neutral';
+}
+
+function stepMethodClass(event: FlowHistoryEvent) {
+  if (event.type.startsWith('StepWaitFor')) return ' step-method-wait-for';
+  if (event.type.startsWith('StepExecute')) return ' step-method-execute';
+  return '';
 }
 
 function executionSummary(event: FlowHistoryEvent): string {
@@ -76,6 +85,8 @@ export function Timeline({
     '--timeline-link-rail-width': `${88 + (linkLaneCount - 1) * 48}px`,
   } as CSSProperties;
   const [stepLinkLayout, setStepLinkLayout] = useState<StepLinkLayout>({ width: 0, height: 0, paths: [] });
+  const [interactionStepLinkID, setInteractionStepLinkID] = useState<string | null>(null);
+  const [pinnedStepLinkID, setPinnedStepLinkID] = useState<string | null>(null);
   const updateStepLinks = useCallback(() => {
     const timeline = timelineRef.current;
     if (!timeline) return;
@@ -97,9 +108,12 @@ export function Timeline({
         label: `${link.stepExecutionId}: WaitForCondition started to Execute`,
         lane: link.lane,
         path: `M ${waitForX} ${waitForY} H ${linkX} V ${executeY} H ${executeX}`,
+        waitForEventId: link.waitForEventId,
+        executeEventId: link.executeEventId,
         duration,
         durationX: linkX + 6,
         durationY: (waitForY + executeY) / 2,
+        durationWidth: Math.max(28, duration.length * 7 + 10),
       }];
     });
     setStepLinkLayout({ width: timelineRect.width, height: timelineRect.height, paths });
@@ -126,6 +140,12 @@ export function Timeline({
     if (!eventMs) return earliest;
     return earliest ? Math.min(earliest, eventMs) : eventMs;
   }, 0);
+  const selectedStepLink = stepLinkLayout.paths.find((link) => (
+    link.waitForEventId === selectedEvent?.eventId || link.executeEventId === selectedEvent?.eventId
+  ));
+  const pinnedStepLink = stepLinkLayout.paths.find((link) => link.id === pinnedStepLinkID);
+  const activeStepLinkID = interactionStepLinkID ?? pinnedStepLink?.id ?? selectedStepLink?.id ?? null;
+  const activeStepLink = stepLinkLayout.paths.find((link) => link.id === activeStepLinkID);
   return (
     <div className="timeline-wrap">
       <div className="view-toolbar">
@@ -136,9 +156,10 @@ export function Timeline({
       <div className="timeline" ref={timelineRef} style={timelineStyle}>
         {stepLinkLayout.paths.length > 0 && (
           <svg
-            aria-hidden="true"
+            aria-label="WaitForCondition to Execute links"
             className="timeline-step-links"
             height={stepLinkLayout.height}
+            role="group"
             viewBox={`0 0 ${stepLinkLayout.width} ${stepLinkLayout.height}`}
             width={stepLinkLayout.width}
           >
@@ -146,36 +167,89 @@ export function Timeline({
               <marker id="timeline-step-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="5" refY="3.5">
                 <path d="M 0 0 L 6 3.5 L 0 7 z" />
               </marker>
+              <marker id="timeline-step-arrow-active" markerHeight="9" markerWidth="9" orient="auto" refX="7" refY="4.5">
+                <path d="M 0 0 L 8 4.5 L 0 9 z" />
+              </marker>
             </defs>
-            {stepLinkLayout.paths.map((link) => (
-              <g data-step-execution-id={link.id} data-timeline-lane={link.lane} key={link.id}>
-                <path className="timeline-step-link" d={link.path} markerEnd="url(#timeline-step-arrow)">
-                  <title>{link.label}</title>
-                </path>
-                {link.duration && (
-                  <text
-                    className="timeline-step-duration"
-                    dominantBaseline="middle"
-                    x={link.durationX}
-                    y={link.durationY}
-                  >
-                    {link.duration}
-                  </text>
-                )}
-              </g>
-            ))}
+            {stepLinkLayout.paths.map((link) => {
+              const active = activeStepLinkID === link.id;
+              const pinned = pinnedStepLinkID === link.id;
+              const accessibleLabel = link.duration ? `${link.label}, ${link.duration}` : link.label;
+              return (
+                <g
+                  aria-label={accessibleLabel}
+                  aria-pressed={pinned}
+                  className={`timeline-step-link-group${active ? ' is-active' : ''}`}
+                  data-step-execution-id={link.id}
+                  data-timeline-lane={link.lane}
+                  key={link.id}
+                  onBlur={() => setInteractionStepLinkID(null)}
+                  onClick={() => setPinnedStepLinkID((current) => current === link.id ? null : link.id)}
+                  onFocus={() => setInteractionStepLinkID(link.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setPinnedStepLinkID((current) => current === link.id ? null : link.id);
+                  }}
+                  onMouseEnter={() => setInteractionStepLinkID(link.id)}
+                  onMouseLeave={(event) => {
+                    if (document.activeElement !== event.currentTarget) setInteractionStepLinkID(null);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <title>{accessibleLabel}</title>
+                  <path aria-hidden="true" className="timeline-step-link-hitarea" d={link.path} />
+                  <path
+                    aria-hidden="true"
+                    className="timeline-step-link"
+                    d={link.path}
+                    markerEnd={active ? 'url(#timeline-step-arrow-active)' : 'url(#timeline-step-arrow)'}
+                  />
+                  {link.duration && (
+                    <>
+                      <rect
+                        aria-hidden="true"
+                        className="timeline-step-duration-background"
+                        height="20"
+                        rx="7"
+                        width={link.durationWidth}
+                        x={link.durationX - 5}
+                        y={link.durationY - 10}
+                      />
+                      <text
+                        aria-hidden="true"
+                        className="timeline-step-duration"
+                        dominantBaseline="middle"
+                        x={link.durationX}
+                        y={link.durationY}
+                      >
+                        {link.duration}
+                      </text>
+                    </>
+                  )}
+                </g>
+              );
+            })}
           </svg>
         )}
         {orderedEvents.map((event) => {
           const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
           const relative = startMs && eventMs ? Math.max(0, Math.round((eventMs - startMs) / 1000)) : null;
           const selected = selectedEvent?.eventId === event.eventId;
+          const linked = activeStepLink?.waitForEventId === event.eventId || activeStepLink?.executeEventId === event.eventId;
+          const counterpart = activeStepLink?.id === selectedStepLink?.id && linked && !selected;
           const previousRunId = previousRunID(event);
           return (
             <article
-              className={`timeline-row ${selected ? 'selected' : ''}`}
+              className={`timeline-row${stepMethodClass(event)}${selected ? ' selected' : ''}${linked ? ' link-highlighted' : ''}${counterpart ? ' link-counterpart' : ''}`}
+              data-event-id={event.eventId}
               key={event.eventId}
-              onClick={() => onSelectEvent(event)}
+              onClick={() => {
+                setInteractionStepLinkID(null);
+                setPinnedStepLinkID(null);
+                onSelectEvent(event);
+              }}
             >
               <div className="timeline-time">
                 <b>{formatDate(event.eventTime, timezone)}</b>
@@ -183,7 +257,7 @@ export function Timeline({
               </div>
               <div className="timeline-rail">
                 <span
-                  className={`timeline-dot tone-${eventTone(event)}`}
+                  className={`timeline-dot tone-${eventTone(event)}${linked ? ' link-highlighted' : ''}`}
                   ref={(node) => {
                     if (node) eventDots.current.set(event.eventId, node);
                     else eventDots.current.delete(event.eventId);

@@ -826,10 +826,36 @@ pre {
 }
 
 .run-content {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--run-sidebar-width, 340px);
   gap: 18px;
   padding-top: 18px;
+}
+
+.selected-event-connector {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.selected-event-connector path {
+  fill: none;
+  stroke: var(--brand);
+  stroke-dasharray: 5 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2px;
+}
+
+.selected-event-connector.tone-wait-for path {
+  stroke: #d39732;
+}
+
+.selected-event-connector.tone-execute path {
+  stroke: var(--brand);
 }
 
 .run-content.is-resizing-sidebar,
@@ -922,6 +948,29 @@ pre {
 .sidebar-section {
   padding: 15px;
   border-bottom: 1px solid var(--line);
+}
+
+.selected-event-anchor {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  padding: 15px 15px 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 18px rgba(45, 79, 42, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+.selected-event-anchor > h3 {
+  margin-bottom: 10px;
+}
+
+.selected-event-anchor .event-meta {
+  margin-bottom: 0;
+}
+
+.selected-event-body .event-details {
+  margin-top: 0;
 }
 
 .sidebar-section:last-child {
@@ -1363,16 +1412,56 @@ pre {
   pointer-events: none;
 }
 
+.timeline-step-link-group {
+  cursor: pointer;
+  outline: none;
+}
+
+.timeline-step-link-hitarea {
+  fill: none;
+  pointer-events: stroke;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 16px;
+}
+
 .timeline-step-link {
   fill: none;
+  pointer-events: none;
   stroke: #4f87a3;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2px;
+  transition: filter 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
 }
 
 #timeline-step-arrow path {
   fill: #4f87a3;
+}
+
+#timeline-step-arrow-active path {
+  fill: var(--brand-bright);
+  filter: drop-shadow(0 0 2px rgba(79, 129, 39, 0.45));
+}
+
+.timeline-step-link-group:hover .timeline-step-link,
+.timeline-step-link-group:focus .timeline-step-link,
+.timeline-step-link-group.is-active .timeline-step-link {
+  animation: timeline-step-link-flow 650ms linear infinite;
+  filter: drop-shadow(0 0 3px rgba(79, 129, 39, 0.38));
+  marker-end: url("#timeline-step-arrow-active");
+  stroke: var(--brand-bright);
+  stroke-dasharray: 8 5;
+  stroke-width: 3px;
+}
+
+.timeline-step-duration-background {
+  fill: white;
+  opacity: 0;
+  pointer-events: painted;
+  stroke: transparent;
+  transition: fill 140ms ease, opacity 140ms ease, stroke 140ms ease;
 }
 
 .timeline-step-duration {
@@ -1380,15 +1469,43 @@ pre {
   font-size: 10px;
   font-weight: 700;
   paint-order: stroke;
+  pointer-events: painted;
   stroke: white;
   stroke-linejoin: round;
   stroke-width: 5px;
+  transition: fill 140ms ease, font-weight 140ms ease;
+}
+
+.timeline-step-link-group:hover .timeline-step-duration-background,
+.timeline-step-link-group:focus .timeline-step-duration-background,
+.timeline-step-link-group.is-active .timeline-step-duration-background {
+  fill: var(--brand-soft);
+  opacity: 1;
+  stroke: var(--brand-bright);
+}
+
+.timeline-step-link-group:hover .timeline-step-duration,
+.timeline-step-link-group:focus .timeline-step-duration,
+.timeline-step-link-group.is-active .timeline-step-duration {
+  fill: var(--brand-dark);
+  font-weight: 850;
+  stroke: var(--brand-soft);
+}
+
+@keyframes timeline-step-link-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
 }
 
 .timeline-row.selected .event-card {
+  position: relative;
+  border-width: 2px;
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(111, 160, 54, 0.11);
+  box-shadow: inset 5px 0 0 var(--brand), 0 0 0 4px rgba(111, 160, 54, 0.16), 0 12px 28px rgba(79, 129, 39, 0.13);
+  transform: translateY(-1px);
 }
+
 
 .timeline-time {
   display: flex;
@@ -1517,9 +1634,108 @@ pre {
   box-shadow: 0 0 0 1px #d39732;
 }
 
+.timeline-dot,
+.timeline-row .event-card {
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.timeline-dot.link-highlighted {
+  box-shadow: 0 0 0 3px rgba(143, 201, 61, 0.32);
+  transform: scale(1.35);
+}
+
+.timeline-row.link-highlighted .event-card {
+  border-color: rgba(121, 174, 53, 0.65);
+  box-shadow: 0 8px 22px rgba(79, 129, 39, 0.09);
+}
+
+.timeline-row.step-method-wait-for.link-highlighted .event-card {
+  border-color: rgba(211, 151, 50, 0.72);
+  background: linear-gradient(90deg, rgba(255, 247, 224, 0.82), #fff 38%);
+  box-shadow: 0 8px 22px rgba(128, 88, 23, 0.1);
+}
+
+.timeline-row.step-method-execute.link-highlighted .event-card {
+  border-color: rgba(111, 160, 54, 0.72);
+  background: linear-gradient(90deg, rgba(239, 247, 229, 0.88), #fff 38%);
+  box-shadow: 0 8px 22px rgba(79, 129, 39, 0.1);
+}
+
+.timeline-row.link-counterpart .event-card {
+  position: relative;
+}
+
+.timeline-row.link-counterpart .event-card::before {
+  position: absolute;
+  z-index: 1;
+  top: -10px;
+  right: 12px;
+  padding: 3px 7px;
+  border: 1px solid rgba(79, 135, 163, 0.55);
+  border-radius: 999px;
+  color: #315e74;
+  content: "Paired event";
+  background: #edf7fa;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.timeline-row.step-method-wait-for.link-counterpart .event-card {
+  border-color: #d39732;
+  box-shadow: 0 0 0 3px rgba(211, 151, 50, 0.2), 0 10px 25px rgba(128, 88, 23, 0.12);
+}
+
+.timeline-row.step-method-wait-for.link-counterpart .event-card::before {
+  border-color: rgba(211, 151, 50, 0.58);
+  color: #76500f;
+  background: #fff4d8;
+}
+
+.timeline-row.step-method-execute.link-counterpart .event-card {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(111, 160, 54, 0.2), 0 10px 25px rgba(79, 129, 39, 0.12);
+}
+
+.timeline-row.step-method-execute.link-counterpart .event-card::before {
+  border-color: rgba(111, 160, 54, 0.58);
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+}
+
+.timeline-row.step-method-wait-for.selected .event-card {
+  border-color: #d39732;
+  background: linear-gradient(90deg, #fff3cf, #fff 46%);
+  box-shadow: inset 5px 0 0 #d39732, 0 0 0 4px rgba(211, 151, 50, 0.24), 0 13px 30px rgba(128, 88, 23, 0.16);
+}
+
+.timeline-row.step-method-execute.selected .event-card {
+  border-color: var(--brand);
+  background: linear-gradient(90deg, #e8f4da, #fff 46%);
+  box-shadow: inset 5px 0 0 var(--brand-bright), 0 0 0 4px rgba(111, 160, 54, 0.24), 0 13px 30px rgba(79, 129, 39, 0.16);
+}
+
+
+.timeline-row.step-method-wait-for.selected .timeline-dot {
+  box-shadow: 0 0 0 4px rgba(211, 151, 50, 0.28);
+}
+
+.timeline-row.step-method-execute.selected .timeline-dot {
+  box-shadow: 0 0 0 4px rgba(111, 160, 54, 0.28);
+}
+
 .event-type.tone-waiting {
   color: #805817;
   background: #f7eacd;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-step-link-group:hover .timeline-step-link,
+  .timeline-step-link-group:focus .timeline-step-link,
+  .timeline-step-link-group.is-active .timeline-step-link {
+    animation: none;
+  }
 }
 
 .event-highlights {
