@@ -17,27 +17,20 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.Wait;
 
-final class BasicFlow implements Flow<Integer> {
-    private final BasicFirstStep first = new BasicFirstStep();
-    private final BasicSecondStep second = new BasicSecondStep();
+final class SkipWaitUntilWorkflow implements Flow<Integer> {
+    private final ExecuteOnlyFirstStep first = new ExecuteOnlyFirstStep();
+    private final ExecuteOnlySecondStep second = new ExecuteOnlySecondStep();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(first).otherSteps(second);
     }
 
-    final class BasicFirstStep implements Step<Integer> {
+    final class ExecuteOnlyFirstStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            context.setStepExecutionLocal("input", input, Integer.class);
-            return Wait.skipImmediately();
         }
 
         @Override
@@ -46,7 +39,7 @@ final class BasicFlow implements Flow<Integer> {
         }
     }
 
-    static final class BasicSecondStep implements Step<Integer> {
+    static final class ExecuteOnlySecondStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

@@ -15,10 +15,12 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class RpcWithMemoTest {
+    private static final RpcWorkflow WORKFLOW = new RpcWorkflow();
+
     void compileMemoReplacement(final Client client) {
-        client.startFlow(IwfFlows.RPC, "rpc-cache", 0);
-        final RpcFlow stub = client.newRpcStub(
-                RpcFlow.class,
+        client.startFlow(WORKFLOW, "rpc-cache", 0);
+        final RpcWorkflow stub = client.newRpcStub(
+                RpcWorkflow.class,
                 "rpc-cache");
         client.invokeRPC(stub::setData, "value");
         final String data = client.invokeRPC(stub::getData);

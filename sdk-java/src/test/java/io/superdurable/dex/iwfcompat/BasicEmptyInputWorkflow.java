@@ -18,7 +18,7 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 
-final class EmptyInputFlow implements Flow<Void> {
+final class BasicEmptyInputWorkflow implements Flow<Void> {
     private final EmptyFirstStep first = new EmptyFirstStep();
     private final EmptySecondStep second = new EmptySecondStep();
 

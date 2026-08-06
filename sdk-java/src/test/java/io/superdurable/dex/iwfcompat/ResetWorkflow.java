@@ -26,7 +26,7 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 
-final class RpcLockingFlow implements Flow<Void> {
+final class ResetWorkflow implements Flow<Void> {
     final Channel<Void> channel = Channel.define("rpc-channel", Void.class);
     final Attribute<String> data = Attribute.define("rpc-lock-data", String.class);
     final Attribute<Integer> counter = Attribute.define(

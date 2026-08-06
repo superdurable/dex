@@ -15,8 +15,10 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class StateOptionsTest {
+    private static final StateOptionsWorkflow WORKFLOW = new StateOptionsWorkflow();
+
     void compileTimeoutRetryDurabilityAndLocks(final Client client) {
-        client.startFlow(IwfFlows.STATE_OPTIONS, "state-options", null);
+        client.startFlow(WORKFLOW, "state-options", null);
         final String output = client.waitForFlow("state-options", String.class);
         consume(output);
     }

@@ -26,7 +26,7 @@ import io.superdurable.dex.Wait;
 
 import java.time.Duration;
 
-final class SignalFlow implements Flow<Integer> {
+final class SignalWorkflow implements Flow<Integer> {
     final Channel<Integer> first = Channel.define("signal-1", Integer.class);
     final Channel<Integer> second = Channel.define("signal-2", Integer.class);
     final Channel<Integer> third = Channel.define("signal-3", Integer.class);

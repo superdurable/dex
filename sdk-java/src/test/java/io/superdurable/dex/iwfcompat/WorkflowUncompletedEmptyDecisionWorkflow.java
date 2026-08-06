@@ -17,11 +17,8 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.StepOptions;
 
-import java.time.Duration;
-
-final class StateTimeoutFlow implements Flow<Integer> {
+final class WorkflowUncompletedEmptyDecisionWorkflow implements Flow<Integer> {
     private final Step<Integer> start = new Step<Integer>() {
         @Override
         public Class<Integer> getInputType() {
@@ -30,14 +27,7 @@ final class StateTimeoutFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            throw new IllegalStateException("timeout simulation");
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .executeMethodTimeout(Duration.ofMillis(1))
-                    .build();
+            return StepDecision.goToMulti();
         }
     };
 

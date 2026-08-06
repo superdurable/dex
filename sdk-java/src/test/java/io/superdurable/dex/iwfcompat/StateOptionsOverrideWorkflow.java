@@ -22,9 +22,9 @@ import io.superdurable.dex.StepOptions;
 
 import java.time.Duration;
 
-final class StateOptionsOverrideFlow implements Flow<String> {
+final class StateOptionsOverrideWorkflow implements Flow<String> {
     private final OverrideFirstStep first = new OverrideFirstStep();
-    private final IwfFlows.CompleteStringStep second = new IwfFlows.CompleteStringStep();
+    private final CompleteStep second = new CompleteStep();
 
     @Override
     public StepList<String> getSteps() {
@@ -44,6 +44,18 @@ final class StateOptionsOverrideFlow implements Flow<String> {
                     .executeMethodTimeout(Duration.ofSeconds(3))
                     .build();
             return StepDecision.goToMulti(StepMovement.of(second, input, options));
+        }
+    }
+
+    static final class CompleteStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.gracefulComplete(input);
         }
     }
 }

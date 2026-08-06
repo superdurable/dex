@@ -17,12 +17,14 @@ import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
 
 public final class SignalTest {
+    private static final SignalWorkflow WORKFLOW = new SignalWorkflow();
+
     void compileSignalsAndTimerSkip(final Client client) {
-        client.startFlow(IwfFlows.SIGNAL, "signal", 0);
-        client.publish("signal", IwfFlows.SIGNAL.first, 1);
-        client.publish("signal", IwfFlows.SIGNAL.second, 2);
-        client.publish("signal", IwfFlows.SIGNAL.third, 3, 4);
-        client.publish("signal", IwfFlows.SIGNAL.signalMap, "one", 5);
+        client.startFlow(WORKFLOW, "signal", 0);
+        client.publish("signal", WORKFLOW.first, 1);
+        client.publish("signal", WORKFLOW.second, 2);
+        client.publish("signal", WORKFLOW.third, 3, 4);
+        client.publish("signal", WORKFLOW.signalMap, "one", 5);
         client.skipTimer(
                 "signal",
                 new StepExecutionId("SignalCombinationStep"),

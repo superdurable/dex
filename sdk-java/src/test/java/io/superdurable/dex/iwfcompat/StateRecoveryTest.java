@@ -15,14 +15,18 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class StateRecoveryTest {
+    private static final StateRecoveryWorkflow WORKFLOW = new StateRecoveryWorkflow();
+    private static final StateRecoveryNoWaitWorkflow NO_WAIT_WORKFLOW =
+            new StateRecoveryNoWaitWorkflow();
+
     void compileWaitAndExecuteRecovery(final Client client) {
-        client.startFlow(IwfFlows.STATE_RECOVERY, "state-recovery", 1);
+        client.startFlow(WORKFLOW, "state-recovery", 1);
         final Integer output = client.waitForFlow("state-recovery", Integer.class);
         consume(output);
     }
 
     void compileExecuteOnlyRecovery(final Client client) {
-        client.startFlow(IwfFlows.STATE_RECOVERY_NO_WAIT, "state-recovery-no-wait", 1);
+        client.startFlow(NO_WAIT_WORKFLOW, "state-recovery-no-wait", 1);
         final Integer output = client.waitForFlow(
                 "state-recovery-no-wait",
                 Integer.class);

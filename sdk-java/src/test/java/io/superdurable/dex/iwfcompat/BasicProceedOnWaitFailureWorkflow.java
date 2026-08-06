@@ -21,9 +21,9 @@ import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WaitForFailurePolicy;
 
-final class ProceedOnWaitFailureFlow implements Flow<String> {
+final class BasicProceedOnWaitFailureWorkflow implements Flow<String> {
     private final FailingWaitStep first = new FailingWaitStep();
-    private final IwfFlows.CompleteStringStep second = new IwfFlows.CompleteStringStep();
+    private final CompleteStep second = new CompleteStep();
 
     @Override
     public StepList<String> getSteps() {
@@ -51,6 +51,18 @@ final class ProceedOnWaitFailureFlow implements Flow<String> {
             return StepOptions.newBuilder()
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
+        }
+    }
+
+    static final class CompleteStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.gracefulComplete(input);
         }
     }
 }

@@ -15,10 +15,13 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class RpcTest {
+    private static final RpcNoStateWorkflow NO_STATE_WORKFLOW = new RpcNoStateWorkflow();
+    private static final RpcWorkflow WORKFLOW = new RpcWorkflow();
+
     void compileLocking(final Client client) {
-        client.startFlow(IwfFlows.NO_STATE, "rpc-lock", null);
-        final NoStateFlow stub = client.newRpcStub(
-                NoStateFlow.class,
+        client.startFlow(NO_STATE_WORKFLOW, "rpc-lock", null);
+        final RpcNoStateWorkflow stub = client.newRpcStub(
+                RpcNoStateWorkflow.class,
                 "rpc-lock");
         final Integer first = client.invokeRPC(stub::increaseCounter);
         final Integer second = client.invokeRPC(stub::getCounter);
@@ -26,9 +29,9 @@ public final class RpcTest {
     }
 
     void compileFunctionsAndProcedures(final Client client) {
-        client.startFlow(IwfFlows.RPC, "rpc", 0);
-        final RpcFlow stub = client.newRpcStub(
-                RpcFlow.class,
+        client.startFlow(WORKFLOW, "rpc", 0);
+        final RpcWorkflow stub = client.newRpcStub(
+                RpcWorkflow.class,
                 "rpc");
         client.invokeRPC(stub::noPersistence);
         final Long one = client.invokeRPC(stub::functionOne, "input");
@@ -44,12 +47,12 @@ public final class RpcTest {
     }
 
     void compileRpcErrorAndChannelSize(final Client client) {
-        final NoStateFlow errorStub = client.newRpcStub(
-                NoStateFlow.class,
+        final RpcNoStateWorkflow errorStub = client.newRpcStub(
+                RpcNoStateWorkflow.class,
                 "rpc-error");
         final Long ignored = client.invokeRPC(errorStub::fail, "error");
-        final DeadEndFlow channelStub = client.newRpcStub(
-                DeadEndFlow.class,
+        final NoStartStateDeadEndWorkflow channelStub = client.newRpcStub(
+                NoStartStateDeadEndWorkflow.class,
                 "channel-size");
         final Integer published = client.invokeRPC(channelStub::publishInternal);
         final Integer size = client.invokeRPC(channelStub::signalSize);

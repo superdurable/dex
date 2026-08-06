@@ -18,11 +18,14 @@ import io.superdurable.dex.StartFlowOptions;
 import java.time.Duration;
 
 public final class AnyCommandCombinationTest {
+    private static final AnyCommandCombinationWorkflow WORKFLOW =
+            new AnyCommandCombinationWorkflow();
+
     void compileStateApiFailure(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .timeout(Duration.ofSeconds(10))
                 .build();
-        client.startFlow(IwfFlows.ANY_COMBINATION_FAIL, "any-combination", 0, options);
+        client.startFlow(WORKFLOW, "any-combination", 0, options);
         final Integer result = client.waitForFlow("any-combination", Integer.class);
         consume(result);
     }

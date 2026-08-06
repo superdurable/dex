@@ -18,39 +18,43 @@ import io.superdurable.dex.StartFlowOptions;
 import java.time.Instant;
 
 public final class PersistenceTest {
+    private static final PersistenceWorkflow WORKFLOW = new PersistenceWorkflow();
+    private static final PersistenceSetAttributesWorkflow SET_ATTRIBUTES_WORKFLOW =
+            new PersistenceSetAttributesWorkflow();
+
     void compilePersistenceReads(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
-                .addAttribute(IwfFlows.BASIC_PERSISTENCE.initial, "initial")
-                .addAttribute(IwfFlows.BASIC_PERSISTENCE.dataMap, "one", "initial")
+                .addAttribute(WORKFLOW.initial, "initial")
+                .addAttribute(WORKFLOW.dataMap, "one", "initial")
                 .build();
-        client.startFlow(IwfFlows.BASIC_PERSISTENCE, "persistence", "input", options);
+        client.startFlow(WORKFLOW, "persistence", "input", options);
         final String data = client.getAttribute(
                 "persistence",
-                IwfFlows.BASIC_PERSISTENCE.data);
+                WORKFLOW.data);
         final Integer integer = client.getAttribute(
                 "persistence",
-                IwfFlows.BASIC_PERSISTENCE.integer);
+                WORKFLOW.integer);
         final Instant datetime = client.getAttribute(
                 "persistence",
-                IwfFlows.BASIC_PERSISTENCE.datetime);
+                WORKFLOW.datetime);
         consume(data, integer, datetime);
     }
 
     void compilePersistenceWrites(final Client client) {
-        client.startFlow(IwfFlows.SET_ATTRIBUTES, "set-attributes", "input");
-        client.setAttribute("set-attributes", IwfFlows.SET_ATTRIBUTES.data, "value");
+        client.startFlow(SET_ATTRIBUTES_WORKFLOW, "set-attributes", "input");
+        client.setAttribute("set-attributes", SET_ATTRIBUTES_WORKFLOW.data, "value");
         client.setAttribute(
                 "set-attributes",
-                IwfFlows.SET_ATTRIBUTES.dataMap,
+                SET_ATTRIBUTES_WORKFLOW.dataMap,
                 "one",
                 "value");
-        client.setAttribute("set-attributes", IwfFlows.SET_ATTRIBUTES.keyword, "keyword");
-        client.setAttribute("set-attributes", IwfFlows.SET_ATTRIBUTES.decimal, 1.5);
-        client.setAttribute("set-attributes", IwfFlows.SET_ATTRIBUTES.integer, 1);
-        client.setAttribute("set-attributes", IwfFlows.SET_ATTRIBUTES.bool, true);
+        client.setAttribute("set-attributes", SET_ATTRIBUTES_WORKFLOW.keyword, "keyword");
+        client.setAttribute("set-attributes", SET_ATTRIBUTES_WORKFLOW.decimal, 1.5);
+        client.setAttribute("set-attributes", SET_ATTRIBUTES_WORKFLOW.integer, 1);
+        client.setAttribute("set-attributes", SET_ATTRIBUTES_WORKFLOW.bool, true);
         client.setAttribute(
                 "set-attributes",
-                IwfFlows.SET_ATTRIBUTES.keywords,
+                SET_ATTRIBUTES_WORKFLOW.keywords,
                 new String[] {"one", "two"});
         final String output = client.waitForFlow("set-attributes", String.class);
         consume(output);

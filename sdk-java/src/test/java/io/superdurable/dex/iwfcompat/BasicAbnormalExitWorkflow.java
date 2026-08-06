@@ -18,7 +18,7 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 
-final class AbnormalExitFlow implements Flow<Integer> {
+final class BasicAbnormalExitWorkflow implements Flow<Integer> {
     private final Step<Integer> start = new Step<Integer>() {
         @Override
         public Class<Integer> getInputType() {

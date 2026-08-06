@@ -26,11 +26,10 @@ import io.superdurable.dex.Wait;
 import java.time.Instant;
 import java.util.Objects;
 
-final class BasicPersistenceFlow implements Flow<String> {
+final class PersistenceWorkflow implements Flow<String> {
     final Attribute<String> initial = Attribute.define("data-obj-0", String.class);
     final Attribute<String> data = Attribute.define("data-obj-1", String.class);
-    final Attribute<IwfFlows.ModelInput> model =
-            Attribute.define("data-obj-2", IwfFlows.ModelInput.class);
+    final Attribute<ModelInput> model = Attribute.define("data-obj-2", ModelInput.class);
     final AttributeMap<String> dataMap = AttributeMap.define("data-map", String.class);
     final Attribute<String> keyword = Attribute.define(
             "CustomKeywordField",
@@ -88,9 +87,13 @@ final class BasicPersistenceFlow implements Flow<String> {
             keyword.set(context, input);
             integer.set(context, 1);
             datetime.set(context, Instant.parse("2023-04-17T21:17:49Z"));
-            model.set(context, new IwfFlows.ModelInput());
+            model.set(context, new ModelInput());
             dataMap.delete(context, "one");
             return StepDecision.gracefulComplete(data.get(context));
         }
+    }
+
+    static final class ModelInput {
+        public int value;
     }
 }

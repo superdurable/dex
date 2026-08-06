@@ -15,8 +15,11 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class StateOptionsOverrideTest {
+    private static final StateOptionsOverrideWorkflow WORKFLOW =
+            new StateOptionsOverrideWorkflow();
+
     void compileMovementOptionsOverride(final Client client) {
-        client.startFlow(IwfFlows.STATE_OPTIONS_OVERRIDE, "options-override", "input");
+        client.startFlow(WORKFLOW, "options-override", "input");
         final String output = client.waitForFlow("options-override", String.class);
         consume(output);
     }

@@ -17,10 +17,12 @@ import io.superdurable.dex.ResetFlowOptions;
 import io.superdurable.dex.ResetType;
 
 public final class ResetTest {
+    private static final ResetWorkflow WORKFLOW = new ResetWorkflow();
+
     void compileLockingRpcReapply(final Client client) {
-        client.startFlow(IwfFlows.RPC_LOCKING, "reset-locking", null);
-        final RpcLockingFlow stub = client.newRpcStub(
-                RpcLockingFlow.class,
+        client.startFlow(WORKFLOW, "reset-locking", null);
+        final ResetWorkflow stub = client.newRpcStub(
+                ResetWorkflow.class,
                 "reset-locking");
         client.invokeRPC(stub::withLocking);
         client.invokeRPC(stub::withAttributeMapLock);

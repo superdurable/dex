@@ -17,17 +17,25 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepOptions;
+import io.superdurable.dex.Timer;
+import io.superdurable.dex.Wait;
 
-final class ExecuteOnlyFlow implements Flow<Integer> {
-    private final ExecuteOnlyFirstStep first = new ExecuteOnlyFirstStep();
-    private final ExecuteOnlySecondStep second = new ExecuteOnlySecondStep();
+import java.time.Duration;
+
+final class SkipWaitUntilMixedWaitWorkflow implements Flow<Integer> {
+    private final MixedImmediateStep first = new MixedImmediateStep();
+    private final MixedTimerStep second = new MixedTimerStep();
+    private final StepOptions shared = StepOptions.newBuilder()
+            .executeMethodTimeout(Duration.ofSeconds(5))
+            .build();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(first).otherSteps(second);
     }
 
-    final class ExecuteOnlyFirstStep implements Step<Integer> {
+    final class MixedImmediateStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -37,17 +45,32 @@ final class ExecuteOnlyFlow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer input) {
             return StepDecision.goTo(second, input + 1);
         }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return shared;
+        }
     }
 
-    static final class ExecuteOnlySecondStep implements Step<Integer> {
+    final class MixedTimerStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
         }
 
         @Override
+        public Wait waitFor(final Context context, final Integer input) {
+            return Wait.allOf(Timer.byDuration(Duration.ofSeconds(1)));
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Integer input) {
             return StepDecision.gracefulComplete(input + 1);
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return shared;
         }
     }
 }

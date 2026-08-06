@@ -21,7 +21,7 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 
-final class NoStartFlow implements Flow<Void> {
+final class NoStartStateWorkflow implements Flow<Void> {
     private final TriggeredStep triggered = new TriggeredStep();
 
     @Override

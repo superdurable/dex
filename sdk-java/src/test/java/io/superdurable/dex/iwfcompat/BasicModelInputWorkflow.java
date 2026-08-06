@@ -18,21 +18,25 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 
-final class ModelInputFlow implements Flow<IwfFlows.ModelInput> {
-    private final Step<IwfFlows.ModelInput> start = new Step<IwfFlows.ModelInput>() {
+final class BasicModelInputWorkflow implements Flow<BasicModelInputWorkflow.Input> {
+    private final Step<Input> start = new Step<Input>() {
         @Override
-        public Class<IwfFlows.ModelInput> getInputType() {
-            return IwfFlows.ModelInput.class;
+        public Class<Input> getInputType() {
+            return Input.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final IwfFlows.ModelInput input) {
+        public StepDecision execute(final Context context, final Input input) {
             return StepDecision.gracefulComplete(input.value);
         }
     };
 
     @Override
-    public StepList<IwfFlows.ModelInput> getSteps() {
+    public StepList<Input> getSteps() {
         return StepList.startStep(start);
+    }
+
+    static final class Input {
+        public int value;
     }
 }

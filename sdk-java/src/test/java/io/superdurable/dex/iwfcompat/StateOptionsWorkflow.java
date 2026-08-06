@@ -28,7 +28,7 @@ import io.superdurable.dex.Wait;
 
 import java.time.Duration;
 
-final class StateOptionsFlow implements Flow<Void> {
+final class StateOptionsWorkflow implements Flow<Void> {
     final Attribute<String> waitValue = Attribute.define("DA_WAIT_UNTIL", String.class);
     final Attribute<String> executeValue = Attribute.define("DA_EXECUTE", String.class);
     final Attribute<String> bothValue = Attribute.define("DA_BOTH", String.class);

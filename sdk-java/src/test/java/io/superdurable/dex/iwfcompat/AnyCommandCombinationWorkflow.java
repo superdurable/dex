@@ -26,7 +26,7 @@ import io.superdurable.dex.Wait;
 
 import java.time.Duration;
 
-final class AnyCombinationFailFlow implements Flow<Integer> {
+final class AnyCommandCombinationWorkflow implements Flow<Integer> {
     private final Channel<Integer> first = Channel.define("test-signal-1", Integer.class);
     private final Channel<Integer> second = Channel.define("test-signal-2", Integer.class);
     private final Channel<Integer> third = Channel.define("test-signal-3", Integer.class);

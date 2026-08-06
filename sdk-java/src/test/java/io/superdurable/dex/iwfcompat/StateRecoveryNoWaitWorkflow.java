@@ -19,7 +19,7 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
 
-final class StateRecoveryNoWaitFlow implements Flow<Integer> {
+final class StateRecoveryNoWaitWorkflow implements Flow<Integer> {
     private final RecoverNoWaitStep recover = new RecoverNoWaitStep();
     private final FailingNoWaitStep start = new FailingNoWaitStep();
 

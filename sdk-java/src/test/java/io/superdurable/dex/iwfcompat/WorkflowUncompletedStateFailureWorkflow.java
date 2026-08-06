@@ -17,12 +17,9 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 
-import java.time.Duration;
-
-final class TimerFlow implements Flow<Integer> {
+final class WorkflowUncompletedStateFailureWorkflow implements Flow<Integer> {
     private final Step<Integer> start = new Step<Integer>() {
         @Override
         public Class<Integer> getInputType() {
@@ -31,12 +28,12 @@ final class TimerFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(Timer.byDuration(Duration.ofSeconds(input), "test-timer-id"));
+            return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete();
+            throw new IllegalStateException("state API failure");
         }
     };
 

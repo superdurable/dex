@@ -16,44 +16,41 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
-import io.superdurable.dex.RPC;
-import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.Wait;
 
-final class DeadEndFlow implements Flow<Void> {
-    final Channel<Void> idleSignal = Channel.define("idle-signal", Void.class);
-    private final Step<Void> start = new Step<Void>() {
+final class InternalChannelWaitingWorkflow implements Flow<Integer> {
+    final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
+    private final Step<Integer> start = new Step<Integer>() {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<Integer> getInputType() {
+            return Integer.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.deadEnd();
+        public Wait waitFor(final Context context, final Integer input) {
+            return Wait.allOf(channel.forN(2));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer input) {
+            int output = input;
+            for (Integer value : channel.getConditionResults(context)) {
+                output += value;
+            }
+            return StepDecision.gracefulComplete(output);
         }
     };
 
     @Override
-    public StepList<Void> getSteps() {
+    public StepList<Integer> getSteps() {
         return StepList.startStep(start);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(idleSignal);
-    }
-
-    @RPC
-    public RPCResult<Integer> signalSize(final Context context) {
-        return RPCResult.of(idleSignal.size(context));
-    }
-
-    @RPC
-    public RPCResult<Integer> publishInternal(final Context context) {
-        idleSignal.publish(context, null);
-        return RPCResult.of(idleSignal.size(context));
+        return PersistenceSchema.of(channel);
     }
 }

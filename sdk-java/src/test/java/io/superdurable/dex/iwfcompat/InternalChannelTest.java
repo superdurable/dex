@@ -17,17 +17,21 @@ import io.superdurable.dex.Client;
 import java.util.Arrays;
 
 public final class InternalChannelTest {
+    private static final InternalChannelWorkflow WORKFLOW = new InternalChannelWorkflow();
+    private static final InternalChannelWaitingWorkflow WAITING_WORKFLOW =
+            new InternalChannelWaitingWorkflow();
+
     void compileBasicInternalChannel(final Client client) {
-        client.startFlow(IwfFlows.BASIC_INTERNAL, "basic-internal", 1);
+        client.startFlow(WORKFLOW, "basic-internal", 1);
         final Integer output = client.waitForFlow("basic-internal", Integer.class);
         consume(output);
     }
 
     void compileWaitingInternalChannel(final Client client) {
-        client.startFlow(IwfFlows.WAITING_INTERNAL, "waiting-internal", 1);
+        client.startFlow(WAITING_WORKFLOW, "waiting-internal", 1);
         client.publish(
                 "waiting-internal",
-                IwfFlows.WAITING_INTERNAL.channel,
+                WAITING_WORKFLOW.channel,
                 Arrays.asList(2, 3));
         final Integer output = client.waitForFlow("waiting-internal", Integer.class);
         consume(output);

@@ -24,7 +24,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 
-final class BasicInternalChannelFlow implements Flow<Integer> {
+final class InternalChannelWorkflow implements Flow<Integer> {
     private final Channel<Integer> firstChannel =
             Channel.define("test-inter-state-channel-1", Integer.class);
     private final ChannelMap<Integer> channelMap =

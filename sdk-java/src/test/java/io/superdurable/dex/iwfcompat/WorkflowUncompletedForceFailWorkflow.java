@@ -12,17 +12,13 @@
 
 package io.superdurable.dex.iwfcompat;
 
-import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
-import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.Wait;
 
-final class WaitingInternalChannelFlow implements Flow<Integer> {
-    final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
+final class WorkflowUncompletedForceFailWorkflow implements Flow<Integer> {
     private final Step<Integer> start = new Step<Integer>() {
         @Override
         public Class<Integer> getInputType() {
@@ -30,27 +26,13 @@ final class WaitingInternalChannelFlow implements Flow<Integer> {
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(channel.forN(2));
-        }
-
-        @Override
         public StepDecision execute(final Context context, final Integer input) {
-            int output = input;
-            for (Integer value : channel.getConditionResults(context)) {
-                output += value;
-            }
-            return StepDecision.gracefulComplete(output);
+            return StepDecision.forceFail("a failing message");
         }
     };
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(start);
-    }
-
-    @Override
-    public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(channel);
     }
 }

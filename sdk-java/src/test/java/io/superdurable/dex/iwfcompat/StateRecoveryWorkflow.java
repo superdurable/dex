@@ -18,41 +18,18 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
-import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 
-import java.time.Duration;
-
-final class MixedWaitFlow implements Flow<Integer> {
-    private final MixedImmediateStep first = new MixedImmediateStep();
-    private final MixedTimerStep second = new MixedTimerStep();
-    private final StepOptions shared = StepOptions.newBuilder()
-            .executeMethodTimeout(Duration.ofSeconds(5))
-            .build();
+final class StateRecoveryWorkflow implements Flow<Integer> {
+    private final RecoverStep recover = new RecoverStep();
+    private final FailingStep start = new FailingStep();
 
     @Override
     public StepList<Integer> getSteps() {
-        return StepList.startStep(first).otherSteps(second);
+        return StepList.startStep(start).otherSteps(recover);
     }
 
-    final class MixedImmediateStep implements Step<Integer> {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, input + 1);
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return shared;
-        }
-    }
-
-    final class MixedTimerStep implements Step<Integer> {
+    final class FailingStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -60,17 +37,31 @@ final class MixedWaitFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(Timer.byDuration(Duration.ofSeconds(1)));
+            return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input + 1);
+            throw new IllegalStateException("execute failure");
         }
 
         @Override
         public StepOptions getStepOptions() {
-            return shared;
+            return StepOptions.newBuilder()
+                    .onExecuteFailureProceedTo(recover)
+                    .build();
+        }
+    }
+
+    static final class RecoverStep implements Step<Integer> {
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer input) {
+            return StepDecision.gracefulComplete(input * 2);
         }
     }
 }

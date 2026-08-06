@@ -20,11 +20,21 @@ import io.superdurable.dex.StopType;
 import java.time.Duration;
 
 public final class WorkflowUncompletedTest {
+    private static final SignalWorkflow WAIT_TIMEOUT_WORKFLOW = new SignalWorkflow();
+    private static final WorkflowUncompletedForceFailWorkflow FORCE_FAIL_WORKFLOW =
+            new WorkflowUncompletedForceFailWorkflow();
+    private static final WorkflowUncompletedStateFailureWorkflow STATE_FAILURE_WORKFLOW =
+            new WorkflowUncompletedStateFailureWorkflow();
+    private static final WorkflowUncompletedStateTimeoutWorkflow STATE_TIMEOUT_WORKFLOW =
+            new WorkflowUncompletedStateTimeoutWorkflow();
+    private static final WorkflowUncompletedEmptyDecisionWorkflow EMPTY_DECISION_WORKFLOW =
+            new WorkflowUncompletedEmptyDecisionWorkflow();
+
     void compileWaitAndFlowTimeouts(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .timeout(Duration.ofSeconds(1))
                 .build();
-        client.startFlow(IwfFlows.SIGNAL, "wait-timeout", 0, options);
+        client.startFlow(WAIT_TIMEOUT_WORKFLOW, "wait-timeout", 0, options);
         final Integer output = client.waitForFlow(
                 "wait-timeout",
                 Integer.class,
@@ -43,10 +53,10 @@ public final class WorkflowUncompletedTest {
     }
 
     void compileWorkerFailureModes(final Client client) {
-        client.startFlow(IwfFlows.FORCE_FAIL, "force-fail", 0);
-        client.startFlow(IwfFlows.STATE_FAILURE, "state-failure", 0);
-        client.startFlow(IwfFlows.STATE_TIMEOUT, "state-timeout", 0);
-        client.startFlow(IwfFlows.EMPTY_DECISION, "empty-decision", 0);
+        client.startFlow(FORCE_FAIL_WORKFLOW, "force-fail", 0);
+        client.startFlow(STATE_FAILURE_WORKFLOW, "state-failure", 0);
+        client.startFlow(STATE_TIMEOUT_WORKFLOW, "state-timeout", 0);
+        client.startFlow(EMPTY_DECISION_WORKFLOW, "empty-decision", 0);
     }
 
     private static void consume(final Object value) {

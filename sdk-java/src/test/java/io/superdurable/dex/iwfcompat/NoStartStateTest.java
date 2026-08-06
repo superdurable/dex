@@ -15,19 +15,24 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class NoStartStateTest {
+    private static final NoStartStateWorkflow NO_START_WORKFLOW = new NoStartStateWorkflow();
+    private static final RpcNoStateWorkflow NO_STEP_WORKFLOW = new RpcNoStateWorkflow();
+    private static final NoStartStateDeadEndWorkflow DEAD_END_WORKFLOW =
+            new NoStartStateDeadEndWorkflow();
+
     void compileNoStartStep(final Client client) {
-        client.startFlow(IwfFlows.NO_START, "no-start", null);
-        final NoStartFlow stub = client.newRpcStub(
-                NoStartFlow.class,
+        client.startFlow(NO_START_WORKFLOW, "no-start", null);
+        final NoStartStateWorkflow stub = client.newRpcStub(
+                NoStartStateWorkflow.class,
                 "no-start");
         final Long output = client.invokeRPC(stub::invoke, "input");
         consume(output);
     }
 
     void compileNoStep(final Client client) {
-        client.startFlow(IwfFlows.NO_STATE, "no-step", null);
-        final NoStateFlow stub = client.newRpcStub(
-                NoStateFlow.class,
+        client.startFlow(NO_STEP_WORKFLOW, "no-step", null);
+        final RpcNoStateWorkflow stub = client.newRpcStub(
+                RpcNoStateWorkflow.class,
                 "no-step");
         final Integer output = client.invokeRPC(stub::increaseCounter);
         client.stopFlow("no-step");
@@ -35,9 +40,9 @@ public final class NoStartStateTest {
     }
 
     void compileDeadEnd(final Client client) {
-        client.startFlow(IwfFlows.DEAD_END, "dead-end", null);
-        final DeadEndFlow stub = client.newRpcStub(
-                DeadEndFlow.class,
+        client.startFlow(DEAD_END_WORKFLOW, "dead-end", null);
+        final NoStartStateDeadEndWorkflow stub = client.newRpcStub(
+                NoStartStateDeadEndWorkflow.class,
                 "dead-end");
         final Integer size = client.invokeRPC(stub::publishInternal);
         consume(size);

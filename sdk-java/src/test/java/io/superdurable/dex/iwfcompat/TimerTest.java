@@ -18,8 +18,10 @@ import io.superdurable.dex.StepExecutionId;
 import java.time.Duration;
 
 public final class TimerTest {
+    private static final TimerWorkflow WORKFLOW = new TimerWorkflow();
+
     void compileTimerAndStepWait(final Client client) {
-        client.startFlow(IwfFlows.TIMER, "timer", 1);
+        client.startFlow(WORKFLOW, "timer", 1);
         client.waitForStepCompletion(
                 "timer",
                 new StepExecutionId("TimerStep"),

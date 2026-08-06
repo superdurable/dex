@@ -24,22 +24,34 @@ import io.superdurable.dex.WorkerTarget;
 import java.time.Duration;
 
 public final class BasicTest {
+    private static final BasicWorkflow WORKFLOW = new BasicWorkflow();
+    private static final BasicAbnormalExitWorkflow ABNORMAL_EXIT_WORKFLOW =
+            new BasicAbnormalExitWorkflow();
+    private static final BasicEmptyInputWorkflow EMPTY_INPUT_WORKFLOW =
+            new BasicEmptyInputWorkflow();
+    private static final BasicModelInputWorkflow MODEL_INPUT_WORKFLOW =
+            new BasicModelInputWorkflow();
+    private static final BasicProceedOnWaitFailureWorkflow WAIT_FAILURE_WORKFLOW =
+            new BasicProceedOnWaitFailureWorkflow();
+    private static final SkipWaitUntilMixedWaitWorkflow MIXED_WAIT_WORKFLOW =
+            new SkipWaitUntilMixedWaitWorkflow();
+
     void compileBasicAndReuse(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .timeout(Duration.ofSeconds(10))
                 .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
                 .build();
-        client.startFlow(IwfFlows.BASIC, "basic", 10, options);
+        client.startFlow(WORKFLOW, "basic", 10, options);
         final Integer output = client.waitForFlow("basic", Integer.class);
-        client.startFlow(IwfFlows.ABNORMAL_EXIT, "abnormal", 10, options);
-        client.startFlow(IwfFlows.BASIC, "abnormal", output, options);
+        client.startFlow(ABNORMAL_EXIT_WORKFLOW, "abnormal", 10, options);
+        client.startFlow(WORKFLOW, "abnormal", output, options);
     }
 
     void compileEmptyAndModelInputs(final Client client) {
-        client.startFlow(IwfFlows.EMPTY_INPUT, "empty", null);
-        final IwfFlows.ModelInput input = new IwfFlows.ModelInput();
+        client.startFlow(EMPTY_INPUT_WORKFLOW, "empty", null);
+        final BasicModelInputWorkflow.Input input = new BasicModelInputWorkflow.Input();
         input.value = 10;
-        client.startFlow(IwfFlows.MODEL_INPUT, "model", input);
+        client.startFlow(MODEL_INPUT_WORKFLOW, "model", input);
     }
 
     void compileFailurePolicyAndConfigOverride(final Client client) {
@@ -50,8 +62,8 @@ public final class BasicTest {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
                 .configOverride(config)
                 .build();
-        client.startFlow(IwfFlows.PROCEED_ON_WAIT_FAILURE, "recover", "input", options);
-        client.startFlow(IwfFlows.MIXED_WAIT, "mixed", 0, options);
+        client.startFlow(WAIT_FAILURE_WORKFLOW, "recover", "input", options);
+        client.startFlow(MIXED_WAIT_WORKFLOW, "mixed", 0, options);
         client.updateFlowConfig("mixed", config);
     }
 

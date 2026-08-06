@@ -17,19 +17,18 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 
-final class StateRecoveryFlow implements Flow<Integer> {
-    private final RecoverStep recover = new RecoverStep();
-    private final FailingStep start = new FailingStep();
+final class BasicWorkflow implements Flow<Integer> {
+    private final BasicFirstStep first = new BasicFirstStep();
+    private final BasicSecondStep second = new BasicSecondStep();
 
     @Override
     public StepList<Integer> getSteps() {
-        return StepList.startStep(start).otherSteps(recover);
+        return StepList.startStep(first).otherSteps(second);
     }
 
-    final class FailingStep implements Step<Integer> {
+    final class BasicFirstStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -37,23 +36,17 @@ final class StateRecoveryFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
+            context.setStepExecutionLocal("input", input, Integer.class);
             return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            throw new IllegalStateException("execute failure");
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .onExecuteFailureProceedTo(recover)
-                    .build();
+            return StepDecision.goTo(second, input + 1);
         }
     }
 
-    static final class RecoverStep implements Step<Integer> {
+    static final class BasicSecondStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -61,7 +54,7 @@ final class StateRecoveryFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input * 2);
+            return StepDecision.gracefulComplete(input + 1);
         }
     }
 }

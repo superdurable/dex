@@ -15,14 +15,16 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
 import io.superdurable.dex.AttributeMap;
+import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
+import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 
 import java.time.Instant;
 
-final class SetAttributesFlow implements Flow<String> {
+final class PersistenceSetAttributesWorkflow implements Flow<String> {
     final Attribute<String> data = Attribute.define("data", String.class);
     final AttributeMap<String> dataMap = AttributeMap.define("data-map", String.class);
     final Attribute<String> keyword = Attribute.define(
@@ -53,7 +55,7 @@ final class SetAttributesFlow implements Flow<String> {
             "datetime",
             Instant.class,
             new AttributeIndex(AttributeIndex.Type.DATETIME));
-    private final IwfFlows.CompleteStringStep start = new IwfFlows.CompleteStringStep();
+    private final CompleteStep start = new CompleteStep();
 
     @Override
     public StepList<String> getSteps() {
@@ -72,5 +74,17 @@ final class SetAttributesFlow implements Flow<String> {
                 bool,
                 keywords,
                 datetime);
+    }
+
+    static final class CompleteStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.gracefulComplete(input);
+        }
     }
 }

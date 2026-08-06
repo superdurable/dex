@@ -15,14 +15,18 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Client;
 
 public final class SkipWaitUntilTest {
+    private static final SkipWaitUntilWorkflow WORKFLOW = new SkipWaitUntilWorkflow();
+    private static final SkipWaitUntilMixedWaitWorkflow MIXED_WAIT_WORKFLOW =
+            new SkipWaitUntilMixedWaitWorkflow();
+
     void compileExecuteOnlySteps(final Client client) {
-        client.startFlow(IwfFlows.EXECUTE_ONLY, "execute-only", 0);
+        client.startFlow(WORKFLOW, "execute-only", 0);
         final Integer output = client.waitForFlow("execute-only", Integer.class);
         consume(output);
     }
 
     void compileMixedWaitStyles(final Client client) {
-        client.startFlow(IwfFlows.MIXED_WAIT, "mixed-wait", 0);
+        client.startFlow(MIXED_WAIT_WORKFLOW, "mixed-wait", 0);
         final Integer output = client.waitForFlow("mixed-wait", Integer.class);
         consume(output);
     }

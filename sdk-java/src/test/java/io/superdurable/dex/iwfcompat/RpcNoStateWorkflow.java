@@ -19,7 +19,7 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 
-final class NoStateFlow implements Flow<Void> {
+final class RpcNoStateWorkflow implements Flow<Void> {
     private final Attribute<Integer> counter = Attribute.define("counter", Integer.class);
 
     @Override

@@ -26,7 +26,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 
-class RpcFlow implements Flow<Integer> {
+final class RpcWorkflow implements Flow<Integer> {
     final Channel<Void> internal = Channel.define("rpc-internal", Void.class);
     final Attribute<String> data = Attribute.define("rpc-data", String.class);
     final Attribute<String> keyword = Attribute.define(
