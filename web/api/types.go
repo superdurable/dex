@@ -40,6 +40,19 @@ type keyValue struct {
 	Value interface{} `json:"value"`
 }
 
+type blobReference struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+}
+
+type loadBlobsRequest struct {
+	Values []blobReference `json:"values"`
+}
+
+type loadBlobsResponse struct {
+	Values map[string]interface{} `json:"values"`
+}
+
 type flowSummary struct {
 	FlowID         string  `json:"flowId"`
 	RunID          string  `json:"runId"`

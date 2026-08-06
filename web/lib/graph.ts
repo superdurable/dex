@@ -23,8 +23,8 @@ const stepEventTypes = new Set([
   'StepExecuteFailed',
 ]);
 
-function execution(event: FlowHistoryEvent): Record<string, unknown> {
-  const value = event.payload.execution;
+function stepContext(event: FlowHistoryEvent): Record<string, unknown> {
+  const value = event.payload.context;
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
@@ -55,7 +55,7 @@ export function buildStepGraph(
 
   for (const event of events) {
     if (!stepEventTypes.has(event.type)) continue;
-    const info = execution(event);
+    const info = stepContext(event);
     const id = stringField(info.stepExecutionId);
     if (!id) continue;
     const existing = nodes.get(id);
@@ -139,9 +139,9 @@ export function buildStepGraph(
 }
 
 function hasCloseDecision(event: FlowHistoryEvent): boolean {
-  const response = event.payload.response;
-  if (!response || typeof response !== 'object') return false;
-  const stepDecision = (response as Record<string, unknown>).stepDecision;
+  const output = event.payload.output;
+  if (!output || typeof output !== 'object') return false;
+  const stepDecision = (output as Record<string, unknown>).stepDecision;
   if (!stepDecision || typeof stepDecision !== 'object') return false;
   const closeDecision = (stepDecision as Record<string, unknown>).closeDecision;
   return Boolean(closeDecision && typeof closeDecision === 'object');

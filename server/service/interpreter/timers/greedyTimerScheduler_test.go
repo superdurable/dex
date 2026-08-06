@@ -131,7 +131,8 @@ func (p *fakeWorkflowProvider) ExecuteActivity(
 	dexpb.StepDurability,
 	interfaces.UnifiedContext,
 	interface{},
-	...interface{},
+	interface{},
+	interface{},
 ) error {
 	return nil
 }

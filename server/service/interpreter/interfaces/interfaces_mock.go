@@ -402,22 +402,45 @@ func (mr *MockWorkflowProviderMockRecorder) Await(ctx, condition interface{}) *g
 }
 
 // ExecuteActivity mocks base method.
-func (m *MockWorkflowProvider) ExecuteActivity(valuePtr interface{}, durability dexpb.StepDurability, ctx UnifiedContext, activity interface{}, args ...interface{}) error {
+func (m *MockWorkflowProvider) ExecuteActivity(
+	valuePtr interface{},
+	durability dexpb.StepDurability,
+	ctx UnifiedContext,
+	activity interface{},
+	regularInput interface{},
+	localActivityOnlyInput interface{},
+) error {
 	m.ctrl.T.Helper()
-	varargs := []interface{}{valuePtr, durability, ctx, activity}
-	for _, a := range args {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "ExecuteActivity", varargs...)
+	ret := m.ctrl.Call(
+		m,
+		"ExecuteActivity",
+		valuePtr,
+		durability,
+		ctx,
+		activity,
+		regularInput,
+		localActivityOnlyInput,
+	)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ExecuteActivity indicates an expected call of ExecuteActivity.
-func (mr *MockWorkflowProviderMockRecorder) ExecuteActivity(valuePtr, durability, ctx, activity interface{}, args ...interface{}) *gomock.Call {
+func (mr *MockWorkflowProviderMockRecorder) ExecuteActivity(
+	valuePtr, durability, ctx, activity, regularInput, localActivityOnlyInput interface{},
+) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{valuePtr, durability, ctx, activity}, args...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteActivity", reflect.TypeOf((*MockWorkflowProvider)(nil).ExecuteActivity), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"ExecuteActivity",
+		reflect.TypeOf((*MockWorkflowProvider)(nil).ExecuteActivity),
+		valuePtr,
+		durability,
+		ctx,
+		activity,
+		regularInput,
+		localActivityOnlyInput,
+	)
 }
 
 // ExecuteLocalActivity mocks base method.

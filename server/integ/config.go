@@ -20,10 +20,12 @@ const testNamespace = "default"
 // Api.Port / fixed worker ports are unused: startWorker and startDexService bind 127.0.0.1:0.
 
 type DexServiceTestConfig struct {
-	BackendType     service.BackendType
-	MemoEncryption  bool
-	DefaultHeaders  map[string]string
-	S3TestThreshold int
+	BackendType        service.BackendType
+	MemoEncryption     bool
+	DefaultHeaders     map[string]string
+	S3TestThreshold    int
+	LocalBlobDirectory string
+	LocalBlobThreshold int
 	// LazyLoading overrides ExternalStorage.LazyLoading when S3 is enabled.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
@@ -72,6 +74,20 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 			},
 		}
 		cfg.ExternalStorage = externalStorage
+	}
+	if testCfg.LocalBlobDirectory != "" {
+		cfg.ExternalStorage = config.ExternalStorageConfig{
+			Enabled:                true,
+			LazyLoading:            testCfg.LazyLoading,
+			ThresholdInBytes:       testCfg.LocalBlobThreshold,
+			HistoryRetentionInDays: 3,
+			SupportedStorages: []config.BlobStorageConfig{{
+				Status:         config.StorageStatusActive,
+				StorageId:      "local-store-id",
+				StorageType:    config.StorageTypeLocal,
+				LocalDirectory: testCfg.LocalBlobDirectory,
+			}},
+		}
 	}
 	return cfg
 }

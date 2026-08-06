@@ -425,6 +425,20 @@ message GetFlowSummaryResponse {
   google.protobuf.Timestamp close_time = 7;
 }
 
+message InternalAsyncStepInputSnapshot {
+  StepMethodOptions method_options = 1;
+
+  oneof request {
+    InvokeWaitForMethodRequest wait_for_request = 2;
+    InvokeExecuteMethodRequest execute_request = 3;
+  }
+}
+
+message InternalLocalActivityInput {
+  int64 current_run_started_timestamp = 1;
+  StepMethodOptions method_options = 2;
+}
+
 message GetHistoryEventsRequest {
   string flow_id = 1;
   string run_id = 2;
@@ -497,46 +511,74 @@ message StepMethodFailure {
   string retry_state = 4;
 }
 
-message StepMethodAttemptFailure {
-  int32 attempt = 1;
-  google.protobuf.Timestamp failed_time = 2;
-  StepMethodFailure failure = 3;
+message StepMethodOptions {
+  int32 timeout_seconds = 1;
+  RetryPolicy retry_policy = 2;
 }
 
-message StepMethodExecutionInfo {
+message StepMethodEventInput {
+  bool unavailable = 1;
+  Value step_input = 2;
+  ConditionResults condition_results = 3;
+  repeated KV attributes = 4;
+  repeated KV step_execution_locals = 5;
+}
+
+message StepMethodEventContext {
   string step_execution_id = 1;
   string from_step_execution_id = 2;
   string step_type = 3;
-  int32 final_attempt = 4;
-  StepDurability durability = 5;
-  optional bool is_transient_step = 6;
-  google.protobuf.Timestamp first_started_time = 7;
-  google.protobuf.Duration duration = 8;
-  repeated StepMethodAttemptFailure previous_attempt_failures = 9;
+  StepDurability durability = 4;
+  int32 final_attempt = 5;
+  google.protobuf.Timestamp started_time = 6;
+  google.protobuf.Duration duration = 7;
+  StepMethodOptions method_options = 8;
+  optional bool is_transient_step = 9;
+}
+
+message StepWaitForCompletedOutput {
+  WaitingCondition wait_for_condition = 1;
+  repeated AttributeWrite upsert_attributes = 2;
+  repeated ChannelMessage publish_to_channel = 3;
+  repeated KV record_events = 4;
+  repeated KV upsert_step_execution_locals = 5;
+  StepMovement transient_step_movement = 6;
+}
+
+message StepExecuteCompletedOutput {
+  StepDecision step_decision = 1;
+  repeated AttributeWrite upsert_attributes = 2;
+  repeated ChannelMessage publish_to_channel = 3;
+  repeated KV record_events = 4;
+  repeated KV upsert_step_execution_locals = 5;
+}
+
+message StepMethodFailedOutput {
+  StepMethodFailure failure = 1;
 }
 
 message StepWaitForCompletedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeWaitForMethodRequest request = 2;
-  InvokeWaitForMethodResponse response = 3;
+  StepMethodEventInput input = 1;
+  StepWaitForCompletedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepWaitForFailedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeWaitForMethodRequest request = 2;
-  StepMethodFailure failure = 3;
+  StepMethodEventInput input = 1;
+  StepMethodFailedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepExecuteCompletedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeExecuteMethodRequest request = 2;
-  InvokeExecuteMethodResponse response = 3;
+  StepMethodEventInput input = 1;
+  StepExecuteCompletedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message StepExecuteFailedEvent {
-  StepMethodExecutionInfo execution = 1;
-  InvokeExecuteMethodRequest request = 2;
-  StepMethodFailure failure = 3;
+  StepMethodEventInput input = 1;
+  StepMethodFailedOutput output = 2;
+  StepMethodEventContext context = 3;
 }
 
 message RpcExecutionCompletedEvent {

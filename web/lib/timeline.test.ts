@@ -15,13 +15,13 @@ function event(
   type: FlowHistoryEvent['type'],
   stepExecutionId = '',
   eventTime: string | null = null,
-  firstStartedTime: string | null = null,
+  startedTime: string | null = null,
 ): FlowHistoryEvent {
   return {
     eventId,
     eventTime,
     type,
-    payload: stepExecutionId ? { execution: { stepExecutionId, firstStartedTime } } : {},
+    payload: stepExecutionId ? { context: { stepExecutionId, startedTime } } : {},
   };
 }
 

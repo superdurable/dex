@@ -31,7 +31,8 @@ const (
 )
 
 const (
-	StorageTypeS3 = "s3"
+	StorageTypeS3    = "s3"
+	StorageTypeLocal = "local"
 )
 
 const (
@@ -110,8 +111,10 @@ type (
 		Status StorageStatus
 		// StorageId identifies this backend inside blob ids persisted on Value.
 		StorageId string `yaml:"storageId"`
-		// StorageType selects the driver; currently only "s3".
+		// StorageType selects "s3" or "local". Default is empty and invalid when storage is enabled.
 		StorageType StorageType `yaml:"storageType"`
+		// LocalDirectory stores blobs on the server filesystem for "local". Default empty; a directory is required.
+		LocalDirectory string `yaml:"localDirectory"`
 		// S3Endpoint is the S3 API base URL (e.g. http://localhost:9000 for MinIO).
 		S3Endpoint string `yaml:"s3Endpoint"`
 		// S3Bucket is the bucket name for object storage.

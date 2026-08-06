@@ -43,6 +43,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("POST /api/flows/reset", handler.resetFlow)
+	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
 }
 
@@ -231,6 +232,62 @@ func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(response, http.StatusOK, resetFlowResponse{RunID: result.GetRunId()})
+}
+
+func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request) {
+	var body loadBlobsRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	values := make([]*dexpb.Value, 0, len(body.Values))
+	seen := make(map[string]struct{}, len(body.Values))
+	for _, reference := range body.Values {
+		cacheKey := blobCacheKey(reference)
+		if reference.ID == "" || cacheKey == "" {
+			WriteError(response, http.StatusBadRequest, "blob id and kind are required", nil)
+			return
+		}
+		if _, exists := seen[cacheKey]; exists {
+			continue
+		}
+		seen[cacheKey] = struct{}{}
+		value := &dexpb.Value{}
+		switch reference.Kind {
+		case "string":
+			value.Kind = &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: reference.ID}
+		case "object":
+			value.Kind = &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: reference.ID}
+		default:
+			WriteError(response, http.StatusBadRequest, "blob kind must be string or object", nil)
+			return
+		}
+		values = append(values, value)
+	}
+	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Values: values})
+	if err != nil {
+		writeGRPCError(
+			response,
+			status.Error(status.Code(err), "Value blob unavailable"),
+			"LoadBlobs",
+		)
+		return
+	}
+	mapped := make(map[string]interface{}, len(result.GetValues()))
+	for _, reference := range body.Values {
+		value, exists := result.GetValues()[reference.ID]
+		if exists {
+			mapped[blobCacheKey(reference)] = dexValue(value)
+		}
+	}
+	writeJSON(response, http.StatusOK, loadBlobsResponse{Values: mapped})
+}
+
+func blobCacheKey(reference blobReference) string {
+	if reference.Kind != "string" && reference.Kind != "object" {
+		return ""
+	}
+	return reference.Kind + ":" + reference.ID
 }
 
 func health(response http.ResponseWriter, request *http.Request) {

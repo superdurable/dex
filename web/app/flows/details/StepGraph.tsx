@@ -31,9 +31,9 @@ interface StepNodeData extends Record<string, unknown> {
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Completed' | 'Failed' | 'Not started';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
-  const response = node.waitFor?.payload.response;
-  if (response && typeof response === 'object') {
-    const condition = (response as Record<string, unknown>).waitingCondition;
+  const output = node.waitFor?.payload.output;
+  if (output && typeof output === 'object') {
+    const condition = (output as Record<string, unknown>).waitForCondition;
     if (condition && typeof condition === 'object') return condition as Record<string, unknown>;
   }
   return node.active?.waitingCondition ?? {};

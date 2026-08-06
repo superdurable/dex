@@ -41,9 +41,9 @@ function eventTone(event: FlowHistoryEvent) {
 }
 
 function executionSummary(event: FlowHistoryEvent): string {
-  const execution = event.payload.execution;
-  if (!execution || typeof execution !== 'object') return '';
-  const info = execution as Record<string, unknown>;
+  const context = event.payload.context;
+  if (!context || typeof context !== 'object') return '';
+  const info = context as Record<string, unknown>;
   return [info.stepType, info.stepExecutionId].filter(Boolean).join(' · ');
 }
 
@@ -130,7 +130,6 @@ export function Timeline({
     <div className="timeline-wrap">
       <div className="view-toolbar">
         <div>
-          <p className="eyebrow">Dex semantic history</p>
           <h2>{events.length} events</h2>
         </div>
       </div>
@@ -221,13 +220,14 @@ export function Timeline({
 }
 
 function EventHighlights({ event }: { event: FlowHistoryEvent }) {
-  const execution = event.payload.execution as Record<string, unknown> | undefined;
-  const failure = event.payload.failure as Record<string, unknown> | undefined;
-  if (!execution && !failure) return null;
+  const context = event.payload.context as Record<string, unknown> | undefined;
+  const output = event.payload.output as Record<string, unknown> | undefined;
+  const failure = output?.failure as Record<string, unknown> | undefined;
+  if (!context && !failure) return null;
   return (
     <div className="event-highlights">
-      {execution?.durability !== undefined && <span>Durability <b>{durabilityLabel(execution.durability)}</b></span>}
-      {execution?.finalAttempt !== undefined && <span>Final attempt <b>{String(execution.finalAttempt)}</b></span>}
+      {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
+      {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}
       {typeof failure?.message === 'string' && failure.message && (
         <span className="failure-message">{failure.message}</span>
       )}

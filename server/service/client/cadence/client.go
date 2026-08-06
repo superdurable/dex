@@ -445,7 +445,7 @@ func (t *cadenceClient) buildCadenceHistoryEvents(
 	)
 	builder := historybuilder.NewBuilder(workflowID, runID)
 	scheduledTypes := map[int64]string{}
-	fallbackFailures := map[string][]*dexpb.StepMethodAttemptFailure{}
+	localFallbackCounts := map[string]int{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
 		if err != nil {
@@ -454,7 +454,7 @@ func (t *cadenceClient) buildCadenceHistoryEvents(
 		if err := t.addCadenceHistoryEvent(
 			builder,
 			scheduledTypes,
-			fallbackFailures,
+			localFallbackCounts,
 			event,
 		); err != nil {
 			return nil, err
@@ -494,7 +494,7 @@ func (t *cadenceClient) WaitForWorkflowHistoryEvent(
 func (t *cadenceClient) addCadenceHistoryEvent(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *shared.HistoryEvent,
 ) error {
 	eventTime := time.Unix(0, event.GetTimestamp())
@@ -512,24 +512,15 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		return t.recordCadenceScheduledActivity(
 			builder,
 			scheduledTypes,
-			fallbackFailures,
+			localFallbackCounts,
 			event,
 		)
 	case shared.EventTypeActivityTaskStarted:
 		attributes := event.GetActivityTaskStartedEventAttributes()
-		var lastFailure *dexpb.StepMethodFailure
-		if attributes.GetLastFailureReason() != "" {
-			lastFailure = &dexpb.StepMethodFailure{
-				Message:    attributes.GetLastFailureReason(),
-				ErrorType:  attributes.GetLastFailureReason(),
-				RetryState: "RETRY_STATE_IN_PROGRESS",
-			}
-		}
 		builder.RecordActivityStarted(
 			eventTime,
 			attributes.GetScheduledEventId(),
 			attributes.GetAttempt(),
-			lastFailure,
 		)
 	case shared.EventTypeActivityTaskCompleted:
 		return t.recordCadenceCompletedActivity(builder, scheduledTypes, event)
@@ -562,7 +553,7 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 			},
 		)
 	case shared.EventTypeMarkerRecorded:
-		return t.recordCadenceLocalActivity(builder, fallbackFailures, event)
+		return t.recordCadenceLocalActivity(builder, localFallbackCounts, event)
 	case shared.EventTypeWorkflowExecutionSignaled:
 		attributes := event.GetWorkflowExecutionSignaledEventAttributes()
 		if attributes.GetSignalName() != service.ExecuteRpcSignalChannelName {
@@ -619,23 +610,25 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 func (t *cadenceClient) recordCadenceScheduledActivity(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *shared.HistoryEvent,
 ) error {
 	attributes := event.GetActivityTaskScheduledEventAttributes()
 	activityType := attributes.GetActivityType().GetName()
 	durability := dexpb.StepDurability_STEP_DURABILITY_SYNC
 	method := activityMethod(activityType)
-	var previousFailures []*dexpb.StepMethodAttemptFailure
-	if failures := fallbackFailures[method]; len(failures) > 0 {
+	if localFallbackCounts[method] > 0 {
 		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
-		previousFailures = failures
-		delete(fallbackFailures, method)
+		localFallbackCounts[method]--
+		if localFallbackCounts[method] == 0 {
+			delete(localFallbackCounts, method)
+		}
 	}
 	switch {
 	case strings.Contains(activityType, "InvokeWaitForMethod"):
 		var input dexpb.InvokeWaitForMethodActivityInput
-		if err := t.converter.FromData(attributes.GetInput(), &input); err != nil {
+		var localInput *dexpb.InternalLocalActivityInput
+		if err := t.converter.FromData(attributes.GetInput(), &input, &localInput); err != nil {
 			return err
 		}
 		builder.RecordWaitScheduled(
@@ -643,11 +636,12 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&input,
 			durability,
-			previousFailures,
+			cadenceStepMethodOptions(attributes),
 		)
 	case strings.Contains(activityType, "InvokeExecuteMethod"):
 		var input dexpb.InvokeExecuteMethodActivityInput
-		if err := t.converter.FromData(attributes.GetInput(), &input); err != nil {
+		var localInput *dexpb.InternalLocalActivityInput
+		if err := t.converter.FromData(attributes.GetInput(), &input, &localInput); err != nil {
 			return err
 		}
 		builder.RecordExecuteScheduled(
@@ -655,7 +649,7 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&input,
 			durability,
-			previousFailures,
+			cadenceStepMethodOptions(attributes),
 		)
 	case strings.Contains(activityType, "DumpFlowForContinueAsNew"):
 	default:
@@ -663,6 +657,30 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 	}
 	scheduledTypes[event.GetEventId()] = activityType
 	return nil
+}
+
+func cadenceStepMethodOptions(
+	attributes *shared.ActivityTaskScheduledEventAttributes,
+) *dexpb.StepMethodOptions {
+	options := &dexpb.StepMethodOptions{
+		TimeoutSeconds: attributes.GetStartToCloseTimeoutSeconds(),
+	}
+	policy := attributes.GetRetryPolicy()
+	if policy == nil {
+		return options
+	}
+	totalDuration := policy.GetExpirationIntervalInSeconds()
+	if totalDuration == int32((365*24*time.Hour)/time.Second) {
+		totalDuration = 0
+	}
+	options.RetryPolicy = &dexpb.RetryPolicy{
+		InitialIntervalSeconds: policy.GetInitialIntervalInSeconds(),
+		BackoffCoefficient:     float32(policy.GetBackoffCoefficient()),
+		MaximumIntervalSeconds: policy.GetMaximumIntervalInSeconds(),
+		MaximumAttempts:        policy.GetMaximumAttempts(),
+		TotalDurationSeconds:   totalDuration,
+	}
+	return options
 }
 
 func (t *cadenceClient) recordCadenceCompletedActivity(
@@ -709,7 +727,7 @@ func (t *cadenceClient) recordCadenceCompletedActivity(
 
 func (t *cadenceClient) recordCadenceLocalActivity(
 	builder *historybuilder.Builder,
-	fallbackFailures map[string][]*dexpb.StepMethodAttemptFailure,
+	localFallbackCounts map[string]int,
 	event *shared.HistoryEvent,
 ) error {
 	attributes := event.GetMarkerRecordedEventAttributes()
@@ -721,23 +739,9 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 		return err
 	}
 	if marker.ResultJSON == "" {
-		method := activityMethod(marker.ActivityType)
-		fallbackFailures[method] = append(
-			fallbackFailures[method],
-			&dexpb.StepMethodAttemptFailure{
-				Attempt:    marker.Attempt + 1,
-				FailedTime: timestamppb.New(time.Unix(0, event.GetTimestamp())),
-				Failure: &dexpb.StepMethodFailure{
-					Message:    marker.ErrReason,
-					ErrorType:  marker.ErrReason,
-					RetryState: "RETRY_STATE_IN_PROGRESS",
-				},
-			},
-		)
+		localFallbackCounts[activityMethod(marker.ActivityType)]++
 		return nil
 	}
-	previousFailures := fallbackFailures[activityMethod(marker.ActivityType)]
-	delete(fallbackFailures, activityMethod(marker.ActivityType))
 	result := []byte(marker.ResultJSON)
 	switch {
 	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
@@ -750,7 +754,6 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&output,
 			marker.Attempt+1,
-			previousFailures,
 		)
 	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
 		var output dexpb.InvokeExecuteMethodActivityOutput
@@ -762,7 +765,6 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 			time.Unix(0, event.GetTimestamp()),
 			&output,
 			marker.Attempt+1,
-			previousFailures,
 		)
 	case strings.Contains(marker.ActivityType, "DumpFlowForContinueAsNew"):
 		var output dexpb.DumpFlowForContinueAsNewActivityOutput

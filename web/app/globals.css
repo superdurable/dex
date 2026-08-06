@@ -489,6 +489,16 @@ h3 {
   font-size: 13px;
 }
 
+.warning-banner {
+  margin: 14px 0;
+  padding: 11px 13px;
+  border: 1px solid #e3c77a;
+  border-radius: 10px;
+  color: #6f5412;
+  background: #fff8df;
+  font-size: 13px;
+}
+
 .results-card {
   margin-top: 18px;
   overflow: visible;
@@ -1070,6 +1080,25 @@ pre {
 
 .run-sidebar .semantic-fields {
   grid-template-columns: 1fr;
+}
+
+.run-sidebar .semantic-fields-compact {
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+}
+
+.semantic-fields-compact > div {
+  display: grid;
+  align-items: baseline;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px;
+}
+
+.semantic-fields-compact > .semantic-field-wide {
+  grid-column: 1 / -1;
+}
+
+.semantic-fields-compact dt {
+  margin-bottom: 0;
 }
 
 .json-view {

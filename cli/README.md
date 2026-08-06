@@ -35,6 +35,19 @@ Persist local Temporal executions in SQLite:
 dexcli dev --temporal-db-filename ./temporal.db
 ```
 
+Dex Web step inputs and values larger than 1 KB use the bundled local blob
+store. By default they persist across `dexcli` restarts in `$HOME/.dex/blobs`.
+With the command above they instead persist in `./temporal.db.dex-blobs`, so
+Temporal history and its blobs share a lifecycle. Choose another directory
+with:
+
+```bash
+dexcli dev --blob-store-dir ./dex-blobs
+```
+
+`--blob-store-dir` takes precedence over the directory derived from
+`--temporal-db-filename`.
+
 ## Existing Temporal server
 
 ```bash
@@ -58,6 +71,7 @@ plaintext endpoints; Temporal Cloud authentication is not supported yet.
 --temporal-port int            local Temporal port (default 7233)
 --temporal-ui-port int         local Temporal Web port (default 8233)
 --temporal-db-filename string  local Temporal SQLite file
+--blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --open                         open Dex Web after readiness
 ```
 

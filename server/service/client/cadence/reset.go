@@ -220,7 +220,12 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 				typeName := e.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
 				if strings.Contains(typeName, "InvokeExecuteMethod") {
 					var input dexpb.InvokeExecuteMethodActivityInput
-					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
+					var localInput *dexpb.InternalLocalActivityInput
+					err = converter.FromData(
+						e.GetActivityTaskScheduledEventAttributes().Input,
+						&input,
+						&localInput,
+					)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 					}
@@ -232,7 +237,12 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 					}
 				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
 					var input dexpb.InvokeWaitForMethodActivityInput
-					err = converter.FromData(e.GetActivityTaskScheduledEventAttributes().Input, &input)
+					var localInput *dexpb.InternalLocalActivityInput
+					err = converter.FromData(
+						e.GetActivityTaskScheduledEventAttributes().Input,
+						&input,
+						&localInput,
+					)
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 					}

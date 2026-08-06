@@ -32,8 +32,10 @@ import (
 
 type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	waitStarted  chan struct{}
-	waitCanceled chan struct{}
+	waitStarted       chan struct{}
+	waitCanceled      chan struct{}
+	loadBlobsRequests chan *dexpb.LoadBlobsRequest
+	loadBlobsError    error
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
@@ -86,6 +88,63 @@ func TestWebServerMapsGRPCErrors(t *testing.T) {
 	decodeResponse(t, response, &result)
 	if result.Error != "invalid flow" || result.GRPCCode != int32(codes.InvalidArgument) {
 		t.Fatalf("unexpected error response: %+v", result)
+	}
+}
+
+func TestWebServerLoadsBlobs(t *testing.T) {
+	service := &flowService{
+		loadBlobsRequests: make(chan *dexpb.LoadBlobsRequest, 1),
+	}
+	harness := newHarness(t, service)
+
+	blobResponse := postJSON(t, harness.http.URL+"/api/blobs/load", `{
+        "values": [
+          {"id":"string-id","kind":"string"},
+          {"id":"object-id","kind":"object"},
+          {"id":"string-id","kind":"string"}
+        ]
+      }`)
+	defer blobResponse.Body.Close()
+	if blobResponse.StatusCode != http.StatusOK {
+		t.Fatalf("blob status = %d", blobResponse.StatusCode)
+	}
+	var blobResult struct {
+		Values map[string]interface{} `json:"values"`
+	}
+	decodeResponse(t, blobResponse, &blobResult)
+	if blobResult.Values["string:string-id"] != "loaded string" {
+		t.Fatalf("unexpected string blob: %+v", blobResult.Values)
+	}
+	object, ok := blobResult.Values["object:object-id"].(map[string]interface{})
+	if !ok || object["answer"] != float64(42) {
+		t.Fatalf("unexpected object blob: %+v", blobResult.Values)
+	}
+	loadRequest := <-service.loadBlobsRequests
+	if len(loadRequest.GetValues()) != 2 ||
+		loadRequest.GetValues()[0].GetInternalBlobIdForStringValue() != "string-id" ||
+		loadRequest.GetValues()[1].GetInternalBlobIdForObjValue() != "object-id" {
+		t.Fatalf("unexpected LoadBlobs request: %+v", loadRequest)
+	}
+
+	errorHarness := newHarness(t, &flowService{
+		loadBlobsError: status.Error(codes.Unavailable, "blob store offline"),
+	})
+	errorResponse := postJSON(
+		t,
+		errorHarness.http.URL+"/api/blobs/load",
+		`{"values":[{"id":"string-id","kind":"string"}]}`,
+	)
+	defer errorResponse.Body.Close()
+	if errorResponse.StatusCode != http.StatusBadGateway {
+		t.Fatalf("blob error status = %d", errorResponse.StatusCode)
+	}
+	var mappedError struct {
+		Error    string `json:"error"`
+		GRPCCode int32  `json:"grpcCode"`
+	}
+	decodeResponse(t, errorResponse, &mappedError)
+	if mappedError.Error != "Value blob unavailable" || mappedError.GRPCCode != int32(codes.Unavailable) {
+		t.Fatalf("unexpected blob error response: %+v", mappedError)
 	}
 }
 
@@ -154,6 +213,23 @@ func (s *flowService) GetFlowSummary(
 	*dexpb.GetFlowSummaryRequest,
 ) (*dexpb.GetFlowSummaryResponse, error) {
 	return nil, status.Error(codes.InvalidArgument, "invalid flow")
+}
+
+func (s *flowService) LoadBlobs(
+	_ context.Context,
+	request *dexpb.LoadBlobsRequest,
+) (*dexpb.LoadBlobsResponse, error) {
+	if s.loadBlobsError != nil {
+		return nil, s.loadBlobsError
+	}
+	s.loadBlobsRequests <- request
+	return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{
+		"string-id": {Kind: &dexpb.Value_StringValue{StringValue: "loaded string"}},
+		"object-id": {Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+			Encoding: "json",
+			Payload:  []byte(`{"answer":42}`),
+		}}},
+	}}, nil
 }
 
 func (s *flowService) WaitForHistoryEvent(

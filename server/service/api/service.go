@@ -18,10 +18,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/blobstore"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/grpctarget"
@@ -42,14 +44,15 @@ import (
 const defaultHistoryPageSize = 100
 
 type serviceImpl struct {
-	client         uclient.UnifiedClient
-	store          blobstore.BlobStore
-	taskQueue      string
-	logger         log.Logger
-	apiCfg         *config.ApiConfig
-	extStore       *config.ExternalStorageConfig
-	interpreterCfg *config.Interpreter
-	workerPool     *workerclient.WorkerClientPool
+	client             uclient.UnifiedClient
+	store              blobstore.BlobStore
+	taskQueue          string
+	logger             log.Logger
+	apiCfg             *config.ApiConfig
+	extStore           *config.ExternalStorageConfig
+	interpreterCfg     *config.Interpreter
+	workerPool         *workerclient.WorkerClientPool
+	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
 }
 
 func NewApiService(
@@ -72,14 +75,15 @@ func NewApiService(
 		panic("API service requires a blob store when external storage is enabled")
 	}
 	return &serviceImpl{
-		apiCfg:         apiCfg,
-		extStore:       extStore,
-		client:         client,
-		store:          store,
-		taskQueue:      taskQueue,
-		logger:         logger,
-		interpreterCfg: interpreterCfg,
-		workerPool:     workerPool,
+		apiCfg:             apiCfg,
+		extStore:           extStore,
+		client:             client,
+		store:              store,
+		taskQueue:          taskQueue,
+		logger:             logger,
+		interpreterCfg:     interpreterCfg,
+		workerPool:         workerPool,
+		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(extStore, client, store),
 	}, nil
 }
 
@@ -434,6 +438,17 @@ func (s *serviceImpl) PublishToChannel(
 	if len(req.GetMessages()) == 0 {
 		return &emptypb.Empty{}, nil
 	}
+	if err := blobstore.OffloadLargeChannelMessages(
+		ctx,
+		req.GetMessages(),
+		req.GetFlowId(),
+		uuid.NewString(),
+		s.extStore.ThresholdInBytes,
+		s.store,
+		s.extStore.Enabled,
+	); err != nil {
+		return nil, s.handleError(err)
+	}
 	if err := s.client.SignalWorkflow(
 		ctx,
 		req.GetFlowId(),
@@ -603,6 +618,9 @@ func (s *serviceImpl) LoadBlobs(ctx context.Context, req *dexpb.LoadBlobsRequest
 			return nil, makeInvalidRequestError(err.Error())
 		}
 		if err := blobstore.HydrateValue(ctx, hydrateValue, s.store); err != nil {
+			if blobstore.IsObjectUnavailable(err) {
+				continue
+			}
 			return nil, s.handleError(err)
 		}
 		values[blobId] = hydrateValue
@@ -787,6 +805,14 @@ func (s *serviceImpl) GetHistoryEvents(
 		NextPageToken:        req.GetNextPageToken(),
 	})
 	if err != nil {
+		return nil, s.handleError(err)
+	}
+	if err := s.stepInputPopulator.Populate(
+		ctx,
+		req.GetFlowId(),
+		req.GetRunId(),
+		history.Events,
+	); err != nil {
 		return nil, s.handleError(err)
 	}
 	return &dexpb.GetHistoryEventsResponse{

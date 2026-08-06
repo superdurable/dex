@@ -107,8 +107,12 @@ type WorkflowProvider interface {
 	Await(ctx UnifiedContext, condition func() bool) error
 	WithActivityOptions(ctx UnifiedContext, options ActivityOptions) UnifiedContext
 	ExecuteActivity(
-		valuePtr interface{}, durability dexpb.StepDurability, ctx UnifiedContext, activity interface{},
-		args ...interface{},
+		valuePtr interface{},
+		durability dexpb.StepDurability,
+		ctx UnifiedContext,
+		activity interface{},
+		regularInput interface{},
+		localActivityOnlyInput interface{},
 	) (err error)
 	ExecuteLocalActivity(
 		valuePtr interface{}, ctx UnifiedContext, activity interface{}, args ...interface{},

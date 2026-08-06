@@ -9,6 +9,7 @@
 'use client';
 
 import { useState } from 'react';
+import { storedValueJSONReplacer } from '@/lib/blobs';
 
 export function JsonView({
   value,
@@ -26,7 +27,7 @@ export function JsonView({
         <span>{open ? '−' : '+'}</span>
         {label}
       </button>
-      {open && <pre>{JSON.stringify(value, null, 2)}</pre>}
+      {open && <pre>{JSON.stringify(value, storedValueJSONReplacer, 2)}</pre>}
     </div>
   );
 }

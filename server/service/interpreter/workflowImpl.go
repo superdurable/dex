@@ -18,6 +18,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/channel"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
@@ -81,8 +82,10 @@ func (i *Interpreter) StartEngineFlow(
 
 	NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
+	runStartedTimestamp := provider.Now(ctx).Unix()
 	basicInfo := service.BasicInfo{
-		FlowType: input.GetFlowType(),
+		FlowType:            input.GetFlowType(),
+		RunStartedTimestamp: runStartedTimestamp,
 	}
 
 	var channelStore *ChannelStore
@@ -672,21 +675,26 @@ func (i *Interpreter) processStepExecution(
 			attributes = loadedAttributes
 		}
 
+		activityInput := &dexpb.InvokeWaitForMethodActivityInput{
+			WorkerTarget: flowConfiger.GetWorkerTarget(),
+			Request: &dexpb.InvokeWaitForMethodRequest{
+				Context:    executionContext,
+				FlowType:   basicInfo.FlowType,
+				StepType:   step.GetStepType(),
+				StepInput:  step.GetStepInput(),
+				Attributes: attributes,
+			},
+		}
 		var activityOutput dexpb.InvokeWaitForMethodActivityOutput
 		waitForMethErr = provider.ExecuteActivity(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
 			i.activities.InvokeWaitForMethod,
-			&dexpb.InvokeWaitForMethodActivityInput{
-				WorkerTarget: flowConfiger.GetWorkerTarget(),
-				Request: &dexpb.InvokeWaitForMethodRequest{
-					Context:    executionContext,
-					FlowType:   basicInfo.FlowType,
-					StepType:   step.GetStepType(),
-					StepInput:  step.GetStepInput(),
-					Attributes: attributes,
-				},
+			activityInput,
+			&dexpb.InternalLocalActivityInput{
+				CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,
+				MethodOptions:              stepMethodOptions(activityOptions),
 			},
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
@@ -958,24 +966,29 @@ func (i *Interpreter) invokeExecuteMethod(
 	}
 
 	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
+	activityInput := &dexpb.InvokeExecuteMethodActivityInput{
+		WorkerTarget:    flowConfiger.GetWorkerTarget(),
+		IsTransientStep: isTransientStep,
+		Request: &dexpb.InvokeExecuteMethodRequest{
+			Context:          executionContext,
+			FlowType:         basicInfo.FlowType,
+			StepType:         step.GetStepType(),
+			StepInput:        step.GetStepInput(),
+			Attributes:       attributes,
+			StepExeLocals:    stepExeLocals,
+			ConditionResults: conditionResults,
+		},
+	}
 	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
 	exeMethErr := provider.ExecuteActivity(
 		&activityOutput,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		ctx,
 		i.activities.InvokeExecuteMethod,
-		&dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget:    flowConfiger.GetWorkerTarget(),
-			IsTransientStep: isTransientStep,
-			Request: &dexpb.InvokeExecuteMethodRequest{
-				Context:          executionContext,
-				FlowType:         basicInfo.FlowType,
-				StepType:         step.GetStepType(),
-				StepInput:        step.GetStepInput(),
-				Attributes:       attributes,
-				StepExeLocals:    stepExeLocals,
-				ConditionResults: conditionResults,
-			},
+		activityInput,
+		&dexpb.InternalLocalActivityInput{
+			CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,
+			MethodOptions:              stepMethodOptions(activityOptions),
 		},
 	)
 	// always unlock regardless of step success/failure
@@ -997,6 +1010,13 @@ func (i *Interpreter) invokeExecuteMethod(
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
+}
+
+func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOptions {
+	return &dexpb.StepMethodOptions{
+		TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
+		RetryPolicy:    retry.ActivityRetryPolicyWithDefaults(options.RetryPolicy),
+	}
 }
 
 func shouldProceedOnWaitForMethodError(step *dexpb.StepMovement) bool {
@@ -1029,6 +1049,7 @@ func (i *Interpreter) BlobStoreCleanup(
 		&dexpb.CleanupBlobStoreActivityInput{
 			StoreId: storeId,
 		},
+		nil,
 	); err != nil {
 		return 0, err
 	}

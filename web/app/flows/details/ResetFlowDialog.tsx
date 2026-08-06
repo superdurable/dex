@@ -38,8 +38,8 @@ export function ResetFlowDialog({
   const stepTypes = useMemo(() => {
     const values = new Set<string>();
     events.forEach((event) => {
-      const execution = event.payload.execution as Record<string, unknown> | undefined;
-      if (typeof execution?.stepType === 'string') values.add(execution.stepType);
+      const context = event.payload.context as Record<string, unknown> | undefined;
+      if (typeof context?.stepType === 'string') values.add(context.stepType);
     });
     return [...values];
   }, [events]);

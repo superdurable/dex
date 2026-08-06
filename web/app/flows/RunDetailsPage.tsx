@@ -9,6 +9,11 @@
 import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
+import { hydrateBlobs } from '@/lib/blobs';
+import {
+  STEP_EVENT_INPUT_UNAVAILABLE,
+  VALUE_BLOB_UNAVAILABLE,
+} from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
   FlowState,
@@ -48,10 +53,18 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [resetOpen, setResetOpen] = useState(false);
   const [waitCycle, setWaitCycle] = useState(0);
+  const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const waitGeneration = useRef(0);
+  const blobCache = useRef(new Map<string, unknown>());
+  const hydratingEventIDs = useRef(new Set<number>());
+  const hydratedEventIDs = useRef(new Set<number>());
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
+  const addDataWarning = useCallback((warning: string) => {
+    setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
+  }, []);
 
   const loadState = useCallback(async (statusCode: number) => {
     if (terminalStatuses.has(statusCode)) {
@@ -59,11 +72,35 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       return;
     }
     try {
-      setState(await responseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' })));
+      const rawState = await responseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
+      setState(rawState);
+      const hydrated = await hydrateBlobs(rawState, blobCache.current);
+      setState(hydrated.value);
+      if (hydrated.error) addDataWarning(hydrated.error);
     } catch (stateError) {
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
-  }, [stateURL]);
+  }, [addDataWarning, stateURL]);
+
+  const hydrateEvent = useCallback(async (event: FlowHistoryEvent) => {
+    if (hydratedEventIDs.current.has(event.eventId)
+      || hydratingEventIDs.current.has(event.eventId)) return;
+    hydratingEventIDs.current.add(event.eventId);
+    try {
+      const stepInput = event.payload.input as Record<string, unknown> | undefined;
+      if (stepInput?.unavailable === true) {
+        addDataWarning(STEP_EVENT_INPUT_UNAVAILABLE);
+      }
+      const hydrated = await hydrateBlobs(event, blobCache.current);
+      setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
+      hydratedEventIDs.current.add(event.eventId);
+      if (hydrated.error) addDataWarning(hydrated.error);
+    } catch {
+      addDataWarning(VALUE_BLOB_UNAVAILABLE);
+    } finally {
+      hydratingEventIDs.current.delete(event.eventId);
+    }
+  }, [addDataWarning]);
 
   const loadSummary = useCallback(async () => {
     const value = await responseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
@@ -117,6 +154,11 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     setNextPageToken('');
     setNextInternalEventId(0);
     setSelectedEvent(null);
+    setHydratedEvents({});
+    setDataWarnings([]);
+    blobCache.current.clear();
+    hydratingEventIDs.current.clear();
+    hydratedEventIDs.current.clear();
     setError('');
     setLoading(true);
     void refresh().finally(() => {
@@ -183,7 +225,22 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     ['timeline', 'Timeline'],
   ];
   const latestEvent = history.at(-1);
-  const selected = selectedEvent ?? latestEvent ?? null;
+  const selectedRaw = selectedEvent ?? latestEvent ?? null;
+  const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
+  const displayedHistory = useMemo(
+    () => history.map((event) => hydratedEvents[event.eventId] ?? event),
+    [history, hydratedEvents],
+  );
+
+  useEffect(() => {
+    if (selectedRaw) void hydrateEvent(selectedRaw);
+  }, [hydrateEvent, selectedRaw?.eventId]);
+
+  useEffect(() => {
+    if (tab !== 'overview') return;
+    const startEvent = history.find((event) => event.type === 'FlowStartedOrContinued');
+    if (startEvent) void hydrateEvent(startEvent);
+  }, [hydrateEvent, history, tab]);
   const runChain = useMemo(() => {
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
@@ -233,6 +290,9 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       </section>
 
       {error && <div className="error-banner run-error">{error}</div>}
+      {dataWarnings.map((warning) => (
+        <div className="warning-banner run-error" key={warning}>{warning}</div>
+      ))}
 
       <div className="run-tabs" role="tablist">
         {tabs.map(([id, label]) => (
@@ -245,12 +305,12 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       <div className="run-content">
         <section className="run-primary">
           {tab === 'overview' && summary && (
-            <FlowOverview summary={summary} events={history} state={state} />
+            <FlowOverview summary={summary} events={displayedHistory} state={state} />
           )}
           {tab === 'steps' && (
             <StepGraph
               flowId={flowId}
-              events={history}
+              events={displayedHistory}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -259,7 +319,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           {tab === 'timeline' && (
             <Timeline
               flowId={flowId}
-              events={history}
+              events={displayedHistory}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
             />

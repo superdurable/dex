@@ -84,6 +84,20 @@ func ConvertTemporalActivityRetryPolicy(policy *dexpb.RetryPolicy) *temporal.Ret
 	}
 }
 
+func ActivityRetryPolicyWithDefaults(policy *dexpb.RetryPolicy) *dexpb.RetryPolicy {
+	if policy == nil {
+		policy = &dexpb.RetryPolicy{}
+	}
+	initial, maxInterval, maxAttempts, backoff, totalDuration := activityRetryDefaults(policy)
+	return &dexpb.RetryPolicy{
+		InitialIntervalSeconds: initial,
+		BackoffCoefficient:     backoff,
+		MaximumIntervalSeconds: maxInterval,
+		MaximumAttempts:        maxAttempts,
+		TotalDurationSeconds:   totalDuration,
+	}
+}
+
 func flowRetryDefaults(policy *dexpb.FlowRetryPolicy) (initial, maxInterval, maxAttempts int32, backoff float32) {
 	initial = policy.GetInitialIntervalSeconds()
 	if initial == 0 {

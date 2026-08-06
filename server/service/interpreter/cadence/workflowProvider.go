@@ -260,22 +260,32 @@ func (t *futureImpl) Get(ctx interfaces.UnifiedContext, valuePtr interface{}) er
 }
 
 func (w *workflowProvider) ExecuteActivity(
-	valuePtr interface{}, durability dexpb.StepDurability,
-	ctx interfaces.UnifiedContext, activity interface{}, args ...interface{},
+	valuePtr interface{},
+	durability dexpb.StepDurability,
+	ctx interfaces.UnifiedContext,
+	activity interface{},
+	regularInput interface{},
+	localActivityOnlyInput interface{},
 ) (err error) {
 	wfCtx, ok := ctx.GetContext().(workflow.Context)
 	if !ok {
 		panic("cannot convert to cadence workflow context")
 	}
+	regularArgs := []interface{}{regularInput}
+	localArgs := []interface{}{regularInput}
+	if localActivityOnlyInput != nil {
+		regularArgs = append(regularArgs, nil)
+		localArgs = append(localArgs, localActivityOnlyInput)
+	}
 	switch durability {
 	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
-		return workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
-		err = workflow.ExecuteLocalActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+		err = workflow.ExecuteLocalActivity(wfCtx, activity, localArgs...).Get(wfCtx, valuePtr)
 		if err == nil {
 			return nil
 		}
-		return workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	default:
 		return fmt.Errorf("unsupported step durability %s", durability)
 	}

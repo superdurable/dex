@@ -194,7 +194,7 @@ cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 
 ci-web-api-temporal-test:
-	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60
+	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort)
 
 ci-web-api-cadence-test:
 	$Q go test -v ./integ -timeout 5m -run '^TestWebAPICadence$$' -search=false -temporal=false -dependencyWaitSeconds=180
@@ -226,6 +226,9 @@ integTestsNoSearch:
 
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
+
+localBlobStoreTests:
+	@GOWORK=off go test -v ./service/common/blobstore -run '^TestLocalBlobStore'
 
 replayTests:
 	@GOWORK=off go test -v ./replayTests -timeout 10m
