@@ -17,7 +17,7 @@ public interface BlobCache extends AutoCloseable {
         if (config == null) {
             throw new IllegalArgumentException("config is required");
         }
-        throw new PhaseNotImplementedException("BlobCache bridge belongs to a later phase");
+        return new NativeBlobCache(config);
     }
 
     Optional<byte[]> get(String blobId);

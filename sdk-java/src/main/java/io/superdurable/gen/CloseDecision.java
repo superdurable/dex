@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.FlowConditionalClose}
+ * Protobuf type {@code dex.CloseDecision}
  */
 @com.google.protobuf.Generated
-public final class FlowConditionalClose extends
+public final class CloseDecision extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.FlowConditionalClose)
-    FlowConditionalCloseOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.CloseDecision)
+    CloseDecisionOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,90 +21,90 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "FlowConditionalClose");
+      "CloseDecision");
   }
-  // Use FlowConditionalClose.newBuilder() to construct.
-  private FlowConditionalClose(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use CloseDecision.newBuilder() to construct.
+  private CloseDecision(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private FlowConditionalClose() {
-    conditionalCloseType_ = 0;
-    channelNames_ =
+  private CloseDecision() {
+    closeDecisionType_ = 0;
+    conditionalChannelNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.FlowConditionalClose.class, io.superdurable.gen.FlowConditionalClose.Builder.class);
+            io.superdurable.gen.CloseDecision.class, io.superdurable.gen.CloseDecision.Builder.class);
   }
 
   private int bitField0_;
-  public static final int CONDITIONAL_CLOSE_TYPE_FIELD_NUMBER = 1;
-  private int conditionalCloseType_ = 0;
+  public static final int CLOSE_DECISION_TYPE_FIELD_NUMBER = 1;
+  private int closeDecisionType_ = 0;
   /**
-   * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-   * @return The enum numeric value on the wire for conditionalCloseType.
+   * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+   * @return The enum numeric value on the wire for closeDecisionType.
    */
-  @java.lang.Override public int getConditionalCloseTypeValue() {
-    return conditionalCloseType_;
+  @java.lang.Override public int getCloseDecisionTypeValue() {
+    return closeDecisionType_;
   }
   /**
-   * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-   * @return The conditionalCloseType.
+   * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+   * @return The closeDecisionType.
    */
-  @java.lang.Override public io.superdurable.gen.FlowConditionalCloseType getConditionalCloseType() {
-    io.superdurable.gen.FlowConditionalCloseType result = io.superdurable.gen.FlowConditionalCloseType.forNumber(conditionalCloseType_);
-    return result == null ? io.superdurable.gen.FlowConditionalCloseType.UNRECOGNIZED : result;
+  @java.lang.Override public io.superdurable.gen.CloseDecisionType getCloseDecisionType() {
+    io.superdurable.gen.CloseDecisionType result = io.superdurable.gen.CloseDecisionType.forNumber(closeDecisionType_);
+    return result == null ? io.superdurable.gen.CloseDecisionType.UNRECOGNIZED : result;
   }
 
-  public static final int CHANNEL_NAMES_FIELD_NUMBER = 2;
+  public static final int CONDITIONAL_CHANNEL_NAMES_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
-  private com.google.protobuf.LazyStringArrayList channelNames_ =
+  private com.google.protobuf.LazyStringArrayList conditionalChannelNames_ =
       com.google.protobuf.LazyStringArrayList.emptyList();
   /**
-   * <code>repeated string channel_names = 2;</code>
-   * @return A list containing the channelNames.
+   * <code>repeated string conditional_channel_names = 2;</code>
+   * @return A list containing the conditionalChannelNames.
    */
   public com.google.protobuf.ProtocolStringList
-      getChannelNamesList() {
-    return channelNames_;
+      getConditionalChannelNamesList() {
+    return conditionalChannelNames_;
   }
   /**
-   * <code>repeated string channel_names = 2;</code>
-   * @return The count of channelNames.
+   * <code>repeated string conditional_channel_names = 2;</code>
+   * @return The count of conditionalChannelNames.
    */
-  public int getChannelNamesCount() {
-    return channelNames_.size();
+  public int getConditionalChannelNamesCount() {
+    return conditionalChannelNames_.size();
   }
   /**
-   * <code>repeated string channel_names = 2;</code>
+   * <code>repeated string conditional_channel_names = 2;</code>
    * @param index The index of the element to return.
-   * @return The channelNames at the given index.
+   * @return The conditionalChannelNames at the given index.
    */
-  public java.lang.String getChannelNames(int index) {
-    return channelNames_.get(index);
+  public java.lang.String getConditionalChannelNames(int index) {
+    return conditionalChannelNames_.get(index);
   }
   /**
-   * <code>repeated string channel_names = 2;</code>
+   * <code>repeated string conditional_channel_names = 2;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the channelNames at the given index.
+   * @return The bytes of the conditionalChannelNames at the given index.
    */
   public com.google.protobuf.ByteString
-      getChannelNamesBytes(int index) {
-    return channelNames_.getByteString(index);
+      getConditionalChannelNamesBytes(int index) {
+    return conditionalChannelNames_.getByteString(index);
   }
 
   public static final int CLOSE_INPUT_FIELD_NUMBER = 3;
@@ -147,11 +147,11 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (conditionalCloseType_ != io.superdurable.gen.FlowConditionalCloseType.FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED.getNumber()) {
-      output.writeEnum(1, conditionalCloseType_);
+    if (closeDecisionType_ != io.superdurable.gen.CloseDecisionType.CLOSE_DECISION_TYPE_UNSPECIFIED.getNumber()) {
+      output.writeEnum(1, closeDecisionType_);
     }
-    for (int i = 0; i < channelNames_.size(); i++) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, channelNames_.getRaw(i));
+    for (int i = 0; i < conditionalChannelNames_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, conditionalChannelNames_.getRaw(i));
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(3, getCloseInput());
@@ -160,17 +160,17 @@ private static final long serialVersionUID = 0L;
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (conditionalCloseType_ != io.superdurable.gen.FlowConditionalCloseType.FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED.getNumber()) {
+    if (closeDecisionType_ != io.superdurable.gen.CloseDecisionType.CLOSE_DECISION_TYPE_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(1, conditionalCloseType_);
+        .computeEnumSize(1, closeDecisionType_);
     }
     {
       int dataSize = 0;
-      for (int i = 0; i < channelNames_.size(); i++) {
-        dataSize += computeStringSizeNoTag(channelNames_.getRaw(i));
+      for (int i = 0; i < conditionalChannelNames_.size(); i++) {
+        dataSize += computeStringSizeNoTag(conditionalChannelNames_.getRaw(i));
       }
       size += dataSize;
-      size += 1 * getChannelNamesList().size();
+      size += 1 * getConditionalChannelNamesList().size();
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
@@ -195,14 +195,14 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.FlowConditionalClose)) {
+    if (!(obj instanceof io.superdurable.gen.CloseDecision)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.FlowConditionalClose other = (io.superdurable.gen.FlowConditionalClose) obj;
+    io.superdurable.gen.CloseDecision other = (io.superdurable.gen.CloseDecision) obj;
 
-    if (conditionalCloseType_ != other.conditionalCloseType_) return false;
-    if (!getChannelNamesList()
-        .equals(other.getChannelNamesList())) return false;
+    if (closeDecisionType_ != other.closeDecisionType_) return false;
+    if (!getConditionalChannelNamesList()
+        .equals(other.getConditionalChannelNamesList())) return false;
     if (hasCloseInput() != other.hasCloseInput()) return false;
     if (hasCloseInput()) {
       if (!getCloseInput()
@@ -219,11 +219,11 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + CONDITIONAL_CLOSE_TYPE_FIELD_NUMBER;
-    hash = (53 * hash) + conditionalCloseType_;
-    if (getChannelNamesCount() > 0) {
-      hash = (37 * hash) + CHANNEL_NAMES_FIELD_NUMBER;
-      hash = (53 * hash) + getChannelNamesList().hashCode();
+    hash = (37 * hash) + CLOSE_DECISION_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + closeDecisionType_;
+    if (getConditionalChannelNamesCount() > 0) {
+      hash = (37 * hash) + CONDITIONAL_CHANNEL_NAMES_FIELD_NUMBER;
+      hash = (53 * hash) + getConditionalChannelNamesList().hashCode();
     }
     if (hasCloseInput()) {
       hash = (37 * hash) + CLOSE_INPUT_FIELD_NUMBER;
@@ -234,44 +234,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(byte[] data)
+  public static io.superdurable.gen.CloseDecision parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.CloseDecision parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -279,26 +279,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.FlowConditionalClose parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.CloseDecision parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.FlowConditionalClose parseDelimitedFrom(
+  public static io.superdurable.gen.CloseDecision parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.FlowConditionalClose parseFrom(
+  public static io.superdurable.gen.CloseDecision parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -311,7 +311,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.FlowConditionalClose prototype) {
+  public static Builder newBuilder(io.superdurable.gen.CloseDecision prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -327,26 +327,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.FlowConditionalClose}
+   * Protobuf type {@code dex.CloseDecision}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.FlowConditionalClose)
-      io.superdurable.gen.FlowConditionalCloseOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.CloseDecision)
+      io.superdurable.gen.CloseDecisionOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.FlowConditionalClose.class, io.superdurable.gen.FlowConditionalClose.Builder.class);
+              io.superdurable.gen.CloseDecision.class, io.superdurable.gen.CloseDecision.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.FlowConditionalClose.newBuilder()
+    // Construct using io.superdurable.gen.CloseDecision.newBuilder()
     private Builder() {
       maybeForceBuilderInitialization();
     }
@@ -366,8 +366,8 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      conditionalCloseType_ = 0;
-      channelNames_ =
+      closeDecisionType_ = 0;
+      conditionalChannelNames_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
       closeInput_ = null;
       if (closeInputBuilder_ != null) {
@@ -380,17 +380,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FlowConditionalClose_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_CloseDecision_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FlowConditionalClose getDefaultInstanceForType() {
-      return io.superdurable.gen.FlowConditionalClose.getDefaultInstance();
+    public io.superdurable.gen.CloseDecision getDefaultInstanceForType() {
+      return io.superdurable.gen.CloseDecision.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FlowConditionalClose build() {
-      io.superdurable.gen.FlowConditionalClose result = buildPartial();
+    public io.superdurable.gen.CloseDecision build() {
+      io.superdurable.gen.CloseDecision result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -398,21 +398,21 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FlowConditionalClose buildPartial() {
-      io.superdurable.gen.FlowConditionalClose result = new io.superdurable.gen.FlowConditionalClose(this);
+    public io.superdurable.gen.CloseDecision buildPartial() {
+      io.superdurable.gen.CloseDecision result = new io.superdurable.gen.CloseDecision(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.FlowConditionalClose result) {
+    private void buildPartial0(io.superdurable.gen.CloseDecision result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.conditionalCloseType_ = conditionalCloseType_;
+        result.closeDecisionType_ = closeDecisionType_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        channelNames_.makeImmutable();
-        result.channelNames_ = channelNames_;
+        conditionalChannelNames_.makeImmutable();
+        result.conditionalChannelNames_ = conditionalChannelNames_;
       }
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000004) != 0)) {
@@ -426,26 +426,26 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.FlowConditionalClose) {
-        return mergeFrom((io.superdurable.gen.FlowConditionalClose)other);
+      if (other instanceof io.superdurable.gen.CloseDecision) {
+        return mergeFrom((io.superdurable.gen.CloseDecision)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.FlowConditionalClose other) {
-      if (other == io.superdurable.gen.FlowConditionalClose.getDefaultInstance()) return this;
-      if (other.conditionalCloseType_ != 0) {
-        setConditionalCloseTypeValue(other.getConditionalCloseTypeValue());
+    public Builder mergeFrom(io.superdurable.gen.CloseDecision other) {
+      if (other == io.superdurable.gen.CloseDecision.getDefaultInstance()) return this;
+      if (other.closeDecisionType_ != 0) {
+        setCloseDecisionTypeValue(other.getCloseDecisionTypeValue());
       }
-      if (!other.channelNames_.isEmpty()) {
-        if (channelNames_.isEmpty()) {
-          channelNames_ = other.channelNames_;
+      if (!other.conditionalChannelNames_.isEmpty()) {
+        if (conditionalChannelNames_.isEmpty()) {
+          conditionalChannelNames_ = other.conditionalChannelNames_;
           bitField0_ |= 0x00000002;
         } else {
-          ensureChannelNamesIsMutable();
-          channelNames_.addAll(other.channelNames_);
+          ensureConditionalChannelNamesIsMutable();
+          conditionalChannelNames_.addAll(other.conditionalChannelNames_);
         }
         onChanged();
       }
@@ -479,13 +479,13 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 8: {
-              conditionalCloseType_ = input.readEnum();
+              closeDecisionType_ = input.readEnum();
               bitField0_ |= 0x00000001;
               break;
             } // case 8
             case 18: {
-              ensureChannelNamesIsMutable();
-              channelNames_.add(input.readStringRequireUtf8());
+              ensureConditionalChannelNamesIsMutable();
+              conditionalChannelNames_.add(input.readStringRequireUtf8());
               break;
             } // case 18
             case 26: {
@@ -512,164 +512,164 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private int conditionalCloseType_ = 0;
+    private int closeDecisionType_ = 0;
     /**
-     * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-     * @return The enum numeric value on the wire for conditionalCloseType.
+     * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+     * @return The enum numeric value on the wire for closeDecisionType.
      */
-    @java.lang.Override public int getConditionalCloseTypeValue() {
-      return conditionalCloseType_;
+    @java.lang.Override public int getCloseDecisionTypeValue() {
+      return closeDecisionType_;
     }
     /**
-     * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-     * @param value The enum numeric value on the wire for conditionalCloseType to set.
+     * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+     * @param value The enum numeric value on the wire for closeDecisionType to set.
      * @return This builder for chaining.
      */
-    public Builder setConditionalCloseTypeValue(int value) {
-      conditionalCloseType_ = value;
+    public Builder setCloseDecisionTypeValue(int value) {
+      closeDecisionType_ = value;
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-     * @return The conditionalCloseType.
+     * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+     * @return The closeDecisionType.
      */
     @java.lang.Override
-    public io.superdurable.gen.FlowConditionalCloseType getConditionalCloseType() {
-      io.superdurable.gen.FlowConditionalCloseType result = io.superdurable.gen.FlowConditionalCloseType.forNumber(conditionalCloseType_);
-      return result == null ? io.superdurable.gen.FlowConditionalCloseType.UNRECOGNIZED : result;
+    public io.superdurable.gen.CloseDecisionType getCloseDecisionType() {
+      io.superdurable.gen.CloseDecisionType result = io.superdurable.gen.CloseDecisionType.forNumber(closeDecisionType_);
+      return result == null ? io.superdurable.gen.CloseDecisionType.UNRECOGNIZED : result;
     }
     /**
-     * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
-     * @param value The conditionalCloseType to set.
+     * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
+     * @param value The closeDecisionType to set.
      * @throws IllegalArgumentException if UNRECOGNIZED is provided.
      * @return This builder for chaining.
      */
-    public Builder setConditionalCloseType(io.superdurable.gen.FlowConditionalCloseType value) {
+    public Builder setCloseDecisionType(io.superdurable.gen.CloseDecisionType value) {
       if (value == null) { throw new NullPointerException(); }
       bitField0_ |= 0x00000001;
-      conditionalCloseType_ = value.getNumber();
+      closeDecisionType_ = value.getNumber();
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalCloseType conditional_close_type = 1;</code>
+     * <code>.dex.CloseDecisionType close_decision_type = 1;</code>
      * @return This builder for chaining.
      */
-    public Builder clearConditionalCloseType() {
+    public Builder clearCloseDecisionType() {
       bitField0_ = (bitField0_ & ~0x00000001);
-      conditionalCloseType_ = 0;
+      closeDecisionType_ = 0;
       onChanged();
       return this;
     }
 
-    private com.google.protobuf.LazyStringArrayList channelNames_ =
+    private com.google.protobuf.LazyStringArrayList conditionalChannelNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
-    private void ensureChannelNamesIsMutable() {
-      if (!channelNames_.isModifiable()) {
-        channelNames_ = new com.google.protobuf.LazyStringArrayList(channelNames_);
+    private void ensureConditionalChannelNamesIsMutable() {
+      if (!conditionalChannelNames_.isModifiable()) {
+        conditionalChannelNames_ = new com.google.protobuf.LazyStringArrayList(conditionalChannelNames_);
       }
       bitField0_ |= 0x00000002;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
-     * @return A list containing the channelNames.
+     * <code>repeated string conditional_channel_names = 2;</code>
+     * @return A list containing the conditionalChannelNames.
      */
     public com.google.protobuf.ProtocolStringList
-        getChannelNamesList() {
-      channelNames_.makeImmutable();
-      return channelNames_;
+        getConditionalChannelNamesList() {
+      conditionalChannelNames_.makeImmutable();
+      return conditionalChannelNames_;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
-     * @return The count of channelNames.
+     * <code>repeated string conditional_channel_names = 2;</code>
+     * @return The count of conditionalChannelNames.
      */
-    public int getChannelNamesCount() {
-      return channelNames_.size();
+    public int getConditionalChannelNamesCount() {
+      return conditionalChannelNames_.size();
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
+     * <code>repeated string conditional_channel_names = 2;</code>
      * @param index The index of the element to return.
-     * @return The channelNames at the given index.
+     * @return The conditionalChannelNames at the given index.
      */
-    public java.lang.String getChannelNames(int index) {
-      return channelNames_.get(index);
+    public java.lang.String getConditionalChannelNames(int index) {
+      return conditionalChannelNames_.get(index);
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
+     * <code>repeated string conditional_channel_names = 2;</code>
      * @param index The index of the value to return.
-     * @return The bytes of the channelNames at the given index.
+     * @return The bytes of the conditionalChannelNames at the given index.
      */
     public com.google.protobuf.ByteString
-        getChannelNamesBytes(int index) {
-      return channelNames_.getByteString(index);
+        getConditionalChannelNamesBytes(int index) {
+      return conditionalChannelNames_.getByteString(index);
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
+     * <code>repeated string conditional_channel_names = 2;</code>
      * @param index The index to set the value at.
-     * @param value The channelNames to set.
+     * @param value The conditionalChannelNames to set.
      * @return This builder for chaining.
      */
-    public Builder setChannelNames(
+    public Builder setConditionalChannelNames(
         int index, java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureChannelNamesIsMutable();
-      channelNames_.set(index, value);
+      ensureConditionalChannelNamesIsMutable();
+      conditionalChannelNames_.set(index, value);
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
-     * @param value The channelNames to add.
+     * <code>repeated string conditional_channel_names = 2;</code>
+     * @param value The conditionalChannelNames to add.
      * @return This builder for chaining.
      */
-    public Builder addChannelNames(
+    public Builder addConditionalChannelNames(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureChannelNamesIsMutable();
-      channelNames_.add(value);
+      ensureConditionalChannelNamesIsMutable();
+      conditionalChannelNames_.add(value);
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
-     * @param values The channelNames to add.
+     * <code>repeated string conditional_channel_names = 2;</code>
+     * @param values The conditionalChannelNames to add.
      * @return This builder for chaining.
      */
-    public Builder addAllChannelNames(
+    public Builder addAllConditionalChannelNames(
         java.lang.Iterable<java.lang.String> values) {
-      ensureChannelNamesIsMutable();
+      ensureConditionalChannelNamesIsMutable();
       com.google.protobuf.AbstractMessageLite.Builder.addAll(
-          values, channelNames_);
+          values, conditionalChannelNames_);
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
+     * <code>repeated string conditional_channel_names = 2;</code>
      * @return This builder for chaining.
      */
-    public Builder clearChannelNames() {
-      channelNames_ =
+    public Builder clearConditionalChannelNames() {
+      conditionalChannelNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
       bitField0_ = (bitField0_ & ~0x00000002);;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string channel_names = 2;</code>
-     * @param value The bytes of the channelNames to add.
+     * <code>repeated string conditional_channel_names = 2;</code>
+     * @param value The bytes of the conditionalChannelNames to add.
      * @return This builder for chaining.
      */
-    public Builder addChannelNamesBytes(
+    public Builder addConditionalChannelNamesBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      ensureChannelNamesIsMutable();
-      channelNames_.add(value);
+      ensureConditionalChannelNamesIsMutable();
+      conditionalChannelNames_.add(value);
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
@@ -783,7 +783,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value close_input = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
         internalGetCloseInputFieldBuilder() {
       if (closeInputBuilder_ == null) {
         closeInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -796,23 +796,23 @@ private static final long serialVersionUID = 0L;
       return closeInputBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.FlowConditionalClose)
+    // @@protoc_insertion_point(builder_scope:dex.CloseDecision)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.FlowConditionalClose)
-  private static final io.superdurable.gen.FlowConditionalClose DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.CloseDecision)
+  private static final io.superdurable.gen.CloseDecision DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.FlowConditionalClose();
+    DEFAULT_INSTANCE = new io.superdurable.gen.CloseDecision();
   }
 
-  public static io.superdurable.gen.FlowConditionalClose getDefaultInstance() {
+  public static io.superdurable.gen.CloseDecision getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<FlowConditionalClose>
-      PARSER = new com.google.protobuf.AbstractParser<FlowConditionalClose>() {
+  private static final com.google.protobuf.Parser<CloseDecision>
+      PARSER = new com.google.protobuf.AbstractParser<CloseDecision>() {
     @java.lang.Override
-    public FlowConditionalClose parsePartialFrom(
+    public CloseDecision parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -831,17 +831,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<FlowConditionalClose> parser() {
+  public static com.google.protobuf.Parser<CloseDecision> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<FlowConditionalClose> getParserForType() {
+  public com.google.protobuf.Parser<CloseDecision> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.FlowConditionalClose getDefaultInstanceForType() {
+  public io.superdurable.gen.CloseDecision getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

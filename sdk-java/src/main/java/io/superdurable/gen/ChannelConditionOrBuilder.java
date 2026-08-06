@@ -44,7 +44,7 @@ public interface ChannelConditionOrBuilder extends
 
   /**
    * <pre>
-   * Omit vs 0 must be distinguishable (ZeroToAll needs explicit 0).
+   * Both omitted means exact one. Omitted at_least means zero; omitted at_most means unbounded.
    * </pre>
    *
    * <code>optional int32 at_least = 3;</code>
@@ -53,7 +53,7 @@ public interface ChannelConditionOrBuilder extends
   boolean hasAtLeast();
   /**
    * <pre>
-   * Omit vs 0 must be distinguishable (ZeroToAll needs explicit 0).
+   * Both omitted means exact one. Omitted at_least means zero; omitted at_most means unbounded.
    * </pre>
    *
    * <code>optional int32 at_least = 3;</code>

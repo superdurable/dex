@@ -31,7 +31,6 @@ private static final long serialVersionUID = 0L;
     attributes_ = java.util.Collections.emptyList();
     runId_ = "";
     flowType_ = "";
-    workerTarget_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -64,6 +63,7 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.PrepareRpcQueryResponse.class, io.superdurable.gen.PrepareRpcQueryResponse.Builder.class);
   }
 
+  private int bitField0_;
   public static final int ATTRIBUTES_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.KV> attributes_;
@@ -78,7 +78,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV attributes = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -118,7 +118,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -134,7 +134,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -168,7 +168,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -184,7 +184,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -195,42 +195,29 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int WORKER_TARGET_FIELD_NUMBER = 5;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object workerTarget_ = "";
+  private io.superdurable.gen.WorkerTarget workerTarget_;
   /**
-   * <code>string worker_target = 5;</code>
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  @java.lang.Override
+  public boolean hasWorkerTarget() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
    * @return The workerTarget.
    */
   @java.lang.Override
-  public java.lang.String getWorkerTarget() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      workerTarget_ = s;
-      return s;
-    }
+  public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
   /**
-   * <code>string worker_target = 5;</code>
-   * @return The bytes for workerTarget.
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
-      getWorkerTargetBytes() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      workerTarget_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
 
   public static final int CHANNEL_INFOS_FIELD_NUMBER = 6;
@@ -239,7 +226,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, io.superdurable.gen.ChannelInfo> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, io.superdurable.gen.ChannelInfo>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor, 
+                io.superdurable.gen.DexProto.internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor,
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.MESSAGE,
@@ -338,8 +325,8 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, flowType_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, workerTarget_);
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(5, getWorkerTarget());
     }
     com.google.protobuf.GeneratedMessage
       .serializeStringMapTo(
@@ -370,8 +357,9 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, flowType_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, workerTarget_);
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getWorkerTarget());
     }
     for (java.util.Map.Entry<java.lang.String, io.superdurable.gen.ChannelInfo> entry
          : internalGetChannelInfos().getMap().entrySet()) {
@@ -415,8 +403,11 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         != other.getFlowStartedTimestamp()) return false;
     if (!getFlowType()
         .equals(other.getFlowType())) return false;
-    if (!getWorkerTarget()
-        .equals(other.getWorkerTarget())) return false;
+    if (hasWorkerTarget() != other.hasWorkerTarget()) return false;
+    if (hasWorkerTarget()) {
+      if (!getWorkerTarget()
+          .equals(other.getWorkerTarget())) return false;
+    }
     if (!internalGetChannelInfos().equals(
         other.internalGetChannelInfos())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -441,8 +432,10 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         getFlowStartedTimestamp());
     hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getFlowType().hashCode();
-    hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
-    hash = (53 * hash) + getWorkerTarget().hashCode();
+    if (hasWorkerTarget()) {
+      hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
+      hash = (53 * hash) + getWorkerTarget().hashCode();
+    }
     if (!internalGetChannelInfos().getMap().isEmpty()) {
       hash = (37 * hash) + CHANNEL_INFOS_FIELD_NUMBER;
       hash = (53 * hash) + internalGetChannelInfos().hashCode();
@@ -588,13 +581,20 @@ io.superdurable.gen.ChannelInfo defaultValue) {
 
     // Construct using io.superdurable.gen.PrepareRpcQueryResponse.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetAttributesFieldBuilder();
+        internalGetWorkerTargetFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -610,7 +610,11 @@ io.superdurable.gen.ChannelInfo defaultValue) {
       runId_ = "";
       flowStartedTimestamp_ = 0L;
       flowType_ = "";
-      workerTarget_ = "";
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
       internalGetMutableChannelInfos().clear();
       return this;
     }
@@ -667,12 +671,17 @@ io.superdurable.gen.ChannelInfo defaultValue) {
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.flowType_ = flowType_;
       }
+      int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000010) != 0)) {
-        result.workerTarget_ = workerTarget_;
+        result.workerTarget_ = workerTargetBuilder_ == null
+            ? workerTarget_
+            : workerTargetBuilder_.build();
+        to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000020) != 0)) {
         result.channelInfos_ = internalGetChannelInfos().build(ChannelInfosDefaultEntryHolder.defaultEntry);
       }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -705,7 +714,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            attributesBuilder_ = 
+            attributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -726,10 +735,8 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         bitField0_ |= 0x00000008;
         onChanged();
       }
-      if (!other.getWorkerTarget().isEmpty()) {
-        workerTarget_ = other.workerTarget_;
-        bitField0_ |= 0x00000010;
-        onChanged();
+      if (other.hasWorkerTarget()) {
+        mergeWorkerTarget(other.getWorkerTarget());
       }
       internalGetMutableChannelInfos().mergeFrom(
           other.internalGetChannelInfos());
@@ -789,7 +796,9 @@ io.superdurable.gen.ChannelInfo defaultValue) {
               break;
             } // case 34
             case 42: {
-              workerTarget_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetWorkerTargetFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000010;
               break;
             } // case 42
@@ -1014,7 +1023,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1040,12 +1049,12 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder> 
+    public java.util.List<io.superdurable.gen.KV.Builder>
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1084,7 +1093,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -1188,7 +1197,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1235,76 +1244,125 @@ io.superdurable.gen.ChannelInfo defaultValue) {
       return this;
     }
 
-    private java.lang.Object workerTarget_ = "";
+    private io.superdurable.gen.WorkerTarget workerTarget_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> workerTargetBuilder_;
     /**
-     * <code>string worker_target = 5;</code>
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     * @return Whether the workerTarget field is set.
+     */
+    public boolean hasWorkerTarget() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
      * @return The workerTarget.
      */
-    public java.lang.String getWorkerTarget() {
-      java.lang.Object ref = workerTarget_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        workerTarget_ = s;
-        return s;
+    public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+      if (workerTargetBuilder_ == null) {
+        return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
       } else {
-        return (java.lang.String) ref;
+        return workerTargetBuilder_.getMessage();
       }
     }
     /**
-     * <code>string worker_target = 5;</code>
-     * @return The bytes for workerTarget.
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
-    public com.google.protobuf.ByteString
-        getWorkerTargetBytes() {
-      java.lang.Object ref = workerTarget_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        workerTarget_ = b;
-        return b;
+    public Builder setWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        workerTarget_ = value;
       } else {
-        return (com.google.protobuf.ByteString) ref;
+        workerTargetBuilder_.setMessage(value);
       }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
     }
     /**
-     * <code>string worker_target = 5;</code>
-     * @param value The workerTarget to set.
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
     public Builder setWorkerTarget(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      workerTarget_ = value;
+        io.superdurable.gen.WorkerTarget.Builder builderForValue) {
+      if (workerTargetBuilder_ == null) {
+        workerTarget_ = builderForValue.build();
+      } else {
+        workerTargetBuilder_.setMessage(builderForValue.build());
+      }
       bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>string worker_target = 5;</code>
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public Builder mergeWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          workerTarget_ != null &&
+          workerTarget_ != io.superdurable.gen.WorkerTarget.getDefaultInstance()) {
+          getWorkerTargetBuilder().mergeFrom(value);
+        } else {
+          workerTarget_ = value;
+        }
+      } else {
+        workerTargetBuilder_.mergeFrom(value);
+      }
+      if (workerTarget_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
     public Builder clearWorkerTarget() {
-      workerTarget_ = getDefaultInstance().getWorkerTarget();
       bitField0_ = (bitField0_ & ~0x00000010);
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
       onChanged();
       return this;
     }
     /**
-     * <code>string worker_target = 5;</code>
-     * @param value The bytes for workerTarget to set.
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
-    public Builder setWorkerTargetBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      workerTarget_ = value;
+    public io.superdurable.gen.WorkerTarget.Builder getWorkerTargetBuilder() {
       bitField0_ |= 0x00000010;
       onChanged();
-      return this;
+      return internalGetWorkerTargetFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+      if (workerTargetBuilder_ != null) {
+        return workerTargetBuilder_.getMessageOrBuilder();
+      } else {
+        return workerTarget_ == null ?
+            io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+      }
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>
+        internalGetWorkerTargetFieldBuilder() {
+      if (workerTargetBuilder_ == null) {
+        workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>(
+                getWorkerTarget(),
+                getParentForChildren(),
+                isClean());
+        workerTarget_ = null;
+      }
+      return workerTargetBuilder_;
     }
 
     private static final class ChannelInfosConverter implements com.google.protobuf.MapFieldBuilder.Converter<java.lang.String, io.superdurable.gen.ChannelInfoOrBuilder, io.superdurable.gen.ChannelInfo> {
@@ -1512,4 +1570,3 @@ io.superdurable.gen.ChannelInfo defaultValue) {
   }
 
 }
-

@@ -33,4 +33,81 @@ public interface SearchFlowsResponseEntryOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunIdBytes();
+
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  java.util.List<io.superdurable.gen.KV>
+      getSearchAttributesList();
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  io.superdurable.gen.KV getSearchAttributes(int index);
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  int getSearchAttributesCount();
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+      getSearchAttributesOrBuilderList();
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+      int index);
+
+  /**
+   * <code>string flow_type = 4;</code>
+   * @return The flowType.
+   */
+  java.lang.String getFlowType();
+  /**
+   * <code>string flow_type = 4;</code>
+   * @return The bytes for flowType.
+   */
+  com.google.protobuf.ByteString
+      getFlowTypeBytes();
+
+  /**
+   * <code>.dex.FlowStatus flow_status = 5;</code>
+   * @return The enum numeric value on the wire for flowStatus.
+   */
+  int getFlowStatusValue();
+  /**
+   * <code>.dex.FlowStatus flow_status = 5;</code>
+   * @return The flowStatus.
+   */
+  io.superdurable.gen.FlowStatus getFlowStatus();
+
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   * @return Whether the startTime field is set.
+   */
+  boolean hasStartTime();
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   * @return The startTime.
+   */
+  com.google.protobuf.Timestamp getStartTime();
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   */
+  com.google.protobuf.TimestampOrBuilder getStartTimeOrBuilder();
+
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   * @return Whether the closeTime field is set.
+   */
+  boolean hasCloseTime();
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   * @return The closeTime.
+   */
+  com.google.protobuf.Timestamp getCloseTime();
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   */
+  com.google.protobuf.TimestampOrBuilder getCloseTimeOrBuilder();
 }

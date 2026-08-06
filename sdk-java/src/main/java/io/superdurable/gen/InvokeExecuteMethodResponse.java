@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private InvokeExecuteMethodResponse() {
-    localActivityInput_ = "";
     upsertAttributes_ = java.util.Collections.emptyList();
     recordEvents_ = java.util.Collections.emptyList();
     upsertStepExeLocals_ = java.util.Collections.emptyList();
@@ -55,42 +54,41 @@ private static final long serialVersionUID = 0L;
 
   private int bitField0_;
   public static final int LOCAL_ACTIVITY_INPUT_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object localActivityInput_ = "";
+  private io.superdurable.gen.LocalActivityInput localActivityInput_;
   /**
-   * <code>string local_activity_input = 1;</code>
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * @return Whether the localActivityInput field is set.
+   */
+  @java.lang.Override
+  public boolean hasLocalActivityInput() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
    * @return The localActivityInput.
    */
   @java.lang.Override
-  public java.lang.String getLocalActivityInput() {
-    java.lang.Object ref = localActivityInput_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      localActivityInput_ = s;
-      return s;
-    }
+  public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
+    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
   }
   /**
-   * <code>string local_activity_input = 1;</code>
-   * @return The bytes for localActivityInput.
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
-      getLocalActivityInputBytes() {
-    java.lang.Object ref = localActivityInput_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      localActivityInput_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
+    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
   }
 
   public static final int STEP_DECISION_FIELD_NUMBER = 2;
@@ -101,7 +99,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasStepDecision() {
-    return ((bitField0_ & 0x00000001) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
    * <code>.dex.StepDecision step_decision = 2;</code>
@@ -133,7 +131,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getUpsertAttributesOrBuilderList() {
     return upsertAttributes_;
   }
@@ -174,7 +172,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV record_events = 4;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getRecordEventsOrBuilderList() {
     return recordEvents_;
   }
@@ -215,7 +213,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV upsert_step_exe_locals = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getUpsertStepExeLocalsOrBuilderList() {
     return upsertStepExeLocals_;
   }
@@ -256,7 +254,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
       getPublishToChannelOrBuilderList() {
     return publishToChannel_;
   }
@@ -297,10 +295,10 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(localActivityInput_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, localActivityInput_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(1, getLocalActivityInput());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getStepDecision());
     }
     for (int i = 0; i < upsertAttributes_.size(); i++) {
@@ -319,10 +317,11 @@ private static final long serialVersionUID = 0L;
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(localActivityInput_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, localActivityInput_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getLocalActivityInput());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getStepDecision());
     }
@@ -386,8 +385,11 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.InvokeExecuteMethodResponse other = (io.superdurable.gen.InvokeExecuteMethodResponse) obj;
 
-    if (!getLocalActivityInput()
-        .equals(other.getLocalActivityInput())) return false;
+    if (hasLocalActivityInput() != other.hasLocalActivityInput()) return false;
+    if (hasLocalActivityInput()) {
+      if (!getLocalActivityInput()
+          .equals(other.getLocalActivityInput())) return false;
+    }
     if (hasStepDecision() != other.hasStepDecision()) return false;
     if (hasStepDecision()) {
       if (!getStepDecision()
@@ -412,8 +414,10 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + LOCAL_ACTIVITY_INPUT_FIELD_NUMBER;
-    hash = (53 * hash) + getLocalActivityInput().hashCode();
+    if (hasLocalActivityInput()) {
+      hash = (37 * hash) + LOCAL_ACTIVITY_INPUT_FIELD_NUMBER;
+      hash = (53 * hash) + getLocalActivityInput().hashCode();
+    }
     if (hasStepDecision()) {
       hash = (37 * hash) + STEP_DECISION_FIELD_NUMBER;
       hash = (53 * hash) + getStepDecision().hashCode();
@@ -564,6 +568,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
+        internalGetLocalActivityInputFieldBuilder();
         internalGetStepDecisionFieldBuilder();
         internalGetUpsertAttributesFieldBuilder();
         internalGetRecordEventsFieldBuilder();
@@ -575,7 +580,11 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      localActivityInput_ = "";
+      localActivityInput_ = null;
+      if (localActivityInputBuilder_ != null) {
+        localActivityInputBuilder_.dispose();
+        localActivityInputBuilder_ = null;
+      }
       stepDecision_ = null;
       if (stepDecisionBuilder_ != null) {
         stepDecisionBuilder_.dispose();
@@ -682,15 +691,18 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.InvokeExecuteMethodResponse result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.localActivityInput_ = localActivityInput_;
-      }
       int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.localActivityInput_ = localActivityInputBuilder_ == null
+            ? localActivityInput_
+            : localActivityInputBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.stepDecision_ = stepDecisionBuilder_ == null
             ? stepDecision_
             : stepDecisionBuilder_.build();
-        to_bitField0_ |= 0x00000001;
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -707,10 +719,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.InvokeExecuteMethodResponse other) {
       if (other == io.superdurable.gen.InvokeExecuteMethodResponse.getDefaultInstance()) return this;
-      if (!other.getLocalActivityInput().isEmpty()) {
-        localActivityInput_ = other.localActivityInput_;
-        bitField0_ |= 0x00000001;
-        onChanged();
+      if (other.hasLocalActivityInput()) {
+        mergeLocalActivityInput(other.getLocalActivityInput());
       }
       if (other.hasStepDecision()) {
         mergeStepDecision(other.getStepDecision());
@@ -733,7 +743,7 @@ private static final long serialVersionUID = 0L;
             upsertAttributesBuilder_ = null;
             upsertAttributes_ = other.upsertAttributes_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            upsertAttributesBuilder_ = 
+            upsertAttributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertAttributesFieldBuilder() : null;
           } else {
@@ -759,7 +769,7 @@ private static final long serialVersionUID = 0L;
             recordEventsBuilder_ = null;
             recordEvents_ = other.recordEvents_;
             bitField0_ = (bitField0_ & ~0x00000008);
-            recordEventsBuilder_ = 
+            recordEventsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetRecordEventsFieldBuilder() : null;
           } else {
@@ -785,7 +795,7 @@ private static final long serialVersionUID = 0L;
             upsertStepExeLocalsBuilder_ = null;
             upsertStepExeLocals_ = other.upsertStepExeLocals_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            upsertStepExeLocalsBuilder_ = 
+            upsertStepExeLocalsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertStepExeLocalsFieldBuilder() : null;
           } else {
@@ -811,7 +821,7 @@ private static final long serialVersionUID = 0L;
             publishToChannelBuilder_ = null;
             publishToChannel_ = other.publishToChannel_;
             bitField0_ = (bitField0_ & ~0x00000020);
-            publishToChannelBuilder_ = 
+            publishToChannelBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetPublishToChannelFieldBuilder() : null;
           } else {
@@ -846,7 +856,9 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              localActivityInput_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetLocalActivityInputFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
@@ -926,76 +938,161 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object localActivityInput_ = "";
+    private io.superdurable.gen.LocalActivityInput localActivityInput_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> localActivityInputBuilder_;
     /**
-     * <code>string local_activity_input = 1;</code>
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * @return Whether the localActivityInput field is set.
+     */
+    public boolean hasLocalActivityInput() {
+      return ((bitField0_ & 0x00000001) != 0);
+    }
+    /**
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      * @return The localActivityInput.
      */
-    public java.lang.String getLocalActivityInput() {
-      java.lang.Object ref = localActivityInput_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        localActivityInput_ = s;
-        return s;
+    public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
+      if (localActivityInputBuilder_ == null) {
+        return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
       } else {
-        return (java.lang.String) ref;
+        return localActivityInputBuilder_.getMessage();
       }
     }
     /**
-     * <code>string local_activity_input = 1;</code>
-     * @return The bytes for localActivityInput.
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public com.google.protobuf.ByteString
-        getLocalActivityInputBytes() {
-      java.lang.Object ref = localActivityInput_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        localActivityInput_ = b;
-        return b;
+    public Builder setLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
+      if (localActivityInputBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        localActivityInput_ = value;
       } else {
-        return (com.google.protobuf.ByteString) ref;
+        localActivityInputBuilder_.setMessage(value);
       }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
     }
     /**
-     * <code>string local_activity_input = 1;</code>
-     * @param value The localActivityInput to set.
-     * @return This builder for chaining.
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
     public Builder setLocalActivityInput(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      localActivityInput_ = value;
+        io.superdurable.gen.LocalActivityInput.Builder builderForValue) {
+      if (localActivityInputBuilder_ == null) {
+        localActivityInput_ = builderForValue.build();
+      } else {
+        localActivityInputBuilder_.setMessage(builderForValue.build());
+      }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>string local_activity_input = 1;</code>
-     * @return This builder for chaining.
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     */
+    public Builder mergeLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
+      if (localActivityInputBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          localActivityInput_ != null &&
+          localActivityInput_ != io.superdurable.gen.LocalActivityInput.getDefaultInstance()) {
+          getLocalActivityInputBuilder().mergeFrom(value);
+        } else {
+          localActivityInput_ = value;
+        }
+      } else {
+        localActivityInputBuilder_.mergeFrom(value);
+      }
+      if (localActivityInput_ != null) {
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
     public Builder clearLocalActivityInput() {
-      localActivityInput_ = getDefaultInstance().getLocalActivityInput();
       bitField0_ = (bitField0_ & ~0x00000001);
+      localActivityInput_ = null;
+      if (localActivityInputBuilder_ != null) {
+        localActivityInputBuilder_.dispose();
+        localActivityInputBuilder_ = null;
+      }
       onChanged();
       return this;
     }
     /**
-     * <code>string local_activity_input = 1;</code>
-     * @param value The bytes for localActivityInput to set.
-     * @return This builder for chaining.
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public Builder setLocalActivityInputBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      localActivityInput_ = value;
+    public io.superdurable.gen.LocalActivityInput.Builder getLocalActivityInputBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return this;
+      return internalGetLocalActivityInputFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     */
+    public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
+      if (localActivityInputBuilder_ != null) {
+        return localActivityInputBuilder_.getMessageOrBuilder();
+      } else {
+        return localActivityInput_ == null ?
+            io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+      }
+    }
+    /**
+     * <pre>
+     * Server-populated lineage input for local activity history.
+     * </pre>
+     *
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder>
+        internalGetLocalActivityInputFieldBuilder() {
+      if (localActivityInputBuilder_ == null) {
+        localActivityInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder>(
+                getLocalActivityInput(),
+                getParentForChildren(),
+                isClean());
+        localActivityInput_ = null;
+      }
+      return localActivityInputBuilder_;
     }
 
     private io.superdurable.gen.StepDecision stepDecision_;
@@ -1106,7 +1203,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepDecision step_decision = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder> 
+        io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder>
         internalGetStepDecisionFieldBuilder() {
       if (stepDecisionBuilder_ == null) {
         stepDecisionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1314,7 +1411,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
          getUpsertAttributesOrBuilderList() {
       if (upsertAttributesBuilder_ != null) {
         return upsertAttributesBuilder_.getMessageOrBuilderList();
@@ -1340,12 +1437,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder>
          getUpsertAttributesBuilderList() {
       return internalGetUpsertAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>
         internalGetUpsertAttributesFieldBuilder() {
       if (upsertAttributesBuilder_ == null) {
         upsertAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1554,7 +1651,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV record_events = 4;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
          getRecordEventsOrBuilderList() {
       if (recordEventsBuilder_ != null) {
         return recordEventsBuilder_.getMessageOrBuilderList();
@@ -1580,12 +1677,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV record_events = 4;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder> 
+    public java.util.List<io.superdurable.gen.KV.Builder>
          getRecordEventsBuilderList() {
       return internalGetRecordEventsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
         internalGetRecordEventsFieldBuilder() {
       if (recordEventsBuilder_ == null) {
         recordEventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1794,7 +1891,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV upsert_step_exe_locals = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
          getUpsertStepExeLocalsOrBuilderList() {
       if (upsertStepExeLocalsBuilder_ != null) {
         return upsertStepExeLocalsBuilder_.getMessageOrBuilderList();
@@ -1820,12 +1917,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV upsert_step_exe_locals = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder> 
+    public java.util.List<io.superdurable.gen.KV.Builder>
          getUpsertStepExeLocalsBuilderList() {
       return internalGetUpsertStepExeLocalsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
         internalGetUpsertStepExeLocalsFieldBuilder() {
       if (upsertStepExeLocalsBuilder_ == null) {
         upsertStepExeLocalsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2034,7 +2131,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
          getPublishToChannelOrBuilderList() {
       if (publishToChannelBuilder_ != null) {
         return publishToChannelBuilder_.getMessageOrBuilderList();
@@ -2060,12 +2157,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelMessage.Builder> 
+    public java.util.List<io.superdurable.gen.ChannelMessage.Builder>
          getPublishToChannelBuilderList() {
       return internalGetPublishToChannelFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> 
+        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>
         internalGetPublishToChannelFieldBuilder() {
       if (publishToChannelBuilder_ == null) {
         publishToChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2129,4 +2226,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

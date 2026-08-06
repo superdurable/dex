@@ -13,7 +13,7 @@ public interface PrepareRpcQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
    */
-  java.util.List<io.superdurable.gen.KV> 
+  java.util.List<io.superdurable.gen.KV>
       getAttributesList();
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
@@ -26,7 +26,7 @@ public interface PrepareRpcQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
@@ -65,16 +65,19 @@ public interface PrepareRpcQueryResponseOrBuilder extends
       getFlowTypeBytes();
 
   /**
-   * <code>string worker_target = 5;</code>
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  boolean hasWorkerTarget();
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
    * @return The workerTarget.
    */
-  java.lang.String getWorkerTarget();
+  io.superdurable.gen.WorkerTarget getWorkerTarget();
   /**
-   * <code>string worker_target = 5;</code>
-   * @return The bytes for workerTarget.
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
    */
-  com.google.protobuf.ByteString
-      getWorkerTargetBytes();
+  io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder();
 
   /**
    * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 6;</code>

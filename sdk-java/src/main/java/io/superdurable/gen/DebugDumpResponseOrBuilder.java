@@ -56,4 +56,28 @@ public interface DebugDumpResponseOrBuilder extends
    * @return The firingTimersUnixTimestamps at the given index.
    */
   long getFiringTimersUnixTimestamps(int index);
+
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  java.util.List<io.superdurable.gen.ActiveStepExecutionState>
+      getActiveStepExecutionsList();
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  io.superdurable.gen.ActiveStepExecutionState getActiveStepExecutions(int index);
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  int getActiveStepExecutionsCount();
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+      getActiveStepExecutionsOrBuilderList();
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  io.superdurable.gen.ActiveStepExecutionStateOrBuilder getActiveStepExecutionsOrBuilder(
+      int index);
 }

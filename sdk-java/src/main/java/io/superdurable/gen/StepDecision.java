@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
       getNextStepsOrBuilderList() {
     return nextSteps_;
   }
@@ -91,30 +91,30 @@ private static final long serialVersionUID = 0L;
     return nextSteps_.get(index);
   }
 
-  public static final int CONDITIONAL_CLOSE_FIELD_NUMBER = 2;
-  private io.superdurable.gen.FlowConditionalClose conditionalClose_;
+  public static final int CLOSE_DECISION_FIELD_NUMBER = 2;
+  private io.superdurable.gen.CloseDecision closeDecision_;
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-   * @return Whether the conditionalClose field is set.
+   * <code>.dex.CloseDecision close_decision = 2;</code>
+   * @return Whether the closeDecision field is set.
    */
   @java.lang.Override
-  public boolean hasConditionalClose() {
+  public boolean hasCloseDecision() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-   * @return The conditionalClose.
+   * <code>.dex.CloseDecision close_decision = 2;</code>
+   * @return The closeDecision.
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowConditionalClose getConditionalClose() {
-    return conditionalClose_ == null ? io.superdurable.gen.FlowConditionalClose.getDefaultInstance() : conditionalClose_;
+  public io.superdurable.gen.CloseDecision getCloseDecision() {
+    return closeDecision_ == null ? io.superdurable.gen.CloseDecision.getDefaultInstance() : closeDecision_;
   }
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+   * <code>.dex.CloseDecision close_decision = 2;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowConditionalCloseOrBuilder getConditionalCloseOrBuilder() {
-    return conditionalClose_ == null ? io.superdurable.gen.FlowConditionalClose.getDefaultInstance() : conditionalClose_;
+  public io.superdurable.gen.CloseDecisionOrBuilder getCloseDecisionOrBuilder() {
+    return closeDecision_ == null ? io.superdurable.gen.CloseDecision.getDefaultInstance() : closeDecision_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -135,7 +135,7 @@ private static final long serialVersionUID = 0L;
       output.writeMessage(1, nextSteps_.get(i));
     }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(2, getConditionalClose());
+      output.writeMessage(2, getCloseDecision());
     }
     getUnknownFields().writeTo(output);
   }
@@ -152,7 +152,7 @@ private static final long serialVersionUID = 0L;
         }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getConditionalClose());
+        .computeMessageSize(2, getCloseDecision());
     }
     return size;
   }
@@ -180,10 +180,10 @@ private static final long serialVersionUID = 0L;
 
     if (!getNextStepsList()
         .equals(other.getNextStepsList())) return false;
-    if (hasConditionalClose() != other.hasConditionalClose()) return false;
-    if (hasConditionalClose()) {
-      if (!getConditionalClose()
-          .equals(other.getConditionalClose())) return false;
+    if (hasCloseDecision() != other.hasCloseDecision()) return false;
+    if (hasCloseDecision()) {
+      if (!getCloseDecision()
+          .equals(other.getCloseDecision())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -200,9 +200,9 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + NEXT_STEPS_FIELD_NUMBER;
       hash = (53 * hash) + getNextStepsList().hashCode();
     }
-    if (hasConditionalClose()) {
-      hash = (37 * hash) + CONDITIONAL_CLOSE_FIELD_NUMBER;
-      hash = (53 * hash) + getConditionalClose().hashCode();
+    if (hasCloseDecision()) {
+      hash = (37 * hash) + CLOSE_DECISION_FIELD_NUMBER;
+      hash = (53 * hash) + getCloseDecision().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -335,7 +335,7 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetNextStepsFieldBuilder();
-        internalGetConditionalCloseFieldBuilder();
+        internalGetCloseDecisionFieldBuilder();
       }
     }
     @java.lang.Override
@@ -349,10 +349,10 @@ private static final long serialVersionUID = 0L;
         nextStepsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000001);
-      conditionalClose_ = null;
-      if (conditionalCloseBuilder_ != null) {
-        conditionalCloseBuilder_.dispose();
-        conditionalCloseBuilder_ = null;
+      closeDecision_ = null;
+      if (closeDecisionBuilder_ != null) {
+        closeDecisionBuilder_.dispose();
+        closeDecisionBuilder_ = null;
       }
       return this;
     }
@@ -402,9 +402,9 @@ private static final long serialVersionUID = 0L;
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.conditionalClose_ = conditionalCloseBuilder_ == null
-            ? conditionalClose_
-            : conditionalCloseBuilder_.build();
+        result.closeDecision_ = closeDecisionBuilder_ == null
+            ? closeDecision_
+            : closeDecisionBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -440,7 +440,7 @@ private static final long serialVersionUID = 0L;
             nextStepsBuilder_ = null;
             nextSteps_ = other.nextSteps_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            nextStepsBuilder_ = 
+            nextStepsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetNextStepsFieldBuilder() : null;
           } else {
@@ -448,8 +448,8 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
-      if (other.hasConditionalClose()) {
-        mergeConditionalClose(other.getConditionalClose());
+      if (other.hasCloseDecision()) {
+        mergeCloseDecision(other.getCloseDecision());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -492,7 +492,7 @@ private static final long serialVersionUID = 0L;
             } // case 10
             case 18: {
               input.readMessage(
-                  internalGetConditionalCloseFieldBuilder().getBuilder(),
+                  internalGetCloseDecisionFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
@@ -709,7 +709,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepMovement next_steps = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
          getNextStepsOrBuilderList() {
       if (nextStepsBuilder_ != null) {
         return nextStepsBuilder_.getMessageOrBuilderList();
@@ -735,12 +735,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepMovement next_steps = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.StepMovement.Builder> 
+    public java.util.List<io.superdurable.gen.StepMovement.Builder>
          getNextStepsBuilderList() {
       return internalGetNextStepsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> 
+        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder>
         internalGetNextStepsFieldBuilder() {
       if (nextStepsBuilder_ == null) {
         nextStepsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -754,125 +754,125 @@ private static final long serialVersionUID = 0L;
       return nextStepsBuilder_;
     }
 
-    private io.superdurable.gen.FlowConditionalClose conditionalClose_;
+    private io.superdurable.gen.CloseDecision closeDecision_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConditionalClose, io.superdurable.gen.FlowConditionalClose.Builder, io.superdurable.gen.FlowConditionalCloseOrBuilder> conditionalCloseBuilder_;
+        io.superdurable.gen.CloseDecision, io.superdurable.gen.CloseDecision.Builder, io.superdurable.gen.CloseDecisionOrBuilder> closeDecisionBuilder_;
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-     * @return Whether the conditionalClose field is set.
+     * <code>.dex.CloseDecision close_decision = 2;</code>
+     * @return Whether the closeDecision field is set.
      */
-    public boolean hasConditionalClose() {
+    public boolean hasCloseDecision() {
       return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-     * @return The conditionalClose.
+     * <code>.dex.CloseDecision close_decision = 2;</code>
+     * @return The closeDecision.
      */
-    public io.superdurable.gen.FlowConditionalClose getConditionalClose() {
-      if (conditionalCloseBuilder_ == null) {
-        return conditionalClose_ == null ? io.superdurable.gen.FlowConditionalClose.getDefaultInstance() : conditionalClose_;
+    public io.superdurable.gen.CloseDecision getCloseDecision() {
+      if (closeDecisionBuilder_ == null) {
+        return closeDecision_ == null ? io.superdurable.gen.CloseDecision.getDefaultInstance() : closeDecision_;
       } else {
-        return conditionalCloseBuilder_.getMessage();
+        return closeDecisionBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public Builder setConditionalClose(io.superdurable.gen.FlowConditionalClose value) {
-      if (conditionalCloseBuilder_ == null) {
+    public Builder setCloseDecision(io.superdurable.gen.CloseDecision value) {
+      if (closeDecisionBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        conditionalClose_ = value;
+        closeDecision_ = value;
       } else {
-        conditionalCloseBuilder_.setMessage(value);
+        closeDecisionBuilder_.setMessage(value);
       }
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public Builder setConditionalClose(
-        io.superdurable.gen.FlowConditionalClose.Builder builderForValue) {
-      if (conditionalCloseBuilder_ == null) {
-        conditionalClose_ = builderForValue.build();
+    public Builder setCloseDecision(
+        io.superdurable.gen.CloseDecision.Builder builderForValue) {
+      if (closeDecisionBuilder_ == null) {
+        closeDecision_ = builderForValue.build();
       } else {
-        conditionalCloseBuilder_.setMessage(builderForValue.build());
+        closeDecisionBuilder_.setMessage(builderForValue.build());
       }
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public Builder mergeConditionalClose(io.superdurable.gen.FlowConditionalClose value) {
-      if (conditionalCloseBuilder_ == null) {
+    public Builder mergeCloseDecision(io.superdurable.gen.CloseDecision value) {
+      if (closeDecisionBuilder_ == null) {
         if (((bitField0_ & 0x00000002) != 0) &&
-          conditionalClose_ != null &&
-          conditionalClose_ != io.superdurable.gen.FlowConditionalClose.getDefaultInstance()) {
-          getConditionalCloseBuilder().mergeFrom(value);
+          closeDecision_ != null &&
+          closeDecision_ != io.superdurable.gen.CloseDecision.getDefaultInstance()) {
+          getCloseDecisionBuilder().mergeFrom(value);
         } else {
-          conditionalClose_ = value;
+          closeDecision_ = value;
         }
       } else {
-        conditionalCloseBuilder_.mergeFrom(value);
+        closeDecisionBuilder_.mergeFrom(value);
       }
-      if (conditionalClose_ != null) {
+      if (closeDecision_ != null) {
         bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public Builder clearConditionalClose() {
+    public Builder clearCloseDecision() {
       bitField0_ = (bitField0_ & ~0x00000002);
-      conditionalClose_ = null;
-      if (conditionalCloseBuilder_ != null) {
-        conditionalCloseBuilder_.dispose();
-        conditionalCloseBuilder_ = null;
+      closeDecision_ = null;
+      if (closeDecisionBuilder_ != null) {
+        closeDecisionBuilder_.dispose();
+        closeDecisionBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public io.superdurable.gen.FlowConditionalClose.Builder getConditionalCloseBuilder() {
+    public io.superdurable.gen.CloseDecision.Builder getCloseDecisionBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
-      return internalGetConditionalCloseFieldBuilder().getBuilder();
+      return internalGetCloseDecisionFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
-    public io.superdurable.gen.FlowConditionalCloseOrBuilder getConditionalCloseOrBuilder() {
-      if (conditionalCloseBuilder_ != null) {
-        return conditionalCloseBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.CloseDecisionOrBuilder getCloseDecisionOrBuilder() {
+      if (closeDecisionBuilder_ != null) {
+        return closeDecisionBuilder_.getMessageOrBuilder();
       } else {
-        return conditionalClose_ == null ?
-            io.superdurable.gen.FlowConditionalClose.getDefaultInstance() : conditionalClose_;
+        return closeDecision_ == null ?
+            io.superdurable.gen.CloseDecision.getDefaultInstance() : closeDecision_;
       }
     }
     /**
-     * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+     * <code>.dex.CloseDecision close_decision = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConditionalClose, io.superdurable.gen.FlowConditionalClose.Builder, io.superdurable.gen.FlowConditionalCloseOrBuilder> 
-        internalGetConditionalCloseFieldBuilder() {
-      if (conditionalCloseBuilder_ == null) {
-        conditionalCloseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.FlowConditionalClose, io.superdurable.gen.FlowConditionalClose.Builder, io.superdurable.gen.FlowConditionalCloseOrBuilder>(
-                getConditionalClose(),
+        io.superdurable.gen.CloseDecision, io.superdurable.gen.CloseDecision.Builder, io.superdurable.gen.CloseDecisionOrBuilder>
+        internalGetCloseDecisionFieldBuilder() {
+      if (closeDecisionBuilder_ == null) {
+        closeDecisionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.CloseDecision, io.superdurable.gen.CloseDecision.Builder, io.superdurable.gen.CloseDecisionOrBuilder>(
+                getCloseDecision(),
                 getParentForChildren(),
                 isClean());
-        conditionalClose_ = null;
+        closeDecision_ = null;
       }
-      return conditionalCloseBuilder_;
+      return closeDecisionBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepDecision)
@@ -925,4 +925,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

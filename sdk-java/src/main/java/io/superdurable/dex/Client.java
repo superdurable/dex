@@ -14,13 +14,59 @@
 
 package io.superdurable.dex;
 
+import com.google.protobuf.Empty;
+import com.google.protobuf.Timestamp;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.superdurable.gen.AttributeWrite;
+import io.superdurable.gen.FlowAlreadyStartedOptions;
+import io.superdurable.gen.FlowExecutionID;
+import io.superdurable.gen.FlowResetType;
+import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.FlowStartOptions;
+import io.superdurable.gen.GetAttributesRequest;
+import io.superdurable.gen.GetAttributesResponse;
+import io.superdurable.gen.GetFlowSummaryRequest;
+import io.superdurable.gen.GetFlowSummaryResponse;
+import io.superdurable.gen.InvokeRPCRequest;
+import io.superdurable.gen.KV;
+import io.superdurable.gen.PublishToChannelRequest;
+import io.superdurable.gen.ResetFlowRequest;
+import io.superdurable.gen.SetAttributesRequest;
+import io.superdurable.gen.SkipTimerRequest;
+import io.superdurable.gen.StartFlowRequest;
+import io.superdurable.gen.StopFlowRequest;
+import io.superdurable.gen.TriggerContinueAsNewRequest;
+import io.superdurable.gen.UpdateFlowConfigRequest;
+import io.superdurable.gen.WaitForFlowRequest;
+import io.superdurable.gen.WaitForFlowResponse;
+import io.superdurable.gen.WaitForStepCompletionRequest;
+
+import java.lang.invoke.SerializedLambda;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public final class Client implements AutoCloseable {
     private final Registry registry;
     private final BlobCache blobCache;
     private final ClientOptions options;
+    private final ManagedChannel channel;
+    private final FlowServiceGrpc.FlowServiceBlockingStub service;
+    private final ValueMapper values;
+    private final WorkerDispatcher mappings;
+    private final Map<Object, RpcTarget> rpcStubs =
+            Collections.synchronizedMap(new IdentityHashMap<Object, RpcTarget>());
 
     public Client(final Registry registry, final BlobCache blobCache) {
         this(registry, blobCache, new ClientOptions());
@@ -36,6 +82,12 @@ public final class Client implements AutoCloseable {
         this.registry = registry;
         this.blobCache = blobCache;
         this.options = options;
+        this.values = new ValueMapper(options.getObjectMapper());
+        this.mappings = new WorkerDispatcher(registry, values);
+        this.channel = ManagedChannelBuilder.forTarget(options.getServerAddress())
+                .usePlaintext()
+                .build();
+        this.service = FlowServiceGrpc.newBlockingStub(channel);
     }
 
     Registry getRegistry() {
@@ -62,12 +114,37 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final I input,
             final StartFlowOptions startOptions) {
-        throw laterPhase("Client transport");
+        final Registry.RegisteredFlow registered = registry.getFlow(flow.getFlowType());
+        if (registered.getFlow() != flow) {
+            throw new IllegalArgumentException("Flow instance is not registered");
+        }
+        final StartFlowRequest.Builder request = StartFlowRequest.newBuilder()
+                .setFlowId(Attribute.requireName(flowId))
+                .setFlowType(registered.getName())
+                .setRequestId(startOptions.getRequestId() == null
+                        ? UUID.randomUUID().toString()
+                        : startOptions.getRequestId())
+                .setFlowStartOptions(mapStartOptions(startOptions));
+        if (registered.getStartStep() != null) {
+            request.setStartStepType(registered.getStartStep().getName())
+                    .setStepInput(values.encode(input));
+            final io.superdurable.gen.StepOptions stepOptions = mappings.mapStepOptions(
+                    registered.getStartStep().getStep().getStepOptions());
+            final io.superdurable.gen.StepOptions.Builder mappedStep = stepOptions == null
+                    ? io.superdurable.gen.StepOptions.newBuilder()
+                    : stepOptions.toBuilder();
+            mappedStep.setSkipWaitFor(registered.getStartStep().skipsWaitFor());
+            request.setStepOptions(mappedStep);
+        } else if (input != null) {
+            throw new IllegalArgumentException("Flow without a start Step requires null input");
+        }
+        if (startOptions.getTimeout() != null) {
+            request.setFlowTimeoutSeconds(seconds32(startOptions.getTimeout()));
+        }
+        return service.startFlow(request.build()).getRunId();
     }
 
-    public <T> T newRpcStub(
-            final Class<T> rpcClass,
-            final String flowId) {
+    public <T> T newRpcStub(final Class<T> rpcClass, final String flowId) {
         return newRpcStub(rpcClass, flowId, "");
     }
 
@@ -75,47 +152,55 @@ public final class Client implements AutoCloseable {
             final Class<T> rpcClass,
             final String flowId,
             final String runId) {
-        throw laterPhase("RPCStub proxy");
+        final Registry.RegisteredFlow flow = registry.getFlow(rpcClass);
+        try {
+            final Constructor<T> constructor = rpcClass.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            final T stub = constructor.newInstance();
+            rpcStubs.put(stub, new RpcTarget(flow, flowId, runId));
+            return stub;
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalArgumentException(
+                    "RPC stub class requires a no-argument constructor", exception);
+        }
     }
 
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
             final I input) {
-        throw laterPhase("Client transport");
+        return invokeRpc(rpcStubMethod, input);
     }
 
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
-        throw laterPhase("Client transport");
+        return invokeRpc(rpcStubMethod, null);
     }
 
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
             final I input) {
-        throw laterPhase("Client transport");
+        invokeRpc(rpcStubMethod, input);
     }
 
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
-        throw laterPhase("Client transport");
+        invokeRpc(rpcStubMethod, null);
     }
 
     public <T> T getAttribute(
             final String flowId,
             final String runId,
             final Attribute<T> attribute) {
-        throw laterPhase("Client transport");
+        return getAttributeValue(flowId, runId, attribute, null, attribute.getValueType());
     }
 
-    public <T> T getAttribute(
-            final String flowId,
-            final Attribute<T> attribute) {
-        throw laterPhase("Client transport");
+    public <T> T getAttribute(final String flowId, final Attribute<T> attribute) {
+        return getAttribute(flowId, "", attribute);
     }
 
     public <T> T getAttribute(
             final String flowId,
             final AttributeMap<T> attribute,
             final String instance) {
-        throw laterPhase("Client transport");
+        return getAttributeValue(flowId, "", attribute, instance, attribute.getValueType());
     }
 
     public <T> void setAttribute(
@@ -123,14 +208,14 @@ public final class Client implements AutoCloseable {
             final String runId,
             final Attribute<T> attribute,
             final T value) {
-        throw laterPhase("Client transport");
+        setAttributeValue(flowId, runId, attribute, null, value, attribute.getIndex());
     }
 
     public <T> void setAttribute(
             final String flowId,
             final Attribute<T> attribute,
             final T value) {
-        throw laterPhase("Client transport");
+        setAttribute(flowId, "", attribute, value);
     }
 
     public <T> void setAttribute(
@@ -138,7 +223,7 @@ public final class Client implements AutoCloseable {
             final AttributeMap<T> attribute,
             final String instance,
             final T value) {
-        throw laterPhase("Client transport");
+        setAttributeValue(flowId, "", attribute, instance, value, attribute.getIndex());
     }
 
     public <T> void publish(
@@ -146,7 +231,7 @@ public final class Client implements AutoCloseable {
             final String runId,
             final Channel<T> channel,
             final T value) {
-        throw laterPhase("Client transport");
+        publishValues(flowId, runId, channel.getName(), Collections.singletonList(value));
     }
 
     @SafeVarargs
@@ -154,7 +239,7 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final Channel<T> channel,
             final T... values) {
-        throw laterPhase("Client transport");
+        publishValues(flowId, "", channel.getName(), java.util.Arrays.asList(values));
     }
 
     @SafeVarargs
@@ -163,14 +248,18 @@ public final class Client implements AutoCloseable {
             final ChannelMap<T> channel,
             final String instance,
             final T... values) {
-        throw laterPhase("Client transport");
+        publishValues(
+                flowId,
+                "",
+                Registry.physicalName(channel.getName(), instance),
+                java.util.Arrays.asList(values));
     }
 
     public <T> void publish(
             final String flowId,
             final Channel<T> channel,
             final List<T> values) {
-        throw laterPhase("Client transport");
+        publishValues(flowId, "", channel.getName(), values);
     }
 
     public void stopFlow(final String flowId) {
@@ -178,60 +267,440 @@ public final class Client implements AutoCloseable {
     }
 
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
-        throw laterPhase("Client transport");
+        service.stopFlow(StopFlowRequest.newBuilder()
+                .setFlowId(flowId)
+                .setReason(stopOptions.getReason() == null ? "" : stopOptions.getReason())
+                .setStopType(mapStopType(stopOptions.getType()))
+                .build());
     }
 
     public void waitForFlow(final String flowId) {
-        throw laterPhase("Client transport");
+        waitForFlowResponse(flowId, null);
     }
 
     public <O> O waitForFlow(final String flowId, final Class<O> outputType) {
-        throw laterPhase("Client transport");
+        return waitForFlow(flowId, outputType, null);
     }
 
     public <O> O waitForFlow(
             final String flowId,
             final Class<O> outputType,
             final Duration timeout) {
-        throw laterPhase("Client transport");
+        final WaitForFlowResponse response = waitForFlowResponse(flowId, timeout);
+        if (response.getResultsCount() == 0) {
+            return null;
+        }
+        return values.decode(
+                response.getResults(response.getResultsCount() - 1).getCompletedStepOutput(),
+                outputType);
     }
 
     public FlowInfo describeFlow(final String flowId) {
-        throw laterPhase("Client transport");
+        final GetFlowSummaryResponse response = service.getFlowSummary(
+                GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build());
+        final FlowExecutionID execution = response.getFlowExecutionId();
+        return new FlowInfo(
+                execution.getFlowId(),
+                execution.getRunId(),
+                response.getFlowType(),
+                mapFlowStatus(response.getFlowStatus()),
+                instant(response.getStartTime()));
     }
 
-    public String resetFlow(final String flowId, final ResetFlowOptions resetOptions) {
-        throw laterPhase("Client transport");
+    public String resetFlow(final String flowId, final ResetFlowOptions options) {
+        final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
+                .setFlowId(flowId)
+                .setResetType(mapResetType(options.getType()))
+                .setReason(options.getReason() == null ? "" : options.getReason())
+                .setSkipChannelMessagesReapply(options.isSkipChannelMessagesReapply())
+                .setSkipLockingRpcReapply(options.isSkipLockingRpcReapply());
+        if (options.getHistoryEventId() != null) {
+            request.setHistoryEventId(Math.toIntExact(options.getHistoryEventId()));
+        }
+        if (options.getHistoryEventTime() != null) {
+            request.setHistoryEventTime(options.getHistoryEventTime().toString());
+        }
+        if (options.getStepType() != null) {
+            request.setStepType(options.getStepType());
+        }
+        if (options.getStepExecutionId() != null) {
+            request.setStepExecutionId(options.getStepExecutionId());
+        }
+        return service.resetFlow(request.build()).getRunId();
     }
 
     public void skipTimer(
             final String flowId,
             final StepExecutionId stepExecutionId,
             final TimerId timerId) {
-        throw laterPhase("Client transport");
+        final SkipTimerRequest.Builder request = SkipTimerRequest.newBuilder()
+                .setFlowId(flowId)
+                .setStepExecutionId(stepExecutionId.getStepType()
+                        + "-" + stepExecutionId.getExecutionNumber());
+        if (timerId.getConditionId() != null) {
+            request.setTimerConditionId(timerId.getConditionId());
+        }
+        if (timerId.getIndex() != null) {
+            request.setTimerConditionIndex(timerId.getIndex());
+        }
+        service.skipTimer(request.build());
     }
 
     public void waitForStepCompletion(
             final String flowId,
             final StepExecutionId stepExecutionId,
             final Duration timeout) {
-        throw laterPhase("Client transport");
+        service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
+                .setFlowId(flowId)
+                .setStepType(stepExecutionId.getStepType())
+                .setStepExecutionNumber(Integer.toString(stepExecutionId.getExecutionNumber()))
+                .setWaitTimeSeconds(seconds32(timeout))
+                .setRequestId(UUID.randomUUID().toString())
+                .build());
     }
 
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
-        throw laterPhase("Client transport");
+        service.updateFlowConfig(UpdateFlowConfigRequest.newBuilder()
+                .setFlowId(flowId)
+                .setFlowConfig(mapFlowConfig(config))
+                .build());
     }
 
     public void triggerContinueAsNew(final String flowId) {
-        throw laterPhase("Client transport");
+        service.triggerContinueAsNew(
+                TriggerContinueAsNewRequest.newBuilder().setFlowId(flowId).build());
+    }
+
+    boolean healthCheck() {
+        service.withDeadlineAfter(5, TimeUnit.SECONDS).healthCheck(Empty.getDefaultInstance());
+        return true;
     }
 
     @Override
     public void close() {
-        throw laterPhase("Client transport");
+        channel.shutdown();
+        try {
+            if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                channel.shutdownNow();
+            }
+        } catch (InterruptedException exception) {
+            channel.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
-    private static PhaseNotImplementedException laterPhase(final String component) {
-        return new PhaseNotImplementedException(component + " belongs to a later phase");
+    @SuppressWarnings("unchecked")
+    private <O> O invokeRpc(final Object lambda, final Object input) {
+        final SerializedLambda serialized = serializedLambda(lambda);
+        final Object receiver = serialized.getCapturedArg(0);
+        final RpcTarget target = rpcStubs.get(receiver);
+        if (target == null) {
+            throw new IllegalArgumentException("RPC method reference is not from this Client stub");
+        }
+        final Registry.RegisteredRpc rpc =
+                target.flow.getRpcByMethod(serialized.getImplMethodName());
+        final InvokeRPCRequest request = InvokeRPCRequest.newBuilder()
+                .setFlowId(target.flowId)
+                .setRunId(target.runId)
+                .setRpcName(rpc.getName())
+                .setInput(values.encode(input))
+                .setTimeoutSeconds(rpc.getAnnotation().timeoutSeconds())
+                .addAllLockAttributeKeys(rpc.getLocks())
+                .setRequestId(UUID.randomUUID().toString())
+                .build();
+        final io.superdurable.gen.Value output = service.invokeRPC(request).getOutput();
+        if (rpc.getMethod().getReturnType() == Void.TYPE) {
+            return null;
+        }
+        final Type returnType = rpc.getMethod().getGenericReturnType();
+        final Type outputType = ((ParameterizedType) returnType).getActualTypeArguments()[0];
+        if (!(outputType instanceof Class)) {
+            throw new IllegalArgumentException("RPC output must be a concrete Class");
+        }
+        return (O) values.decode(output, (Class<?>) outputType);
+    }
+
+    private static SerializedLambda serializedLambda(final Object lambda) {
+        try {
+            final Method replacement = lambda.getClass().getDeclaredMethod("writeReplace");
+            replacement.setAccessible(true);
+            return (SerializedLambda) replacement.invoke(lambda);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalArgumentException("RPC must be a direct method reference", exception);
+        }
+    }
+
+    private <T> T getAttributeValue(
+            final String flowId,
+            final String runId,
+            final PersistenceDefinition definition,
+            final String instance,
+            final Class<T> valueType) {
+        final String key = instance == null
+                ? definition.getName()
+                : Registry.physicalName(definition.getName(), instance);
+        final GetAttributesResponse response = service.getAttributes(
+                GetAttributesRequest.newBuilder()
+                        .setFlowId(flowId)
+                        .setRunId(runId)
+                        .addKeys(key)
+                        .build());
+        if (response.getAttributesCount() == 0) {
+            return null;
+        }
+        return values.decode(response.getAttributes(0).getValue(), valueType);
+    }
+
+    private void setAttributeValue(
+            final String flowId,
+            final String runId,
+            final PersistenceDefinition definition,
+            final String instance,
+            final Object value,
+            final AttributeIndex index) {
+        final String key = instance == null
+                ? definition.getName()
+                : Registry.physicalName(definition.getName(), instance);
+        final AttributeWrite.Builder write = AttributeWrite.newBuilder()
+                .setKey(key)
+                .setValue(values.encode(value));
+        final io.superdurable.gen.IndexConfig indexConfig =
+                values.indexConfig(index, instance != null);
+        if (indexConfig != null) {
+            write.setIndexConfig(indexConfig);
+        }
+        service.setAttributes(SetAttributesRequest.newBuilder()
+                .setFlowId(flowId)
+                .setRunId(runId)
+                .addAttributes(write)
+                .setRequestId(UUID.randomUUID().toString())
+                .build());
+    }
+
+    private void publishValues(
+            final String flowId,
+            final String runId,
+            final String channelName,
+            final List<?> payloads) {
+        final PublishToChannelRequest.Builder request = PublishToChannelRequest.newBuilder()
+                .setFlowId(flowId)
+                .setRunId(runId);
+        for (Object payload : payloads) {
+            request.addMessages(io.superdurable.gen.ChannelMessage.newBuilder()
+                    .setChannelName(channelName)
+                    .setValue(values.encode(payload)));
+        }
+        service.publishToChannel(request.build());
+    }
+
+    private WaitForFlowResponse waitForFlowResponse(
+            final String flowId,
+            final Duration timeout) {
+        final WaitForFlowRequest.Builder request = WaitForFlowRequest.newBuilder()
+                .setFlowId(flowId)
+                .setNeedsResults(true);
+        if (timeout != null) {
+            request.setWaitTimeSeconds(seconds32(timeout));
+        }
+        final WaitForFlowResponse response = service.waitForFlow(request.build());
+        if (response.getFlowStatus() != io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED) {
+            throw new IllegalStateException(
+                    "Flow finished as " + response.getFlowStatus() + ": "
+                            + response.getErrorMessage());
+        }
+        return response;
+    }
+
+    private FlowStartOptions mapStartOptions(final StartFlowOptions options) {
+        final FlowStartOptions.Builder mapped = FlowStartOptions.newBuilder()
+                .setIdReusePolicy(mapIdReuse(options.getIdReusePolicy()))
+                .setCronSchedule(options.getCronSchedule() == null ? "" : options.getCronSchedule())
+                .setFlowAlreadyStartedOptions(FlowAlreadyStartedOptions.newBuilder()
+                        .setIgnoreAlreadyStartedError(options.isIgnoreAlreadyStarted()));
+        if (options.getStartDelay() != null) {
+            mapped.setFlowStartDelaySeconds(seconds32(options.getStartDelay()));
+        }
+        if (options.getRetryPolicy() != null) {
+            mapped.setRetryPolicy(mapFlowRetry(options.getRetryPolicy()));
+        }
+        for (StartFlowOptions.AttributeInitialization initialization : options.getAttributes()) {
+            final PersistenceDefinition definition = initialization.getDefinition();
+            final String key = initialization.getInstance() == null
+                    ? definition.getName()
+                    : Registry.physicalName(definition.getName(), initialization.getInstance());
+            mapped.addAttributes(AttributeWrite.newBuilder()
+                    .setKey(key)
+                    .setValue(values.encode(initialization.getValue())));
+        }
+        final FlowConfig config = options.getConfigOverride();
+        if (config != null || this.options.getWorkerTarget() != null) {
+            mapped.setFlowConfigOverride(mapFlowConfig(config));
+        }
+        return mapped.build();
+    }
+
+    private io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
+        final io.superdurable.gen.FlowConfig.Builder mapped =
+                io.superdurable.gen.FlowConfig.newBuilder();
+        if (config != null) {
+            if (config.getActiveStepSearchMode() != null) {
+                mapped.setActiveStepSearchMode(mapSearchMode(config.getActiveStepSearchMode()));
+            }
+            if (config.getContinueAsNewThreshold() != null) {
+                mapped.setContinueAsNewThreshold(config.getContinueAsNewThreshold());
+            }
+            if (config.getContinueAsNewPageSizeBytes() != null) {
+                mapped.setContinueAsNewPageSizeInBytes(
+                        config.getContinueAsNewPageSizeBytes());
+            }
+            if (config.getStepDurability() != null) {
+                mapped.setStepDurability(mapDurability(config.getStepDurability()));
+            }
+        }
+        final WorkerTarget target = config != null && config.getWorkerTarget() != null
+                ? config.getWorkerTarget()
+                : options.getWorkerTarget();
+        if (target != null) {
+            mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
+                    .setAddress(target.getAddress())
+                    .setIsHeadlessAddress(target.isHeadless()));
+        }
+        return mapped.build();
+    }
+
+    private static io.superdurable.gen.FlowRetryPolicy mapFlowRetry(final RetryPolicy retry) {
+        final io.superdurable.gen.FlowRetryPolicy.Builder mapped =
+                io.superdurable.gen.FlowRetryPolicy.newBuilder()
+                        .setBackoffCoefficient((float) retry.getBackoffCoefficient())
+                        .setMaximumAttempts(retry.getMaximumAttempts());
+        if (retry.getInitialInterval() != null) {
+            mapped.setInitialIntervalSeconds(seconds32(retry.getInitialInterval()));
+        }
+        if (retry.getMaximumInterval() != null) {
+            mapped.setMaximumIntervalSeconds(seconds32(retry.getMaximumInterval()));
+        }
+        return mapped.build();
+    }
+
+    private static int seconds32(final Duration duration) {
+        if (duration == null || duration.isNegative() || duration.getNano() != 0
+                || duration.getSeconds() > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Duration must be whole seconds within int32");
+        }
+        return (int) duration.getSeconds();
+    }
+
+    private static Instant instant(final Timestamp timestamp) {
+        return Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
+    }
+
+    private static io.superdurable.gen.IdReusePolicy mapIdReuse(final IdReusePolicy policy) {
+        switch (policy) {
+            case ALLOW_IF_PREVIOUS_FAILED:
+                return io.superdurable.gen.IdReusePolicy
+                        .ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY;
+            case ALLOW_IF_NOT_RUNNING:
+                return io.superdurable.gen.IdReusePolicy.ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING;
+            case DISALLOW:
+                return io.superdurable.gen.IdReusePolicy.ID_REUSE_POLICY_DISALLOW_REUSE;
+            case TERMINATE_IF_RUNNING:
+                return io.superdurable.gen.IdReusePolicy
+                        .ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING;
+            default:
+                return io.superdurable.gen.IdReusePolicy.ID_REUSE_POLICY_UNSPECIFIED;
+        }
+    }
+
+    private static io.superdurable.gen.StopType mapStopType(final StopType type) {
+        switch (type) {
+            case TERMINATE:
+                return io.superdurable.gen.StopType.STOP_TYPE_TERMINATE;
+            case FAIL:
+                return io.superdurable.gen.StopType.STOP_TYPE_FAIL;
+            default:
+                return io.superdurable.gen.StopType.STOP_TYPE_CANCEL;
+        }
+    }
+
+    private static FlowResetType mapResetType(final ResetType type) {
+        switch (type) {
+            case HISTORY_EVENT_ID:
+                return FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID;
+            case BEGINNING:
+                return FlowResetType.FLOW_RESET_TYPE_BEGINNING;
+            case HISTORY_EVENT_TIME:
+                return FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME;
+            case STEP_TYPE:
+                return FlowResetType.FLOW_RESET_TYPE_STEP_TYPE;
+            case STEP_EXECUTION_ID:
+                return FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID;
+            default:
+                return FlowResetType.FLOW_RESET_TYPE_UNSPECIFIED;
+        }
+    }
+
+    private static FlowStatus mapFlowStatus(final io.superdurable.gen.FlowStatus status) {
+        switch (status) {
+            case FLOW_STATUS_RUNNING:
+                return FlowStatus.RUNNING;
+            case FLOW_STATUS_COMPLETED:
+                return FlowStatus.COMPLETED;
+            case FLOW_STATUS_FAILED:
+                return FlowStatus.FAILED;
+            case FLOW_STATUS_TIMEOUT:
+                return FlowStatus.TIMED_OUT;
+            case FLOW_STATUS_TERMINATED:
+                return FlowStatus.TERMINATED;
+            case FLOW_STATUS_CANCELED:
+                return FlowStatus.CANCELED;
+            case FLOW_STATUS_CONTINUED_AS_NEW:
+                return FlowStatus.CONTINUED_AS_NEW;
+            default:
+                throw new IllegalArgumentException("unknown Flow status " + status);
+        }
+    }
+
+    private static io.superdurable.gen.ActiveStepSearchMode mapSearchMode(
+            final ActiveStepSearchMode mode) {
+        switch (mode) {
+            case ALL:
+                return io.superdurable.gen.ActiveStepSearchMode
+                        .ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL;
+            case WITH_WAIT_FOR:
+                return io.superdurable.gen.ActiveStepSearchMode
+                        .ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR;
+            case DISABLED:
+                return io.superdurable.gen.ActiveStepSearchMode
+                        .ACTIVE_STEP_SEARCH_MODE_DISABLED;
+            default:
+                return io.superdurable.gen.ActiveStepSearchMode
+                        .ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED;
+        }
+    }
+
+    private static io.superdurable.gen.StepDurability mapDurability(
+            final StepDurability durability) {
+        if (durability == StepDurability.SYNC) {
+            return io.superdurable.gen.StepDurability.STEP_DURABILITY_SYNC;
+        }
+        if (durability == StepDurability.ASYNC) {
+            return io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC;
+        }
+        return io.superdurable.gen.StepDurability.STEP_DURABILITY_UNSPECIFIED;
+    }
+
+    private static final class RpcTarget {
+        private final Registry.RegisteredFlow flow;
+        private final String flowId;
+        private final String runId;
+
+        private RpcTarget(
+                final Registry.RegisteredFlow flow,
+                final String flowId,
+                final String runId) {
+            this.flow = flow;
+            this.flowId = flowId;
+            this.runId = runId;
+        }
     }
 }

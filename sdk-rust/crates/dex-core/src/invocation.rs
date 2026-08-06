@@ -19,6 +19,11 @@ impl InvocationId {
         Self(value)
     }
 
+    /// Restores a non-zero wire representation.
+    pub fn from_u64(value: u64) -> Option<Self> {
+        (value != 0).then_some(Self(value))
+    }
+
     /// Returns the wire representation.
     pub fn get(self) -> u64 {
         self.0

@@ -14,27 +14,29 @@
 
 package io.superdurable.dex;
 
+import java.io.Serializable;
+
 public final class RpcDefinitions {
     private RpcDefinitions() {
     }
 
     @FunctionalInterface
-    public interface RpcFunc1<I, O> {
+    public interface RpcFunc1<I, O> extends Serializable {
         RPCResult<O> execute(Context context, I input);
     }
 
     @FunctionalInterface
-    public interface RpcFunc0<O> {
+    public interface RpcFunc0<O> extends Serializable {
         RPCResult<O> execute(Context context);
     }
 
     @FunctionalInterface
-    public interface RpcProc1<I> {
+    public interface RpcProc1<I> extends Serializable {
         void execute(Context context, I input);
     }
 
     @FunctionalInterface
-    public interface RpcProc0 {
+    public interface RpcProc0 extends Serializable {
         void execute(Context context);
     }
 }

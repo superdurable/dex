@@ -41,26 +41,6 @@ public interface StartFlowRequestOrBuilder extends
   int getFlowTimeoutSeconds();
 
   /**
-   * <pre>
-   * Plaintext gRPC dial target (host:port), not an HTTP URL.
-   * </pre>
-   *
-   * <code>string worker_target = 4;</code>
-   * @return The workerTarget.
-   */
-  java.lang.String getWorkerTarget();
-  /**
-   * <pre>
-   * Plaintext gRPC dial target (host:port), not an HTTP URL.
-   * </pre>
-   *
-   * <code>string worker_target = 4;</code>
-   * @return The bytes for workerTarget.
-   */
-  com.google.protobuf.ByteString
-      getWorkerTargetBytes();
-
-  /**
    * <code>string start_step_type = 5;</code>
    * @return The startStepType.
    */
@@ -116,4 +96,16 @@ public interface StartFlowRequestOrBuilder extends
    * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
    */
   io.superdurable.gen.FlowStartOptionsOrBuilder getFlowStartOptionsOrBuilder();
+
+  /**
+   * <code>string request_id = 11;</code>
+   * @return The requestId.
+   */
+  java.lang.String getRequestId();
+  /**
+   * <code>string request_id = 11;</code>
+   * @return The bytes for requestId.
+   */
+  com.google.protobuf.ByteString
+      getRequestIdBytes();
 }

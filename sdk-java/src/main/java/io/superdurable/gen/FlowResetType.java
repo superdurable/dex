@@ -133,7 +133,7 @@ public enum FlowResetType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(10);
   }
 
   private static final FlowResetType[] VALUES = values();
@@ -158,4 +158,3 @@ public enum FlowResetType
 
   // @@protoc_insertion_point(enum_scope:dex.FlowResetType)
 }
-

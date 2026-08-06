@@ -63,4 +63,19 @@ public interface FlowConfigOrBuilder extends
    * @return The stepDurability.
    */
   io.superdurable.gen.StepDurability getStepDurability();
+
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  boolean hasWorkerTarget();
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return The workerTarget.
+   */
+  io.superdurable.gen.WorkerTarget getWorkerTarget();
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   */
+  io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder();
 }

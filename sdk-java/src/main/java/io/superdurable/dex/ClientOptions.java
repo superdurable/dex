@@ -22,17 +22,17 @@ public final class ClientOptions {
     private final ObjectMapper objectMapper;
 
     public ClientOptions() {
-        this("localhost:8801", null, new ObjectMapper());
+        this("localhost:8801", null, new ObjectMapper().findAndRegisterModules());
     }
 
     public ClientOptions(final String serverAddress) {
-        this(serverAddress, null, new ObjectMapper());
+        this(serverAddress, null, new ObjectMapper().findAndRegisterModules());
     }
 
     public ClientOptions(
             final String serverAddress,
             final WorkerTarget workerTarget) {
-        this(serverAddress, workerTarget, new ObjectMapper());
+        this(serverAddress, workerTarget, new ObjectMapper().findAndRegisterModules());
     }
 
     public ClientOptions(

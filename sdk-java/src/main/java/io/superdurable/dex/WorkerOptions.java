@@ -53,7 +53,7 @@ public final class WorkerOptions {
         private String bindAddress = ":8803";
         private WorkerTarget workerTarget;
         private String serverAddress = "localhost:8801";
-        private ObjectMapper objectMapper = new ObjectMapper();
+        private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
         private Builder() {
         }

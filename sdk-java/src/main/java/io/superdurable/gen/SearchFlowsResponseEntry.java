@@ -30,6 +30,9 @@ private static final long serialVersionUID = 0L;
   private SearchFlowsResponseEntry() {
     flowId_ = "";
     runId_ = "";
+    searchAttributes_ = java.util.Collections.emptyList();
+    flowType_ = "";
+    flowStatus_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -50,6 +53,7 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.SearchFlowsResponseEntry.class, io.superdurable.gen.SearchFlowsResponseEntry.Builder.class);
   }
 
+  private int bitField0_;
   public static final int FLOW_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object flowId_ = "";
@@ -63,7 +67,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -79,7 +83,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -102,7 +106,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -118,7 +122,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -126,6 +130,156 @@ private static final long serialVersionUID = 0L;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
+  }
+
+  public static final int SEARCH_ATTRIBUTES_FIELD_NUMBER = 3;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.KV> searchAttributes_;
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.KV> getSearchAttributesList() {
+    return searchAttributes_;
+  }
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+      getSearchAttributesOrBuilderList() {
+    return searchAttributes_;
+  }
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  @java.lang.Override
+  public int getSearchAttributesCount() {
+    return searchAttributes_.size();
+  }
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.KV getSearchAttributes(int index) {
+    return searchAttributes_.get(index);
+  }
+  /**
+   * <code>repeated .dex.KV search_attributes = 3;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+      int index) {
+    return searchAttributes_.get(index);
+  }
+
+  public static final int FLOW_TYPE_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object flowType_ = "";
+  /**
+   * <code>string flow_type = 4;</code>
+   * @return The flowType.
+   */
+  @java.lang.Override
+  public java.lang.String getFlowType() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      flowType_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string flow_type = 4;</code>
+   * @return The bytes for flowType.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFlowTypeBytes() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      flowType_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int FLOW_STATUS_FIELD_NUMBER = 5;
+  private int flowStatus_ = 0;
+  /**
+   * <code>.dex.FlowStatus flow_status = 5;</code>
+   * @return The enum numeric value on the wire for flowStatus.
+   */
+  @java.lang.Override public int getFlowStatusValue() {
+    return flowStatus_;
+  }
+  /**
+   * <code>.dex.FlowStatus flow_status = 5;</code>
+   * @return The flowStatus.
+   */
+  @java.lang.Override public io.superdurable.gen.FlowStatus getFlowStatus() {
+    io.superdurable.gen.FlowStatus result = io.superdurable.gen.FlowStatus.forNumber(flowStatus_);
+    return result == null ? io.superdurable.gen.FlowStatus.UNRECOGNIZED : result;
+  }
+
+  public static final int START_TIME_FIELD_NUMBER = 6;
+  private com.google.protobuf.Timestamp startTime_;
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   * @return Whether the startTime field is set.
+   */
+  @java.lang.Override
+  public boolean hasStartTime() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   * @return The startTime.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getStartTime() {
+    return startTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : startTime_;
+  }
+  /**
+   * <code>.google.protobuf.Timestamp start_time = 6;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.TimestampOrBuilder getStartTimeOrBuilder() {
+    return startTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : startTime_;
+  }
+
+  public static final int CLOSE_TIME_FIELD_NUMBER = 7;
+  private com.google.protobuf.Timestamp closeTime_;
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   * @return Whether the closeTime field is set.
+   */
+  @java.lang.Override
+  public boolean hasCloseTime() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   * @return The closeTime.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getCloseTime() {
+    return closeTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : closeTime_;
+  }
+  /**
+   * <code>.google.protobuf.Timestamp close_time = 7;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.TimestampOrBuilder getCloseTimeOrBuilder() {
+    return closeTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : closeTime_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -148,6 +302,21 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, runId_);
     }
+    for (int i = 0; i < searchAttributes_.size(); i++) {
+      output.writeMessage(3, searchAttributes_.get(i));
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, flowType_);
+    }
+    if (flowStatus_ != io.superdurable.gen.FlowStatus.FLOW_STATUS_UNSPECIFIED.getNumber()) {
+      output.writeEnum(5, flowStatus_);
+    }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(6, getStartTime());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      output.writeMessage(7, getCloseTime());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -157,6 +326,30 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(2, runId_);
+    }
+
+        {
+          final int count = searchAttributes_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(searchAttributes_.get(i));
+          }
+          size += 1 * count;
+        }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, flowType_);
+    }
+    if (flowStatus_ != io.superdurable.gen.FlowStatus.FLOW_STATUS_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(5, flowStatus_);
+    }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, getStartTime());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(7, getCloseTime());
     }
     return size;
   }
@@ -186,6 +379,21 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowId())) return false;
     if (!getRunId()
         .equals(other.getRunId())) return false;
+    if (!getSearchAttributesList()
+        .equals(other.getSearchAttributesList())) return false;
+    if (!getFlowType()
+        .equals(other.getFlowType())) return false;
+    if (flowStatus_ != other.flowStatus_) return false;
+    if (hasStartTime() != other.hasStartTime()) return false;
+    if (hasStartTime()) {
+      if (!getStartTime()
+          .equals(other.getStartTime())) return false;
+    }
+    if (hasCloseTime() != other.hasCloseTime()) return false;
+    if (hasCloseTime()) {
+      if (!getCloseTime()
+          .equals(other.getCloseTime())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -201,6 +409,22 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowId().hashCode();
     hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRunId().hashCode();
+    if (getSearchAttributesCount() > 0) {
+      hash = (37 * hash) + SEARCH_ATTRIBUTES_FIELD_NUMBER;
+      hash = (53 * hash) + getSearchAttributesList().hashCode();
+    }
+    hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getFlowType().hashCode();
+    hash = (37 * hash) + FLOW_STATUS_FIELD_NUMBER;
+    hash = (53 * hash) + flowStatus_;
+    if (hasStartTime()) {
+      hash = (37 * hash) + START_TIME_FIELD_NUMBER;
+      hash = (53 * hash) + getStartTime().hashCode();
+    }
+    if (hasCloseTime()) {
+      hash = (37 * hash) + CLOSE_TIME_FIELD_NUMBER;
+      hash = (53 * hash) + getCloseTime().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -320,13 +544,21 @@ private static final long serialVersionUID = 0L;
 
     // Construct using io.superdurable.gen.SearchFlowsResponseEntry.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetSearchAttributesFieldBuilder();
+        internalGetStartTimeFieldBuilder();
+        internalGetCloseTimeFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -334,6 +566,25 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       flowId_ = "";
       runId_ = "";
+      if (searchAttributesBuilder_ == null) {
+        searchAttributes_ = java.util.Collections.emptyList();
+      } else {
+        searchAttributes_ = null;
+        searchAttributesBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000004);
+      flowType_ = "";
+      flowStatus_ = 0;
+      startTime_ = null;
+      if (startTimeBuilder_ != null) {
+        startTimeBuilder_.dispose();
+        startTimeBuilder_ = null;
+      }
+      closeTime_ = null;
+      if (closeTimeBuilder_ != null) {
+        closeTimeBuilder_.dispose();
+        closeTimeBuilder_ = null;
+      }
       return this;
     }
 
@@ -360,9 +611,22 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public io.superdurable.gen.SearchFlowsResponseEntry buildPartial() {
       io.superdurable.gen.SearchFlowsResponseEntry result = new io.superdurable.gen.SearchFlowsResponseEntry(this);
+      buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
+    }
+
+    private void buildPartialRepeatedFields(io.superdurable.gen.SearchFlowsResponseEntry result) {
+      if (searchAttributesBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0)) {
+          searchAttributes_ = java.util.Collections.unmodifiableList(searchAttributes_);
+          bitField0_ = (bitField0_ & ~0x00000004);
+        }
+        result.searchAttributes_ = searchAttributes_;
+      } else {
+        result.searchAttributes_ = searchAttributesBuilder_.build();
+      }
     }
 
     private void buildPartial0(io.superdurable.gen.SearchFlowsResponseEntry result) {
@@ -373,6 +637,26 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.runId_ = runId_;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.flowType_ = flowType_;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.flowStatus_ = flowStatus_;
+      }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.startTime_ = startTimeBuilder_ == null
+            ? startTime_
+            : startTimeBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.closeTime_ = closeTimeBuilder_ == null
+            ? closeTime_
+            : closeTimeBuilder_.build();
+        to_bitField0_ |= 0x00000002;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -396,6 +680,46 @@ private static final long serialVersionUID = 0L;
         runId_ = other.runId_;
         bitField0_ |= 0x00000002;
         onChanged();
+      }
+      if (searchAttributesBuilder_ == null) {
+        if (!other.searchAttributes_.isEmpty()) {
+          if (searchAttributes_.isEmpty()) {
+            searchAttributes_ = other.searchAttributes_;
+            bitField0_ = (bitField0_ & ~0x00000004);
+          } else {
+            ensureSearchAttributesIsMutable();
+            searchAttributes_.addAll(other.searchAttributes_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.searchAttributes_.isEmpty()) {
+          if (searchAttributesBuilder_.isEmpty()) {
+            searchAttributesBuilder_.dispose();
+            searchAttributesBuilder_ = null;
+            searchAttributes_ = other.searchAttributes_;
+            bitField0_ = (bitField0_ & ~0x00000004);
+            searchAttributesBuilder_ =
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetSearchAttributesFieldBuilder() : null;
+          } else {
+            searchAttributesBuilder_.addAllMessages(other.searchAttributes_);
+          }
+        }
+      }
+      if (!other.getFlowType().isEmpty()) {
+        flowType_ = other.flowType_;
+        bitField0_ |= 0x00000008;
+        onChanged();
+      }
+      if (other.flowStatus_ != 0) {
+        setFlowStatusValue(other.getFlowStatusValue());
+      }
+      if (other.hasStartTime()) {
+        mergeStartTime(other.getStartTime());
+      }
+      if (other.hasCloseTime()) {
+        mergeCloseTime(other.getCloseTime());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -433,6 +757,43 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              io.superdurable.gen.KV m =
+                  input.readMessage(
+                      io.superdurable.gen.KV.parser(),
+                      extensionRegistry);
+              if (searchAttributesBuilder_ == null) {
+                ensureSearchAttributesIsMutable();
+                searchAttributes_.add(m);
+              } else {
+                searchAttributesBuilder_.addMessage(m);
+              }
+              break;
+            } // case 26
+            case 34: {
+              flowType_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
+            case 40: {
+              flowStatus_ = input.readEnum();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 40
+            case 50: {
+              input.readMessage(
+                  internalGetStartTimeFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
+            case 58: {
+              input.readMessage(
+                  internalGetCloseTimeFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 58
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -475,7 +836,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -547,7 +908,7 @@ private static final long serialVersionUID = 0L;
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -592,6 +953,612 @@ private static final long serialVersionUID = 0L;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
+    }
+
+    private java.util.List<io.superdurable.gen.KV> searchAttributes_ =
+      java.util.Collections.emptyList();
+    private void ensureSearchAttributesIsMutable() {
+      if (!((bitField0_ & 0x00000004) != 0)) {
+        searchAttributes_ = new java.util.ArrayList<io.superdurable.gen.KV>(searchAttributes_);
+        bitField0_ |= 0x00000004;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> searchAttributesBuilder_;
+
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public java.util.List<io.superdurable.gen.KV> getSearchAttributesList() {
+      if (searchAttributesBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(searchAttributes_);
+      } else {
+        return searchAttributesBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public int getSearchAttributesCount() {
+      if (searchAttributesBuilder_ == null) {
+        return searchAttributes_.size();
+      } else {
+        return searchAttributesBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public io.superdurable.gen.KV getSearchAttributes(int index) {
+      if (searchAttributesBuilder_ == null) {
+        return searchAttributes_.get(index);
+      } else {
+        return searchAttributesBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder setSearchAttributes(
+        int index, io.superdurable.gen.KV value) {
+      if (searchAttributesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.set(index, value);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder setSearchAttributes(
+        int index, io.superdurable.gen.KV.Builder builderForValue) {
+      if (searchAttributesBuilder_ == null) {
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        searchAttributesBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder addSearchAttributes(io.superdurable.gen.KV value) {
+      if (searchAttributesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.add(value);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder addSearchAttributes(
+        int index, io.superdurable.gen.KV value) {
+      if (searchAttributesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.add(index, value);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder addSearchAttributes(
+        io.superdurable.gen.KV.Builder builderForValue) {
+      if (searchAttributesBuilder_ == null) {
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.add(builderForValue.build());
+        onChanged();
+      } else {
+        searchAttributesBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder addSearchAttributes(
+        int index, io.superdurable.gen.KV.Builder builderForValue) {
+      if (searchAttributesBuilder_ == null) {
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        searchAttributesBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder addAllSearchAttributes(
+        java.lang.Iterable<? extends io.superdurable.gen.KV> values) {
+      if (searchAttributesBuilder_ == null) {
+        ensureSearchAttributesIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, searchAttributes_);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder clearSearchAttributes() {
+      if (searchAttributesBuilder_ == null) {
+        searchAttributes_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000004);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public Builder removeSearchAttributes(int index) {
+      if (searchAttributesBuilder_ == null) {
+        ensureSearchAttributesIsMutable();
+        searchAttributes_.remove(index);
+        onChanged();
+      } else {
+        searchAttributesBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public io.superdurable.gen.KV.Builder getSearchAttributesBuilder(
+        int index) {
+      return internalGetSearchAttributesFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+        int index) {
+      if (searchAttributesBuilder_ == null) {
+        return searchAttributes_.get(index);  } else {
+        return searchAttributesBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+         getSearchAttributesOrBuilderList() {
+      if (searchAttributesBuilder_ != null) {
+        return searchAttributesBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(searchAttributes_);
+      }
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public io.superdurable.gen.KV.Builder addSearchAttributesBuilder() {
+      return internalGetSearchAttributesFieldBuilder().addBuilder(
+          io.superdurable.gen.KV.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public io.superdurable.gen.KV.Builder addSearchAttributesBuilder(
+        int index) {
+      return internalGetSearchAttributesFieldBuilder().addBuilder(
+          index, io.superdurable.gen.KV.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.KV search_attributes = 3;</code>
+     */
+    public java.util.List<io.superdurable.gen.KV.Builder>
+         getSearchAttributesBuilderList() {
+      return internalGetSearchAttributesFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        internalGetSearchAttributesFieldBuilder() {
+      if (searchAttributesBuilder_ == null) {
+        searchAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
+                searchAttributes_,
+                ((bitField0_ & 0x00000004) != 0),
+                getParentForChildren(),
+                isClean());
+        searchAttributes_ = null;
+      }
+      return searchAttributesBuilder_;
+    }
+
+    private java.lang.Object flowType_ = "";
+    /**
+     * <code>string flow_type = 4;</code>
+     * @return The flowType.
+     */
+    public java.lang.String getFlowType() {
+      java.lang.Object ref = flowType_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        flowType_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 4;</code>
+     * @return The bytes for flowType.
+     */
+    public com.google.protobuf.ByteString
+        getFlowTypeBytes() {
+      java.lang.Object ref = flowType_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        flowType_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 4;</code>
+     * @param value The flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowType(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      flowType_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowType() {
+      flowType_ = getDefaultInstance().getFlowType();
+      bitField0_ = (bitField0_ & ~0x00000008);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 4;</code>
+     * @param value The bytes for flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTypeBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      flowType_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+
+    private int flowStatus_ = 0;
+    /**
+     * <code>.dex.FlowStatus flow_status = 5;</code>
+     * @return The enum numeric value on the wire for flowStatus.
+     */
+    @java.lang.Override public int getFlowStatusValue() {
+      return flowStatus_;
+    }
+    /**
+     * <code>.dex.FlowStatus flow_status = 5;</code>
+     * @param value The enum numeric value on the wire for flowStatus to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowStatusValue(int value) {
+      flowStatus_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowStatus flow_status = 5;</code>
+     * @return The flowStatus.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.FlowStatus getFlowStatus() {
+      io.superdurable.gen.FlowStatus result = io.superdurable.gen.FlowStatus.forNumber(flowStatus_);
+      return result == null ? io.superdurable.gen.FlowStatus.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.FlowStatus flow_status = 5;</code>
+     * @param value The flowStatus to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowStatus(io.superdurable.gen.FlowStatus value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000010;
+      flowStatus_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowStatus flow_status = 5;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowStatus() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      flowStatus_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private com.google.protobuf.Timestamp startTime_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> startTimeBuilder_;
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     * @return Whether the startTime field is set.
+     */
+    public boolean hasStartTime() {
+      return ((bitField0_ & 0x00000020) != 0);
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     * @return The startTime.
+     */
+    public com.google.protobuf.Timestamp getStartTime() {
+      if (startTimeBuilder_ == null) {
+        return startTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : startTime_;
+      } else {
+        return startTimeBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public Builder setStartTime(com.google.protobuf.Timestamp value) {
+      if (startTimeBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        startTime_ = value;
+      } else {
+        startTimeBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public Builder setStartTime(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      if (startTimeBuilder_ == null) {
+        startTime_ = builderForValue.build();
+      } else {
+        startTimeBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public Builder mergeStartTime(com.google.protobuf.Timestamp value) {
+      if (startTimeBuilder_ == null) {
+        if (((bitField0_ & 0x00000020) != 0) &&
+          startTime_ != null &&
+          startTime_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+          getStartTimeBuilder().mergeFrom(value);
+        } else {
+          startTime_ = value;
+        }
+      } else {
+        startTimeBuilder_.mergeFrom(value);
+      }
+      if (startTime_ != null) {
+        bitField0_ |= 0x00000020;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public Builder clearStartTime() {
+      bitField0_ = (bitField0_ & ~0x00000020);
+      startTime_ = null;
+      if (startTimeBuilder_ != null) {
+        startTimeBuilder_.dispose();
+        startTimeBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public com.google.protobuf.Timestamp.Builder getStartTimeBuilder() {
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return internalGetStartTimeFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    public com.google.protobuf.TimestampOrBuilder getStartTimeOrBuilder() {
+      if (startTimeBuilder_ != null) {
+        return startTimeBuilder_.getMessageOrBuilder();
+      } else {
+        return startTime_ == null ?
+            com.google.protobuf.Timestamp.getDefaultInstance() : startTime_;
+      }
+    }
+    /**
+     * <code>.google.protobuf.Timestamp start_time = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        internalGetStartTimeFieldBuilder() {
+      if (startTimeBuilder_ == null) {
+        startTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>(
+                getStartTime(),
+                getParentForChildren(),
+                isClean());
+        startTime_ = null;
+      }
+      return startTimeBuilder_;
+    }
+
+    private com.google.protobuf.Timestamp closeTime_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> closeTimeBuilder_;
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     * @return Whether the closeTime field is set.
+     */
+    public boolean hasCloseTime() {
+      return ((bitField0_ & 0x00000040) != 0);
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     * @return The closeTime.
+     */
+    public com.google.protobuf.Timestamp getCloseTime() {
+      if (closeTimeBuilder_ == null) {
+        return closeTime_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : closeTime_;
+      } else {
+        return closeTimeBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public Builder setCloseTime(com.google.protobuf.Timestamp value) {
+      if (closeTimeBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        closeTime_ = value;
+      } else {
+        closeTimeBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public Builder setCloseTime(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      if (closeTimeBuilder_ == null) {
+        closeTime_ = builderForValue.build();
+      } else {
+        closeTimeBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public Builder mergeCloseTime(com.google.protobuf.Timestamp value) {
+      if (closeTimeBuilder_ == null) {
+        if (((bitField0_ & 0x00000040) != 0) &&
+          closeTime_ != null &&
+          closeTime_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+          getCloseTimeBuilder().mergeFrom(value);
+        } else {
+          closeTime_ = value;
+        }
+      } else {
+        closeTimeBuilder_.mergeFrom(value);
+      }
+      if (closeTime_ != null) {
+        bitField0_ |= 0x00000040;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public Builder clearCloseTime() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      closeTime_ = null;
+      if (closeTimeBuilder_ != null) {
+        closeTimeBuilder_.dispose();
+        closeTimeBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public com.google.protobuf.Timestamp.Builder getCloseTimeBuilder() {
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return internalGetCloseTimeFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    public com.google.protobuf.TimestampOrBuilder getCloseTimeOrBuilder() {
+      if (closeTimeBuilder_ != null) {
+        return closeTimeBuilder_.getMessageOrBuilder();
+      } else {
+        return closeTime_ == null ?
+            com.google.protobuf.Timestamp.getDefaultInstance() : closeTime_;
+      }
+    }
+    /**
+     * <code>.google.protobuf.Timestamp close_time = 7;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        internalGetCloseTimeFieldBuilder() {
+      if (closeTimeBuilder_ == null) {
+        closeTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>(
+                getCloseTime(),
+                getParentForChildren(),
+                isClean());
+        closeTime_ = null;
+      }
+      return closeTimeBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SearchFlowsResponseEntry)
@@ -644,4 +1611,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

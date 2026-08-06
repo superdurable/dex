@@ -6,23 +6,23 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.WaitForApiFailurePolicy}
+ * Protobuf enum {@code dex.ExecuteMethodFailurePolicy}
  */
 @com.google.protobuf.Generated
-public enum WaitForApiFailurePolicy
+public enum ExecuteMethodFailurePolicy
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED = 0;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;</code>
    */
-  WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED(0),
+  EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED(0),
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1;</code>
    */
-  WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE(1),
+  EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE(1),
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>
    */
-  WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE(2),
+  EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP(2),
   UNRECOGNIZED(-1),
   ;
 
@@ -33,20 +33,20 @@ public enum WaitForApiFailurePolicy
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "WaitForApiFailurePolicy");
+      "ExecuteMethodFailurePolicy");
   }
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED = 0;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;</code>
    */
-  public static final int WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED_VALUE = 0;
+  public static final int EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1;</code>
    */
-  public static final int WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE_VALUE = 1;
+  public static final int EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE_VALUE = 1;
   /**
-   * <code>WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;</code>
+   * <code>EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>
    */
-  public static final int WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE_VALUE = 2;
+  public static final int EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP_VALUE = 2;
 
 
   public final int getNumber() {
@@ -63,7 +63,7 @@ public enum WaitForApiFailurePolicy
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static WaitForApiFailurePolicy valueOf(int value) {
+  public static ExecuteMethodFailurePolicy valueOf(int value) {
     return forNumber(value);
   }
 
@@ -71,24 +71,24 @@ public enum WaitForApiFailurePolicy
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static WaitForApiFailurePolicy forNumber(int value) {
+  public static ExecuteMethodFailurePolicy forNumber(int value) {
     switch (value) {
-      case 0: return WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED;
-      case 1: return WAIT_FOR_API_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE;
-      case 2: return WAIT_FOR_API_FAILURE_POLICY_PROCEED_ON_FAILURE;
+      case 0: return EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED;
+      case 1: return EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE;
+      case 2: return EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<WaitForApiFailurePolicy>
+  public static com.google.protobuf.Internal.EnumLiteMap<ExecuteMethodFailurePolicy>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      WaitForApiFailurePolicy> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<WaitForApiFailurePolicy>() {
-          public WaitForApiFailurePolicy findValueByNumber(int number) {
-            return WaitForApiFailurePolicy.forNumber(number);
+      ExecuteMethodFailurePolicy> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<ExecuteMethodFailurePolicy>() {
+          public ExecuteMethodFailurePolicy findValueByNumber(int number) {
+            return ExecuteMethodFailurePolicy.forNumber(number);
           }
         };
 
@@ -106,12 +106,12 @@ public enum WaitForApiFailurePolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(1);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(2);
   }
 
-  private static final WaitForApiFailurePolicy[] VALUES = values();
+  private static final ExecuteMethodFailurePolicy[] VALUES = values();
 
-  public static WaitForApiFailurePolicy valueOf(
+  public static ExecuteMethodFailurePolicy valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -125,10 +125,10 @@ public enum WaitForApiFailurePolicy
 
   private final int value;
 
-  private WaitForApiFailurePolicy(int value) {
+  private ExecuteMethodFailurePolicy(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.WaitForApiFailurePolicy)
+  // @@protoc_insertion_point(enum_scope:dex.ExecuteMethodFailurePolicy)
 }
 

@@ -29,7 +29,6 @@ private static final long serialVersionUID = 0L;
   }
   private InterpreterWorkflowInput() {
     flowType_ = "";
-    workerTarget_ = "";
     startStepType_ = "";
     initAttributes_ = java.util.Collections.emptyList();
   }
@@ -66,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -82,49 +81,10 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int WORKER_TARGET_FIELD_NUMBER = 2;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object workerTarget_ = "";
-  /**
-   * <code>string worker_target = 2;</code>
-   * @return The workerTarget.
-   */
-  @java.lang.Override
-  public java.lang.String getWorkerTarget() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      workerTarget_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string worker_target = 2;</code>
-   * @return The bytes for workerTarget.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getWorkerTargetBytes() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      workerTarget_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -144,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       startStepType_ = s;
@@ -160,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getStartStepTypeBytes() {
     java.lang.Object ref = startStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       startStepType_ = b;
@@ -244,7 +204,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV init_attributes = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getInitAttributesOrBuilderList() {
     return initAttributes_;
   }
@@ -367,9 +327,6 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, flowType_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, workerTarget_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 3, startStepType_);
     }
@@ -397,9 +354,6 @@ private static final long serialVersionUID = 0L;
     int size = 0;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, flowType_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, workerTarget_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(3, startStepType_);
@@ -459,8 +413,6 @@ private static final long serialVersionUID = 0L;
 
     if (!getFlowType()
         .equals(other.getFlowType())) return false;
-    if (!getWorkerTarget()
-        .equals(other.getWorkerTarget())) return false;
     if (!getStartStepType()
         .equals(other.getStartStepType())) return false;
     if (hasStepInput() != other.hasStepInput()) return false;
@@ -500,8 +452,6 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getFlowType().hashCode();
-    hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
-    hash = (53 * hash) + getWorkerTarget().hashCode();
     hash = (37 * hash) + START_STEP_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getStartStepType().hashCode();
     if (hasStepInput()) {
@@ -669,7 +619,6 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       flowType_ = "";
-      workerTarget_ = "";
       startStepType_ = "";
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
@@ -687,7 +636,7 @@ private static final long serialVersionUID = 0L;
         initAttributes_ = null;
         initAttributesBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       config_ = null;
       if (configBuilder_ != null) {
         configBuilder_.dispose();
@@ -733,9 +682,9 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(io.superdurable.gen.InterpreterWorkflowInput result) {
       if (initAttributesBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0)) {
+        if (((bitField0_ & 0x00000010) != 0)) {
           initAttributes_ = java.util.Collections.unmodifiableList(initAttributes_);
-          bitField0_ = (bitField0_ & ~0x00000020);
+          bitField0_ = (bitField0_ & ~0x00000010);
         }
         result.initAttributes_ = initAttributes_;
       } else {
@@ -749,34 +698,31 @@ private static final long serialVersionUID = 0L;
         result.flowType_ = flowType_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.workerTarget_ = workerTarget_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.startStepType_ = startStepType_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000008) != 0)) {
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.stepInput_ = stepInputBuilder_ == null
             ? stepInput_
             : stepInputBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.stepOptions_ = stepOptionsBuilder_ == null
             ? stepOptions_
             : stepOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.config_ = configBuilder_ == null
             ? config_
             : configBuilder_.build();
         to_bitField0_ |= 0x00000004;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.isResumeFromContinueAsNew_ = isResumeFromContinueAsNew_;
       }
-      if (((from_bitField0_ & 0x00000100) != 0)) {
+      if (((from_bitField0_ & 0x00000080) != 0)) {
         result.continueAsNewInput_ = continueAsNewInputBuilder_ == null
             ? continueAsNewInput_
             : continueAsNewInputBuilder_.build();
@@ -802,14 +748,9 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000001;
         onChanged();
       }
-      if (!other.getWorkerTarget().isEmpty()) {
-        workerTarget_ = other.workerTarget_;
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
       if (!other.getStartStepType().isEmpty()) {
         startStepType_ = other.startStepType_;
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       if (other.hasStepInput()) {
@@ -822,7 +763,7 @@ private static final long serialVersionUID = 0L;
         if (!other.initAttributes_.isEmpty()) {
           if (initAttributes_.isEmpty()) {
             initAttributes_ = other.initAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000020);
+            bitField0_ = (bitField0_ & ~0x00000010);
           } else {
             ensureInitAttributesIsMutable();
             initAttributes_.addAll(other.initAttributes_);
@@ -835,8 +776,8 @@ private static final long serialVersionUID = 0L;
             initAttributesBuilder_.dispose();
             initAttributesBuilder_ = null;
             initAttributes_ = other.initAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000020);
-            initAttributesBuilder_ = 
+            bitField0_ = (bitField0_ & ~0x00000010);
+            initAttributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetInitAttributesFieldBuilder() : null;
           } else {
@@ -884,28 +825,23 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 18: {
-              workerTarget_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 18
             case 26: {
               startStepType_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000004;
+              bitField0_ |= 0x00000002;
               break;
             } // case 26
             case 50: {
               input.readMessage(
                   internalGetStepInputFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000008;
+              bitField0_ |= 0x00000004;
               break;
             } // case 50
             case 58: {
               input.readMessage(
                   internalGetStepOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000008;
               break;
             } // case 58
             case 66: {
@@ -925,19 +861,19 @@ private static final long serialVersionUID = 0L;
               input.readMessage(
                   internalGetConfigFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000040;
+              bitField0_ |= 0x00000020;
               break;
             } // case 74
             case 80: {
               isResumeFromContinueAsNew_ = input.readBool();
-              bitField0_ |= 0x00000080;
+              bitField0_ |= 0x00000040;
               break;
             } // case 80
             case 90: {
               input.readMessage(
                   internalGetContinueAsNewInputFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000100;
+              bitField0_ |= 0x00000080;
               break;
             } // case 90
             default: {
@@ -982,7 +918,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1029,78 +965,6 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object workerTarget_ = "";
-    /**
-     * <code>string worker_target = 2;</code>
-     * @return The workerTarget.
-     */
-    public java.lang.String getWorkerTarget() {
-      java.lang.Object ref = workerTarget_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        workerTarget_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string worker_target = 2;</code>
-     * @return The bytes for workerTarget.
-     */
-    public com.google.protobuf.ByteString
-        getWorkerTargetBytes() {
-      java.lang.Object ref = workerTarget_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        workerTarget_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string worker_target = 2;</code>
-     * @param value The workerTarget to set.
-     * @return This builder for chaining.
-     */
-    public Builder setWorkerTarget(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      workerTarget_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string worker_target = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearWorkerTarget() {
-      workerTarget_ = getDefaultInstance().getWorkerTarget();
-      bitField0_ = (bitField0_ & ~0x00000002);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string worker_target = 2;</code>
-     * @param value The bytes for workerTarget to set.
-     * @return This builder for chaining.
-     */
-    public Builder setWorkerTargetBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      workerTarget_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-
     private java.lang.Object startStepType_ = "";
     /**
      * <code>string start_step_type = 3;</code>
@@ -1126,7 +990,7 @@ private static final long serialVersionUID = 0L;
         getStartStepTypeBytes() {
       java.lang.Object ref = startStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         startStepType_ = b;
@@ -1144,7 +1008,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       startStepType_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1154,7 +1018,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearStartStepType() {
       startStepType_ = getDefaultInstance().getStartStepType();
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       onChanged();
       return this;
     }
@@ -1168,7 +1032,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       startStepType_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1181,7 +1045,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepInput field is set.
      */
     public boolean hasStepInput() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000004) != 0);
     }
     /**
      * <code>.dex.Value step_input = 6;</code>
@@ -1206,7 +1070,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -1220,7 +1084,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -1229,7 +1093,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepInput(io.superdurable.gen.Value value) {
       if (stepInputBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
+        if (((bitField0_ & 0x00000004) != 0) &&
           stepInput_ != null &&
           stepInput_ != io.superdurable.gen.Value.getDefaultInstance()) {
           getStepInputBuilder().mergeFrom(value);
@@ -1240,7 +1104,7 @@ private static final long serialVersionUID = 0L;
         stepInputBuilder_.mergeFrom(value);
       }
       if (stepInput_ != null) {
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
@@ -1249,7 +1113,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 6;</code>
      */
     public Builder clearStepInput() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
         stepInputBuilder_.dispose();
@@ -1262,7 +1126,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 6;</code>
      */
     public io.superdurable.gen.Value.Builder getStepInputBuilder() {
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return internalGetStepInputFieldBuilder().getBuilder();
     }
@@ -1281,7 +1145,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1302,7 +1166,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepOptions field is set.
      */
     public boolean hasStepOptions() {
-      return ((bitField0_ & 0x00000010) != 0);
+      return ((bitField0_ & 0x00000008) != 0);
     }
     /**
      * <code>.dex.StepOptions step_options = 7;</code>
@@ -1327,7 +1191,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1341,7 +1205,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1350,7 +1214,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepOptions(io.superdurable.gen.StepOptions value) {
       if (stepOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0) &&
+        if (((bitField0_ & 0x00000008) != 0) &&
           stepOptions_ != null &&
           stepOptions_ != io.superdurable.gen.StepOptions.getDefaultInstance()) {
           getStepOptionsBuilder().mergeFrom(value);
@@ -1361,7 +1225,7 @@ private static final long serialVersionUID = 0L;
         stepOptionsBuilder_.mergeFrom(value);
       }
       if (stepOptions_ != null) {
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       return this;
@@ -1370,7 +1234,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 7;</code>
      */
     public Builder clearStepOptions() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       stepOptions_ = null;
       if (stepOptionsBuilder_ != null) {
         stepOptionsBuilder_.dispose();
@@ -1383,7 +1247,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 7;</code>
      */
     public io.superdurable.gen.StepOptions.Builder getStepOptionsBuilder() {
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return internalGetStepOptionsFieldBuilder().getBuilder();
     }
@@ -1402,7 +1266,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
         internalGetStepOptionsFieldBuilder() {
       if (stepOptionsBuilder_ == null) {
         stepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1418,9 +1282,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.KV> initAttributes_ =
       java.util.Collections.emptyList();
     private void ensureInitAttributesIsMutable() {
-      if (!((bitField0_ & 0x00000020) != 0)) {
+      if (!((bitField0_ & 0x00000010) != 0)) {
         initAttributes_ = new java.util.ArrayList<io.superdurable.gen.KV>(initAttributes_);
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
        }
     }
 
@@ -1614,7 +1478,7 @@ private static final long serialVersionUID = 0L;
     public Builder clearInitAttributes() {
       if (initAttributesBuilder_ == null) {
         initAttributes_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000020);
+        bitField0_ = (bitField0_ & ~0x00000010);
         onChanged();
       } else {
         initAttributesBuilder_.clear();
@@ -1670,7 +1534,7 @@ private static final long serialVersionUID = 0L;
      *
      * <code>repeated .dex.KV init_attributes = 8;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
          getInitAttributesOrBuilderList() {
       if (initAttributesBuilder_ != null) {
         return initAttributesBuilder_.getMessageOrBuilderList();
@@ -1708,18 +1572,18 @@ private static final long serialVersionUID = 0L;
      *
      * <code>repeated .dex.KV init_attributes = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder> 
+    public java.util.List<io.superdurable.gen.KV.Builder>
          getInitAttributesBuilderList() {
       return internalGetInitAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
         internalGetInitAttributesFieldBuilder() {
       if (initAttributesBuilder_ == null) {
         initAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
                 initAttributes_,
-                ((bitField0_ & 0x00000020) != 0),
+                ((bitField0_ & 0x00000010) != 0),
                 getParentForChildren(),
                 isClean());
         initAttributes_ = null;
@@ -1735,7 +1599,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the config field is set.
      */
     public boolean hasConfig() {
-      return ((bitField0_ & 0x00000040) != 0);
+      return ((bitField0_ & 0x00000020) != 0);
     }
     /**
      * <code>.dex.FlowConfig config = 9;</code>
@@ -1760,7 +1624,7 @@ private static final long serialVersionUID = 0L;
       } else {
         configBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1774,7 +1638,7 @@ private static final long serialVersionUID = 0L;
       } else {
         configBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1783,7 +1647,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeConfig(io.superdurable.gen.FlowConfig value) {
       if (configBuilder_ == null) {
-        if (((bitField0_ & 0x00000040) != 0) &&
+        if (((bitField0_ & 0x00000020) != 0) &&
           config_ != null &&
           config_ != io.superdurable.gen.FlowConfig.getDefaultInstance()) {
           getConfigBuilder().mergeFrom(value);
@@ -1794,7 +1658,7 @@ private static final long serialVersionUID = 0L;
         configBuilder_.mergeFrom(value);
       }
       if (config_ != null) {
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       return this;
@@ -1803,7 +1667,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 9;</code>
      */
     public Builder clearConfig() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000020);
       config_ = null;
       if (configBuilder_ != null) {
         configBuilder_.dispose();
@@ -1816,7 +1680,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 9;</code>
      */
     public io.superdurable.gen.FlowConfig.Builder getConfigBuilder() {
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return internalGetConfigFieldBuilder().getBuilder();
     }
@@ -1835,7 +1699,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 9;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
         internalGetConfigFieldBuilder() {
       if (configBuilder_ == null) {
         configBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1873,7 +1737,7 @@ private static final long serialVersionUID = 0L;
     public Builder setIsResumeFromContinueAsNew(boolean value) {
 
       isResumeFromContinueAsNew_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1886,7 +1750,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearIsResumeFromContinueAsNew() {
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000040);
       isResumeFromContinueAsNew_ = false;
       onChanged();
       return this;
@@ -1900,7 +1764,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the continueAsNewInput field is set.
      */
     public boolean hasContinueAsNewInput() {
-      return ((bitField0_ & 0x00000100) != 0);
+      return ((bitField0_ & 0x00000080) != 0);
     }
     /**
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
@@ -1925,7 +1789,7 @@ private static final long serialVersionUID = 0L;
       } else {
         continueAsNewInputBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
@@ -1939,7 +1803,7 @@ private static final long serialVersionUID = 0L;
       } else {
         continueAsNewInputBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
@@ -1948,7 +1812,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeContinueAsNewInput(io.superdurable.gen.ContinueAsNewInput value) {
       if (continueAsNewInputBuilder_ == null) {
-        if (((bitField0_ & 0x00000100) != 0) &&
+        if (((bitField0_ & 0x00000080) != 0) &&
           continueAsNewInput_ != null &&
           continueAsNewInput_ != io.superdurable.gen.ContinueAsNewInput.getDefaultInstance()) {
           getContinueAsNewInputBuilder().mergeFrom(value);
@@ -1959,7 +1823,7 @@ private static final long serialVersionUID = 0L;
         continueAsNewInputBuilder_.mergeFrom(value);
       }
       if (continueAsNewInput_ != null) {
-        bitField0_ |= 0x00000100;
+        bitField0_ |= 0x00000080;
         onChanged();
       }
       return this;
@@ -1968,7 +1832,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
      */
     public Builder clearContinueAsNewInput() {
-      bitField0_ = (bitField0_ & ~0x00000100);
+      bitField0_ = (bitField0_ & ~0x00000080);
       continueAsNewInput_ = null;
       if (continueAsNewInputBuilder_ != null) {
         continueAsNewInputBuilder_.dispose();
@@ -1981,7 +1845,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
      */
     public io.superdurable.gen.ContinueAsNewInput.Builder getContinueAsNewInputBuilder() {
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000080;
       onChanged();
       return internalGetContinueAsNewInputFieldBuilder().getBuilder();
     }
@@ -2000,7 +1864,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder> 
+        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder>
         internalGetContinueAsNewInputFieldBuilder() {
       if (continueAsNewInputBuilder_ == null) {
         continueAsNewInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -2063,4 +1927,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

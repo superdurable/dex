@@ -9,6 +9,7 @@
 mod blob_cache;
 mod error;
 mod invocation;
+mod registry;
 mod worker;
 
 pub use blob_cache::{BlobCache, BlobCacheConfig, BlobCacheError};
@@ -16,5 +17,8 @@ pub use error::CoreError;
 pub use invocation::{
     CORE_PROTOCOL_VERSION, Invocation, InvocationFailure, InvocationId, InvocationKind,
     InvocationResult,
+};
+pub use registry::{
+    FlowSpec, PersistenceKind, PersistenceSpec, Registry, RegistryError, RpcSpec, StepSpec,
 };
 pub use worker::{WorkerConfig, WorkerCore};

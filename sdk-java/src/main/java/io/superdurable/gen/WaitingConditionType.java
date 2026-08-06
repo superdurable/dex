@@ -115,7 +115,7 @@ public enum WaitingConditionType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(12);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(13);
   }
 
   private static final WaitingConditionType[] VALUES = values();
@@ -140,4 +140,3 @@ public enum WaitingConditionType
 
   // @@protoc_insertion_point(enum_scope:dex.WaitingConditionType)
 }
-

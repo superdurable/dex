@@ -6,24 +6,23 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.FlowConditionalCloseType}
+ * Protobuf enum {@code dex.WaitForMethodFailurePolicy}
  */
 @com.google.protobuf.Generated
-public enum FlowConditionalCloseType
+public enum WaitForMethodFailurePolicy
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED = 0;</code>
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;</code>
    */
-  FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED(0),
+  WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED(0),
   /**
-   * <pre>
-   * TODO implement this in the future
-   * FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY = 2;
-   * </pre>
-   *
-   * <code>FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;</code>
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;</code>
    */
-  FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY(1),
+  WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE(1),
+  /**
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;</code>
+   */
+  WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE(2),
   UNRECOGNIZED(-1),
   ;
 
@@ -34,21 +33,20 @@ public enum FlowConditionalCloseType
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "FlowConditionalCloseType");
+      "WaitForMethodFailurePolicy");
   }
   /**
-   * <code>FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED = 0;</code>
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0;</code>
    */
-  public static final int FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED_VALUE = 0;
+  public static final int WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED_VALUE = 0;
   /**
-   * <pre>
-   * TODO implement this in the future
-   * FLOW_CONDITIONAL_CLOSE_TYPE_GRACEFUL_COMPLETE_ON_CHANNELS_EMPTY = 2;
-   * </pre>
-   *
-   * <code>FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY = 1;</code>
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1;</code>
    */
-  public static final int FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY_VALUE = 1;
+  public static final int WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE_VALUE = 1;
+  /**
+   * <code>WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2;</code>
+   */
+  public static final int WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE_VALUE = 2;
 
 
   public final int getNumber() {
@@ -65,7 +63,7 @@ public enum FlowConditionalCloseType
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static FlowConditionalCloseType valueOf(int value) {
+  public static WaitForMethodFailurePolicy valueOf(int value) {
     return forNumber(value);
   }
 
@@ -73,23 +71,24 @@ public enum FlowConditionalCloseType
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static FlowConditionalCloseType forNumber(int value) {
+  public static WaitForMethodFailurePolicy forNumber(int value) {
     switch (value) {
-      case 0: return FLOW_CONDITIONAL_CLOSE_TYPE_UNSPECIFIED;
-      case 1: return FLOW_CONDITIONAL_CLOSE_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY;
+      case 0: return WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED;
+      case 1: return WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE;
+      case 2: return WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<FlowConditionalCloseType>
+  public static com.google.protobuf.Internal.EnumLiteMap<WaitForMethodFailurePolicy>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      FlowConditionalCloseType> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<FlowConditionalCloseType>() {
-          public FlowConditionalCloseType findValueByNumber(int number) {
-            return FlowConditionalCloseType.forNumber(number);
+      WaitForMethodFailurePolicy> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<WaitForMethodFailurePolicy>() {
+          public WaitForMethodFailurePolicy findValueByNumber(int number) {
+            return WaitForMethodFailurePolicy.forNumber(number);
           }
         };
 
@@ -107,12 +106,12 @@ public enum FlowConditionalCloseType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(11);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(1);
   }
 
-  private static final FlowConditionalCloseType[] VALUES = values();
+  private static final WaitForMethodFailurePolicy[] VALUES = values();
 
-  public static FlowConditionalCloseType valueOf(
+  public static WaitForMethodFailurePolicy valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -126,10 +125,10 @@ public enum FlowConditionalCloseType
 
   private final int value;
 
-  private FlowConditionalCloseType(int value) {
+  private WaitForMethodFailurePolicy(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.FlowConditionalCloseType)
+  // @@protoc_insertion_point(enum_scope:dex.WaitForMethodFailurePolicy)
 }
 

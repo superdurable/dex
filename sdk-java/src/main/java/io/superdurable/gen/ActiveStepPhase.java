@@ -6,23 +6,23 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.ExecuteApiFailurePolicy}
+ * Protobuf enum {@code dex.ActiveStepPhase}
  */
 @com.google.protobuf.Generated
-public enum ExecuteApiFailurePolicy
+public enum ActiveStepPhase
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_UNSPECIFIED = 0;</code>
+   * <code>ACTIVE_STEP_PHASE_UNSPECIFIED = 0;</code>
    */
-  EXECUTE_API_FAILURE_POLICY_UNSPECIFIED(0),
+  ACTIVE_STEP_PHASE_UNSPECIFIED(0),
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE = 1;</code>
+   * <code>ACTIVE_STEP_PHASE_ACTIVE = 1;</code>
    */
-  EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE(1),
+  ACTIVE_STEP_PHASE_ACTIVE(1),
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>
+   * <code>ACTIVE_STEP_PHASE_WAITING = 2;</code>
    */
-  EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP(2),
+  ACTIVE_STEP_PHASE_WAITING(2),
   UNRECOGNIZED(-1),
   ;
 
@@ -33,20 +33,20 @@ public enum ExecuteApiFailurePolicy
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "ExecuteApiFailurePolicy");
+      "ActiveStepPhase");
   }
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_UNSPECIFIED = 0;</code>
+   * <code>ACTIVE_STEP_PHASE_UNSPECIFIED = 0;</code>
    */
-  public static final int EXECUTE_API_FAILURE_POLICY_UNSPECIFIED_VALUE = 0;
+  public static final int ACTIVE_STEP_PHASE_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE = 1;</code>
+   * <code>ACTIVE_STEP_PHASE_ACTIVE = 1;</code>
    */
-  public static final int EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE_VALUE = 1;
+  public static final int ACTIVE_STEP_PHASE_ACTIVE_VALUE = 1;
   /**
-   * <code>EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>
+   * <code>ACTIVE_STEP_PHASE_WAITING = 2;</code>
    */
-  public static final int EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP_VALUE = 2;
+  public static final int ACTIVE_STEP_PHASE_WAITING_VALUE = 2;
 
 
   public final int getNumber() {
@@ -63,7 +63,7 @@ public enum ExecuteApiFailurePolicy
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static ExecuteApiFailurePolicy valueOf(int value) {
+  public static ActiveStepPhase valueOf(int value) {
     return forNumber(value);
   }
 
@@ -71,24 +71,24 @@ public enum ExecuteApiFailurePolicy
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static ExecuteApiFailurePolicy forNumber(int value) {
+  public static ActiveStepPhase forNumber(int value) {
     switch (value) {
-      case 0: return EXECUTE_API_FAILURE_POLICY_UNSPECIFIED;
-      case 1: return EXECUTE_API_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_API_FAILURE;
-      case 2: return EXECUTE_API_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP;
+      case 0: return ACTIVE_STEP_PHASE_UNSPECIFIED;
+      case 1: return ACTIVE_STEP_PHASE_ACTIVE;
+      case 2: return ACTIVE_STEP_PHASE_WAITING;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<ExecuteApiFailurePolicy>
+  public static com.google.protobuf.Internal.EnumLiteMap<ActiveStepPhase>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      ExecuteApiFailurePolicy> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<ExecuteApiFailurePolicy>() {
-          public ExecuteApiFailurePolicy findValueByNumber(int number) {
-            return ExecuteApiFailurePolicy.forNumber(number);
+      ActiveStepPhase> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<ActiveStepPhase>() {
+          public ActiveStepPhase findValueByNumber(int number) {
+            return ActiveStepPhase.forNumber(number);
           }
         };
 
@@ -106,12 +106,12 @@ public enum ExecuteApiFailurePolicy
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(2);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
   }
 
-  private static final ExecuteApiFailurePolicy[] VALUES = values();
+  private static final ActiveStepPhase[] VALUES = values();
 
-  public static ExecuteApiFailurePolicy valueOf(
+  public static ActiveStepPhase valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -125,10 +125,10 @@ public enum ExecuteApiFailurePolicy
 
   private final int value;
 
-  private ExecuteApiFailurePolicy(int value) {
+  private ActiveStepPhase(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.ExecuteApiFailurePolicy)
+  // @@protoc_insertion_point(enum_scope:dex.ActiveStepPhase)
 }
 

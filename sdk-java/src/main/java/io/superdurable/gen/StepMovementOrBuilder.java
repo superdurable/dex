@@ -51,4 +51,24 @@ public interface StepMovementOrBuilder extends
    * <code>.dex.StepOptions step_options = 3;</code>
    */
   io.superdurable.gen.StepOptionsOrBuilder getStepOptionsOrBuilder();
+
+  /**
+   * <pre>
+   * Server-owned scheduling source; workers must leave this empty.
+   * </pre>
+   *
+   * <code>string from_step_execution_id_internal_only = 4;</code>
+   * @return The fromStepExecutionIdInternalOnly.
+   */
+  java.lang.String getFromStepExecutionIdInternalOnly();
+  /**
+   * <pre>
+   * Server-owned scheduling source; workers must leave this empty.
+   * </pre>
+   *
+   * <code>string from_step_execution_id_internal_only = 4;</code>
+   * @return The bytes for fromStepExecutionIdInternalOnly.
+   */
+  com.google.protobuf.ByteString
+      getFromStepExecutionIdInternalOnlyBytes();
 }

@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private DebugDumpResponse() {
     firingTimersUnixTimestamps_ = emptyLongList();
+    activeStepExecutions_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -132,6 +133,47 @@ private static final long serialVersionUID = 0L;
   }
   private int firingTimersUnixTimestampsMemoizedSerializedSize = -1;
 
+  public static final int ACTIVE_STEP_EXECUTIONS_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.ActiveStepExecutionState> activeStepExecutions_;
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.ActiveStepExecutionState> getActiveStepExecutionsList() {
+    return activeStepExecutions_;
+  }
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+      getActiveStepExecutionsOrBuilderList() {
+    return activeStepExecutions_;
+  }
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  @java.lang.Override
+  public int getActiveStepExecutionsCount() {
+    return activeStepExecutions_.size();
+  }
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ActiveStepExecutionState getActiveStepExecutions(int index) {
+    return activeStepExecutions_.get(index);
+  }
+  /**
+   * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ActiveStepExecutionStateOrBuilder getActiveStepExecutionsOrBuilder(
+      int index) {
+    return activeStepExecutions_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -160,6 +202,9 @@ private static final long serialVersionUID = 0L;
     for (int i = 0; i < firingTimersUnixTimestamps_.size(); i++) {
       output.writeInt64NoTag(firingTimersUnixTimestamps_.getLong(i));
     }
+    for (int i = 0; i < activeStepExecutions_.size(); i++) {
+      output.writeMessage(4, activeStepExecutions_.get(i));
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -186,6 +231,15 @@ private static final long serialVersionUID = 0L;
       }
       firingTimersUnixTimestampsMemoizedSerializedSize = dataSize;
     }
+
+        {
+          final int count = activeStepExecutions_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(activeStepExecutions_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -222,6 +276,8 @@ private static final long serialVersionUID = 0L;
     }
     if (!getFiringTimersUnixTimestampsList()
         .equals(other.getFiringTimersUnixTimestampsList())) return false;
+    if (!getActiveStepExecutionsList()
+        .equals(other.getActiveStepExecutionsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -244,6 +300,10 @@ private static final long serialVersionUID = 0L;
     if (getFiringTimersUnixTimestampsCount() > 0) {
       hash = (37 * hash) + FIRING_TIMERS_UNIX_TIMESTAMPS_FIELD_NUMBER;
       hash = (53 * hash) + getFiringTimersUnixTimestampsList().hashCode();
+    }
+    if (getActiveStepExecutionsCount() > 0) {
+      hash = (37 * hash) + ACTIVE_STEP_EXECUTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getActiveStepExecutionsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -377,6 +437,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetConfigFieldBuilder();
         internalGetSnapshotFieldBuilder();
+        internalGetActiveStepExecutionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -394,6 +455,13 @@ private static final long serialVersionUID = 0L;
         snapshotBuilder_ = null;
       }
       firingTimersUnixTimestamps_ = emptyLongList();
+      if (activeStepExecutionsBuilder_ == null) {
+        activeStepExecutions_ = java.util.Collections.emptyList();
+      } else {
+        activeStepExecutions_ = null;
+        activeStepExecutionsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000008);
       return this;
     }
 
@@ -420,9 +488,22 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public io.superdurable.gen.DebugDumpResponse buildPartial() {
       io.superdurable.gen.DebugDumpResponse result = new io.superdurable.gen.DebugDumpResponse(this);
+      buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
+    }
+
+    private void buildPartialRepeatedFields(io.superdurable.gen.DebugDumpResponse result) {
+      if (activeStepExecutionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000008) != 0)) {
+          activeStepExecutions_ = java.util.Collections.unmodifiableList(activeStepExecutions_);
+          bitField0_ = (bitField0_ & ~0x00000008);
+        }
+        result.activeStepExecutions_ = activeStepExecutions_;
+      } else {
+        result.activeStepExecutions_ = activeStepExecutionsBuilder_.build();
+      }
     }
 
     private void buildPartial0(io.superdurable.gen.DebugDumpResponse result) {
@@ -475,6 +556,32 @@ private static final long serialVersionUID = 0L;
           firingTimersUnixTimestamps_.addAll(other.firingTimersUnixTimestamps_);
         }
         onChanged();
+      }
+      if (activeStepExecutionsBuilder_ == null) {
+        if (!other.activeStepExecutions_.isEmpty()) {
+          if (activeStepExecutions_.isEmpty()) {
+            activeStepExecutions_ = other.activeStepExecutions_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+          } else {
+            ensureActiveStepExecutionsIsMutable();
+            activeStepExecutions_.addAll(other.activeStepExecutions_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.activeStepExecutions_.isEmpty()) {
+          if (activeStepExecutionsBuilder_.isEmpty()) {
+            activeStepExecutionsBuilder_.dispose();
+            activeStepExecutionsBuilder_ = null;
+            activeStepExecutions_ = other.activeStepExecutions_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+            activeStepExecutionsBuilder_ =
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetActiveStepExecutionsFieldBuilder() : null;
+          } else {
+            activeStepExecutionsBuilder_.addAllMessages(other.activeStepExecutions_);
+          }
+        }
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -532,6 +639,19 @@ private static final long serialVersionUID = 0L;
               input.popLimit(limit);
               break;
             } // case 26
+            case 34: {
+              io.superdurable.gen.ActiveStepExecutionState m =
+                  input.readMessage(
+                      io.superdurable.gen.ActiveStepExecutionState.parser(),
+                      extensionRegistry);
+              if (activeStepExecutionsBuilder_ == null) {
+                ensureActiveStepExecutionsIsMutable();
+                activeStepExecutions_.add(m);
+              } else {
+                activeStepExecutionsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -657,7 +777,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
         internalGetConfigFieldBuilder() {
       if (configBuilder_ == null) {
         configBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -778,7 +898,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewDump snapshot = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewDump, io.superdurable.gen.ContinueAsNewDump.Builder, io.superdurable.gen.ContinueAsNewDumpOrBuilder> 
+        io.superdurable.gen.ContinueAsNewDump, io.superdurable.gen.ContinueAsNewDump.Builder, io.superdurable.gen.ContinueAsNewDumpOrBuilder>
         internalGetSnapshotFieldBuilder() {
       if (snapshotBuilder_ == null) {
         snapshotBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -875,6 +995,246 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.util.List<io.superdurable.gen.ActiveStepExecutionState> activeStepExecutions_ =
+      java.util.Collections.emptyList();
+    private void ensureActiveStepExecutionsIsMutable() {
+      if (!((bitField0_ & 0x00000008) != 0)) {
+        activeStepExecutions_ = new java.util.ArrayList<io.superdurable.gen.ActiveStepExecutionState>(activeStepExecutions_);
+        bitField0_ |= 0x00000008;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.ActiveStepExecutionState, io.superdurable.gen.ActiveStepExecutionState.Builder, io.superdurable.gen.ActiveStepExecutionStateOrBuilder> activeStepExecutionsBuilder_;
+
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public java.util.List<io.superdurable.gen.ActiveStepExecutionState> getActiveStepExecutionsList() {
+      if (activeStepExecutionsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(activeStepExecutions_);
+      } else {
+        return activeStepExecutionsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public int getActiveStepExecutionsCount() {
+      if (activeStepExecutionsBuilder_ == null) {
+        return activeStepExecutions_.size();
+      } else {
+        return activeStepExecutionsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public io.superdurable.gen.ActiveStepExecutionState getActiveStepExecutions(int index) {
+      if (activeStepExecutionsBuilder_ == null) {
+        return activeStepExecutions_.get(index);
+      } else {
+        return activeStepExecutionsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder setActiveStepExecutions(
+        int index, io.superdurable.gen.ActiveStepExecutionState value) {
+      if (activeStepExecutionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.set(index, value);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder setActiveStepExecutions(
+        int index, io.superdurable.gen.ActiveStepExecutionState.Builder builderForValue) {
+      if (activeStepExecutionsBuilder_ == null) {
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder addActiveStepExecutions(io.superdurable.gen.ActiveStepExecutionState value) {
+      if (activeStepExecutionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.add(value);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder addActiveStepExecutions(
+        int index, io.superdurable.gen.ActiveStepExecutionState value) {
+      if (activeStepExecutionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.add(index, value);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder addActiveStepExecutions(
+        io.superdurable.gen.ActiveStepExecutionState.Builder builderForValue) {
+      if (activeStepExecutionsBuilder_ == null) {
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.add(builderForValue.build());
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder addActiveStepExecutions(
+        int index, io.superdurable.gen.ActiveStepExecutionState.Builder builderForValue) {
+      if (activeStepExecutionsBuilder_ == null) {
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder addAllActiveStepExecutions(
+        java.lang.Iterable<? extends io.superdurable.gen.ActiveStepExecutionState> values) {
+      if (activeStepExecutionsBuilder_ == null) {
+        ensureActiveStepExecutionsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, activeStepExecutions_);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder clearActiveStepExecutions() {
+      if (activeStepExecutionsBuilder_ == null) {
+        activeStepExecutions_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000008);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public Builder removeActiveStepExecutions(int index) {
+      if (activeStepExecutionsBuilder_ == null) {
+        ensureActiveStepExecutionsIsMutable();
+        activeStepExecutions_.remove(index);
+        onChanged();
+      } else {
+        activeStepExecutionsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public io.superdurable.gen.ActiveStepExecutionState.Builder getActiveStepExecutionsBuilder(
+        int index) {
+      return internalGetActiveStepExecutionsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public io.superdurable.gen.ActiveStepExecutionStateOrBuilder getActiveStepExecutionsOrBuilder(
+        int index) {
+      if (activeStepExecutionsBuilder_ == null) {
+        return activeStepExecutions_.get(index);  } else {
+        return activeStepExecutionsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+         getActiveStepExecutionsOrBuilderList() {
+      if (activeStepExecutionsBuilder_ != null) {
+        return activeStepExecutionsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(activeStepExecutions_);
+      }
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public io.superdurable.gen.ActiveStepExecutionState.Builder addActiveStepExecutionsBuilder() {
+      return internalGetActiveStepExecutionsFieldBuilder().addBuilder(
+          io.superdurable.gen.ActiveStepExecutionState.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public io.superdurable.gen.ActiveStepExecutionState.Builder addActiveStepExecutionsBuilder(
+        int index) {
+      return internalGetActiveStepExecutionsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.ActiveStepExecutionState.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
+     */
+    public java.util.List<io.superdurable.gen.ActiveStepExecutionState.Builder>
+         getActiveStepExecutionsBuilderList() {
+      return internalGetActiveStepExecutionsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.ActiveStepExecutionState, io.superdurable.gen.ActiveStepExecutionState.Builder, io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+        internalGetActiveStepExecutionsFieldBuilder() {
+      if (activeStepExecutionsBuilder_ == null) {
+        activeStepExecutionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.ActiveStepExecutionState, io.superdurable.gen.ActiveStepExecutionState.Builder, io.superdurable.gen.ActiveStepExecutionStateOrBuilder>(
+                activeStepExecutions_,
+                ((bitField0_ & 0x00000008) != 0),
+                getParentForChildren(),
+                isClean());
+        activeStepExecutions_ = null;
+      }
+      return activeStepExecutionsBuilder_;
+    }
+
     // @@protoc_insertion_point(builder_scope:dex.DebugDumpResponse)
   }
 
@@ -925,4 +1285,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

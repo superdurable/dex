@@ -60,6 +60,7 @@ dependencies {
     api 'com.google.protobuf:protobuf-java:4.35.1'
     api 'io.grpc:grpc-stub:1.69.1'
     api 'io.grpc:grpc-protobuf:1.69.1'
+    implementation 'io.grpc:grpc-netty-shaded:1.69.1'
     compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
 
     // for HTTP clients (legacy until gRPC migration)
@@ -98,9 +99,28 @@ dependencies {
     implementation 'com.cronutils:cron-utils:9.2.0'
 }
 
+def nativeLibraryName = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
+        ? 'libdex_bridge_jni.dylib'
+        : org.gradle.internal.os.OperatingSystem.current().isWindows()
+                ? 'dex_bridge_jni.dll'
+                : 'libdex_bridge_jni.so'
+def nativeLibraryPath = file("../sdk-rust/target/debug/${nativeLibraryName}").absolutePath
+
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+    dependsOn 'buildRustCore'
+    systemProperty 'dex.native.library', nativeLibraryPath
+}
+
+tasks.register('buildRustCore', Exec) {
+    workingDir '../sdk-rust'
+    commandLine 'cargo', 'build', '-p', 'dex-bridge-jni', '--locked'
+    inputs.files(fileTree('../sdk-rust') {
+        include 'Cargo.toml', 'Cargo.lock', 'crates/**'
+        exclude 'target/**'
+    })
+    outputs.file nativeLibraryPath
 }
 
 jacocoTestReport {

@@ -63,4 +63,24 @@ public interface ContextOrBuilder extends
    * @return The attempt.
    */
   int getAttempt();
+
+  /**
+   * <pre>
+   * Step execution that scheduled this execution, or a reserved source.
+   * </pre>
+   *
+   * <code>string from_step_execution_id = 7;</code>
+   * @return The fromStepExecutionId.
+   */
+  java.lang.String getFromStepExecutionId();
+  /**
+   * <pre>
+   * Step execution that scheduled this execution, or a reserved source.
+   * </pre>
+   *
+   * <code>string from_step_execution_id = 7;</code>
+   * @return The bytes for fromStepExecutionId.
+   */
+  com.google.protobuf.ByteString
+      getFromStepExecutionIdBytes();
 }
