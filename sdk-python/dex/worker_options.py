@@ -10,10 +10,15 @@
 
 from dataclasses import dataclass
 
-from dex.worker_options import WorkerTarget
+
+@dataclass(frozen=True)
+class WorkerTarget:
+    address: str
+    headless: bool = False
 
 
 @dataclass(frozen=True)
-class ClientOptions:
-    server_address: str = "localhost:8801"
+class WorkerOptions:
+    bind_address: str = ":8803"
     worker_target: WorkerTarget | None = None
+    server_address: str = "localhost:8801"

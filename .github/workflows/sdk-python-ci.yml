@@ -76,9 +76,14 @@ jobs:
               dex/client_options.py \
               dex/codec.py \
               dex/flow.py \
-              dex/runtime.py \
+              dex/flow_config.py \
+              dex/flow_info.py \
+              dex/flow_options.py \
               dex/state.py \
               dex/step.py \
+              dex/step_execution.py \
+              dex/worker.py \
+              dex/worker_options.py \
               tests/*.py \
               tests/iwfcompat/*.py \
               pyproject.toml \

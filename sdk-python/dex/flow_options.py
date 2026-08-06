@@ -13,28 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from types import TracebackType
-from typing import Any, Mapping, TypeVar, overload
+from typing import Any, TypeVar, overload
 
-from dex._contract_utils import PhaseNotImplementedError, require_name
-from dex.blob_cache import BlobCache
-from dex.codec import Value
-from dex.flow import Registry
+from dex._contract_utils import require_name
+from dex.flow_config import FlowConfig
 from dex.state import Attribute, AttributeMap
-from dex.step import RetryPolicy, StepDurability
+from dex.step import RetryPolicy
 
 ValueT = TypeVar("ValueT")
-
-
-@dataclass(frozen=True)
-class WorkerTarget:
-    address: str
-    headless: bool = False
-
-
-class ActiveStepSearchMode(Enum):
-    DEFAULT = "default"
-    ALL = "all"
 
 
 class IdReusePolicy(Enum):
@@ -42,24 +28,6 @@ class IdReusePolicy(Enum):
     ALLOW_IF_NOT_RUNNING = "allow_if_not_running"
     ALLOW_TERMINATE_IF_RUNNING = "allow_terminate_if_running"
     DISALLOW = "disallow"
-
-
-class FlowStatus(Enum):
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TERMINATED = "terminated"
-    TIMED_OUT = "timed_out"
-
-
-@dataclass(frozen=True)
-class FlowConfig:
-    active_step_search_mode: ActiveStepSearchMode | None = None
-    continue_as_new_threshold: int | None = None
-    continue_as_new_page_size_bytes: int | None = None
-    step_durability: StepDurability | None = None
-    worker_target: WorkerTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -121,36 +89,6 @@ class StartFlowOptions:
         )
 
 
-@dataclass(frozen=True)
-class FlowInfo:
-    flow_id: str
-    run_id: str
-    flow_type: str
-    status: FlowStatus
-    started_at: datetime
-
-
-@dataclass(frozen=True)
-class StepExecutionId:
-    step_type: str
-    number: int = 0
-
-
-@dataclass(frozen=True)
-class TimerId:
-    condition_id: str | None = None
-    condition_index: int | None = None
-
-    @staticmethod
-    def by_condition_id(condition_id: str) -> TimerId:
-        require_name(condition_id)
-        return TimerId(condition_id=condition_id)
-
-    @staticmethod
-    def by_condition_index(condition_index: int) -> TimerId:
-        return TimerId(condition_index=condition_index)
-
-
 class ResetType(Enum):
     BEGINNING = "beginning"
     HISTORY_EVENT_ID = "history_event_id"
@@ -181,60 +119,3 @@ class StopType(Enum):
 class StopFlowOptions:
     type: StopType = StopType.CANCEL
     reason: str | None = None
-
-
-@dataclass(frozen=True)
-class WorkerOptions:
-    bind_address: str = ":8803"
-    worker_target: WorkerTarget | None = None
-    server_address: str = "localhost:8801"
-
-
-class Worker:
-    def __init__(
-        self,
-        registry: Registry,
-        blob_cache: BlobCache,
-        options: WorkerOptions | None = None,
-    ) -> None:
-        self.registry = registry
-        self.blob_cache = blob_cache
-        self.options = options or WorkerOptions()
-
-    def __enter__(self) -> Worker:
-        return self
-
-    def __exit__(
-        self,
-        exception_type: type[BaseException] | None,
-        exception: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def start(self) -> None:
-        raise PhaseNotImplementedError("Worker runtime belongs to a later phase")
-
-    def stop(self) -> None:
-        raise PhaseNotImplementedError("Worker runtime belongs to a later phase")
-
-    def close(self) -> None:
-        self.stop()
-
-
-@dataclass(frozen=True)
-class HealthInfo:
-    condition: str
-    hostname: str
-    duration_seconds: int
-
-
-@dataclass(frozen=True)
-class SearchFlowEntry:
-    flow_id: str
-    run_id: str
-    flow_type: str
-    status: str
-    started_at: datetime
-    closed_at: datetime | None
-    attributes: Mapping[str, Value]

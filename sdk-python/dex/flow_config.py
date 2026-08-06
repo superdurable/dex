@@ -9,11 +9,21 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dataclasses import dataclass
+from enum import Enum
 
+from dex.step import StepDurability
 from dex.worker_options import WorkerTarget
 
 
+class ActiveStepSearchMode(Enum):
+    DEFAULT = "default"
+    ALL = "all"
+
+
 @dataclass(frozen=True)
-class ClientOptions:
-    server_address: str = "localhost:8801"
+class FlowConfig:
+    active_step_search_mode: ActiveStepSearchMode | None = None
+    continue_as_new_threshold: int | None = None
+    continue_as_new_page_size_bytes: int | None = None
+    step_durability: StepDurability | None = None
     worker_target: WorkerTarget | None = None
