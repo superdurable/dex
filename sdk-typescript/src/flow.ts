@@ -8,19 +8,19 @@
 
 import type { PersistenceSchema } from "./persistence.js";
 import { registeredRPCs } from "./rpc.js";
-import type { NonStartStepDef, StartStepDef, Step } from "./step.js";
+import { StepList, type Step } from "./step.js";
 import { requireName } from "./validation.js";
 
 export interface Flow<StartInput = void> {
   getFlowType(): string;
-  getSteps(): readonly (StartStepDef<StartInput> | NonStartStepDef)[];
+  getSteps(): StepList<StartInput>;
   getPersistenceSchema?(): PersistenceSchema;
 }
 
 export class Registry {
-  public readonly flows: readonly Flow<unknown>[];
+  public readonly flows: readonly Flow<any>[];
 
-  public constructor(flows: readonly Flow<unknown>[]) {
+  public constructor(flows: readonly Flow<any>[]) {
     const flowNames = new Set<string>();
     for (const flow of flows) {
       const name = flowType(flow);
@@ -34,7 +34,7 @@ export class Registry {
   }
 }
 
-function flowType(flow: Flow<unknown>): string {
+function flowType(flow: Flow<any>): string {
   if (typeof flow.getFlowType !== "function") {
     throw new TypeError("Flow must implement getFlowType");
   }
@@ -52,8 +52,11 @@ function stepType(step: Step<unknown>): string {
   return name;
 }
 
-function validateFlow(flow: Flow<unknown>): void {
+function validateFlow(flow: Flow<any>): void {
   const definitions = flow.getSteps();
+  if (!(definitions instanceof StepList)) {
+    throw new TypeError("Flow steps must be a StepList");
+  }
   const stepNames = new Set<string>();
   let hasStartStep = false;
   for (const definition of definitions) {

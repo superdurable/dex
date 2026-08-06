@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepDef, go_to, graceful_complete
+from dex import Context, Flow, Step, StepDecision, StepList, go_to, graceful_complete
 
 
 class EmptySecondStep(Step[None]):
@@ -34,8 +34,5 @@ class EmptyInputFlow(Flow[None]):
     def get_flow_type(self) -> str:
         return "test-customized-flow-type"
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-        )
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.first).other_steps(self.second)

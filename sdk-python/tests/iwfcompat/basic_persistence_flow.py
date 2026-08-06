@@ -20,7 +20,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     Wait,
     graceful_complete,
 )
@@ -74,8 +74,8 @@ class BasicPersistenceFlow(Flow[str]):
         )
         self.start = PersistenceStep(self)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

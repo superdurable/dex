@@ -19,7 +19,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     Timer,
     Wait,
     go_to,
@@ -84,11 +84,8 @@ class SignalFlow(Flow[int]):
         )
         self.start = SignalFirstStep(self.first, self.combination)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.start),
-            StepDef.non_start_step(self.combination),
-        )
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start).other_steps(self.combination)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

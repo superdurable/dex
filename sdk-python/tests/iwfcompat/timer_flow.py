@@ -15,7 +15,7 @@ from dex import (
     Flow,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     Timer,
     Wait,
     graceful_complete,
@@ -40,5 +40,5 @@ class TimerStep(Step[int]):
 class TimerFlow(Flow[int]):
     start = TimerStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)

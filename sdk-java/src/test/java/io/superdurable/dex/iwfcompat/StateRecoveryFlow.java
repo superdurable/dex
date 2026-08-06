@@ -15,23 +15,18 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class StateRecoveryFlow implements Flow<Integer> {
     private final RecoverStep recover = new RecoverStep();
     private final FailingStep start = new FailingStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(start),
-                StepDef.nonStartStep(recover));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start).otherSteps(recover);
     }
 
     final class FailingStep implements Step<Integer> {

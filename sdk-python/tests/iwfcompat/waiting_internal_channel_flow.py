@@ -15,7 +15,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     Wait,
     graceful_complete,
 )
@@ -38,8 +38,8 @@ class WaitingInternalChannelFlow(Flow[int]):
         self.channel = Channel("waiting-channel", int)
         self.start = WaitingInternalStep(self.channel)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(channels=(self.channel,))

@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   gracefulComplete,
   type Context,
   type Flow,
@@ -39,6 +39,6 @@ export class ModelInputFlow implements Flow<ModelInput> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 }

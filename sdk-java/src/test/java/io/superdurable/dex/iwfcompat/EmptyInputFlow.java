@@ -15,11 +15,8 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class EmptyInputFlow implements Flow<Void> {
     private final EmptyFirstStep first = new EmptyFirstStep();
@@ -31,10 +28,8 @@ final class EmptyInputFlow implements Flow<Void> {
     }
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<Void> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     final class EmptyFirstStep implements Step<Void> {

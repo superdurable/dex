@@ -19,7 +19,7 @@ from dex import (
     RPCResult,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepMovement,
     Wait,
     go_to,
@@ -61,11 +61,8 @@ class RpcFlow(Flow[int]):
         self.second = RpcSecondStep()
         self.first = RpcFirstStep(self.internal, self.second)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-        )
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.first).other_steps(self.second)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

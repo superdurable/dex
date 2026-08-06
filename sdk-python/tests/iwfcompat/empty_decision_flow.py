@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepDef, go_to_multi
+from dex import Context, Flow, Step, StepDecision, StepList, go_to_multi
 
 
 class EmptyDecisionStep(Step[int]):
@@ -20,5 +20,5 @@ class EmptyDecisionStep(Step[int]):
 class EmptyDecisionFlow(Flow[int]):
     start = EmptyDecisionStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)

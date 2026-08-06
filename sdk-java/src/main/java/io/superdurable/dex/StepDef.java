@@ -10,22 +10,20 @@
 
 package io.superdurable.dex;
 
-import java.util.Objects;
-
-public final class StepDef {
+final class StepDef {
     private final Step<?> step;
     private final boolean startStep;
 
     private StepDef(final Step<?> step, final boolean startStep) {
-        this.step = Objects.requireNonNull(step, "step");
+        this.step = step;
         this.startStep = startStep;
     }
 
-    public static <I> StepDef startStep(final Step<I> step) {
+    static StepDef startStep(final Step<?> step) {
         return new StepDef(step, true);
     }
 
-    public static <I> StepDef nonStartStep(final Step<I> step) {
+    static StepDef nonStartStep(final Step<?> step) {
         return new StepDef(step, false);
     }
 

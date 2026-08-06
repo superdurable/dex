@@ -16,7 +16,7 @@ from dex import (
     RPCResult,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     dead_end,
     rpc,
 )
@@ -34,8 +34,8 @@ class DeadEndFlow(Flow[None]):
     def __init__(self) -> None:
         self.start = DeadEndStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(channels=(self.idle_signal,))

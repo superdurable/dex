@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepDef, graceful_complete
+from dex import Context, Flow, Step, StepDecision, StepList, graceful_complete
 
 from .shared import ModelInput
 
@@ -22,5 +22,5 @@ class ModelInputStep(Step[ModelInput]):
 class ModelInputFlow(Flow[ModelInput]):
     start = ModelInputStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[ModelInput]:
+        return StepList.start_step(self.start)

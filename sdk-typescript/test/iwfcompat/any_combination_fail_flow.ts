@@ -11,7 +11,7 @@
 import {
   Channel,
   ConditionCombination,
-  StepDef,
+  StepList,
   Timer,
   Wait,
   doubleCodec,
@@ -70,7 +70,7 @@ export class AnyCombinationFailFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

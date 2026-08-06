@@ -17,7 +17,7 @@ from dex import (
     Flow,
     IndexType,
     PersistenceSchema,
-    StepDef,
+    StepList,
 )
 
 from .shared import CompleteStringStep
@@ -64,8 +64,8 @@ class SetAttributesFlow(Flow[str]):
         )
         self.start = CompleteStringStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

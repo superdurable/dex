@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepDef, force_fail
+from dex import Context, Flow, Step, StepDecision, StepList, force_fail
 
 
 class ForceFailStep(Step[int]):
@@ -20,5 +20,5 @@ class ForceFailStep(Step[int]):
 class ForceFailFlow(Flow[int]):
     start = ForceFailStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)

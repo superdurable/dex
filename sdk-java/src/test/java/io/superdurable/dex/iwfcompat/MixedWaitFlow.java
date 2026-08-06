@@ -15,15 +15,13 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
 
 final class MixedWaitFlow implements Flow<Integer> {
     private final MixedImmediateStep first = new MixedImmediateStep();
@@ -33,10 +31,8 @@ final class MixedWaitFlow implements Flow<Integer> {
             .build();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     final class MixedImmediateStep implements Step<Integer> {

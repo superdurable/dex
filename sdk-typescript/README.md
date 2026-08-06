@@ -39,7 +39,7 @@ class Orders implements Flow<string> {
   }
 
   getSteps() {
-    return [StepDef.startStep(this.approve)];
+    return StepList.startStep(this.approve);
   }
 }
 
@@ -47,10 +47,12 @@ const orders = new Orders();
 const registry = new Registry([orders]);
 ```
 
-Flows return all Steps once. Use `StepDef.startStep(step)` for at most one Step
-and `StepDef.nonStartStep(step)` for every other Step.
+Flows return all Steps once. Start with `StepList.startStep(step)` and append
+heterogeneous Steps with `.otherSteps(...)`. Use
+`StepList.withoutStartStep<void>(...)` for RPC-only Flows.
 `Flow<StartInput>` only types the starting Step and `Client.startFlow()` input;
-non-starting Steps may use unrelated input types. `Flow` defaults to `void` for
+`StepList<StartInput>` enforces that relationship during type checking.
+Non-starting Steps may use unrelated input types. `Flow` defaults to `void` for
 Flows without a start input.
 
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two

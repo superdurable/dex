@@ -17,7 +17,7 @@ from dex import (
     Registry,
     RPCResult,
     Step,
-    StepDef,
+    StepList,
     StepDecision,
     graceful_complete,
     rpc,
@@ -43,8 +43,8 @@ class TypedStep(Step[Input]):
 class TypedFlow(Flow[Input]):
     start = TypedStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[Input]:
+        return StepList.start_step(self.start)
 
     @rpc()
     def typed_rpc(self, context: Context, input: Input) -> RPCResult[Output]:

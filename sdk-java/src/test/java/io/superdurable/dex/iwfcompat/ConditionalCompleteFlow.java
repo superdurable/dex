@@ -19,13 +19,10 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
-
-import java.util.Collections;
-import java.util.List;
 
 final class ConditionalCompleteFlow implements Flow<Boolean> {
     final Channel<Void> signal = Channel.define("test-signal-channel", Void.class);
@@ -34,8 +31,8 @@ final class ConditionalCompleteFlow implements Flow<Boolean> {
     private final ConditionalStep start = new ConditionalStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<Boolean> getSteps() {
+        return StepList.startStep(start);
     }
 
     @Override

@@ -15,7 +15,7 @@ from dex import (
     Flow,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepMovement,
     StepOptions,
     go_to_multi,
@@ -42,8 +42,5 @@ class StateOptionsOverrideFlow(Flow[str]):
         self.second = CompleteStringStep()
         self.first = OverrideFirstStep(self.second)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-        )
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.first).other_steps(self.second)

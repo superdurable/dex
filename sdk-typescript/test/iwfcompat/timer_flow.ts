@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   Timer,
   Wait,
   doubleCodec,
@@ -44,6 +44,6 @@ export class TimerFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 }

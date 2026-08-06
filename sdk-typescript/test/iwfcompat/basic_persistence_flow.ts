@@ -12,7 +12,7 @@ import {
   Attribute,
   AttributeMap,
   IndexType,
-  StepDef,
+  StepList,
   Wait,
   doubleCodec,
   gracefulComplete,
@@ -74,7 +74,7 @@ export class BasicPersistenceFlow implements Flow<string> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

@@ -30,7 +30,7 @@ import io.superdurable.dex.RPCAttributeMapLock;
 import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
@@ -40,7 +40,6 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 
 public class UserContractsTest {
@@ -108,6 +107,16 @@ public class UserContractsTest {
     }
 
     @Test
+    public void registryChecksStartInputAssignability() {
+        Assertions.assertNotNull(new Registry(Collections.<Flow<?>>singletonList(
+                new AssignableStartInputFlow())));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new Registry(Collections.<Flow<?>>singletonList(
+                        new IncompatibleStartInputFlow())));
+    }
+
+    @Test
     public void runtimeBoundaryFailsExplicitly() {
         final Client client = new Client(
                 new Registry(Collections.<Flow<?>>singletonList(ORDERS)),
@@ -139,6 +148,12 @@ public class UserContractsTest {
         }
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static <StartInput> StepList<StartInput> uncheckedStartStep(
+            final Step<?> step) {
+        return (StepList<StartInput>) (StepList) StepList.startStep((Step) step);
+    }
+
     @SuppressWarnings("unused")
     private static void compileRPCStubContract(
             final Client client,
@@ -153,8 +168,8 @@ public class UserContractsTest {
 
     public static class OrderFlow implements Flow<OrderInput> {
         @Override
-        public List<StepDef> getSteps() {
-            return Collections.singletonList(StepDef.startStep(APPROVE));
+        public StepList<OrderInput> getSteps() {
+            return StepList.startStep(APPROVE);
         }
 
         @Override
@@ -188,6 +203,32 @@ public class UserContractsTest {
                 final Context context,
                 final OrderInput input) {
             return RPCResult.of(new OrderOutput());
+        }
+    }
+
+    public static class AssignableStartInputFlow implements Flow<Number> {
+        @Override
+        public StepList<Number> getSteps() {
+            return uncheckedStartStep(new IntegerStartStep());
+        }
+    }
+
+    public static class IncompatibleStartInputFlow implements Flow<String> {
+        @Override
+        public StepList<String> getSteps() {
+            return uncheckedStartStep(new IntegerStartStep());
+        }
+    }
+
+    public static class IntegerStartStep implements Step<Integer> {
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer input) {
+            return StepDecision.gracefulComplete(input);
         }
     }
 

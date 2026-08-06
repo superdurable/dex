@@ -21,6 +21,7 @@ from typing import (
     Any,
     Callable,
     Generic,
+    Iterator,
     Mapping,
     Protocol,
     Sequence,
@@ -721,17 +722,30 @@ class Step(Generic[InputT], ABC):
 
 
 @dataclass(frozen=True)
-class StepDef:
+class _StepDef:
     step: Step[Any]
     is_start_step: bool
 
-    @staticmethod
-    def start_step(step: Step[InputT]) -> StepDef:
-        return StepDef(step, True)
+
+@dataclass(frozen=True)
+class StepList(Generic[StartT]):
+    _definitions: tuple[_StepDef, ...]
 
     @staticmethod
-    def non_start_step(step: Step[InputT]) -> StepDef:
-        return StepDef(step, False)
+    def start_step(step: Step[StartT]) -> StepList[StartT]:
+        return StepList((_StepDef(step, True),))
+
+    @classmethod
+    def without_start_step(cls, *steps: Step[Any]) -> StepList[StartT]:
+        return cls(tuple(_StepDef(step, False) for step in steps))
+
+    def other_steps(self, *steps: Step[Any]) -> StepList[StartT]:
+        return StepList(
+            self._definitions + tuple(_StepDef(step, False) for step in steps)
+        )
+
+    def __iter__(self) -> Iterator[_StepDef]:
+        return iter(self._definitions)
 
 
 @dataclass(frozen=True)
@@ -873,8 +887,8 @@ class Flow(Generic[StartT], ABC):
     def get_flow_type(self) -> str:
         return type(self).__qualname__
 
-    def get_steps(self) -> Sequence[StepDef]:
-        return ()
+    def get_steps(self) -> StepList[StartT]:
+        return StepList.without_start_step()
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema()
@@ -937,13 +951,15 @@ class Registry:
     def _validate_flow(
         flow: Flow[Any], codec_registry: CodecRegistry
     ) -> tuple[list[_RegisteredStep], list[_RegisteredRPC]]:
-        definitions = tuple(flow.get_steps())
+        definitions = flow.get_steps()
+        if not isinstance(definitions, StepList):
+            raise TypeError("Flow steps must be a StepList")
         step_names: set[str] = set()
         registered_steps: list[_RegisteredStep] = []
         has_start_step = False
         for definition in definitions:
-            if not isinstance(definition, StepDef):
-                raise TypeError("Flow steps must be StepDef values")
+            if not isinstance(definition, _StepDef):
+                raise TypeError("Flow StepList contains an invalid definition")
             if definition.is_start_step:
                 if has_start_step:
                     raise ValueError("Flow must not have multiple start Steps")

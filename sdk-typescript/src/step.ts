@@ -57,26 +57,50 @@ export interface Step<Input> {
   execute(context: Context, input: Input): StepDecision;
 }
 
-export interface StartStepDef<StartInput> {
+interface StartStepDefinition<StartInput> {
   readonly step: Step<StartInput>;
   readonly isStartStep: true;
 }
 
-export interface NonStartStepDef {
+interface NonStartStepDefinition {
   readonly step: Step<unknown>;
   readonly isStartStep: false;
 }
 
-export type StepDef = StartStepDef<unknown> | NonStartStepDef;
+type StepDefinition = StartStepDefinition<unknown> | NonStartStepDefinition;
 
-export const StepDef = Object.freeze({
-  startStep<StartInput>(step: Step<StartInput>): StartStepDef<StartInput> {
-    return { step, isStartStep: true };
-  },
-  nonStartStep<Input>(step: Step<Input>): NonStartStepDef {
-    return { step: step as Step<unknown>, isStartStep: false };
-  },
-});
+declare const startInputType: unique symbol;
+
+export class StepList<StartInput> {
+  public declare readonly [startInputType]: (input: StartInput) => StartInput;
+
+  private readonly definitions: readonly StepDefinition[];
+
+  private constructor(definitions: readonly StepDefinition[]) {
+    this.definitions = Object.freeze([...definitions]);
+  }
+
+  public static startStep<StartInput>(step: Step<StartInput>): StepList<StartInput> {
+    return new StepList([{ step: step as Step<unknown>, isStartStep: true }]);
+  }
+
+  public static withoutStartStep<StartInput = never>(
+    ...steps: readonly Step<any>[]
+  ): StepList<StartInput> {
+    return new StepList(steps.map((step) => ({ step: step as Step<unknown>, isStartStep: false })));
+  }
+
+  public otherSteps(...steps: readonly Step<any>[]): StepList<StartInput> {
+    return new StepList([
+      ...this.definitions,
+      ...steps.map((step) => ({ step: step as Step<unknown>, isStartStep: false as const })),
+    ]);
+  }
+
+  public [Symbol.iterator](): Iterator<StepDefinition> {
+    return this.definitions[Symbol.iterator]();
+  }
+}
 
 export interface StepMovement<Input> {
   readonly step: Step<Input>;

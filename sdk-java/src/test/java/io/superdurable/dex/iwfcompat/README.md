@@ -44,7 +44,7 @@ use explicit Flow, Step, Attribute, and Channel overrides instead.
   assembling callbacks inside public definition builders.
 - Typed Attribute, Channel, movement, RPC method-reference, and Client APIs
   catch the important input mismatches during compilation.
-- A single `getSteps()` list uses `StepDef` to mark the optional start Step.
+- `StepList<StartInput>` binds the Flow input to its optional start Step.
 - Flow output is not coupled to `Flow<I>`; callers select an output class in
   `waitForFlow`. A second output type parameter could make this stronger.
 - Annotation locks must use durable-name strings because Java annotations

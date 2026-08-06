@@ -10,7 +10,7 @@
 
 from datetime import timedelta
 
-from dex import Context, Flow, Step, StepDecision, StepDef, StepOptions
+from dex import Context, Flow, Step, StepDecision, StepList, StepOptions
 
 
 class StateTimeoutStep(Step[int]):
@@ -25,5 +25,5 @@ class StateTimeoutStep(Step[int]):
 class StateTimeoutFlow(Flow[int]):
     start = StateTimeoutStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)

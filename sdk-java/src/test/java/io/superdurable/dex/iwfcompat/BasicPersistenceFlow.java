@@ -19,13 +19,11 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
 
 final class BasicPersistenceFlow implements Flow<String> {
     final Attribute<String> initial = Attribute.define("data-obj-0", String.class);
@@ -48,8 +46,8 @@ final class BasicPersistenceFlow implements Flow<String> {
     private final PersistenceStep start = new PersistenceStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<String> getSteps() {
+        return StepList.startStep(start);
     }
 
     @Override

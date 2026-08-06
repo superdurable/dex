@@ -12,7 +12,7 @@ import {
   Channel,
   ChannelMap,
   ConditionCombination,
-  StepDef,
+  StepList,
   StepMovement,
   Wait,
   deadEnd,
@@ -101,11 +101,7 @@ export class BasicInternalChannelFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [
-      StepDef.startStep(this.start),
-      StepDef.nonStartStep(this.consumer),
-      StepDef.nonStartStep(this.publisher),
-    ];
+    return StepList.startStep(this.start).otherSteps(this.consumer, this.publisher);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

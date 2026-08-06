@@ -15,21 +15,16 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class ExecuteOnlyFlow implements Flow<Integer> {
     private final ExecuteOnlyFirstStep first = new ExecuteOnlyFirstStep();
     private final ExecuteOnlySecondStep second = new ExecuteOnlySecondStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     final class ExecuteOnlyFirstStep implements Step<Integer> {

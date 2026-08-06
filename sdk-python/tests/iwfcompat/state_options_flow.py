@@ -18,7 +18,7 @@ from dex import (
     RetryPolicy,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepDurability,
     StepMovement,
     StepOptions,
@@ -110,12 +110,8 @@ class StateOptionsFlow(Flow[None]):
         )
         self.first = OptionsFirstStep(self.second)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-            StepDef.non_start_step(self.third),
-        )
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.first).other_steps(self.second, self.third)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

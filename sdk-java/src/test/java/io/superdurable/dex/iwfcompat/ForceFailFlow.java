@@ -15,11 +15,8 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-
-import java.util.Collections;
-import java.util.List;
 
 final class ForceFailFlow implements Flow<Integer> {
     private final Step<Integer> start = new Step<Integer>() {
@@ -35,7 +32,7 @@ final class ForceFailFlow implements Flow<Integer> {
     };
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start);
     }
 }

@@ -12,7 +12,7 @@ import {
   Channel,
   ChannelMap,
   ConditionCombination,
-  StepDef,
+  StepList,
   Timer,
   Wait,
   doubleCodec,
@@ -91,7 +91,7 @@ export class SignalFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start), StepDef.nonStartStep(this.combination)];
+    return StepList.startStep(this.start).otherSteps(this.combination);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

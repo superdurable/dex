@@ -17,12 +17,9 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
-
-import java.util.Collections;
-import java.util.List;
 
 final class WaitingInternalChannelFlow implements Flow<Integer> {
     final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
@@ -48,8 +45,8 @@ final class WaitingInternalChannelFlow implements Flow<Integer> {
     };
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start);
     }
 
     @Override

@@ -16,7 +16,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepMovement,
     Wait,
     force_complete_when_channels_empty,
@@ -57,8 +57,8 @@ class ConditionalCompleteFlow(Flow[bool]):
         self.counter = Attribute("counter", int)
         self.start = ConditionalStep(self.counter, self.signal, self.internal)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[bool]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

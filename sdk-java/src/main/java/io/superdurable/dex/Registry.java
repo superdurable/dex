@@ -1,11 +1,15 @@
 /*
- * Copyright (c) 2026 Super Durable, Inc.
+ * Legacy Materials in this file remain under their original licenses.
+ * See LEGACY_NOTICES.md.
+ */
+
+/*
+ * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Licensed under the Super Durable Source License 1.0.
- * You may not use this file except in compliance with the License.
- * See the LICENSE file in the repository root.
- *
- * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ * Modifications after the Legacy Cutoff are licensed under the
+ * Super Durable Source License 1.0.
+ * Legacy Materials remain under their original licenses.
+ * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex;
@@ -46,11 +50,13 @@ public final class Registry {
 
     private static void validateFlow(final Flow<?> flow) {
         final Set<String> stepNames = new HashSet<String>();
-        if (flow.getSteps() == null) {
+        final StepList<?> steps = flow.getSteps();
+        if (steps == null) {
             throw new IllegalArgumentException("Flow steps are required");
         }
         boolean hasStartStep = false;
-        for (StepDef definition : flow.getSteps()) {
+        Class<?> startInputType = null;
+        for (StepDef definition : steps.getDefinitions()) {
             if (definition == null) {
                 throw new IllegalArgumentException(
                         "Flow " + flow.getFlowType() + " has a null Step definition");
@@ -68,12 +74,72 @@ public final class Registry {
                     throw new IllegalArgumentException("Flow must not have multiple start Steps");
                 }
                 hasStartStep = true;
+                startInputType = step.getInputType();
             }
+        }
+        if (startInputType != null) {
+            validateStartInputType(flow, startInputType);
         }
         if (flow.getPersistenceSchema() == null) {
             throw new IllegalArgumentException("Flow persistence schema is required");
         }
         validateRPCs(flow);
+    }
+
+    private static void validateStartInputType(
+            final Flow<?> flow,
+            final Class<?> registeredType) {
+        final Class<?> inputType = findFlowInputType(flow.getClass());
+        if (inputType == null) {
+            throw new IllegalArgumentException(
+                    "Flow must declare a concrete start input type: "
+                            + flow.getClass().getName());
+        }
+        if (!inputType.isAssignableFrom(registeredType)) {
+            throw new IllegalArgumentException(
+                    "Flow input type " + inputType.getName()
+                            + " is not assignable from start Step input type "
+                            + registeredType.getName());
+        }
+    }
+
+    private static Class<?> findFlowInputType(final Class<?> flowClass) {
+        for (Type interfaceType : flowClass.getGenericInterfaces()) {
+            final Class<?> inputType = findFlowInputType(interfaceType);
+            if (inputType != null) {
+                return inputType;
+            }
+        }
+        final Type superclass = flowClass.getGenericSuperclass();
+        if (superclass != null) {
+            final Class<?> inputType = findFlowInputType(superclass);
+            if (inputType != null) {
+                return inputType;
+            }
+        }
+        return null;
+    }
+
+    private static Class<?> findFlowInputType(final Type candidate) {
+        if (candidate instanceof ParameterizedType) {
+            final ParameterizedType parameterized = (ParameterizedType) candidate;
+            final Type rawType = parameterized.getRawType();
+            if (rawType == Flow.class) {
+                final Type inputType = parameterized.getActualTypeArguments()[0];
+                if (inputType instanceof Class) {
+                    return (Class<?>) inputType;
+                }
+                throw new IllegalArgumentException(
+                        "Flow start input must be a concrete Class: " + inputType.getTypeName());
+            }
+            if (rawType instanceof Class) {
+                return findFlowInputType((Class<?>) rawType);
+            }
+        }
+        if (candidate instanceof Class && candidate != Object.class) {
+            return findFlowInputType((Class<?>) candidate);
+        }
+        return null;
     }
 
     private static void validateRPCs(final Flow<?> flow) {

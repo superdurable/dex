@@ -19,14 +19,12 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
 
 final class SignalFlow implements Flow<Integer> {
     final Channel<Integer> first = Channel.define("signal-1", Integer.class);
@@ -37,10 +35,8 @@ final class SignalFlow implements Flow<Integer> {
     private final SignalCombinationStep combination = new SignalCombinationStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(start),
-                StepDef.nonStartStep(combination));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start).otherSteps(combination);
     }
 
     @Override

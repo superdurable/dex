@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   Wait,
   goTo,
   stringCodec,
@@ -53,6 +53,6 @@ export class ProceedOnWaitFailureFlow implements Flow<string> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.first), StepDef.nonStartStep(this.second)];
+    return StepList.startStep(this.first).otherSteps(this.second);
   }
 }

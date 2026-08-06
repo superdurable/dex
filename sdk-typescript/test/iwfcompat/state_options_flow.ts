@@ -10,7 +10,7 @@
 
 import {
   Attribute,
-  StepDef,
+  StepList,
   StepMovement,
   Wait,
   goTo,
@@ -126,11 +126,7 @@ export class StateOptionsFlow implements Flow {
   }
 
   public getSteps() {
-    return [
-      StepDef.startStep(this.first),
-      StepDef.nonStartStep(this.second),
-      StepDef.nonStartStep(this.third),
-    ];
+    return StepList.startStep(this.first).otherSteps(this.second, this.third);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

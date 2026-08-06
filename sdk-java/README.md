@@ -33,8 +33,8 @@ public final class CounterFlow implements Flow<Long> {
     private final IncrementStep start = new IncrementStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<Long> getSteps() {
+        return StepList.startStep(start);
     }
 
     @RPC(name = "increment", timeoutSeconds = 10)
@@ -78,9 +78,11 @@ WorkerOptions options = WorkerOptions.newBuilder()
         .build();
 ```
 
-`Flow.getSteps()` returns non-generic `StepDef` wrappers. Use
-`StepDef.startStep(step)` once at most and `StepDef.nonStartStep(step)` for all
-other Steps.
+`Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
+`StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
+For RPC-only Flows, use `StepList.withoutStartStep(...)`. The generic binding
+catches start-input mismatches during compilation; Registry also validates the
+runtime classes with `inputType.isAssignableFrom(registeredType)`.
 Client result decoding takes the output class and uses the configured mapper:
 
 ```java

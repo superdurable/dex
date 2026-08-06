@@ -19,13 +19,10 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class BasicInternalChannelFlow implements Flow<Integer> {
     private final Channel<Integer> firstChannel =
@@ -37,11 +34,8 @@ final class BasicInternalChannelFlow implements Flow<Integer> {
     private final PublishStep publisher = new PublishStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(start),
-                StepDef.nonStartStep(consumer),
-                StepDef.nonStartStep(publisher));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start).otherSteps(consumer, publisher);
     }
 
     @Override

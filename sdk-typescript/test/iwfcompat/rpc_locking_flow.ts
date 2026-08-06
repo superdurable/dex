@@ -13,7 +13,7 @@ import {
   AttributeMap,
   Channel,
   IndexType,
-  StepDef,
+  StepList,
   Wait,
   doubleCodec,
   goTo,
@@ -80,7 +80,7 @@ export class RpcLockingFlow implements Flow {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.first), StepDef.nonStartStep(this.second)];
+    return StepList.startStep(this.first).otherSteps(this.second);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

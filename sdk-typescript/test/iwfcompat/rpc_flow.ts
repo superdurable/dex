@@ -12,7 +12,7 @@ import {
   Attribute,
   Channel,
   IndexType,
-  StepDef,
+  StepList,
   StepMovement,
   Wait,
   doubleCodec,
@@ -76,7 +76,7 @@ export class RpcFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.first), StepDef.nonStartStep(this.second)];
+    return StepList.startStep(this.first).otherSteps(this.second);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

@@ -15,7 +15,7 @@ from dex import (
     Flow,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepOptions,
     Timer,
     Wait,
@@ -59,8 +59,5 @@ class MixedWaitFlow(Flow[int]):
         self.second = MixedTimerStep(shared)
         self.first = MixedImmediateStep(self.second, shared)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-        )
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.first).other_steps(self.second)

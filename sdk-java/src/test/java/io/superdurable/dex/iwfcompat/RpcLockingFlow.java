@@ -22,12 +22,9 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCAttributeMapLock;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class RpcLockingFlow implements Flow<Void> {
     final Channel<Void> channel = Channel.define("rpc-channel", Void.class);
@@ -41,10 +38,8 @@ final class RpcLockingFlow implements Flow<Void> {
     private final LockCompleteStep second = new LockCompleteStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<Void> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     @Override

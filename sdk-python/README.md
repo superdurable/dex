@@ -37,8 +37,8 @@ class CounterFlow(dex.Flow[str]):
     def get_flow_type(self) -> str:
         return "Counter"
 
-    def get_steps(self) -> tuple[dex.StepDef, ...]:
-        return (dex.StepDef.start_step(self.run),)
+    def get_steps(self) -> dex.StepList[str]:
+        return dex.StepList.start_step(self.run)
 
     def get_persistence_schema(self) -> dex.PersistenceSchema:
         return dex.PersistenceSchema(attributes=(counter,))
@@ -72,9 +72,9 @@ See [samples](../examples/python) for use case examples.
 
 Applications implement two generic interfaces from [`dex.contracts`](dex/contracts.py):
 
-- `Flow[START_INPUT]` returns `StepDef.start_step(...)` and
-  `StepDef.non_start_step(...)` values from one `get_steps()` method, and also
-  declares its persistence schema and typed RPC methods.
+- `Flow[START_INPUT]` returns `StepList.start_step(...)`, followed by optional
+  `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
+  binds the Flow input to the starting Step input.
 - `Step[INPUT]` implements synchronous `execute` and optionally `wait_for`.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the

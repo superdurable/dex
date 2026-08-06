@@ -19,7 +19,7 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepDurability;
 import io.superdurable.dex.StepMovement;
@@ -27,8 +27,6 @@ import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
 
 final class StateOptionsFlow implements Flow<Void> {
     final Attribute<String> waitValue = Attribute.define("DA_WAIT_UNTIL", String.class);
@@ -39,11 +37,8 @@ final class StateOptionsFlow implements Flow<Void> {
     private final OptionsThirdStep third = new OptionsThirdStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second),
-                StepDef.nonStartStep(third));
+    public StepList<Void> getSteps() {
+        return StepList.startStep(first).otherSteps(second, third);
     }
 
     @Override

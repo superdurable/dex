@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   doubleCodec,
   forceFail,
   type Context,
@@ -38,6 +38,6 @@ export class ForceFailFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 }

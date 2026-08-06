@@ -17,7 +17,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepMovement,
     Wait,
     dead_end,
@@ -74,11 +74,9 @@ class BasicInternalChannelFlow(Flow[int]):
         self.publisher = PublishStep(self.first_channel, self.channel_map)
         self.start = ForkStep(self.consumer, self.publisher)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.start),
-            StepDef.non_start_step(self.consumer),
-            StepDef.non_start_step(self.publisher),
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start).other_steps(
+            self.consumer, self.publisher
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:

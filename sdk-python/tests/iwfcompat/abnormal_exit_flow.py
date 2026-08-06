@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepDef
+from dex import Context, Flow, Step, StepDecision, StepList
 
 
 class AbnormalExitStep(Step[int]):
@@ -20,5 +20,5 @@ class AbnormalExitStep(Step[int]):
 class AbnormalExitFlow(Flow[int]):
     start = AbnormalExitStep()
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)

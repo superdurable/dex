@@ -10,6 +10,7 @@
 
 import {
   Attribute,
+  StepList,
   doubleCodec,
   rpc,
   stringCodec,
@@ -29,7 +30,7 @@ export class NoStateFlow implements Flow {
   }
 
   public getSteps() {
-    return [];
+    return StepList.withoutStartStep<void>();
   }
 
   public getPersistenceSchema(): PersistenceSchema {

@@ -21,13 +21,10 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
-
-import java.util.Arrays;
-import java.util.List;
 
 class RpcFlow implements Flow<Integer> {
     final Channel<Void> internal = Channel.define("rpc-internal", Void.class);
@@ -40,10 +37,8 @@ class RpcFlow implements Flow<Integer> {
     private final RpcSecondStep second = new RpcSecondStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     @Override

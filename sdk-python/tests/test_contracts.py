@@ -31,7 +31,7 @@ from dex import (
     Registry,
     RPCResult,
     Step,
-    StepDef,
+    StepList,
     StepDecision,
     Timer,
     Wait,
@@ -93,11 +93,8 @@ class OrderFlow(Flow[OrderInput]):
     def get_flow_type(self) -> str:
         return "Orders"
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.approve),
-            StepDef.non_start_step(self.archive),
-        )
+    def get_steps(self) -> StepList[OrderInput]:
+        return StepList.start_step(self.approve).other_steps(self.archive)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(attributes=(STATUS,), channels=(COMMANDS,))
@@ -113,11 +110,12 @@ ORDERS = OrderFlow()
 
 def test_typed_interfaces_construct_without_runtime() -> None:
     registry = Registry((ORDERS,))
+    definitions = tuple(ORDERS.get_steps())
     assert registry.flows == (ORDERS,)
-    assert ORDERS.get_steps()[0].step is ORDERS.approve
-    assert ORDERS.get_steps()[0].is_start_step
-    assert ORDERS.get_steps()[1].step is ORDERS.archive
-    assert not ORDERS.get_steps()[1].is_start_step
+    assert definitions[0].step is ORDERS.approve
+    assert definitions[0].is_start_step
+    assert definitions[1].step is ORDERS.archive
+    assert not definitions[1].is_start_step
 
 
 def test_registry_infers_handler_codecs_from_annotations() -> None:

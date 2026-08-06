@@ -19,11 +19,8 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-
-import java.util.Collections;
-import java.util.List;
 
 final class DeadEndFlow implements Flow<Void> {
     final Channel<Void> idleSignal = Channel.define("idle-signal", Void.class);
@@ -40,8 +37,8 @@ final class DeadEndFlow implements Flow<Void> {
     };
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.startStep(start));
+    public StepList<Void> getSteps() {
+        return StepList.startStep(start);
     }
 
     @Override

@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   StepMovement,
   doubleCodec,
   gracefulComplete,
@@ -43,7 +43,7 @@ export class NoStartFlow implements Flow {
   }
 
   public getSteps() {
-    return [StepDef.nonStartStep(this.triggered)];
+    return StepList.withoutStartStep<void>(this.triggered);
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })

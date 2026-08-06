@@ -12,7 +12,7 @@ import {
   Attribute,
   AttributeMap,
   IndexType,
-  StepDef,
+  StepList,
   booleanCodec,
   doubleCodec,
   stringCodec,
@@ -53,7 +53,7 @@ export class SetAttributesFlow implements Flow<string> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start)];
+    return StepList.startStep(this.start);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

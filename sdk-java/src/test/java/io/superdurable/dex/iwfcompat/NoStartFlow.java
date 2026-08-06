@@ -17,19 +17,16 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
-
-import java.util.Collections;
-import java.util.List;
 
 final class NoStartFlow implements Flow<Void> {
     private final TriggeredStep triggered = new TriggeredStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Collections.singletonList(StepDef.nonStartStep(triggered));
+    public StepList<Void> getSteps() {
+        return StepList.withoutStartStep(triggered);
     }
 
     @RPC

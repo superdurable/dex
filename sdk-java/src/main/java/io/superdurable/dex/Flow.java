@@ -14,16 +14,13 @@
 
 package io.superdurable.dex;
 
-import java.util.Collections;
-import java.util.List;
-
-public interface Flow<I> {
+public interface Flow<StartInput> {
     default String getFlowType() {
         return getClass().getSimpleName();
     }
 
-    default List<StepDef> getSteps() {
-        return Collections.emptyList();
+    default StepList<StartInput> getSteps() {
+        return StepList.withoutStartStep();
     }
 
     default PersistenceSchema getPersistenceSchema() {

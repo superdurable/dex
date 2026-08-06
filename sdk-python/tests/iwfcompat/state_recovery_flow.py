@@ -14,7 +14,7 @@ from dex import (
     Flow,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepOptions,
     Wait,
     graceful_complete,
@@ -48,8 +48,5 @@ class StateRecoveryFlow(Flow[int]):
         self.recover = RecoverStep()
         self.start = FailingStep(self.recover)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.start),
-            StepDef.non_start_step(self.recover),
-        )
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start).other_steps(self.recover)

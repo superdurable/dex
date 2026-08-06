@@ -18,7 +18,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     StepOptions,
     Timer,
     Wait,
@@ -68,8 +68,8 @@ class AnyCombinationFailFlow(Flow[int]):
         self.third = Channel("test-signal-3", int)
         self.start = AnyCombinationStep(self.first, self.second, self.third)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (StepDef.start_step(self.start),)
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(channels=(self.first, self.second, self.third))

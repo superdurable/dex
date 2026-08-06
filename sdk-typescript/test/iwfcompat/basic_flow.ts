@@ -9,7 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 import {
-  StepDef,
+  StepList,
   Wait,
   doubleCodec,
   goTo,
@@ -60,6 +60,6 @@ export class BasicFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.first), StepDef.nonStartStep(this.second)];
+    return StepList.startStep(this.first).otherSteps(this.second);
   }
 }

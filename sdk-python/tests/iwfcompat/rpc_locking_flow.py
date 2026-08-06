@@ -19,7 +19,7 @@ from dex import (
     PersistenceSchema,
     Step,
     StepDecision,
-    StepDef,
+    StepList,
     Wait,
     go_to,
     graceful_complete,
@@ -61,11 +61,8 @@ class RpcLockingFlow(Flow[None]):
         self.second = LockCompleteStep()
         self.first = LockWaitStep(self.channel, self.second)
 
-    def get_steps(self) -> tuple[StepDef, ...]:
-        return (
-            StepDef.start_step(self.first),
-            StepDef.non_start_step(self.second),
-        )
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.first).other_steps(self.second)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema(

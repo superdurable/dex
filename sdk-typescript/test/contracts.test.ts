@@ -15,7 +15,7 @@ import {
   Client,
   PhaseNotImplementedError,
   Registry,
-  StepDef,
+  StepList,
   Timer,
   Wait,
   gracefulComplete,
@@ -107,7 +107,7 @@ class Orders implements Flow<OrderInput> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.approve), StepDef.nonStartStep(this.archive)];
+    return StepList.startStep(this.approve).otherSteps(this.archive);
   }
 
   public getPersistenceSchema() {
@@ -130,11 +130,12 @@ const blobCache = {} as BlobCache;
 
 test("typed definitions construct without runtime", () => {
   const registry = new Registry([orders]);
+  const definitions = [...orders.getSteps()];
   assert.equal(registry.flows[0]?.getFlowType(), "Orders");
-  assert.equal(orders.getSteps()[0]?.step, orders.approve);
-  assert.equal(orders.getSteps()[0]?.isStartStep, true);
-  assert.equal(orders.getSteps()[1]?.step, orders.archive);
-  assert.equal(orders.getSteps()[1]?.isStartStep, false);
+  assert.equal(definitions[0]?.step, orders.approve);
+  assert.equal(definitions[0]?.isStartStep, true);
+  assert.equal(definitions[1]?.step, orders.archive);
+  assert.equal(definitions[1]?.isStartStep, false);
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {
@@ -147,7 +148,7 @@ test("registry rejects missing durable-name methods at runtime", () => {
   } as unknown as Step<string>;
   const flow: Flow<string> = {
     getFlowType: () => "MissingStepName",
-    getSteps: () => [StepDef.startStep(missingStepName)],
+    getSteps: () => StepList.startStep(missingStepName),
   };
   assert.throws(() => new Registry([flow]), /must implement getStepType/);
 });
@@ -198,6 +199,9 @@ async function compileStrongTypes(client: Client): Promise<void> {
   await client.startFlow(orders, "order-1", { accepted: true });
   // @ts-expect-error wrong RPC input
   await client.invokeRPC(orders.getOrder, "order-1", { accepted: true });
+  // @ts-expect-error start Step input must match Flow input
+  const mismatchedSteps: StepList<OrderInput> = StepList.startStep(orders.archive);
+  void mismatchedSteps;
 }
 
 void compileStrongTypes;

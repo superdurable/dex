@@ -15,24 +15,19 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Step;
-import io.superdurable.dex.StepDef;
+import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WaitForFailurePolicy;
-
-import java.util.Arrays;
-import java.util.List;
 
 final class ProceedOnWaitFailureFlow implements Flow<String> {
     private final FailingWaitStep first = new FailingWaitStep();
     private final IwfFlows.CompleteStringStep second = new IwfFlows.CompleteStringStep();
 
     @Override
-    public List<StepDef> getSteps() {
-        return Arrays.asList(
-                StepDef.startStep(first),
-                StepDef.nonStartStep(second));
+    public StepList<String> getSteps() {
+        return StepList.startStep(first).otherSteps(second);
     }
 
     final class FailingWaitStep implements Step<String> {

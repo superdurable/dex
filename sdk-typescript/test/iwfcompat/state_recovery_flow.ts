@@ -10,7 +10,7 @@
 
 import {
   ExecuteFailure,
-  StepDef,
+  StepList,
   Wait,
   doubleCodec,
   gracefulComplete,
@@ -64,6 +64,6 @@ export class StateRecoveryFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return [StepDef.startStep(this.start), StepDef.nonStartStep(this.recover)];
+    return StepList.startStep(this.start).otherSteps(this.recover);
   }
 }
