@@ -135,6 +135,16 @@ when the script exits. Keep them running for UI inspection with:
 KEEP_DATASET_DEAL_DEMO=1 make datasetDealDemo
 ```
 
+To drive an already-running example API without managing its services:
+
+```bash
+DATASET_DEAL_API_URL=http://127.0.0.1:28804 make triggerDatasetDealDemo
+```
+
+The trigger-only script creates or updates the comprehensive process, completes
+the full-purchase and refund paths, and leaves buyer 3 pending. Set
+`DATASET_DEAL_PROCESS_ID` to use a different process ID.
+
 The seller dashboard lists processes beside executions. Buyer dashboards list
 only their executions. Process pages provide an editable state graph;
 execution pages render the immutable graph, highlight `currentState`, show
