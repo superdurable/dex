@@ -16,9 +16,9 @@ import io.superdurable.dex.Client;
 
 public final class RpcWithMemoTest {
     void compileMemoReplacement(final Client client) {
-        client.startFlow(IwfFlows.RPC_MEMO_REPLACEMENT, "rpc-cache", 0);
-        final RpcMemoReplacementFlow stub = client.newRpcStub(
-                RpcMemoReplacementFlow.class,
+        client.startFlow(IwfFlows.RPC, "rpc-cache", 0);
+        final RpcFlow stub = client.newRpcStub(
+                RpcFlow.class,
                 "rpc-cache");
         client.invokeRPC(stub::setData, "value");
         final String data = client.invokeRPC(stub::getData);

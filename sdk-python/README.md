@@ -86,7 +86,7 @@ codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
 The complete legacy IWF integration inventory has a compile-only port under
-[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 29 Flow fixtures and 16
+[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 28 Flow fixtures and 16
 scenario files show the Python programming model without starting a server.
 
 ## Implementation status

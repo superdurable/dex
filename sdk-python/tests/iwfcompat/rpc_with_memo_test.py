@@ -14,7 +14,7 @@ from . import iwf_flows
 
 
 def compile_memo_replacement(client: Client) -> None:
-    flow = iwf_flows.RPC_MEMO_REPLACEMENT
+    flow = iwf_flows.RPC
     client.start_flow(flow, "rpc-cache", 0)
     client.invoke_rpc(flow.set_data, "rpc-cache", "value")
     data: str = client.invoke_rpc(flow.get_data, "rpc-cache")

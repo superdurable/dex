@@ -26,7 +26,6 @@ from .no_state_flow import NoStateFlow
 from .proceed_on_wait_failure_flow import ProceedOnWaitFailureFlow
 from .rpc_flow import RpcFlow
 from .rpc_locking_flow import RpcLockingFlow
-from .rpc_memo_replacement_flow import RpcMemoReplacementFlow
 from .set_attributes_flow import SetAttributesFlow
 from .signal_flow import SignalFlow
 from .state_failure_flow import StateFailureFlow
@@ -56,7 +55,6 @@ BASIC_PERSISTENCE = BasicPersistenceFlow()
 SET_ATTRIBUTES = SetAttributesFlow()
 RPC = RpcFlow()
 RPC_LOCKING = RpcLockingFlow()
-RPC_MEMO_REPLACEMENT = RpcMemoReplacementFlow()
 SIGNAL = SignalFlow()
 STATE_OPTIONS = StateOptionsFlow()
 STATE_OPTIONS_OVERRIDE = StateOptionsOverrideFlow()

@@ -1,6 +1,6 @@
 # IWF integration compile port
 
-This directory mirrors the complete Java `iwfcompat` inventory: 29 Flow
+This directory mirrors the complete Java `iwfcompat` inventory: 28 Flow
 fixtures and 16 integration scenario files. Every Flow has its own module;
 `iwf_flows.py` only creates the shared instances used by scenarios.
 

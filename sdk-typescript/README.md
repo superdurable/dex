@@ -81,6 +81,6 @@ Run `npm test` for runtime contracts and `npm run typecheck` for strict static
 contracts.
 
 The complete legacy IWF integration inventory has a compile-only port under
-[`test/iwfcompat`](test/iwfcompat/README.md). Its 29 Flow fixtures and 16
+[`test/iwfcompat`](test/iwfcompat/README.md). Its 28 Flow fixtures and 16
 scenario files show the TypeScript programming model without starting a
 server.

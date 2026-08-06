@@ -36,7 +36,6 @@ final class IwfFlows {
     static final SetAttributesFlow SET_ATTRIBUTES = new SetAttributesFlow();
     static final RpcFlow RPC = new RpcFlow();
     static final RpcLockingFlow RPC_LOCKING = new RpcLockingFlow();
-    static final RpcMemoReplacementFlow RPC_MEMO_REPLACEMENT = new RpcMemoReplacementFlow();
     static final SignalFlow SIGNAL = new SignalFlow();
     static final StateOptionsFlow STATE_OPTIONS = new StateOptionsFlow();
     static final StateOptionsOverrideFlow STATE_OPTIONS_OVERRIDE =

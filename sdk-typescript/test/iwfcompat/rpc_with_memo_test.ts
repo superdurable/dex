@@ -13,7 +13,7 @@ import { type Client } from "../../src/index.js";
 import * as flows from "./iwf_flows.js";
 
 export async function compileMemoReplacement(client: Client): Promise<void> {
-  const flow = flows.RPC_MEMO_REPLACEMENT;
+  const flow = flows.RPC;
   await client.startFlow(flow, "rpc-cache", 0);
   await client.invokeRPC(flow.setData, "rpc-cache", "value");
   const data: string = await client.invokeRPC(flow.getData, "rpc-cache");
