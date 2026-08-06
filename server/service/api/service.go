@@ -23,6 +23,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/blobstore"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/grpctarget"
@@ -36,7 +37,6 @@ import (
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -44,14 +44,15 @@ import (
 const defaultHistoryPageSize = 100
 
 type serviceImpl struct {
-	client         uclient.UnifiedClient
-	store          blobstore.BlobStore
-	taskQueue      string
-	logger         log.Logger
-	apiCfg         *config.ApiConfig
-	extStore       *config.ExternalStorageConfig
-	interpreterCfg *config.Interpreter
-	workerPool     *workerclient.WorkerClientPool
+	client             uclient.UnifiedClient
+	store              blobstore.BlobStore
+	taskQueue          string
+	logger             log.Logger
+	apiCfg             *config.ApiConfig
+	extStore           *config.ExternalStorageConfig
+	interpreterCfg     *config.Interpreter
+	workerPool         *workerclient.WorkerClientPool
+	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
 }
 
 func NewApiService(
@@ -74,14 +75,15 @@ func NewApiService(
 		panic("API service requires a blob store when external storage is enabled")
 	}
 	return &serviceImpl{
-		apiCfg:         apiCfg,
-		extStore:       extStore,
-		client:         client,
-		store:          store,
-		taskQueue:      taskQueue,
-		logger:         logger,
-		interpreterCfg: interpreterCfg,
-		workerPool:     workerPool,
+		apiCfg:             apiCfg,
+		extStore:           extStore,
+		client:             client,
+		store:              store,
+		taskQueue:          taskQueue,
+		logger:             logger,
+		interpreterCfg:     interpreterCfg,
+		workerPool:         workerPool,
+		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(extStore, client, store),
 	}, nil
 }
 
@@ -805,7 +807,7 @@ func (s *serviceImpl) GetHistoryEvents(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
-	if err := s.populateStoredStepEventInputs(
+	if err := s.stepInputPopulator.Populate(
 		ctx,
 		req.GetFlowId(),
 		req.GetRunId(),
@@ -818,232 +820,6 @@ func (s *serviceImpl) GetHistoryEvents(
 		NextPageToken:       history.NextPageToken,
 		NextInternalEventId: history.NextInternalEventID,
 	}, nil
-}
-
-func (s *serviceImpl) populateStoredStepEventInputs(
-	ctx context.Context,
-	flowID string,
-	runID string,
-	events []*dexpb.FlowHistoryEvent,
-) error {
-	if !hasMissingStepEventInput(events) {
-		return nil
-	}
-	if !s.extStore.Enabled {
-		markMissingStepEventInputsUnavailable(events)
-		return nil
-	}
-	description, err := s.client.DescribeWorkflowExecution(ctx, flowID, runID, nil)
-	if err != nil {
-		return err
-	}
-	for _, event := range events {
-		stepExecutionID, method := missingStepEventInputKey(event)
-		if stepExecutionID == "" {
-			continue
-		}
-		input, found, loadErr := s.loadStoredStepEventInput(
-			ctx,
-			description.StartTime,
-			flowID,
-			runID,
-			stepExecutionID,
-			method,
-		)
-		if loadErr != nil {
-			if blobstore.IsObjectUnavailable(loadErr) {
-				markStepEventInputUnavailable(event)
-				continue
-			}
-			return loadErr
-		}
-		if !found {
-			markStepEventInputUnavailable(event)
-			continue
-		}
-		if err := applyStoredStepEventInput(event, input, method); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *serviceImpl) loadStoredStepEventInput(
-	ctx context.Context,
-	runStarted time.Time,
-	flowID string,
-	runID string,
-	stepExecutionID string,
-	method string,
-) (*dexpb.InternalAsyncStepInputSnapshot, bool, error) {
-	data, found, err := s.store.ReadStepEventInput(
-		ctx,
-		runStarted,
-		flowID,
-		runID,
-		stepExecutionID,
-		method,
-	)
-	if err != nil || !found {
-		return nil, found, err
-	}
-	input := &dexpb.InternalAsyncStepInputSnapshot{}
-	if err := proto.Unmarshal(data, input); err != nil {
-		return nil, false, fmt.Errorf("unmarshal step event input: %w", err)
-	}
-	return input, true, nil
-}
-
-func hasMissingStepEventInput(events []*dexpb.FlowHistoryEvent) bool {
-	for _, event := range events {
-		stepExecutionID, _ := missingStepEventInputKey(event)
-		if stepExecutionID != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func missingStepEventInputKey(event *dexpb.FlowHistoryEvent) (string, string) {
-	switch payload := event.GetPayload().(type) {
-	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
-		if payload.StepWaitForCompleted.GetInput() == nil {
-			return payload.StepWaitForCompleted.GetContext().GetStepExecutionId(), blobstore.StepEventInputMethodWaitFor
-		}
-	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
-		if payload.StepWaitForFailed.GetInput() == nil {
-			return payload.StepWaitForFailed.GetContext().GetStepExecutionId(), blobstore.StepEventInputMethodWaitFor
-		}
-	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
-		if payload.StepExecuteCompleted.GetInput() == nil {
-			return payload.StepExecuteCompleted.GetContext().GetStepExecutionId(), blobstore.StepEventInputMethodExecute
-		}
-	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
-		if payload.StepExecuteFailed.GetInput() == nil {
-			return payload.StepExecuteFailed.GetContext().GetStepExecutionId(), blobstore.StepEventInputMethodExecute
-		}
-	}
-	return "", ""
-}
-
-func markMissingStepEventInputsUnavailable(events []*dexpb.FlowHistoryEvent) {
-	for _, event := range events {
-		stepExecutionID, _ := missingStepEventInputKey(event)
-		if stepExecutionID != "" {
-			markStepEventInputUnavailable(event)
-		}
-	}
-}
-
-func markStepEventInputUnavailable(event *dexpb.FlowHistoryEvent) {
-	switch payload := event.GetPayload().(type) {
-	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
-		payload.StepWaitForCompleted.Input = unavailableStepMethodEventInput()
-	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
-		payload.StepWaitForFailed.Input = unavailableStepMethodEventInput()
-	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
-		payload.StepExecuteCompleted.Input = unavailableStepMethodEventInput()
-	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
-		payload.StepExecuteFailed.Input = unavailableStepMethodEventInput()
-	}
-}
-
-func unavailableStepMethodEventInput() *dexpb.StepMethodEventInput {
-	return &dexpb.StepMethodEventInput{Unavailable: true}
-}
-
-func applyStoredStepEventInput(
-	event *dexpb.FlowHistoryEvent,
-	input *dexpb.InternalAsyncStepInputSnapshot,
-	method string,
-) error {
-	switch payload := event.GetPayload().(type) {
-	case *dexpb.FlowHistoryEvent_StepWaitForCompleted:
-		if method != blobstore.StepEventInputMethodWaitFor || input.GetWaitForRequest() == nil {
-			return fmt.Errorf("stored input does not match WaitFor event %d", event.GetEventId())
-		}
-		applyWaitForSnapshot(payload.StepWaitForCompleted, input)
-	case *dexpb.FlowHistoryEvent_StepWaitForFailed:
-		if method != blobstore.StepEventInputMethodWaitFor || input.GetWaitForRequest() == nil {
-			return fmt.Errorf("stored input does not match WaitFor event %d", event.GetEventId())
-		}
-		applyWaitForSnapshot(payload.StepWaitForFailed, input)
-	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
-		if method != blobstore.StepEventInputMethodExecute || input.GetExecuteRequest() == nil {
-			return fmt.Errorf("stored input does not match Execute event %d", event.GetEventId())
-		}
-		applyExecuteSnapshot(payload.StepExecuteCompleted, input)
-	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
-		if method != blobstore.StepEventInputMethodExecute || input.GetExecuteRequest() == nil {
-			return fmt.Errorf("stored input does not match Execute event %d", event.GetEventId())
-		}
-		applyExecuteSnapshot(payload.StepExecuteFailed, input)
-	}
-	return nil
-}
-
-type waitForStepEvent interface {
-	GetContext() *dexpb.StepMethodEventContext
-}
-
-func applyWaitForSnapshot(
-	event waitForStepEvent,
-	input *dexpb.InternalAsyncStepInputSnapshot,
-) {
-	request := input.GetWaitForRequest()
-	switch payload := event.(type) {
-	case *dexpb.StepWaitForCompletedEvent:
-		payload.Input = waitForStepMethodEventInput(request)
-	case *dexpb.StepWaitForFailedEvent:
-		payload.Input = waitForStepMethodEventInput(request)
-	}
-	applyStoredStepMethodContext(event.GetContext(), request.GetContext(), request.GetStepType(), input)
-}
-
-type executeStepEvent interface {
-	GetContext() *dexpb.StepMethodEventContext
-}
-
-func applyExecuteSnapshot(
-	event executeStepEvent,
-	input *dexpb.InternalAsyncStepInputSnapshot,
-) {
-	request := input.GetExecuteRequest()
-	switch payload := event.(type) {
-	case *dexpb.StepExecuteCompletedEvent:
-		payload.Input = executeStepMethodEventInput(request)
-	case *dexpb.StepExecuteFailedEvent:
-		payload.Input = executeStepMethodEventInput(request)
-	}
-	applyStoredStepMethodContext(event.GetContext(), request.GetContext(), request.GetStepType(), input)
-}
-
-func applyStoredStepMethodContext(
-	context *dexpb.StepMethodEventContext,
-	storedContext *dexpb.Context,
-	stepType string,
-	input *dexpb.InternalAsyncStepInputSnapshot,
-) {
-	context.StepExecutionId = storedContext.GetStepExecutionId()
-	context.FromStepExecutionId = storedContext.GetFromStepExecutionId()
-	context.StepType = stepType
-	context.MethodOptions = input.GetMethodOptions()
-}
-
-func waitForStepMethodEventInput(request *dexpb.InvokeWaitForMethodRequest) *dexpb.StepMethodEventInput {
-	return &dexpb.StepMethodEventInput{
-		StepInput:  request.GetStepInput(),
-		Attributes: request.GetAttributes(),
-	}
-}
-
-func executeStepMethodEventInput(request *dexpb.InvokeExecuteMethodRequest) *dexpb.StepMethodEventInput {
-	return &dexpb.StepMethodEventInput{
-		StepInput:           request.GetStepInput(),
-		ConditionResults:    request.GetConditionResults(),
-		Attributes:          request.GetAttributes(),
-		StepExecutionLocals: request.GetStepExeLocals(),
-	}
 }
 
 func (s *serviceImpl) WaitForHistoryEvent(
