@@ -528,14 +528,19 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	eventTime := event.GetEventTime().AsTime()
 	switch event.GetEventType() {
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+		attributes := event.GetWorkflowExecutionStartedEventAttributes()
 		var input dexpb.InterpreterWorkflowInput
 		if err := t.dataConverter.FromPayloads(
-			event.GetWorkflowExecutionStartedEventAttributes().GetInput(),
+			attributes.GetInput(),
 			&input,
 		); err != nil {
 			return err
 		}
-		builder.RecordStart(event.GetEventId(), eventTime, &input)
+		var flowTimeout time.Duration
+		if timeout := attributes.GetWorkflowExecutionTimeout(); timeout != nil {
+			flowTimeout = timeout.AsDuration()
+		}
+		builder.RecordStart(event.GetEventId(), eventTime, &input, flowTimeout)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
 		return t.recordTemporalScheduledActivity(
 			builder,

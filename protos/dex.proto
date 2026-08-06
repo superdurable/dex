@@ -473,6 +473,7 @@ message FlowStartedOrContinuedHistoryEvent {
   FlowExecutionID flow_execution_id = 1;
   string flow_type = 2;
   FlowConfig flow_config = 3;
+  google.protobuf.Duration flow_timeout = 4;
 
   oneof start_or_continue {
     FlowInitialStart initial_start = 10;
