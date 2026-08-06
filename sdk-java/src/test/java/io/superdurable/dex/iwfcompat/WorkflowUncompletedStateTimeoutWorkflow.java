@@ -22,27 +22,30 @@ import io.superdurable.dex.StepOptions;
 import java.time.Duration;
 
 final class WorkflowUncompletedStateTimeoutWorkflow implements Flow<Integer> {
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            throw new IllegalStateException("timeout simulation");
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .executeMethodTimeout(Duration.ofMillis(1))
-                    .build();
-        }
-    };
+    private final WorkflowUncompletedStateTimeoutStep start =
+            new WorkflowUncompletedStateTimeoutStep();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(start);
+    }
+}
+
+final class WorkflowUncompletedStateTimeoutStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        throw new IllegalStateException("timeout simulation");
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeMethodTimeout(Duration.ofMillis(1))
+                .build();
     }
 }

@@ -24,17 +24,7 @@ import io.superdurable.dex.StepDecision;
 
 final class NoStartStateDeadEndWorkflow implements Flow<Void> {
     final Channel<Void> idleSignal = Channel.define("idle-signal", Void.class);
-    private final Step<Void> start = new Step<Void>() {
-        @Override
-        public Class<Void> getInputType() {
-            return Void.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.deadEnd();
-        }
-    };
+    private final NoStartStateDeadEndStep start = new NoStartStateDeadEndStep();
 
     @Override
     public StepList<Void> getSteps() {
@@ -55,5 +45,17 @@ final class NoStartStateDeadEndWorkflow implements Flow<Void> {
     public RPCResult<Integer> publishInternal(final Context context) {
         idleSignal.publish(context, null);
         return RPCResult.of(idleSignal.size(context));
+    }
+}
+
+final class NoStartStateDeadEndStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        return StepDecision.deadEnd();
     }
 }

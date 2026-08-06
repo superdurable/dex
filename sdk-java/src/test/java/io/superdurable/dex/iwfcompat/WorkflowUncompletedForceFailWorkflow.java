@@ -19,20 +19,23 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 
 final class WorkflowUncompletedForceFailWorkflow implements Flow<Integer> {
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.forceFail("a failing message");
-        }
-    };
+    private final WorkflowUncompletedForceFailStep start =
+            new WorkflowUncompletedForceFailStep();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(start);
+    }
+}
+
+final class WorkflowUncompletedForceFailStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.forceFail("a failing message");
     }
 }

@@ -19,20 +19,22 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 
 final class BasicAbnormalExitWorkflow implements Flow<Integer> {
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            throw new IllegalStateException("abnormal exit");
-        }
-    };
+    private final BasicAbnormalExitStep start = new BasicAbnormalExitStep();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(start);
+    }
+}
+
+final class BasicAbnormalExitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        throw new IllegalStateException("abnormal exit");
     }
 }

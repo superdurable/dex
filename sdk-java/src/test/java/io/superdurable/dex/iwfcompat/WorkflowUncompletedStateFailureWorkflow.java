@@ -20,25 +20,28 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 
 final class WorkflowUncompletedStateFailureWorkflow implements Flow<Integer> {
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.skipImmediately();
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            throw new IllegalStateException("state API failure");
-        }
-    };
+    private final WorkflowUncompletedStateFailureStep start =
+            new WorkflowUncompletedStateFailureStep();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(start);
+    }
+}
+
+final class WorkflowUncompletedStateFailureStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.skipImmediately();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        throw new IllegalStateException("state API failure");
     }
 }

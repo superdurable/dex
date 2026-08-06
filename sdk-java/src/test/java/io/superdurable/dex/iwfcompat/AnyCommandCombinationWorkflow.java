@@ -30,35 +30,8 @@ final class AnyCommandCombinationWorkflow implements Flow<Integer> {
     private final Channel<Integer> first = Channel.define("test-signal-1", Integer.class);
     private final Channel<Integer> second = Channel.define("test-signal-2", Integer.class);
     private final Channel<Integer> third = Channel.define("test-signal-3", Integer.class);
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.anyCombinationOf(
-                    ConditionCombination.of(
-                            first.forOne("test-signal-1"),
-                                Timer.byDuration(Duration.ofSeconds(1), "test-timer-id")),
-                    ConditionCombination.of(
-                            second.forOne("test-signal-2"),
-                            third.forOne("test-signal-3")));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input);
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .waitForMethodTimeout(Duration.ofSeconds(1))
-                    .build();
-        }
-    };
+    private final AnyCommandCombinationStep start =
+            new AnyCommandCombinationStep(first, second, third);
 
     @Override
     public StepList<Integer> getSteps() {
@@ -68,5 +41,48 @@ final class AnyCommandCombinationWorkflow implements Flow<Integer> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(first, second, third);
+    }
+}
+
+final class AnyCommandCombinationStep implements Step<Integer> {
+    private final Channel<Integer> first;
+    private final Channel<Integer> second;
+    private final Channel<Integer> third;
+
+    AnyCommandCombinationStep(
+            final Channel<Integer> first,
+            final Channel<Integer> second,
+            final Channel<Integer> third) {
+        this.first = first;
+        this.second = second;
+        this.third = third;
+    }
+
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyCombinationOf(
+                ConditionCombination.of(
+                        first.forOne("test-signal-1"),
+                        Timer.byDuration(Duration.ofSeconds(1), "test-timer-id")),
+                ConditionCombination.of(
+                        second.forOne("test-signal-2"),
+                        third.forOne("test-signal-3")));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.gracefulComplete(input);
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .waitForMethodTimeout(Duration.ofSeconds(1))
+                .build();
     }
 }

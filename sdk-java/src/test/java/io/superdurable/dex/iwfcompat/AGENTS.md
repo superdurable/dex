@@ -6,5 +6,7 @@
   `SkipWaitUntilTest`.
 - Let each test instantiate its workflows directly. Do not add fixture
   aggregators or registries such as `IwfFlows`.
+- Never use anonymous `Step` implementations. Define named, non-public step
+  classes in the workflow file so the default `stepType` is stable.
 - Reuse one workflow across tests only when they intentionally verify the same
   contract. Do not duplicate a workflow solely to satisfy the naming rule.

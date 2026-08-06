@@ -23,26 +23,7 @@ import io.superdurable.dex.Wait;
 
 final class InternalChannelWaitingWorkflow implements Flow<Integer> {
     final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
-    private final Step<Integer> start = new Step<Integer>() {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(channel.forN(2));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            int output = input;
-            for (Integer value : channel.getConditionResults(context)) {
-                output += value;
-            }
-            return StepDecision.gracefulComplete(output);
-        }
-    };
+    private final InternalChannelWaitingStep start = new InternalChannelWaitingStep(channel);
 
     @Override
     public StepList<Integer> getSteps() {
@@ -52,5 +33,32 @@ final class InternalChannelWaitingWorkflow implements Flow<Integer> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(channel);
+    }
+}
+
+final class InternalChannelWaitingStep implements Step<Integer> {
+    private final Channel<Integer> channel;
+
+    InternalChannelWaitingStep(final Channel<Integer> channel) {
+        this.channel = channel;
+    }
+
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.allOf(channel.forN(2));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        int output = input;
+        for (Integer value : channel.getConditionResults(context)) {
+            output += value;
+        }
+        return StepDecision.gracefulComplete(output);
     }
 }
