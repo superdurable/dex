@@ -72,6 +72,8 @@ Step graph nodes separate WaitFor and Execute with distinct colors, channel name
 Timeline and Step graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
+SYNC step Context shows the immediately preceding retry failure when available,
+including worker error details and an optional stack trace.
 ## License
 
 [Super Durable Source License 1.0](LICENSE), with legacy portions under their
