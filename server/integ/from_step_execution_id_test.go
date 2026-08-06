@@ -354,11 +354,13 @@ func recordCadenceScheduledLineage(
 	switch {
 	case strings.Contains(activityType, "InvokeWaitForMethod"):
 		var input dexpb.InvokeWaitForMethodActivityInput
-		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input))
+		var localInput *dexpb.InternalLocalActivityInput
+		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input, &localInput))
 		recordStepContext(t, lineage, input.GetRequest().GetContext())
 	case strings.Contains(activityType, "InvokeExecuteMethod"):
 		var input dexpb.InvokeExecuteMethodActivityInput
-		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input))
+		var localInput *dexpb.InternalLocalActivityInput
+		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input, &localInput))
 		recordStepContext(t, lineage, input.GetRequest().GetContext())
 	}
 }
