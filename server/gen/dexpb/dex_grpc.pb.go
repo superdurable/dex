@@ -47,6 +47,7 @@ const (
 	FlowService_WaitForStepCompletion_FullMethodName = "/dex.FlowService/WaitForStepCompletion"
 	FlowService_WaitForAttribute_FullMethodName      = "/dex.FlowService/WaitForAttribute"
 	FlowService_TriggerContinueAsNew_FullMethodName  = "/dex.FlowService/TriggerContinueAsNew"
+	FlowService_GetFlowIndexInfo_FullMethodName      = "/dex.FlowService/GetFlowIndexInfo"
 	FlowService_HealthCheck_FullMethodName           = "/dex.FlowService/HealthCheck"
 )
 
@@ -75,6 +76,7 @@ type FlowServiceClient interface {
 	WaitForStepCompletion(ctx context.Context, in *WaitForStepCompletionRequest, opts ...grpc.CallOption) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	TriggerContinueAsNew(ctx context.Context, in *TriggerContinueAsNewRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	GetFlowIndexInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetFlowIndexInfoResponse, error)
 	HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error)
 }
 
@@ -276,6 +278,16 @@ func (c *flowServiceClient) TriggerContinueAsNew(ctx context.Context, in *Trigge
 	return out, nil
 }
 
+func (c *flowServiceClient) GetFlowIndexInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetFlowIndexInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFlowIndexInfoResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetFlowIndexInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthInfo)
@@ -311,6 +323,7 @@ type FlowServiceServer interface {
 	WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*emptypb.Empty, error)
 	TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error)
+	GetFlowIndexInfo(context.Context, *emptypb.Empty) (*GetFlowIndexInfoResponse, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
@@ -378,6 +391,9 @@ func (UnimplementedFlowServiceServer) WaitForAttribute(context.Context, *WaitFor
 }
 func (UnimplementedFlowServiceServer) TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerContinueAsNew not implemented")
+}
+func (UnimplementedFlowServiceServer) GetFlowIndexInfo(context.Context, *emptypb.Empty) (*GetFlowIndexInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFlowIndexInfo not implemented")
 }
 func (UnimplementedFlowServiceServer) HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HealthCheck not implemented")
@@ -745,6 +761,24 @@ func _FlowService_TriggerContinueAsNew_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetFlowIndexInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetFlowIndexInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetFlowIndexInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetFlowIndexInfo(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -847,8 +881,118 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FlowService_TriggerContinueAsNew_Handler,
 		},
 		{
+			MethodName: "GetFlowIndexInfo",
+			Handler:    _FlowService_GetFlowIndexInfo_Handler,
+		},
+		{
 			MethodName: "HealthCheck",
 			Handler:    _FlowService_HealthCheck_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "dex.proto",
+}
+
+const (
+	AdminService_ApplyFlowIndexSchema_FullMethodName = "/dex.AdminService/ApplyFlowIndexSchema"
+)
+
+// AdminServiceClient is the client API for AdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Hosted by Dex server; administrative clients manage the flow index schema.
+type AdminServiceClient interface {
+	ApplyFlowIndexSchema(ctx context.Context, in *ApplyFlowIndexSchemaRequest, opts ...grpc.CallOption) (*ApplyFlowIndexSchemaResponse, error)
+}
+
+type adminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAdminServiceClient(cc grpc.ClientConnInterface) AdminServiceClient {
+	return &adminServiceClient{cc}
+}
+
+func (c *adminServiceClient) ApplyFlowIndexSchema(ctx context.Context, in *ApplyFlowIndexSchemaRequest, opts ...grpc.CallOption) (*ApplyFlowIndexSchemaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyFlowIndexSchemaResponse)
+	err := c.cc.Invoke(ctx, AdminService_ApplyFlowIndexSchema_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AdminServiceServer is the server API for AdminService service.
+// All implementations must embed UnimplementedAdminServiceServer
+// for forward compatibility.
+//
+// Hosted by Dex server; administrative clients manage the flow index schema.
+type AdminServiceServer interface {
+	ApplyFlowIndexSchema(context.Context, *ApplyFlowIndexSchemaRequest) (*ApplyFlowIndexSchemaResponse, error)
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+// UnimplementedAdminServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAdminServiceServer struct{}
+
+func (UnimplementedAdminServiceServer) ApplyFlowIndexSchema(context.Context, *ApplyFlowIndexSchemaRequest) (*ApplyFlowIndexSchemaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyFlowIndexSchema not implemented")
+}
+func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
+func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AdminServiceServer will
+// result in compilation errors.
+type UnsafeAdminServiceServer interface {
+	mustEmbedUnimplementedAdminServiceServer()
+}
+
+func RegisterAdminServiceServer(s grpc.ServiceRegistrar, srv AdminServiceServer) {
+	// If the following call pancis, it indicates UnimplementedAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AdminService_ServiceDesc, srv)
+}
+
+func _AdminService_ApplyFlowIndexSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyFlowIndexSchemaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ApplyFlowIndexSchema(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ApplyFlowIndexSchema_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ApplyFlowIndexSchema(ctx, req.(*ApplyFlowIndexSchemaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dex.AdminService",
+	HandlerType: (*AdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ApplyFlowIndexSchema",
+			Handler:    _AdminService_ApplyFlowIndexSchema_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

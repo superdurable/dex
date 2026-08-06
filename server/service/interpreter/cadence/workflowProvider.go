@@ -29,6 +29,8 @@ type workflowProvider struct {
 	it                 InterpreterWorker
 }
 
+const unlimitedLocalActivityContextKey = "dex-unlimited-local-activity"
+
 var _ interfaces.WorkflowProvider = (*workflowProvider)(nil)
 
 func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
@@ -45,6 +47,13 @@ func (w *workflowProvider) NewFlowError(
 		panic("resp required")
 	}
 	return cadence.NewCustomError(errType.String(), resp)
+}
+
+func (w *workflowProvider) NewCanceledError(reason string) error {
+	if reason == "" {
+		return cadence.NewCanceledError()
+	}
+	return cadence.NewCanceledError(reason)
 }
 
 func (w *workflowProvider) NewUpdateError(
@@ -239,6 +248,11 @@ func (w *workflowProvider) WithActivityOptions(
 		ScheduleToCloseTimeout: localActivityTimeout,
 		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
 	})
+	if options.RetryPolicy != nil &&
+		options.RetryPolicy.GetMaximumAttempts() == 0 &&
+		options.RetryPolicy.GetTotalDurationSeconds() == 0 {
+		wfCtx3 = workflow.WithValue(wfCtx3, unlimitedLocalActivityContextKey, true)
+	}
 	return interfaces.NewUnifiedContext(wfCtx3)
 }
 
@@ -300,7 +314,17 @@ func (w *workflowProvider) ExecuteLocalActivity(
 	}
 	// Cadence local activities that call back into Cadence (DumpFlow query) can
 	// stall decision tasks; use a regular activity so CAN resume stays healthy.
-	return workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+	unlimited, _ := wfCtx.Value(unlimitedLocalActivityContextKey).(bool)
+	for {
+		err := workflow.ExecuteActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+		if err == nil || !unlimited {
+			return err
+		}
+		var canceledError *cadence.CanceledError
+		if errors.As(err, &canceledError) {
+			return err
+		}
+	}
 }
 
 func (w *workflowProvider) Now(ctx interfaces.UnifiedContext) time.Time {

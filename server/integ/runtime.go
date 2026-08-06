@@ -31,6 +31,7 @@ import (
 	temporalapi "github.com/superdurable/dex/service/client/temporal"
 	"github.com/superdurable/dex/service/common/blobstore"
 	dexconverter "github.com/superdurable/dex/service/common/converter"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/ptr"
@@ -48,10 +49,12 @@ import (
 // integRuntime is the in-process gRPC Dex stack started for one test.
 type integRuntime struct {
 	FlowClient    dexpb.FlowServiceClient
+	AdminClient   dexpb.AdminServiceClient
 	UnifiedClient uclient.UnifiedClient
 	BlobStore     blobstore.BlobStore
 
 	defaultFlowConfig *dexpb.FlowConfig
+	taskQueue         string
 
 	internalDumpCapture *internalDumpHeaderCapture
 }
@@ -159,6 +162,16 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 
 	cfg := createTestConfig(testConfig)
 	cfg.Interpreter.InterpreterActivityConfig.InternalServiceTarget = listener.Addr().String()
+	taskQueue := fmt.Sprintf("%s_INTEG_%d", service.TaskQueue, time.Now().UnixNano())
+	var flowIndexStore flowindex.Store
+	if cfg.FlowIndex.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		flowIndexStore, err = flowindex.NewParadeDBStore(context.Background(), &cfg.FlowIndex)
+		require.NoError(t, err)
+		if testConfig.FlowIndexStoreWrapper != nil {
+			flowIndexStore = testConfig.FlowIndexStoreWrapper(flowIndexStore)
+		}
+		t.Cleanup(flowIndexStore.Close)
+	}
 	workerPool, err := workerclient.NewWorkerClientPool(&cfg)
 	require.NoError(t, err)
 	t.Cleanup(workerPool.Close)
@@ -194,10 +207,11 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		worker = temporal.NewInterpreterWorker(
 			&cfg,
 			temporalClient,
-			service.TaskQueue,
+			taskQueue,
 			dataConverter,
 			unifiedClient,
 			store,
+			flowIndexStore,
 			workerPool,
 		)
 	case service.BackendTypeCadence:
@@ -231,11 +245,12 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			&cfg,
 			serviceClient,
 			dex.DefaultCadenceDomain,
-			service.TaskQueue,
+			taskQueue,
 			closeServiceClient,
 			dataConverter,
 			unifiedClient,
 			store,
+			flowIndexStore,
 			workerPool,
 		)
 	default:
@@ -246,6 +261,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	runtime := &integRuntime{
 		defaultFlowConfig:   cfg.Interpreter.DefaultWorkflowConfig,
 		internalDumpCapture: internalDumpCapture,
+		taskQueue:           taskQueue,
 	}
 	previousDumpObserver := api.DumpFlowForContinueAsNewHeaderObserver
 	api.DumpFlowForContinueAsNewHeaderObserver = func(ctx context.Context) {
@@ -260,9 +276,11 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		t,
 		listener,
 		&cfg,
+		taskQueue,
 		unifiedClient,
 		logger,
 		store,
+		flowIndexStore,
 		worker.Close,
 		workerPool,
 		newInternalDumpHeaderCaptureInterceptor(internalDumpCapture),
@@ -279,6 +297,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 
 	globalBlobStore = store
 	runtime.FlowClient = dexpb.NewFlowServiceClient(connection)
+	runtime.AdminClient = dexpb.NewAdminServiceClient(connection)
 	runtime.UnifiedClient = unifiedClient
 	runtime.BlobStore = store
 	return runtime
@@ -327,9 +346,11 @@ func startApiServer(
 	t *testing.T,
 	listener net.Listener,
 	cfg *config.Config,
+	taskQueue string,
 	unifiedClient uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	flowIndexStore flowindex.Store,
 	closeInterpreter func(),
 	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
@@ -340,9 +361,12 @@ func startApiServer(
 		&cfg.Api,
 		&cfg.ExternalStorage,
 		&cfg.Interpreter,
+		&cfg.FlowIndex,
+		taskQueue,
 		unifiedClient,
 		logger,
 		store,
+		flowIndexStore,
 		func(context.Context) error { return nil },
 		workerPool,
 		extraUnaryInterceptors...,

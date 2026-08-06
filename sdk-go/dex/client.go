@@ -227,6 +227,18 @@ type SearchFlowEntry struct {
 	StartedAt        time.Time
 	ClosedAt         time.Time
 	SearchAttributes map[string]Value
+	BM25Score        *float64
+	VectorDistance   *float64
+}
+
+type SearchQuery struct {
+	Query  string
+	Vector *SearchVectorQuery
+}
+
+type SearchVectorQuery struct {
+	IndexKey string
+	Vector   []float32
 }
 
 type SearchFlowsPage struct {
@@ -478,7 +490,7 @@ func waitForFlowValuePointers(response *dexpb.WaitForFlowResponse) []**dexpb.Val
 
 func (client *Client) SearchFlows(
 	ctx context.Context,
-	query string,
+	query SearchQuery,
 	pageSize int32,
 	nextPageToken string,
 ) (SearchFlowsPage, error) {

@@ -18,6 +18,14 @@ api:
   invokeRPCContinuedAsNewErrorRetryPolicy:
     initialIntervalSeconds: 1
     maximumAttempts: 5
+flowIndex:
+  # visibility keeps Temporal/Cadence search attributes; paradedb uses the configured PostgreSQL endpoint.
+  backend: visibility
+  paradeDB:
+    dsn: ""
+    schema: dex
+    table: flow_index
+    maxConnections: 10
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s

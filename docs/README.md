@@ -2,6 +2,7 @@
 
 ## Design
 
+* [ParadeDB Attribute Index](ParadeDB-Attribute-Index.md)
 * [Dex Design](design/Dex-Design.md)
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
 * [Transient step movement](design/transient-step-movement.md)

@@ -110,6 +110,7 @@ func (r *Runtime) createTemporalServices() (
 		converter.DataConverter(dataConverter),
 		unifiedClient,
 		store,
+		r.flowIndex,
 		r.workerPool,
 	)
 	return unifiedClient, store, worker, nil

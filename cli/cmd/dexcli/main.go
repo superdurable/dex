@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/superdurable/dex/cli/internal/dev"
+	indexcommand "github.com/superdurable/dex/cli/internal/index"
 )
 
 var (
@@ -43,6 +44,8 @@ func run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr)
+	case "index":
+		return indexcommand.Execute(ctx, args[1:], os.Stdout, os.Stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
 		return nil
@@ -59,5 +62,6 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
+	fmt.Fprintln(output, "  index     Manage the ParadeDB flow index schema")
 	fmt.Fprintln(output, "  version   Print version information")
 }

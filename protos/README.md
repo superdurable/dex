@@ -35,9 +35,10 @@ accepts no input.
 ## Search flows
 
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
-start/close times, and all search attributes supplied by the backend visibility
-API. Search attribute values use the `Value` oneof; the response does not
-expose backend index types.
+start/close times, and all search attributes supplied by the configured backend.
+`GetFlowIndexInfo` reports backend capabilities and applied field types.
+ParadeDB searches accept an optional vector query and return raw BM25 score or
+vector distance. `AdminService.ApplyFlowIndexSchema` manages additive schemas.
 
 Temporal type metadata preserves numeric types. Cadence visibility payloads do
 not include index types, so Dex infers numbers from JSON: integral JSON numbers

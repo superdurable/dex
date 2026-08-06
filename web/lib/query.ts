@@ -24,6 +24,16 @@ const quotedFields = new Set([
   'CloseTime',
 ]);
 
+const paradeStatusCodes: Record<string, number> = {
+  Running: 1,
+  Completed: 2,
+  Failed: 3,
+  TimedOut: 4,
+  Terminated: 5,
+  Canceled: 6,
+  ContinuedAsNew: 7,
+};
+
 export function escapeQueryValue(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }
@@ -38,6 +48,25 @@ export function buildVisibilityQuery(filters: BasicFilter[]): string {
         ? `"${escapeQueryValue(value)}"`
         : value;
       return `${field} ${filter.operator} ${encoded}`;
+    })
+    .join(' AND ');
+}
+
+export function buildParadeQuery(filters: BasicFilter[]): string {
+  return filters
+    .filter((filter) => filter.field.trim() && filter.value.trim())
+    .map((filter) => {
+      const field = filter.field.trim();
+      const rawValue = filter.value.trim();
+      const value = field === 'FlowStatus' && paradeStatusCodes[rawValue] !== undefined
+        ? String(paradeStatusCodes[rawValue])
+        : rawValue;
+      const encoded = /^-?\d+(\.\d+)?$/.test(value) || value === 'true' || value === 'false'
+        ? value
+        : `"${escapeQueryValue(value)}"`;
+      if (filter.operator === '=') return `${field}:${encoded}`;
+      if (filter.operator === '!=') return `NOT ${field}:${encoded}`;
+      return `${field}:${filter.operator}${encoded}`;
     })
     .join(' AND ');
 }

@@ -56,6 +56,16 @@ type Config struct {
 	StartupTimeout time.Duration
 	// ShutdownTimeout defaults to 10 seconds.
 	ShutdownTimeout time.Duration
+	// FlowIndexBackend defaults to visibility.
+	FlowIndexBackend string
+	// ParadeDBDSN is required when FlowIndexBackend is paradedb.
+	ParadeDBDSN string
+	// ParadeDBSchema defaults to dex.
+	ParadeDBSchema string
+	// ParadeDBTable defaults to flow_index.
+	ParadeDBTable string
+	// ParadeDBMaxConnections defaults to 10.
+	ParadeDBMaxConnections int
 
 	explicitLocalFlags map[string]bool
 	// blobStoreDirectoryDefault defaults true and allows TemporalDBFilename to select its adjacent store.
@@ -84,6 +94,11 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"Dex blob storage directory",
 	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", false, "open Dex Web after startup")
+	flags.StringVar(&cfg.FlowIndexBackend, "flow-index-backend", cfg.FlowIndexBackend, "visibility or paradedb")
+	flags.StringVar(&cfg.ParadeDBDSN, "paradedb-dsn", "", "ParadeDB PostgreSQL connection string")
+	flags.StringVar(&cfg.ParadeDBSchema, "paradedb-schema", cfg.ParadeDBSchema, "ParadeDB schema")
+	flags.StringVar(&cfg.ParadeDBTable, "paradedb-table", cfg.ParadeDBTable, "ParadeDB flow index table")
+	flags.IntVar(&cfg.ParadeDBMaxConnections, "paradedb-max-connections", cfg.ParadeDBMaxConnections, "ParadeDB connection pool size")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage: dexcli dev [flags]")
 		flags.PrintDefaults()
@@ -124,6 +139,10 @@ func defaultConfig() (*Config, error) {
 		BlobStoreDirectory:        blobStoreDirectory,
 		StartupTimeout:            45 * time.Second,
 		ShutdownTimeout:           10 * time.Second,
+		FlowIndexBackend:          "visibility",
+		ParadeDBSchema:            "dex",
+		ParadeDBTable:             "flow_index",
+		ParadeDBMaxConnections:    10,
 		blobStoreDirectoryDefault: true,
 	}, nil
 }
@@ -155,6 +174,15 @@ func (c *Config) validate() error {
 	}
 	if c.TemporalNamespace == "" {
 		return fmt.Errorf("temporal namespace is required")
+	}
+	if c.FlowIndexBackend != "visibility" && c.FlowIndexBackend != "paradedb" {
+		return fmt.Errorf("flow index backend must be visibility or paradedb")
+	}
+	if c.FlowIndexBackend == "paradedb" && strings.TrimSpace(c.ParadeDBDSN) == "" {
+		return fmt.Errorf("--paradedb-dsn is required with --flow-index-backend=paradedb")
+	}
+	if c.ParadeDBMaxConnections <= 0 {
+		return fmt.Errorf("ParadeDB max connections must be positive")
 	}
 	if c.TemporalAddress != "" {
 		if strings.Contains(c.TemporalAddress, "://") {

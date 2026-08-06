@@ -60,6 +60,19 @@ already contain `FlowType` (`Keyword`) and `ActiveStepTypes` (`KeywordList`).
 Select another namespace with `--temporal-namespace`. The first release uses
 plaintext endpoints; Temporal Cloud authentication is not supported yet.
 
+## ParadeDB flow indexing
+
+Start the development server with `--flow-index-backend paradedb` and
+`--paradedb-dsn`. Schema, table, and connection pool flags are also available.
+Apply an additive schema only through Dex Server:
+
+```bash
+dexcli index apply --file flow-index.yaml --address localhost:8801
+```
+
+See the [ParadeDB Attribute Index guide](../docs/ParadeDB-Attribute-Index.md)
+for schema format and terminal consistency semantics.
+
 ## Flags
 
 ```text
@@ -73,6 +86,11 @@ plaintext endpoints; Temporal Cloud authentication is not supported yet.
 --temporal-db-filename string  local Temporal SQLite file
 --blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --open                         open Dex Web after readiness
+--flow-index-backend string    visibility or paradedb (default visibility)
+--paradedb-dsn string          ParadeDB PostgreSQL connection string
+--paradedb-schema string       ParadeDB schema (default dex)
+--paradedb-table string        latest-state table (default flow_index)
+--paradedb-max-connections int connection pool size (default 10)
 ```
 
 Local-only Temporal flags cannot be combined with `--temporal-address`.

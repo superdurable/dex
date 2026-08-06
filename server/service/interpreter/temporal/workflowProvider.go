@@ -30,6 +30,8 @@ type workflowProvider struct {
 	it                 InterpreterWorker
 }
 
+const unlimitedLocalActivityContextKey = "dex-unlimited-local-activity"
+
 var _ interfaces.WorkflowProvider = (*workflowProvider)(nil)
 
 func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
@@ -46,6 +48,13 @@ func (w *workflowProvider) NewFlowError(
 		panic("resp required")
 	}
 	return temporal.NewApplicationError("", errType.String(), resp)
+}
+
+func (w *workflowProvider) NewCanceledError(reason string) error {
+	if reason == "" {
+		return temporal.NewCanceledError()
+	}
+	return temporal.NewCanceledError(reason)
 }
 
 func (w *workflowProvider) NewUpdateError(
@@ -239,6 +248,11 @@ func (w *workflowProvider) WithActivityOptions(
 		ScheduleToCloseTimeout: localActivityTimeout,
 		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),
 	})
+	if options.RetryPolicy != nil &&
+		options.RetryPolicy.GetMaximumAttempts() == 0 &&
+		options.RetryPolicy.GetTotalDurationSeconds() == 0 {
+		wfCtx3 = workflow.WithValue(wfCtx3, unlimitedLocalActivityContextKey, true)
+	}
 	return interfaces.NewUnifiedContext(wfCtx3)
 }
 
@@ -298,7 +312,17 @@ func (w *workflowProvider) ExecuteLocalActivity(
 	if !ok {
 		panic("cannot convert to temporal workflow context")
 	}
-	return workflow.ExecuteLocalActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+	unlimited, _ := wfCtx.Value(unlimitedLocalActivityContextKey).(bool)
+	for {
+		err := workflow.ExecuteLocalActivity(wfCtx, activity, args...).Get(wfCtx, valuePtr)
+		if err == nil || !unlimited {
+			return err
+		}
+		var canceledError *temporal.CanceledError
+		if errors.As(err, &canceledError) {
+			return err
+		}
+	}
 }
 
 func (w *workflowProvider) Now(ctx interfaces.UnifiedContext) time.Time {

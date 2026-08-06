@@ -289,7 +289,7 @@ func TestPersistenceFlow(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, err = integClient.SearchFlows(
 			ctx,
-			searchKeywordKey+" = 'Dex'",
+			dex.SearchQuery{Query: searchKeywordKey + " = 'Dex'"},
 			100,
 			"",
 		)

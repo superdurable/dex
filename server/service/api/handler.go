@@ -15,9 +15,9 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -30,6 +30,7 @@ var DumpFlowForContinueAsNewHeaderObserver func(context.Context)
 type handler struct {
 	dexpb.UnimplementedFlowServiceServer
 	dexpb.UnimplementedInternalServiceServer
+	dexpb.UnimplementedAdminServiceServer
 
 	svc    ApiService
 	logger log.Logger
@@ -39,19 +40,24 @@ func newHandler(
 	apiCfg *config.ApiConfig,
 	extStore *config.ExternalStorageConfig,
 	interpreterCfg *config.Interpreter,
+	flowIndexCfg *config.FlowIndexConfig,
+	taskQueue string,
 	client uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	flowIndex flowindex.Store,
 	workerPool *workerclient.WorkerClientPool,
 ) *handler {
 	svc, err := NewApiService(
 		apiCfg,
 		extStore,
 		interpreterCfg,
+		flowIndexCfg,
 		client,
-		service.TaskQueue,
+		taskQueue,
 		logger,
 		store,
+		flowIndex,
 		workerPool,
 	)
 	if err != nil {
@@ -121,6 +127,20 @@ func (h *handler) SearchFlows(
 	req *dexpb.SearchFlowsRequest,
 ) (*dexpb.SearchFlowsResponse, error) {
 	return h.svc.SearchFlows(ctx, req)
+}
+
+func (h *handler) GetFlowIndexInfo(
+	ctx context.Context,
+	req *emptypb.Empty,
+) (*dexpb.GetFlowIndexInfoResponse, error) {
+	return h.svc.GetFlowIndexInfo(ctx, req)
+}
+
+func (h *handler) ApplyFlowIndexSchema(
+	ctx context.Context,
+	req *dexpb.ApplyFlowIndexSchemaRequest,
+) (*dexpb.ApplyFlowIndexSchemaResponse, error) {
+	return h.svc.ApplyFlowIndexSchema(ctx, req)
 }
 
 func (h *handler) GetFlowSummary(

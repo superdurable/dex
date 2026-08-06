@@ -81,6 +81,12 @@ This by default will run Temporal server with it, again:
 ## Production
 Check the [wiki](https://github.com/superdurable/dex/wiki/Dex-Server-Operations#how-to-deploy).
 
+## Attribute index backend
+
+Dex defaults to Temporal/Cadence visibility indexing. Deployments that need a
+higher write budget or vector search can select ParadeDB and manage its schema
+through Dex Server. See the [ParadeDB Attribute Index guide](../docs/ParadeDB-Attribute-Index.md).
+
 # Support
 
 Join our Slack channel! [![Slack Status](https://img.shields.io/badge/slack-join_chat-white.svg?logo=slack&style=social)](http://dex-slack.work)

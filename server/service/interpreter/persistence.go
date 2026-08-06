@@ -20,7 +20,8 @@ import (
 )
 
 type PersistenceManager struct {
-	provider interfaces.WorkflowProvider
+	provider          interfaces.WorkflowProvider
+	indexSynchronizer *IndexSynchronizer
 
 	attributes map[string]*dexpb.Value
 
@@ -30,6 +31,7 @@ type PersistenceManager struct {
 func NewPersistenceManager(
 	provider interfaces.WorkflowProvider,
 	initialAttributes []*dexpb.KV,
+	indexSynchronizer *IndexSynchronizer,
 ) *PersistenceManager {
 	if provider == nil {
 		panic("PersistenceManager requires a WorkflowProvider")
@@ -44,8 +46,9 @@ func NewPersistenceManager(
 	}
 
 	return &PersistenceManager{
-		provider:   provider,
-		attributes: attributes,
+		provider:          provider,
+		indexSynchronizer: indexSynchronizer,
+		attributes:        attributes,
 		// locks will not be carried over during continueAsNew
 		lockedKeys: map[string]bool{},
 	}
@@ -106,6 +109,17 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 	writes []*dexpb.AttributeWrite,
 ) error {
 	if len(writes) == 0 {
+		return nil
+	}
+	if am.indexSynchronizer != nil {
+		for _, write := range writes {
+			if utils.IsNullValue(write.GetValue()) {
+				delete(am.attributes, write.GetKey())
+				continue
+			}
+			am.attributes[write.GetKey()] = write.GetValue()
+		}
+		am.indexSynchronizer.ApplyAttributeWrites(writes)
 		return nil
 	}
 

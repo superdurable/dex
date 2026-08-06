@@ -38,6 +38,7 @@ type ContinueAsNewer struct {
 	persistenceManager   *PersistenceManager
 	outputCollector      *OutputCollector
 	timerProcessor       interfaces.TimerProcessor
+	indexSynchronizer    *IndexSynchronizer
 }
 
 func NewContinueAsNewer(
@@ -46,6 +47,7 @@ func NewContinueAsNewer(
 	channelStore *ChannelStore, stepExecutionCounter *StepExecutionCounter,
 	persistenceManager *PersistenceManager, stepRequestQueue *StepRequestQueue, collector *OutputCollector,
 	timerProcessor interfaces.TimerProcessor,
+	indexSynchronizer *IndexSynchronizer,
 ) *ContinueAsNewer {
 	if apiCfg == nil || provider == nil || stepRequestQueue == nil || channelStore == nil ||
 		stepExecutionCounter == nil || persistenceManager == nil || collector == nil ||
@@ -65,6 +67,7 @@ func NewContinueAsNewer(
 		persistenceManager:   persistenceManager,
 		outputCollector:      collector,
 		timerProcessor:       timerProcessor,
+		indexSynchronizer:    indexSynchronizer,
 	}
 }
 
@@ -158,7 +161,7 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 			localStepExecutionToResumeMap[key],
 		)
 	}
-	return &dexpb.ContinueAsNewDump{
+	snapshot := &dexpb.ContinueAsNewDump{
 		ChannelReceived:           c.channelStore.GetAllReceived(),
 		CounterInfo:               c.stepExecutionCounter.Dump(),
 		Attributes:                c.persistenceManager.GetAllAttributes(),
@@ -169,6 +172,12 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 			c.stepExecutionCounter.IsStepExecutionActive,
 		),
 	}
+	if c.indexSynchronizer != nil {
+		snapshot.IndexedProjection = c.indexSynchronizer.Projection()
+		snapshot.PendingIndexMutations = c.indexSynchronizer.Pending()
+		snapshot.NextIndexMutationSequence = c.indexSynchronizer.NextSequence()
+	}
+	return snapshot
 }
 
 func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExecutionState {

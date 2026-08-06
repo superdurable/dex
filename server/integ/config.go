@@ -13,6 +13,7 @@ package integ
 import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/flowindex"
 )
 
 const testNamespace = "default"
@@ -20,12 +21,14 @@ const testNamespace = "default"
 // Api.Port / fixed worker ports are unused: startWorker and startDexService bind 127.0.0.1:0.
 
 type DexServiceTestConfig struct {
-	BackendType        service.BackendType
-	MemoEncryption     bool
-	DefaultHeaders     map[string]string
-	S3TestThreshold    int
-	LocalBlobDirectory string
-	LocalBlobThreshold int
+	BackendType           service.BackendType
+	MemoEncryption        bool
+	DefaultHeaders        map[string]string
+	S3TestThreshold       int
+	LocalBlobDirectory    string
+	LocalBlobThreshold    int
+	FlowIndex             config.FlowIndexConfig
+	FlowIndexStoreWrapper func(flowindex.Store) flowindex.Store
 	// LazyLoading overrides ExternalStorage.LazyLoading when S3 is enabled.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
@@ -33,6 +36,7 @@ type DexServiceTestConfig struct {
 
 func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 	cfg := config.Config{
+		FlowIndex: testCfg.FlowIndex,
 		Api: config.ApiConfig{
 			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
 			QueryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicy{

@@ -61,9 +61,12 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The Flows page provides Basic and Advanced visibility queries, pagination,
-saved queries, configurable columns, custom search attributes, and timezone
-preferences.
+The Flows page reads backend/schema capabilities from Dex Server. It provides
+Basic and Advanced visibility or ParadeDB queries, pagination, saved queries,
+configurable columns, custom search attributes, and timezone preferences.
+ParadeDB vector fields enable a Vector editor with schema dimensions, metric,
+an optional strict filter, and raw distance results. Vector values are collapsed
+by default.
 
 The Run page provides Overview, Step graph, Timeline, active/waiting state,
 attributes, timers, queued steps, channels, completed outputs, and reset.

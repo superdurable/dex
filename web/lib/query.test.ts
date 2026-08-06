@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { describe, expect, it } from 'vitest';
-import { buildVisibilityQuery, parseVisibilityQuery } from './query';
+import { buildParadeQuery, buildVisibilityQuery, parseVisibilityQuery } from './query';
 
 describe('visibility query', () => {
   it('builds the basic filters used by the search page', () => {
@@ -24,5 +24,15 @@ describe('visibility query', () => {
 
   it('keeps unsupported advanced syntax in advanced mode', () => {
     expect(parseVisibilityQuery('ExecutionStatus IN ("Running", "Failed")')).toBeNull();
+  });
+});
+
+describe('ParadeDB query', () => {
+  it('builds typed filters and maps flow statuses', () => {
+    expect(buildParadeQuery([
+      { id: '1', field: 'FlowStatus', operator: '=', value: 'Canceled' },
+      { id: '2', field: 'priority', operator: '>=', value: '10' },
+      { id: '3', field: 'ready', operator: '=', value: 'true' },
+    ])).toBe('FlowStatus:6 AND priority:>=10 AND ready:true');
   });
 });

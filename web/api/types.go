@@ -14,9 +14,15 @@ type errorResponse struct {
 }
 
 type searchFlowsRequest struct {
-	Query         string `json:"query"`
-	PageSize      int32  `json:"pageSize"`
-	NextPageToken string `json:"nextPageToken"`
+	Query         string             `json:"query"`
+	PageSize      int32              `json:"pageSize"`
+	NextPageToken string             `json:"nextPageToken"`
+	VectorQuery   *searchVectorQuery `json:"vectorQuery"`
+}
+
+type searchVectorQuery struct {
+	IndexKey string    `json:"indexKey"`
+	Vector   []float32 `json:"vector"`
 }
 
 type searchFlowsResponse struct {
@@ -33,6 +39,22 @@ type flowExecution struct {
 	StartTime        *string    `json:"startTime"`
 	CloseTime        *string    `json:"closeTime"`
 	SearchAttributes []keyValue `json:"searchAttributes"`
+	BM25Score        *float64   `json:"bm25Score,omitempty"`
+	VectorDistance   *float64   `json:"vectorDistance,omitempty"`
+}
+
+type flowIndexInfo struct {
+	Backend       string           `json:"backend"`
+	SchemaVersion int64            `json:"schemaVersion"`
+	Fields        []flowIndexField `json:"fields"`
+}
+
+type flowIndexField struct {
+	Name             string `json:"name"`
+	Type             string `json:"type"`
+	VectorDimensions int32  `json:"vectorDimensions,omitempty"`
+	VectorMetric     string `json:"vectorMetric,omitempty"`
+	System           bool   `json:"system"`
 }
 
 type keyValue struct {

@@ -12,6 +12,17 @@ version: '3.9'
 
 # see .env file for the default value of the environment variables
 services:
+  paradedb:
+    container_name: paradedb-dex
+    environment:
+      POSTGRES_DB: dex
+      POSTGRES_PASSWORD: dex
+      POSTGRES_USER: dex
+    image: paradedb/paradedb:latest
+    networks:
+      - temporal-network
+    ports:
+      - 5433:5432
   elasticsearch:
     container_name: temporal-elasticsearch-dex
     environment:

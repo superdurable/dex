@@ -89,7 +89,6 @@ func doTestWorkflowCanceled(
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -186,7 +185,6 @@ func doTestWorkflowFail(
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),

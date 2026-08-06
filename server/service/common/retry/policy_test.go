@@ -34,6 +34,18 @@ func TestConvertCadenceActivityRetryPolicyHonorsExplicitMaximumAttempts(t *testi
 	require.Equal(t, int32(1), policy.MaximumAttempts)
 }
 
+func TestConvertCadenceActivityRetryPolicyUsesYearForUnlimitedWriter(t *testing.T) {
+	policy := ConvertCadenceActivityRetryPolicy(&dexpb.RetryPolicy{
+		InitialIntervalSeconds: 1,
+		MaximumIntervalSeconds: 30,
+		BackoffCoefficient:     2,
+	})
+	require.Equal(t, time.Second, policy.InitialInterval)
+	require.Equal(t, 30*time.Second, policy.MaximumInterval)
+	require.Equal(t, int32(0), policy.MaximumAttempts)
+	require.Equal(t, time.Hour*24*365, policy.ExpirationInterval)
+}
+
 func TestConvertTemporalActivityRetryPolicyNilStaysNil(t *testing.T) {
 	require.Nil(t, ConvertTemporalActivityRetryPolicy(nil))
 }

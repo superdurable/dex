@@ -288,7 +288,7 @@ func searchOrders(
 ) (dex.SearchFlowsPage, error) {
 	return client.SearchFlows(
 		ctx,
-		"order-status = 'shipped'",
+		dex.SearchQuery{Query: "order-status = 'shipped'"},
 		100,
 		"",
 	)
