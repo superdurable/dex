@@ -68,6 +68,16 @@ waits.
 
 `ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
 accept a configured mapper when needed. Java does not expose a public Codec API.
+Workers use a builder so optional transport settings remain readable:
+
+```java
+WorkerOptions options = WorkerOptions.newBuilder()
+        .bindAddress(":8803")
+        .serverAddress("localhost:8801")
+        .objectMapper(objectMapper)
+        .build();
+```
+
 `Flow.getSteps()` returns non-generic `StepDef` wrappers. Use
 `StepDef.startStep(step)` once at most and `StepDef.nonStartStep(step)` for all
 other Steps.

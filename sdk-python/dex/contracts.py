@@ -1127,7 +1127,7 @@ class StopFlowOptions:
 
 @dataclass(frozen=True)
 class ClientOptions:
-    flow_service_address: str = "localhost:8801"
+    server_address: str = "localhost:8801"
     worker_target: WorkerTarget | None = None
 
 
@@ -1135,9 +1135,7 @@ class ClientOptions:
 class WorkerOptions:
     bind_address: str = ":8803"
     worker_target: WorkerTarget | None = None
-    flow_service_address: str = "localhost:8801"
-    max_concurrent_invocations: int = 32
-    activation_queue_capacity: int = 64
+    server_address: str = "localhost:8801"
 
 
 class Client:

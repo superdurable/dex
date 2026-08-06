@@ -11,7 +11,7 @@ import type { RetryPolicy, StepDurability } from "./step.js";
 import { requireName } from "./validation.js";
 
 export interface ClientOptions {
-  readonly flowServiceAddress?: string;
+  readonly serverAddress?: string;
   readonly workerTarget?: WorkerTarget;
 }
 
@@ -142,9 +142,7 @@ export interface StopFlowOptions {
 export interface WorkerOptions {
   readonly bindAddress?: string;
   readonly workerTarget?: WorkerTarget;
-  readonly flowServiceAddress?: string;
-  readonly maxConcurrentInvocations?: number;
-  readonly activationQueueCapacity?: number;
+  readonly serverAddress?: string;
 }
 
 export interface WorkerTarget {

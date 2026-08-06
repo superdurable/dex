@@ -89,12 +89,15 @@ public class UserContractsTest {
     public void optionsAcceptDefaultAndCustomObjectMappers() {
         final ObjectMapper mapper = new ObjectMapper();
         final ClientOptions clientOptions = new ClientOptions("localhost:8801", null, mapper);
-        final WorkerOptions workerOptions = new WorkerOptions(
-                ":8803", null, "localhost:8801", 32, 64, mapper);
+        final WorkerOptions workerOptions = WorkerOptions.newBuilder()
+                .bindAddress(":8803")
+                .serverAddress("localhost:8801")
+                .objectMapper(mapper)
+                .build();
         Assertions.assertNotNull(clientOptions);
         Assertions.assertNotNull(workerOptions);
         Assertions.assertNotNull(new ClientOptions());
-        Assertions.assertNotNull(new WorkerOptions());
+        Assertions.assertNotNull(WorkerOptions.newBuilder().build());
     }
 
     @Test

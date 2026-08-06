@@ -16,7 +16,7 @@ public final class Worker implements AutoCloseable {
     private final WorkerOptions options;
 
     public Worker(final Registry registry, final BlobCache blobCache) {
-        this(registry, blobCache, new WorkerOptions());
+        this(registry, blobCache, WorkerOptions.newBuilder().build());
     }
 
     public Worker(

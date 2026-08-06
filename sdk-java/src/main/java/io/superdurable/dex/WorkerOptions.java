@@ -19,46 +19,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public final class WorkerOptions {
     private final String bindAddress;
     private final WorkerTarget workerTarget;
-    private final String flowServiceAddress;
-    private final int maxConcurrentInvocations;
-    private final int activationQueueCapacity;
+    private final String serverAddress;
     private final ObjectMapper objectMapper;
 
-    public WorkerOptions() {
-        this(":8803", null, "localhost:8801", 32, 64, new ObjectMapper());
+    private WorkerOptions(final Builder builder) {
+        this.bindAddress = builder.bindAddress;
+        this.workerTarget = builder.workerTarget;
+        this.serverAddress = builder.serverAddress;
+        this.objectMapper = builder.objectMapper;
     }
 
-    public WorkerOptions(
-            final String bindAddress,
-            final WorkerTarget workerTarget,
-            final String flowServiceAddress,
-            final int maxConcurrentInvocations,
-            final int activationQueueCapacity) {
-        this(
-                bindAddress,
-                workerTarget,
-                flowServiceAddress,
-                maxConcurrentInvocations,
-                activationQueueCapacity,
-                new ObjectMapper());
-    }
-
-    public WorkerOptions(
-            final String bindAddress,
-            final WorkerTarget workerTarget,
-            final String flowServiceAddress,
-            final int maxConcurrentInvocations,
-            final int activationQueueCapacity,
-            final ObjectMapper objectMapper) {
-        if (objectMapper == null) {
-            throw new IllegalArgumentException("objectMapper is required");
-        }
-        this.bindAddress = bindAddress;
-        this.workerTarget = workerTarget;
-        this.flowServiceAddress = flowServiceAddress;
-        this.maxConcurrentInvocations = maxConcurrentInvocations;
-        this.activationQueueCapacity = activationQueueCapacity;
-        this.objectMapper = objectMapper;
+    public static Builder newBuilder() {
+        return new Builder();
     }
 
     String getBindAddress() {
@@ -69,19 +41,48 @@ public final class WorkerOptions {
         return workerTarget;
     }
 
-    String getFlowServiceAddress() {
-        return flowServiceAddress;
-    }
-
-    int getMaxConcurrentInvocations() {
-        return maxConcurrentInvocations;
-    }
-
-    int getActivationQueueCapacity() {
-        return activationQueueCapacity;
+    String getServerAddress() {
+        return serverAddress;
     }
 
     ObjectMapper getObjectMapper() {
         return objectMapper;
+    }
+
+    public static final class Builder {
+        private String bindAddress = ":8803";
+        private WorkerTarget workerTarget;
+        private String serverAddress = "localhost:8801";
+        private ObjectMapper objectMapper = new ObjectMapper();
+
+        private Builder() {
+        }
+
+        public Builder bindAddress(final String value) {
+            this.bindAddress = value;
+            return this;
+        }
+
+        public Builder workerTarget(final WorkerTarget value) {
+            this.workerTarget = value;
+            return this;
+        }
+
+        public Builder serverAddress(final String value) {
+            this.serverAddress = value;
+            return this;
+        }
+
+        public Builder objectMapper(final ObjectMapper value) {
+            if (value == null) {
+                throw new IllegalArgumentException("objectMapper is required");
+            }
+            this.objectMapper = value;
+            return this;
+        }
+
+        public WorkerOptions build() {
+            return new WorkerOptions(this);
+        }
     }
 }

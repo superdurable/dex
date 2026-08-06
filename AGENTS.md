@@ -31,6 +31,11 @@ only when a section genuinely doesn't apply.
 
 ## Code Quality Rules
 
+### Commit Every Changing Turn
+
+End every turn that changes repository files with one commit. Do not create
+empty commits for discussion-only turns.
+
 ### License Headers
 
 Every new or edited `.go` / `.java` / `.py` / `.rs` / `.proto` file, Web

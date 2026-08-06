@@ -17,7 +17,7 @@ package io.superdurable.dex;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public final class ClientOptions {
-    private final String flowServiceAddress;
+    private final String serverAddress;
     private final WorkerTarget workerTarget;
     private final ObjectMapper objectMapper;
 
@@ -25,30 +25,30 @@ public final class ClientOptions {
         this("localhost:8801", null, new ObjectMapper());
     }
 
-    public ClientOptions(final String flowServiceAddress) {
-        this(flowServiceAddress, null, new ObjectMapper());
+    public ClientOptions(final String serverAddress) {
+        this(serverAddress, null, new ObjectMapper());
     }
 
     public ClientOptions(
-            final String flowServiceAddress,
+            final String serverAddress,
             final WorkerTarget workerTarget) {
-        this(flowServiceAddress, workerTarget, new ObjectMapper());
+        this(serverAddress, workerTarget, new ObjectMapper());
     }
 
     public ClientOptions(
-            final String flowServiceAddress,
+            final String serverAddress,
             final WorkerTarget workerTarget,
             final ObjectMapper objectMapper) {
         if (objectMapper == null) {
             throw new IllegalArgumentException("objectMapper is required");
         }
-        this.flowServiceAddress = flowServiceAddress;
+        this.serverAddress = serverAddress;
         this.workerTarget = workerTarget;
         this.objectMapper = objectMapper;
     }
 
-    String getFlowServiceAddress() {
-        return flowServiceAddress;
+    String getServerAddress() {
+        return serverAddress;
     }
 
     WorkerTarget getWorkerTarget() {
