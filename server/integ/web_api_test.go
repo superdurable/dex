@@ -797,7 +797,9 @@ func testWebHistoryAndSummary(
 		startResponse.GetRunId(),
 	)
 	require.NotEmpty(t, firstRunEvents)
-	initialStart := firstRunEvents[0].GetFlowStartedOrContinued().GetInitialStart()
+	flowStarted := firstRunEvents[0].GetFlowStartedOrContinued()
+	require.Equal(t, time.Minute, flowStarted.GetFlowTimeout().AsDuration())
+	initialStart := flowStarted.GetInitialStart()
 	require.NotNil(t, initialStart)
 	require.NotEmpty(t, initialStart.GetStepInput().GetInternalBlobIdForStringValue())
 	require.Len(t, initialStart.GetInitialAttributes(), 1)

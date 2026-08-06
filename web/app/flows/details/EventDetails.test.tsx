@@ -302,3 +302,22 @@ describe('selected step event details', () => {
     expect(markup).toContain('rpc-account');
   });
 });
+
+describe('flow start event details', () => {
+  it('renders the configured flow timeout', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        flowTimeout: '60s',
+        initialStart: { startStepType: 'charge' },
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Flow timeout');
+    expect(markup).toContain('1m');
+  });
+});

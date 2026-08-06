@@ -500,14 +500,20 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 	eventTime := time.Unix(0, event.GetTimestamp())
 	switch event.GetEventType() {
 	case shared.EventTypeWorkflowExecutionStarted:
+		attributes := event.GetWorkflowExecutionStartedEventAttributes()
 		var input dexpb.InterpreterWorkflowInput
 		if err := t.converter.FromData(
-			event.GetWorkflowExecutionStartedEventAttributes().GetInput(),
+			attributes.GetInput(),
 			&input,
 		); err != nil {
 			return err
 		}
-		builder.RecordStart(event.GetEventId(), eventTime, &input)
+		flowTimeoutSeconds := attributes.GetExecutionStartToCloseTimeoutSeconds()
+		flowTimeout := time.Duration(flowTimeoutSeconds) * time.Second
+		if flowTimeoutSeconds == math.MaxInt32 {
+			flowTimeout = 0
+		}
+		builder.RecordStart(event.GetEventId(), eventTime, &input, flowTimeout)
 	case shared.EventTypeActivityTaskScheduled:
 		return t.recordCadenceScheduledActivity(
 			builder,
