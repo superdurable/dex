@@ -123,9 +123,9 @@ func TestFlowCancel(t *testing.T) {
 	flowID := newFlowID(t, "flow-cancel")
 	_, err := integClient.StartFlow(
 		ctx,
-		channelFlow{},
+		noStartStepFlow{},
 		flowID,
-		struct{}{},
+		nil,
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
