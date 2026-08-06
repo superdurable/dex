@@ -59,6 +59,10 @@ Each step method event also returns its effective timeout and retry policy.
 Regular Activity options come from the scheduled event; local Activity options
 are retained with the stored request.
 
+Retried sync methods expose the latest Activity Started failure as
+`last_failure_info`, including decoded Dex error details and any backend stack
+trace. Async methods leave this field unset.
+
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store
 IDs are omitted from the response map so callers can render them as unavailable.

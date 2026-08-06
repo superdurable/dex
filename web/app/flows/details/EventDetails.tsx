@@ -414,6 +414,7 @@ function StepDecisionContent({ value }: { value: unknown }) {
 function FailureContent({ value }: { value: unknown }) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
+  const details = asData(failure.details);
   const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.errorType)
     : failure.errorType;
@@ -421,10 +422,21 @@ function FailureContent({ value }: { value: unknown }) {
     <div className="semantic-alert">
       {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
       <Fields values={[
-        ['Type', errorType],
+        ['Error type', errorType],
         ['Retry state', failure.retryState],
       ]} />
-      {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
+      {hasData(details) && <Fields compact values={[
+        ['Detail', details.detail],
+        ['Worker error type', details.originalWorkerErrorType],
+        ['Worker error detail', details.originalWorkerErrorDetail],
+        ['Worker gRPC status', details.originalWorkerErrorStatus],
+      ]} />}
+      {isPresent(failure.stackTrace) && (
+        <div className="semantic-stack-trace">
+          <span>Stack trace</span>
+          <pre>{String(failure.stackTrace)}</pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -487,6 +499,8 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
   const context = asData(request.context);
   const response = asData(payload.response);
   const previousFailures = asDataArray(execution.previousAttemptFailures);
+  const lastFailure = asData(execution.lastFailureInfo);
+  const earlierFailures = hasData(lastFailure) ? previousFailures.slice(0, -1) : previousFailures;
   const isWaitFor = event.type.startsWith('StepWaitFor');
   const hasRequest = hasData(request);
   return (
@@ -542,10 +556,22 @@ function StepMethodDetails({ event }: { event: FlowHistoryEvent }) {
           ['Duration', execution.duration],
         ]} />
         <StepMethodOptionsView value={execution.methodOptions} />
-        {previousFailures.length > 0 && (
+        {hasData(lastFailure) && (
           <div className="semantic-subsection">
-            <h5>Previous attempts</h5>
-            {previousFailures.map((attempt, index) => (
+            <h5>Last failure</h5>
+            <div className="semantic-record">
+              <Fields compact values={[
+                ['Attempt', lastFailure.attempt],
+                ['Failed at', lastFailure.failedTime],
+              ]} />
+              <FailureContent value={lastFailure.failure} />
+            </div>
+          </div>
+        )}
+        {earlierFailures.length > 0 && (
+          <div className="semantic-subsection">
+            <h5>{hasData(lastFailure) ? 'Earlier failures' : 'Previous attempts'}</h5>
+            {earlierFailures.map((attempt, index) => (
               <div className="semantic-record" key={index}>
                 <Fields values={[
                   ['Attempt', attempt.attempt],

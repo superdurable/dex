@@ -545,14 +545,18 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_STARTED:
 		attributes := event.GetActivityTaskStartedEventAttributes()
+		lastFailure, err := t.temporalStepFailure(
+			attributes.GetLastFailure(),
+			enums.RETRY_STATE_IN_PROGRESS.String(),
+		)
+		if err != nil {
+			return err
+		}
 		builder.RecordActivityStarted(
 			eventTime,
 			attributes.GetScheduledEventId(),
 			attributes.GetAttempt(),
-			temporalStepFailure(
-				attributes.GetLastFailure(),
-				enums.RETRY_STATE_IN_PROGRESS.String(),
-			),
+			lastFailure,
 		)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
 		return t.recordTemporalCompletedActivity(builder, scheduledTypes, event)
@@ -561,11 +565,18 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
 			return nil
 		}
+		failure, err := t.temporalStepFailure(
+			attributes.GetFailure(),
+			attributes.GetRetryState().String(),
+		)
+		if err != nil {
+			return err
+		}
 		return builder.RecordActivityFailed(
 			event.GetEventId(),
 			eventTime,
 			attributes.GetScheduledEventId(),
-			temporalStepFailure(attributes.GetFailure(), attributes.GetRetryState().String()),
+			failure,
 		)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
 		attributes := event.GetActivityTaskTimedOutEventAttributes()
@@ -770,16 +781,20 @@ func (t *temporalClient) recordTemporalLocalActivity(
 	}
 	result := attributes.GetDetails()["result"]
 	if result == nil {
+		failure, err := t.temporalStepFailure(
+			attributes.GetFailure(),
+			enums.RETRY_STATE_IN_PROGRESS.String(),
+		)
+		if err != nil {
+			return err
+		}
 		method := activityMethod(marker.ActivityType)
 		fallbackFailures[method] = append(
 			fallbackFailures[method],
 			&dexpb.StepMethodAttemptFailure{
 				Attempt:    marker.Attempt,
 				FailedTime: event.GetEventTime(),
-				Failure: temporalStepFailure(
-					attributes.GetFailure(),
-					enums.RETRY_STATE_IN_PROGRESS.String(),
-				),
+				Failure:    failure,
 			},
 		)
 		return nil
@@ -821,23 +836,33 @@ func (t *temporalClient) recordTemporalLocalActivity(
 	return nil
 }
 
-func temporalStepFailure(
+func (t *temporalClient) temporalStepFailure(
 	failure *failurepb.Failure,
 	retryState string,
-) *dexpb.StepMethodFailure {
+) (*dexpb.StepMethodFailure, error) {
 	if failure == nil {
-		return &dexpb.StepMethodFailure{RetryState: retryState}
+		return &dexpb.StepMethodFailure{RetryState: retryState}, nil
 	}
 	errorType := ""
-	if failure.GetApplicationFailureInfo() != nil {
-		errorType = failure.GetApplicationFailureInfo().GetType()
+	applicationFailure := failure.GetApplicationFailureInfo()
+	if applicationFailure != nil {
+		errorType = applicationFailure.GetType()
 	}
-	return &dexpb.StepMethodFailure{
+	stepFailure := &dexpb.StepMethodFailure{
 		Message:    failure.GetMessage(),
 		ErrorType:  errorType,
 		StackTrace: failure.GetStackTrace(),
 		RetryState: retryState,
 	}
+	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
+		return stepFailure, nil
+	}
+	details := &dexpb.ErrorResponse{}
+	if err := t.dataConverter.FromPayloads(applicationFailure.GetDetails(), details); err != nil {
+		return nil, fmt.Errorf("decode step failure details: %w", err)
+	}
+	stepFailure.Details = details
+	return stepFailure, nil
 }
 
 func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {

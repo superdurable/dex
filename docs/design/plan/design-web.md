@@ -261,6 +261,7 @@ message StepMethodFailure {
   string error_type = 2;
   string stack_trace = 3;
   string retry_state = 4;
+  ErrorResponse details = 5;
 }
 
 message StepMethodAttemptFailure {
@@ -285,6 +286,7 @@ message StepMethodExecutionInfo {
   google.protobuf.Duration duration = 8;
   repeated StepMethodAttemptFailure previous_attempt_failures = 9;
   StepMethodOptions method_options = 10;
+  StepMethodAttemptFailure last_failure_info = 11;
 }
 
 message StepWaitForCompletedEvent {
@@ -328,6 +330,10 @@ semantic event 的 `request`。Web 不区分 SYNC/ASYNC 的 input 来源。Ident
 Activity 从 scheduled event 获得 request、timeout 和 retry policy。存储路径由 run、
 step execution 和 method 确定。未启用存储或数据已清理时，event 设置
 `input_unavailable=true`。
+
+SYNC Activity retry 后，server 从下一次 Activity Started 提取上一 attempt 的
+failure，解码 Dex `ErrorResponse`，并写入 `last_failure_info`。ASYNC event 不设置
+该字段；Web 在 Context 中单独展示最后失败信息与 backend 提供的 stack trace。
 
 `from_step_execution_id` 只接受 server 写入的值：
 

@@ -15,6 +15,10 @@ Missing values are labeled `Value blob unavailable`; missing local-activity
 requests are labeled `Step event input blob unavailable`. Neither exposes blob
 IDs or storage paths.
 
+The selected-event Context displays the latest sync retry failure separately,
+including the Dex error detail, error type, retry state, and stack trace when
+the backend provides one.
+
 ## Run through dexcli
 
 ```bash

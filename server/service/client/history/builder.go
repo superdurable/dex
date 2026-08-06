@@ -554,7 +554,18 @@ func executionInfo(
 		Duration:                durationpb.New(completedTime.Sub(startedTime)),
 		PreviousAttemptFailures: previousFailures,
 		MethodOptions:           methodOptions,
+		LastFailureInfo:         lastSyncFailureInfo(durability, previousFailures),
 	}
+}
+
+func lastSyncFailureInfo(
+	durability dexpb.StepDurability,
+	previousFailures []*dexpb.StepMethodAttemptFailure,
+) *dexpb.StepMethodAttemptFailure {
+	if durability != dexpb.StepDurability_STEP_DURABILITY_SYNC || len(previousFailures) == 0 {
+		return nil
+	}
+	return previousFailures[len(previousFailures)-1]
 }
 
 func localExecutionInfo(

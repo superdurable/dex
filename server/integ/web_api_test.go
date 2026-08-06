@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 	"github.com/superdurable/dex/integ/workflow/wf_state_api_fail"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -80,6 +83,94 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("parallel-attribute-snapshots", func(t *testing.T) {
 		testWebParallelAttributeSnapshots(t, backendType)
 	})
+	t.Run("sync-last-failure", func(t *testing.T) {
+		testWebSyncLastFailure(t, backendType)
+	})
+}
+
+func testWebSyncLastFailure(t *testing.T, backendType service.BackendType) {
+	handler := &webSyncRetryHandler{flowType: "web-sync-last-failure"}
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := handler.flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           handler.flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "retry-step",
+		StepOptions: &dexpb.StepOptions{
+			WaitForTimeoutSeconds: 5,
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 1,
+				MaximumIntervalSeconds: 1,
+				MaximumAttempts:        2,
+			},
+		},
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	events, nextInternalEventID := getAllWebHistoryEvents(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+	require.Positive(t, nextInternalEventID)
+	waitForEvent := firstStepEvent(events)
+	require.NotNil(t, waitForEvent)
+	execution := waitForEvent.GetExecution()
+	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, execution.GetDurability())
+	require.Len(t, execution.GetPreviousAttemptFailures(), 1)
+	lastFailure := execution.GetLastFailureInfo()
+	require.NotNil(t, lastFailure)
+	require.Equal(t, int32(1), lastFailure.GetAttempt())
+	require.True(t, proto.Equal(execution.GetPreviousAttemptFailures()[0], lastFailure))
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		lastFailure.GetFailure().GetErrorType(),
+	)
+	require.Equal(t, "sync retry failure", lastFailure.GetFailure().GetDetails().GetDetail())
+	require.Equal(t, int32(codes.Unavailable), lastFailure.GetFailure().GetDetails().GetOriginalWorkerErrorStatus())
+}
+
+type webSyncRetryHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType     string
+	waitForCalls atomic.Int32
+}
+
+func (h *webSyncRetryHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if h.waitForCalls.Add(1) == 1 {
+		return nil, status.Error(codes.Unavailable, "sync retry failure")
+	}
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
+}
+
+func (h *webSyncRetryHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+		CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+		},
+	}}, nil
 }
 
 func testWebParallelAttributeSnapshots(t *testing.T, backendType service.BackendType) {
@@ -337,7 +428,8 @@ func testWebConditionResults(
 	require.NotNil(t, executeRequest)
 	waitForTotalDuration := int32(60)
 	executeTotalDuration := int32(70)
-	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC {
+	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC &&
+		backendType == service.BackendTypeTemporal {
 		waitForTotalDuration = 20
 		executeTotalDuration = 20
 	}
@@ -828,6 +920,7 @@ func testWebAsyncLocalFallback(t *testing.T, backendType service.BackendType) {
 		failedEvent.GetExecution().GetDurability(),
 	)
 	require.NotEmpty(t, failedEvent.GetExecution().GetPreviousAttemptFailures())
+	require.Nil(t, failedEvent.GetExecution().GetLastFailureInfo())
 	previousAttempt := failedEvent.GetExecution().GetPreviousAttemptFailures()
 	require.Greater(
 		t,

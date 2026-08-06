@@ -519,16 +519,20 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		attributes := event.GetActivityTaskStartedEventAttributes()
 		var lastFailure *dexpb.StepMethodFailure
 		if attributes.GetLastFailureReason() != "" {
-			lastFailure = &dexpb.StepMethodFailure{
-				Message:    attributes.GetLastFailureReason(),
-				ErrorType:  attributes.GetLastFailureReason(),
-				RetryState: "RETRY_STATE_IN_PROGRESS",
+			var err error
+			lastFailure, err = t.cadenceStepFailure(
+				attributes.GetLastFailureReason(),
+				attributes.GetLastFailureDetails(),
+				"RETRY_STATE_IN_PROGRESS",
+			)
+			if err != nil {
+				return err
 			}
 		}
 		builder.RecordActivityStarted(
 			eventTime,
 			attributes.GetScheduledEventId(),
-			attributes.GetAttempt(),
+			attributes.GetAttempt()+1,
 			lastFailure,
 		)
 	case shared.EventTypeActivityTaskCompleted:
@@ -538,14 +542,19 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
 			return nil
 		}
+		failure, err := t.cadenceStepFailure(
+			attributes.GetReason(),
+			attributes.GetDetails(),
+			"",
+		)
+		if err != nil {
+			return err
+		}
 		return builder.RecordActivityFailed(
 			event.GetEventId(),
 			eventTime,
 			attributes.GetScheduledEventId(),
-			&dexpb.StepMethodFailure{
-				Message:   attributes.GetReason(),
-				ErrorType: attributes.GetReason(),
-			},
+			failure,
 		)
 	case shared.EventTypeActivityTaskTimedOut:
 		attributes := event.GetActivityTaskTimedOutEventAttributes()
@@ -806,6 +815,27 @@ func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
 	}
 	return dexpb.FlowErrorType(value)
+}
+
+func (t *cadenceClient) cadenceStepFailure(
+	reason string,
+	detailsData []byte,
+	retryState string,
+) (*dexpb.StepMethodFailure, error) {
+	failure := &dexpb.StepMethodFailure{
+		Message:    reason,
+		ErrorType:  reason,
+		RetryState: retryState,
+	}
+	if len(detailsData) == 0 {
+		return failure, nil
+	}
+	details := &dexpb.ErrorResponse{}
+	if err := t.converter.FromData(detailsData, details); err != nil {
+		return nil, fmt.Errorf("decode step failure details: %w", err)
+	}
+	failure.Details = details
+	return failure, nil
 }
 
 func activityMethod(activityType string) string {

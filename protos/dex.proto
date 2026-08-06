@@ -504,6 +504,7 @@ message StepMethodFailure {
   string error_type = 2;
   string stack_trace = 3;
   string retry_state = 4;
+  ErrorResponse details = 5;
 }
 
 message StepMethodAttemptFailure {
@@ -528,6 +529,7 @@ message StepMethodExecutionInfo {
   google.protobuf.Duration duration = 8;
   repeated StepMethodAttemptFailure previous_attempt_failures = 9;
   StepMethodOptions method_options = 10;
+  StepMethodAttemptFailure last_failure_info = 11;
 }
 
 message StepWaitForCompletedEvent {
