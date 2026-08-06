@@ -60,6 +60,11 @@ Regular Activity options come from scheduled metadata; local Activity options
 are retained with the stored request. Regular Activity input messages remain
 unchanged and use a null second Activity argument.
 
+SYNC retries expose only the immediately preceding failure as
+`context.last_failure_info`. `StepMethodFailure.attempt` identifies that attempt
+or the terminal attempt in `output.failure`. ASYNC execution does not expose
+local or fallback retry failures.
+
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the
 run-scoped request and method-options record; neither internal type is returned

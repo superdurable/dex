@@ -21,6 +21,7 @@ func NewTemporalDataConverter() converter.DataConverter {
 		converter.NewNilPayloadConverter(),
 		converter.NewByteSlicePayloadConverter(),
 		converter.NewProtoPayloadConverter(),
+		converter.NewProtoJSONPayloadConverter(),
 		converter.NewJSONPayloadConverter(),
 	)
 }
