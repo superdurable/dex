@@ -8,8 +8,6 @@ require (
 	github.com/superdurable/dex/sdk-go v0.1.1
 )
 
-replace github.com/superdurable/dex/sdk-go => ../../sdk-go
-
 require (
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
