@@ -32,18 +32,20 @@ from dex import (
     Registry,
     RPCResult,
     Step,
-    StepList,
     StepDecision,
     StepDurability,
+    StepList,
     StepOptions,
     Timer,
     Wait,
-    WireKind,
     WaitForFailurePolicy,
+    WireKind,
     graceful_complete,
     open_blob_cache,
     rpc,
 )
+from dex.client import Client as ClientModuleClient
+from dex.client_options import ClientOptions as ClientModuleOptions
 
 
 @dataclass(frozen=True)
@@ -274,6 +276,12 @@ def test_blob_cache_contract_matches_core_config() -> None:
     assert config.frequency_counters == 10_000
     with pytest.raises(PhaseNotImplementedError):
         open_blob_cache(config)
+
+
+def test_client_has_single_public_definition() -> None:
+    assert Client is ClientModuleClient
+    client = ClientModuleClient(Registry((ORDERS,)), cast(BlobCache, object()))
+    assert client.options == ClientModuleOptions()
 
 
 def test_transport_contract_fails_explicitly() -> None:

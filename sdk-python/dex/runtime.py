@@ -14,17 +14,15 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
 from types import TracebackType
-from typing import Any, Callable, Mapping, TypeVar, overload
+from typing import Any, Mapping, TypeVar, overload
 
 from dex._contract_utils import PhaseNotImplementedError, require_name
 from dex.blob_cache import BlobCache
 from dex.codec import Value
-from dex.flow import Flow, Registry, RPCResult
-from dex.state import Attribute, AttributeMap, Channel, ChannelMap, Context
-from dex.step import MaybeAwaitable, RetryPolicy, StepDurability
+from dex.flow import Registry
+from dex.state import Attribute, AttributeMap
+from dex.step import RetryPolicy, StepDurability
 
-InputT = TypeVar("InputT")
-OutputT = TypeVar("OutputT")
 ValueT = TypeVar("ValueT")
 
 
@@ -186,242 +184,10 @@ class StopFlowOptions:
 
 
 @dataclass(frozen=True)
-class ClientOptions:
-    server_address: str = "localhost:8801"
-    worker_target: WorkerTarget | None = None
-
-
-@dataclass(frozen=True)
 class WorkerOptions:
     bind_address: str = ":8803"
     worker_target: WorkerTarget | None = None
     server_address: str = "localhost:8801"
-
-
-class Client:
-    def __init__(
-        self,
-        registry: Registry,
-        blob_cache: BlobCache,
-        options: ClientOptions | None = None,
-    ) -> None:
-        self.registry = registry
-        self.blob_cache = blob_cache
-        self.options = options or ClientOptions()
-
-    def __enter__(self) -> Client:
-        return self
-
-    def __exit__(
-        self,
-        exception_type: type[BaseException] | None,
-        exception: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def start_flow(
-        self,
-        flow: Flow[InputT],
-        flow_id: str,
-        input: InputT,
-        options: StartFlowOptions = StartFlowOptions(),
-    ) -> str:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    @overload
-    def invoke_rpc(
-        self,
-        rpc_method: Callable[[Context, InputT], MaybeAwaitable[RPCResult[OutputT]]],
-        flow_id: str,
-        input: InputT,
-        *,
-        run_id: str = "",
-    ) -> OutputT: ...
-
-    @overload
-    def invoke_rpc(
-        self,
-        rpc_method: Callable[[Context], MaybeAwaitable[RPCResult[OutputT]]],
-        flow_id: str,
-        *,
-        run_id: str = "",
-    ) -> OutputT: ...
-
-    @overload
-    def invoke_rpc(
-        self,
-        rpc_method: Callable[[Context, InputT], MaybeAwaitable[None]],
-        flow_id: str,
-        input: InputT,
-        *,
-        run_id: str = "",
-    ) -> None: ...
-
-    @overload
-    def invoke_rpc(
-        self,
-        rpc_method: Callable[[Context], MaybeAwaitable[None]],
-        flow_id: str,
-        *,
-        run_id: str = "",
-    ) -> None: ...
-
-    def invoke_rpc(
-        self,
-        rpc_method: Callable[..., Any],
-        flow_id: str,
-        input: object = None,
-        *,
-        run_id: str = "",
-    ) -> Any:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    @overload
-    def get_attribute(
-        self,
-        flow_id: str,
-        attribute: Attribute[ValueT],
-        *,
-        run_id: str = "",
-    ) -> ValueT: ...
-
-    @overload
-    def get_attribute(
-        self,
-        flow_id: str,
-        attribute: AttributeMap[ValueT],
-        instance: str,
-        *,
-        run_id: str = "",
-    ) -> ValueT: ...
-
-    def get_attribute(
-        self,
-        flow_id: str,
-        attribute: Attribute[Any] | AttributeMap[Any],
-        instance: str | None = None,
-        *,
-        run_id: str = "",
-    ) -> Any:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    @overload
-    def set_attribute(
-        self,
-        flow_id: str,
-        attribute: Attribute[ValueT],
-        value: ValueT,
-        *,
-        run_id: str = "",
-    ) -> None: ...
-
-    @overload
-    def set_attribute(
-        self,
-        flow_id: str,
-        attribute: AttributeMap[ValueT],
-        instance: str,
-        value: ValueT,
-        *,
-        run_id: str = "",
-    ) -> None: ...
-
-    def set_attribute(
-        self,
-        flow_id: str,
-        attribute: Attribute[Any] | AttributeMap[Any],
-        *args: object,
-        run_id: str = "",
-        **kwargs: object,
-    ) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    @overload
-    def publish(
-        self,
-        flow_id: str,
-        channel: Channel[ValueT],
-        *values: ValueT,
-        run_id: str = "",
-    ) -> None: ...
-
-    @overload
-    def publish(
-        self,
-        flow_id: str,
-        channel: ChannelMap[ValueT],
-        instance: str,
-        *values: ValueT,
-        run_id: str = "",
-    ) -> None: ...
-
-    def publish(
-        self,
-        flow_id: str,
-        channel: Channel[Any] | ChannelMap[Any],
-        *args: object,
-        run_id: str = "",
-        **kwargs: object,
-    ) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    @overload
-    def wait_for_flow(self, flow_id: str) -> None: ...
-
-    @overload
-    def wait_for_flow(
-        self,
-        flow_id: str,
-        output_type: type[OutputT],
-        timeout: timedelta | None = None,
-    ) -> OutputT: ...
-
-    def wait_for_flow(
-        self,
-        flow_id: str,
-        output_type: type[Any] | None = None,
-        timeout: timedelta | None = None,
-    ) -> Any:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def stop_flow(
-        self,
-        flow_id: str,
-        options: StopFlowOptions = StopFlowOptions(),
-    ) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def describe_flow(self, flow_id: str) -> FlowInfo:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def reset_flow(self, flow_id: str, options: ResetFlowOptions) -> str:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def skip_timer(
-        self,
-        flow_id: str,
-        step_execution_id: StepExecutionId,
-        timer_id: TimerId,
-    ) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def wait_for_step_completion(
-        self,
-        flow_id: str,
-        step_execution_id: StepExecutionId,
-        timeout: timedelta,
-    ) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def trigger_continue_as_new(self, flow_id: str) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
-
-    def close(self) -> None:
-        raise PhaseNotImplementedError("Client transport belongs to a later phase")
 
 
 class Worker:

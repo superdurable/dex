@@ -10,20 +10,10 @@
 
 from dataclasses import dataclass
 
-from dex.object_encoder import ObjectEncoder
+from dex.runtime import WorkerTarget
 
-@dataclass
+
+@dataclass(frozen=True)
 class ClientOptions:
-    server_url: str
-    worker_url: str
-    object_encoder: ObjectEncoder
-    api_timeout: int = 60
-    long_poll_api_max_wait_time_seconds: int = 10
-
-    @classmethod
-    def local_default(cls):
-        return ClientOptions(
-            server_url="http://localhost:8801",
-            worker_url="http://localhost:8802",
-            object_encoder=ObjectEncoder.default,
-        )
+    server_address: str = "localhost:8801"
+    worker_target: WorkerTarget | None = None

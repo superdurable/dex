@@ -10,6 +10,8 @@
 
 from dex._contract_utils import PhaseNotImplementedError
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
+from dex.client import Client
+from dex.client_options import ClientOptions
 from dex.codec import (
     BOOL,
     BYTES,
@@ -25,8 +27,6 @@ from dex.codec import (
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.runtime import (
     ActiveStepSearchMode,
-    Client,
-    ClientOptions,
     FlowConfig,
     FlowInfo,
     FlowStatus,
