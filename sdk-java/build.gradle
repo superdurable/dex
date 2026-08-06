@@ -113,6 +113,20 @@ tasks.named('test') {
     systemProperty 'dex.native.library', nativeLibraryPath
 }
 
+tasks.register('dexDevTest', Test) {
+    group = 'verification'
+    description = 'Runs Java SDK integration tests against dexcli dev.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'dex-dev'
+    }
+    dependsOn 'buildRustCore'
+    systemProperty 'dex.native.library', nativeLibraryPath
+    systemProperty 'dex.test.serverAddress',
+            System.getenv('DEX_SERVER_ADDRESS') ?: '127.0.0.1:8801'
+}
+
 tasks.register('buildRustCore', Exec) {
     workingDir '../sdk-rust'
     commandLine 'cargo', 'build', '-p', 'dex-bridge-jni', '--locked'

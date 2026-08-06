@@ -13,10 +13,57 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class ConditionalCompleteTest {
     private static final ConditionalCompleteWorkflow WORKFLOW =
             new ConditionalCompleteWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testSignalChannel() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "conditional-signal-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, true);
+            environment.client().publish(flowId, WORKFLOW.signal, (Void) null);
+            assertEquals(1, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testInternalChannel() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "conditional-internal-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, false);
+            final ConditionalCompleteWorkflow stub = environment.client().newRpcStub(
+                    ConditionalCompleteWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::publishToInternalChannel);
+            assertEquals(1, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
 
     void compileSignalChannel(final Client client) {
         client.startFlow(WORKFLOW, "conditional-signal", true);

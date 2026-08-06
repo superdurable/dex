@@ -10,8 +10,8 @@ Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable
 
 The canonical rewrite API is under `io.superdurable.dex`. This phase includes
 strongly typed workflow definitions, persistence handles, registry
-validation, and the synchronous client/worker shapes. Transport methods fail
-with `UnsupportedOperationException` until the shared Rust Core is connected.
+validation, synchronous gRPC Client operations, and a Java Worker backed by the
+shared Rust Core through JNI.
 
 Java workflows and steps are interfaces, while RPCs keep the annotation and
 typed-stub model:
@@ -111,10 +111,10 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
         .build();
 ```
 
-The legacy IWF integration inventory has a compile-only port under
+The legacy IWF integration inventory is being converted to real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/iwfcompat`](src/test/java/io/superdurable/dex/iwfcompat/README.md).
-It exercises all 16 upstream scenario groups against the new typed API without
-starting a server.
+All fixtures compile against the typed API; enabled E2E cases run Java Client,
+Java Worker, and Rust Core against `dexcli dev`.
 
 ## License
 
@@ -172,6 +172,20 @@ definitions before Client or Worker startup.
 Edit [`protos/dex.proto`](../protos/dex.proto), then run `make -C ../protos proto` to refresh checked-in stubs under `src/main/java/io/superdurable/gen/`.
 
 ### Local testing
+
+Start Dex, register the IWF persistence-test search attributes, then run the
+dedicated integration task:
+
+```shell
+dexcli dev
+temporal operator search-attribute create --name CustomKeywordField --type Keyword
+temporal operator search-attribute create --name CustomIntField --type Int
+temporal operator search-attribute create --name CustomDatetimeField --type Datetime
+DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
+```
+
+The Gradle task builds the JNI library and starts a fresh Java Worker for each
+test with a unique worker port and flow ID.
 
 If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
 use the local publishing command:

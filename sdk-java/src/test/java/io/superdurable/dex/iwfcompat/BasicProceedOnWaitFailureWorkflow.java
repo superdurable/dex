@@ -14,6 +14,7 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
@@ -50,6 +51,9 @@ final class BasicProceedOnWaitFailureWorkflow implements Flow<String> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
+                    .waitForRetry(RetryPolicy.newBuilder()
+                            .maximumAttempts(2)
+                            .build())
                     .build();
         }
     }

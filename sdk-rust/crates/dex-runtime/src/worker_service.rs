@@ -14,9 +14,11 @@ use dex_protocol::dex::worker_service_server::WorkerService as WorkerServiceApi;
 use dex_protocol::dex::{
     InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodRequest,
     InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
+    WorkerErrorResponse,
 };
 use prost::Message;
-use tonic::{Request, Response, Status};
+use prost_types::Any;
+use tonic::{Code, Request, Response, Status};
 
 /// gRPC WorkerService backed by the language-neutral activation queue.
 #[derive(Clone)]
@@ -128,5 +130,28 @@ impl Display for WorkerServiceError {
 impl Error for WorkerServiceError {}
 
 fn language_failure(failure: InvocationFailure) -> Status {
-    Status::internal(format!("{}: {}", failure.error_type(), failure.message()))
+    let message = failure.message().to_string();
+    let worker_error = WorkerErrorResponse {
+        detail: message.clone(),
+        error_type: failure.error_type().to_string(),
+    };
+    let details = GoogleRpcStatus {
+        code: Code::Unknown as i32,
+        message: message.clone(),
+        details: vec![Any {
+            type_url: "type.googleapis.com/dex.WorkerErrorResponse".to_string(),
+            value: worker_error.encode_to_vec(),
+        }],
+    };
+    Status::with_details(Code::Unknown, message, details.encode_to_vec().into())
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GoogleRpcStatus {
+    #[prost(int32, tag = "1")]
+    code: i32,
+    #[prost(string, tag = "2")]
+    message: String,
+    #[prost(message, repeated, tag = "3")]
+    details: Vec<Any>,
 }

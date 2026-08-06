@@ -13,10 +13,39 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class RpcTest {
     private static final RpcNoStateWorkflow NO_STATE_WORKFLOW = new RpcNoStateWorkflow();
     private static final RpcWorkflow WORKFLOW = new RpcWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testLockingRpc() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                NO_STATE_WORKFLOW)) {
+            final String flowId = "rpc-lock-" + UUID.randomUUID();
+            environment.client().startFlow(NO_STATE_WORKFLOW, flowId, null);
+            final RpcNoStateWorkflow stub = environment.client().newRpcStub(
+                    RpcNoStateWorkflow.class,
+                    flowId);
+            assertEquals(1, environment.client().invokeRPC(stub::increaseCounter));
+            assertEquals(1, environment.client().invokeRPC(stub::getCounter));
+            assertEquals(2, environment.client().invokeRPC(stub::increaseCounter));
+        }
+    }
 
     void compileLocking(final Client client) {
         client.startFlow(NO_STATE_WORKFLOW, "rpc-lock", null);

@@ -1,14 +1,14 @@
-# IWF Java integration compile port
+# IWF Java integration port
 
 This directory ports the complete integration scenario inventory from
 [`indeedeng/iwf-java-sdk`](https://github.com/indeedeng/iwf-java-sdk/tree/8fa04457c0abcc4473300f17ea0a033d8f93ed88/src/test/java/io/iworkflow/integ).
 That snapshot contains 16 top-level integration tests and 65 workflow/support
 files.
 
-The port intentionally compiles without running a Dex server. Methods have no
-JUnit annotations, so `compileTestJava` checks the programming model without
-executing network operations. Each workflow fixture has its own `Flow<I>`
-file. `IwfFlows.java` only owns shared instances and fixture values.
+Each workflow fixture has its own `Flow<I>` file. The suite currently has 11
+real E2E cases covering Basic, conditional completion, internal channels, RPC
+locking, and persistence. The remaining upstream scenarios continue to compile
+while their original assertions are ported.
 
 | Upstream test | Compile-port coverage |
 | --- | --- |
@@ -29,11 +29,21 @@ file. `IwfFlows.java` only owns shared instances and fixture values.
 | `TimerTest` | timer conditions and step-completion waiting |
 | `WorkflowUncompletedTest` | timeouts, stop types, user failures, and empty decisions |
 
-Run only the compile check:
+Run the compile check:
 
 ```shell
 ./gradlew compileTestJava
 ```
+
+Run the enabled E2E cases against `dexcli dev`:
+
+```shell
+DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
+```
+
+Indexed persistence cases require `CustomKeywordField`, `CustomIntField`, and
+`CustomDatetimeField` in the Temporal namespace. See the SDK README for the
+setup commands.
 
 The port does not restore unregistered string/Object APIs. Cross-language names
 use explicit Flow, Step, Attribute, and Channel overrides instead.

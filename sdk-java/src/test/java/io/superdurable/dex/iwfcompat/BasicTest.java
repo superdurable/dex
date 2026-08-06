@@ -20,9 +20,19 @@ import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.WorkerTarget;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+@Tag("dex-dev")
 public final class BasicTest {
     private static final BasicWorkflow WORKFLOW = new BasicWorkflow();
     private static final BasicAbnormalExitWorkflow ABNORMAL_EXIT_WORKFLOW =
@@ -35,6 +45,83 @@ public final class BasicTest {
             new BasicProceedOnWaitFailureWorkflow();
     private static final SkipWaitUntilMixedWaitWorkflow MIXED_WAIT_WORKFLOW =
             new SkipWaitUntilMixedWaitWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testBasicWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "basic-" + UUID.randomUUID();
+            final Integer input = 0;
+            environment.client().startFlow(WORKFLOW, flowId, input);
+            final Integer output = environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30));
+            assertEquals(input + 2, output);
+        }
+    }
+
+    @Test
+    void testEmptyInputWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                EMPTY_INPUT_WORKFLOW)) {
+            final String flowId = flowId("empty-input");
+            environment.client().startFlow(EMPTY_INPUT_WORKFLOW, flowId, null);
+            assertNull(environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testModelInputWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                MODEL_INPUT_WORKFLOW)) {
+            final String flowId = flowId("model-input");
+            final BasicModelInputWorkflow.Input input = new BasicModelInputWorkflow.Input();
+            input.value = 10;
+            environment.client().startFlow(MODEL_INPUT_WORKFLOW, flowId, input);
+            assertEquals(10, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testProceedOnWaitFailureWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WAIT_FAILURE_WORKFLOW)) {
+            final String flowId = flowId("proceed-on-wait-failure");
+            environment.client().startFlow(WAIT_FAILURE_WORKFLOW, flowId, "input");
+            assertEquals("input-recovered", environment.client().waitForFlow(
+                    flowId,
+                    String.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testMixedWaitStyles() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                MIXED_WAIT_WORKFLOW)) {
+            final String flowId = flowId("mixed-wait");
+            environment.client().startFlow(MIXED_WAIT_WORKFLOW, flowId, 0);
+            assertEquals(2, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
 
     void compileBasicAndReuse(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
@@ -77,5 +164,9 @@ public final class BasicTest {
     }
 
     private static void consume(final Object value) {
+    }
+
+    private static String flowId(final String prefix) {
+        return prefix + "-" + UUID.randomUUID();
     }
 }

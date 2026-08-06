@@ -14,13 +14,49 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class PersistenceTest {
     private static final PersistenceWorkflow WORKFLOW = new PersistenceWorkflow();
     private static final PersistenceSetAttributesWorkflow SET_ATTRIBUTES_WORKFLOW =
             new PersistenceSetAttributesWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testPersistenceReads() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "persistence-" + UUID.randomUUID();
+            final StartFlowOptions options = StartFlowOptions.newBuilder()
+                    .addAttribute(WORKFLOW.initial, "initial")
+                    .addAttribute(WORKFLOW.dataMap, "one", "initial")
+                    .build();
+            environment.client().startFlow(WORKFLOW, flowId, "input", options);
+            assertEquals("input", environment.client().waitForFlow(
+                    flowId,
+                    String.class,
+                    Duration.ofSeconds(30)));
+            assertEquals("input", environment.client().getAttribute(flowId, WORKFLOW.data));
+            assertEquals(1, environment.client().getAttribute(flowId, WORKFLOW.integer));
+            assertEquals(
+                    Instant.parse("2023-04-17T21:17:49Z"),
+                    environment.client().getAttribute(flowId, WORKFLOW.datetime));
+        }
+    }
 
     void compilePersistenceReads(final Client client) {
         final StartFlowOptions options = StartFlowOptions.newBuilder()
