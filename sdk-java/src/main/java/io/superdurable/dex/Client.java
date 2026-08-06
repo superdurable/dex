@@ -15,10 +15,15 @@
 package io.superdurable.dex;
 
 import com.google.protobuf.Empty;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Timestamp;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import io.grpc.protobuf.StatusProto;
 import io.superdurable.gen.AttributeWrite;
+import io.superdurable.gen.ErrorResponse;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
 import io.superdurable.gen.FlowExecutionID;
 import io.superdurable.gen.FlowResetType;
@@ -126,6 +131,12 @@ public final class Client implements AutoCloseable {
                         : startOptions.getRequestId())
                 .setFlowStartOptions(mapStartOptions(startOptions));
         if (registered.getStartStep() != null) {
+            final Class<?> inputType = registered.getStartStep().getStep().getInputType();
+            if (input != null && !inputType.isInstance(input)) {
+                throw new IllegalArgumentException(
+                        "Flow input must be " + inputType.getName()
+                                + ", got " + input.getClass().getName());
+            }
             request.setStartStepType(registered.getStartStep().getName())
                     .setStepInput(values.encode(input));
             final io.superdurable.gen.StepOptions stepOptions = mappings.mapStepOptions(
@@ -141,7 +152,7 @@ public final class Client implements AutoCloseable {
         if (startOptions.getTimeout() != null) {
             request.setFlowTimeoutSeconds(seconds32(startOptions.getTimeout()));
         }
-        return service.startFlow(request.build()).getRunId();
+        return call(() -> service.startFlow(request.build())).getRunId();
     }
 
     public <T> T newRpcStub(final Class<T> rpcClass, final String flowId) {
@@ -267,11 +278,11 @@ public final class Client implements AutoCloseable {
     }
 
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
-        service.stopFlow(StopFlowRequest.newBuilder()
+        call(() -> service.stopFlow(StopFlowRequest.newBuilder()
                 .setFlowId(flowId)
                 .setReason(stopOptions.getReason() == null ? "" : stopOptions.getReason())
                 .setStopType(mapStopType(stopOptions.getType()))
-                .build());
+                .build()));
     }
 
     public void waitForFlow(final String flowId) {
@@ -287,17 +298,19 @@ public final class Client implements AutoCloseable {
             final Class<O> outputType,
             final Duration timeout) {
         final WaitForFlowResponse response = waitForFlowResponse(flowId, timeout);
-        if (response.getResultsCount() == 0) {
-            return null;
+        for (int index = response.getResultsCount() - 1; index >= 0; index--) {
+            if (response.getResults(index).hasCompletedStepOutput()) {
+                return values.decode(
+                        response.getResults(index).getCompletedStepOutput(),
+                        outputType);
+            }
         }
-        return values.decode(
-                response.getResults(response.getResultsCount() - 1).getCompletedStepOutput(),
-                outputType);
+        return null;
     }
 
     public FlowInfo describeFlow(final String flowId) {
-        final GetFlowSummaryResponse response = service.getFlowSummary(
-                GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build());
+        final GetFlowSummaryResponse response = call(() -> service.getFlowSummary(
+                GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build()));
         final FlowExecutionID execution = response.getFlowExecutionId();
         return new FlowInfo(
                 execution.getFlowId(),
@@ -326,7 +339,7 @@ public final class Client implements AutoCloseable {
         if (options.getStepExecutionId() != null) {
             request.setStepExecutionId(options.getStepExecutionId());
         }
-        return service.resetFlow(request.build()).getRunId();
+        return call(() -> service.resetFlow(request.build())).getRunId();
     }
 
     public void skipTimer(
@@ -343,36 +356,37 @@ public final class Client implements AutoCloseable {
         if (timerId.getIndex() != null) {
             request.setTimerConditionIndex(timerId.getIndex());
         }
-        service.skipTimer(request.build());
+        call(() -> service.skipTimer(request.build()));
     }
 
     public void waitForStepCompletion(
             final String flowId,
             final StepExecutionId stepExecutionId,
             final Duration timeout) {
-        service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
+        call(() -> service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
                 .setFlowId(flowId)
                 .setStepType(stepExecutionId.getStepType())
                 .setStepExecutionNumber(Integer.toString(stepExecutionId.getExecutionNumber()))
                 .setWaitTimeSeconds(seconds32(timeout))
                 .setRequestId(UUID.randomUUID().toString())
-                .build());
+                .build()));
     }
 
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
-        service.updateFlowConfig(UpdateFlowConfigRequest.newBuilder()
+        call(() -> service.updateFlowConfig(UpdateFlowConfigRequest.newBuilder()
                 .setFlowId(flowId)
                 .setFlowConfig(mapFlowConfig(config))
-                .build());
+                .build()));
     }
 
     public void triggerContinueAsNew(final String flowId) {
-        service.triggerContinueAsNew(
-                TriggerContinueAsNewRequest.newBuilder().setFlowId(flowId).build());
+        call(() -> service.triggerContinueAsNew(
+                TriggerContinueAsNewRequest.newBuilder().setFlowId(flowId).build()));
     }
 
     boolean healthCheck() {
-        service.withDeadlineAfter(5, TimeUnit.SECONDS).healthCheck(Empty.getDefaultInstance());
+        call(() -> service.withDeadlineAfter(5, TimeUnit.SECONDS)
+                .healthCheck(Empty.getDefaultInstance()));
         return true;
     }
 
@@ -408,7 +422,7 @@ public final class Client implements AutoCloseable {
                 .addAllLockAttributeKeys(rpc.getLocks())
                 .setRequestId(UUID.randomUUID().toString())
                 .build();
-        final io.superdurable.gen.Value output = service.invokeRPC(request).getOutput();
+        final io.superdurable.gen.Value output = call(() -> service.invokeRPC(request)).getOutput();
         if (rpc.getMethod().getReturnType() == Void.TYPE) {
             return null;
         }
@@ -439,12 +453,12 @@ public final class Client implements AutoCloseable {
         final String key = instance == null
                 ? definition.getName()
                 : Registry.physicalName(definition.getName(), instance);
-        final GetAttributesResponse response = service.getAttributes(
+        final GetAttributesResponse response = call(() -> service.getAttributes(
                 GetAttributesRequest.newBuilder()
                         .setFlowId(flowId)
                         .setRunId(runId)
                         .addKeys(key)
-                        .build());
+                        .build()));
         if (response.getAttributesCount() == 0) {
             return null;
         }
@@ -469,12 +483,12 @@ public final class Client implements AutoCloseable {
         if (indexConfig != null) {
             write.setIndexConfig(indexConfig);
         }
-        service.setAttributes(SetAttributesRequest.newBuilder()
+        call(() -> service.setAttributes(SetAttributesRequest.newBuilder()
                 .setFlowId(flowId)
                 .setRunId(runId)
                 .addAttributes(write)
                 .setRequestId(UUID.randomUUID().toString())
-                .build());
+                .build()));
     }
 
     private void publishValues(
@@ -490,7 +504,7 @@ public final class Client implements AutoCloseable {
                     .setChannelName(channelName)
                     .setValue(values.encode(payload)));
         }
-        service.publishToChannel(request.build());
+        call(() -> service.publishToChannel(request.build()));
     }
 
     private WaitForFlowResponse waitForFlowResponse(
@@ -502,11 +516,24 @@ public final class Client implements AutoCloseable {
         if (timeout != null) {
             request.setWaitTimeSeconds(seconds32(timeout));
         }
-        final WaitForFlowResponse response = service.waitForFlow(request.build());
+        final WaitForFlowResponse response;
+        try {
+            response = service.waitForFlow(request.build());
+        } catch (StatusRuntimeException exception) {
+            if (exception.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED) {
+                throw new LongPollTimeoutException(flowId, exception);
+            }
+            throw translate(exception);
+        }
         if (response.getFlowStatus() != io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED) {
-            throw new IllegalStateException(
-                    "Flow finished as " + response.getFlowStatus() + ": "
-                            + response.getErrorMessage());
+            final FlowInfo flow = describeFlow(flowId);
+            throw new FlowUncompletedException(
+                    flow.getRunId(),
+                    mapFlowStatus(response.getFlowStatus()),
+                    mapFlowErrorType(response.getErrorType()),
+                    response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
+                    response.getResultsList(),
+                    values);
         }
         return response;
     }
@@ -660,6 +687,78 @@ public final class Client implements AutoCloseable {
         }
     }
 
+    private static FlowErrorType mapFlowErrorType(
+            final io.superdurable.gen.FlowErrorType type) {
+        switch (type) {
+            case FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW:
+                return FlowErrorType.STEP_DECISION_FAILED;
+            case FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW:
+                return FlowErrorType.CLIENT_API_FAILED;
+            case FLOW_ERROR_TYPE_WORKER_API_FAIL:
+                return FlowErrorType.WORKER_API_FAILED;
+            case FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE:
+                return FlowErrorType.INVALID_USER_FLOW_CODE;
+            case FLOW_ERROR_TYPE_INTERNAL:
+                return FlowErrorType.INTERNAL;
+            default:
+                return null;
+        }
+    }
+
+    private static <T> T call(final RpcCall<T> rpc) {
+        try {
+            return rpc.invoke();
+        } catch (StatusRuntimeException exception) {
+            throw translate(exception);
+        }
+    }
+
+    private static DexException translate(final StatusRuntimeException exception) {
+        ErrorResponse details = null;
+        final com.google.rpc.Status status = StatusProto.fromThrowable(exception);
+        if (status != null) {
+            for (com.google.protobuf.Any value : status.getDetailsList()) {
+                if (!value.is(ErrorResponse.class)) {
+                    continue;
+                }
+                try {
+                    details = value.unpack(ErrorResponse.class);
+                } catch (InvalidProtocolBufferException malformed) {
+                    throw new IllegalStateException("Dex returned malformed error details", malformed);
+                }
+                break;
+            }
+        }
+        final String detail = details == null || details.getDetail().isEmpty()
+                ? exception.getStatus().getDescription()
+                : details.getDetail();
+        return new DexException(
+                exception.getStatus().getCode(),
+                details == null ? null : mapErrorSubStatus(details.getSubStatus()),
+                detail,
+                details == null ? "" : details.getOriginalWorkerErrorType(),
+                details == null ? "" : details.getOriginalWorkerErrorDetail(),
+                exception);
+    }
+
+    private static ErrorSubStatus mapErrorSubStatus(
+            final io.superdurable.gen.ErrorSubStatus subStatus) {
+        switch (subStatus) {
+            case ERROR_SUB_STATUS_UNCATEGORIZED:
+                return ErrorSubStatus.UNCATEGORIZED;
+            case ERROR_SUB_STATUS_FLOW_ALREADY_STARTED:
+                return ErrorSubStatus.FLOW_ALREADY_STARTED;
+            case ERROR_SUB_STATUS_FLOW_NOT_EXISTS:
+                return ErrorSubStatus.FLOW_NOT_EXISTS;
+            case ERROR_SUB_STATUS_WORKER_API_ERROR:
+                return ErrorSubStatus.WORKER_API_ERROR;
+            case ERROR_SUB_STATUS_LONG_POLL_TIME_OUT:
+                return ErrorSubStatus.LONG_POLL_TIMEOUT;
+            default:
+                return null;
+        }
+    }
+
     private static io.superdurable.gen.ActiveStepSearchMode mapSearchMode(
             final ActiveStepSearchMode mode) {
         switch (mode) {
@@ -702,5 +801,9 @@ public final class Client implements AutoCloseable {
             this.flowId = flowId;
             this.runId = runId;
         }
+    }
+
+    private interface RpcCall<T> {
+        T invoke();
     }
 }

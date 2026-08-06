@@ -14,7 +14,12 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.ActiveStepSearchMode;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.DexException;
+import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowConfig;
+import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.FlowUncompletedException;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
@@ -31,6 +36,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Tag("dex-dev")
 public final class BasicTest {
@@ -45,6 +51,8 @@ public final class BasicTest {
             new BasicProceedOnWaitFailureWorkflow();
     private static final SkipWaitUntilMixedWaitWorkflow MIXED_WAIT_WORKFLOW =
             new SkipWaitUntilMixedWaitWorkflow();
+    private static final BasicImmutableStepOptionsWorkflow IMMUTABLE_OPTIONS_WORKFLOW =
+            new BasicImmutableStepOptionsWorkflow();
 
     @TempDir
     Path cacheDirectory;
@@ -56,12 +64,50 @@ public final class BasicTest {
                 WORKFLOW)) {
             final String flowId = "basic-" + UUID.randomUUID();
             final Integer input = 0;
-            environment.client().startFlow(WORKFLOW, flowId, input);
+            final StartFlowOptions options = StartFlowOptions.newBuilder()
+                    .idReusePolicy(IdReusePolicy.DISALLOW)
+                    .build();
+            environment.client().startFlow(WORKFLOW, flowId, input, options);
             final Integer output = environment.client().waitForFlow(
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30));
             assertEquals(input + 2, output);
+            final DexException duplicate = assertThrows(
+                    DexException.class,
+                    () -> environment.client().startFlow(WORKFLOW, flowId, input, options));
+            assertEquals(ErrorSubStatus.FLOW_ALREADY_STARTED, duplicate.getSubStatus());
+        }
+    }
+
+    @Test
+    void testBasicWorkflowAbnormalExitReuse() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                ABNORMAL_EXIT_WORKFLOW,
+                WORKFLOW)) {
+            final String flowId = flowId("abnormal-exit-reuse");
+            final StartFlowOptions options = StartFlowOptions.newBuilder()
+                    .idReusePolicy(IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED)
+                    .build();
+            final String failedRun = environment.client().startFlow(
+                    ABNORMAL_EXIT_WORKFLOW,
+                    flowId,
+                    0,
+                    options);
+            final FlowUncompletedException failure = assertThrows(
+                    FlowUncompletedException.class,
+                    () -> environment.client().waitForFlow(
+                            flowId,
+                            Integer.class,
+                            Duration.ofSeconds(30)));
+            assertEquals(failedRun, failure.getRunId());
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            environment.client().startFlow(WORKFLOW, flowId, 0, options);
+            assertEquals(2, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
         }
     }
 
@@ -76,6 +122,35 @@ public final class BasicTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
+            final DexException missing = assertThrows(
+                    DexException.class,
+                    () -> environment.client().waitForFlow(
+                            flowId("missing"),
+                            Integer.class,
+                            Duration.ofSeconds(1)));
+            assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
+        }
+    }
+
+    @Test
+    void testTypeSpecifiedWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                EMPTY_INPUT_WORKFLOW)) {
+            final String flowId = flowId("type-specified");
+            assertEquals("test-customized-flow-type", EMPTY_INPUT_WORKFLOW.getFlowType());
+            environment.client().startFlow(EMPTY_INPUT_WORKFLOW, flowId, null);
+            assertNull(environment.client().waitForFlow(
+                    flowId,
+                    Void.class,
+                    Duration.ofSeconds(30)));
+            final BasicEmptyInputWorkflow unregistered = new BasicEmptyInputWorkflow();
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().startFlow(
+                            unregistered,
+                            flowId("unregistered"),
+                            null));
         }
     }
 
@@ -89,6 +164,73 @@ public final class BasicTest {
             input.value = 10;
             environment.client().startFlow(MODEL_INPUT_WORKFLOW, flowId, input);
             assertEquals(10, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> startWithWrongInput(environment.client(), flowId("wrong-input")));
+        }
+    }
+
+    @Test
+    void testWorkflowConfigOverride() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = flowId("config-override");
+            final StartFlowOptions options = StartFlowOptions.newBuilder()
+                    .configOverride(FlowConfig.newBuilder()
+                            .continueAsNewThreshold(1)
+                            .build())
+                    .build();
+            environment.client().startFlow(WORKFLOW, flowId, 0, options);
+            assertEquals(2, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testGetWorkflowStatusWhenNoExistingWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final DexException missing = assertThrows(
+                    DexException.class,
+                    () -> environment.client().describeFlow(flowId("missing")));
+            assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
+        }
+    }
+
+    @Test
+    void testGetWorkflowStatusWhenWorkflowIsRunning() throws Exception {
+        final SignalWorkflow waitingWorkflow = new SignalWorkflow();
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                waitingWorkflow)) {
+            final String flowId = flowId("running");
+            environment.client().startFlow(waitingWorkflow, flowId, 0);
+            assertEquals(FlowStatus.RUNNING, environment.client()
+                    .describeFlow(flowId)
+                    .getStatus());
+            environment.client().stopFlow(flowId);
+        }
+    }
+
+    @Test
+    void testWorkflowWaitForStepCompletion() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = flowId("wait-step");
+            environment.client().startFlow(WORKFLOW, flowId, 5);
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    new StepExecutionId("BasicSecondStep"),
+                    Duration.ofSeconds(30));
+            assertEquals(7, environment.client().waitForFlow(
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
@@ -120,6 +262,26 @@ public final class BasicTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testMovementOptionsDoNotMutateStepDefaults() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                IMMUTABLE_OPTIONS_WORKFLOW)) {
+            final String flowId = flowId("immutable-options");
+            environment.client().startFlow(IMMUTABLE_OPTIONS_WORKFLOW, flowId, 0);
+
+            final FlowUncompletedException failure = assertThrows(
+                    FlowUncompletedException.class,
+                    () -> environment.client().waitForFlow(
+                            flowId,
+                            Integer.class,
+                            Duration.ofSeconds(30)));
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
+            assertEquals("expected wait failure 2", failure.getMessage());
         }
     }
 
@@ -168,5 +330,10 @@ public final class BasicTest {
 
     private static String flowId(final String prefix) {
         return prefix + "-" + UUID.randomUUID();
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void startWithWrongInput(final Client client, final String flowId) {
+        client.startFlow((io.superdurable.dex.Flow) MODEL_INPUT_WORKFLOW, flowId, "wrong");
     }
 }

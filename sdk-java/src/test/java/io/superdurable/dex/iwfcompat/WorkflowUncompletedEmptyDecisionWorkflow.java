@@ -14,9 +14,11 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepOptions;
 
 final class WorkflowUncompletedEmptyDecisionWorkflow implements Flow<Integer> {
     private final WorkflowUncompletedEmptyDecisionStep start =
@@ -37,5 +39,12 @@ final class WorkflowUncompletedEmptyDecisionStep implements Step<Integer> {
     @Override
     public StepDecision execute(final Context context, final Integer input) {
         return StepDecision.goToMulti();
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
+                .build();
     }
 }

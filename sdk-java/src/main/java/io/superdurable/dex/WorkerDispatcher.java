@@ -392,8 +392,13 @@ final class WorkerDispatcher {
                     mapStepOptions(target.getOptions() == null
                             ? target.getStep().getStepOptions()
                             : target.getOptions());
-            if (targetOptions != null) {
-                mapped.setExecuteFailureProceedStepOptions(targetOptions);
+            if (targetOptions != null || Registry.skipsWaitFor(target.getStep())) {
+                final io.superdurable.gen.StepOptions.Builder mappedTarget =
+                        targetOptions == null
+                                ? io.superdurable.gen.StepOptions.newBuilder()
+                                : targetOptions.toBuilder();
+                mappedTarget.setSkipWaitFor(Registry.skipsWaitFor(target.getStep()));
+                mapped.setExecuteFailureProceedStepOptions(mappedTarget);
             }
         }
         mapped.setWaitForDurabilityOverride(mapDurability(options.getWaitForDurability()));

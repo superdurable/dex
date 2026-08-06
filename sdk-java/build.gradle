@@ -108,7 +108,9 @@ def nativeLibraryPath = file("../sdk-rust/target/debug/${nativeLibraryName}").ab
 
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'dex-dev'
+    }
     dependsOn 'buildRustCore'
     systemProperty 'dex.native.library', nativeLibraryPath
 }

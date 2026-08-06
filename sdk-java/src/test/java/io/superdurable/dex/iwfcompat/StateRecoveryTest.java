@@ -13,11 +13,53 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class StateRecoveryTest {
     private static final StateRecoveryWorkflow WORKFLOW = new StateRecoveryWorkflow();
     private static final StateRecoveryNoWaitWorkflow NO_WAIT_WORKFLOW =
             new StateRecoveryNoWaitWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testStateApiFailAndRecoveryWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "state-recovery-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, 5);
+            assertEquals(10, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
+
+    @Test
+    void testStateApiFailAndRecoveryNoWaitUntilWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                NO_WAIT_WORKFLOW)) {
+            final String flowId = "state-recovery-no-wait-" + UUID.randomUUID();
+            environment.client().startFlow(NO_WAIT_WORKFLOW, flowId, 5);
+            assertEquals(10, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
 
     void compileWaitAndExecuteRecovery(final Client client) {
         client.startFlow(WORKFLOW, "state-recovery", 1);

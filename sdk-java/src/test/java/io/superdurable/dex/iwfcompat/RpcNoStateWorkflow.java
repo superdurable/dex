@@ -20,6 +20,7 @@ import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 
 final class RpcNoStateWorkflow implements Flow<Void> {
+    static final long RPC_OUTPUT = 100L;
     private final Attribute<Integer> counter = Attribute.define("counter", Integer.class);
 
     @Override
@@ -29,7 +30,8 @@ final class RpcNoStateWorkflow implements Flow<Void> {
 
     @RPC(lockAttributes = {"counter"})
     public RPCResult<Integer> increaseCounter(final Context context) {
-        final int next = counter.get(context) + 1;
+        final Integer current = counter.get(context);
+        final int next = current == null ? 1 : current + 1;
         counter.set(context, next);
         return RPCResult.of(next);
     }
@@ -42,5 +44,13 @@ final class RpcNoStateWorkflow implements Flow<Void> {
     @RPC
     public RPCResult<Long> fail(final Context context, final String input) {
         throw new IllegalArgumentException(input);
+    }
+
+    @RPC
+    public RPCResult<Long> invoke(final Context context, final String input) {
+        if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
+            throw new IllegalStateException("invalid RPC context");
+        }
+        return RPCResult.of(RPC_OUTPUT);
     }
 }

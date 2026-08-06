@@ -13,18 +13,15 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Channel;
-import io.superdurable.dex.ConditionCombination;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
-import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
-
-import java.time.Duration;
 
 final class AnyCommandCombinationWorkflow implements Flow<Integer> {
     private final Channel<Integer> first = Channel.define("test-signal-1", Integer.class);
@@ -65,13 +62,8 @@ final class AnyCommandCombinationStep implements Step<Integer> {
 
     @Override
     public Wait waitFor(final Context context, final Integer input) {
-        return Wait.anyCombinationOf(
-                ConditionCombination.of(
-                        first.forOne("test-signal-1"),
-                        Timer.byDuration(Duration.ofSeconds(1), "test-timer-id")),
-                ConditionCombination.of(
-                        second.forOne("test-signal-2"),
-                        third.forOne("test-signal-3")));
+        throw new IllegalArgumentException(
+                "Found unknown condition ID in the combination list");
     }
 
     @Override
@@ -82,7 +74,7 @@ final class AnyCommandCombinationStep implements Step<Integer> {
     @Override
     public StepOptions getStepOptions() {
         return StepOptions.newBuilder()
-                .waitForMethodTimeout(Duration.ofSeconds(1))
+                .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
                 .build();
     }
 }

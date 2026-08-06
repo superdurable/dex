@@ -13,11 +13,47 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowConfig;
+import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class SkipWaitUntilTest {
     private static final SkipWaitUntilWorkflow WORKFLOW = new SkipWaitUntilWorkflow();
     private static final SkipWaitUntilMixedWaitWorkflow MIXED_WAIT_WORKFLOW =
             new SkipWaitUntilMixedWaitWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testSkipWaitUntil() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "skip-wait-until-" + UUID.randomUUID();
+            final int input = 0;
+            final StartFlowOptions options = StartFlowOptions.newBuilder()
+                    .configOverride(FlowConfig.newBuilder()
+                            .continueAsNewThreshold(1)
+                            .build())
+                    .build();
+            environment.client().startFlow(WORKFLOW, flowId, input, options);
+            assertEquals(input + 2, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
 
     void compileExecuteOnlySteps(final Client client) {
         client.startFlow(WORKFLOW, "execute-only", 0);

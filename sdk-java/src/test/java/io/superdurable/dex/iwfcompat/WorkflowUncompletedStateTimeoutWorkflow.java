@@ -14,7 +14,9 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
+import io.superdurable.dex.StepDurability;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepOptions;
@@ -39,13 +41,21 @@ final class WorkflowUncompletedStateTimeoutStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        throw new IllegalStateException("timeout simulation");
+        try {
+            Thread.sleep(Duration.ofSeconds(2).toMillis());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("timeout callback interrupted", exception);
+        }
+        return StepDecision.gracefulComplete(input);
     }
 
     @Override
     public StepOptions getStepOptions() {
         return StepOptions.newBuilder()
-                .executeMethodTimeout(Duration.ofMillis(1))
+                .executeMethodTimeout(Duration.ofSeconds(1))
+                .executeRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
+                .executeDurability(StepDurability.SYNC)
                 .build();
     }
 }

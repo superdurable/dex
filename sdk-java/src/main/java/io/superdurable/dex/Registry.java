@@ -319,6 +319,16 @@ public final class Registry {
         }
     }
 
+    static boolean skipsWaitFor(final Step<?> step) {
+        try {
+            return step.getClass()
+                    .getMethod("waitFor", Context.class, Object.class)
+                    .getDeclaringClass() == Step.class;
+        } catch (NoSuchMethodException exception) {
+            throw new IllegalArgumentException("Step waitFor signature is invalid", exception);
+        }
+    }
+
     private static String persistenceKind(final PersistenceDefinition definition) {
         if (definition instanceof Attribute) {
             return "attribute";
@@ -401,13 +411,7 @@ public final class Registry {
             this.name = name;
             this.step = step;
             this.starting = starting;
-            try {
-                this.skipWaitFor = step.getClass()
-                        .getMethod("waitFor", Context.class, Object.class)
-                        .getDeclaringClass() == Step.class;
-            } catch (NoSuchMethodException exception) {
-                throw new IllegalArgumentException("Step waitFor signature is invalid", exception);
-            }
+            this.skipWaitFor = Registry.skipsWaitFor(step);
         }
 
         String getName() { return name; }

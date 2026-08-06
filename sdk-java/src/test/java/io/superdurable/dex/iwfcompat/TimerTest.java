@@ -14,11 +14,44 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@Tag("dex-dev")
 public final class TimerTest {
     private static final TimerWorkflow WORKFLOW = new TimerWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testBasicTimerWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "basic-timer-" + UUID.randomUUID();
+            final long startedAt = System.nanoTime();
+            environment.client().startFlow(WORKFLOW, flowId, 5);
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    new StepExecutionId("TimerStep"),
+                    Duration.ofSeconds(10));
+            environment.client().waitForFlow(flowId);
+            final long elapsedMillis = Duration.ofNanos(
+                    System.nanoTime() - startedAt).toMillis();
+            assertTrue(
+                    elapsedMillis >= 4_000L && elapsedMillis <= 7_000L,
+                    "actual duration: " + elapsedMillis);
+        }
+    }
 
     void compileTimerAndStepWait(final Client client) {
         client.startFlow(WORKFLOW, "timer", 1);

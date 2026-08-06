@@ -22,6 +22,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 
 final class NoStartStateWorkflow implements Flow<Void> {
+    static final long RPC_OUTPUT = 100L;
     private final TriggeredStep triggered = new TriggeredStep();
 
     @Override
@@ -31,7 +32,10 @@ final class NoStartStateWorkflow implements Flow<Void> {
 
     @RPC
     public RPCResult<Long> invoke(final Context context, final String input) {
-        return RPCResult.of(1L, StepMovement.of(triggered, null));
+        if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
+            throw new IllegalStateException("invalid RPC context");
+        }
+        return RPCResult.of(RPC_OUTPUT, StepMovement.of(triggered, null));
     }
 
     static final class TriggeredStep implements Step<Void> {

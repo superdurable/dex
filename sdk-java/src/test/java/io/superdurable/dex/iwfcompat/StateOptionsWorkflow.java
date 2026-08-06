@@ -17,16 +17,11 @@ import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
-import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
-import io.superdurable.dex.StepDurability;
-import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
-
-import java.time.Duration;
 
 final class StateOptionsWorkflow implements Flow<Void> {
     final Attribute<String> waitValue = Attribute.define("DA_WAIT_UNTIL", String.class);
@@ -54,6 +49,9 @@ final class StateOptionsWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
+            executeValue.set(context, "execute");
+            waitValue.set(context, "wait_until");
+            bothValue.set(context, "both");
             return StepDecision.goTo(second, null);
         }
     }
@@ -66,34 +64,35 @@ final class StateOptionsWorkflow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            waitValue.set(context, "wait");
-            bothValue.set(context, "wait");
+            if (!"wait_until".equals(waitValue.get(context))) {
+                throw new IllegalStateException("waitFor attribute was not loaded");
+            }
+            if (!"execute".equals(executeValue.get(context))) {
+                throw new IllegalStateException("execute attribute was not loaded in waitFor");
+            }
+            if (!"both".equals(bothValue.get(context))) {
+                throw new IllegalStateException("shared attribute was not loaded in waitFor");
+            }
             return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            executeValue.set(context, "execute");
-            bothValue.set(context, "execute");
-            final StepOptions override = StepOptions.newBuilder()
-                    .executeMethodTimeout(Duration.ofSeconds(2))
-                    .build();
-            return StepDecision.goToMulti(StepMovement.of(third, null, override));
+            if (!"execute".equals(executeValue.get(context))) {
+                throw new IllegalStateException("execute attribute was not loaded");
+            }
+            if (!"wait_until".equals(waitValue.get(context))) {
+                throw new IllegalStateException("waitFor attribute was not loaded in execute");
+            }
+            if (!"both".equals(bothValue.get(context))) {
+                throw new IllegalStateException("shared attribute was not loaded in execute");
+            }
+            return StepDecision.goTo(third, null);
         }
 
         @Override
         public StepOptions getStepOptions() {
-            final RetryPolicy retry = RetryPolicy.newBuilder()
-                    .initialInterval(Duration.ofMillis(10))
-                    .maximumAttempts(3)
-                    .build();
             return StepOptions.newBuilder()
-                    .waitForMethodTimeout(Duration.ofSeconds(1))
-                    .executeMethodTimeout(Duration.ofSeconds(1))
-                    .waitForRetry(retry)
-                    .executeRetry(retry)
-                    .waitForDurability(StepDurability.SYNC)
-                    .executeDurability(StepDurability.ASYNC)
                     .addWaitForLock(AttributeLock.of(waitValue))
                     .addExecuteLock(AttributeLock.of(executeValue))
                     .build();
@@ -107,7 +106,18 @@ final class StateOptionsWorkflow implements Flow<Void> {
         }
 
         @Override
+        public Wait waitFor(final Context context, final Void input) {
+            if (!"both".equals(bothValue.get(context))) {
+                throw new IllegalStateException("shared attribute was not loaded in waitFor");
+            }
+            return Wait.skipImmediately();
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Void input) {
+            if (!"both".equals(bothValue.get(context))) {
+                throw new IllegalStateException("shared attribute was not loaded in execute");
+            }
             return StepDecision.gracefulComplete("success");
         }
 

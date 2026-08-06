@@ -14,9 +14,11 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepOptions;
 
 final class BasicAbnormalExitWorkflow implements Flow<Integer> {
     private final BasicAbnormalExitStep start = new BasicAbnormalExitStep();
@@ -36,5 +38,12 @@ final class BasicAbnormalExitStep implements Step<Integer> {
     @Override
     public StepDecision execute(final Context context, final Integer input) {
         throw new IllegalStateException("abnormal exit");
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
+                .build();
     }
 }

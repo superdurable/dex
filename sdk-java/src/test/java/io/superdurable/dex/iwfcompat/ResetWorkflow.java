@@ -29,8 +29,12 @@ import io.superdurable.dex.Wait;
 final class ResetWorkflow implements Flow<Void> {
     final Channel<Void> channel = Channel.define("rpc-channel", Void.class);
     final Attribute<String> data = Attribute.define("rpc-lock-data", String.class);
+    final Attribute<String> keyword = Attribute.define(
+            "CustomKeywordField",
+            String.class,
+            new AttributeIndex(AttributeIndex.Type.KEYWORD));
     final Attribute<Integer> counter = Attribute.define(
-            "rpc-lock-counter",
+            "CustomIntField",
             Integer.class,
             new AttributeIndex(AttributeIndex.Type.INT));
     final AttributeMap<String> items = AttributeMap.define("rpc-lock-items", String.class);
@@ -44,13 +48,12 @@ final class ResetWorkflow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(data, counter, items, channel);
+        return PersistenceSchema.of(data, keyword, counter, items, channel);
     }
 
-    @RPC(lockAttributes = {"rpc-lock-data", "rpc-lock-counter"})
+    @RPC(lockAttributes = {"rpc-lock-data", "CustomKeywordField", "CustomIntField"})
     public void withLocking(final Context context) {
-        data.set(context, "locked");
-        counter.set(context, 1);
+        writeAttributes(context);
         channel.publish(context, null);
     }
 
@@ -63,7 +66,14 @@ final class ResetWorkflow implements Flow<Void> {
 
     @RPC
     public void withoutLocking(final Context context) {
+        writeAttributes(context);
         channel.publish(context, null);
+    }
+
+    private void writeAttributes(final Context context) {
+        data.set(context, "random-string");
+        keyword.set(context, "random-string");
+        counter.set(context, 100);
     }
 
     final class LockWaitStep implements Step<Void> {

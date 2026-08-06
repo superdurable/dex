@@ -36,8 +36,10 @@ import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
@@ -50,6 +52,9 @@ public class UserContractsTest {
             Channel.define("commands", OrderInput.class);
     private static final Step<OrderInput> APPROVE = new ApproveStep();
     private static final Flow<OrderInput> ORDERS = new OrderFlow();
+
+    @TempDir
+    Path cacheDirectory;
 
     @Test
     public void typedDefinitionsBuildWithoutRuntime() {
@@ -117,21 +122,27 @@ public class UserContractsTest {
     }
 
     @Test
-    public void runtimeBoundaryFailsExplicitly() {
+    public void clientValidatesInputBeforeTransport() {
         final Client client = new Client(
                 new Registry(Collections.<Flow<?>>singletonList(ORDERS)),
                 BLOB_CACHE);
         Assertions.assertThrows(
-                UnsupportedOperationException.class,
-                () -> client.startFlow(ORDERS, "order-1", new OrderInput()));
+                IllegalArgumentException.class,
+                () -> startWithWrongInput(client));
     }
 
     @Test
-    public void blobCacheContractValidatesConfigBeforeNativePhase() {
-        final BlobCacheConfig config = new BlobCacheConfig("contract-cache", 1024L, 0L);
-        Assertions.assertThrows(
-                UnsupportedOperationException.class,
-                () -> BlobCache.open(config));
+    public void blobCacheStoresAndReadsPayload() {
+        final BlobCacheConfig config = new BlobCacheConfig(
+                cacheDirectory.toString(),
+                64L * 1024L * 1024L);
+        final byte[] payload = new byte[] {1, 2, 3};
+        try (BlobCache cache = BlobCache.open(config)) {
+            Assertions.assertTrue(cache.put("contract-blob", payload));
+            Assertions.assertArrayEquals(
+                    payload,
+                    cache.get("contract-blob").orElseThrow(AssertionError::new));
+        }
     }
 
     private static String rpcAnnotationName() {
@@ -152,6 +163,11 @@ public class UserContractsTest {
     private static <StartInput> StepList<StartInput> uncheckedStartStep(
             final Step<?> step) {
         return (StepList<StartInput>) (StepList) StepList.startStep((Step) step);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void startWithWrongInput(final Client client) {
+        client.startFlow((Flow) ORDERS, "order-1", "wrong input");
     }
 
     @SuppressWarnings("unused")

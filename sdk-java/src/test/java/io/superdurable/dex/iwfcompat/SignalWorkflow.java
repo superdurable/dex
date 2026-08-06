@@ -29,7 +29,7 @@ import java.time.Duration;
 final class SignalWorkflow implements Flow<Integer> {
     final Channel<Integer> first = Channel.define("signal-1", Integer.class);
     final Channel<Integer> second = Channel.define("signal-2", Integer.class);
-    final Channel<Integer> third = Channel.define("signal-3", Integer.class);
+    final Channel<Void> third = Channel.define("signal-3", Void.class);
     final ChannelMap<Integer> signalMap = ChannelMap.define("signal-map", Integer.class);
     private final SignalFirstStep start = new SignalFirstStep();
     private final SignalCombinationStep combination = new SignalCombinationStep();
@@ -52,11 +52,16 @@ final class SignalWorkflow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.anyOf(first.forOne("test-signal-id"));
+            return Wait.anyOf(
+                    first.forOne("test-signal-id-1"),
+                    second.forOne("test-signal-id-2"));
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
+            if (!second.getConditionResults(context).isEmpty()) {
+                throw new IllegalStateException("second signal should still be waiting");
+            }
             final int value = first.getConditionResults(context).get(0);
             return StepDecision.goTo(combination, input + value);
         }
@@ -72,16 +77,28 @@ final class SignalWorkflow implements Flow<Integer> {
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyCombinationOf(
                     ConditionCombination.of(
-                            second.forOne("signal-2"),
-                            Timer.byDuration(Duration.ofSeconds(10), "test-timer-id")),
-                    ConditionCombination.of(
-                            third.forN(2),
-                            signalMap.forOne("one")));
+                            first.forOne("signal-1"),
+                            third.forOne("signal-3"),
+                            signalMap.forOne("one"),
+                            Timer.byDuration(Duration.ofDays(365), "test-timer-id")));
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input + third.size(context));
+            if (!second.getConditionResults(context).isEmpty()) {
+                throw new IllegalStateException("second signal should still be waiting");
+            }
+            if (third.getConditionResults(context).size() != 1) {
+                throw new IllegalStateException("null signal was not received");
+            }
+            if (signalMap.getConditionResults(context, "one").size() != 1) {
+                throw new IllegalStateException("mapped signal was not received");
+            }
+            if (!context.hasTimerFired()) {
+                throw new IllegalStateException("timer was not fired");
+            }
+            return StepDecision.gracefulComplete(
+                    input + first.getConditionResults(context).get(0));
         }
     }
 }

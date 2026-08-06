@@ -14,9 +14,11 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 
 final class WorkflowUncompletedStateFailureWorkflow implements Flow<Integer> {
@@ -42,6 +44,13 @@ final class WorkflowUncompletedStateFailureStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        throw new IllegalStateException("state API failure");
+        throw new IllegalStateException("test api failing");
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
+                .build();
     }
 }

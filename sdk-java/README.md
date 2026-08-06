@@ -111,10 +111,10 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
         .build();
 ```
 
-The legacy IWF integration inventory is being converted to real Dex E2E tests under
+The legacy IWF integration inventory is implemented as 58 real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/iwfcompat`](src/test/java/io/superdurable/dex/iwfcompat/README.md).
-All fixtures compile against the typed API; enabled E2E cases run Java Client,
-Java Worker, and Rust Core against `dexcli dev`.
+They run Java Client, Java Worker, and Rust Core against `dexcli dev`, covering
+flows, steps, RPCs, persistence, reset, timers, failure modes, and options.
 
 ## License
 
@@ -178,14 +178,20 @@ dedicated integration task:
 
 ```shell
 dexcli dev
-temporal operator search-attribute create --name CustomKeywordField --type Keyword
-temporal operator search-attribute create --name CustomIntField --type Int
-temporal operator search-attribute create --name CustomDatetimeField --type Datetime
+temporal operator search-attribute create \
+  --name CustomKeywordField --type Keyword \
+  --name CustomIntField --type Int \
+  --name CustomTextField --type Text \
+  --name CustomDoubleField --type Double \
+  --name CustomBoolField --type Bool \
+  --name CustomKeywordArrayField --type KeywordList \
+  --name CustomDatetimeField --type Datetime
 DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
 ```
 
 The Gradle task builds the JNI library and starts a fresh Java Worker for each
-test with a unique worker port and flow ID.
+test with a unique worker port and flow ID. The suite contains 58 integration
+scenarios ported from the IWF Java SDK inventory.
 
 If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
 use the local publishing command:

@@ -15,46 +15,52 @@ package io.superdurable.dex.iwfcompat;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
 import io.superdurable.dex.AttributeMap;
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.Wait;
 
 import java.time.Instant;
 
 final class PersistenceSetAttributesWorkflow implements Flow<String> {
     final Attribute<String> data = Attribute.define("data", String.class);
     final AttributeMap<String> dataMap = AttributeMap.define("data-map", String.class);
+    final Attribute<PersistenceWorkflow.ModelInput> model = Attribute.define(
+            "data-model",
+            PersistenceWorkflow.ModelInput.class);
     final Attribute<String> keyword = Attribute.define(
-            "keyword",
+            "CustomKeywordField",
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
     final Attribute<String> text = Attribute.define(
-            "text",
+            "CustomTextField",
             String.class,
             new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
     final Attribute<Double> decimal = Attribute.define(
-            "double",
+            "CustomDoubleField",
             Double.class,
             new AttributeIndex(AttributeIndex.Type.DOUBLE));
     final Attribute<Integer> integer = Attribute.define(
-            "int",
+            "CustomIntField",
             Integer.class,
             new AttributeIndex(AttributeIndex.Type.INT));
     final Attribute<Boolean> bool = Attribute.define(
-            "bool",
+            "CustomBoolField",
             Boolean.class,
             new AttributeIndex(AttributeIndex.Type.BOOL));
     final Attribute<String[]> keywords = Attribute.define(
-            "keywords",
+            "CustomKeywordArrayField",
             String[].class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD_ARRAY));
     final Attribute<Instant> datetime = Attribute.define(
-            "datetime",
+            "CustomDatetimeField",
             Instant.class,
             new AttributeIndex(AttributeIndex.Type.DATETIME));
+    final Channel<Void> proceed = Channel.define("proceed", Void.class);
     private final CompleteStep start = new CompleteStep();
 
     @Override
@@ -67,24 +73,31 @@ final class PersistenceSetAttributesWorkflow implements Flow<String> {
         return PersistenceSchema.of(
                 data,
                 dataMap,
+                model,
                 keyword,
                 text,
                 decimal,
                 integer,
                 bool,
                 keywords,
-                datetime);
+                datetime,
+                proceed);
     }
 
-    static final class CompleteStep implements Step<String> {
+    final class CompleteStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
         }
 
         @Override
+        public Wait waitFor(final Context context, final String input) {
+            return Wait.allOf(proceed.forOne());
+        }
+
+        @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.gracefulComplete(input);
+            return StepDecision.gracefulComplete("test-result");
         }
     }
 }

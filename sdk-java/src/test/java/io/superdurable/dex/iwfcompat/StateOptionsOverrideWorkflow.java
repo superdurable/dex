@@ -14,13 +14,14 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.StepOptions;
-
-import java.time.Duration;
+import io.superdurable.dex.Wait;
+import io.superdurable.dex.WaitForFailurePolicy;
 
 final class StateOptionsOverrideWorkflow implements Flow<String> {
     private final OverrideFirstStep first = new OverrideFirstStep();
@@ -32,30 +33,59 @@ final class StateOptionsOverrideWorkflow implements Flow<String> {
     }
 
     final class OverrideFirstStep implements Step<String> {
+        private String output;
+
         @Override
         public Class<String> getInputType() {
             return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String input) {
+            output = input + "_state1_start";
+            return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final String input) {
             final StepOptions options = StepOptions.newBuilder()
-                    .waitForMethodTimeout(Duration.ofSeconds(2))
-                    .executeMethodTimeout(Duration.ofSeconds(3))
+                    .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+                    .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
-            return StepDecision.goToMulti(StepMovement.of(second, input, options));
+            output += "_state1_decide";
+            return StepDecision.goToMulti(StepMovement.of(second, output, options));
         }
     }
 
     static final class CompleteStep implements Step<String> {
+        private String output;
+
         @Override
         public Class<String> getInputType() {
             return String.class;
         }
 
         @Override
+        public Wait waitFor(final Context context, final String input) {
+            output = input + "_state2_start";
+            throw new IllegalStateException("state 2 wait failure");
+        }
+
+        @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.gracefulComplete(input);
+            if (!context.waitForMethodFailed()) {
+                throw new IllegalStateException("waitFor failure was not reported");
+            }
+            output += "_state2_decide";
+            return StepDecision.gracefulComplete(output);
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
+                    .waitForFailure(WaitForFailurePolicy.FAIL_FLOW)
+                    .build();
         }
     }
 }

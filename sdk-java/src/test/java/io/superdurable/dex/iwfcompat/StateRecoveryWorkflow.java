@@ -14,6 +14,7 @@ package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
@@ -48,20 +49,35 @@ final class StateRecoveryWorkflow implements Flow<Integer> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            .maximumAttempts(1)
+                            .backoffCoefficient(2.0)
+                            .build())
                     .onExecuteFailureProceedTo(recover)
                     .build();
         }
     }
 
-    static final class RecoverStep implements Step<Integer> {
+    final class RecoverStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
         }
 
         @Override
+        public Wait waitFor(final Context context, final Integer input) {
+            return Wait.skipImmediately();
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input * 2);
+            if (input == 10) {
+                return StepDecision.gracefulComplete(input);
+            }
+            if (input == 5) {
+                return StepDecision.goTo(start, input * 2);
+            }
+            return StepDecision.forceFail("unexpected input " + input);
         }
     }
 }

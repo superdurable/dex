@@ -21,19 +21,23 @@ import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepMovement;
 
 final class NoStartStateDeadEndWorkflow implements Flow<Void> {
+    static final long RPC_OUTPUT = 100L;
     final Channel<Void> idleSignal = Channel.define("idle-signal", Void.class);
+    final Channel<Void> idleInternal = Channel.define("idle-internal", Void.class);
     private final NoStartStateDeadEndStep start = new NoStartStateDeadEndStep();
+    private final NoStartStateCompleteStep complete = new NoStartStateCompleteStep();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(start);
+        return StepList.startStep(start).otherSteps(complete);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(idleSignal);
+        return PersistenceSchema.of(idleSignal, idleInternal);
     }
 
     @RPC
@@ -43,8 +47,16 @@ final class NoStartStateDeadEndWorkflow implements Flow<Void> {
 
     @RPC
     public RPCResult<Integer> publishInternal(final Context context) {
-        idleSignal.publish(context, null);
-        return RPCResult.of(idleSignal.size(context));
+        idleInternal.publish(context, null);
+        return RPCResult.of(idleInternal.size(context));
+    }
+
+    @RPC
+    public RPCResult<Long> invoke(final Context context, final String input) {
+        if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
+            throw new IllegalStateException("invalid RPC context");
+        }
+        return RPCResult.of(RPC_OUTPUT, StepMovement.of(complete, null));
     }
 }
 
@@ -57,5 +69,17 @@ final class NoStartStateDeadEndStep implements Step<Void> {
     @Override
     public StepDecision execute(final Context context, final Void input) {
         return StepDecision.deadEnd();
+    }
+}
+
+final class NoStartStateCompleteStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        return StepDecision.gracefulComplete();
     }
 }

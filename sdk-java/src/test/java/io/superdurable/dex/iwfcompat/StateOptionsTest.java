@@ -13,9 +13,37 @@
 package io.superdurable.dex.iwfcompat;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@Tag("dex-dev")
 public final class StateOptionsTest {
     private static final StateOptionsWorkflow WORKFLOW = new StateOptionsWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testStateOptionsWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "state-options-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, null);
+            assertEquals("success", environment.client().waitForFlow(
+                    flowId,
+                    String.class,
+                    Duration.ofSeconds(30)));
+        }
+    }
 
     void compileTimeoutRetryDurabilityAndLocks(final Client client) {
         client.startFlow(WORKFLOW, "state-options", null);

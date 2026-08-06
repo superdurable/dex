@@ -27,75 +27,110 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 
 final class RpcWorkflow implements Flow<Integer> {
+    static final long RPC_OUTPUT = 100L;
+    static final String HARDCODED_VALUE = "random-string";
     final Channel<Void> internal = Channel.define("rpc-internal", Void.class);
     final Attribute<String> data = Attribute.define("rpc-data", String.class);
     final Attribute<String> keyword = Attribute.define(
-            "rpc-keyword",
+            "CustomKeywordField",
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
+    final Attribute<Integer> integer = Attribute.define(
+            "CustomIntField",
+            Integer.class,
+            new AttributeIndex(AttributeIndex.Type.INT));
     private final RpcFirstStep first = new RpcFirstStep();
-    private final RpcSecondStep second = new RpcSecondStep();
+    private final RpcOutputStep output = new RpcOutputStep();
 
     @Override
     public StepList<Integer> getSteps() {
-        return StepList.startStep(first).otherSteps(second);
+        return StepList.startStep(first).otherSteps(output);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(data, keyword, internal);
+        return PersistenceSchema.of(data, keyword, integer, internal);
     }
 
     @RPC
     public void noPersistence(final Context context) {
+        requireContext(context);
         internal.publish(context, null);
     }
 
     @RPC
     public RPCResult<Long> functionOne(final Context context, final String input) {
+        requireContext(context);
+        data.set(context, null);
         data.set(context, input);
         keyword.set(context, input);
-        return RPCResult.of(1L, StepMovement.of(second, 0));
+        integer.set(context, Math.toIntExact(RPC_OUTPUT));
+        internal.publish(context, null);
+        return RPCResult.of(RPC_OUTPUT);
     }
 
     @RPC
     public RPCResult<Long> functionZero(final Context context) {
-        return RPCResult.of(1L, StepMovement.of(second, 0));
+        requireContext(context);
+        data.set(context, HARDCODED_VALUE);
+        keyword.set(context, HARDCODED_VALUE);
+        integer.set(context, Math.toIntExact(RPC_OUTPUT));
+        internal.publish(context, null);
+        return RPCResult.of(RPC_OUTPUT);
     }
 
     @RPC
     public void procedureOne(final Context context, final String input) {
+        requireContext(context);
         data.set(context, input);
+        keyword.set(context, input);
+        integer.set(context, Math.toIntExact(RPC_OUTPUT));
+        internal.publish(context, null);
     }
 
     @RPC
     public void procedureZero(final Context context) {
+        requireContext(context);
+        data.set(context, HARDCODED_VALUE);
+        keyword.set(context, HARDCODED_VALUE);
+        integer.set(context, Math.toIntExact(RPC_OUTPUT));
         internal.publish(context, null);
     }
 
     @RPC
     public RPCResult<Long> readOnly(final Context context, final String input) {
-        return RPCResult.of((long) input.length());
+        requireContext(context);
+        return RPCResult.of(RPC_OUTPUT);
     }
 
     @RPC
     public void setData(final Context context, final String input) {
+        requireContext(context);
         data.set(context, input);
     }
 
     @RPC
     public RPCResult<String> getData(final Context context) {
+        requireContext(context);
         return RPCResult.of(data.get(context));
     }
 
     @RPC
     public void setKeyword(final Context context, final String input) {
+        requireContext(context);
         keyword.set(context, input);
     }
 
     @RPC
     public RPCResult<String> getKeyword(final Context context) {
+        requireContext(context);
         return RPCResult.of(keyword.get(context));
+    }
+
+    private static void requireContext(final Context context) {
+        if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
+            throw new IllegalStateException("invalid RPC context");
+        }
     }
 
     final class RpcFirstStep implements Step<Integer> {
@@ -111,11 +146,11 @@ final class RpcWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, 0);
+            return StepDecision.goTo(output, 0);
         }
     }
 
-    static final class RpcSecondStep implements Step<Integer> {
+    static final class RpcOutputStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -123,7 +158,7 @@ final class RpcWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(input + 1);
+            return StepDecision.gracefulComplete(2);
         }
     }
 }
