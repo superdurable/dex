@@ -29,6 +29,7 @@ type StepExecutionCounter struct {
 	provider             interfaces.WorkflowProvider
 	configer             *config.FlowConfiger
 	continueAsNewCounter *cont.ContinueAsNewCounter
+	indexSynchronizer    *IndexSynchronizer
 
 	// For creating stepExecutionId: count the stepId for how many times that have been started
 	stepTypeStartedCounts map[string]int32
@@ -47,12 +48,14 @@ func NewStepExecutionCounter(
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
+	indexSynchronizer *IndexSynchronizer,
 ) *StepExecutionCounter {
 	return &StepExecutionCounter{
 		ctx:                     ctx,
 		provider:                provider,
 		configer:                configer,
 		continueAsNewCounter:    continueAsNewCounter,
+		indexSynchronizer:       indexSynchronizer,
 		stepTypeStartedCounts:   map[string]int32{},
 		stepTypeActiveCounts:    map[string]int32{},
 		stepActiveExecutionNums: map[string][]int32{},
@@ -65,6 +68,7 @@ func RebuildStepExecutionCounter(
 	configer *config.FlowConfiger,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	counterInfo *dexpb.StepExecutionCounterInfo,
+	indexSynchronizer *IndexSynchronizer,
 ) *StepExecutionCounter {
 	stepTypeStartedCounts := counterInfo.GetStepTypeStartedCount()
 	if stepTypeStartedCounts == nil {
@@ -79,6 +83,7 @@ func RebuildStepExecutionCounter(
 		provider:              provider,
 		configer:              configer,
 		continueAsNewCounter:  continueAsNewCounter,
+		indexSynchronizer:     indexSynchronizer,
 		stepTypeStartedCounts: stepTypeStartedCounts,
 		stepTypeActiveCounts:  stepTypeActiveCounts,
 		stepActiveExecutionNums: stepActiveExecutionNumsFromProto(
@@ -275,6 +280,10 @@ func (e *StepExecutionCounter) GetTotalCurrentlyExecutingCount() int32 {
 }
 
 func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute() error {
+	if e.indexSynchronizer != nil {
+		e.indexSynchronizer.UpdateActiveStepTypes(DeterministicKeys(e.stepTypeActiveCounts))
+		return nil
+	}
 	// Optimization: don't upsert SAs if currentSAsValues == stepTypeActiveCounts keys
 	currentSAsValues, err := e.provider.GetSearchAttributeKeywordArray(
 		e.ctx,

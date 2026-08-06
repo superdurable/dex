@@ -49,6 +49,7 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 		provider,
 		configer,
 		cont.NewContinueAsCounter(configer, nil, provider),
+		nil,
 	)
 	waitStep := &dexpb.StepMovement{StepType: "wait"}
 	skipStep := &dexpb.StepMovement{
@@ -90,6 +91,7 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 		provider,
 		configer,
 		cont.NewContinueAsCounter(configer, nil, provider),
+		nil,
 	)
 
 	err := counter.MarkStepTypeActiveIfNotYet([]StepRequest{
@@ -110,6 +112,7 @@ func TestStepExecutionCounterCompletionBackendFailureIsInternal(t *testing.T) {
 		provider,
 		configer,
 		cont.NewContinueAsCounter(configer, nil, provider),
+		nil,
 	)
 	step := &dexpb.StepMovement{StepType: "step"}
 	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
@@ -132,6 +135,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		disabledProvider,
 		disabledConfiger,
 		cont.NewContinueAsCounter(disabledConfiger, nil, disabledProvider),
+		nil,
 	)
 	disabledStep := &dexpb.StepMovement{StepType: "disabled"}
 	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
@@ -154,6 +158,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		sharedProvider,
 		sharedConfiger,
 		cont.NewContinueAsCounter(sharedConfiger, nil, sharedProvider),
+		nil,
 	)
 	first := &dexpb.StepMovement{StepType: "shared"}
 	second := &dexpb.StepMovement{StepType: "shared"}
@@ -197,6 +202,7 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 		configer,
 		cont.NewContinueAsCounter(configer, nil, provider),
 		info,
+		nil,
 	)
 
 	info.StepTypeStartedCount["owned"] = 4

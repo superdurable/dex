@@ -286,6 +286,7 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 		{name: "double", value: float32(2.5), indexType: IndexDouble},
 		{name: "boolean", value: true, indexType: IndexBool},
 		{name: "datetime", value: dateTime, indexType: IndexDatetime},
+		{name: "vector", value: []float32{1, 2, 3}, indexType: IndexVector},
 		{
 			name:      "datetime string",
 			value:     "2026-07-30T10:00:00.123456789Z",
@@ -324,6 +325,8 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 		&AttributeIndex{Type: IndexKeywordArray},
 	)
 	require.ErrorContains(t, err, "index 1 is not valid UTF-8")
+	_, _, err = encodeAttributeValue([]float64{1, math.NaN()}, &AttributeIndex{Type: IndexVector})
+	require.ErrorContains(t, err, "must be finite")
 }
 
 func TestInitialAttributeValidatesEncoding(t *testing.T) {

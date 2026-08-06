@@ -51,7 +51,7 @@ func TestFlowWithoutSteps(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, err = integClient.SearchFlows(
 			ctx,
-			"FlowType = '"+dex.GetFinalFlowType(flow)+"'",
+			dex.SearchQuery{Query: "FlowType = '" + dex.GetFinalFlowType(flow) + "'"},
 			100,
 			"",
 		)

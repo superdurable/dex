@@ -1003,6 +1003,8 @@ type SearchFlowEntry struct {
 	StartedAt        time.Time
 	ClosedAt         time.Time
 	SearchAttributes map[string]Value
+	BM25Score        *float64
+	VectorDistance   *float64
 }
 ```
 
@@ -1348,9 +1350,10 @@ time must be non-zero, and step type or step execution ID must be non-empty for
 their respective modes. Fields unrelated to the selected reset mode must be
 zero so impossible proto combinations fail before transport.
 
-SearchFlows passes query text and page token through unchanged. Page size zero
-keeps the server default. Search attributes are hydrated before being wrapped
-as opaque Values.
+SearchFlows passes structured text/vector queries and page tokens through
+unchanged. Page size zero keeps the server default. Search attributes are
+hydrated before being wrapped as opaque Values. Raw BM25 scores and vector
+distances remain optional pointers; the SDK does not normalize hybrid scores.
 
 ### Response hydration
 
@@ -1890,6 +1893,7 @@ const (
 	IndexDouble
 	IndexBool
 	IndexDatetime
+	IndexVector
 )
 
 type AttributeIndex struct {
@@ -2355,7 +2359,7 @@ The remaining FlowService operations use non-generic public types:
 |---|---|
 | `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
 | `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
-| `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
+| `SearchFlows` | `Client.SearchFlows(ctx, SearchQuery, pageSize, nextPageToken)` |
 | `ResetFlow` | `Client.ResetFlow(ctx, flowID, ResetOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
@@ -2432,6 +2436,18 @@ type SearchFlowEntry struct {
 	StartedAt        time.Time
 	ClosedAt         time.Time
 	SearchAttributes map[string]Value
+	BM25Score        *float64
+	VectorDistance   *float64
+}
+
+type SearchQuery struct {
+	Query  string
+	Vector *SearchVectorQuery
+}
+
+type SearchVectorQuery struct {
+	IndexKey string
+	Vector   []float32
 }
 
 type SearchFlowsPage struct {

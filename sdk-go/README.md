@@ -96,6 +96,30 @@ Invocation attribute reads return `(value, error)`. A missing static or map
 attribute returns `*dex.AttributeNotFoundError`, which callers can inspect with
 `errors.As` when absence is expected.
 
+## Indexed attributes and search
+
+`IndexKeyword`, `IndexText`, `IndexKeywordArray`, `IndexInt`, `IndexDouble`,
+`IndexBool`, `IndexDatetime`, and `IndexVector` select the wire index type.
+ParadeDB vector dimensions and metric come from the schema applied to Dex
+Server; vector values accept non-empty finite float slices and arrays.
+
+Search uses `SearchQuery` so a ParadeDB vector query can carry an optional
+strict filter:
+
+```go
+page, err := client.SearchFlows(ctx, dex.SearchQuery{
+	Query: `FlowType:"Checkout"`,
+	Vector: &dex.SearchVectorQuery{
+		IndexKey: "embedding",
+		Vector:   []float32{0.1, 0.2, 0.3},
+	},
+}, 100, "")
+```
+
+Visibility deployments accept only `SearchQuery.Query`. ParadeDB results expose
+optional `BM25Score` or `VectorDistance` pointers without hybrid score
+normalization. See the [ParadeDB Attribute Index guide](../docs/ParadeDB-Attribute-Index.md).
+
 ## Registration
 
 Registration uses pointer-stripped package-qualified Go types by default:

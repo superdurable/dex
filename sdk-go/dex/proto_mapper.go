@@ -776,6 +776,8 @@ func mapSearchFlowsPage(
 			StartedAt:        flow.StartTime.AsTime(),
 			ClosedAt:         closedAt,
 			SearchAttributes: attributes,
+			BM25Score:        flow.Bm25Score,
+			VectorDistance:   flow.VectorDistance,
 		})
 	}
 	return SearchFlowsPage{
@@ -912,17 +914,36 @@ func mapInvokeOptions(
 }
 
 func mapSearchFlowsOptions(
-	query string,
+	query SearchQuery,
 	pageSize int32,
 	nextPageToken string,
 ) (*dexpb.SearchFlowsRequest, error) {
 	if pageSize < 0 {
 		return nil, fmt.Errorf("dex: search page size must not be negative")
 	}
+	var vectorQuery *dexpb.SearchVectorQuery
+	if query.Vector != nil {
+		if strings.TrimSpace(query.Vector.IndexKey) == "" {
+			return nil, fmt.Errorf("dex: vector index key must not be empty")
+		}
+		if len(query.Vector.Vector) == 0 {
+			return nil, fmt.Errorf("dex: search vector must not be empty")
+		}
+		for componentIndex, component := range query.Vector.Vector {
+			if math.IsNaN(float64(component)) || math.IsInf(float64(component), 0) {
+				return nil, fmt.Errorf("dex: search vector component %d must be finite", componentIndex)
+			}
+		}
+		vectorQuery = &dexpb.SearchVectorQuery{
+			IndexKey: query.Vector.IndexKey,
+			Vector:   query.Vector.Vector,
+		}
+	}
 	return &dexpb.SearchFlowsRequest{
-		Query:         query,
+		Query:         query.Query,
 		PageSize:      pageSize,
 		NextPageToken: nextPageToken,
+		VectorQuery:   vectorQuery,
 	}, nil
 }
 

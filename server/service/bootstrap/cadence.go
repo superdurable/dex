@@ -91,6 +91,7 @@ func (r *Runtime) createCadenceServices() (
 		dataConverter,
 		unifiedClient,
 		store,
+		r.flowIndex,
 		r.workerPool,
 	)
 	return unifiedClient, store, worker, nil

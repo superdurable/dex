@@ -224,6 +224,15 @@ func (s *supervisor) startDexRuntime(
 				},
 			}},
 		},
+		FlowIndex: config.FlowIndexConfig{
+			Backend: s.cfg.FlowIndexBackend,
+			ParadeDB: config.ParadeDBConfig{
+				DSN:            s.cfg.ParadeDBDSN,
+				Schema:         s.cfg.ParadeDBSchema,
+				Table:          s.cfg.ParadeDBTable,
+				MaxConnections: int32(s.cfg.ParadeDBMaxConnections),
+			},
+		},
 		Interpreter: config.Interpreter{
 			Temporal: &config.TemporalConfig{
 				HostPort:  s.cfg.temporalAddress(),

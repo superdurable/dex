@@ -193,6 +193,10 @@ temporalIntegTestsAgainstLocalDexDev:
 cadenceIntegTests:
 	$Q go test -v ./integ -timeout 20m -temporal=false
 
+paradeDBIntegTests:
+	$Q go test -v -tags=paradedb ./service/common/flowindex -timeout 10m
+	$Q go test -v -tags=paradedb ./integ -timeout 10m -run '^TestParadeDB' -cadence=false
+
 ci-web-api-temporal-test:
 	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort)
 

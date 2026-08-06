@@ -440,7 +440,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.NoError(t, result.Completions[0].Output.Decode(&completion))
 	require.Equal(t, "hydrated", completion)
 
-	page, err := client.SearchFlows(ctx, "status = 'ready'", 10, "")
+	page, err := client.SearchFlows(ctx, SearchQuery{Query: "status = 'ready'"}, 10, "")
 	require.NoError(t, err)
 	require.Equal(t, "next", page.NextPageToken)
 	require.Equal(t, FlowRunning, page.Flows[0].Status)

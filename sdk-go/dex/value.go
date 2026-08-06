@@ -206,6 +206,21 @@ func encodeIndexedValue(value any, indexType IndexType) (*dexpb.Value, error) {
 		return encodeValue(value)
 	case IndexDatetime:
 		return encodeDatetimeIndex(value, reflected)
+	case IndexVector:
+		if (reflected.Kind() != reflect.Slice && reflected.Kind() != reflect.Array) || reflected.Len() == 0 {
+			return nil, incompatibleIndexValue(indexType, reflected.Type())
+		}
+		for componentIndex := 0; componentIndex < reflected.Len(); componentIndex++ {
+			component := reflected.Index(componentIndex)
+			if component.Kind() != reflect.Float32 && component.Kind() != reflect.Float64 {
+				return nil, incompatibleIndexValue(indexType, reflected.Type())
+			}
+			value := component.Float()
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, fmt.Errorf("dex: vector component %d must be finite", componentIndex)
+			}
+		}
+		return encodeJSONObject(value)
 	default:
 		return nil, fmt.Errorf("dex: unsupported index type %d", indexType)
 	}
@@ -405,6 +420,8 @@ func mapIndexType(indexType IndexType) (dexpb.IndexType, error) {
 		return dexpb.IndexType_INDEX_TYPE_BOOL, nil
 	case IndexDatetime:
 		return dexpb.IndexType_INDEX_TYPE_DATETIME, nil
+	case IndexVector:
+		return dexpb.IndexType_INDEX_TYPE_VECTOR, nil
 	default:
 		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED,
 			fmt.Errorf("dex: unsupported index type %d", indexType)

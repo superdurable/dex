@@ -88,7 +88,13 @@ service FlowService {
   rpc WaitForStepCompletion(WaitForStepCompletionRequest) returns (WaitForStepCompletionResponse);
   rpc WaitForAttribute(WaitForAttributeRequest) returns (google.protobuf.Empty);
   rpc TriggerContinueAsNew(TriggerContinueAsNewRequest) returns (google.protobuf.Empty);
+  rpc GetFlowIndexInfo(google.protobuf.Empty) returns (GetFlowIndexInfoResponse);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthInfo);
+}
+
+// Hosted by Dex server; administrative clients manage the flow index schema.
+service AdminService {
+  rpc ApplyFlowIndexSchema(ApplyFlowIndexSchemaRequest) returns (ApplyFlowIndexSchemaResponse);
 }
 
 // Hosted by Dex worker; server calls these RPCs.
@@ -156,6 +162,45 @@ enum IndexType {
   INDEX_TYPE_DOUBLE = 5;
   INDEX_TYPE_BOOL = 6;
   INDEX_TYPE_DATETIME = 7;
+  INDEX_TYPE_VECTOR = 8;
+}
+
+enum AttributeIndexBackend {
+  ATTRIBUTE_INDEX_BACKEND_UNSPECIFIED = 0;
+  ATTRIBUTE_INDEX_BACKEND_VISIBILITY = 1;
+  ATTRIBUTE_INDEX_BACKEND_PARADEDB = 2;
+}
+
+enum VectorDistanceMetric {
+  VECTOR_DISTANCE_METRIC_UNSPECIFIED = 0;
+  VECTOR_DISTANCE_METRIC_L2 = 1;
+  VECTOR_DISTANCE_METRIC_COSINE = 2;
+  VECTOR_DISTANCE_METRIC_INNER_PRODUCT = 3;
+}
+
+message FlowIndexField {
+  string name = 1;
+  IndexType type = 2;
+  int32 vector_dimensions = 3;
+  VectorDistanceMetric vector_distance_metric = 4;
+  bool system = 5;
+}
+
+message GetFlowIndexInfoResponse {
+  AttributeIndexBackend backend = 1;
+  int64 schema_version = 2;
+  repeated FlowIndexField fields = 3;
+}
+
+message ApplyFlowIndexSchemaRequest {
+  int32 definition_version = 1;
+  repeated FlowIndexField attributes = 2;
+}
+
+message ApplyFlowIndexSchemaResponse {
+  int64 schema_version = 1;
+  bool changed = 2;
+  repeated string added_fields = 3;
 }
 
 message Context {
@@ -388,6 +433,12 @@ message SearchFlowsRequest {
   string query = 1;
   int32 page_size = 2;
   string next_page_token = 3;
+  SearchVectorQuery vector_query = 4;
+}
+
+message SearchVectorQuery {
+  string index_key = 1;
+  repeated float vector = 2;
 }
 
 message SearchFlowsResponse {
@@ -403,6 +454,8 @@ message SearchFlowsResponseEntry {
   FlowStatus flow_status = 5;
   google.protobuf.Timestamp start_time = 6;
   google.protobuf.Timestamp close_time = 7;
+  optional double bm25_score = 8;
+  optional double vector_distance = 9;
 }
 
 message FlowExecutionID {
@@ -964,8 +1017,11 @@ message ContinueAsNewDump {
   StepExecutionCounterInfo counter_info = 4;
   repeated StepCompletionOutput step_outputs = 5;
   repeated StaleSkipTimer stale_skip_timers = 6;
-  // Stored values only; index metadata remains in backend search attributes.
+  // Stored values only; ParadeDB projection and queue are carried separately.
   repeated KV attributes = 7;
+  map<string, Value> indexed_projection = 8;
+  repeated FlowIndexMutation pending_index_mutations = 9;
+  int64 next_index_mutation_sequence = 10;
 }
 
 // --- Internal serializable types (history / query / activity) ---
@@ -1003,6 +1059,8 @@ message InterpreterWorkflowInput {
   // When true, ignore start_step_type / step_input / step_options / init_attributes.
   bool is_resume_from_continue_as_new = 10;
   ContinueAsNewInput continue_as_new_input = 11;
+  AttributeIndexBackend attribute_index_backend = 12;
+  map<string, Value> initial_indexed_projection = 13;
 }
 
 message InterpreterWorkflowOutput {
@@ -1062,6 +1120,23 @@ message CleanupBlobStoreActivityOutput {
   int32 total_deleted = 1;
 }
 
+message FlowIndexMutation {
+  int64 sequence = 1;
+  map<string, Value> upserts = 2;
+  repeated string deletes = 3;
+  bool replace = 4;
+  FlowStatus flow_status = 5;
+  google.protobuf.Timestamp close_time = 6;
+}
+
+message WriteFlowIndexActivityInput {
+  string flow_id = 1;
+  string run_id = 2;
+  string flow_type = 3;
+  google.protobuf.Timestamp run_started_at = 4;
+  FlowIndexMutation mutation = 5;
+}
+
 message ExecuteRpcSignalRequest {
   Value rpc_input = 1;
   Value rpc_output = 2;
@@ -1077,8 +1152,14 @@ message SkipTimerSignalRequest {
   int32 timer_condition_index = 3;
 }
 
-message FailFlowSignalRequest {
+message StopFlowSignalRequest {
+  StopType stop_type = 1;
+  string reason = 2;
+}
+
+message ReconcileFlowIndexSignalRequest {
   string reason = 1;
+  google.protobuf.Timestamp run_started_at = 2;
 }
 
 message GetAttributesQueryRequest {

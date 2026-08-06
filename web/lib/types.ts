@@ -33,11 +33,29 @@ export interface FlowExecution {
   startTime: string | null;
   closeTime: string | null;
   searchAttributes: KeyValue[];
+  bm25Score?: number;
+  vectorDistance?: number;
 }
 
 export interface SearchFlowsResult {
   flows: FlowExecution[];
   nextPageToken: string;
+}
+
+export type FlowIndexBackend = 'visibility' | 'paradedb';
+
+export interface FlowIndexField {
+  name: string;
+  type: 'keyword' | 'text' | 'keyword_array' | 'int' | 'double' | 'bool' | 'datetime' | 'vector';
+  vectorDimensions?: number;
+  vectorMetric?: 'l2' | 'cosine' | 'inner_product';
+  system: boolean;
+}
+
+export interface FlowIndexInfo {
+  backend: FlowIndexBackend;
+  schemaVersion: number;
+  fields: FlowIndexField[];
 }
 
 export interface FlowSummary {

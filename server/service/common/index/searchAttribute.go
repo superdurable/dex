@@ -58,6 +58,45 @@ func ConvertAttributeWritesToSearchAttributeUpsertMap(writes []*dexpb.AttributeW
 	return res
 }
 
+// ConvertAttributeWritesToIndexedValues preserves indexed values for ParadeDB mutations.
+func ConvertAttributeWritesToIndexedValues(
+	writes []*dexpb.AttributeWrite,
+) (map[string]*dexpb.Value, []string) {
+	upserts := map[string]*dexpb.Value{}
+	deleted := map[string]struct{}{}
+	for _, write := range writes {
+		if write == nil || write.GetIndexConfig() == nil || !write.GetIndexConfig().GetEnable() {
+			continue
+		}
+		key := getIndexKeyWithFallback(write)
+		if utils.IsNullValue(write.GetValue()) {
+			delete(upserts, key)
+			deleted[key] = struct{}{}
+			continue
+		}
+		delete(deleted, key)
+		upserts[key] = write.GetValue()
+	}
+	deletes := make([]string, 0, len(deleted))
+	for key := range deleted {
+		deletes = append(deletes, key)
+	}
+	return upserts, sortedUniqueIndexKeys(deletes)
+}
+
+func sortedUniqueIndexKeys(keys []string) []string {
+	unique := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		unique[key] = struct{}{}
+	}
+	keys = keys[:0]
+	for key := range unique {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // getIndexKeyWithFallback returns IndexConfig.index_key when set, else the attribute key.
 func getIndexKeyWithFallback(write *dexpb.AttributeWrite) string {
 	if write.GetIndexConfig() != nil && write.GetIndexConfig().GetIndexKey() != "" {

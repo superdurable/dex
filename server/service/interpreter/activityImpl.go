@@ -24,6 +24,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/workerclient"
@@ -38,6 +39,7 @@ type Activities struct {
 	internalClient   *workerclient.InternalServiceClient
 	unifiedClient    uclient.UnifiedClient
 	blobStore        blobstore.BlobStore
+	flowIndex        flowindex.Store
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
 }
@@ -48,6 +50,7 @@ func NewActivities(
 	internalClient *workerclient.InternalServiceClient,
 	unifiedClient uclient.UnifiedClient,
 	blobStore blobstore.BlobStore,
+	flowIndex flowindex.Store,
 	eventHandler event.HandleEventFunc,
 	cfg *config.Config,
 ) *Activities {
@@ -58,15 +61,44 @@ func NewActivities(
 	if cfg == nil {
 		panic("Activities requires non-nil config sections")
 	}
+	if cfg.FlowIndex.EffectiveBackend() == config.FlowIndexBackendParadeDB && flowIndex == nil {
+		panic("Activities requires a ParadeDB flow index store")
+	}
 	return &Activities{
 		activityProvider: activityProvider,
 		workerPool:       workerPool,
 		internalClient:   internalClient,
 		unifiedClient:    unifiedClient,
 		blobStore:        blobStore,
+		flowIndex:        flowIndex,
 		eventHandler:     eventHandler,
 		cfg:              cfg,
 	}
+}
+
+func (a *Activities) WriteFlowIndex(
+	ctx context.Context,
+	input *dexpb.WriteFlowIndexActivityInput,
+) error {
+	logger := a.activityProvider.GetLogger(ctx)
+	if a.flowIndex == nil {
+		return fmt.Errorf("ParadeDB flow index is not configured")
+	}
+	if input != nil && input.GetMutation() != nil && a.blobStore != nil {
+		values := make([]*dexpb.Value, 0, len(input.GetMutation().GetUpserts()))
+		for _, value := range input.GetMutation().GetUpserts() {
+			values = append(values, value)
+		}
+		if err := blobstore.HydrateValues(ctx, values, a.blobStore); err != nil {
+			logger.Error("WriteFlowIndexActivity hydration failed", "error", err)
+			return err
+		}
+	}
+	if err := a.flowIndex.Write(ctx, input); err != nil {
+		logger.Error("WriteFlowIndexActivity failed", "error", err)
+		return err
+	}
+	return nil
 }
 
 // InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.

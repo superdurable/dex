@@ -18,6 +18,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -48,6 +49,7 @@ func NewInterpreterWorker(
 	dataConverter encoded.DataConverter,
 	unifiedClient uclient.UnifiedClient,
 	store blobstore.BlobStore,
+	flowIndex flowindex.Store,
 	workerPool *workerclient.WorkerClientPool,
 ) *InterpreterWorker {
 	if cfg == nil {
@@ -68,6 +70,7 @@ func NewInterpreterWorker(
 		internal,
 		unifiedClient,
 		store,
+		flowIndex,
 		eventHandler,
 		cfg,
 	)
@@ -135,6 +138,7 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) error {
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
 	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
 	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)
+	iw.worker.RegisterActivity(iw.activities.WriteFlowIndex)
 
 	err := iw.worker.Start()
 	if err != nil {

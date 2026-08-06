@@ -21,6 +21,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const maxRequestBytes = 1 << 20
@@ -38,6 +39,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	}
 	handler := &handler{client: client}
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
+	mux.HandleFunc("GET /api/flow-index", handler.getFlowIndexInfo)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
@@ -64,6 +66,7 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		Query:         body.Query,
 		PageSize:      body.PageSize,
 		NextPageToken: body.NextPageToken,
+		VectorQuery:   mapSearchVectorQuery(body.VectorQuery),
 	})
 	if err != nil {
 		writeGRPCError(response, err, "SearchFlows")
@@ -77,6 +80,22 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		Flows:         flows,
 		NextPageToken: result.GetNextPageToken(),
 	})
+}
+
+func (h *handler) getFlowIndexInfo(response http.ResponseWriter, request *http.Request) {
+	result, err := h.client.GetFlowIndexInfo(request.Context(), &emptypb.Empty{})
+	if err != nil {
+		writeGRPCError(response, err, "GetFlowIndexInfo")
+		return
+	}
+	writeJSON(response, http.StatusOK, mapFlowIndexInfo(result))
+}
+
+func mapSearchVectorQuery(query *searchVectorQuery) *dexpb.SearchVectorQuery {
+	if query == nil {
+		return nil
+	}
+	return &dexpb.SearchVectorQuery{IndexKey: query.IndexKey, Vector: query.Vector}
 }
 
 func (h *handler) getFlowSummary(response http.ResponseWriter, request *http.Request) {

@@ -20,6 +20,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
 	"github.com/superdurable/dex/service/common/workerclient"
@@ -44,9 +45,12 @@ func NewServer(
 	apiCfg *config.ApiConfig,
 	extStore *config.ExternalStorageConfig,
 	interpreterCfg *config.Interpreter,
+	flowIndexCfg *config.FlowIndexConfig,
+	taskQueue string,
 	client uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	flowIndex flowindex.Store,
 	readyCheck func(context.Context) error,
 	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
@@ -69,6 +73,15 @@ func NewServer(
 	if interpreterCfg == nil {
 		panic("interpreterCfg must not be nil")
 	}
+	if flowIndexCfg == nil {
+		panic("flowIndexCfg must not be nil")
+	}
+	if taskQueue == "" {
+		panic("taskQueue must not be empty")
+	}
+	if flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB && flowIndex == nil {
+		panic("flowIndex must not be nil when ParadeDB is enabled")
+	}
 	if workerPool == nil {
 		panic("workerPool must not be nil")
 	}
@@ -76,7 +89,7 @@ func NewServer(
 		readyCheck = func(context.Context) error { return nil }
 	}
 
-	handler := newHandler(apiCfg, extStore, interpreterCfg, client, logger, store, workerPool)
+	handler := newHandler(apiCfg, extStore, interpreterCfg, flowIndexCfg, taskQueue, client, logger, store, flowIndex, workerPool)
 	maxMsg := apiCfg.EffectiveGrpcMaxMessageBytes()
 	healthSrv := health.NewServer()
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
@@ -95,6 +108,7 @@ func NewServer(
 	)
 	dexpb.RegisterFlowServiceServer(grpcServer, handler)
 	dexpb.RegisterInternalServiceServer(grpcServer, handler)
+	dexpb.RegisterAdminServiceServer(grpcServer, handler)
 	healthpb.RegisterHealthServer(grpcServer, healthSrv)
 
 	return &Server{

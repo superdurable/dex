@@ -94,6 +94,7 @@ type TimerProcessor interface {
 
 type WorkflowProvider interface {
 	NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error
+	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo

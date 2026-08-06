@@ -56,6 +56,17 @@ const (
 	DefaultMaxStickyRoutingEntries = 100000
 	// DefaultWorkerServiceRequestMaxAttempts includes the first headless WorkerService request.
 	DefaultWorkerServiceRequestMaxAttempts = 3
+	// DefaultFlowIndexSchema is the PostgreSQL schema for ParadeDB objects.
+	DefaultFlowIndexSchema = "dex"
+	// DefaultFlowIndexTable is the latest-state flow index table.
+	DefaultFlowIndexTable = "flow_index"
+	// DefaultFlowIndexMaxConnections caps the ParadeDB connection pool.
+	DefaultFlowIndexMaxConnections int32 = 10
+)
+
+const (
+	FlowIndexBackendVisibility = "visibility"
+	FlowIndexBackendParadeDB   = "paradedb"
 )
 
 var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
@@ -76,6 +87,26 @@ type (
 		Interpreter Interpreter `yaml:"interpreter"`
 		// ExternalStorage offloads large Attribute payloads (string/object) above ThresholdInBytes.
 		ExternalStorage ExternalStorageConfig `yaml:"externalStorage"`
+		// FlowIndex selects Visibility or ParadeDB indexing. Default is Visibility.
+		FlowIndex FlowIndexConfig `yaml:"flowIndex"`
+	}
+
+	FlowIndexConfig struct {
+		// Backend is visibility or paradedb. Default visibility. Immutable after startup.
+		Backend string `yaml:"backend"`
+		// ParadeDB configures the external index used when Backend is paradedb.
+		ParadeDB ParadeDBConfig `yaml:"paradeDB"`
+	}
+
+	ParadeDBConfig struct {
+		// DSN is the PostgreSQL connection string used by Dex Server. Default empty. Immutable after startup.
+		DSN string `yaml:"dsn"`
+		// Schema contains ParadeDB tables and catalog state. Default dex. Immutable after startup.
+		Schema string `yaml:"schema"`
+		// Table stores the latest indexed state per FlowID. Default flow_index. Immutable after startup.
+		Table string `yaml:"table"`
+		// MaxConnections caps the connection pool. Default 10. Must be positive when explicitly set.
+		MaxConnections int32 `yaml:"maxConnections"`
 	}
 
 	ExternalStorageConfig struct {
@@ -279,6 +310,51 @@ func (c Config) GetInternalServiceTargetWithDefault() string {
 		port = DefaultApiPort
 	}
 	return fmt.Sprintf("localhost:%v", port)
+}
+
+func (c FlowIndexConfig) EffectiveBackend() string {
+	if c.Backend == "" {
+		return FlowIndexBackendVisibility
+	}
+	return c.Backend
+}
+
+func (c FlowIndexConfig) Validate() error {
+	switch c.EffectiveBackend() {
+	case FlowIndexBackendVisibility:
+		return nil
+	case FlowIndexBackendParadeDB:
+		if c.ParadeDB.DSN == "" {
+			return fmt.Errorf("flowIndex.paradeDB.dsn is required")
+		}
+		if c.ParadeDB.MaxConnections < 0 {
+			return fmt.Errorf("flowIndex.paradeDB.maxConnections must be positive")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported flow index backend %q", c.Backend)
+	}
+}
+
+func (c ParadeDBConfig) EffectiveSchema() string {
+	if c.Schema == "" {
+		return DefaultFlowIndexSchema
+	}
+	return c.Schema
+}
+
+func (c ParadeDBConfig) EffectiveTable() string {
+	if c.Table == "" {
+		return DefaultFlowIndexTable
+	}
+	return c.Table
+}
+
+func (c ParadeDBConfig) EffectiveMaxConnections() int32 {
+	if c.MaxConnections == 0 {
+		return DefaultFlowIndexMaxConnections
+	}
+	return c.MaxConnections
 }
 
 // EffectiveMaxWaitSeconds returns the wait cap: DefaultMaxWaitSeconds when MaxWaitSeconds is 0.

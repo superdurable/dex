@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/api"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/log/tag"
@@ -54,6 +56,7 @@ type Runtime struct {
 	apiServer     *api.Server
 	worker        interpreterWorker
 	workerPool    *workerclient.WorkerClientPool
+	flowIndex     flowindex.Store
 	logger        log.Logger
 	metricsCloser io.Closer
 	serveError    chan error
@@ -80,6 +83,9 @@ func New(cfg *config.Config, options *Options) (*Runtime, error) {
 	}
 	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Cadence != nil {
 		return nil, fmt.Errorf("Temporal and Cadence configs are mutually exclusive")
+	}
+	if err := cfg.FlowIndex.Validate(); err != nil {
+		return nil, err
 	}
 
 	zapLogger, err := cfg.Log.NewZapLogger()
@@ -112,6 +118,12 @@ func (r *Runtime) createServices() error {
 		store  blobstore.BlobStore
 		err    error
 	)
+	if r.cfg.FlowIndex.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		r.flowIndex, err = flowindex.NewParadeDBStore(context.Background(), &r.cfg.FlowIndex)
+		if err != nil {
+			return err
+		}
+	}
 	if r.cfg.Interpreter.Temporal != nil {
 		client, store, r.worker, err = r.createTemporalServices()
 	} else {
@@ -125,9 +137,12 @@ func (r *Runtime) createServices() error {
 			&r.cfg.Api,
 			&r.cfg.ExternalStorage,
 			&r.cfg.Interpreter,
+			&r.cfg.FlowIndex,
+			service.TaskQueue,
 			client,
 			r.logger.WithTags(tag.Service("api")),
 			store,
+			r.flowIndex,
 			nil,
 			r.workerPool,
 		)
@@ -199,6 +214,9 @@ func (r *Runtime) shutdown() {
 			if err := r.metricsCloser.Close(); err != nil {
 				r.logger.Error("close metrics scope", tag.Error(err))
 			}
+		}
+		if r.flowIndex != nil {
+			r.flowIndex.Close()
 		}
 	})
 }

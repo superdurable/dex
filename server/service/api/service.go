@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/blobstore"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
+	"github.com/superdurable/dex/service/common/flowindex"
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/log"
@@ -51,6 +52,8 @@ type serviceImpl struct {
 	apiCfg             *config.ApiConfig
 	extStore           *config.ExternalStorageConfig
 	interpreterCfg     *config.Interpreter
+	flowIndexCfg       *config.FlowIndexConfig
+	flowIndex          flowindex.Store
 	workerPool         *workerclient.WorkerClientPool
 	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
 }
@@ -59,13 +62,15 @@ func NewApiService(
 	apiCfg *config.ApiConfig,
 	extStore *config.ExternalStorageConfig,
 	interpreterCfg *config.Interpreter,
+	flowIndexCfg *config.FlowIndexConfig,
 	client uclient.UnifiedClient,
 	taskQueue string,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	flowIndex flowindex.Store,
 	workerPool *workerclient.WorkerClientPool,
 ) (ApiService, error) {
-	if apiCfg == nil || extStore == nil || interpreterCfg == nil {
+	if apiCfg == nil || extStore == nil || interpreterCfg == nil || flowIndexCfg == nil {
 		panic("API service requires non-nil config sections")
 	}
 	if client == nil || logger == nil || workerPool == nil || taskQueue == "" {
@@ -73,6 +78,9 @@ func NewApiService(
 	}
 	if extStore.Enabled && store == nil {
 		panic("API service requires a blob store when external storage is enabled")
+	}
+	if flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB && flowIndex == nil {
+		panic("API service requires a ParadeDB flow index store")
 	}
 	return &serviceImpl{
 		apiCfg:             apiCfg,
@@ -82,6 +90,8 @@ func NewApiService(
 		taskQueue:          taskQueue,
 		logger:             logger,
 		interpreterCfg:     interpreterCfg,
+		flowIndexCfg:       flowIndexCfg,
+		flowIndex:          flowIndex,
 		workerPool:         workerPool,
 		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(extStore, client, store),
 	}, nil
@@ -101,6 +111,9 @@ func (s *serviceImpl) StartFlow(
 	if req.GetRequestId() == "" {
 		return nil, makeInvalidRequestError("request ID is required")
 	}
+	if err := s.requireFlowIndexSchema(ctx); err != nil {
+		return nil, err
+	}
 	if req.GetFlowTimeoutSeconds() < 0 {
 		return nil, makeInvalidRequestError("flow timeout must be non-negative")
 	}
@@ -114,8 +127,14 @@ func (s *serviceImpl) StartFlow(
 		return nil, makeInvalidRequestError(err.Error())
 	}
 
-	searchAttributes := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
-	searchAttributes[service.SearchAttributeDexWorkflowType] = req.GetFlowType()
+	searchAttributes := map[string]interface{}{}
+	indexedProjection := map[string]*dexpb.Value{}
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendVisibility {
+		searchAttributes = index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
+		searchAttributes[service.SearchAttributeDexWorkflowType] = req.GetFlowType()
+	} else {
+		indexedProjection, _ = index.ConvertAttributeWritesToIndexedValues(attributes)
+	}
 
 	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
@@ -184,6 +203,9 @@ func (s *serviceImpl) StartFlow(
 			service.WorkflowRequestId: &dexpb.EncodedObject{
 				Payload: []byte(req.GetRequestId()),
 			},
+			service.FlowTypeMemoKey: &dexpb.EncodedObject{
+				Payload: []byte(req.GetFlowType()),
+			},
 		},
 		IdReusePolicy: ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING),
 	}
@@ -213,12 +235,14 @@ func (s *serviceImpl) StartFlow(
 	}
 
 	input := &dexpb.InterpreterWorkflowInput{
-		FlowType:       req.GetFlowType(),
-		StartStepType:  req.GetStartStepType(),
-		StepInput:      req.GetStepInput(),
-		StepOptions:    req.GetStepOptions(),
-		InitAttributes: initAttributes,
-		Config:         &workflowConfig,
+		FlowType:                 req.GetFlowType(),
+		StartStepType:            req.GetStartStepType(),
+		StepInput:                req.GetStepInput(),
+		StepOptions:              req.GetStepOptions(),
+		InitAttributes:           initAttributes,
+		Config:                   &workflowConfig,
+		AttributeIndexBackend:    s.attributeIndexBackend(),
+		InitialIndexedProjection: indexedProjection,
 	}
 
 	runId, err := s.client.StartInterpreterWorkflow(ctx, workflowOptions, input)
@@ -520,7 +544,13 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) 
 	var err error
 	switch stopType {
 	case dexpb.StopType_STOP_TYPE_CANCEL:
-		err = s.client.CancelWorkflow(ctx, req.GetFlowId(), req.GetRunId())
+		err = s.client.SignalWorkflow(
+			ctx,
+			req.GetFlowId(),
+			req.GetRunId(),
+			service.StopFlowSignalChannelName,
+			&dexpb.StopFlowSignalRequest{StopType: stopType, Reason: req.GetReason()},
+		)
 	case dexpb.StopType_STOP_TYPE_TERMINATE:
 		err = s.client.TerminateWorkflow(ctx, req.GetFlowId(), req.GetRunId(), req.GetReason())
 	case dexpb.StopType_STOP_TYPE_FAIL:
@@ -528,14 +558,23 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) 
 			ctx,
 			req.GetFlowId(),
 			req.GetRunId(),
-			service.FailWorkflowSignalChannelName,
-			&dexpb.FailFlowSignalRequest{Reason: req.GetReason()},
+			service.StopFlowSignalChannelName,
+			&dexpb.StopFlowSignalRequest{StopType: stopType, Reason: req.GetReason()},
 		)
 	default:
 		return nil, makeInvalidRequestError("stop type is required")
 	}
 	if err != nil {
 		return nil, s.handleError(err)
+	}
+	if stopType == dexpb.StopType_STOP_TYPE_TERMINATE &&
+		s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		if err := s.flowIndex.WriteTerminated(ctx, req.GetFlowId(), req.GetRunId()); err != nil {
+			s.logger.Error("backend terminate succeeded but flow index update failed", tag.Error(err))
+			return nil, serviceerrors.Internal(
+				"workflow was terminated, but the ParadeDB terminal status update failed: " + err.Error(),
+			).ToGRPCError()
+		}
 	}
 	return &emptypb.Empty{}, nil
 }
@@ -723,6 +762,16 @@ func (s *serviceImpl) SearchFlows(
 	if req == nil || req.GetPageSize() < 0 {
 		return nil, makeInvalidRequestError("page size must be non-negative")
 	}
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		response, err := s.flowIndex.Search(ctx, req)
+		if err != nil {
+			return nil, s.handleFlowIndexError(err)
+		}
+		return response, nil
+	}
+	if req.GetVectorQuery() != nil {
+		return nil, makeInvalidRequestError("vector query requires ParadeDB flow indexing")
+	}
 	pageSize := int32(1000)
 	if req.GetPageSize() > 0 {
 		pageSize = req.GetPageSize()
@@ -739,6 +788,40 @@ func (s *serviceImpl) SearchFlows(
 		FlowRuns:      response.Executions,
 		NextPageToken: string(response.NextPageToken),
 	}, nil
+}
+
+func (s *serviceImpl) GetFlowIndexInfo(
+	ctx context.Context,
+	_ *emptypb.Empty,
+) (*dexpb.GetFlowIndexInfoResponse, error) {
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendVisibility {
+		return &dexpb.GetFlowIndexInfoResponse{
+			Backend: dexpb.AttributeIndexBackend_ATTRIBUTE_INDEX_BACKEND_VISIBILITY,
+		}, nil
+	}
+	response, err := s.flowIndex.GetInfo(ctx)
+	if err != nil {
+		return nil, s.handleFlowIndexError(err)
+	}
+	return response, nil
+}
+
+func (s *serviceImpl) ApplyFlowIndexSchema(
+	ctx context.Context,
+	req *dexpb.ApplyFlowIndexSchemaRequest,
+) (*dexpb.ApplyFlowIndexSchemaResponse, error) {
+	if s.flowIndexCfg.EffectiveBackend() != config.FlowIndexBackendParadeDB {
+		return nil, serviceerrors.NewErrorAndStatus(
+			codes.FailedPrecondition,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			"flow index backend is visibility",
+		).ToGRPCError()
+	}
+	response, err := s.flowIndex.ApplySchema(ctx, req)
+	if err != nil {
+		return nil, s.handleFlowIndexError(err)
+	}
+	return response, nil
 }
 
 func (s *serviceImpl) GetFlowSummary(
@@ -769,6 +852,9 @@ func (s *serviceImpl) GetFlowSummary(
 		FlowType:   description.IndexedAttributes[service.SearchAttributeDexWorkflowType].GetStringValue(),
 		FlowStatus: description.Status,
 		StartTime:  timestamppb.New(description.StartTime),
+	}
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		response.FlowType = decodeStringMemo(description.Memos[service.FlowTypeMemoKey])
 	}
 	if description.CloseTime != nil {
 		response.CloseTime = timestamppb.New(*description.CloseTime)
@@ -1061,6 +1147,17 @@ func (s *serviceImpl) ResetFlow(
 	if err != nil {
 		return nil, s.handleError(err)
 	}
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		if err := s.client.SignalWorkflow(
+			ctx,
+			req.GetFlowId(),
+			runId,
+			service.ReconcileFlowIndexSignalChannelName,
+			&dexpb.ReconcileFlowIndexSignalRequest{Reason: "reset", RunStartedAt: timestamppb.Now()},
+		); err != nil {
+			return nil, s.handleError(err)
+		}
+	}
 	return &dexpb.ResetFlowResponse{RunId: runId}, nil
 }
 
@@ -1139,6 +1236,42 @@ func (s *serviceImpl) HealthCheck(ctx context.Context, _ *emptypb.Empty) (*dexpb
 		Hostname:  hostname,
 		Duration:  0,
 	}, nil
+}
+
+func (s *serviceImpl) requireFlowIndexSchema(ctx context.Context) error {
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendVisibility {
+		return nil
+	}
+	info, err := s.flowIndex.GetInfo(ctx)
+	if err != nil {
+		return s.handleFlowIndexError(err)
+	}
+	if info.GetSchemaVersion() == 0 {
+		return s.handleFlowIndexError(flowindex.ErrSchemaNotApplied)
+	}
+	return nil
+}
+
+func (s *serviceImpl) attributeIndexBackend() dexpb.AttributeIndexBackend {
+	if s.flowIndexCfg.EffectiveBackend() == config.FlowIndexBackendParadeDB {
+		return dexpb.AttributeIndexBackend_ATTRIBUTE_INDEX_BACKEND_PARADEDB
+	}
+	return dexpb.AttributeIndexBackend_ATTRIBUTE_INDEX_BACKEND_VISIBILITY
+}
+
+func (s *serviceImpl) handleFlowIndexError(err error) error {
+	if errors.Is(err, flowindex.ErrSchemaNotApplied) {
+		return serviceerrors.NewErrorAndStatus(
+			codes.FailedPrecondition,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	}
+	if flowindex.IsRequestError(err) {
+		return makeInvalidRequestError(err.Error())
+	}
+	s.logger.Error("flow index operation failed", tag.Error(err))
+	return serviceerrors.Internal(err.Error()).ToGRPCError()
 }
 
 func (s *serviceImpl) waitContext(

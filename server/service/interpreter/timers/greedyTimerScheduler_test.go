@@ -30,6 +30,10 @@ func (p *fakeWorkflowProvider) NewFlowError(dexpb.FlowErrorType, *dexpb.ErrorRes
 	return nil
 }
 
+func (p *fakeWorkflowProvider) NewCanceledError(string) error {
+	return nil
+}
+
 func (p *fakeWorkflowProvider) NewUpdateError(dexpb.UpdateErrorType, string) error {
 	return nil
 }

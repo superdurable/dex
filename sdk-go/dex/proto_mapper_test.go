@@ -258,8 +258,18 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	_, err = mapResetOptions(ResetOptions{Type: ResetType(99)})
 	require.ErrorContains(t, err, "unsupported reset type")
 
-	_, err = mapSearchFlowsOptions("", -1, "")
+	_, err = mapSearchFlowsOptions(SearchQuery{}, -1, "")
 	require.ErrorContains(t, err, "must not be negative")
+	request, err := mapSearchFlowsOptions(SearchQuery{
+		Query: "status:ready",
+		Vector: &SearchVectorQuery{
+			IndexKey: "embedding",
+			Vector:   []float32{1, 2},
+		},
+	}, 10, "")
+	require.NoError(t, err)
+	require.Equal(t, "status:ready", request.Query)
+	require.Equal(t, "embedding", request.VectorQuery.IndexKey)
 
 	_, err = mapFlowConfig(&FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(1)),

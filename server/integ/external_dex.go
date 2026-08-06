@@ -193,6 +193,7 @@ func connectToExternalDexService(t *testing.T, testConfig DexServiceTestConfig) 
 			FlowServiceClient: dexpb.NewFlowServiceClient(connection),
 			maxWaitSeconds:    int32(cfg.Api.EffectiveMaxWaitSeconds()),
 		},
+		AdminClient:   dexpb.NewAdminServiceClient(connection),
 		UnifiedClient: unifiedClient,
 		defaultFlowConfig: &dexpb.FlowConfig{
 			ContinueAsNewThreshold: ptr.Any(int32(100)),
@@ -267,6 +268,10 @@ func externalDexUnsupportedReason(testConfig DexServiceTestConfig) string {
 	}
 	if testConfig.S3TestThreshold > 0 || testConfig.LazyLoading != nil {
 		return "external storage"
+	}
+	if testConfig.FlowIndex.EffectiveBackend() == config.FlowIndexBackendParadeDB ||
+		testConfig.FlowIndexStoreWrapper != nil {
+		return "ParadeDB flow index"
 	}
 	if *disableStickyCache {
 		return "disabled sticky cache"

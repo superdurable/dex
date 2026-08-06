@@ -118,6 +118,6 @@ func (controller *engagementController) list(request *gin.Context) {
 	if !found {
 		return
 	}
-	page, err := controller.client.SearchFlows(request.Request.Context(), query, 100, "")
+	page, err := controller.client.SearchFlows(request.Request.Context(), sdk.SearchQuery{Query: query}, 100, "")
 	respond(request, page, err)
 }

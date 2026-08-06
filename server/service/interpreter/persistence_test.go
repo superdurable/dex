@@ -52,7 +52,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 	provider := &s2WorkflowProvider{}
 	attributeB := stringKV("b", "two")
 	attributeA := stringKV("a", "one")
-	manager := NewPersistenceManager(provider, []*dexpb.KV{attributeB, attributeA})
+	manager := NewPersistenceManager(provider, []*dexpb.KV{attributeB, attributeA}, nil)
 
 	all := manager.GetAllAttributes()
 	require.Equal(t, []string{"a", "b"}, []string{all[0].GetKey(), all[1].GetKey()})
@@ -76,7 +76,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 
 func TestPersistenceBatchSerializedEquality(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, nil)
+	manager := NewPersistenceManager(provider, nil, nil)
 
 	object := &dexpb.AttributeWrite{
 		Key: "object",
@@ -111,7 +111,7 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 		IndexKey: "CustomKeywordField",
 	}
 	initial := stringKV("indexed", "old")
-	manager := NewPersistenceManager(provider, []*dexpb.KV{initial})
+	manager := NewPersistenceManager(provider, []*dexpb.KV{initial}, nil)
 
 	provider.upsertErr = errors.New("backend unavailable")
 	replacement := stringAttribute("indexed", "new", indexConfig)
@@ -130,7 +130,7 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 
 func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
+	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")}, nil)
 
 	deletion := &dexpb.AttributeWrite{
 		Key: "indexed",
@@ -153,7 +153,7 @@ func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
+	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")}, nil)
 
 	moved := stringAttribute("indexed", "new", &dexpb.IndexConfig{
 		Enable:   true,
@@ -185,7 +185,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, nil)
+	manager := NewPersistenceManager(provider, nil, nil)
 
 	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{
 		stringAttribute("first", "new-first", &dexpb.IndexConfig{

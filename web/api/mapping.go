@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -31,7 +32,42 @@ func mapSearchEntry(entry *dexpb.SearchFlowsResponseEntry) flowExecution {
 		StartTime:        timestamp(entry.GetStartTime()),
 		CloseTime:        timestamp(entry.GetCloseTime()),
 		SearchAttributes: mapKeyValues(entry.GetSearchAttributes()),
+		BM25Score:        entry.Bm25Score,
+		VectorDistance:   entry.VectorDistance,
 	}
+}
+
+func mapFlowIndexInfo(info *dexpb.GetFlowIndexInfoResponse) flowIndexInfo {
+	result := flowIndexInfo{
+		Backend:       flowIndexBackend(info.GetBackend()),
+		SchemaVersion: info.GetSchemaVersion(),
+		Fields:        make([]flowIndexField, 0, len(info.GetFields())),
+	}
+	for _, field := range info.GetFields() {
+		result.Fields = append(result.Fields, flowIndexField{
+			Name:             field.GetName(),
+			Type:             indexType(field.GetType()),
+			VectorDimensions: field.GetVectorDimensions(),
+			VectorMetric:     vectorMetric(field.GetVectorDistanceMetric()),
+			System:           field.GetSystem(),
+		})
+	}
+	return result
+}
+
+func flowIndexBackend(backend dexpb.AttributeIndexBackend) string {
+	if backend == dexpb.AttributeIndexBackend_ATTRIBUTE_INDEX_BACKEND_PARADEDB {
+		return "paradedb"
+	}
+	return "visibility"
+}
+
+func indexType(indexType dexpb.IndexType) string {
+	return strings.ToLower(strings.TrimPrefix(indexType.String(), "INDEX_TYPE_"))
+}
+
+func vectorMetric(metric dexpb.VectorDistanceMetric) string {
+	return strings.ToLower(strings.TrimPrefix(metric.String(), "VECTOR_DISTANCE_METRIC_"))
 }
 
 func mapSummary(summary *dexpb.GetFlowSummaryResponse) flowSummary {

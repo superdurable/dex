@@ -43,6 +43,7 @@ Build outside the workspace (or with `GOWORK=off`) so Cadence’s older `genprot
 ```bash
 cd server && go build ./...
 make -C server unitTests
+make -C server paradeDBIntegTests # requires ParadeDB on localhost:5433
 # Integration tests need Cadence/Temporal; see server/CONTRIBUTING.md
 ```
 

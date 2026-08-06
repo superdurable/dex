@@ -140,7 +140,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	cleanupWorkflowId := "test-cleanup-" + uuid.NewString()
 	err := unifiedClient.StartBlobStoreCleanupWorkflow(
 		ctx,
-		service.TaskQueue,
+		runtime.taskQueue,
 		cleanupWorkflowId,
 		"",
 		storeId,

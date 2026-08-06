@@ -11,16 +11,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
   buildVisibilityQuery,
+	buildParadeQuery,
   parseVisibilityQuery,
   type BasicFilter,
   type QueryOperator,
 } from '@/lib/query';
-import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
+import type { FlowExecution, FlowIndexInfo, SearchFlowsResult } from '@/lib/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
 
-type QueryMode = 'basic' | 'advanced';
-type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
+type QueryMode = 'basic' | 'advanced' | 'vector';
+type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration' | 'score';
+type VectorQuery = { indexKey: string; vector: number[] };
 
 const defaultColumns: ColumnId[] = [
   'status',
@@ -30,6 +32,7 @@ const defaultColumns: ColumnId[] = [
   'start',
   'close',
   'duration',
+	'score',
 ];
 
 const columnLabels: Record<ColumnId, string> = {
@@ -40,6 +43,7 @@ const columnLabels: Record<ColumnId, string> = {
   start: 'Started',
   close: 'Closed',
   duration: 'Duration',
+	score: 'Score / distance',
 };
 
 const builtInFields = [
@@ -102,9 +106,24 @@ export function FlowSearchPage() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+	const [indexInfo, setIndexInfo] = useState<FlowIndexInfo>({
+		backend: 'visibility',
+		schemaVersion: 0,
+		fields: [],
+	});
+	const [vectorField, setVectorField] = useState('');
+	const [vectorInput, setVectorInput] = useState('');
+	const [appliedVector, setAppliedVector] = useState<VectorQuery>();
 
-  const generatedQuery = useMemo(() => buildVisibilityQuery(filters), [filters]);
-  const appliedQuery = mode === 'basic' ? generatedQuery : query;
+	const generatedQuery = useMemo(
+		() => indexInfo.backend === 'paradedb' ? buildParadeQuery(filters) : buildVisibilityQuery(filters),
+		[filters, indexInfo.backend],
+	);
+	const appliedQuery = mode === 'basic' ? generatedQuery : query;
+	const availableFields = indexInfo.backend === 'paradedb'
+		? indexInfo.fields.filter((field) => field.type !== 'vector').map((field) => field.name)
+		: builtInFields;
+	const vectorFields = indexInfo.fields.filter((field) => field.type === 'vector');
   const customAttributes = useMemo(() => {
     const keys = new Set<string>();
     flows.forEach((flow) => flow.searchAttributes.forEach((item) => {
@@ -118,6 +137,7 @@ export function FlowSearchPage() {
     requestedToken = '',
     requestedPage = 0,
     requestedPageSize = 50,
+		requestedVector?: VectorQuery,
   ) => {
     setLoading(true);
     setError('');
@@ -129,6 +149,7 @@ export function FlowSearchPage() {
           query: requestedQuery,
           pageSize: requestedPageSize,
           nextPageToken: requestedToken,
+					vectorQuery: requestedVector,
         }),
       });
       const data = await response.json() as SearchFlowsResult & { error?: string };
@@ -178,21 +199,64 @@ export function FlowSearchPage() {
     setColumns(storedColumns);
     window.localStorage.setItem('dex-web-columns', JSON.stringify(storedColumns));
     setHydrated(true);
-    void executeSearch(initialQuery, '', 0, initialPageSize);
+		void (async () => {
+			try {
+				const response = await fetch('/api/flow-index');
+				const info = await response.json() as FlowIndexInfo & { error?: string };
+				if (!response.ok) throw new Error(info.error || 'Load flow index capabilities failed');
+				setIndexInfo(info);
+				if (info.backend === 'paradedb') {
+					setMode(initialQuery ? 'advanced' : 'basic');
+					if (!initialQuery) setFilters([]);
+				}
+				const firstVector = info.fields.find((field) => field.type === 'vector');
+				if (firstVector) setVectorField(firstVector.name);
+			} catch (capabilityError) {
+				setError(capabilityError instanceof Error ? capabilityError.message : 'Load flow index capabilities failed');
+			}
+			await executeSearch(initialQuery, '', 0, initialPageSize);
+		})();
   }, [executeSearch]);
 
   function applySearch() {
     setPageTokens(['']);
-    void executeSearch(appliedQuery, '', 0, pageSize);
+		try {
+			const requestedVector = mode === 'vector'
+				? { indexKey: vectorField, vector: parseVectorInput(vectorInput) }
+				: undefined;
+			const selectedVectorField = vectorFields.find((field) => field.name === vectorField);
+			if (requestedVector && requestedVector.vector.length !== selectedVectorField?.vectorDimensions) {
+				throw new Error(`Vector must have ${selectedVectorField?.vectorDimensions} dimensions.`);
+			}
+			setAppliedVector(requestedVector);
+			void executeSearch(appliedQuery, '', 0, pageSize, requestedVector);
+		} catch (vectorError) {
+			setError(vectorError instanceof Error ? vectorError.message : 'Invalid vector');
+		}
   }
 
   function switchMode(next: QueryMode) {
     if (next === mode) return;
+		if (next === 'vector') {
+			if (indexInfo.backend !== 'paradedb' || vectorFields.length === 0) return;
+			setQuery(generatedQuery);
+			setMode(next);
+			return;
+		}
     if (next === 'advanced') {
       setQuery(generatedQuery);
       setMode(next);
       return;
     }
+		if (indexInfo.backend === 'paradedb') {
+			if (query.trim()) {
+				setError('Clear the advanced ParadeDB query before switching to the Basic editor.');
+				return;
+			}
+			setFilters([]);
+			setMode(next);
+			return;
+		}
     const parsed = parseVisibilityQuery(query);
     if (!parsed) {
       setError('This advanced query uses syntax the Basic editor cannot represent.');
@@ -204,6 +268,13 @@ export function FlowSearchPage() {
 
   function loadQuery(nextQuery: string) {
     setQuery(nextQuery);
+		setAppliedVector(undefined);
+		if (indexInfo.backend === 'paradedb') {
+			setMode('advanced');
+			setPageTokens(['']);
+			void executeSearch(nextQuery, '', 0, pageSize);
+			return;
+		}
     const parsed = parseVisibilityQuery(nextQuery);
     if (parsed) {
       setFilters(parsed);
@@ -249,7 +320,7 @@ export function FlowSearchPage() {
     if (!nextPageToken) return;
     const nextTokens = [...pageTokens, nextPageToken];
     setPageTokens(nextTokens);
-    void executeSearch(appliedQuery, nextPageToken, page + 1, pageSize);
+		void executeSearch(appliedQuery, nextPageToken, page + 1, pageSize, appliedVector);
   }
 
   function previousPage() {
@@ -257,7 +328,7 @@ export function FlowSearchPage() {
     const nextPage = page - 1;
     const nextTokens = pageTokens.slice(0, -1);
     setPageTokens(nextTokens);
-    void executeSearch(appliedQuery, nextTokens[nextPage] || '', nextPage, pageSize);
+		void executeSearch(appliedQuery, nextTokens[nextPage] || '', nextPage, pageSize, appliedVector);
   }
 
   if (!hydrated) return <div className="page-loading">Loading flow search…</div>;
@@ -280,6 +351,11 @@ export function FlowSearchPage() {
             <button className={mode === 'advanced' ? 'active' : ''} onClick={() => switchMode('advanced')}>
               Advanced
             </button>
+						{indexInfo.backend === 'paradedb' && vectorFields.length > 0 && (
+							<button className={mode === 'vector' ? 'active' : ''} onClick={() => switchMode('vector')}>
+								Vector
+							</button>
+						)}
           </div>
           <div className="query-actions">
             <button className="button ghost" onClick={() => setSavedOpen(!savedOpen)}>
@@ -308,12 +384,12 @@ export function FlowSearchPage() {
           </div>
         )}
 
-        {mode === 'basic' ? (
+				{mode === 'basic' ? (
           <div className="filter-list">
             {filters.map((filter) => (
               <div className="filter-row" key={filter.id}>
                 <input
-                  list="visibility-fields"
+									list="index-fields"
                   aria-label="Filter field"
                   value={filter.field}
                   onChange={(event) => setFilters(filters.map((item) => (
@@ -333,7 +409,7 @@ export function FlowSearchPage() {
                     <option key={operator}>{operator}</option>
                   ))}
                 </select>
-                {filter.field === 'ExecutionStatus' ? (
+								{filter.field === 'ExecutionStatus' || filter.field === 'FlowStatus' ? (
                   <select
                     aria-label="Filter value"
                     value={filter.value}
@@ -344,7 +420,18 @@ export function FlowSearchPage() {
                     {['Running', 'Completed', 'Failed', 'TimedOut', 'Terminated', 'Canceled', 'ContinuedAsNew']
                       .map((status) => <option key={status}>{status}</option>)}
                   </select>
-                ) : (
+								) : indexInfo.fields.find((field) => field.name === filter.field)?.type === 'bool' ? (
+									<select
+										aria-label="Filter value"
+										value={filter.value}
+										onChange={(event) => setFilters(filters.map((item) => (
+											item.id === filter.id ? { ...item, value: event.target.value } : item
+										)))}
+									>
+										<option>true</option>
+										<option>false</option>
+									</select>
+								) : (
                   <input
                     aria-label="Filter value"
                     value={filter.value}
@@ -363,10 +450,10 @@ export function FlowSearchPage() {
                 </button>
               </div>
             ))}
-            <datalist id="visibility-fields">
-              {builtInFields.map((field) => <option value={field} key={field} />)}
+						<datalist id="index-fields">
+							{availableFields.map((field) => <option value={field} key={field} />)}
             </datalist>
-            <button className="text-button" onClick={() => setFilters([...filters, newFilter('FlowType')])}>
+						<button className="text-button" onClick={() => setFilters([...filters, newFilter(availableFields[0] || 'FlowType')])}>
               + Add filter
             </button>
             <div className="query-preview">
@@ -374,16 +461,49 @@ export function FlowSearchPage() {
               <code>{generatedQuery || 'All flows'}</code>
             </div>
           </div>
-        ) : (
+				) : mode === 'advanced' ? (
           <label className="advanced-query">
-            <span>Visibility query</span>
+						<span>{indexInfo.backend === 'paradedb' ? 'ParadeDB query (strict Tantivy syntax)' : 'Visibility query'}</span>
             <textarea
               value={query}
               rows={4}
-              placeholder='ExecutionStatus = "Running" AND FlowType = "Checkout"'
+							placeholder={indexInfo.backend === 'paradedb'
+								? 'FlowType:"Checkout" AND priority:>=10'
+								: 'ExecutionStatus = "Running" AND FlowType = "Checkout"'}
               onChange={(event) => setQuery(event.target.value)}
             />
-          </label>
+					</label>
+				) : (
+					<div className="filter-list">
+						<label>
+							<span>Vector field</span>
+							<select value={vectorField} onChange={(event) => setVectorField(event.target.value)}>
+								{vectorFields.map((field) => (
+									<option key={field.name} value={field.name}>
+										{field.name} ({field.vectorDimensions}d, {field.vectorMetric})
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="advanced-query">
+							<span>Vector (JSON array or comma-separated)</span>
+							<textarea
+								value={vectorInput}
+								rows={4}
+								placeholder="[0.12, -0.4, 0.8]"
+								onChange={(event) => setVectorInput(event.target.value)}
+							/>
+						</label>
+						<label className="advanced-query">
+							<span>Optional ParadeDB filter</span>
+							<textarea
+								value={query}
+								rows={2}
+								placeholder='FlowType:"Checkout"'
+								onChange={(event) => setQuery(event.target.value)}
+							/>
+						</label>
+					</div>
         )}
 
         <div className="query-submit">
@@ -392,6 +512,8 @@ export function FlowSearchPage() {
             onClick={() => {
               setFilters([]);
               setQuery('');
+							setVectorInput('');
+							setAppliedVector(undefined);
               setPageTokens(['']);
               void executeSearch('', '', 0, pageSize);
             }}
@@ -420,7 +542,7 @@ export function FlowSearchPage() {
                   const size = Number(event.target.value);
                   setPageSize(size);
                   setPageTokens(['']);
-                  void executeSearch(appliedQuery, '', 0, size);
+									void executeSearch(appliedQuery, '', 0, size, appliedVector);
                 }}
               >
                 {[20, 50, 100, 200].map((size) => <option key={size}>{size}</option>)}
@@ -476,7 +598,10 @@ export function FlowSearchPage() {
                   ))}
                   {customAttributes.map((key) => (
                     <td key={key}>
-                      {displayValue(flow.searchAttributes.find((item) => item.key === key)?.value)}
+										{renderSearchValue(
+											flow.searchAttributes.find((item) => item.key === key)?.value,
+											indexInfo.fields.find((field) => field.name === key)?.type,
+										)}
                     </td>
                   ))}
                 </tr>
@@ -530,5 +655,30 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
       return formatDate(flow.closeTime, timezone);
     case 'duration':
       return formatDuration(flow.startTime, flow.closeTime);
+		case 'score':
+			if (flow.vectorDistance !== undefined) return flow.vectorDistance.toPrecision(6);
+			if (flow.bm25Score !== undefined) return flow.bm25Score.toPrecision(6);
+			return '—';
   }
+}
+
+function parseVectorInput(input: string): number[] {
+	const trimmed = input.trim();
+	if (!trimmed) throw new Error('Vector is required.');
+	const value = trimmed.startsWith('[')
+		? JSON.parse(trimmed) as unknown
+		: trimmed.split(',').map((component) => Number(component.trim()));
+	if (!Array.isArray(value) || value.length === 0 || value.some((component) => (
+		typeof component !== 'number' || !Number.isFinite(component)
+	))) {
+		throw new Error('Vector must contain only finite numbers.');
+	}
+	return value as number[];
+}
+
+function renderSearchValue(value: unknown, indexType?: string) {
+	if (indexType === 'vector' && Array.isArray(value)) {
+		return <details><summary>Vector ({value.length} dimensions)</summary><code>{JSON.stringify(value)}</code></details>;
+	}
+	return displayValue(value);
 }
