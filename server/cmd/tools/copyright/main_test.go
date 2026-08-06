@@ -38,8 +38,10 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	copyTestTemplates(t, repositoryRoot)
 	writeTestJSON(t, repositoryRoot, "script/licenseheaders/policy.json", policy{
 		Cutoff:                  cutoff,
-		IncludedPrefixes:        []string{"server", "sdk-rust"},
-		ForcedNewPrefixes:       []string{"sdk-rust"},
+		IncludedPrefixes:        []string{"server", "sdk-rust", "sdk-python", "sdk-typescript"},
+		ForcedNewPrefixes:       []string{"sdk-rust", "sdk-typescript"},
+		ThirdPartyMixedPrefixes: []string{"sdk-python/tests/iwfcompat", "sdk-typescript/test/iwfcompat"},
+		ReviewedMixedPaths:      []string{"sdk-python/contracts.py"},
 		ExcludedPrefixes:        []string{"docs", "examples"},
 		RetainedLicensePrefixes: map[string]string{"examples/go": "mit"},
 	})
@@ -54,6 +56,10 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	})
 	writeTestFile(t, repositoryRoot, "server/legacy.go", strings.Replace(legacyContent, "return 1", "return 2", 1))
 	writeTestFile(t, repositoryRoot, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
+	writeTestFile(t, repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py", "class BasicFlow:\n    pass\n")
+	writeTestFile(t, repositoryRoot, "sdk-python/contracts.py", legacyContent)
+	writeTestFile(t, repositoryRoot, "sdk-typescript/test/iwfcompat/basic-flow.ts", "export class BasicFlow {}\n")
+	writeTestFile(t, repositoryRoot, "sdk-typescript/src/index.ts", "export const version = 1;\n")
 
 	task, err := newHeaderTask(&config{rootDir: repositoryRoot})
 	require.NoError(t, err)
@@ -66,6 +72,19 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	newContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-rust/src/lib.rs"))
 	require.NoError(t, err)
 	require.Contains(t, string(newContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
+	pythonMixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py"))
+	require.NoError(t, err)
+	require.Contains(t, string(pythonMixedContent), "derived from indeedeng/iwf-java-sdk")
+	require.Contains(t, string(pythonMixedContent), "Third-Party Materials remain under the Apache License")
+	reviewedMixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-python/contracts.py"))
+	require.NoError(t, err)
+	require.Contains(t, string(reviewedMixedContent), "Modifications after the Legacy Cutoff")
+	typeScriptMixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-typescript/test/iwfcompat/basic-flow.ts"))
+	require.NoError(t, err)
+	require.Contains(t, string(typeScriptMixedContent), "derived from indeedeng/iwf-java-sdk")
+	typeScriptNewContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-typescript/src/index.ts"))
+	require.NoError(t, err)
+	require.Contains(t, string(typeScriptNewContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
 
 	verifyTask, err := newHeaderTask(&config{rootDir: repositoryRoot, verifyOnly: true})
 	require.NoError(t, err)
@@ -84,6 +103,7 @@ func copyTestTemplates(t *testing.T, repositoryRoot string) {
 		"mit.txt",
 		"mixed.txt",
 		"super-durable-1.0.txt",
+		"third-party-mixed.txt",
 	} {
 		content, err := os.ReadFile(filepath.Join(sourceDir, fileName))
 		require.NoError(t, err)
