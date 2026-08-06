@@ -49,7 +49,8 @@ const registry = new Registry([orders]);
 
 Flows return all Steps once. Start with `StepList.startStep(step)` and append
 heterogeneous Steps with `.otherSteps(...)`. Use
-`StepList.withoutStartStep<void>(...)` for RPC-only Flows.
+`StepList.withoutStartStep<void>(...)` for RPC-triggered Steps, or
+`StepList.empty()` when the Flow has no Steps.
 `Flow<StartInput>` only types the starting Step and `Client.startFlow()` input;
 `StepList<StartInput>` enforces that relationship during type checking.
 Non-starting Steps may use unrelated input types. `Flow` defaults to `void` for

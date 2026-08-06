@@ -74,7 +74,8 @@ Applications implement two generic interfaces from [`dex.contracts`](dex/contrac
 
 - `Flow[START_INPUT]` returns `StepList.start_step(...)`, followed by optional
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
-  binds the Flow input to the starting Step input.
+  binds the Flow input to the starting Step input. Use `StepList.empty()` when
+  a Flow has no Steps.
 - `Step[INPUT]` implements synchronous `execute` and optionally `wait_for`.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the

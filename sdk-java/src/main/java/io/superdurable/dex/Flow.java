@@ -20,7 +20,7 @@ public interface Flow<StartInput> {
     }
 
     default StepList<StartInput> getSteps() {
-        return StepList.withoutStartStep();
+        return StepList.empty();
     }
 
     default PersistenceSchema getPersistenceSchema() {

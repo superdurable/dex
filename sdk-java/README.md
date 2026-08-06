@@ -80,9 +80,11 @@ WorkerOptions options = WorkerOptions.newBuilder()
 
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
-For RPC-only Flows, use `StepList.withoutStartStep(...)`. The generic binding
-catches start-input mismatches during compilation; Registry also validates the
-runtime classes with `inputType.isAssignableFrom(registeredType)`.
+Use `StepList.empty()` when a Flow has no Steps, or
+`StepList.withoutStartStep(...)` when every Step is RPC-triggered. The generic
+binding catches start-input mismatches during compilation; Registry also
+validates the runtime classes with
+`inputType.isAssignableFrom(registeredType)`.
 Client result decoding takes the output class and uses the configured mapper:
 
 ```java

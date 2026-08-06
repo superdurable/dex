@@ -731,6 +731,10 @@ class _StepDef:
 class StepList(Generic[StartT]):
     _definitions: tuple[_StepDef, ...]
 
+    @classmethod
+    def empty(cls) -> StepList[StartT]:
+        return cls(())
+
     @staticmethod
     def start_step(step: Step[StartT]) -> StepList[StartT]:
         return StepList((_StepDef(step, True),))
@@ -888,7 +892,7 @@ class Flow(Generic[StartT], ABC):
         return type(self).__qualname__
 
     def get_steps(self) -> StepList[StartT]:
-        return StepList.without_start_step()
+        return StepList.empty()
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema()

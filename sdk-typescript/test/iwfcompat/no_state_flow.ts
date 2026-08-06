@@ -30,7 +30,7 @@ export class NoStateFlow implements Flow {
   }
 
   public getSteps() {
-    return StepList.withoutStartStep<void>();
+    return StepList.empty();
   }
 
   public getPersistenceSchema(): PersistenceSchema {

@@ -80,6 +80,10 @@ export class StepList<StartInput> {
     this.definitions = Object.freeze([...definitions]);
   }
 
+  public static empty<StartInput = void>(): StepList<StartInput> {
+    return new StepList([]);
+  }
+
   public static startStep<StartInput>(step: Step<StartInput>): StepList<StartInput> {
     return new StepList([{ step: step as Step<unknown>, isStartStep: true }]);
   }

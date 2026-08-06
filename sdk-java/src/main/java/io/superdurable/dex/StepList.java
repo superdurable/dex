@@ -26,6 +26,10 @@ public final class StepList<StartInput> {
         this.definitions = Collections.unmodifiableList(definitions);
     }
 
+    public static <StartInput> StepList<StartInput> empty() {
+        return new StepList<StartInput>(Collections.<StepDef>emptyList());
+    }
+
     public static <StartInput> StepList<StartInput> startStep(
             final Step<StartInput> startStep) {
         final List<StepDef> definitions = new ArrayList<StepDef>();
