@@ -45,6 +45,17 @@ Run only the interactive Dataset Deal scenario and its full API verification:
 make datasetDealDemo
 ```
 
+When PostgreSQL, Dex, and `dex-samples` are already running, trigger the three
+demo executions without starting or stopping services:
+
+```bash
+DATASET_DEAL_API_URL=http://127.0.0.1:28804 make triggerDatasetDealDemo
+```
+
+`DATASET_DEAL_PROCESS_ID` optionally changes the created process ID. Repeated
+runs update that process definition and create new full, refund, and pending
+executions.
+
 Set `KEEP_DATASET_DEAL_DEMO=1` to leave PostgreSQL, Dex, Temporal, the worker,
 and the REST/UI server running. The script prints all UI URLs and shutdown
 details.
