@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex/sdk-go v0.1.0
+	github.com/superdurable/dex/sdk-go v0.1.1
 )
 
 replace github.com/superdurable/dex/sdk-go => ../../sdk-go
