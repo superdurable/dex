@@ -111,8 +111,23 @@ jobs:
             cli/go.sum
             server/go.sum
             web/go.sum
-      - name: Install Temporal CLI runtime for dexcli dev
-        uses: temporalio/setup-temporal@v0
+      - name: Install Temporal CLI 1.8.2
+        shell: bash
+        env:
+          TEMPORAL_CLI_SHA256: d8421bda989e6514b4bdb4d63a9012a8a05a806892e881a5aad8510496349a94
+        run: |
+          archive="${RUNNER_TEMP}/temporal-cli.tar.gz"
+          binary_dir="${RUNNER_TEMP}/temporal-cli"
+          curl --fail --location \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 300 \
+            --output "${archive}" \
+            https://github.com/temporalio/cli/releases/download/v1.8.2/temporal_cli_1.8.2_linux_amd64.tar.gz
+          echo "${TEMPORAL_CLI_SHA256}  ${archive}" | sha256sum --check
+          mkdir -p "${binary_dir}"
+          tar -xzf "${archive}" -C "${binary_dir}"
+          echo "${binary_dir}" >> "${GITHUB_PATH}"
+          "${binary_dir}/temporal" --version
       - name: Install Rust
         run: rustup toolchain install 1.88.0 --profile minimal
       - uses: actions/setup-java@v5
