@@ -16,13 +16,10 @@ from datetime import timedelta
 from enum import Enum
 from typing import Any, Awaitable, Generic, Iterator, TypeAlias, TypeVar
 
-from dex.state import (
-    AttributeLock,
-    Channel,
-    ChannelMap,
-    Context,
-    Wait,
-)
+from dex.attribute import AttributeLock
+from dex.channel import Channel, ChannelMap
+from dex.context import Context
+from dex.wait import Wait
 
 InputT = TypeVar("InputT")
 ResultT = TypeVar("ResultT")

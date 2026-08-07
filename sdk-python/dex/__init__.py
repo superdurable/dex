@@ -9,7 +9,15 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dex._contract_utils import PhaseNotImplementedError
+from dex.attribute import (
+    Attribute,
+    AttributeIndex,
+    AttributeLock,
+    AttributeMap,
+    IndexType,
+)
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
+from dex.channel import Channel, ChannelMap
 from dex.client import Client
 from dex.client_options import ClientOptions
 from dex.codec import (
@@ -24,6 +32,8 @@ from dex.codec import (
     Value,
     WireKind,
 )
+from dex.condition import ConditionCombination
+from dex.context import Context
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import FlowInfo, FlowStatus, HealthInfo, SearchFlowEntry
@@ -34,19 +44,6 @@ from dex.flow_options import (
     StartFlowOptions,
     StopFlowOptions,
     StopType,
-)
-from dex.state import (
-    Attribute,
-    AttributeIndex,
-    AttributeLock,
-    AttributeMap,
-    Channel,
-    ChannelMap,
-    ConditionCombination,
-    Context,
-    IndexType,
-    Timer,
-    Wait,
 )
 from dex.step import (
     RetryPolicy,
@@ -66,6 +63,8 @@ from dex.step import (
     graceful_complete,
 )
 from dex.step_execution import StepExecutionId, TimerId
+from dex.timer import Timer
+from dex.wait import Wait
 from dex.worker import Worker
 from dex.worker_options import WorkerOptions, WorkerTarget
 

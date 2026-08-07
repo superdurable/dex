@@ -15,13 +15,15 @@ from types import TracebackType
 from typing import Any, Callable, TypeVar, overload
 
 from dex._contract_utils import PhaseNotImplementedError
+from dex.attribute import Attribute, AttributeMap
 from dex.blob_cache import BlobCache
+from dex.channel import Channel, ChannelMap
 from dex.client_options import ClientOptions
+from dex.context import Context
 from dex.flow import Flow, Registry, RPCResult
 from dex.flow_config import FlowConfig
 from dex.flow_info import FlowInfo
 from dex.flow_options import ResetFlowOptions, StartFlowOptions, StopFlowOptions
-from dex.state import Attribute, AttributeMap, Channel, ChannelMap, Context
 from dex.step import MaybeAwaitable
 from dex.step_execution import StepExecutionId, TimerId
 

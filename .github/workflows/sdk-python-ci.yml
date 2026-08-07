@@ -71,17 +71,22 @@ jobs:
             --color=always \
             --files \
               dex/_contract_utils.py \
+              dex/attribute.py \
               dex/blob_cache.py \
+              dex/channel.py \
               dex/client.py \
               dex/client_options.py \
               dex/codec.py \
+              dex/condition.py \
+              dex/context.py \
               dex/flow.py \
               dex/flow_config.py \
               dex/flow_info.py \
               dex/flow_options.py \
-              dex/state.py \
               dex/step.py \
               dex/step_execution.py \
+              dex/timer.py \
+              dex/wait.py \
               dex/worker.py \
               dex/worker_options.py \
               tests/*.py \

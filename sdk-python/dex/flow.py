@@ -27,17 +27,12 @@ from typing import (
 )
 
 from dex._contract_utils import require_name
+from dex.attribute import Attribute, AttributeLock, AttributeMap
+from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
-from dex.state import (
-    Attribute,
-    AttributeLock,
-    AttributeMap,
-    Channel,
-    ChannelMap,
-    Context,
-    Wait,
-)
+from dex.context import Context
 from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
+from dex.wait import Wait
 
 OutputT = TypeVar("OutputT")
 StartT = TypeVar("StartT")
