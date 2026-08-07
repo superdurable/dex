@@ -139,9 +139,10 @@ Client and Worker accept the Java `BlobCache` interface. The default
 values are hydrated in Java: cache hits are decoded locally, while misses use
 FlowService `LoadBlobs` and populate the cache.
 
-The native library is loaded as `dex_blob_cache_jni`, or from the absolute path
-in `-Ddex.blobCache.nativeLibrary=...`. Loading failures report this
-configuration directly.
+The Maven artifact includes BlobCache native libraries for Linux x86-64 and
+ARM64, macOS x86-64 and ARM64, and Windows x86-64. The SDK extracts the matching
+library from `META-INF/native` automatically. Use the absolute path in
+`-Ddex.blobCache.nativeLibrary=...` only to override the packaged library.
 Application callbacks, Registry, Client, and Worker remain usable with another
 `BlobCache` implementation and do not load JNI.
 
@@ -209,7 +210,7 @@ Edit [`protos/dex.proto`](../protos/dex.proto), then run `make -C ../protos prot
 
 ### Local testing
 
-Run the JVM/native integration tests and all 58 E2E scenarios against a fresh
+Run the JVM/native integration tests and all E2E scenarios against a fresh
 `dexcli dev` environment:
 
 ```shell
@@ -222,22 +223,50 @@ the Rust BlobCache JNI library and starts a fresh Java Worker for each E2E case
 with a unique worker port and flow ID. A clean checkout also requires Go 1.24+,
 Node.js 22+, Rust 1.88+, and Temporal CLI.
 
-If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
+### Validate the publication
+
+The validation command builds a Maven repository, verifies its JAR and POM,
+then compiles and runs independent Gradle and Maven consumers. Both consumers
+open the packaged Rust BlobCache library and perform a cache round trip.
+
+```shell
+./validate-publication.sh 0.0.2-local
+```
+
+The command requires JDK 17, Rust 1.88+, and Maven. Published classes still
+target Java 8.
+
+### Publish a release
+
+Maven Central publishing requires Portal user-token credentials for the
+verified `io.superdurable` namespace and an ASCII-armored GPG private key. Set
+the repository secrets `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, and
+`GPG_SECRET_KEY`.
+
+Publish a GitHub release whose tag is `sdk-java/vX.Y.Z`. The workflow derives
+the immutable Maven version from that tag, builds all supported native
+libraries, validates Gradle and Maven consumers, signs every artifact, and
+closes and releases the Central staging repository. Manual dispatch requires
+the same `X.Y.Z` version as an explicit input.
+
+If you'd like to test your changes to the SDK with the workflows in the
+[samples](https://github.com/superdurable/dex/tree/main/examples/java) repo,
 use the local publishing command:
 
 1. Run:
   ```
-  ./gradlew publishToMavenLocal -x signMavenJavaPublication
+  ./gradlew publishToMavenLocal -PreleaseVersion=0.0.2-local
   ```
 
-2. In the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, make sure your `build.gradle` depends on the same version you just published. To find which version you published, open the SDK's `build.gradle` file and look for the `version = "x.y.z"` line near the bottom of the file. Then run:
+2. In the [samples](https://github.com/superdurable/dex/tree/main/examples/java)
+   repo, depend on the same version passed with `-PreleaseVersion`. Then run:
   ```
    ./gradlew --refresh-dependencies build
   ```
 
 3. Once you're done, to remove the locally published version, run:
   ```
-  ./gradlew unpublishFromMavenLocal
+  ./gradlew unpublishFromMavenLocal -PreleaseVersion=0.0.2-local
   ```
 
 ### Repo structure
@@ -246,16 +275,6 @@ use the local publishing command:
 * Generated stubs: `src/main/java/io/superdurable/gen/`
 * `script/`: some scripts for GithubActions and testing
 * `src/`: Java source code
-  * `main/java/io/dex/core/`: SDK code
-    * `command/`: the command implementation
-    * `communication/`: the communication implementation
-    * `mapper/`: the mapper with IDL
-    * `persistence/`: the persistence implementation
-    * `validator/`: some validators
-    * `Client.java`: the client implemntation
-    * `...java` ...
-  * `test/java/io/dex/`: Java test code (currently only integ test)
-    * `spring/`: the integ test setup of using Spring as REST controller
-    * `integ/`: the integration tests
-      * `XyzTest.java`: a file for test cases
-      * `xyz/`: the Dex workflow implementation for the integration test cases
+  * `main/java/io/superdurable/dex/`: public SDK and Java runtime
+  * `main/java/io/superdurable/gen/`: checked-in protobuf and gRPC stubs
+  * `test/java/io/superdurable/dex/`: contract, transport, and integration tests

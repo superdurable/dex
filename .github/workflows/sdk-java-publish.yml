@@ -4,33 +4,133 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Maven release version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-java-publish-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish dex-sdk
-    runs-on: ubuntu-latest
-    # Monorepo: only publish on sdk-java-v* release tags, or manual dispatch.
+  native:
+    name: Native ${{ matrix.platform }}
     if: >
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-java-v')
+      startsWith(github.event.release.tag_name, 'sdk-java/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+            library: libdex_blob_cache_jni.so
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            library: libdex_blob_cache_jni.so
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            library: libdex_blob_cache_jni.dylib
+          - platform: macos-aarch64
+            runner: macos-latest
+            library: libdex_blob_cache_jni.dylib
+          - platform: windows-x86_64
+            runner: windows-latest
+            library: dex_blob_cache_jni.dll
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: '1.88.0'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Build BlobCache JNI
+        working-directory: sdk-rust
+        run: cargo build --release -p dex-blob-cache-jni --locked
+      - name: Stage native library
+        shell: bash
+        run: |
+          destination="sdk-java/build/native-artifact/META-INF/native/${{ matrix.platform }}"
+          mkdir -p "${destination}"
+          cp "sdk-rust/target/release/${{ matrix.library }}" "${destination}/"
+      - name: Upload native library
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-java-native-${{ matrix.platform }}
+          path: sdk-java/build/native-artifact
+          if-no-files-found: error
+
+  publish:
+    name: Publish dex-sdk
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: sdk-java
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
-          java-version: "8"
-
+          java-version: '17'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
-
+      - name: Resolve release version
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            version="${RELEASE_TAG#sdk-java/v}"
+          else
+            version="${DISPATCH_VERSION}"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid Maven release version: ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Clean build directory
+        run: ./gradlew clean --no-daemon
+      - name: Download native libraries
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dex-java-native-*
+          path: sdk-java/build/generated/native-resources
+          merge-multiple: true
+      - name: Validate required secrets
+        shell: bash
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          GPG_SECRET_KEY: ${{ secrets.GPG_SECRET_KEY }}
+        run: |
+          [[ -n "${MAVEN_CENTRAL_USERNAME}" ]] || { echo 'MAVEN_CENTRAL_USERNAME is missing' >&2; exit 1; }
+          [[ -n "${MAVEN_CENTRAL_PASSWORD}" ]] || { echo 'MAVEN_CENTRAL_PASSWORD is missing' >&2; exit 1; }
+          [[ -n "${GPG_SECRET_KEY}" ]] || { echo 'GPG_SECRET_KEY is missing' >&2; exit 1; }
+      - name: Validate Maven publication
+        env:
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ''
+        run: ./validate-publication.sh '${{ steps.release.outputs.version }}' all-natives
       - name: Publish to Maven Central
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_SECRET_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ""
-        run: ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository --no-daemon
+          ORG_GRADLE_PROJECT_signingPassword: ''
+        run: >-
+          ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+          -PreleaseVersion='${{ steps.release.outputs.version }}'
+          -PnativeResourcesPrepared=true
+          --no-daemon

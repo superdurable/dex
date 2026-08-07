@@ -3,36 +3,21 @@
  *
  * This generated file contains a sample Java library project to get you started.
  * For more details take a look at the 'Building Java & JVM projects' chapter in the Gradle
- * User Manual available at https://docs.gradle.org/7.5.1/userguide/building_java_projects.html
+ * User Manual available at https://docs.gradle.org/8.14.4/userguide/building_java_projects.html
  */
 
 plugins {
     // Apply the java-library plugin for API and implementation separation.
     id 'java-library'
-    id 'org.springframework.boot' version '2.7.2'
-    id 'io.spring.dependency-management' version '1.0.12.RELEASE'
-    id 'io.github.gradle-nexus.publish-plugin' version '1.1.0'
-    id "maven-publish"
+    id 'io.github.gradle-nexus.publish-plugin' version '2.0.0'
+    id 'maven-publish'
     id 'signing'
     id 'jacoco'
 }
 
-bootJar {
-    enabled = false
-}
-
-jar {
-    enabled = true
-    from('LICENSE') {
-        into 'META-INF'
-    }
-    from('LEGACY_NOTICES.md') {
-        into 'META-INF'
-    }
-    from('LICENSES') {
-        into 'META-INF/LICENSES'
-    }
-}
+group = 'io.superdurable'
+version = providers.gradleProperty('releaseVersion').getOrElse('0.0.2-SNAPSHOT')
+def artifactVersion = version.toString()
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
@@ -41,10 +26,40 @@ java {
     withSourcesJar()
 }
 
+tasks.withType(JavaCompile).configureEach {
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.release = 8
+    }
+}
+
 repositories {
+    maven {
+        url = layout.buildDirectory.dir('publication-repository')
+    }
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 }
+
+def operatingSystemName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+def architectureName = System.getProperty('os.arch', '').toLowerCase(Locale.ROOT)
+def nativeOperatingSystem = operatingSystemName.contains('mac') || operatingSystemName.contains('darwin')
+        ? 'macos'
+        : operatingSystemName.contains('windows') ? 'windows' : 'linux'
+def nativeArchitecture = architectureName == 'aarch64' || architectureName == 'arm64'
+        ? 'aarch64'
+        : 'x86_64'
+def blobCacheNativePlatform = "${nativeOperatingSystem}-${nativeArchitecture}"
+def blobCacheNativeLibraryName = nativeOperatingSystem == 'macos'
+        ? 'libdex_blob_cache_jni.dylib'
+        : nativeOperatingSystem == 'windows'
+                ? 'dex_blob_cache_jni.dll'
+                : 'libdex_blob_cache_jni.so'
+def blobCacheNativeLibraryPath =
+        file("../sdk-rust/target/release/${blobCacheNativeLibraryName}")
+def generatedNativeResources = layout.buildDirectory.dir('generated/native-resources')
+def nativeResourcesPrepared = providers.gradleProperty('nativeResourcesPrepared')
+        .map { it.toBoolean() }
+        .getOrElse(false)
 
 sourceSets {
     jmh {
@@ -59,83 +74,26 @@ configurations {
 
 dependencies {
     // Use JUnit Jupiter for testing.
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.8.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
     jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
     jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    api 'org.apache.commons:commons-math3:3.6.1'
+    api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    api 'io.grpc:grpc-api:1.69.1'
 
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    implementation 'com.google.guava:guava:31.0.1-jre'
-
-    // protobuf / gRPC (checked-in stubs under src/main/java/io/superdurable/gen)
-    api 'com.google.protobuf:protobuf-java:4.35.1'
-    api 'io.grpc:grpc-stub:1.69.1'
-    api 'io.grpc:grpc-protobuf:1.69.1'
+    implementation 'com.google.guava:guava:33.4.8-jre'
+    implementation 'com.google.protobuf:protobuf-java:4.35.1'
+    implementation 'io.grpc:grpc-stub:1.69.1'
+    implementation 'io.grpc:grpc-protobuf:1.69.1'
     implementation 'io.grpc:grpc-netty-shaded:1.69.1'
-    compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
-
-    // for HTTP clients (legacy until gRPC migration)
-    implementation "io.github.openfeign:feign-okhttp:11.10"
-    implementation "io.github.openfeign:feign-core:11.10"
-    implementation "io.github.openfeign:feign-jackson:11.10"
-    implementation "com.github.scribejava:scribejava-core:8.3.1"
-    implementation "io.github.openfeign.form:feign-form:3.8.0"
-    implementation "io.github.openfeign:feign-slf4j:11.9.1"
-    implementation "io.swagger:swagger-annotations:1.6.6"
-    implementation 'io.swagger:swagger-models:1.6.6'
-    implementation 'io.swagger:swagger-core:1.6.6'
-    implementation "org.openapitools:jackson-databind-nullable:0.2.1"
-    implementation "net.bytebuddy:byte-buddy:1.14.4"
-    implementation "org.objenesis:objenesis:3.4"
+    implementation 'net.bytebuddy:byte-buddy:1.17.8'
+    implementation 'org.objenesis:objenesis:3.4'
 
     // jaskson
-    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310"
-    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jdk8"
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
-    implementation 'com.fasterxml.jackson.core:jackson-annotations:2.13.3'
-    implementation 'com.fasterxml.jackson.core:jackson-core:2.13.3'
-    implementation 'javax.annotation:javax.annotation-api:1.3.2'
-
-    // immutable
-    compileOnly 'org.immutables:value:2.9.2'
-    annotationProcessor 'org.immutables:value:2.9.2'
-
-    // cron utils
-    implementation 'com.cronutils:cron-utils:9.2.0'
-}
-
-def blobCacheNativeLibraryName = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
-        ? 'libdex_blob_cache_jni.dylib'
-        : org.gradle.internal.os.OperatingSystem.current().isWindows()
-                ? 'dex_blob_cache_jni.dll'
-                : 'libdex_blob_cache_jni.so'
-def blobCacheNativeLibraryPath =
-        file("../sdk-rust/target/release/${blobCacheNativeLibraryName}").absolutePath
-
-tasks.named('test') {
-    // Use JUnit Platform for unit tests.
-    useJUnitPlatform {
-        excludeTags 'dex-dev'
-    }
-    dependsOn 'buildBlobCacheNative'
-    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
-}
-
-tasks.register('dexDevTest', Test) {
-    group = 'verification'
-    description = 'Runs Java SDK integration tests against dexcli dev.'
-    outputs.upToDateWhen { false }
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'dex-dev'
-    }
-    dependsOn 'buildBlobCacheNative'
-    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
-    systemProperty 'dex.test.serverAddress',
-            System.getenv('DEX_SERVER_ADDRESS') ?: '127.0.0.1:8801'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.2'
+    compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
 }
 
 tasks.register('buildBlobCacheNative', Exec) {
@@ -149,14 +107,65 @@ tasks.register('buildBlobCacheNative', Exec) {
     outputs.file blobCacheNativeLibraryPath
 }
 
+tasks.register('stageBlobCacheNative', Copy) {
+    dependsOn 'buildBlobCacheNative'
+    from blobCacheNativeLibraryPath
+    into generatedNativeResources.map {
+        it.dir("META-INF/native/${blobCacheNativePlatform}")
+    }
+}
+
+tasks.named('processResources') {
+    from generatedNativeResources
+    if (!nativeResourcesPrepared) {
+        dependsOn 'stageBlobCacheNative'
+    }
+}
+
+tasks.named('jar') {
+    from('LICENSE') {
+        into 'META-INF'
+    }
+    from('LEGACY_NOTICES.md') {
+        into 'META-INF'
+    }
+    from('LICENSES') {
+        into 'META-INF/LICENSES'
+    }
+}
+
+tasks.named('test') {
+    // Use JUnit Platform for unit tests.
+    useJUnitPlatform {
+        excludeTags 'dex-dev'
+    }
+}
+
+tasks.register('dexDevTest', Test) {
+    group = 'verification'
+    description = 'Runs Java SDK integration tests against dexcli dev.'
+    outputs.upToDateWhen { false }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'dex-dev'
+    }
+    systemProperty 'dex.test.serverAddress',
+            System.getenv('DEX_SERVER_ADDRESS') ?: '127.0.0.1:8801'
+}
+
 tasks.named('compileJmhJava') {
     options.annotationProcessorPath = configurations.jmhAnnotationProcessor
+}
+
+tasks.named('javadoc') {
+    exclude 'io/superdurable/gen/**'
 }
 
 tasks.register('blobCacheBenchmark', JavaExec) {
     group = 'benchmark'
     description = 'Measures the Java-to-Rust BlobCache boundary with JMH.'
-    dependsOn 'buildBlobCacheNative', 'jmhClasses'
+    dependsOn 'jmhClasses'
     classpath = sourceSets.jmh.runtimeClasspath
     mainClass = 'org.openjdk.jmh.Main'
     args 'io.superdurable.dex.NativeBlobCacheBenchmark',
@@ -166,13 +175,16 @@ tasks.register('blobCacheBenchmark', JavaExec) {
             '-r', '1s',
             '-f', '1',
             '-t', findProperty('blobCacheBenchmarkThreads') ?: '1'
-    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
+}
+
+jacoco {
+    toolVersion = '0.8.15'
 }
 
 jacocoTestReport {
     reports {
-        xml.enabled true
-        html.enabled true
+        xml.required = true
+        html.required = true
     }
 }
 
@@ -180,43 +192,44 @@ check.dependsOn jacocoTestReport
 
 // Custom task to unpublish from local Maven repository
 // Usage: ./gradlew unpublishFromMavenLocal
-task unpublishFromMavenLocal(type: Delete) {
-    def groupPath = "io/superdurable/dex-sdk"
-    def version = project.version
+tasks.register('unpublishFromMavenLocal', Delete) {
+    def groupPath = 'io/superdurable/dex-sdk'
     def m2Repo = "${System.getProperty('user.home')}/.m2/repository"
-    delete "$m2Repo/$groupPath/$version"
+    delete "$m2Repo/$groupPath/${artifactVersion}"
     doFirst {
-        println "Deleting $m2Repo/$groupPath/$version"
+        println "Deleting $m2Repo/$groupPath/${artifactVersion}"
     }
 }
 
 // Maven coordinates: io.superdurable:dex-sdk (reverse-DNS of superdurable.io)
-group = "io.superdurable"
-version = "0.0.2"
-
 publishing {
     publications {
         mavenJava(MavenPublication) {
             groupId = project.group
             artifactId = 'dex-sdk'
-            version = project.version
-            from(components.java)
+            version = artifactVersion
+            from components.java
 
             pom {
-                name = "dex-sdk"
-                description = "Dex Java SDK"
+                name = 'Dex Java SDK'
+                description = 'Strongly typed Java SDK for the Dex durable workflow engine'
                 url = 'https://github.com/superdurable/dex'
 
                 scm {
-                    connection = 'scm:git@github.com:superdurable/dex.git'
-                    developerConnection = 'scm:git@github.com:superdurable/dex.git'
-                    url = 'https://github.com/superdurable/dex.git'
+                    connection = 'scm:git:https://github.com/superdurable/dex.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/superdurable/dex.git'
+                    url = 'https://github.com/superdurable/dex'
                 }
 
                 licenses {
                     license {
                         name = 'Super Durable Source License 1.0'
                         url = 'https://github.com/superdurable/dex/blob/main/LICENSE'
+                        distribution = 'repo'
+                    }
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'https://github.com/superdurable/dex/blob/main/LICENSES/Apache-2.0.txt'
                         distribution = 'repo'
                     }
                 }
@@ -231,32 +244,119 @@ publishing {
             }
         }
     }
-}
-
-signing {
-    // CI: ORG_GRADLE_PROJECT_signingKey (+ optional signingPassword)
-    // Local: signing.keyId / signing.password / signing.secretKeyRingFile in ~/.gradle/gradle.properties
-    def signingKey = findProperty("signingKey")
-    def signingPassword = findProperty("signingPassword") ?: ""
-    if (signingKey) {
-        useInMemoryPgpKeys(signingKey.toString(), signingPassword.toString())
-    }
-    required {
-        gradle.taskGraph.allTasks.any {
-            it.name.contains("publishToSonatype") || it.name.contains("PublishToSonatype")
+    repositories {
+        maven {
+            name = 'test'
+            url = layout.buildDirectory.dir('publication-repository')
         }
     }
-    sign publishing.publications.mavenJava
+}
+
+def signingKey = providers.gradleProperty('signingKey').orNull
+def signingPassword = providers.gradleProperty('signingPassword').getOrElse('')
+signing {
+    if (signingKey) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.mavenJava
+    }
 }
 
 nexusPublishing {
     repositories {
         sonatype {
-            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
-            snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
+            nexusUrl.set(uri('https://ossrh-staging-api.central.sonatype.com/service/local/'))
+            snapshotRepositoryUrl.set(uri('https://central.sonatype.com/repository/maven-snapshots/'))
             // Prefer project properties (set via ORG_GRADLE_PROJECT_* in CI):
-            username = project.findProperty('mavenCentralUsername') ?: System.getenv('ORG_GRADLE_PROJECT_mavenCentralUsername')
-            password = project.findProperty('mavenCentralPassword') ?: System.getenv('ORG_GRADLE_PROJECT_mavenCentralPassword')
+            username = providers.gradleProperty('mavenCentralUsername').orNull
+            password = providers.gradleProperty('mavenCentralPassword').orNull
+        }
+    }
+}
+
+tasks.register('validateReleaseConfiguration') {
+    doLast {
+        if (artifactVersion.endsWith('-SNAPSHOT')) {
+            throw new GradleException('Maven Central releases require -PreleaseVersion without -SNAPSHOT')
+        }
+        ['mavenCentralUsername', 'mavenCentralPassword', 'signingKey'].each { propertyName ->
+            def value = providers.gradleProperty(propertyName).orNull
+            if (value == null || value.trim().isEmpty()) {
+                throw new GradleException("Maven Central release requires ${propertyName}")
+            }
+        }
+    }
+}
+
+tasks.matching {
+    it.name == 'initializeSonatypeStagingRepository'
+            || it.name == 'publishToSonatype'
+            || it.name.endsWith('ToSonatypeRepository')
+            || it.name.startsWith('closeAndReleaseSonatype')
+}.configureEach {
+    dependsOn 'validateReleaseConfiguration'
+}
+
+tasks.register('validatePublication') {
+    dependsOn 'publishMavenJavaPublicationToTestRepository'
+    doLast {
+        def artifactDirectory = layout.buildDirectory.dir(
+                "publication-repository/io/superdurable/dex-sdk/${artifactVersion}").get().asFile
+        def artifactPrefix = "dex-sdk-${artifactVersion}"
+        def mainJar = new File(artifactDirectory, "${artifactPrefix}.jar")
+        [mainJar,
+         new File(artifactDirectory, "${artifactPrefix}-sources.jar"),
+         new File(artifactDirectory, "${artifactPrefix}-javadoc.jar"),
+         new File(artifactDirectory, "${artifactPrefix}.pom"),
+         new File(artifactDirectory, "${artifactPrefix}.module")].each { artifact ->
+            if (!artifact.isFile()) {
+                throw new GradleException("publication artifact is missing: ${artifact.name}")
+            }
+        }
+        if (!fileTree(artifactDirectory).matching { include '*-plain.jar' }.isEmpty()) {
+            throw new GradleException('publication must not contain a Spring Boot plain JAR')
+        }
+
+        def pomText = new File(artifactDirectory, "${artifactPrefix}.pom").text
+        if (pomText.contains('<packaging>pom</packaging>')) {
+            throw new GradleException('publication POM must use JAR packaging')
+        }
+        ['openfeign', 'swagger', 'scribejava', 'cron-utils', 'immutables'].each { obsolete ->
+            if (pomText.contains(obsolete)) {
+                throw new GradleException("publication POM contains obsolete dependency ${obsolete}")
+            }
+        }
+
+        def nativeLibraries = [
+                'linux-x86_64': 'libdex_blob_cache_jni.so',
+                'linux-aarch64': 'libdex_blob_cache_jni.so',
+                'macos-x86_64': 'libdex_blob_cache_jni.dylib',
+                'macos-aarch64': 'libdex_blob_cache_jni.dylib',
+                'windows-x86_64': 'dex_blob_cache_jni.dll'
+        ]
+        def expectedPlatforms = providers.gradleProperty('expectAllNativePlatforms')
+                .map { it.toBoolean() }
+                .getOrElse(false)
+                ? nativeLibraries.keySet()
+                : [blobCacheNativePlatform]
+        def archive = new java.util.zip.ZipFile(mainJar)
+        try {
+            if (archive.getEntry('io/superdurable/dex/Client.class') == null) {
+                throw new GradleException('publication JAR is missing the Java SDK')
+            }
+            if (archive.entries().find { entry ->
+                entry.name.startsWith('io/superdurable/dex/core/')
+                        || entry.name.startsWith('io/superdurable/dex/gen/')
+            }) {
+                throw new GradleException('publication JAR contains obsolete Java SDK implementations')
+            }
+            expectedPlatforms.each { platform ->
+                def entry = "META-INF/native/${platform}/${nativeLibraries[platform]}"
+                if (archive.getEntry(entry) == null) {
+                    throw new GradleException("publication JAR is missing ${entry}")
+                }
+            }
+        } finally {
+            archive.close()
         }
     }
 }

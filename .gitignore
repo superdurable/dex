@@ -21,6 +21,7 @@ vendor/
 .gradle/
 **/build/
 !.github/**/build/
+sdk-java/publication-smoke-test/target/
 .run/
 
 # Python

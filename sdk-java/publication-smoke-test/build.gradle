@@ -1,0 +1,29 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    maven {
+        url = uri(providers.gradleProperty('publicationRepository').get())
+    }
+    mavenCentral()
+}
+
+dependencies {
+    implementation "io.superdurable:dex-sdk:${providers.gradleProperty('dexSdkVersion').get()}"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.release = 8
+    }
+}
+
+application {
+    mainClass = 'io.superdurable.dex.consumer.PublicationSmoke'
+}
