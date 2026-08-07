@@ -2,13 +2,12 @@
 name = "dex-examples-python"
 version = "0.1.0"
 description = "Dex Python Samples"
-authors = [{name = "Quanzheng Long", email = "qlong@indeed.com"}]
+authors = [{name = "Super Durable"}]
 license = "Apache-2.0"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
-    "attrs>=22.2,<23",
-    "dex-python-sdk==0.0.1",
+    "dex-python-sdk==0.0.2",
     "flask>=2.3.3,<3",
     "openai>=1.66.2,<2",
     "openai-agents>=0.0.4,<0.0.5",
@@ -30,3 +29,6 @@ required-version = "==0.12.2"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integ: integration tests against a running Dex server",
+]
