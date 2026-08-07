@@ -23,7 +23,7 @@ jobs:
       - name: Verify published SDK coordinate
         run: |
           ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath | tee /tmp/dex-sdk-insight.txt
-          grep -q 'io.superdurable:dex-sdk:0.0.2' /tmp/dex-sdk-insight.txt
+          grep -q 'io.superdurable:dex-sdk:0.0.3' /tmp/dex-sdk-insight.txt
 
   integ:
     name: Integration tests

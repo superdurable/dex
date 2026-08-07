@@ -30,4 +30,6 @@ dependencies {
 
 tasks.named("test") {
     useJUnitPlatform()
+    // Integ tests share one Worker via SharedIntegExtension.
+    maxParallelForks = 1
 }

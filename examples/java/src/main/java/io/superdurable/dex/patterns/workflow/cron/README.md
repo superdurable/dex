@@ -1,59 +1,51 @@
-# Cron Schedule Workflow Implementation
+# Cron Schedule Workflow
 
-This package demonstrates a how to use a Cron Scheduled workflow to replace Orc jobs.
+Demonstrates starting a Dex flow with a cron schedule so each tick runs the
+flow like a recurring job.
 
-## Key Components
+## Key components
 
-1. **Config**: (PatternWorkflowsConfig) Initializes the cron scheduled workflow as an DexStartupAction and sets the scheduled
-   time.
-2. **CronScheduleWorkflow**: The workflow that the schedule will call upon triggering.
-3. **CronScheduleState**: The state used within the workflow.
+1. **`CronScheduleStarter`** — on Spring `ApplicationReadyEvent`, starts flow ID
+   `cron-schedule-sample` with cron expression `*/1 * * * *` (idempotent if
+   already started).
+2. **`CronScheduleFlow`** — the scheduled flow; each trigger runs its start step
+   and completes.
 
-## Useful Links
+## Useful links
 
-- [Workflow Options](https://github.com/superdurable/dex/wiki/WorkflowOptions#cron-schedule)
 - [CRON Expression Format](https://pkg.go.dev/github.com/robfig/cron#hdr-CRON_Expression_Format)
 - [CRON Expression Tester](https://crontab.guru/)
 
-## Implementation Details
+## How it starts
 
-- The DexWorkflowRegistrationProcessor  will invoke all DexStartupActions after the
-  workflows are registered.
-- The config specifying your DexStartupAction will initialize and start the CRON workflow using the schedule specs defined.
-- Each time schedule is triggered, the workflow will be invoked.
+`CronScheduleStarter` uses the shared Dex `Client` after the Worker is up:
 
-## Schedule Management
+```java
+client.startFlow(
+    cronScheduleFlow,
+    "cron-schedule-sample",
+    null,
+    StartFlowOptions.newBuilder()
+        .timeout(Duration.ofHours(1))
+        .cronSchedule("*/1 * * * *")
+        .build());
+```
 
-The CRON schedule workflow can be managed in the [Temporal Cloud UI](https://cloud.temporal.io/welcome).
+If the flow is already running, `FLOW_ALREADY_STARTED` is ignored so restarts
+are safe.
 
-- View triggered workflow executions
-    - In the cloud UI, select **Workflows** from the left navigation bar.
-    - Filter by the workflow ID (e.g. `cron-schedule-workflow`)
-- Pause, Trigger, or Delete the schedule
-    - In the cloud UI, select **Schedules** from the left navigation bar.
-    - Find and select your scheduled workflow.
-    - The top right of the page will have an action button that allows for Pausing. Clicking the arrow button will give more
-      options such as manually Triggering or Deleting the schedule.
-        - *Pause*: Pausing the schedule will stop the workflow from being triggered, ignoring the schedule until it is
-          resumed.
-        - *Trigger*: Manually triggers the workflow to run.
-        - *Delete*: Deletes the schedule.
-            - NOTE: The schedule will be re-created during the next code deployment if the logic in the code is still
-              present. Remove the DexStartupAction that creates the schedule and follow the instructions listed for updating
-              the schedule.
-    - Navigate to the workflow config file that is defining the DexStartupAction containing the CRON schedule.
-    - Update the schedule specs, workflow, or states as needed.
-    - Commit the changes and deploy the code.
-    - Delete the schedule in the Temporal UI (see section above).
-    - Restart your deployed instance (e.g. Marvin)
-    - After the instance has fully stood back up, verify the new schedule in the Temporal UI.
+## Schedule management
 
-## Current Limitations
+View and manage the underlying Temporal schedule in the Temporal UI (local
+`dexcli` Temporal or Temporal Cloud):
 
-- Currently, the [Schedule Overlap Policy](https://python.temporal.io/temporalio.client.ScheduleOverlapPolicy.html) is not
-  exposed and is defaulted to `Skip`.
+- **Workflows** — filter by workflow ID `cron-schedule-sample`
+- **Schedules** — pause, trigger, or delete
 
-## Usage Example
+To change the schedule: update `CronScheduleStarter`, deploy, delete the old
+schedule in the UI if needed, then restart the sample process so it recreates
+the schedule.
 
-- The CRON scheduled workflow should support most ORC use cases, unless the job is supposed to utilize local GPU/memory/disk,
-  etc.
+## Current limitations
+
+Schedule overlap policy is not exposed and defaults to skip overlapping runs.

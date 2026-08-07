@@ -103,8 +103,8 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public Wait waitFor(final Context context, final Void input) {
             final Customer customer = customerDetails.get(context);
-            service.sendEmail(customer.email, "welcome email", "hello content");
-            return Wait.allOf(Timer.byDuration(customer.subscription.trialPeriod));
+            SubscriptionBilling.sendWelcomeEmail(customer, service);
+            return Wait.allOf(Timer.byDuration(SubscriptionBilling.trialPeriod(customer)));
         }
 
         @Override
@@ -124,12 +124,12 @@ public class SubscriptionFlow implements Flow<Customer> {
         public Wait waitFor(final Context context, final Void input) {
             final Customer customer = customerDetails.get(context);
             final int periodNumber = billingPeriodNumber.get(context);
-            if (periodNumber >= customer.subscription.maxBillingPeriods) {
+            if (SubscriptionBilling.isSubscriptionOver(customer, periodNumber)) {
                 context.setStepExecutionLocal(SUBSCRIPTION_OVER_KEY, true, Boolean.class);
                 return Wait.skipImmediately();
             }
             billingPeriodNumber.set(context, periodNumber + 1);
-            return Wait.allOf(Timer.byDuration(customer.subscription.billingPeriod));
+            return Wait.allOf(Timer.byDuration(SubscriptionBilling.billingPeriod(customer)));
         }
 
         @Override
@@ -139,13 +139,10 @@ public class SubscriptionFlow implements Flow<Customer> {
                     Boolean.TRUE.equals(
                             context.getStepExecutionLocal(SUBSCRIPTION_OVER_KEY, Boolean.class));
             if (subscriptionOver) {
-                service.sendEmail(customer.email, "subscription over", "hello content");
+                SubscriptionBilling.sendSubscriptionOverEmail(customer, service);
                 return StepDecision.forceComplete("subscription ended");
             }
-            service.chargeUser(
-                    customer.email,
-                    customer.id,
-                    customer.subscription.billingPeriodCharge);
+            SubscriptionBilling.chargeCurrentPeriod(customer, service);
             return StepDecision.goTo(chargeCurrentBill, null);
         }
     }
@@ -164,7 +161,7 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final Customer customer = customerDetails.get(context);
-            service.sendEmail(customer.email, "subscription canceled", "hello content");
+            SubscriptionBilling.sendCanceledEmail(customer, service);
             return StepDecision.forceComplete("subscription canceled");
         }
     }
@@ -183,12 +180,9 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final List<Integer> amounts = updateChargeAmount.getConditionResults(context);
-            if (amounts.size() != 1) {
-                throw new IllegalStateException(
-                        "expected one charge amount, got " + amounts.size());
-            }
+            final int amount = SubscriptionBilling.requireSingleChargeAmount(amounts);
             final Customer customer = customerDetails.get(context);
-            customer.subscription.billingPeriodCharge = amounts.get(0);
+            SubscriptionBilling.applyChargeAmount(customer, amount);
             customerDetails.set(context, customer);
             return StepDecision.goTo(updateChargeAmountStep, null);
         }
