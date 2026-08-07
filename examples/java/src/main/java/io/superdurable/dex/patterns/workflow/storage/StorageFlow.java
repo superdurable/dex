@@ -16,7 +16,7 @@
 
 package io.superdurable.dex.patterns.workflow.storage;
 
-import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -25,12 +25,12 @@ import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.StepList;
 import org.springframework.stereotype.Component;
 
-/** A singleton flow that acts as storage. Limited to 4MB storage. */
+/** A singleton flow that acts as storage via per-key AttributeMap entries. */
 @Component
 public class StorageFlow implements Flow<Void> {
     private static final String DA_STORE = "Store";
 
-    public final Attribute<Storage> store = Attribute.define(DA_STORE, Storage.class);
+    public final AttributeMap<String> store = AttributeMap.define(DA_STORE, String.class);
 
     public static String getStorageFlowId() {
         return String.format("sample-storage-%s", "test");
@@ -46,28 +46,18 @@ public class StorageFlow implements Flow<Void> {
         return PersistenceSchema.of(store);
     }
 
-    @RPC(lockAttributes = {DA_STORE})
+    @RPC
     public void addItem(final Context context, final AddStorageItemRequest request) {
-        Storage storage = store.get(context);
-        if (storage == null) {
-            storage = new Storage();
-        }
-        storage.addItem(request.key, request.value);
-        store.set(context, storage);
+        store.set(context, request.key, request.value);
     }
 
     @RPC
     public RPCResult<String> getItem(final Context context, final String itemKey) {
-        final Storage storage = store.get(context);
-        return RPCResult.of(storage == null ? null : storage.getItem(itemKey));
+        return RPCResult.of(store.get(context, itemKey));
     }
 
-    @RPC(lockAttributes = {DA_STORE})
+    @RPC
     public void removeItem(final Context context, final String itemKey) {
-        final Storage storage = store.get(context);
-        if (storage != null) {
-            storage.removeItem(itemKey);
-            store.set(context, storage);
-        }
+        store.delete(context, itemKey);
     }
 }

@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 @Component
-public class HandlingTimeoutFlow implements Flow<Boolean> {
+public class FlowGracefulTimeout implements Flow<Boolean> {
     private final Init init = new Init();
     private final Timeout timeout = new Timeout();
     private final Task task = new Task();

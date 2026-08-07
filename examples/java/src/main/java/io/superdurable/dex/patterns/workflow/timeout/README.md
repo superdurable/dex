@@ -1,8 +1,8 @@
-# HandlingTimeoutWorkflow
+# FlowGracefulTimeout
 
 ## Overview
 
-The `HandlingTimeoutWorkflow` serves as an example of managing tasks using a timeout mechanism. This workflow ensures that tasks are completed within a designated time frame. If a task exceeds this duration, the workflow can forcibly terminate to prevent endless execution or a log can be emitted and the state can return `StateDecision.deadEnd()`.
+The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout mechanism. This workflow ensures that tasks are completed within a designated time frame. If a task exceeds this duration, the workflow can forcibly terminate to prevent endless execution or a log can be emitted and the state can return `StateDecision.deadEnd()`.
 
 ## Workflow Details
 

@@ -42,7 +42,7 @@ import io.superdurable.dex.patterns.workflow.resettabletimer.ResettableTimerFlow
 import io.superdurable.dex.patterns.workflow.scalableparallel.RequestReceiverFlow;
 import io.superdurable.dex.patterns.workflow.storage.AddStorageItemRequest;
 import io.superdurable.dex.patterns.workflow.storage.StorageFlow;
-import io.superdurable.dex.patterns.workflow.timeout.HandlingTimeoutFlow;
+import io.superdurable.dex.patterns.workflow.timeout.FlowGracefulTimeout;
 import io.superdurable.dex.patterns.workflow.waitforstatecompletion.JobSeekerData;
 import io.superdurable.dex.patterns.workflow.waitforstatecompletion.WaitForStateCompletionFlow;
 import org.springframework.http.ResponseEntity;
@@ -75,7 +75,7 @@ public class DesignPatternController {
     private final DrainInternalChannelsFlow drainInternalChannelsFlow;
     private final DrainSignalChannelsFlow drainSignalChannelsFlow;
     private final WaitForStateCompletionFlow waitForStateCompletionFlow;
-    private final HandlingTimeoutFlow handlingTimeoutFlow;
+    private final FlowGracefulTimeout flowGracefulTimeout;
 
     public DesignPatternController(
             final Client client,
@@ -94,7 +94,7 @@ public class DesignPatternController {
             final DrainInternalChannelsFlow drainInternalChannelsFlow,
             final DrainSignalChannelsFlow drainSignalChannelsFlow,
             final WaitForStateCompletionFlow waitForStateCompletionFlow,
-            final HandlingTimeoutFlow handlingTimeoutFlow) {
+            final FlowGracefulTimeout flowGracefulTimeout) {
         this.client = client;
         this.simplePollingFlow = simplePollingFlow;
         this.backoffPollingFlow = backoffPollingFlow;
@@ -111,7 +111,7 @@ public class DesignPatternController {
         this.drainInternalChannelsFlow = drainInternalChannelsFlow;
         this.drainSignalChannelsFlow = drainSignalChannelsFlow;
         this.waitForStateCompletionFlow = waitForStateCompletionFlow;
-        this.handlingTimeoutFlow = handlingTimeoutFlow;
+        this.flowGracefulTimeout = flowGracefulTimeout;
     }
 
     @GetMapping("/polling/start/simple")
@@ -389,7 +389,7 @@ public class DesignPatternController {
             @RequestParam final String workflowId,
             @RequestParam(defaultValue = "true") final Boolean successfulWorkflow) {
         client.startFlow(
-                handlingTimeoutFlow,
+                flowGracefulTimeout,
                 workflowId,
                 successfulWorkflow,
                 ExampleFlows.startOptions());
