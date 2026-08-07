@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Start Dex environment
-        working-directory: sdk-python/dex/tests/dex-service-env
+        working-directory: sdk-java/script
         env:
           DEX_SERVER_IMAGE: superdurable/dex-server:latest
         run: |

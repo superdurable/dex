@@ -99,6 +99,7 @@ var skipDirNames = map[string]bool{
 	".bin":         true,
 	".build":       true,
 	".tools":       true,
+	".venv":        true,
 	"vendor":       true,
 	"target":       true,
 	"node_modules": true,

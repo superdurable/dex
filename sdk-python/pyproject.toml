@@ -10,7 +10,6 @@ requires-python = ">=3.11"
 dependencies = [
     "grpcio>=1.83.0",
     "grpcio-status>=1.83.0",
-    "httpx==0.28.1",
     "protobuf>=7.35.1",
 ]
 
@@ -22,7 +21,6 @@ Repository = "https://github.com/superdurable/dex"
 dev = [
     "anyio>=4.9,<5",
     "black==24.10.0",
-    "flask>=2.3.2,<3",
     "googleapis-common-protos-stubs>=2.3.1",
     "grpcio-tools==1.83.0",
     "isort>=6.0.1,<7",
@@ -67,7 +65,6 @@ branch = true
 source = ["dex"]
 omit = [
     "dex/dexpb/*",
-    "dex/tests/*",
 ]
 
 [tool.coverage.report]

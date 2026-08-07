@@ -1,3 +1,0 @@
-# Legacy Materials in this file remain under their original licenses.
-# See LEGACY_NOTICES.md.
-

@@ -83,7 +83,7 @@ See [samples](../examples/python) for use case examples.
 
 ## Concepts
 
-Applications implement two generic interfaces from [`dex.contracts`](dex/contracts/):
+Applications implement two generic interfaces from [`dex`](dex/):
 
 - `Flow[START_INPUT]` returns `StepList.start_step(...)`, followed by optional
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
@@ -99,10 +99,10 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
-The legacy IWF integration inventory is ported under
-[`tests/integ`](tests/integ/README.md). Its 58 executable scenarios
-exercise the same workflows, client operations, and assertions as the Java
-suite against an isolated `dexcli dev` environment.
+Integration scenarios live under
+[`tests/integ`](tests/integ/README.md). They exercise the same workflows,
+client operations, and assertions as the Java suite against an isolated
+`dexcli dev` environment.
 
 ## Implementation status
 
@@ -155,7 +155,7 @@ Run the same integration suite with Python source coverage:
 
 Only the integration scenarios contribute execution data, and only production
 Python modules under `dex` are measured. Generated protobuf modules under
-`dex/dexpb` and packaged legacy tests under `dex/tests` are excluded. The
+`dex/dexpb` are excluded. The
 terminal report lists uncovered line ranges. The browser report starts at
 `coverage/html/index.html`; `coverage/coverage.xml` and `coverage/lcov.info`
 are also generated.
