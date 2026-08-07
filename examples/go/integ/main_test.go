@@ -33,6 +33,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
@@ -51,7 +52,9 @@ type integrationEnvironment struct {
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
-	registry, err := dex.NewRegistry(workflows.Flows())
+	var client *dex.Client
+	flows := workflows.New(service.NewMyService(), func() *dex.Client { return client })
+	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +84,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	go func() {
 		workerResult <- worker.Start()
 	}()
-	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	client, err = dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: flowServiceAddress(),
 		WorkerTarget:       worker.WorkerTarget(),
 	})
@@ -97,6 +100,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		worker:       worker,
 		workerResult: workerResult,
 	}
+	integClient = client
 	if err := environment.waitUntilReady(); err != nil {
 		return nil, errors.Join(err, environment.Close())
 	}

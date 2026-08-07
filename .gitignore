@@ -13,6 +13,7 @@ coverage.out
 sdk-go/coverage/
 dex-server
 examples/go/dex-samples
+examples/go/deepverify
 cli/dexcli
 .bin/
 .build/

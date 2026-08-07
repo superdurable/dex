@@ -1,5 +1,6 @@
 cli/dexcli
 examples/go/dex-samples
+examples/go/deepverify
 sdk-typescript/node_modules/
 sdk-rust/target/
 sdk-typescript/dist/

@@ -4,7 +4,9 @@
 *.dll
 *.so
 *.dylib
-dex-samples
+/dex-samples
+/deepverify
+/dvdiag
 
 # Test binary, built with `go test -c`
 *.test
