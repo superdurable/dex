@@ -12,55 +12,20 @@ jobs:
         working-directory: examples/python
     steps:
       - uses: actions/checkout@v7
-      - name: Start Dex environment
-        working-directory: sdk-python/dex/tests/dex-service-env
-        env:
-          DEX_SERVER_IMAGE: superdurable/dex-server:latest
-        run: |
-          docker pull "$DEX_SERVER_IMAGE"
-          docker compose up -d
-      - name: Wait for Dex server
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          echo "Waiting for Elasticsearch..."
-          for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
-              echo "Elasticsearch ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 5
-          done
-          echo "Waiting for search attributes..."
-          for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
-              echo "Search attributes ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 120 ]; then
-              echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
-              docker logs temporal-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 2
-          done
-          echo "Waiting for Dex healthcheck..."
-          for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "Dex server healthy (attempt $i)"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Timed out waiting for Dex server"
-          docker logs dex-server 2>&1 | tail -80 || true
-          exit 1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            server/go.sum
+            web/go.sum
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -73,8 +38,12 @@ jobs:
       - name: Verify published package
         run: |
           uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.0.1'"
-      - name: Integ tests
-        run: uv run --frozen pytest -vv tests/
-      - name: Dump docker logs
+      - name: Integ tests with dexcli dev
+        run: ./run-integ-tests.sh
+      - name: Upload service logs
         if: always()
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-examples-integ-services
+          path: /tmp/test-python-examples-integ-services.log
+          if-no-files-found: ignore
