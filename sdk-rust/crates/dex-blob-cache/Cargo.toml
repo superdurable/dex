@@ -1,14 +1,16 @@
 [package]
-name = "dex-core"
+name = "dex-blob-cache"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Language-neutral worker core for Dex SDKs"
+description = "Go-compatible DXBC blob cache for Dex SDKs"
 
 [dependencies]
-tokio.workspace = true
+crc32c.workspace = true
+sha2.workspace = true
+stretto.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tempfile.workspace = true

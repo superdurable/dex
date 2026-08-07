@@ -6,13 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-mod blob_cache;
 mod error;
 mod invocation;
 mod registry;
 mod worker;
 
-pub use blob_cache::{BlobCache, BlobCacheConfig, BlobCacheError};
 pub use error::CoreError;
 pub use invocation::{
     CORE_PROTOCOL_VERSION, Invocation, InvocationFailure, InvocationId, InvocationKind,

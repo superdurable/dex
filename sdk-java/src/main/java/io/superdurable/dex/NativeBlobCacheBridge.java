@@ -10,14 +10,14 @@
 
 package io.superdurable.dex;
 
-final class NativeCore {
-    private static final String LIBRARY_PROPERTY = "dex.native.library";
+final class NativeBlobCacheBridge {
+    private static final String LIBRARY_PROPERTY = "dex.blobCache.nativeLibrary";
 
     static {
         try {
             final String path = System.getProperty(LIBRARY_PROPERTY);
             if (path == null || path.isEmpty()) {
-                System.loadLibrary("dex_bridge_jni");
+                System.loadLibrary("dex_blob_cache_jni");
             } else {
                 System.load(path);
             }
@@ -29,7 +29,7 @@ final class NativeCore {
         }
     }
 
-    private NativeCore() {
+    private NativeBlobCacheBridge() {
     }
 
     static native long cacheOpen(String directory, long maxBytes, long frequencyCounters);

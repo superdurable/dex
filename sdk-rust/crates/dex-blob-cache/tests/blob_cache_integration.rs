@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use dex_core::{BlobCache, BlobCacheConfig, BlobCacheError};
+use dex_blob_cache::{BlobCache, BlobCacheConfig, BlobCacheError};
 use sha2::{Digest, Sha256};
 
 #[test]

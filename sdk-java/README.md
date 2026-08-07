@@ -10,7 +10,7 @@ Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable
 
 The canonical rewrite API is under `io.superdurable.dex`. This phase includes
 strongly typed workflow definitions, persistence handles, registry
-validation, synchronous gRPC Client operations, and a native Java gRPC Worker.
+validation, synchronous gRPC Client operations, and a Java gRPC Worker.
 Rust is used only by the DXBC BlobCache JNI binding.
 
 Java workflows and steps are interfaces, while RPCs keep the annotation and
@@ -135,10 +135,18 @@ Client and Worker accept the Java `BlobCache` interface. The default
 values are hydrated in Java: cache hits are decoded locally, while misses use
 FlowService `LoadBlobs` and populate the cache.
 
-The native library is loaded as `dex_bridge_jni`, or from the absolute path in
-`-Ddex.native.library=...`. Loading failures report this configuration directly.
+The native library is loaded as `dex_blob_cache_jni`, or from the absolute path
+in `-Ddex.blobCache.nativeLibrary=...`. Loading failures report this
+configuration directly.
 Application callbacks, Registry, Client, and Worker remain usable with another
 `BlobCache` implementation and do not load JNI.
+
+Measure warm cache hits and identical-value puts across JNI with an optimized
+native library:
+
+```bash
+./gradlew blobCacheBenchmark -PblobCacheBenchmarkThreads=8
+```
 
 ## License
 

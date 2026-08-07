@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "crates/dex-bridge-jni",
+    "crates/dex-blob-cache",
+    "crates/dex-blob-cache-jni",
     "crates/dex-core",
     "crates/dex-protocol",
     "crates/dex-runtime",
