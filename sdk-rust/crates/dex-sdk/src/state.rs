@@ -293,8 +293,36 @@ pub struct AttributeIndex {
 }
 
 impl AttributeIndex {
-    pub fn new(kind: AttributeIndexKind) -> Self {
+    fn new(kind: AttributeIndexKind) -> Self {
         Self { kind, key: None }
+    }
+
+    pub fn keyword() -> Self {
+        Self::new(AttributeIndexKind::Keyword)
+    }
+
+    pub fn full_text() -> Self {
+        Self::new(AttributeIndexKind::FullText)
+    }
+
+    pub fn keyword_array() -> Self {
+        Self::new(AttributeIndexKind::KeywordArray)
+    }
+
+    pub fn int() -> Self {
+        Self::new(AttributeIndexKind::Int)
+    }
+
+    pub fn double() -> Self {
+        Self::new(AttributeIndexKind::Double)
+    }
+
+    pub fn bool() -> Self {
+        Self::new(AttributeIndexKind::Bool)
+    }
+
+    pub fn date_time() -> Self {
+        Self::new(AttributeIndexKind::DateTime)
     }
 
     pub fn with_key(mut self, key: impl Into<String>) -> Self {
@@ -304,7 +332,7 @@ impl AttributeIndex {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeIndexKind {
+enum AttributeIndexKind {
     Keyword,
     FullText,
     KeywordArray,

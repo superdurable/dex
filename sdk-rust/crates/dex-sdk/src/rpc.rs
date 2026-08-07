@@ -9,7 +9,8 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::{AttributeLock, Context, HandlerResult, StepMovement, Value};
+use crate::state::AttributeLock;
+use crate::{Context, HandlerResult, StepMovement, Value};
 
 pub struct Rpc<Input, Output> {
     name: &'static str,
@@ -24,8 +25,12 @@ impl<Input, Output> Rpc<Input, Output> {
         }
     }
 
-    pub fn with_options(self, options: RpcOptions) -> RpcDefinition<Input, Output> {
-        RpcDefinition { rpc: self, options }
+    pub fn timeout(self, timeout: Duration) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).timeout(timeout)
+    }
+
+    pub fn lock(self, lock: AttributeLock) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).lock(lock)
     }
 }
 
@@ -37,38 +42,30 @@ impl<Input, Output> Clone for Rpc<Input, Output> {
 
 impl<Input, Output> Copy for Rpc<Input, Output> {}
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RpcOptions {
-    pub timeout: Option<Duration>,
-    pub locks: Vec<AttributeLock>,
-}
-
-impl RpcOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn timeout(mut self, value: Duration) -> Self {
-        self.timeout = Some(value);
-        self
-    }
-
-    pub fn lock(mut self, value: AttributeLock) -> Self {
-        self.locks.push(value);
-        self
-    }
-}
-
 pub struct RpcDefinition<Input, Output> {
     rpc: Rpc<Input, Output>,
-    options: RpcOptions,
+    timeout: Option<Duration>,
+    locks: Vec<AttributeLock>,
+}
+
+impl<Input, Output> RpcDefinition<Input, Output> {
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn lock(mut self, lock: AttributeLock) -> Self {
+        self.locks.push(lock);
+        self
+    }
 }
 
 impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
     fn from(rpc: Rpc<Input, Output>) -> Self {
         Self {
             rpc,
-            options: RpcOptions::new(),
+            timeout: None,
+            locks: Vec::new(),
         }
     }
 }
@@ -133,7 +130,8 @@ impl<FlowType> RpcList<FlowType> {
     }
 
     fn register<Input, Output>(&mut self, definition: RpcDefinition<Input, Output>) {
-        let _ = definition.options;
+        let _ = definition.timeout;
+        let _ = definition.locks;
         self.names.push(definition.rpc.name);
     }
 }

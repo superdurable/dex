@@ -80,6 +80,9 @@ fn persistence(&self) -> PersistenceSchema {
 }
 ```
 
+Indexed Attributes use named factories such as `AttributeIndex::keyword()` and
+`AttributeIndex::full_text()` instead of a separate public index-kind enum.
+
 Reads return `Option<T>` because an Attribute may be absent. Handlers can use
 `get_required` when absence is an application error.
 
@@ -101,14 +104,21 @@ impl OrderFlow {
 }
 
 fn rpcs(&self) -> RpcList<Self> {
-    RpcList::new().function(Self::GET_ORDER, Self::get_order)
+    RpcList::new().function(
+        Self::GET_ORDER.lock(self.status.lock()),
+        Self::get_order,
+    )
 }
 
 let order: OrderView = client.invoke_rpc(flow_id, OrderFlow::GET_ORDER, order_id)?;
 ```
 
 RPC registration checks that the method signature agrees with the token.
-Attribute and AttributeMap locks are explicit options on the registered token.
+Timeouts and locks chain directly from the token without an intermediate
+options type.
+
+Flow IDs and run IDs remain strings, matching the server protocol and the other
+SDKs. Rust newtypes are reserved for IDs whose APIs benefit from distinct types.
 
 ## Runtime construction
 

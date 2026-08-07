@@ -9,15 +9,16 @@
 use std::marker::PhantomData;
 use std::time::{Duration, SystemTime};
 
-use crate::{Attribute, AttributeLock, AttributeMap, Step, StepExecutionId, Value};
+use crate::state::AttributeLock;
+use crate::{Attribute, AttributeMap, Step, StepExecutionId, Value};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RetryPolicy {
-    pub initial_interval: Option<Duration>,
-    pub backoff_coefficient: Option<f64>,
-    pub maximum_interval: Option<Duration>,
-    pub maximum_attempts: Option<u32>,
-    pub total_duration: Option<Duration>,
+    initial_interval: Option<Duration>,
+    backoff_coefficient: Option<f64>,
+    maximum_interval: Option<Duration>,
+    maximum_attempts: Option<u32>,
+    total_duration: Option<Duration>,
 }
 
 impl RetryPolicy {
@@ -52,15 +53,15 @@ impl RetryPolicy {
 }
 
 pub struct StepOptions<Input> {
-    pub wait_for_method_timeout: Option<Duration>,
-    pub execute_method_timeout: Option<Duration>,
-    pub wait_for_retry: Option<RetryPolicy>,
-    pub execute_retry: Option<RetryPolicy>,
-    pub wait_for_failure: WaitForFailurePolicy,
-    pub wait_for_durability: StepDurability,
-    pub execute_durability: StepDurability,
-    pub wait_for_locks: Vec<AttributeLock>,
-    pub execute_locks: Vec<AttributeLock>,
+    wait_for_method_timeout: Option<Duration>,
+    execute_method_timeout: Option<Duration>,
+    wait_for_retry: Option<RetryPolicy>,
+    execute_retry: Option<RetryPolicy>,
+    wait_for_failure: WaitForFailurePolicy,
+    wait_for_durability: StepDurability,
+    execute_durability: StepDurability,
+    wait_for_locks: Vec<AttributeLock>,
+    execute_locks: Vec<AttributeLock>,
     execute_failure_step: Option<&'static str>,
     marker: PhantomData<fn(Input)>,
 }
@@ -166,14 +167,14 @@ pub enum IdReusePolicy {
 
 #[derive(Clone, Debug)]
 pub struct StartFlowOptions {
-    pub timeout: Option<Duration>,
-    pub start_delay: Option<Duration>,
-    pub id_reuse_policy: IdReusePolicy,
-    pub cron_schedule: Option<String>,
-    pub retry_policy: Option<RetryPolicy>,
-    pub config_override: Option<FlowConfig>,
-    pub ignore_already_started: bool,
-    pub request_id: Option<String>,
+    timeout: Option<Duration>,
+    start_delay: Option<Duration>,
+    id_reuse_policy: IdReusePolicy,
+    cron_schedule: Option<String>,
+    retry_policy: Option<RetryPolicy>,
+    config_override: Option<FlowConfig>,
+    ignore_already_started: bool,
+    request_id: Option<String>,
 }
 
 impl StartFlowOptions {
@@ -252,11 +253,11 @@ impl Default for StartFlowOptions {
 
 #[derive(Clone, Debug, Default)]
 pub struct FlowConfig {
-    pub active_step_search_mode: Option<ActiveStepSearchMode>,
-    pub continue_as_new_threshold: Option<u32>,
-    pub continue_as_new_page_size_bytes: Option<u32>,
-    pub step_durability: Option<StepDurability>,
-    pub worker_target: Option<WorkerTarget>,
+    active_step_search_mode: Option<ActiveStepSearchMode>,
+    continue_as_new_threshold: Option<u32>,
+    continue_as_new_page_size_bytes: Option<u32>,
+    step_durability: Option<StepDurability>,
+    worker_target: Option<WorkerTarget>,
 }
 
 impl FlowConfig {
@@ -299,8 +300,8 @@ pub enum ActiveStepSearchMode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkerTarget {
-    pub address: String,
-    pub headless: bool,
+    address: String,
+    headless: bool,
 }
 
 impl WorkerTarget {
@@ -318,7 +319,7 @@ impl WorkerTarget {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StopType {
+enum StopType {
     Cancel,
     Terminate,
     Fail,
@@ -326,16 +327,28 @@ pub enum StopType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StopFlowOptions {
-    pub stop_type: StopType,
-    pub reason: Option<String>,
+    stop_type: StopType,
+    reason: Option<String>,
 }
 
 impl StopFlowOptions {
-    pub fn new(stop_type: StopType) -> Self {
+    fn new(stop_type: StopType) -> Self {
         Self {
             stop_type,
             reason: None,
         }
+    }
+
+    pub fn cancel() -> Self {
+        Self::new(StopType::Cancel)
+    }
+
+    pub fn terminate() -> Self {
+        Self::new(StopType::Terminate)
+    }
+
+    pub fn fail() -> Self {
+        Self::new(StopType::Fail)
     }
 
     pub fn reason(mut self, value: impl Into<String>) -> Self {

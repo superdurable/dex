@@ -9,9 +9,9 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 use dex_sdk::{
-    Attribute, AttributeIndex, AttributeIndexKind, AttributeMap, Channel, Client, Context, Flow,
-    HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcOptions, RpcResult, SdkResult,
-    Step, StepDecision, StepList, Wait,
+    Attribute, AttributeIndex, AttributeMap, Channel, Client, Context, Flow, HandlerError,
+    HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, SdkResult, Step, StepDecision,
+    StepList, Wait,
 };
 
 struct RpcWorkflow {
@@ -48,10 +48,8 @@ impl RpcWorkflow {
             output: RpcOutputStep,
             internal,
             data: Attribute::new("rpc-data"),
-            keyword: Attribute::new("CustomKeywordField")
-                .indexed(AttributeIndex::new(AttributeIndexKind::Keyword)),
-            integer: Attribute::new("CustomIntField")
-                .indexed(AttributeIndex::new(AttributeIndexKind::Int)),
+            keyword: Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()),
+            integer: Attribute::new("CustomIntField").indexed(AttributeIndex::int()),
             map: AttributeMap::new("rpc-map"),
         }
     }
@@ -168,10 +166,7 @@ impl Flow for RpcWorkflow {
             .function_without_input(Self::GET_DATA, Self::get_data)
             .procedure(Self::SET_KEYWORD, Self::set_keyword)
             .function_without_input(Self::GET_KEYWORD, Self::get_keyword)
-            .function(
-                Self::LOCK_MAP.with_options(RpcOptions::new().lock(self.map.lock("one"))),
-                Self::lock_map,
-            )
+            .function(Self::LOCK_MAP.lock(self.map.lock("one")), Self::lock_map)
     }
 }
 
@@ -244,7 +239,7 @@ impl Flow for RpcNoStateWorkflow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(
-                Self::INCREASE_COUNTER.with_options(RpcOptions::new().lock(self.counter.lock())),
+                Self::INCREASE_COUNTER.lock(self.counter.lock()),
                 Self::increase_counter,
             )
             .function_without_input(Self::GET_COUNTER, Self::get_counter)
