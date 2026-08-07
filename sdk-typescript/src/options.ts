@@ -90,6 +90,21 @@ export interface FlowInfo {
   readonly startedAt: Date;
 }
 
+export interface SearchFlowEntry {
+  readonly flowId: string;
+  readonly runId: string;
+  readonly flowType: string;
+  readonly status: FlowStatus;
+  readonly startedAt: Date;
+  readonly closedAt: Date | undefined;
+  readonly searchAttributes: ReadonlyMap<string, unknown>;
+}
+
+export interface SearchFlowsPage {
+  readonly flows: readonly SearchFlowEntry[];
+  readonly nextPageToken: string;
+}
+
 export interface StepExecutionId {
   readonly stepType: string;
   readonly number?: number;
