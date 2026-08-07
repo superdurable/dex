@@ -8,23 +8,8 @@
 
 import { useEffect, useRef } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
-import { waitingConditionTypeLabel } from '@/lib/semantic';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle } from './EventDetails';
-
-type Data = Record<string, unknown>;
-
-function data(value: unknown): Data {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
-}
-
-function normalizeWaitingCondition(value: unknown): Data {
-  const condition = data(value);
-  return {
-    ...condition,
-    waitingConditionType: waitingConditionTypeLabel(condition.waitingConditionType),
-  };
-}
 
 function canScroll(element: HTMLElement, deltaY: number): boolean {
   if (deltaY < 0) return element.scrollTop > 0;
@@ -36,7 +21,7 @@ function containSidebarWheel(event: WheelEvent) {
   const sidebar = event.currentTarget;
   if (!(sidebar instanceof HTMLElement) || sidebar.scrollHeight <= sidebar.clientHeight) return;
   const nested = event.target instanceof Element
-    ? event.target.closest<HTMLElement>('.raw-event-json, .semantic-value pre, .semantic-alert pre, .json-view pre')
+    ? event.target.closest<HTMLElement>('.raw-event-json, .semantic-value pre, .semantic-alert pre, .json-view pre, .json-view-raw')
     : null;
   if (nested && nested !== sidebar && canScroll(nested, event.deltaY)) return;
   if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
@@ -101,9 +86,19 @@ export function FlowStatePanel({
             <code>{step.stepExecutionId}</code>
             <span>From {step.fromStepExecutionId || '—'}</span>
             {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
-              <JsonView value={normalizeWaitingCondition(step.waitingCondition)} label="Waiting condition" />
+              <JsonView
+                value={step.waitingCondition}
+                label="Waiting condition"
+                persistKey={`active-step:${step.stepType}:waiting-condition`}
+              />
             )}
-            {step.timers.length > 0 && <JsonView value={step.timers} label={`${step.timers.length} timers`} />}
+            {step.timers.length > 0 && (
+              <JsonView
+                value={step.timers}
+                label={`${step.timers.length} timers`}
+                persistKey={`active-step:${step.stepType}:timers`}
+              />
+            )}
           </div>
         ))}
         {state && state.activeStepExecutions.length === 0 && (
@@ -116,13 +111,29 @@ export function FlowStatePanel({
           <section className="sidebar-section">
             <p className="eyebrow">Attributes</p>
             <h3>{state.attributes.length} values</h3>
-            <JsonView value={state.attributes} label="Attributes" />
+            <JsonView
+              value={state.attributes}
+              label="Attributes"
+              persistKey="live-state:attributes"
+            />
           </section>
           <section className="sidebar-section">
             <p className="eyebrow">Queues & channels</p>
-            <JsonView value={state.queuedSteps} label={`${state.queuedSteps.length} queued steps`} />
-            <JsonView value={state.pendingChannelMessages} label="Pending channel messages" />
-            <JsonView value={state.completedSteps} label="Completed outputs" />
+            <JsonView
+              value={state.queuedSteps}
+              label={`${state.queuedSteps.length} queued steps`}
+              persistKey="live-state:queued-steps"
+            />
+            <JsonView
+              value={state.pendingChannelMessages}
+              label="Pending channel messages"
+              persistKey="live-state:pending-channels"
+            />
+            <JsonView
+              value={state.completedSteps}
+              label="Completed outputs"
+              persistKey="live-state:completed-outputs"
+            />
           </section>
         </>
       )}
