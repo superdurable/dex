@@ -9,7 +9,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::{FlowErrorType, FlowStatus, RunId};
+use crate::{FlowErrorType, FlowStatus};
 
 pub type HandlerResult<T> = Result<T, HandlerError>;
 pub type SdkResult<T> = Result<T, SdkError>;
@@ -39,13 +39,12 @@ impl Error for HandlerError {}
 pub enum SdkError {
     NotImplemented(&'static str),
     FlowUncompleted {
-        run_id: RunId,
+        run_id: String,
         status: FlowStatus,
         error_type: Option<FlowErrorType>,
         message: Option<String>,
         result_count: usize,
     },
-    Message(String),
 }
 
 impl Display for SdkError {
@@ -55,7 +54,6 @@ impl Display for SdkError {
             Self::FlowUncompleted { message, .. } => {
                 formatter.write_str(message.as_deref().unwrap_or("Flow did not complete"))
             }
-            Self::Message(message) => formatter.write_str(message),
         }
     }
 }

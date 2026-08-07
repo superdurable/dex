@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 use dex_sdk::{
     Channel, Client, Context, Flow, HandlerResult, PersistenceSchema, ResetFlowOptions, Rpc,
     RpcList, RpcResult, SdkResult, StartFlowOptions, Step, StepDecision, StepExecutionId, StepList,
-    StepMovement, StopFlowOptions, StopType,
+    StepMovement, StopFlowOptions,
 };
 
 struct NoStartStateWorkflow {
@@ -212,10 +212,7 @@ fn compile_workflow_uncompleted_test(client: &Client) -> SdkResult<()> {
         NoStartStateDeadEndWorkflow::INVOKE,
         "input".into(),
     )?;
-    client.stop_flow(
-        "stopped",
-        StopFlowOptions::new(StopType::Terminate).reason("terminated"),
-    )?;
+    client.stop_flow("stopped", StopFlowOptions::terminate().reason("terminated"))?;
     client.trigger_continue_as_new("stopped")?;
     Ok(())
 }

@@ -15,15 +15,6 @@ use crate::{
     WorkerTarget,
 };
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct RunId(String);
-
-impl RunId {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowStatus {
     Running,
@@ -47,7 +38,7 @@ pub enum FlowErrorType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowInfo {
     pub flow_id: String,
-    pub run_id: RunId,
+    pub run_id: String,
     pub flow_type: String,
     pub status: FlowStatus,
     pub started_at: SystemTime,
@@ -67,7 +58,7 @@ impl Client {
         _flow: &SomeFlow,
         _flow_id: &str,
         _input: SomeFlow::StartInput,
-    ) -> SdkResult<RunId> {
+    ) -> SdkResult<String> {
         Err(SdkError::NotImplemented("Client transport"))
     }
 
@@ -77,7 +68,7 @@ impl Client {
         _flow_id: &str,
         _input: SomeFlow::StartInput,
         _options: StartFlowOptions,
-    ) -> SdkResult<RunId> {
+    ) -> SdkResult<String> {
         Err(SdkError::NotImplemented("Client transport"))
     }
 
@@ -182,7 +173,7 @@ impl Client {
         Err(SdkError::NotImplemented("Client transport"))
     }
 
-    pub fn reset_flow(&self, _flow_id: &str, _options: ResetFlowOptions) -> SdkResult<RunId> {
+    pub fn reset_flow(&self, _flow_id: &str, _options: ResetFlowOptions) -> SdkResult<String> {
         Err(SdkError::NotImplemented("Client transport"))
     }
 
@@ -220,8 +211,8 @@ pub struct Registry {
 
 #[derive(Clone, Debug)]
 pub struct ClientOptions {
-    pub server_address: String,
-    pub worker_target: Option<WorkerTarget>,
+    server_address: String,
+    worker_target: Option<WorkerTarget>,
 }
 
 impl ClientOptions {
@@ -267,9 +258,9 @@ impl Default for Registry {
 
 #[derive(Clone, Debug)]
 pub struct WorkerOptions {
-    pub bind_address: String,
-    pub server_address: String,
-    pub worker_target: Option<WorkerTarget>,
+    bind_address: String,
+    server_address: String,
+    worker_target: Option<WorkerTarget>,
 }
 
 impl WorkerOptions {

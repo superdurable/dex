@@ -11,9 +11,8 @@
 use std::time::SystemTime;
 
 use dex_sdk::{
-    Attribute, AttributeIndex, AttributeIndexKind, AttributeMap, Client, Context, Flow,
-    HandlerError, HandlerResult, PersistenceSchema, SdkResult, StartFlowOptions, Step,
-    StepDecision, StepList, Wait,
+    Attribute, AttributeIndex, AttributeMap, Client, Context, Flow, HandlerError, HandlerResult,
+    PersistenceSchema, SdkResult, StartFlowOptions, Step, StepDecision, StepList, Wait,
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -37,12 +36,9 @@ impl PersistenceWorkflow {
         let data = Attribute::new("data-obj-1");
         let model = Attribute::new("data-obj-2");
         let data_map = AttributeMap::new("data-map");
-        let keyword = Attribute::new("CustomKeywordField")
-            .indexed(AttributeIndex::new(AttributeIndexKind::Keyword));
-        let integer =
-            Attribute::new("CustomIntField").indexed(AttributeIndex::new(AttributeIndexKind::Int));
-        let datetime = Attribute::new("CustomDatetimeField")
-            .indexed(AttributeIndex::new(AttributeIndexKind::DateTime));
+        let keyword = Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword());
+        let integer = Attribute::new("CustomIntField").indexed(AttributeIndex::int());
+        let datetime = Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time());
         Self {
             initial: Attribute::new("data-obj-0"),
             start: PersistenceStep {
@@ -136,18 +132,13 @@ impl PersistenceSetAttributesWorkflow {
         Self {
             data: Attribute::new("data"),
             data_map: AttributeMap::new("data-map"),
-            keyword: Attribute::new("keyword")
-                .indexed(AttributeIndex::new(AttributeIndexKind::Keyword)),
-            full_text: Attribute::new("full-text")
-                .indexed(AttributeIndex::new(AttributeIndexKind::FullText)),
-            decimal: Attribute::new("double")
-                .indexed(AttributeIndex::new(AttributeIndexKind::Double)),
-            integer: Attribute::new("int").indexed(AttributeIndex::new(AttributeIndexKind::Int)),
-            boolean: Attribute::new("bool").indexed(AttributeIndex::new(AttributeIndexKind::Bool)),
-            keywords: Attribute::new("keywords")
-                .indexed(AttributeIndex::new(AttributeIndexKind::KeywordArray)),
-            datetime: Attribute::new("datetime")
-                .indexed(AttributeIndex::new(AttributeIndexKind::DateTime)),
+            keyword: Attribute::new("keyword").indexed(AttributeIndex::keyword()),
+            full_text: Attribute::new("full-text").indexed(AttributeIndex::full_text()),
+            decimal: Attribute::new("double").indexed(AttributeIndex::double()),
+            integer: Attribute::new("int").indexed(AttributeIndex::int()),
+            boolean: Attribute::new("bool").indexed(AttributeIndex::bool()),
+            keywords: Attribute::new("keywords").indexed(AttributeIndex::keyword_array()),
+            datetime: Attribute::new("datetime").indexed(AttributeIndex::date_time()),
             start: SetAttributesStep,
         }
     }

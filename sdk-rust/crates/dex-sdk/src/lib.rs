@@ -15,20 +15,18 @@ mod state;
 mod wait;
 
 pub use client::{
-    Client, ClientOptions, FlowErrorType, FlowInfo, FlowStatus, Registry, RunId, Worker,
-    WorkerOptions,
+    Client, ClientOptions, FlowErrorType, FlowInfo, FlowStatus, Registry, Worker, WorkerOptions,
 };
 pub use dex_blob_cache::{BlobCache, BlobCacheConfig};
 pub use error::{HandlerError, HandlerResult, SdkError, SdkResult};
 pub use flow::{Flow, Step, StepDecision, StepExecutionId, StepList, StepMovement, Value};
 pub use options::{
     ActiveStepSearchMode, FlowConfig, IdReusePolicy, ResetFlowOptions, RetryPolicy,
-    StartFlowOptions, StepDurability, StepOptions, StopFlowOptions, StopType, WaitForFailurePolicy,
+    StartFlowOptions, StepDurability, StepOptions, StopFlowOptions, WaitForFailurePolicy,
     WorkerTarget,
 };
-pub use rpc::{Rpc, RpcList, RpcOptions, RpcResult};
+pub use rpc::{Rpc, RpcList, RpcResult};
 pub use state::{
-    Attribute, AttributeIndex, AttributeIndexKind, AttributeLock, AttributeMap, Channel,
-    ChannelMap, Context, PersistenceSchema,
+    Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, Context, PersistenceSchema,
 };
 pub use wait::{Condition, ConditionCombination, Timer, TimerId, Wait};

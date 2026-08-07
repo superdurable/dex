@@ -111,10 +111,8 @@ impl<StartInput: Value> Default for StepList<StartInput> {
 
 pub struct StepMovement {
     target_step_type: &'static str,
-    options: Option<ErasedStepOptions>,
+    has_options_override: bool,
 }
-
-struct ErasedStepOptions;
 
 impl StepMovement {
     pub fn to<TargetStep>(step: &TargetStep, _input: TargetStep::Input) -> Self
@@ -123,7 +121,7 @@ impl StepMovement {
     {
         Self {
             target_step_type: step.step_type(),
-            options: None,
+            has_options_override: false,
         }
     }
 
@@ -137,7 +135,7 @@ impl StepMovement {
     {
         Self {
             target_step_type: step.step_type(),
-            options: Some(ErasedStepOptions),
+            has_options_override: true,
         }
     }
 }
@@ -157,7 +155,7 @@ impl StepDecision {
     pub fn go_to_many(movements: impl IntoIterator<Item = StepMovement>) -> Self {
         for movement in movements {
             let _ = movement.target_step_type;
-            let _ = movement.options;
+            let _ = movement.has_options_override;
         }
         Self { _private: () }
     }
