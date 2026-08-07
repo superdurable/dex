@@ -145,15 +145,20 @@ public class UserContractsTest {
     }
 
     @Test
-    public void rpcStubRejectsFinalFlowClasses() {
-        final FinalRpcFlow flow = new FinalRpcFlow();
-        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
-        try (Client client = new Client(registry, BLOB_CACHE)) {
-            final IllegalArgumentException error = Assertions.assertThrows(
-                    IllegalArgumentException.class,
-                    () -> client.newRpcStub(FinalRpcFlow.class, "flow-id"));
-            Assertions.assertTrue(error.getMessage().contains("must not be final"));
-        }
+    public void registryRejectsNonInterceptableRpcDefinitions() {
+        final IllegalArgumentException finalFlowError = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new Registry(Collections.<Flow<?>>singletonList(new FinalRpcFlow())));
+        Assertions.assertTrue(finalFlowError.getMessage().contains("Flow class must not be final"));
+        Assertions.assertTrue(
+                finalFlowError.getMessage().contains("declare the Flow class with 'open'"));
+
+        final IllegalArgumentException finalMethodError = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new Registry(Collections.<Flow<?>>singletonList(new FinalRpcMethodFlow())));
+        Assertions.assertTrue(finalMethodError.getMessage().contains("method must not be final"));
+        Assertions.assertTrue(
+                finalMethodError.getMessage().contains("declare the RPC method with 'open'"));
     }
 
     @Test
@@ -317,6 +322,13 @@ public class UserContractsTest {
     public static final class FinalRpcFlow implements Flow<Void> {
         @RPC
         public RPCResult<String> read(final Context context) {
+            return RPCResult.of("local");
+        }
+    }
+
+    public static class FinalRpcMethodFlow implements Flow<Void> {
+        @RPC
+        public final RPCResult<String> read(final Context context) {
             return RPCResult.of("local");
         }
     }

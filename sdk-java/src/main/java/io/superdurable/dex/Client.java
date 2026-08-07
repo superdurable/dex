@@ -55,7 +55,6 @@ import org.objenesis.ObjenesisStd;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.time.Duration;
@@ -168,7 +167,6 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final String runId) {
         final Registry.RegisteredFlow flow = registry.getFlow(rpcClass);
-        validateRpcStubClass(rpcClass, flow);
         try {
             final Class<? extends T> stubClass = new ByteBuddy()
                     .subclass(rpcClass, ConstructorStrategy.Default.NO_CONSTRUCTORS)
@@ -182,21 +180,6 @@ public final class Client implements AutoCloseable {
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException(
                     "RPC stub could not subclass " + rpcClass.getName(), exception);
-        }
-    }
-
-    private static void validateRpcStubClass(
-            final Class<?> rpcClass,
-            final Registry.RegisteredFlow flow) {
-        if (Modifier.isFinal(rpcClass.getModifiers())) {
-            throw new IllegalArgumentException(
-                    "RPC stub Flow class must not be final: " + rpcClass.getName());
-        }
-        for (Registry.RegisteredRpc rpc : flow.getRpcs().values()) {
-            if (Modifier.isFinal(rpc.getMethod().getModifiers())) {
-                throw new IllegalArgumentException(
-                        "RPC stub method must not be final: " + rpc.getMethod().getName());
-            }
         }
     }
 

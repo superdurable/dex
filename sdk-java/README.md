@@ -49,6 +49,7 @@ long value = client.invokeRPC(stub::increment, 1L);
 
 Flows exposing RPC methods and their annotated methods must not be `final`.
 RPC stubs intercept those methods without invoking Flow constructors.
+In Kotlin, declare the Flow class and its RPC methods with `open`.
 
 `Step<I>` declares `Class<I> getInputType()`; parameterized Step inputs are not
 supported. Steps, attributes, and channels declare Java classes, not codecs:
