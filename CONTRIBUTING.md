@@ -23,7 +23,7 @@ Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd
 
 - Go 1.24+ (see `server/go.mod`; root `go.work` pins the workspace)
 - Java 8+ and Gradle wrapper (for `sdk-java` / `examples/java`)
-- Python 3.9+ and Poetry (for `sdk-python` / `examples/python`)
+- Python 3.9+ and uv (for `sdk-python` / `examples/python`)
 - Docker (for integration tests / local Temporal+Cadence stacks)
 
 ## Go workspace
@@ -94,8 +94,8 @@ cd ../examples/java && ./gradlew build
 ## Python
 
 ```bash
-cd sdk-python && poetry install && poetry run pytest   # if tests are configured
-cd ../examples/python && poetry install
+cd sdk-python && uv sync --locked && uv run --frozen pytest
+cd ../examples/python && uv sync --locked
 ```
 
 ## License headers
@@ -142,7 +142,7 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
 | Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `dex-server:v1.0.0` and `dex-server-lite:v1.0.0` |
-| Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`dex-sdk`](https://pypi.org/project/dex-sdk/) (version from `sdk-python/pyproject.toml`) |
+| Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) (version from `sdk-python/pyproject.toml`) |
 | Java SDK | `sdk-java-vX.Y.Z` | `sdk-java-v0.0.2` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from `sdk-java/build.gradle`) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |

@@ -31,6 +31,7 @@ private static final long serialVersionUID = 0L;
     flowId_ = "";
     runId_ = "";
     stepExecutionId_ = "";
+    fromStepExecutionId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -64,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -80,7 +81,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -103,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -119,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -153,7 +154,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepExecutionId_ = s;
@@ -169,7 +170,7 @@ private static final long serialVersionUID = 0L;
       getStepExecutionIdBytes() {
     java.lang.Object ref = stepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepExecutionId_ = b;
@@ -199,6 +200,53 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public int getAttempt() {
     return attempt_;
+  }
+
+  public static final int FROM_STEP_EXECUTION_ID_FIELD_NUMBER = 7;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object fromStepExecutionId_ = "";
+  /**
+   * <pre>
+   * Step execution that scheduled this execution, or a reserved source.
+   * </pre>
+   *
+   * <code>string from_step_execution_id = 7;</code>
+   * @return The fromStepExecutionId.
+   */
+  @java.lang.Override
+  public java.lang.String getFromStepExecutionId() {
+    java.lang.Object ref = fromStepExecutionId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      fromStepExecutionId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Step execution that scheduled this execution, or a reserved source.
+   * </pre>
+   *
+   * <code>string from_step_execution_id = 7;</code>
+   * @return The bytes for fromStepExecutionId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFromStepExecutionIdBytes() {
+    java.lang.Object ref = fromStepExecutionId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      fromStepExecutionId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
   }
 
   private byte memoizedIsInitialized = -1;
@@ -233,6 +281,9 @@ private static final long serialVersionUID = 0L;
     if (attempt_ != 0) {
       output.writeInt32(6, attempt_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 7, fromStepExecutionId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -257,6 +308,9 @@ private static final long serialVersionUID = 0L;
     if (attempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(6, attempt_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(7, fromStepExecutionId_);
     }
     return size;
   }
@@ -294,6 +348,8 @@ private static final long serialVersionUID = 0L;
         != other.getFirstAttemptTimestamp()) return false;
     if (getAttempt()
         != other.getAttempt()) return false;
+    if (!getFromStepExecutionId()
+        .equals(other.getFromStepExecutionId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -319,6 +375,8 @@ private static final long serialVersionUID = 0L;
         getFirstAttemptTimestamp());
     hash = (37 * hash) + ATTEMPT_FIELD_NUMBER;
     hash = (53 * hash) + getAttempt();
+    hash = (37 * hash) + FROM_STEP_EXECUTION_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getFromStepExecutionId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -456,6 +514,7 @@ private static final long serialVersionUID = 0L;
       stepExecutionId_ = "";
       firstAttemptTimestamp_ = 0L;
       attempt_ = 0;
+      fromStepExecutionId_ = "";
       return this;
     }
 
@@ -507,6 +566,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000020) != 0)) {
         result.attempt_ = attempt_;
       }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.fromStepExecutionId_ = fromStepExecutionId_;
+      }
     }
 
     @java.lang.Override
@@ -544,6 +606,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getAttempt() != 0) {
         setAttempt(other.getAttempt());
+      }
+      if (!other.getFromStepExecutionId().isEmpty()) {
+        fromStepExecutionId_ = other.fromStepExecutionId_;
+        bitField0_ |= 0x00000040;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -601,6 +668,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 48
+            case 58: {
+              fromStepExecutionId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 58
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -643,7 +715,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -715,7 +787,7 @@ private static final long serialVersionUID = 0L;
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -819,7 +891,7 @@ private static final long serialVersionUID = 0L;
         getStepExecutionIdBytes() {
       java.lang.Object ref = stepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepExecutionId_ = b;
@@ -930,6 +1002,98 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.lang.Object fromStepExecutionId_ = "";
+    /**
+     * <pre>
+     * Step execution that scheduled this execution, or a reserved source.
+     * </pre>
+     *
+     * <code>string from_step_execution_id = 7;</code>
+     * @return The fromStepExecutionId.
+     */
+    public java.lang.String getFromStepExecutionId() {
+      java.lang.Object ref = fromStepExecutionId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        fromStepExecutionId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Step execution that scheduled this execution, or a reserved source.
+     * </pre>
+     *
+     * <code>string from_step_execution_id = 7;</code>
+     * @return The bytes for fromStepExecutionId.
+     */
+    public com.google.protobuf.ByteString
+        getFromStepExecutionIdBytes() {
+      java.lang.Object ref = fromStepExecutionId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        fromStepExecutionId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Step execution that scheduled this execution, or a reserved source.
+     * </pre>
+     *
+     * <code>string from_step_execution_id = 7;</code>
+     * @param value The fromStepExecutionId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFromStepExecutionId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      fromStepExecutionId_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Step execution that scheduled this execution, or a reserved source.
+     * </pre>
+     *
+     * <code>string from_step_execution_id = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFromStepExecutionId() {
+      fromStepExecutionId_ = getDefaultInstance().getFromStepExecutionId();
+      bitField0_ = (bitField0_ & ~0x00000040);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Step execution that scheduled this execution, or a reserved source.
+     * </pre>
+     *
+     * <code>string from_step_execution_id = 7;</code>
+     * @param value The bytes for fromStepExecutionId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFromStepExecutionIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      fromStepExecutionId_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:dex.Context)
   }
 
@@ -980,4 +1144,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

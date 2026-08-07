@@ -23,18 +23,6 @@ public interface InterpreterWorkflowInputOrBuilder extends
       getFlowTypeBytes();
 
   /**
-   * <code>string worker_target = 2;</code>
-   * @return The workerTarget.
-   */
-  java.lang.String getWorkerTarget();
-  /**
-   * <code>string worker_target = 2;</code>
-   * @return The bytes for workerTarget.
-   */
-  com.google.protobuf.ByteString
-      getWorkerTargetBytes();
-
-  /**
    * <code>string start_step_type = 3;</code>
    * @return The startStepType.
    */
@@ -83,7 +71,7 @@ public interface InterpreterWorkflowInputOrBuilder extends
    *
    * <code>repeated .dex.KV init_attributes = 8;</code>
    */
-  java.util.List<io.superdurable.gen.KV> 
+  java.util.List<io.superdurable.gen.KV>
       getInitAttributesList();
   /**
    * <pre>
@@ -108,7 +96,7 @@ public interface InterpreterWorkflowInputOrBuilder extends
    *
    * <code>repeated .dex.KV init_attributes = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getInitAttributesOrBuilderList();
   /**
    * <pre>

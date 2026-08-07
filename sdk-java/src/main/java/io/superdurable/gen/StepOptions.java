@@ -135,37 +135,37 @@ private static final long serialVersionUID = 0L;
   public static final int WAIT_FOR_FAILURE_POLICY_FIELD_NUMBER = 5;
   private int waitForFailurePolicy_ = 0;
   /**
-   * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+   * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
    * @return The enum numeric value on the wire for waitForFailurePolicy.
    */
   @java.lang.Override public int getWaitForFailurePolicyValue() {
     return waitForFailurePolicy_;
   }
   /**
-   * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+   * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
    * @return The waitForFailurePolicy.
    */
-  @java.lang.Override public io.superdurable.gen.WaitForApiFailurePolicy getWaitForFailurePolicy() {
-    io.superdurable.gen.WaitForApiFailurePolicy result = io.superdurable.gen.WaitForApiFailurePolicy.forNumber(waitForFailurePolicy_);
-    return result == null ? io.superdurable.gen.WaitForApiFailurePolicy.UNRECOGNIZED : result;
+  @java.lang.Override public io.superdurable.gen.WaitForMethodFailurePolicy getWaitForFailurePolicy() {
+    io.superdurable.gen.WaitForMethodFailurePolicy result = io.superdurable.gen.WaitForMethodFailurePolicy.forNumber(waitForFailurePolicy_);
+    return result == null ? io.superdurable.gen.WaitForMethodFailurePolicy.UNRECOGNIZED : result;
   }
 
   public static final int EXECUTE_FAILURE_POLICY_FIELD_NUMBER = 6;
   private int executeFailurePolicy_ = 0;
   /**
-   * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+   * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
    * @return The enum numeric value on the wire for executeFailurePolicy.
    */
   @java.lang.Override public int getExecuteFailurePolicyValue() {
     return executeFailurePolicy_;
   }
   /**
-   * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+   * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
    * @return The executeFailurePolicy.
    */
-  @java.lang.Override public io.superdurable.gen.ExecuteApiFailurePolicy getExecuteFailurePolicy() {
-    io.superdurable.gen.ExecuteApiFailurePolicy result = io.superdurable.gen.ExecuteApiFailurePolicy.forNumber(executeFailurePolicy_);
-    return result == null ? io.superdurable.gen.ExecuteApiFailurePolicy.UNRECOGNIZED : result;
+  @java.lang.Override public io.superdurable.gen.ExecuteMethodFailurePolicy getExecuteFailurePolicy() {
+    io.superdurable.gen.ExecuteMethodFailurePolicy result = io.superdurable.gen.ExecuteMethodFailurePolicy.forNumber(executeFailurePolicy_);
+    return result == null ? io.superdurable.gen.ExecuteMethodFailurePolicy.UNRECOGNIZED : result;
   }
 
   public static final int EXECUTE_FAILURE_PROCEED_STEP_TYPE_FIELD_NUMBER = 7;
@@ -181,7 +181,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       executeFailureProceedStepType_ = s;
@@ -197,7 +197,7 @@ private static final long serialVersionUID = 0L;
       getExecuteFailureProceedStepTypeBytes() {
     java.lang.Object ref = executeFailureProceedStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       executeFailureProceedStepType_ = b;
@@ -380,10 +380,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(4, getExecuteRetryPolicy());
     }
-    if (waitForFailurePolicy_ != io.superdurable.gen.WaitForApiFailurePolicy.WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
+    if (waitForFailurePolicy_ != io.superdurable.gen.WaitForMethodFailurePolicy.WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
       output.writeEnum(5, waitForFailurePolicy_);
     }
-    if (executeFailurePolicy_ != io.superdurable.gen.ExecuteApiFailurePolicy.EXECUTE_API_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
+    if (executeFailurePolicy_ != io.superdurable.gen.ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
       output.writeEnum(6, executeFailurePolicy_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(executeFailureProceedStepType_)) {
@@ -427,11 +427,11 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(4, getExecuteRetryPolicy());
     }
-    if (waitForFailurePolicy_ != io.superdurable.gen.WaitForApiFailurePolicy.WAIT_FOR_API_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
+    if (waitForFailurePolicy_ != io.superdurable.gen.WaitForMethodFailurePolicy.WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(5, waitForFailurePolicy_);
     }
-    if (executeFailurePolicy_ != io.superdurable.gen.ExecuteApiFailurePolicy.EXECUTE_API_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
+    if (executeFailurePolicy_ != io.superdurable.gen.ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(6, executeFailurePolicy_);
     }
@@ -1179,7 +1179,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.RetryPolicy wait_for_retry_policy = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder> 
+        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder>
         internalGetWaitForRetryPolicyFieldBuilder() {
       if (waitForRetryPolicyBuilder_ == null) {
         waitForRetryPolicyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1300,7 +1300,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.RetryPolicy execute_retry_policy = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder> 
+        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder>
         internalGetExecuteRetryPolicyFieldBuilder() {
       if (executeRetryPolicyBuilder_ == null) {
         executeRetryPolicyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1315,14 +1315,14 @@ private static final long serialVersionUID = 0L;
 
     private int waitForFailurePolicy_ = 0;
     /**
-     * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+     * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
      * @return The enum numeric value on the wire for waitForFailurePolicy.
      */
     @java.lang.Override public int getWaitForFailurePolicyValue() {
       return waitForFailurePolicy_;
     }
     /**
-     * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+     * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
      * @param value The enum numeric value on the wire for waitForFailurePolicy to set.
      * @return This builder for chaining.
      */
@@ -1333,21 +1333,21 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+     * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
      * @return The waitForFailurePolicy.
      */
     @java.lang.Override
-    public io.superdurable.gen.WaitForApiFailurePolicy getWaitForFailurePolicy() {
-      io.superdurable.gen.WaitForApiFailurePolicy result = io.superdurable.gen.WaitForApiFailurePolicy.forNumber(waitForFailurePolicy_);
-      return result == null ? io.superdurable.gen.WaitForApiFailurePolicy.UNRECOGNIZED : result;
+    public io.superdurable.gen.WaitForMethodFailurePolicy getWaitForFailurePolicy() {
+      io.superdurable.gen.WaitForMethodFailurePolicy result = io.superdurable.gen.WaitForMethodFailurePolicy.forNumber(waitForFailurePolicy_);
+      return result == null ? io.superdurable.gen.WaitForMethodFailurePolicy.UNRECOGNIZED : result;
     }
     /**
-     * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+     * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
      * @param value The waitForFailurePolicy to set.
      * @throws IllegalArgumentException if UNRECOGNIZED is provided.
      * @return This builder for chaining.
      */
-    public Builder setWaitForFailurePolicy(io.superdurable.gen.WaitForApiFailurePolicy value) {
+    public Builder setWaitForFailurePolicy(io.superdurable.gen.WaitForMethodFailurePolicy value) {
       if (value == null) { throw new NullPointerException(); }
       bitField0_ |= 0x00000010;
       waitForFailurePolicy_ = value.getNumber();
@@ -1355,7 +1355,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+     * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearWaitForFailurePolicy() {
@@ -1367,14 +1367,14 @@ private static final long serialVersionUID = 0L;
 
     private int executeFailurePolicy_ = 0;
     /**
-     * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+     * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
      * @return The enum numeric value on the wire for executeFailurePolicy.
      */
     @java.lang.Override public int getExecuteFailurePolicyValue() {
       return executeFailurePolicy_;
     }
     /**
-     * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+     * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
      * @param value The enum numeric value on the wire for executeFailurePolicy to set.
      * @return This builder for chaining.
      */
@@ -1385,21 +1385,21 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+     * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
      * @return The executeFailurePolicy.
      */
     @java.lang.Override
-    public io.superdurable.gen.ExecuteApiFailurePolicy getExecuteFailurePolicy() {
-      io.superdurable.gen.ExecuteApiFailurePolicy result = io.superdurable.gen.ExecuteApiFailurePolicy.forNumber(executeFailurePolicy_);
-      return result == null ? io.superdurable.gen.ExecuteApiFailurePolicy.UNRECOGNIZED : result;
+    public io.superdurable.gen.ExecuteMethodFailurePolicy getExecuteFailurePolicy() {
+      io.superdurable.gen.ExecuteMethodFailurePolicy result = io.superdurable.gen.ExecuteMethodFailurePolicy.forNumber(executeFailurePolicy_);
+      return result == null ? io.superdurable.gen.ExecuteMethodFailurePolicy.UNRECOGNIZED : result;
     }
     /**
-     * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+     * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
      * @param value The executeFailurePolicy to set.
      * @throws IllegalArgumentException if UNRECOGNIZED is provided.
      * @return This builder for chaining.
      */
-    public Builder setExecuteFailurePolicy(io.superdurable.gen.ExecuteApiFailurePolicy value) {
+    public Builder setExecuteFailurePolicy(io.superdurable.gen.ExecuteMethodFailurePolicy value) {
       if (value == null) { throw new NullPointerException(); }
       bitField0_ |= 0x00000020;
       executeFailurePolicy_ = value.getNumber();
@@ -1407,7 +1407,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+     * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
      * @return This builder for chaining.
      */
     public Builder clearExecuteFailurePolicy() {
@@ -1442,7 +1442,7 @@ private static final long serialVersionUID = 0L;
         getExecuteFailureProceedStepTypeBytes() {
       java.lang.Object ref = executeFailureProceedStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         executeFailureProceedStepType_ = b;
@@ -1597,7 +1597,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions execute_failure_proceed_step_options = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
         internalGetExecuteFailureProceedStepOptionsFieldBuilder() {
       if (executeFailureProceedStepOptionsBuilder_ == null) {
         executeFailureProceedStepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -2018,4 +2018,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

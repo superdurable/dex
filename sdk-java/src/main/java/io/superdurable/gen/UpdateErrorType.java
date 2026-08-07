@@ -142,7 +142,7 @@ public enum UpdateErrorType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(15);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(16);
   }
 
   private static final UpdateErrorType[] VALUES = values();
@@ -167,4 +167,3 @@ public enum UpdateErrorType
 
   // @@protoc_insertion_point(enum_scope:dex.UpdateErrorType)
 }
-

@@ -11,16 +11,19 @@ public interface InvokeExecuteMethodActivityInputOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string worker_target = 1;</code>
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  boolean hasWorkerTarget();
+  /**
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    * @return The workerTarget.
    */
-  java.lang.String getWorkerTarget();
+  io.superdurable.gen.WorkerTarget getWorkerTarget();
   /**
-   * <code>string worker_target = 1;</code>
-   * @return The bytes for workerTarget.
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    */
-  com.google.protobuf.ByteString
-      getWorkerTargetBytes();
+  io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder();
 
   /**
    * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
@@ -36,4 +39,14 @@ public interface InvokeExecuteMethodActivityInputOrBuilder extends
    * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
    */
   io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder getRequestOrBuilder();
+
+  /**
+   * <pre>
+   * Requires a DeadEnd close decision without next steps.
+   * </pre>
+   *
+   * <code>bool is_transient_step = 3;</code>
+   * @return The isTransientStep.
+   */
+  boolean getIsTransientStep();
 }

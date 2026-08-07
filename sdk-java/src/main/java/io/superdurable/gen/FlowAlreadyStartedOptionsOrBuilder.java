@@ -15,16 +15,4 @@ public interface FlowAlreadyStartedOptionsOrBuilder extends
    * @return The ignoreAlreadyStartedError.
    */
   boolean getIgnoreAlreadyStartedError();
-
-  /**
-   * <code>string request_id = 2;</code>
-   * @return The requestId.
-   */
-  java.lang.String getRequestId();
-  /**
-   * <code>string request_id = 2;</code>
-   * @return The bytes for requestId.
-   */
-  com.google.protobuf.ByteString
-      getRequestIdBytes();
 }

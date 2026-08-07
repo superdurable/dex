@@ -31,6 +31,11 @@ only when a section genuinely doesn't apply.
 
 ## Code Quality Rules
 
+### Commit Every Changing Turn
+
+End every turn that changes repository files with one commit. Do not create
+empty commits for discussion-only turns.
+
 ### License Headers
 
 Every new or edited `.go` / `.java` / `.py` / `.rs` / `.proto` file, Web
@@ -56,6 +61,15 @@ Do not replace legacy headers. Editing a `legacy-only` file upgrades it to
 The project has **not launched**. Remove dead config fields immediately. Break
 APIs freely. Ask before adding any compat shim. Do not leave docs/comments that
 explain former behavior.
+
+### Fluent SDK Call Sites
+
+Design SDK APIs so application code reads like a natural phrase in its host
+language. Judge names and ownership at the call site, including nested calls.
+Prefer domain-noun factories such as
+`Wait.allOf(Timer.byDuration(duration))` over awkward ownership such as
+`Wait.allOf(Wait.timer(duration))`. Preserve each language's idioms rather than
+forcing identical syntax across SDKs.
 
 ### No Setter Injection
 

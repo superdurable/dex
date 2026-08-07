@@ -65,7 +65,7 @@ Make sure you have the following installed and set up:
       `docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -p 7233:7233 -p 8233:8233 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest`
     * Or check out [Dex documentation](https://github.com/superdurable/dex?tab=readme-ov-file#how-to-use)
 2. [Python 3.13.2](https://www.python.org/downloads/)
-2. [Poetry](https://python-poetry.org/docs/) for dependency management and virtual environments.
+2. [uv](https://docs.astral.sh/uv/) for dependency management and virtual environments.
 3. [Node.js and npm](https://nodejs.org/) for building the frontend.
 4. All required environment variables.
 
@@ -89,10 +89,10 @@ export GOOGLE_EMAIL_APP_PASSWORD="your-app-password"
 
 ### Backend Setup
 
-Once Poetry is installed, navigate to the project directory and install the required dependencies by running:
+Once uv is installed, navigate to the project directory and install the required dependencies by running:
 
 ```bash
-poetry install
+uv sync --locked
 ```
 
 This will create a virtual environment and install all necessary packages listed in the `pyproject.toml` file.
@@ -125,7 +125,7 @@ npm start
 To start the application, execute the following command:
 
 ```bash
-poetry run python ai-agent-email/main.py
+uv run --frozen python ai-agent-email/main.py
 ```
 
 This will launch the Flask application at http://localhost:8802. Open your browser and navigate to this URL to access

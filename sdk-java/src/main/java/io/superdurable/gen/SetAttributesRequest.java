@@ -31,6 +31,7 @@ private static final long serialVersionUID = 0L;
     flowId_ = "";
     runId_ = "";
     attributes_ = java.util.Collections.emptyList();
+    requestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -64,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -80,7 +81,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -103,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -119,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -143,7 +144,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeWrite attributes = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -170,6 +171,45 @@ private static final long serialVersionUID = 0L;
     return attributes_.get(index);
   }
 
+  public static final int REQUEST_ID_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object requestId_ = "";
+  /**
+   * <code>string request_id = 4;</code>
+   * @return The requestId.
+   */
+  @java.lang.Override
+  public java.lang.String getRequestId() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      requestId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string request_id = 4;</code>
+   * @return The bytes for requestId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRequestIdBytes() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      requestId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -193,6 +233,9 @@ private static final long serialVersionUID = 0L;
     for (int i = 0; i < attributes_.size(); i++) {
       output.writeMessage(3, attributes_.get(i));
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, requestId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -212,6 +255,9 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, requestId_);
+    }
     return size;
   }
   @java.lang.Override
@@ -242,6 +288,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getRunId())) return false;
     if (!getAttributesList()
         .equals(other.getAttributesList())) return false;
+    if (!getRequestId()
+        .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -261,6 +309,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + ATTRIBUTES_FIELD_NUMBER;
       hash = (53 * hash) + getAttributesList().hashCode();
     }
+    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -401,6 +451,7 @@ private static final long serialVersionUID = 0L;
         attributesBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000004);
+      requestId_ = "";
       return this;
     }
 
@@ -453,6 +504,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.runId_ = runId_;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.requestId_ = requestId_;
+      }
     }
 
     @java.lang.Override
@@ -495,13 +549,18 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            attributesBuilder_ = 
+            attributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
             attributesBuilder_.addAllMessages(other.attributes_);
           }
         }
+      }
+      if (!other.getRequestId().isEmpty()) {
+        requestId_ = other.requestId_;
+        bitField0_ |= 0x00000008;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -552,6 +611,11 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 26
+            case 34: {
+              requestId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -594,7 +658,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -666,7 +730,7 @@ private static final long serialVersionUID = 0L;
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -908,7 +972,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite attributes = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -934,12 +998,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite attributes = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder>
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -951,6 +1015,78 @@ private static final long serialVersionUID = 0L;
         attributes_ = null;
       }
       return attributesBuilder_;
+    }
+
+    private java.lang.Object requestId_ = "";
+    /**
+     * <code>string request_id = 4;</code>
+     * @return The requestId.
+     */
+    public java.lang.String getRequestId() {
+      java.lang.Object ref = requestId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        requestId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string request_id = 4;</code>
+     * @return The bytes for requestId.
+     */
+    public com.google.protobuf.ByteString
+        getRequestIdBytes() {
+      java.lang.Object ref = requestId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        requestId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string request_id = 4;</code>
+     * @param value The requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      requestId_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string request_id = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRequestId() {
+      requestId_ = getDefaultInstance().getRequestId();
+      bitField0_ = (bitField0_ & ~0x00000008);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string request_id = 4;</code>
+     * @param value The bytes for requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      requestId_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SetAttributesRequest)
@@ -1003,4 +1139,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

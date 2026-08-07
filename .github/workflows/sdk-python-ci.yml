@@ -1,9 +1,53 @@
 name: Python SDK CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk-python/**"
+      - ".github/workflows/sdk-python-ci.yml"
+  pull_request:
+    paths:
+      - "sdk-python/**"
+      - ".github/workflows/sdk-python-ci.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  contracts:
+    name: User contracts (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: sdk-python
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: ${{ matrix.python-version }}
+          working-directory: sdk-python
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Test contracts
+        run: uv run --frozen pytest tests/test_contracts.py
+      - name: Check static types with mypy
+        run: uv run --frozen mypy --strict tests/typecheck_contracts.py tests/iwfcompat
+      - name: Check static types with pyright
+        run: uv run --frozen pyright tests/typecheck_contracts.py tests/iwfcompat
+
   lint:
     runs-on: ubuntu-latest
     defaults:
@@ -11,21 +55,47 @@ jobs:
         working-directory: sdk-python
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.9"
-      - name: Install Poetry
-        run: pipx install poetry
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: sdk-python
+          enable-cache: true
       - name: Install dependencies
-        run: poetry install --no-interaction --no-root
-      - name: Run linters (sdk-python files only)
-        working-directory: ${{ github.workspace }}
+        run: uv sync --locked
+      - name: Run contract linters
         run: |
-          # Run from repo root so monorepo hook paths resolve; limit to sdk-python files.
-          FILES=$(git ls-files -z -- sdk-python | tr '\0' ' ')
-          (cd sdk-python && poetry run pre-commit run --show-diff-on-failure --color=always --files $FILES)
+          uv run --frozen pre-commit run \
+            --show-diff-on-failure \
+            --color=always \
+            --files \
+              dex/_utils.py \
+              dex/attribute.py \
+              dex/blob_cache.py \
+              dex/channel.py \
+              dex/client.py \
+              dex/client_options.py \
+              dex/codec.py \
+              dex/condition.py \
+              dex/context.py \
+              dex/flow.py \
+              dex/flow_config.py \
+              dex/flow_info.py \
+              dex/flow_options.py \
+              dex/step.py \
+              dex/step_execution.py \
+              dex/timer.py \
+              dex/wait.py \
+              dex/worker.py \
+              dex/worker_options.py \
+              tests/*.py \
+              tests/iwfcompat/*.py \
+              pyproject.toml \
+              uv.lock
 
   pytest:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -81,18 +151,20 @@ jobs:
           echo "Timed out waiting for Dex server"
           docker logs dex-server 2>&1 | tail -80 || true
           exit 1
-      - uses: actions/setup-python@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.9"
-      - name: Install Poetry
-        run: pipx install poetry
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: sdk-python
+          enable-cache: true
       - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+        run: uv sync --locked
       - name: Pytest
         run: |
           echo "[run]">>.coveragerc
           echo "omit = dex/dexpb/">>.coveragerc
-          poetry run pytest -vv --cov-config=.coveragerc --cov="dex/" .
+          uv run --frozen pytest -vv --cov-config=.coveragerc --cov="dex/" .
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

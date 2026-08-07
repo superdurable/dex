@@ -69,26 +69,26 @@ func (waitForFailureStep) Execute(
 	return dex.ForceFail("must not execute"), nil
 }
 
-type waitForTimeoutFlow struct {
+type waitForMethodTimeoutFlow struct {
 	emptyFlowSchema
 }
 
-func (waitForTimeoutFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(waitForTimeoutStep{})}
+func (waitForMethodTimeoutFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(waitForMethodTimeoutStep{})}
 }
 
-type waitForTimeoutStep struct {
+type waitForMethodTimeoutStep struct {
 	dex.DefaultStepType
 }
 
-func (waitForTimeoutStep) GetStepOptions() *dex.StepOptions {
+func (waitForMethodTimeoutStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		WaitForTimeout: time.Second,
-		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		WaitForMethodTimeout: time.Second,
+		WaitForRetry:         &dex.RetryPolicy{MaximumAttempts: 1},
 	}
 }
 
-func (waitForTimeoutStep) WaitFor(
+func (waitForMethodTimeoutStep) WaitFor(
 	ctx dex.Context,
 	_ struct{},
 ) (*dex.Wait, error) {
@@ -96,7 +96,7 @@ func (waitForTimeoutStep) WaitFor(
 	return nil, ctx.Err()
 }
 
-func (waitForTimeoutStep) Execute(
+func (waitForMethodTimeoutStep) Execute(
 	dex.Context,
 	struct{},
 ) (*dex.StepDecision, error) {
@@ -166,11 +166,11 @@ func TestWaitForFailureFlow(t *testing.T) {
 	require.True(t, strings.Contains(result.ErrorMessage, "test WaitFor failing"))
 }
 
-func TestWaitForTimeoutFlow(t *testing.T) {
+func TestWaitForMethodTimeoutFlow(t *testing.T) {
 	flowID := newFlowID(t, "wait-for-timeout")
 	_, err := integClient.StartFlow(
 		integrationContext(t),
-		waitForTimeoutFlow{},
+		waitForMethodTimeoutFlow{},
 		flowID,
 		struct{}{},
 		dex.StartFlowOptions{},

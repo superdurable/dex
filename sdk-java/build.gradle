@@ -46,9 +46,22 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    jmh {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    jmhImplementation.extendsFrom implementation
+}
+
 dependencies {
     // Use JUnit Jupiter for testing.
     testImplementation 'org.junit.jupiter:junit-jupiter:5.8.2'
+    jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
+    jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 
     // This dependency is exported to consumers, that is to say found on their compile classpath.
     api 'org.apache.commons:commons-math3:3.6.1'
@@ -60,6 +73,7 @@ dependencies {
     api 'com.google.protobuf:protobuf-java:4.35.1'
     api 'io.grpc:grpc-stub:1.69.1'
     api 'io.grpc:grpc-protobuf:1.69.1'
+    implementation 'io.grpc:grpc-netty-shaded:1.69.1'
     compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
 
     // for HTTP clients (legacy until gRPC migration)
@@ -98,9 +112,67 @@ dependencies {
     implementation 'com.cronutils:cron-utils:9.2.0'
 }
 
+def blobCacheNativeLibraryName = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
+        ? 'libdex_blob_cache_jni.dylib'
+        : org.gradle.internal.os.OperatingSystem.current().isWindows()
+                ? 'dex_blob_cache_jni.dll'
+                : 'libdex_blob_cache_jni.so'
+def blobCacheNativeLibraryPath =
+        file("../sdk-rust/target/release/${blobCacheNativeLibraryName}").absolutePath
+
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'dex-dev'
+    }
+    dependsOn 'buildBlobCacheNative'
+    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
+}
+
+tasks.register('dexDevTest', Test) {
+    group = 'verification'
+    description = 'Runs Java SDK integration tests against dexcli dev.'
+    outputs.upToDateWhen { false }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'dex-dev'
+    }
+    dependsOn 'buildBlobCacheNative'
+    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
+    systemProperty 'dex.test.serverAddress',
+            System.getenv('DEX_SERVER_ADDRESS') ?: '127.0.0.1:8801'
+}
+
+tasks.register('buildBlobCacheNative', Exec) {
+    description = 'Builds the Rust JNI library used only by BlobCache.'
+    workingDir '../sdk-rust'
+    commandLine 'cargo', 'build', '--release', '-p', 'dex-blob-cache-jni', '--locked'
+    inputs.files(fileTree('../sdk-rust') {
+        include 'Cargo.toml', 'Cargo.lock', 'crates/**'
+        exclude 'target/**'
+    })
+    outputs.file blobCacheNativeLibraryPath
+}
+
+tasks.named('compileJmhJava') {
+    options.annotationProcessorPath = configurations.jmhAnnotationProcessor
+}
+
+tasks.register('blobCacheBenchmark', JavaExec) {
+    group = 'benchmark'
+    description = 'Measures the Java-to-Rust BlobCache boundary with JMH.'
+    dependsOn 'buildBlobCacheNative', 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'org.openjdk.jmh.Main'
+    args 'io.superdurable.dex.NativeBlobCacheBenchmark',
+            '-wi', '3',
+            '-i', '5',
+            '-w', '1s',
+            '-r', '1s',
+            '-f', '1',
+            '-t', findProperty('blobCacheBenchmarkThreads') ?: '1'
+    systemProperty 'dex.blobCache.nativeLibrary', blobCacheNativeLibraryPath
 }
 
 jacocoTestReport {

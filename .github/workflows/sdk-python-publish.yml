@@ -18,12 +18,15 @@ jobs:
         working-directory: sdk-python
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.9"
-      - name: Install Poetry
-        run: pipx install poetry
-      - name: Configure PyPI token
-        run: poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
-      - name: Build and publish
-        run: poetry publish --build
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: sdk-python
+      - name: Build distributions
+        run: uv build --no-sources
+      - name: Publish distributions
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish

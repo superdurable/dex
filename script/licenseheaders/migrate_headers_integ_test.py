@@ -43,6 +43,10 @@ class MigrationIntegrationTest(unittest.TestCase):
             self.assertEqual(classifications["server/renamed.go"], "legacy-only")
             self.assertEqual(classifications["server/copied.go"], "mixed")
             self.assertEqual(classifications["sdk-rust/src/lib.rs"], "new")
+            self.assertEqual(
+                classifications["sdk-python/tests/iwfcompat/basic_flow.py"],
+                "third-party-mixed",
+            )
             self.assertEqual(classifications["web/server.go"], "new")
             self.assertEqual(classifications["web/app.tsx"], "new")
             self.assertEqual(classifications["web/site.css"], "new")
@@ -56,6 +60,11 @@ class MigrationIntegrationTest(unittest.TestCase):
             mixed = (root / "server/legacy.go").read_text()
             self.assertIn("Copyright (c) 2020 Legacy Holder", mixed)
             self.assertIn("Modifications Copyright (c) 2026 Super Durable, Inc.", mixed)
+            third_party_mixed = (
+                root / "sdk-python/tests/iwfcompat/basic_flow.py"
+            ).read_text()
+            self.assertIn("derived from indeedeng/iwf-java-sdk", third_party_mixed)
+            self.assertIn("Third-Party Materials remain", third_party_mixed)
             for path in (
                 "sdk-rust/src/lib.rs",
                 "web/server.go",
@@ -98,6 +107,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             "mit.txt",
             "mixed.txt",
             "super-durable-1.0.txt",
+            "third-party-mixed.txt",
         ):
             shutil.copyfile(TEMPLATES_DIR / name, headers_dir / name)
 
@@ -134,6 +144,11 @@ class MigrationIntegrationTest(unittest.TestCase):
         self.git(root, "mv", "server/unchanged.go", "server/renamed.go")
         shutil.copyfile(root / "server/renamed.go", root / "server/copied.go")
         self.write(root, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
+        self.write(
+            root,
+            "sdk-python/tests/iwfcompat/basic_flow.py",
+            "class BasicFlow:\n    pass\n",
+        )
         self.write(root, "web/server.go", "package web\n")
         self.write(root, "web/app.tsx", "export const App = () => null;\n")
         self.write(root, "web/site.css", "body { color: black; }\n")
@@ -147,8 +162,9 @@ class MigrationIntegrationTest(unittest.TestCase):
             "version": 1,
             "cutoff": cutoff,
             "contamination_commit": contamination,
-            "included_prefixes": ["server", "sdk-rust", "web", "protos"],
+            "included_prefixes": ["server", "sdk-python", "sdk-rust", "web", "protos"],
             "forced_new_prefixes": ["sdk-rust", "web", "protos"],
+            "third_party_mixed_prefixes": ["sdk-python/tests/iwfcompat"],
             "excluded_prefixes": ["docs", "examples"],
             "retained_license_prefixes": {
                 "examples/go": "mit",

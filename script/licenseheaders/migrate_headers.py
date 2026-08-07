@@ -101,7 +101,14 @@ def classification_counts(entries: list[dict[str, Any]]) -> dict[str, int]:
     for entry in entries:
         classification = str(entry["classification"])
         counts[classification] = counts.get(classification, 0) + 1
-    for classification in ("excluded", "legacy-only", "mixed", "new", "manual-review"):
+    for classification in (
+        "excluded",
+        "legacy-only",
+        "mixed",
+        "new",
+        "third-party-mixed",
+        "manual-review",
+    ):
         counts.setdefault(classification, 0)
     return counts
 
@@ -136,6 +143,7 @@ class HeaderMigrator:
         self.templates = {
             "new": read_text(HEADERS_DIR / "super-durable-1.0.txt"),
             "mixed": read_text(HEADERS_DIR / "mixed.txt"),
+            "third-party-mixed": read_text(HEADERS_DIR / "third-party-mixed.txt"),
             "legacy": read_text(HEADERS_DIR / "legacy-reference.txt"),
         }
 
@@ -175,6 +183,15 @@ class HeaderMigrator:
 
         actual_current = (ROOT / current_path).read_bytes()
         current = git_bytes("show", f"HEAD:{current_path}") if repair_from_head else actual_current
+        if is_third_party_mixed(current_path, self.policy):
+            return self.build_entry(
+                current_path,
+                "third-party-mixed",
+                "directory contains Apache-2.0 third-party adaptations",
+                current,
+                actual_current=actual_current,
+                repair_from_head=repair_from_head,
+            )
         if is_forced_new(current_path, self.policy):
             return self.build_entry(
                 current_path,
@@ -292,6 +309,7 @@ class HeaderMigrator:
             and not is_excluded(path, self.policy)
             and not is_generated(path)
             and (self.selected is None or path_selected(path, self.selected))
+            and not is_third_party_mixed(path, self.policy)
             and not is_forced_new(path, self.policy)
             and not git_object_exists(self.cutoff, path)
             and path not in self.rename_sources
@@ -530,6 +548,13 @@ def is_forced_new(path: str, policy: dict[str, Any]) -> bool:
     return any(has_prefix(path, prefix) for prefix in policy["forced_new_prefixes"])
 
 
+def is_third_party_mixed(path: str, policy: dict[str, Any]) -> bool:
+    return any(
+        has_prefix(path, prefix)
+        for prefix in policy.get("third_party_mixed_prefixes", [])
+    )
+
+
 def is_generated(path: str) -> bool:
     parts = set(Path(path).parts)
     name = Path(path).name
@@ -562,6 +587,9 @@ def render_migrated_content(
         preserved = original_header
         if not preserved:
             plain_headers.insert(0, templates["legacy"])
+    elif classification == "third-party-mixed":
+        plain_headers = [templates["third-party-mixed"]]
+        preserved = ""
     elif classification == "legacy-only":
         plain_headers = [] if original_header else [templates["legacy"]]
         preserved = original_header
@@ -604,7 +632,12 @@ def strip_managed_blocks(content: str, suffix: str) -> str:
 
 @lru_cache(maxsize=None)
 def managed_formatted_headers(suffix: str) -> tuple[str, ...]:
-    names = ("super-durable-1.0.txt", "mixed.txt", "legacy-reference.txt")
+    names = (
+        "super-durable-1.0.txt",
+        "mixed.txt",
+        "third-party-mixed.txt",
+        "legacy-reference.txt",
+    )
     return tuple(format_header(read_text(HEADERS_DIR / name), suffix) for name in names)
 
 

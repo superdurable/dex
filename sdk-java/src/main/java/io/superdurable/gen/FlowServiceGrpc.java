@@ -266,6 +266,130 @@ public final class FlowServiceGrpc {
     return getSearchFlowsMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowSummaryRequest,
+      io.superdurable.gen.GetFlowSummaryResponse> getGetFlowSummaryMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetFlowSummary",
+      requestType = io.superdurable.gen.GetFlowSummaryRequest.class,
+      responseType = io.superdurable.gen.GetFlowSummaryResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowSummaryRequest,
+      io.superdurable.gen.GetFlowSummaryResponse> getGetFlowSummaryMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowSummaryRequest, io.superdurable.gen.GetFlowSummaryResponse> getGetFlowSummaryMethod;
+    if ((getGetFlowSummaryMethod = FlowServiceGrpc.getGetFlowSummaryMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetFlowSummaryMethod = FlowServiceGrpc.getGetFlowSummaryMethod) == null) {
+          FlowServiceGrpc.getGetFlowSummaryMethod = getGetFlowSummaryMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.GetFlowSummaryRequest, io.superdurable.gen.GetFlowSummaryResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetFlowSummary"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowSummaryRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowSummaryResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetFlowSummary"))
+              .build();
+        }
+      }
+    }
+    return getGetFlowSummaryMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetHistoryEventsRequest,
+      io.superdurable.gen.GetHistoryEventsResponse> getGetHistoryEventsMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetHistoryEvents",
+      requestType = io.superdurable.gen.GetHistoryEventsRequest.class,
+      responseType = io.superdurable.gen.GetHistoryEventsResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.GetHistoryEventsRequest,
+      io.superdurable.gen.GetHistoryEventsResponse> getGetHistoryEventsMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.GetHistoryEventsRequest, io.superdurable.gen.GetHistoryEventsResponse> getGetHistoryEventsMethod;
+    if ((getGetHistoryEventsMethod = FlowServiceGrpc.getGetHistoryEventsMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetHistoryEventsMethod = FlowServiceGrpc.getGetHistoryEventsMethod) == null) {
+          FlowServiceGrpc.getGetHistoryEventsMethod = getGetHistoryEventsMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.GetHistoryEventsRequest, io.superdurable.gen.GetHistoryEventsResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetHistoryEvents"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetHistoryEventsRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetHistoryEventsResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetHistoryEvents"))
+              .build();
+        }
+      }
+    }
+    return getGetHistoryEventsMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.WaitForHistoryEventRequest,
+      io.superdurable.gen.WaitForHistoryEventResponse> getWaitForHistoryEventMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "WaitForHistoryEvent",
+      requestType = io.superdurable.gen.WaitForHistoryEventRequest.class,
+      responseType = io.superdurable.gen.WaitForHistoryEventResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.WaitForHistoryEventRequest,
+      io.superdurable.gen.WaitForHistoryEventResponse> getWaitForHistoryEventMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.WaitForHistoryEventRequest, io.superdurable.gen.WaitForHistoryEventResponse> getWaitForHistoryEventMethod;
+    if ((getWaitForHistoryEventMethod = FlowServiceGrpc.getWaitForHistoryEventMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getWaitForHistoryEventMethod = FlowServiceGrpc.getWaitForHistoryEventMethod) == null) {
+          FlowServiceGrpc.getWaitForHistoryEventMethod = getWaitForHistoryEventMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.WaitForHistoryEventRequest, io.superdurable.gen.WaitForHistoryEventResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "WaitForHistoryEvent"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.WaitForHistoryEventRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.WaitForHistoryEventResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("WaitForHistoryEvent"))
+              .build();
+        }
+      }
+    }
+    return getWaitForHistoryEventMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowStateRequest,
+      io.superdurable.gen.GetFlowStateResponse> getGetFlowStateMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetFlowState",
+      requestType = io.superdurable.gen.GetFlowStateRequest.class,
+      responseType = io.superdurable.gen.GetFlowStateResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowStateRequest,
+      io.superdurable.gen.GetFlowStateResponse> getGetFlowStateMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowStateRequest, io.superdurable.gen.GetFlowStateResponse> getGetFlowStateMethod;
+    if ((getGetFlowStateMethod = FlowServiceGrpc.getGetFlowStateMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetFlowStateMethod = FlowServiceGrpc.getGetFlowStateMethod) == null) {
+          FlowServiceGrpc.getGetFlowStateMethod = getGetFlowStateMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.GetFlowStateRequest, io.superdurable.gen.GetFlowStateResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetFlowState"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowStateRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowStateResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetFlowState"))
+              .build();
+        }
+      }
+    }
+    return getGetFlowStateMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.ResetFlowRequest,
       io.superdurable.gen.ResetFlowResponse> getResetFlowMethod;
 
@@ -623,6 +747,34 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowSummaryResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetFlowSummaryMethod(), responseObserver);
+    }
+
+    /**
+     */
+    default void getHistoryEvents(io.superdurable.gen.GetHistoryEventsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetHistoryEventsResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetHistoryEventsMethod(), responseObserver);
+    }
+
+    /**
+     */
+    default void waitForHistoryEvent(io.superdurable.gen.WaitForHistoryEventRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForHistoryEventResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getWaitForHistoryEventMethod(), responseObserver);
+    }
+
+    /**
+     */
+    default void getFlowState(io.superdurable.gen.GetFlowStateRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowStateResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetFlowStateMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void resetFlow(io.superdurable.gen.ResetFlowRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.ResetFlowResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getResetFlowMethod(), responseObserver);
@@ -777,6 +929,38 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public void getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowSummaryResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetFlowSummaryMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void getHistoryEvents(io.superdurable.gen.GetHistoryEventsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetHistoryEventsResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetHistoryEventsMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void waitForHistoryEvent(io.superdurable.gen.WaitForHistoryEventRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForHistoryEventResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getWaitForHistoryEventMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void getFlowState(io.superdurable.gen.GetFlowStateRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowStateResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetFlowStateMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
     public void resetFlow(io.superdurable.gen.ResetFlowRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.ResetFlowResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
@@ -913,6 +1097,34 @@ public final class FlowServiceGrpc {
     public io.superdurable.gen.SearchFlowsResponse searchFlows(io.superdurable.gen.SearchFlowsRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getSearchFlowsMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.GetFlowSummaryResponse getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetFlowSummaryMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.GetHistoryEventsResponse getHistoryEvents(io.superdurable.gen.GetHistoryEventsRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetHistoryEventsMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.WaitForHistoryEventResponse waitForHistoryEvent(io.superdurable.gen.WaitForHistoryEventRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getWaitForHistoryEventMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.GetFlowStateResponse getFlowState(io.superdurable.gen.GetFlowStateRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetFlowStateMethod(), getCallOptions(), request);
     }
 
     /**
@@ -1057,6 +1269,38 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetFlowSummaryResponse> getFlowSummary(
+        io.superdurable.gen.GetFlowSummaryRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetFlowSummaryMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetHistoryEventsResponse> getHistoryEvents(
+        io.superdurable.gen.GetHistoryEventsRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetHistoryEventsMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.WaitForHistoryEventResponse> waitForHistoryEvent(
+        io.superdurable.gen.WaitForHistoryEventRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getWaitForHistoryEventMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetFlowStateResponse> getFlowState(
+        io.superdurable.gen.GetFlowStateRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetFlowStateMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.ResetFlowResponse> resetFlow(
         io.superdurable.gen.ResetFlowRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1128,14 +1372,18 @@ public final class FlowServiceGrpc {
   private static final int METHODID_LOAD_BLOBS = 5;
   private static final int METHODID_WAIT_FOR_FLOW = 6;
   private static final int METHODID_SEARCH_FLOWS = 7;
-  private static final int METHODID_RESET_FLOW = 8;
-  private static final int METHODID_INVOKE_RPC = 9;
-  private static final int METHODID_SKIP_TIMER = 10;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 11;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 12;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 13;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 14;
-  private static final int METHODID_HEALTH_CHECK = 15;
+  private static final int METHODID_GET_FLOW_SUMMARY = 8;
+  private static final int METHODID_GET_HISTORY_EVENTS = 9;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 10;
+  private static final int METHODID_GET_FLOW_STATE = 11;
+  private static final int METHODID_RESET_FLOW = 12;
+  private static final int METHODID_INVOKE_RPC = 13;
+  private static final int METHODID_SKIP_TIMER = 14;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 15;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 16;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 17;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 18;
+  private static final int METHODID_HEALTH_CHECK = 19;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1185,6 +1433,22 @@ public final class FlowServiceGrpc {
         case METHODID_SEARCH_FLOWS:
           serviceImpl.searchFlows((io.superdurable.gen.SearchFlowsRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.SearchFlowsResponse>) responseObserver);
+          break;
+        case METHODID_GET_FLOW_SUMMARY:
+          serviceImpl.getFlowSummary((io.superdurable.gen.GetFlowSummaryRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowSummaryResponse>) responseObserver);
+          break;
+        case METHODID_GET_HISTORY_EVENTS:
+          serviceImpl.getHistoryEvents((io.superdurable.gen.GetHistoryEventsRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.GetHistoryEventsResponse>) responseObserver);
+          break;
+        case METHODID_WAIT_FOR_HISTORY_EVENT:
+          serviceImpl.waitForHistoryEvent((io.superdurable.gen.WaitForHistoryEventRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForHistoryEventResponse>) responseObserver);
+          break;
+        case METHODID_GET_FLOW_STATE:
+          serviceImpl.getFlowState((io.superdurable.gen.GetFlowStateRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowStateResponse>) responseObserver);
           break;
         case METHODID_RESET_FLOW:
           serviceImpl.resetFlow((io.superdurable.gen.ResetFlowRequest) request,
@@ -1292,6 +1556,34 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.SearchFlowsRequest,
               io.superdurable.gen.SearchFlowsResponse>(
                 service, METHODID_SEARCH_FLOWS)))
+        .addMethod(
+          getGetFlowSummaryMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.GetFlowSummaryRequest,
+              io.superdurable.gen.GetFlowSummaryResponse>(
+                service, METHODID_GET_FLOW_SUMMARY)))
+        .addMethod(
+          getGetHistoryEventsMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.GetHistoryEventsRequest,
+              io.superdurable.gen.GetHistoryEventsResponse>(
+                service, METHODID_GET_HISTORY_EVENTS)))
+        .addMethod(
+          getWaitForHistoryEventMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.WaitForHistoryEventRequest,
+              io.superdurable.gen.WaitForHistoryEventResponse>(
+                service, METHODID_WAIT_FOR_HISTORY_EVENT)))
+        .addMethod(
+          getGetFlowStateMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.GetFlowStateRequest,
+              io.superdurable.gen.GetFlowStateResponse>(
+                service, METHODID_GET_FLOW_STATE)))
         .addMethod(
           getResetFlowMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -1404,6 +1696,10 @@ public final class FlowServiceGrpc {
               .addMethod(getLoadBlobsMethod())
               .addMethod(getWaitForFlowMethod())
               .addMethod(getSearchFlowsMethod())
+              .addMethod(getGetFlowSummaryMethod())
+              .addMethod(getGetHistoryEventsMethod())
+              .addMethod(getWaitForHistoryEventMethod())
+              .addMethod(getGetFlowStateMethod())
               .addMethod(getResetFlowMethod())
               .addMethod(getInvokeRPCMethod())
               .addMethod(getSkipTimerMethod())

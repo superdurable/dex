@@ -30,8 +30,8 @@ private static final long serialVersionUID = 0L;
   private StartFlowRequest() {
     flowId_ = "";
     flowType_ = "";
-    workerTarget_ = "";
     startStepType_ = "";
+    requestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -82,7 +82,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -105,7 +105,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -121,7 +121,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -142,53 +142,6 @@ private static final long serialVersionUID = 0L;
     return flowTimeoutSeconds_;
   }
 
-  public static final int WORKER_TARGET_FIELD_NUMBER = 4;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object workerTarget_ = "";
-  /**
-   * <pre>
-   * Plaintext gRPC dial target (host:port), not an HTTP URL.
-   * </pre>
-   *
-   * <code>string worker_target = 4;</code>
-   * @return The workerTarget.
-   */
-  @java.lang.Override
-  public java.lang.String getWorkerTarget() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      workerTarget_ = s;
-      return s;
-    }
-  }
-  /**
-   * <pre>
-   * Plaintext gRPC dial target (host:port), not an HTTP URL.
-   * </pre>
-   *
-   * <code>string worker_target = 4;</code>
-   * @return The bytes for workerTarget.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getWorkerTargetBytes() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      workerTarget_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
   public static final int START_STEP_TYPE_FIELD_NUMBER = 5;
   @SuppressWarnings("serial")
   private volatile java.lang.Object startStepType_ = "";
@@ -202,7 +155,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       startStepType_ = s;
@@ -218,7 +171,7 @@ private static final long serialVersionUID = 0L;
       getStartStepTypeBytes() {
     java.lang.Object ref = startStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       startStepType_ = b;
@@ -306,6 +259,45 @@ private static final long serialVersionUID = 0L;
     return flowStartOptions_ == null ? io.superdurable.gen.FlowStartOptions.getDefaultInstance() : flowStartOptions_;
   }
 
+  public static final int REQUEST_ID_FIELD_NUMBER = 11;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object requestId_ = "";
+  /**
+   * <code>string request_id = 11;</code>
+   * @return The requestId.
+   */
+  @java.lang.Override
+  public java.lang.String getRequestId() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      requestId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string request_id = 11;</code>
+   * @return The bytes for requestId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRequestIdBytes() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      requestId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -329,9 +321,6 @@ private static final long serialVersionUID = 0L;
     if (flowTimeoutSeconds_ != 0) {
       output.writeInt32(3, flowTimeoutSeconds_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 4, workerTarget_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 5, startStepType_);
     }
@@ -343,6 +332,9 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000004) != 0)) {
       output.writeMessage(10, getFlowStartOptions());
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 11, requestId_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -358,9 +350,6 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(3, flowTimeoutSeconds_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, workerTarget_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(5, startStepType_);
     }
@@ -375,6 +364,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000004) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(10, getFlowStartOptions());
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(11, requestId_);
     }
     return size;
   }
@@ -406,8 +398,6 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowType())) return false;
     if (getFlowTimeoutSeconds()
         != other.getFlowTimeoutSeconds()) return false;
-    if (!getWorkerTarget()
-        .equals(other.getWorkerTarget())) return false;
     if (!getStartStepType()
         .equals(other.getStartStepType())) return false;
     if (hasStepInput() != other.hasStepInput()) return false;
@@ -425,6 +415,8 @@ private static final long serialVersionUID = 0L;
       if (!getFlowStartOptions()
           .equals(other.getFlowStartOptions())) return false;
     }
+    if (!getRequestId()
+        .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -442,8 +434,6 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowType().hashCode();
     hash = (37 * hash) + FLOW_TIMEOUT_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getFlowTimeoutSeconds();
-    hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
-    hash = (53 * hash) + getWorkerTarget().hashCode();
     hash = (37 * hash) + START_STEP_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getStartStepType().hashCode();
     if (hasStepInput()) {
@@ -458,6 +448,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + FLOW_START_OPTIONS_FIELD_NUMBER;
       hash = (53 * hash) + getFlowStartOptions().hashCode();
     }
+    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -600,7 +592,6 @@ private static final long serialVersionUID = 0L;
       flowId_ = "";
       flowType_ = "";
       flowTimeoutSeconds_ = 0;
-      workerTarget_ = "";
       startStepType_ = "";
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
@@ -617,6 +608,7 @@ private static final long serialVersionUID = 0L;
         flowStartOptionsBuilder_.dispose();
         flowStartOptionsBuilder_ = null;
       }
+      requestId_ = "";
       return this;
     }
 
@@ -660,29 +652,29 @@ private static final long serialVersionUID = 0L;
         result.flowTimeoutSeconds_ = flowTimeoutSeconds_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.workerTarget_ = workerTarget_;
-      }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.startStepType_ = startStepType_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.stepInput_ = stepInputBuilder_ == null
             ? stepInput_
             : stepInputBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.stepOptions_ = stepOptionsBuilder_ == null
             ? stepOptions_
             : stepOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.flowStartOptions_ = flowStartOptionsBuilder_ == null
             ? flowStartOptions_
             : flowStartOptionsBuilder_.build();
         to_bitField0_ |= 0x00000004;
+      }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -712,14 +704,9 @@ private static final long serialVersionUID = 0L;
       if (other.getFlowTimeoutSeconds() != 0) {
         setFlowTimeoutSeconds(other.getFlowTimeoutSeconds());
       }
-      if (!other.getWorkerTarget().isEmpty()) {
-        workerTarget_ = other.workerTarget_;
-        bitField0_ |= 0x00000008;
-        onChanged();
-      }
       if (!other.getStartStepType().isEmpty()) {
         startStepType_ = other.startStepType_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       if (other.hasStepInput()) {
@@ -730,6 +717,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasFlowStartOptions()) {
         mergeFlowStartOptions(other.getFlowStartOptions());
+      }
+      if (!other.getRequestId().isEmpty()) {
+        requestId_ = other.requestId_;
+        bitField0_ |= 0x00000080;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -772,37 +764,37 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
-            case 34: {
-              workerTarget_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000008;
-              break;
-            } // case 34
             case 42: {
               startStepType_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000008;
               break;
             } // case 42
             case 66: {
               input.readMessage(
                   internalGetStepInputFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000020;
+              bitField0_ |= 0x00000010;
               break;
             } // case 66
             case 74: {
               input.readMessage(
                   internalGetStepOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000040;
+              bitField0_ |= 0x00000020;
               break;
             } // case 74
             case 82: {
               input.readMessage(
                   internalGetFlowStartOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000080;
+              bitField0_ |= 0x00000040;
               break;
             } // case 82
+            case 90: {
+              requestId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 90
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -845,7 +837,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -917,7 +909,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -996,98 +988,6 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object workerTarget_ = "";
-    /**
-     * <pre>
-     * Plaintext gRPC dial target (host:port), not an HTTP URL.
-     * </pre>
-     *
-     * <code>string worker_target = 4;</code>
-     * @return The workerTarget.
-     */
-    public java.lang.String getWorkerTarget() {
-      java.lang.Object ref = workerTarget_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        workerTarget_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target (host:port), not an HTTP URL.
-     * </pre>
-     *
-     * <code>string worker_target = 4;</code>
-     * @return The bytes for workerTarget.
-     */
-    public com.google.protobuf.ByteString
-        getWorkerTargetBytes() {
-      java.lang.Object ref = workerTarget_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        workerTarget_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target (host:port), not an HTTP URL.
-     * </pre>
-     *
-     * <code>string worker_target = 4;</code>
-     * @param value The workerTarget to set.
-     * @return This builder for chaining.
-     */
-    public Builder setWorkerTarget(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      workerTarget_ = value;
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target (host:port), not an HTTP URL.
-     * </pre>
-     *
-     * <code>string worker_target = 4;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearWorkerTarget() {
-      workerTarget_ = getDefaultInstance().getWorkerTarget();
-      bitField0_ = (bitField0_ & ~0x00000008);
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Plaintext gRPC dial target (host:port), not an HTTP URL.
-     * </pre>
-     *
-     * <code>string worker_target = 4;</code>
-     * @param value The bytes for workerTarget to set.
-     * @return This builder for chaining.
-     */
-    public Builder setWorkerTargetBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      workerTarget_ = value;
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-
     private java.lang.Object startStepType_ = "";
     /**
      * <code>string start_step_type = 5;</code>
@@ -1113,7 +1013,7 @@ private static final long serialVersionUID = 0L;
         getStartStepTypeBytes() {
       java.lang.Object ref = startStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         startStepType_ = b;
@@ -1131,7 +1031,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       startStepType_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1141,7 +1041,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearStartStepType() {
       startStepType_ = getDefaultInstance().getStartStepType();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
@@ -1155,7 +1055,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       startStepType_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1168,7 +1068,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepInput field is set.
      */
     public boolean hasStepInput() {
-      return ((bitField0_ & 0x00000020) != 0);
+      return ((bitField0_ & 0x00000010) != 0);
     }
     /**
      * <code>.dex.Value step_input = 8;</code>
@@ -1193,7 +1093,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1207,7 +1107,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1216,7 +1116,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepInput(io.superdurable.gen.Value value) {
       if (stepInputBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0) &&
+        if (((bitField0_ & 0x00000010) != 0) &&
           stepInput_ != null &&
           stepInput_ != io.superdurable.gen.Value.getDefaultInstance()) {
           getStepInputBuilder().mergeFrom(value);
@@ -1227,7 +1127,7 @@ private static final long serialVersionUID = 0L;
         stepInputBuilder_.mergeFrom(value);
       }
       if (stepInput_ != null) {
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       return this;
@@ -1236,7 +1136,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 8;</code>
      */
     public Builder clearStepInput() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
         stepInputBuilder_.dispose();
@@ -1249,7 +1149,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 8;</code>
      */
     public io.superdurable.gen.Value.Builder getStepInputBuilder() {
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return internalGetStepInputFieldBuilder().getBuilder();
     }
@@ -1268,7 +1168,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1289,7 +1189,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepOptions field is set.
      */
     public boolean hasStepOptions() {
-      return ((bitField0_ & 0x00000040) != 0);
+      return ((bitField0_ & 0x00000020) != 0);
     }
     /**
      * <code>.dex.StepOptions step_options = 9;</code>
@@ -1314,7 +1214,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1328,7 +1228,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1337,7 +1237,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepOptions(io.superdurable.gen.StepOptions value) {
       if (stepOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000040) != 0) &&
+        if (((bitField0_ & 0x00000020) != 0) &&
           stepOptions_ != null &&
           stepOptions_ != io.superdurable.gen.StepOptions.getDefaultInstance()) {
           getStepOptionsBuilder().mergeFrom(value);
@@ -1348,7 +1248,7 @@ private static final long serialVersionUID = 0L;
         stepOptionsBuilder_.mergeFrom(value);
       }
       if (stepOptions_ != null) {
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       return this;
@@ -1357,7 +1257,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 9;</code>
      */
     public Builder clearStepOptions() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000020);
       stepOptions_ = null;
       if (stepOptionsBuilder_ != null) {
         stepOptionsBuilder_.dispose();
@@ -1370,7 +1270,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 9;</code>
      */
     public io.superdurable.gen.StepOptions.Builder getStepOptionsBuilder() {
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return internalGetStepOptionsFieldBuilder().getBuilder();
     }
@@ -1389,7 +1289,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 9;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
         internalGetStepOptionsFieldBuilder() {
       if (stepOptionsBuilder_ == null) {
         stepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1410,7 +1310,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the flowStartOptions field is set.
      */
     public boolean hasFlowStartOptions() {
-      return ((bitField0_ & 0x00000080) != 0);
+      return ((bitField0_ & 0x00000040) != 0);
     }
     /**
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
@@ -1435,7 +1335,7 @@ private static final long serialVersionUID = 0L;
       } else {
         flowStartOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1449,7 +1349,7 @@ private static final long serialVersionUID = 0L;
       } else {
         flowStartOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1458,7 +1358,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeFlowStartOptions(io.superdurable.gen.FlowStartOptions value) {
       if (flowStartOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000080) != 0) &&
+        if (((bitField0_ & 0x00000040) != 0) &&
           flowStartOptions_ != null &&
           flowStartOptions_ != io.superdurable.gen.FlowStartOptions.getDefaultInstance()) {
           getFlowStartOptionsBuilder().mergeFrom(value);
@@ -1469,7 +1369,7 @@ private static final long serialVersionUID = 0L;
         flowStartOptionsBuilder_.mergeFrom(value);
       }
       if (flowStartOptions_ != null) {
-        bitField0_ |= 0x00000080;
+        bitField0_ |= 0x00000040;
         onChanged();
       }
       return this;
@@ -1478,7 +1378,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
      */
     public Builder clearFlowStartOptions() {
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000040);
       flowStartOptions_ = null;
       if (flowStartOptionsBuilder_ != null) {
         flowStartOptionsBuilder_.dispose();
@@ -1491,7 +1391,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
      */
     public io.superdurable.gen.FlowStartOptions.Builder getFlowStartOptionsBuilder() {
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return internalGetFlowStartOptionsFieldBuilder().getBuilder();
     }
@@ -1510,7 +1410,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowStartOptions, io.superdurable.gen.FlowStartOptions.Builder, io.superdurable.gen.FlowStartOptionsOrBuilder> 
+        io.superdurable.gen.FlowStartOptions, io.superdurable.gen.FlowStartOptions.Builder, io.superdurable.gen.FlowStartOptionsOrBuilder>
         internalGetFlowStartOptionsFieldBuilder() {
       if (flowStartOptionsBuilder_ == null) {
         flowStartOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1521,6 +1421,78 @@ private static final long serialVersionUID = 0L;
         flowStartOptions_ = null;
       }
       return flowStartOptionsBuilder_;
+    }
+
+    private java.lang.Object requestId_ = "";
+    /**
+     * <code>string request_id = 11;</code>
+     * @return The requestId.
+     */
+    public java.lang.String getRequestId() {
+      java.lang.Object ref = requestId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        requestId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string request_id = 11;</code>
+     * @return The bytes for requestId.
+     */
+    public com.google.protobuf.ByteString
+        getRequestIdBytes() {
+      java.lang.Object ref = requestId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        requestId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string request_id = 11;</code>
+     * @param value The requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      requestId_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string request_id = 11;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRequestId() {
+      requestId_ = getDefaultInstance().getRequestId();
+      bitField0_ = (bitField0_ & ~0x00000080);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string request_id = 11;</code>
+     * @param value The bytes for requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      requestId_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StartFlowRequest)
@@ -1573,4 +1545,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

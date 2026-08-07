@@ -11,21 +11,36 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string local_activity_input = 1;</code>
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * @return Whether the localActivityInput field is set.
+   */
+  boolean hasLocalActivityInput();
+  /**
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
    * @return The localActivityInput.
    */
-  java.lang.String getLocalActivityInput();
+  io.superdurable.gen.LocalActivityInput getLocalActivityInput();
   /**
-   * <code>string local_activity_input = 1;</code>
-   * @return The bytes for localActivityInput.
+   * <pre>
+   * Server-populated lineage input for local activity history.
+   * </pre>
+   *
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
    */
-  com.google.protobuf.ByteString
-      getLocalActivityInputBytes();
+  io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder();
 
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite> 
+  java.util.List<io.superdurable.gen.AttributeWrite>
       getUpsertAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
@@ -38,7 +53,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getUpsertAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
@@ -64,7 +79,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV upsert_step_exe_locals = 4;</code>
    */
-  java.util.List<io.superdurable.gen.KV> 
+  java.util.List<io.superdurable.gen.KV>
       getUpsertStepExeLocalsList();
   /**
    * <code>repeated .dex.KV upsert_step_exe_locals = 4;</code>
@@ -77,7 +92,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV upsert_step_exe_locals = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getUpsertStepExeLocalsOrBuilderList();
   /**
    * <code>repeated .dex.KV upsert_step_exe_locals = 4;</code>
@@ -88,7 +103,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 5;</code>
    */
-  java.util.List<io.superdurable.gen.KV> 
+  java.util.List<io.superdurable.gen.KV>
       getRecordEventsList();
   /**
    * <code>repeated .dex.KV record_events = 5;</code>
@@ -101,7 +116,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getRecordEventsOrBuilderList();
   /**
    * <code>repeated .dex.KV record_events = 5;</code>
@@ -112,7 +127,7 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelMessage> 
+  java.util.List<io.superdurable.gen.ChannelMessage>
       getPublishToChannelList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
@@ -125,11 +140,26 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
       getPublishToChannelOrBuilderList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
+
+  /**
+   * <code>.dex.StepMovement transient_step_movement = 7;</code>
+   * @return Whether the transientStepMovement field is set.
+   */
+  boolean hasTransientStepMovement();
+  /**
+   * <code>.dex.StepMovement transient_step_movement = 7;</code>
+   * @return The transientStepMovement.
+   */
+  io.superdurable.gen.StepMovement getTransientStepMovement();
+  /**
+   * <code>.dex.StepMovement transient_step_movement = 7;</code>
+   */
+  io.superdurable.gen.StepMovementOrBuilder getTransientStepMovementOrBuilder();
 }

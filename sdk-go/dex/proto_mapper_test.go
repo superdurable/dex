@@ -113,15 +113,15 @@ func TestStepDecisionAndOptionsMapping(t *testing.T) {
 
 	status := DefineAttribute[string]("status")
 	defaults := &StepOptions{
-		ExecuteTimeout:    5 * time.Second,
-		ExecuteDurability: StepDurabilitySync,
+		ExecuteMethodTimeout: 5 * time.Second,
+		ExecuteDurability:    StepDurabilitySync,
 	}
 	target := mapperStep{name: "target", options: defaults}
 	decision := GoTo(
 		target,
 		42,
 		WithStepOptions(&StepOptions{
-			ExecuteTimeout:        time.Second + time.Nanosecond,
+			ExecuteMethodTimeout:  time.Second + time.Nanosecond,
 			ExecuteLockAttributes: []AttributeLock{LockAttribute(status)},
 		}),
 	)

@@ -111,4 +111,24 @@ public interface InvokeRPCRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getLockAttributeKeysBytes(int index);
+
+  /**
+   * <pre>
+   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 7;</code>
+   * @return The requestId.
+   */
+  java.lang.String getRequestId();
+  /**
+   * <pre>
+   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 7;</code>
+   * @return The bytes for requestId.
+   */
+  com.google.protobuf.ByteString
+      getRequestIdBytes();
 }

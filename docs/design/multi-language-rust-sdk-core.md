@@ -1,94 +1,230 @@
-# Multi-language Rust SDK Core
+# Multi-language SDK Runtime Architecture
 
-Status: draft.
+Status: accepted.
 
 ## Decision
 
-Dex SDKs will share an embedded Rust Core. Core owns worker transport,
-invocation lifecycle, backpressure, shutdown, protocol-level telemetry, and
-the shared disk blob cache. Each language layer owns its public API, type
-conversion, registry, and user code execution.
+Java, Python, TypeScript, and future language SDKs implement their Worker,
+Registry, user callback dispatch, and client transport in the host language.
+They do not route every Worker invocation through Rust.
 
-Core will not invoke user functions directly from Rust runtime threads. A
-language worker polls Core for an invocation, executes the registered function,
-and returns a completion. This follows the activation/completion boundary used
-by Temporal SDK Core without adopting Temporal's workflow coroutine model.
+Rust provides the shared blob cache and the native Rust SDK runtime. The Go SDK
+continues to use its existing Go blob cache and does not link Rust.
 
-Dex step methods are remote worker operations. The server-side interpreter owns
-durability and replay, so language SDKs may support both synchronous and
-asynchronous step methods.
+Cross-language behavior is standardized through the Dex protocol, shared
+fixtures, integration tests, and blob-cache conformance tests rather than a
+shared callback runtime.
+
+In short:
+
+> Share the complex storage component whose behavior can drift. Keep the
+> callback execution layer native to the language runtime that owns the code.
+
+## Context
+
+Dex and Temporal place different responsibilities in their SDK cores. Temporal
+Core owns substantial workflow-machine behavior that is valuable to share
+across language SDKs. Dex keeps workflow orchestration, state machines, and
+persistence in Dex Server. A Dex Worker primarily:
+
+1. receives a WorkerService request;
+2. resolves a registered Flow, Step, or RPC;
+3. decodes the request into language values;
+4. invokes application code; and
+5. encodes the result or failure.
+
+Putting this path behind Rust would add a transport and FFI round trip:
+
+```text
+gRPC -> Rust -> FFI -> host-language callback -> FFI -> Rust -> gRPC
+```
+
+The shared worker logic is not currently complex enough to justify JNI,
+PyO3, and Node-API callback runtimes. Such runtimes add native packaging,
+thread attachment, class-loader or interpreter lifetime, exception mapping,
+debugging, and native-crash concerns.
+
+Blob caching has the opposite profile. Its public API is small, while its
+implementation contains substantial filesystem, concurrency, recovery,
+integrity, and eviction behavior. It is therefore a good native boundary.
 
 ## Goals
 
-- Share worker correctness across Rust, Java, Python, TypeScript, PHP, C#,
-  Ruby, and future SDKs.
-- Keep language runtimes and object models outside Core.
-- Preserve the canonical `WorkerService` contract in `protos/dex.proto`.
-- Apply bounded backpressure before invoking user code.
-- Share one blob-cache contract across non-Go language SDKs.
-- Make shutdown, cancellation, deadlines, and error propagation explicit.
-- Test Core independently from every language bridge.
+- Keep Flow, Step, RPC, Attribute, Channel, Wait, and Decision APIs strongly
+  typed and idiomatic in each language.
+- Keep user callbacks on the host language's normal runtime and debugging path.
+- Maintain one non-Go implementation of the DXBC blob cache.
+- Preserve Go and Rust blob-cache disk-format compatibility.
+- Support Java, Python, TypeScript, Rust, C#, Ruby, and PHP without requiring
+  all SDKs to adopt one callback runtime.
+- Verify equivalent behavior through common integration and conformance tests.
 
 ## Non-goals
 
-- Core does not define each language's user-facing API.
-- Core does not serialize arbitrary language objects.
-- Core does not provide a durable coroutine scheduler.
-- Core does not expose Rust structs as a stable cross-language ABI.
-- The first phase does not replace existing SDKs.
+- Reusing one Worker implementation at any cost is not a goal.
+- Rust does not serialize arbitrary host-language objects.
+- Rust does not reflect over Java, Python, or TypeScript definitions.
+- Rust does not invoke Java, Python, or JavaScript application handlers.
+- Go does not depend on the Rust library.
+- Identical public syntax across languages is not required.
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-    S["Dex server"] -->|"WorkerService gRPC"| T["Rust transport"]
-    T --> C["Dex Core"]
-    C -->|"poll invocation"| B["Language bridge"]
-    B --> L["Language SDK runtime"]
-    L --> U["User step or RPC method"]
-    U --> L
-    L -->|"complete invocation"| B
-    B --> C
-    C --> T
-    T --> S
+flowchart TB
+    Server["Dex Server"]
+    Java["Java Worker<br/>native gRPC, reflection, ExecutorService"]
+    Python["Python Worker<br/>grpcio, type inspection, bounded executor"]
+    TypeScript["TypeScript Worker<br/>grpc-js, explicit definitions, Node event loop"]
+    RustWorker["Rust Worker<br/>tonic"]
+    Cache["Rust DXBC BlobCache"]
+    Go["Go SDK<br/>native Worker and Go BlobCache"]
+
+    Server <--> Java
+    Server <--> Python
+    Server <--> TypeScript
+    Server <--> RustWorker
+    Server <--> Go
+    Java --> Cache
+    Python --> Cache
+    TypeScript --> Cache
+    RustWorker --> Cache
 ```
 
-The Rust workspace is split by responsibility:
+Every SDK owns its public contracts and Worker transport. Non-Go SDKs may use a
+thin native binding to the shared cache. Client and Worker construction depend
+on a language-level `BlobCache` interface so tests and specialized deployments
+can supply another implementation.
 
-| Component | Responsibility |
-| --- | --- |
-| `dex-core` | Invocation lifecycle, bounded queue, completion routing, shutdown |
-| `dex-core::BlobCache` | Disk persistence, admission, eviction, recovery, integrity |
-| `dex-core-protocol` | Generated internal poll/completion protobuf messages |
-| `dex-worker-grpc` | `WorkerService` implementation using canonical Dex IDL |
-| `dex-sdk` | Native Rust public SDK |
-| `dex-bridge-jni` | Java 8-compatible JNI bridge |
-| language bridges | PyO3, Node-API, C ABI, or managed-runtime adapters |
+## Rust workspace boundaries
 
-Only `dex-core` is implemented in the first phase. The other crates will be
-added when their contracts are exercised.
+### `dex-core`
 
-## Blob cache
+`dex-core` contains code that is independent of a language runtime and network
+transport. Its primary shared responsibility is the blob cache:
 
-Rust Core provides the disk blob cache used by Python, TypeScript, Java, C#,
-PHP, Ruby, and the native Rust SDK. The Go SDK keeps its existing independent
-implementation and does not link Rust Core.
+- DXBC disk format;
+- CRC32C validation;
+- admission and eviction policy;
+- startup scan and reconciliation;
+- corrupt-file handling;
+- interrupted-write recovery;
+- cleanup retry backlog;
+- concurrency and lifecycle; and
+- typed, transport-neutral errors.
 
-The Rust and Go implementations share the same public behavior and disk-format
-contract:
+It must not depend on tonic, JNI, PyO3, Node-API, or host-language callback
+interfaces. A queue or registry model belongs here only if it has a real
+transport-neutral consumer. Code used solely by the Rust gRPC Worker belongs in
+the Rust Worker runtime instead.
 
-- blob IDs are immutable content identifiers;
-- payloads remain opaque bytes outside language heaps;
+The cache may be split into a dedicated `dex-blob-cache` crate when that makes
+the dependency boundary clearer. `dex-core` must not become a miscellaneous
+collection of code merely because several SDKs exist.
+
+### Rust Worker runtime
+
+The Rust SDK needs its own runtime for:
+
+- tonic/prost WorkerService transport;
+- Rust Registry assembly;
+- Rust handler dispatch;
+- cancellation and shutdown; and
+- Rust client transport.
+
+If the current `dex-runtime` crate primarily implements tonic WorkerService,
+rename it to a responsibility-oriented name such as `dex-worker-grpc` or
+`dex-worker-runtime`. It is a Rust SDK component, not a mandatory runtime for
+other languages.
+
+### Native cache bindings
+
+The preferred package structure is:
+
+```text
+dex-blob-cache          pure Rust cache implementation
+dex-blob-cache-cabi     stable minimal C ABI
+dex-blob-cache-jni      Java binding
+dex-blob-cache-python   PyO3 binding
+dex-blob-cache-node     Node-API binding
+```
+
+The exact crate count may be reduced initially, but the dependency direction
+must remain the same. Binding layers perform only:
+
+- argument validation and conversion;
+- owned byte-buffer conversion;
+- error mapping; and
+- opaque-handle lifecycle management.
+
+They do not contain Registry, Worker invocation, or application callback
+logic. C# can use the C ABI through P/Invoke. Ruby and PHP can use the C ABI or
+small native extensions.
+
+## Language runtimes
+
+### Java
+
+Java implements WorkerService with the Java gRPC stack. Registry assembly uses
+Java reflection over `Flow`, `Step`, and `@RPC`. Synchronous handlers execute on
+a bounded `ExecutorService`. Java exceptions are converted directly into Dex
+Worker failures while their Java type, message, and stack remain available for
+diagnostics.
+
+This keeps class loading, thread context, reflection, Jackson configuration,
+and RPCStub typing inside the JVM. JNI is used only for BlobCache operations.
+
+### Python
+
+Python implements WorkerService with `grpcio`. Registry assembly uses Python
+classes, decorators, and type annotations. The public handler contract may be
+synchronous. Synchronous application handlers run in a bounded Python executor
+so a handler does not block gRPC progress.
+
+The transport implementation may internally use asynchronous I/O without
+requiring application handlers to be `async def`. PyO3 is used only for the
+BlobCache binding.
+
+### TypeScript
+
+TypeScript implements WorkerService with `@grpc/grpc-js`. Client network APIs
+return `Promise` because Node network I/O is asynchronous. Handler contracts
+may remain synchronous if that is the selected SDK contract.
+
+FlowType and StepType are explicit. Registry must not use `constructor.name`,
+including in development, because bundlers and minifiers can change it. N-API
+is used only for the BlobCache binding.
+
+### C#, Ruby, and PHP
+
+C# should use its native gRPC and reflection facilities, with P/Invoke for the
+cache. Ruby should start with a native-language Worker and a thin cache binding.
+
+PHP should also start with a native Worker where its deployment model supports
+a long-lived process. A Rust sidecar can be evaluated later if PHP concurrency
+or process-lifetime constraints prove it necessary. That possible optimization
+does not define the architecture for other SDKs.
+
+## Blob cache contract
+
+Rust continues to provide a Go-compatible DXBC version 1 blob cache. The shared
+contract covers immutable blob IDs, CRC32C, admission, eviction, recovery,
+cleanup retry, and owned buffers.
+
+The Go and Rust implementations share these observable behaviors:
+
 - a miss, oversized value, or policy rejection is not an application failure;
-- capacity counts the 24-byte header, blob ID, and payload;
-- reads are concurrent while mutations and lifecycle changes are serialized;
-- orderly `close` does not delete committed files, while `delete_all` leaves
-  an open cache empty and reusable;
-- startup removes interrupted writes and corrupt files, then reconciles the
-  configured capacity newest-first; and
-- one directory is exclusively owned by one process.
+- capacity counts the header, blob ID, and payload;
+- reads may proceed concurrently while mutations and lifecycle changes are
+  serialized;
+- `put` reports whether the value was retained, including identical reuse;
+- `delete_all` leaves the open cache empty and reusable;
+- `close` preserves committed files for the next process;
+- startup removes interrupted writes and corruption, then reconciles the
+  configured budget; and
+- one directory is exclusively owned by one cache process.
 
-Files use the Go cache's `DXBC` version 1 format:
+Files use DXBC version 1:
 
 ```text
 magic[4] = "DXBC"
@@ -101,259 +237,114 @@ blob_id bytes
 payload bytes
 ```
 
-CRC32C covers the blob ID and payload. The path is
-`blobs/ab/cd/<sha256(blob-id)>.blob`; temporary files are committed by atomic
-rename. Unknown versions, invalid lengths, nonzero reserved bytes, path-hash
-mismatches, and checksum failures are recoverable corruption.
+CRC32C covers the blob ID and payload. Rust uses a hardware-accelerated CRC32C
+library where the platform supports it. Cache paths are derived from the SHA-256
+of the blob ID. Writes use a temporary file and atomic rename. Invalid versions,
+lengths, reserved bytes, path hashes, and checksums are recoverable corruption.
 
-File contents are synchronized before rename, but the parent directory is not
-synchronized. An operating-system or power failure may therefore lose the
-newest directory entry; recovery treats that as a cache miss. The cache is not
-authoritative. If power-loss durability becomes a requirement, both the Rust
-and Go implementations must add directory synchronization under an explicit
-durability policy.
+The cache is non-authoritative. Losing the most recent cache entry during power
+failure is observed as a miss, not data loss. Any stronger directory-fsync
+guarantee must be introduced in Go and Rust as an explicit shared contract.
 
-The in-memory policy stores metadata only. Rust Core uses the Stretto 0.9
-release series for TinyLFU admission and SampledLFU eviction. Stretto is a Rust
-implementation of Ristretto, the policy used by the Go cache. Exact admission
-and victim choices remain timing-dependent and are not a portable contract.
-
-Go panics if an admitted entry remains pending after policy synchronization.
-Rust intentionally returns a reconciliation error instead, protecting host
-runtimes from a Core invariant failure. This unreachable failure mode is not
-part of the public cache contract.
-
-The public Rust operations map directly to bridge operations:
-
-| Rust operation | Result |
-| --- | --- |
-| `get(id)` | owned bytes on hit, `None` on miss |
-| `put(id, bytes)` | `true` when retained, `false` when rejected |
-| `delete(id)` | removes one cache entry |
-| `delete_all()` | purges storage and keeps the cache reusable |
-| `close()` | joins policy threads and preserves committed files |
-
-The cross-language bridge exposes owned byte buffers and opaque cache handles.
-Cache filesystem calls are synchronous and must run on a bridge blocking
-executor when invoked from an event-loop language. Each open cache owns
-Stretto's two synchronous policy threads until `close` or drop.
-
-## Two protocol boundaries
-
-### Server protocol
-
-`protos/dex.proto` remains authoritative between the Dex server and a worker.
-The Rust gRPC adapter decodes `InvokeWaitForMethod`,
-`InvokeExecuteMethod`, and `InvokeWorkerRPC` requests and dispatches their
-serialized request payloads to Core.
-
-The adapter maps a language completion back to the matching gRPC response.
-Transport errors and user-code failures remain distinct.
-
-### Core protocol
-
-The language boundary uses a small versioned protocol:
-
-```text
-Invocation {
-  protocol_version
-  invocation_id
-  kind
-  request_bytes
-}
-
-Completion {
-  protocol_version
-  invocation_id
-  success_bytes | failure
-}
-```
-
-Request and response bytes contain canonical protobuf messages. Bridges do not
-reconstruct all Dex messages as FFI structs.
-
-The initial protocol version is `1`. Core stamps every invocation, and a bridge
-must echo that version with its completion. Core rejects a mismatched completion
-without consuming the pending invocation. A future worker handshake will
-validate versions before accepting work.
-
-## Invocation lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Queued
-    Queued --> Dispatched: "language poll"
-    Dispatched --> Completed: "success or failure"
-    Queued --> Cancelled: "request cancelled"
-    Dispatched --> Cancelled: "deadline or shutdown"
-    Completed --> [*]
-    Cancelled --> [*]
-```
-
-Core assigns an opaque nonzero invocation ID. The transport waits on a one-shot
-completion channel. The language bridge returns only that ID and serialized
-completion data.
-
-Completions are accepted once. Unknown, cancelled, or already-completed IDs are
-errors. Queue capacity is mandatory and positive.
-
-## Concurrency and threading
-
-Core uses a Tokio runtime for networking and protocol tasks. Language execution
-never runs on a Tokio worker thread.
-
-Each language layer selects its execution strategy:
-
-| Language code | Execution |
-| --- | --- |
-| Python `async def` | Python asyncio event loop |
-| Python `def` | Bounded Python thread pool |
-| TypeScript | JavaScript event loop or Worker Thread policy |
-| Java `CompletionStage` | JVM asynchronous completion |
-| Java synchronous method | Bounded `ExecutorService` |
-| Rust async | Configured Rust executor |
-| Rust sync | Bounded blocking pool |
-| C#, Ruby, PHP | Native runtime scheduler or bounded worker pool |
-
-A bridge may poll ahead only up to its configured language concurrency.
-Core queue capacity limits accepted work beyond that point.
-
-Python sync methods remain supported. CPU-bound Python code still requires a
-process, subinterpreter, or native code that releases the GIL for parallelism.
-
-## Bridge strategy
-
-Rust uses `dex-core` directly.
-
-Java, Python, and TypeScript receive dedicated ergonomic bridges:
-
-- Java: JNI plus `CompletableFuture` polling and completion.
-- Python: PyO3 plus a Python asyncio awaitable.
-- TypeScript: Node-API plus Promise-based polling.
-
-The Java bridge targets the SDK's current Java 8 baseline. It does not require
-Project Panama. JNI entry points exchange owned byte arrays and opaque handles;
-Java user methods execute on JVM-managed executors, never Rust Tokio threads.
-
-C#, Ruby, and PHP can initially share a C ABI bridge with:
-
-- opaque runtime and worker handles;
-- owned byte buffers;
-- asynchronous poll and completion functions;
-- explicit allocation and destruction functions; and
-- numeric error codes plus serialized error details.
-
-The C ABI must not expose Rust layouts, unwinding, borrowed buffers, or runtime
-specific callback objects.
-
-## Sync and async user methods
-
-Registration accepts both synchronous and asynchronous methods. The language
-layer determines the method form before invocation.
-
-Async methods execute on the language event loop. They must not perform
-blocking I/O.
-
-Sync methods execute in a bounded executor. Timing out the caller does not
-safely terminate a running thread, so cancellation is cooperative. A context
-API will expose deadlines and cancellation state.
-
-## Cancellation and shutdown
-
-Shutdown has two phases:
-
-1. Stop accepting new transport requests and close Core polling.
-2. Wait for in-flight work up to a configured grace period, then cancel it.
-
-Async language work should receive native task cancellation. Sync work receives
-a cooperative cancellation signal. Core never injects an exception into an
-arbitrary language thread.
-
-The initial `dex-core` scaffold implements immediate shutdown. Graceful
-transport draining is added with the gRPC adapter.
-
-## Errors
-
-Core distinguishes:
-
-- configuration and lifecycle errors;
-- transport errors;
-- bridge protocol errors;
-- user-code failures; and
-- cancellation or deadline failures.
-
-User failures retain a language type, message, stack trace, and optional
-serialized details. A bridge must not stringify every failure into a transport
-error.
-
-Rust panics, Java exceptions crossing JNI, Python exceptions crossing PyO3, and
-native exceptions crossing the C ABI are caught at their bridge boundary.
+Eviction-policy internals may be timing-dependent. Exact victim selection is
+not a portable contract unless a conformance test explicitly requires it.
 
 ## Packaging
 
-Core artifacts are built per supported platform. Language packages bundle the
-matching native library.
+Sharing Rust BlobCache requires native artifacts for supported combinations,
+including:
 
-The target matrix starts with:
+- Linux glibc and, if supported, musl on x86-64 and arm64;
+- macOS on x86-64 and arm64;
+- Windows on x86-64 and, when supported, arm64;
+- JVM, Python, and Node package conventions.
 
-- Linux glibc x86-64 and arm64;
-- Linux musl x86-64 and arm64;
-- macOS x86-64 and arm64; and
-- Windows x86-64.
+Published SDK packages must not require users to install Rust or protoc.
+Native loading failures return explicit configuration errors and must not
+silently select behavior with a different disk contract.
 
-No bridge may depend on a system Rust installation.
+The native packaging cost is why the boundary remains small. It does not
+justify routing Worker callbacks through Rust.
 
-Java publishes one API JAR plus platform-native artifacts selected by the build
-or extracted by a loader. Unsupported platforms fail during worker startup.
+## Protocol and behavioral consistency
 
-## Observability
+Language SDK consistency comes from:
 
-Core emits structured metrics and traces for:
+- one canonical Dex protocol;
+- checked-in protocol fixtures;
+- equivalent Registry validation rules;
+- shared integration scenario mappings;
+- SDK-specific compile and type-check contracts; and
+- cross-language end-to-end tests.
 
-- queue wait and execution latency;
-- outstanding and queued invocation counts;
-- poll and completion failures;
-- cancellation and deadline causes; and
-- bridge and protocol versions.
-
-Language SDKs add workflow, step, and RPC identifiers after applying their
-logging and data-handling policies.
-
-## Implementation phases
-
-1. Build and test the language-neutral invocation engine.
-2. Implement the shared disk blob cache.
-3. Generate the internal Core protocol crate.
-4. Implement `WorkerService` with tonic.
-5. Add the native Rust SDK layer.
-6. Add the Java 8 JNI bridge and JVM execution adapter.
-7. Replace the Python HTTP worker with PyO3 and asyncio/thread-pool dispatch.
-8. Add Node-API and the shared C ABI bridge.
-9. Add packaging, compatibility, and cross-language conformance suites.
+Each language SDK implements the applicable `sdk-go` integration scenarios.
+Java, Python, and TypeScript also port the relevant legacy IWF Java integration
+scenarios using their new APIs. Tests should preserve scenario behavior without
+retaining obsolete API shapes.
 
 ## Tests
 
-- Integration: dispatch, poll, and complete a successful invocation.
-- Integration: preserve structured user failures through completion routing.
-- Integration: reject unsupported completion protocol versions without
-  consuming the invocation.
-- Integration: reject duplicate and unknown completions.
-- Integration: wake blocked pollers and requests during shutdown.
-- Integration: prove queue capacity applies backpressure before dispatch.
-- Integration: round-trip opaque blob bytes and enforce immutable IDs.
-- Integration: enforce the logical byte budget under concurrent cache access.
-- Integration: preserve valid files and reconcile corruption across restart.
-- Integration: verify Rust reads Go-compatible `DXBC` version 1 fixtures.
-- E2E: run each bridge against the same `WorkerService` conformance suite.
-- E2E: exercise sync and async user methods, cancellation, and worker shutdown.
-- E2E: verify Java 8 JNI loading, `CompletableFuture`, and `ExecutorService`.
+Worker integration suites must cover:
+
+- starting and completing a Flow;
+- Steps with and without wait methods;
+- timers and channel combinations;
+- typed Step transitions;
+- persistence reads, writes, maps, and execution-local values;
+- typed RPC functions and procedures;
+- RPC attribute and attribute-map locking;
+- retry, timeout, failure, recovery, cancellation, and shutdown; and
+- cross-language clients and workers using explicit durable names.
+
+Blob-cache conformance must cover:
+
+- Go writes followed by Rust and bound-language reads;
+- Rust writes followed by Go reads;
+- CRC mismatch and truncated files;
+- invalid headers, versions, lengths, and path hashes;
+- interrupted writes and orphan temporary-file recovery;
+- admission, eviction, and capacity reconciliation;
+- failed-delete cleanup retry;
+- concurrent get, put, delete, and close behavior; and
+- committed-file reuse across process restarts.
+
+Language SDK type checks must prove that Flow start inputs, Step movements,
+attributes, channels, and RPC inputs and outputs retain their host-language
+types.
+
+## Implementation direction
+
+1. Keep the Go SDK and Go BlobCache independent.
+2. Extract a narrow, language-neutral Rust BlobCache API.
+3. Separate Rust Worker transport from the shared cache crate.
+4. Remove Java, Python, and TypeScript dependencies on a Rust invocation queue
+   or callback runtime.
+5. Implement native WorkerService, Registry, and dispatch in each language.
+6. Add thin Java, Python, and Node cache bindings.
+7. Establish shared Worker fixtures and Go/Rust cache conformance fixtures.
+8. Complete each SDK's integration suite against Dex Server.
+
+## Consequences
+
+This design intentionally accepts some duplicated Worker plumbing. That code is
+small, idiomatic, easier to debug, and naturally integrated with each language's
+reflection, typing, threading, exception, and packaging model.
+
+It avoids duplicating the storage component most likely to diverge in subtle
+ways. Rust provides one implementation for non-Go SDKs, while conformance tests
+keep its independently maintained Go counterpart compatible.
+
+The architecture can be revisited if substantial language-neutral workflow
+machine behavior later moves into the SDK. The current Dex Server architecture
+does not justify that complexity.
 
 ## Documentation
 
-- Maintain `sdk-rust/README.md` as the workspace and bridge entry point.
-- Update `protos/README.md` when the tonic adapter is added.
-- Update each language SDK README when it migrates to Core.
-- Add contributor build and release instructions before publishing artifacts.
+- Keep this document as the runtime ownership and Rust-boundary source of truth.
+- Keep `sdk-rust/README.md` aligned with crate responsibilities.
+- Document threading, callback execution, and native cache packaging in each
+  language SDK README.
+- Document the integration scenario matrix alongside the shared fixtures.
 
 ## UI/UX
 

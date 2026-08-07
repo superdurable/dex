@@ -1,0 +1,15 @@
+[package]
+name = "dex-blob-cache-jni"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Java JNI binding for the shared Dex DXBC blob cache"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dex-blob-cache = { path = "../dex-blob-cache" }
+jni.workspace = true

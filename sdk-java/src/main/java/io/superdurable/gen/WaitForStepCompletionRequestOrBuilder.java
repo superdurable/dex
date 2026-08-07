@@ -59,4 +59,24 @@ public interface WaitForStepCompletionRequestOrBuilder extends
    * @return The waitTimeSeconds.
    */
   int getWaitTimeSeconds();
+
+  /**
+   * <pre>
+   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 6;</code>
+   * @return The requestId.
+   */
+  java.lang.String getRequestId();
+  /**
+   * <pre>
+   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 6;</code>
+   * @return The bytes for requestId.
+   */
+  com.google.protobuf.ByteString
+      getRequestIdBytes();
 }

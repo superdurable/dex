@@ -54,6 +54,8 @@ type policy struct {
 	Cutoff                  string            `json:"cutoff"`
 	IncludedPrefixes        []string          `json:"included_prefixes"`
 	ForcedNewPrefixes       []string          `json:"forced_new_prefixes"`
+	ThirdPartyMixedPrefixes []string          `json:"third_party_mixed_prefixes"`
+	ReviewedMixedPaths      []string          `json:"reviewed_mixed_paths"`
 	ExcludedPrefixes        []string          `json:"excluded_prefixes"`
 	RetainedLicensePrefixes map[string]string `json:"retained_license_prefixes"`
 }
@@ -157,7 +159,7 @@ func newHeaderTask(taskConfig *config) (*headerTask, error) {
 	if task.policy.Cutoff != task.manifest.Cutoff {
 		return nil, fmt.Errorf("policy cutoff %s differs from manifest cutoff %s", task.policy.Cutoff, task.manifest.Cutoff)
 	}
-	for _, templateID := range []string{"new", "mixed", "legacy-reference", "mit", "apache-2.0"} {
+	for _, templateID := range []string{"new", "mixed", "third-party-mixed", "legacy-reference", "mit", "apache-2.0"} {
 		fileName := templateID + ".txt"
 		if templateID == "new" {
 			fileName = "super-durable-1.0.txt"
@@ -294,7 +296,9 @@ func isSupportedSourceFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go", ".java", ".proto", ".py", ".rs":
 		return true
-	case ".css", ".html", ".ts", ".tsx":
+	case ".ts", ".tsx":
+		return hasPathPrefix(path, "web") || hasPathPrefix(path, "sdk-typescript")
+	case ".css", ".html":
 		return hasPathPrefix(path, "web")
 	case ".yaml", ".yml":
 		return hasPathPrefix(path, "protos")
@@ -327,8 +331,14 @@ func (task *headerTask) expectedHeaderFor(relativePath string, absolutePath stri
 	if !hasAnyPrefix(relativePath, task.policy.IncludedPrefixes) {
 		return expectedHeader{}, false, nil
 	}
+	if hasAnyPrefix(relativePath, task.policy.ThirdPartyMixedPrefixes) {
+		return expectedHeader{classification: "third-party-mixed", templateID: "third-party-mixed"}, true, nil
+	}
 	if hasAnyPrefix(relativePath, task.policy.ForcedNewPrefixes) {
 		return expectedHeader{classification: "new", templateID: "new"}, true, nil
+	}
+	if containsPath(task.policy.ReviewedMixedPaths, relativePath) {
+		return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
 	}
 	entry, ok := task.manifest.Entries[relativePath]
 	if !ok {
@@ -380,6 +390,15 @@ func longestPrefixValue(path string, values map[string]string) (string, bool) {
 func hasAnyPrefix(path string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		if hasPathPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPath(paths []string, target string) bool {
+	for _, path := range paths {
+		if path == target {
 			return true
 		}
 	}
@@ -441,6 +460,7 @@ func (task *headerTask) validate(relativePath string, data []byte, expected expe
 	header, _ := splitHeader(parts.body, extension)
 	newHeader := formatHeader(task.templates["new"], extension)
 	mixedHeader := formatHeader(task.templates["mixed"], extension)
+	thirdPartyMixedHeader := formatHeader(task.templates["third-party-mixed"], extension)
 	legacyReference := formatHeader(task.templates["legacy-reference"], extension)
 	switch expected.classification {
 	case "new":
@@ -454,6 +474,10 @@ func (task *headerTask) validate(relativePath string, data []byte, expected expe
 		legacyHeader := strings.TrimSpace(strings.ReplaceAll(header, mixedHeader, ""))
 		if legacyHeader == "" {
 			return fmt.Errorf("%s mixed header is missing its legacy notice", relativePath)
+		}
+	case "third-party-mixed":
+		if strings.TrimSpace(header) != strings.TrimSpace(thirdPartyMixedHeader) {
+			return fmt.Errorf("%s must use the third-party mixed header", relativePath)
 		}
 	case "legacy-only":
 		if strings.Contains(header, newHeader) || strings.Contains(header, mixedHeader) {
@@ -493,6 +517,8 @@ func (task *headerTask) render(relativePath string, data []byte, expected expect
 			preservedHeader = formatHeader(task.templates["legacy-reference"], extension)
 		}
 		headers = []string{strings.TrimSpace(preservedHeader), formatHeader(task.templates["mixed"], extension)}
+	case "third-party-mixed":
+		headers = []string{formatHeader(task.templates["third-party-mixed"], extension)}
 	case "legacy-only":
 		if strings.TrimSpace(preservedHeader) == "" {
 			preservedHeader = formatHeader(task.templates["legacy-reference"], extension)
@@ -524,7 +550,7 @@ func (task *headerTask) normalizedBody(data []byte, extension string) []byte {
 
 func (task *headerTask) stripManagedBlocks(content string, extension string) string {
 	result := content
-	for _, templateID := range []string{"new", "mixed", "legacy-reference"} {
+	for _, templateID := range []string{"new", "mixed", "third-party-mixed", "legacy-reference"} {
 		header := formatHeader(task.templates[templateID], extension)
 		result = strings.ReplaceAll(result, "\n\n"+header+"\n\n", "\n")
 		result = strings.ReplaceAll(result, header, "")

@@ -421,9 +421,9 @@ def _create_upsert_search_attributes(
 def to_map(
     key_values: Union[None, Unset, List[KeyValue]],
 ) -> dict[str, Union[EncodedObject, Unset]]:
-    key_values = unset_to_none(key_values) or []
+    normalized_key_values: List[KeyValue] = unset_to_none(key_values) or []
     kvs: dict[str, Union[EncodedObject, Unset]] = {}
-    for kv in key_values:
+    for kv in normalized_key_values:
         k = unset_to_none(kv.key)
         v = unset_to_none(kv.value)
         if k and v:

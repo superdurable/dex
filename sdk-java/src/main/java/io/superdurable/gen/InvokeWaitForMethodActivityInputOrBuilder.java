@@ -11,16 +11,19 @@ public interface InvokeWaitForMethodActivityInputOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string worker_target = 1;</code>
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  boolean hasWorkerTarget();
+  /**
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    * @return The workerTarget.
    */
-  java.lang.String getWorkerTarget();
+  io.superdurable.gen.WorkerTarget getWorkerTarget();
   /**
-   * <code>string worker_target = 1;</code>
-   * @return The bytes for workerTarget.
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    */
-  com.google.protobuf.ByteString
-      getWorkerTargetBytes();
+  io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder();
 
   /**
    * <code>.dex.InvokeWaitForMethodRequest request = 2;</code>

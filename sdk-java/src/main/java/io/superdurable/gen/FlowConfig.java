@@ -139,6 +139,32 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.StepDurability.UNRECOGNIZED : result;
   }
 
+  public static final int WORKER_TARGET_FIELD_NUMBER = 5;
+  private io.superdurable.gen.WorkerTarget workerTarget_;
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  @java.lang.Override
+  public boolean hasWorkerTarget() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   * @return The workerTarget.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+  }
+  /**
+   * <code>.dex.WorkerTarget worker_target = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -165,6 +191,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000008) != 0)) {
       output.writeEnum(4, stepDurability_);
     }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      output.writeMessage(5, getWorkerTarget());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -184,6 +213,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000008) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(4, stepDurability_);
+    }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getWorkerTarget());
     }
     return size;
   }
@@ -227,6 +260,11 @@ private static final long serialVersionUID = 0L;
     if (hasStepDurability()) {
       if (stepDurability_ != other.stepDurability_) return false;
     }
+    if (hasWorkerTarget() != other.hasWorkerTarget()) return false;
+    if (hasWorkerTarget()) {
+      if (!getWorkerTarget()
+          .equals(other.getWorkerTarget())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -253,6 +291,10 @@ private static final long serialVersionUID = 0L;
     if (hasStepDurability()) {
       hash = (37 * hash) + STEP_DURABILITY_FIELD_NUMBER;
       hash = (53 * hash) + stepDurability_;
+    }
+    if (hasWorkerTarget()) {
+      hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
+      hash = (53 * hash) + getWorkerTarget().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -373,13 +415,19 @@ private static final long serialVersionUID = 0L;
 
     // Construct using io.superdurable.gen.FlowConfig.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetWorkerTargetFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -389,6 +437,11 @@ private static final long serialVersionUID = 0L;
       continueAsNewThreshold_ = 0;
       continueAsNewPageSizeInBytes_ = 0;
       stepDurability_ = 0;
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
       return this;
     }
 
@@ -439,6 +492,12 @@ private static final long serialVersionUID = 0L;
         result.stepDurability_ = stepDurability_;
         to_bitField0_ |= 0x00000008;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.workerTarget_ = workerTargetBuilder_ == null
+            ? workerTarget_
+            : workerTargetBuilder_.build();
+        to_bitField0_ |= 0x00000010;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -465,6 +524,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasStepDurability()) {
         setStepDurabilityValue(other.getStepDurabilityValue());
+      }
+      if (other.hasWorkerTarget()) {
+        mergeWorkerTarget(other.getWorkerTarget());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -512,6 +574,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 32
+            case 42: {
+              input.readMessage(
+                  internalGetWorkerTargetFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -727,6 +796,127 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private io.superdurable.gen.WorkerTarget workerTarget_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> workerTargetBuilder_;
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     * @return Whether the workerTarget field is set.
+     */
+    public boolean hasWorkerTarget() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     * @return The workerTarget.
+     */
+    public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+      if (workerTargetBuilder_ == null) {
+        return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+      } else {
+        return workerTargetBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public Builder setWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        workerTarget_ = value;
+      } else {
+        workerTargetBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public Builder setWorkerTarget(
+        io.superdurable.gen.WorkerTarget.Builder builderForValue) {
+      if (workerTargetBuilder_ == null) {
+        workerTarget_ = builderForValue.build();
+      } else {
+        workerTargetBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public Builder mergeWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          workerTarget_ != null &&
+          workerTarget_ != io.superdurable.gen.WorkerTarget.getDefaultInstance()) {
+          getWorkerTargetBuilder().mergeFrom(value);
+        } else {
+          workerTarget_ = value;
+        }
+      } else {
+        workerTargetBuilder_.mergeFrom(value);
+      }
+      if (workerTarget_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public Builder clearWorkerTarget() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public io.superdurable.gen.WorkerTarget.Builder getWorkerTargetBuilder() {
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return internalGetWorkerTargetFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+      if (workerTargetBuilder_ != null) {
+        return workerTargetBuilder_.getMessageOrBuilder();
+      } else {
+        return workerTarget_ == null ?
+            io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+      }
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>
+        internalGetWorkerTargetFieldBuilder() {
+      if (workerTargetBuilder_ == null) {
+        workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>(
+                getWorkerTarget(),
+                getParentForChildren(),
+                isClean());
+        workerTarget_ = null;
+      }
+      return workerTargetBuilder_;
+    }
+
     // @@protoc_insertion_point(builder_scope:dex.FlowConfig)
   }
 
@@ -777,4 +967,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

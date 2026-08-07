@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private StepMovement() {
     stepType_ = "";
+    fromStepExecutionIdInternalOnly_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -63,7 +64,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepType_ = s;
@@ -79,7 +80,7 @@ private static final long serialVersionUID = 0L;
       getStepTypeBytes() {
     java.lang.Object ref = stepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepType_ = b;
@@ -141,6 +142,53 @@ private static final long serialVersionUID = 0L;
     return stepOptions_ == null ? io.superdurable.gen.StepOptions.getDefaultInstance() : stepOptions_;
   }
 
+  public static final int FROM_STEP_EXECUTION_ID_INTERNAL_ONLY_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object fromStepExecutionIdInternalOnly_ = "";
+  /**
+   * <pre>
+   * Server-owned scheduling source; workers must leave this empty.
+   * </pre>
+   *
+   * <code>string from_step_execution_id_internal_only = 4;</code>
+   * @return The fromStepExecutionIdInternalOnly.
+   */
+  @java.lang.Override
+  public java.lang.String getFromStepExecutionIdInternalOnly() {
+    java.lang.Object ref = fromStepExecutionIdInternalOnly_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      fromStepExecutionIdInternalOnly_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Server-owned scheduling source; workers must leave this empty.
+   * </pre>
+   *
+   * <code>string from_step_execution_id_internal_only = 4;</code>
+   * @return The bytes for fromStepExecutionIdInternalOnly.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFromStepExecutionIdInternalOnlyBytes() {
+    java.lang.Object ref = fromStepExecutionIdInternalOnly_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      fromStepExecutionIdInternalOnly_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -164,6 +212,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(3, getStepOptions());
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionIdInternalOnly_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, fromStepExecutionIdInternalOnly_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -178,6 +229,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, getStepOptions());
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionIdInternalOnly_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, fromStepExecutionIdInternalOnly_);
     }
     return size;
   }
@@ -215,6 +269,8 @@ private static final long serialVersionUID = 0L;
       if (!getStepOptions()
           .equals(other.getStepOptions())) return false;
     }
+    if (!getFromStepExecutionIdInternalOnly()
+        .equals(other.getFromStepExecutionIdInternalOnly())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -236,6 +292,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + STEP_OPTIONS_FIELD_NUMBER;
       hash = (53 * hash) + getStepOptions().hashCode();
     }
+    hash = (37 * hash) + FROM_STEP_EXECUTION_ID_INTERNAL_ONLY_FIELD_NUMBER;
+    hash = (53 * hash) + getFromStepExecutionIdInternalOnly().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -385,6 +443,7 @@ private static final long serialVersionUID = 0L;
         stepOptionsBuilder_.dispose();
         stepOptionsBuilder_ = null;
       }
+      fromStepExecutionIdInternalOnly_ = "";
       return this;
     }
 
@@ -434,6 +493,9 @@ private static final long serialVersionUID = 0L;
             : stepOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.fromStepExecutionIdInternalOnly_ = fromStepExecutionIdInternalOnly_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -459,6 +521,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasStepOptions()) {
         mergeStepOptions(other.getStepOptions());
+      }
+      if (!other.getFromStepExecutionIdInternalOnly().isEmpty()) {
+        fromStepExecutionIdInternalOnly_ = other.fromStepExecutionIdInternalOnly_;
+        bitField0_ |= 0x00000008;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -505,6 +572,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 34: {
+              fromStepExecutionIdInternalOnly_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -547,7 +619,7 @@ private static final long serialVersionUID = 0L;
         getStepTypeBytes() {
       java.lang.Object ref = stepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepType_ = b;
@@ -702,7 +774,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -823,7 +895,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
         internalGetStepOptionsFieldBuilder() {
       if (stepOptionsBuilder_ == null) {
         stepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -834,6 +906,98 @@ private static final long serialVersionUID = 0L;
         stepOptions_ = null;
       }
       return stepOptionsBuilder_;
+    }
+
+    private java.lang.Object fromStepExecutionIdInternalOnly_ = "";
+    /**
+     * <pre>
+     * Server-owned scheduling source; workers must leave this empty.
+     * </pre>
+     *
+     * <code>string from_step_execution_id_internal_only = 4;</code>
+     * @return The fromStepExecutionIdInternalOnly.
+     */
+    public java.lang.String getFromStepExecutionIdInternalOnly() {
+      java.lang.Object ref = fromStepExecutionIdInternalOnly_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        fromStepExecutionIdInternalOnly_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Server-owned scheduling source; workers must leave this empty.
+     * </pre>
+     *
+     * <code>string from_step_execution_id_internal_only = 4;</code>
+     * @return The bytes for fromStepExecutionIdInternalOnly.
+     */
+    public com.google.protobuf.ByteString
+        getFromStepExecutionIdInternalOnlyBytes() {
+      java.lang.Object ref = fromStepExecutionIdInternalOnly_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        fromStepExecutionIdInternalOnly_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Server-owned scheduling source; workers must leave this empty.
+     * </pre>
+     *
+     * <code>string from_step_execution_id_internal_only = 4;</code>
+     * @param value The fromStepExecutionIdInternalOnly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFromStepExecutionIdInternalOnly(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      fromStepExecutionIdInternalOnly_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned scheduling source; workers must leave this empty.
+     * </pre>
+     *
+     * <code>string from_step_execution_id_internal_only = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFromStepExecutionIdInternalOnly() {
+      fromStepExecutionIdInternalOnly_ = getDefaultInstance().getFromStepExecutionIdInternalOnly();
+      bitField0_ = (bitField0_ & ~0x00000008);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned scheduling source; workers must leave this empty.
+     * </pre>
+     *
+     * <code>string from_step_execution_id_internal_only = 4;</code>
+     * @param value The bytes for fromStepExecutionIdInternalOnly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFromStepExecutionIdInternalOnlyBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      fromStepExecutionIdInternalOnly_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepMovement)
@@ -886,4 +1050,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

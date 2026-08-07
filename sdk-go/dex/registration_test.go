@@ -742,7 +742,7 @@ func TestStepAdaptersAndRuntimeReferences(t *testing.T) {
 	lookalike := &registrationStep{
 		stepType: "target",
 		options: &StepOptions{
-			ExecuteTimeout: time.Hour,
+			ExecuteMethodTimeout: time.Hour,
 		},
 	}
 	resolved, err := registeredFlow.resolveMovement(

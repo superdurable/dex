@@ -276,7 +276,7 @@ func TestIndexedAttributeEncoding(t *testing.T) {
 		indexType IndexType
 	}{
 		{name: "keyword", value: namedString("key"), indexType: IndexKeyword},
-		{name: "text", value: "text", indexType: IndexText},
+		{name: "full text", value: "text", indexType: IndexFullText},
 		{
 			name:      "keyword array",
 			value:     namedStrings{"one", "two"},

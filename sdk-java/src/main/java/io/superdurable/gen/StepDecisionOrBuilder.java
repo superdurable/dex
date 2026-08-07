@@ -13,7 +13,7 @@ public interface StepDecisionOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
-  java.util.List<io.superdurable.gen.StepMovement> 
+  java.util.List<io.superdurable.gen.StepMovement>
       getNextStepsList();
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
@@ -26,7 +26,7 @@ public interface StepDecisionOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
       getNextStepsOrBuilderList();
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
@@ -35,17 +35,17 @@ public interface StepDecisionOrBuilder extends
       int index);
 
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-   * @return Whether the conditionalClose field is set.
+   * <code>.dex.CloseDecision close_decision = 2;</code>
+   * @return Whether the closeDecision field is set.
    */
-  boolean hasConditionalClose();
+  boolean hasCloseDecision();
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
-   * @return The conditionalClose.
+   * <code>.dex.CloseDecision close_decision = 2;</code>
+   * @return The closeDecision.
    */
-  io.superdurable.gen.FlowConditionalClose getConditionalClose();
+  io.superdurable.gen.CloseDecision getCloseDecision();
   /**
-   * <code>.dex.FlowConditionalClose conditional_close = 2;</code>
+   * <code>.dex.CloseDecision close_decision = 2;</code>
    */
-  io.superdurable.gen.FlowConditionalCloseOrBuilder getConditionalCloseOrBuilder();
+  io.superdurable.gen.CloseDecisionOrBuilder getCloseDecisionOrBuilder();
 }

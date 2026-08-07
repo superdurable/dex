@@ -1,0 +1,49 @@
+/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
+ * Modifications Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
+ * See LICENSE and LEGACY_NOTICES.md.
+ */
+
+package io.superdurable.dex.iwfcompat;
+
+import io.superdurable.dex.Context;
+import io.superdurable.dex.Flow;
+import io.superdurable.dex.Step;
+import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.Timer;
+import io.superdurable.dex.Wait;
+
+import java.time.Duration;
+
+final class TimerWorkflow implements Flow<Integer> {
+    private final TimerStep start = new TimerStep();
+
+    @Override
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(start);
+    }
+}
+
+final class TimerStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.allOf(Timer.byDuration(Duration.ofSeconds(input), "test-timer-id"));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.gracefulComplete();
+    }
+}

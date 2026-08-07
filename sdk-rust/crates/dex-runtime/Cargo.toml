@@ -1,0 +1,19 @@
+[package]
+name = "dex-runtime"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Dex shared worker transport runtime"
+
+[dependencies]
+dex-core = { path = "../dex-core" }
+dex-protocol = { path = "../dex-protocol" }
+prost.workspace = true
+prost-types.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }

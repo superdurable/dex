@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private InvokeWaitForMethodActivityInput() {
-    workerTarget_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -51,42 +50,29 @@ private static final long serialVersionUID = 0L;
 
   private int bitField0_;
   public static final int WORKER_TARGET_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object workerTarget_ = "";
+  private io.superdurable.gen.WorkerTarget workerTarget_;
   /**
-   * <code>string worker_target = 1;</code>
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
+   * @return Whether the workerTarget field is set.
+   */
+  @java.lang.Override
+  public boolean hasWorkerTarget() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    * @return The workerTarget.
    */
   @java.lang.Override
-  public java.lang.String getWorkerTarget() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      workerTarget_ = s;
-      return s;
-    }
+  public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
   /**
-   * <code>string worker_target = 1;</code>
-   * @return The bytes for workerTarget.
+   * <code>.dex.WorkerTarget worker_target = 1;</code>
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
-      getWorkerTargetBytes() {
-    java.lang.Object ref = workerTarget_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      workerTarget_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
 
   public static final int REQUEST_FIELD_NUMBER = 2;
@@ -97,7 +83,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasRequest() {
-    return ((bitField0_ & 0x00000001) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
    * <code>.dex.InvokeWaitForMethodRequest request = 2;</code>
@@ -129,20 +115,21 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, workerTarget_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(1, getWorkerTarget());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getRequest());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(workerTarget_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, workerTarget_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(1, getWorkerTarget());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getRequest());
     }
@@ -170,8 +157,11 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.InvokeWaitForMethodActivityInput other = (io.superdurable.gen.InvokeWaitForMethodActivityInput) obj;
 
-    if (!getWorkerTarget()
-        .equals(other.getWorkerTarget())) return false;
+    if (hasWorkerTarget() != other.hasWorkerTarget()) return false;
+    if (hasWorkerTarget()) {
+      if (!getWorkerTarget()
+          .equals(other.getWorkerTarget())) return false;
+    }
     if (hasRequest() != other.hasRequest()) return false;
     if (hasRequest()) {
       if (!getRequest()
@@ -188,8 +178,10 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
-    hash = (53 * hash) + getWorkerTarget().hashCode();
+    if (hasWorkerTarget()) {
+      hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
+      hash = (53 * hash) + getWorkerTarget().hashCode();
+    }
     if (hasRequest()) {
       hash = (37 * hash) + REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getRequest().hashCode();
@@ -324,6 +316,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
+        internalGetWorkerTargetFieldBuilder();
         internalGetRequestFieldBuilder();
       }
     }
@@ -331,7 +324,11 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      workerTarget_ = "";
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
       request_ = null;
       if (requestBuilder_ != null) {
         requestBuilder_.dispose();
@@ -370,15 +367,18 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.InvokeWaitForMethodActivityInput result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.workerTarget_ = workerTarget_;
-      }
       int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.workerTarget_ = workerTargetBuilder_ == null
+            ? workerTarget_
+            : workerTargetBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.request_ = requestBuilder_ == null
             ? request_
             : requestBuilder_.build();
-        to_bitField0_ |= 0x00000001;
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -395,10 +395,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.InvokeWaitForMethodActivityInput other) {
       if (other == io.superdurable.gen.InvokeWaitForMethodActivityInput.getDefaultInstance()) return this;
-      if (!other.getWorkerTarget().isEmpty()) {
-        workerTarget_ = other.workerTarget_;
-        bitField0_ |= 0x00000001;
-        onChanged();
+      if (other.hasWorkerTarget()) {
+        mergeWorkerTarget(other.getWorkerTarget());
       }
       if (other.hasRequest()) {
         mergeRequest(other.getRequest());
@@ -430,7 +428,9 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              workerTarget_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetWorkerTargetFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
@@ -458,76 +458,125 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object workerTarget_ = "";
+    private io.superdurable.gen.WorkerTarget workerTarget_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> workerTargetBuilder_;
     /**
-     * <code>string worker_target = 1;</code>
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * @return Whether the workerTarget field is set.
+     */
+    public boolean hasWorkerTarget() {
+      return ((bitField0_ & 0x00000001) != 0);
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
      * @return The workerTarget.
      */
-    public java.lang.String getWorkerTarget() {
-      java.lang.Object ref = workerTarget_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        workerTarget_ = s;
-        return s;
+    public io.superdurable.gen.WorkerTarget getWorkerTarget() {
+      if (workerTargetBuilder_ == null) {
+        return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
       } else {
-        return (java.lang.String) ref;
+        return workerTargetBuilder_.getMessage();
       }
     }
     /**
-     * <code>string worker_target = 1;</code>
-     * @return The bytes for workerTarget.
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
      */
-    public com.google.protobuf.ByteString
-        getWorkerTargetBytes() {
-      java.lang.Object ref = workerTarget_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        workerTarget_ = b;
-        return b;
+    public Builder setWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        workerTarget_ = value;
       } else {
-        return (com.google.protobuf.ByteString) ref;
+        workerTargetBuilder_.setMessage(value);
       }
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
     }
     /**
-     * <code>string worker_target = 1;</code>
-     * @param value The workerTarget to set.
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
      */
     public Builder setWorkerTarget(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      workerTarget_ = value;
+        io.superdurable.gen.WorkerTarget.Builder builderForValue) {
+      if (workerTargetBuilder_ == null) {
+        workerTarget_ = builderForValue.build();
+      } else {
+        workerTargetBuilder_.setMessage(builderForValue.build());
+      }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>string worker_target = 1;</code>
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     */
+    public Builder mergeWorkerTarget(io.superdurable.gen.WorkerTarget value) {
+      if (workerTargetBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          workerTarget_ != null &&
+          workerTarget_ != io.superdurable.gen.WorkerTarget.getDefaultInstance()) {
+          getWorkerTargetBuilder().mergeFrom(value);
+        } else {
+          workerTarget_ = value;
+        }
+      } else {
+        workerTargetBuilder_.mergeFrom(value);
+      }
+      if (workerTarget_ != null) {
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
      */
     public Builder clearWorkerTarget() {
-      workerTarget_ = getDefaultInstance().getWorkerTarget();
       bitField0_ = (bitField0_ & ~0x00000001);
+      workerTarget_ = null;
+      if (workerTargetBuilder_ != null) {
+        workerTargetBuilder_.dispose();
+        workerTargetBuilder_ = null;
+      }
       onChanged();
       return this;
     }
     /**
-     * <code>string worker_target = 1;</code>
-     * @param value The bytes for workerTarget to set.
-     * @return This builder for chaining.
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
      */
-    public Builder setWorkerTargetBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      workerTarget_ = value;
+    public io.superdurable.gen.WorkerTarget.Builder getWorkerTargetBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return this;
+      return internalGetWorkerTargetFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     */
+    public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
+      if (workerTargetBuilder_ != null) {
+        return workerTargetBuilder_.getMessageOrBuilder();
+      } else {
+        return workerTarget_ == null ?
+            io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+      }
+    }
+    /**
+     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>
+        internalGetWorkerTargetFieldBuilder() {
+      if (workerTargetBuilder_ == null) {
+        workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>(
+                getWorkerTarget(),
+                getParentForChildren(),
+                isClean());
+        workerTarget_ = null;
+      }
+      return workerTargetBuilder_;
     }
 
     private io.superdurable.gen.InvokeWaitForMethodRequest request_;
@@ -638,7 +687,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeWaitForMethodRequest request = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodRequest.Builder, io.superdurable.gen.InvokeWaitForMethodRequestOrBuilder> 
+        io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodRequest.Builder, io.superdurable.gen.InvokeWaitForMethodRequestOrBuilder>
         internalGetRequestFieldBuilder() {
       if (requestBuilder_ == null) {
         requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -701,4 +750,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

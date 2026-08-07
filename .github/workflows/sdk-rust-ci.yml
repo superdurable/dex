@@ -22,7 +22,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  RUSTUP_TOOLCHAIN: "1.85.0"
+  RUSTUP_TOOLCHAIN: "1.88.0"
 
 jobs:
   quality:
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Run Clippy
@@ -55,6 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.85.0 --profile minimal
+        run: rustup toolchain install 1.88.0 --profile minimal
       - name: Run tests
         run: cargo test --workspace --locked

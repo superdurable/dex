@@ -115,7 +115,7 @@ public enum InternalTimerStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(14);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(15);
   }
 
   private static final InternalTimerStatus[] VALUES = values();
@@ -140,4 +140,3 @@ public enum InternalTimerStatus
 
   // @@protoc_insertion_point(enum_scope:dex.InternalTimerStatus)
 }
-

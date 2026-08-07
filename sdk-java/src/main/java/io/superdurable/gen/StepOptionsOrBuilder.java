@@ -53,26 +53,26 @@ public interface StepOptionsOrBuilder extends
   io.superdurable.gen.RetryPolicyOrBuilder getExecuteRetryPolicyOrBuilder();
 
   /**
-   * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+   * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
    * @return The enum numeric value on the wire for waitForFailurePolicy.
    */
   int getWaitForFailurePolicyValue();
   /**
-   * <code>.dex.WaitForApiFailurePolicy wait_for_failure_policy = 5;</code>
+   * <code>.dex.WaitForMethodFailurePolicy wait_for_failure_policy = 5;</code>
    * @return The waitForFailurePolicy.
    */
-  io.superdurable.gen.WaitForApiFailurePolicy getWaitForFailurePolicy();
+  io.superdurable.gen.WaitForMethodFailurePolicy getWaitForFailurePolicy();
 
   /**
-   * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+   * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
    * @return The enum numeric value on the wire for executeFailurePolicy.
    */
   int getExecuteFailurePolicyValue();
   /**
-   * <code>.dex.ExecuteApiFailurePolicy execute_failure_policy = 6;</code>
+   * <code>.dex.ExecuteMethodFailurePolicy execute_failure_policy = 6;</code>
    * @return The executeFailurePolicy.
    */
-  io.superdurable.gen.ExecuteApiFailurePolicy getExecuteFailurePolicy();
+  io.superdurable.gen.ExecuteMethodFailurePolicy getExecuteFailurePolicy();
 
   /**
    * <code>string execute_failure_proceed_step_type = 7;</code>

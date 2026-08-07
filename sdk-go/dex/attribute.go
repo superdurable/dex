@@ -154,7 +154,7 @@ type IndexType uint8
 
 const (
 	IndexKeyword IndexType = iota + 1
-	IndexText
+	IndexFullText
 	IndexKeywordArray
 	IndexInt
 	IndexDouble

@@ -167,7 +167,7 @@ func encodeIndexedValue(value any, indexType IndexType) (*dexpb.Value, error) {
 	}
 
 	switch indexType {
-	case IndexKeyword, IndexText:
+	case IndexKeyword, IndexFullText:
 		if reflected.Kind() != reflect.String {
 			return nil, incompatibleIndexValue(indexType, reflected.Type())
 		}
@@ -393,7 +393,7 @@ func mapIndexType(indexType IndexType) (dexpb.IndexType, error) {
 	switch indexType {
 	case IndexKeyword:
 		return dexpb.IndexType_INDEX_TYPE_KEYWORD, nil
-	case IndexText:
+	case IndexFullText:
 		return dexpb.IndexType_INDEX_TYPE_TEXT, nil
 	case IndexKeywordArray:
 		return dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY, nil

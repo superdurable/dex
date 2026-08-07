@@ -31,6 +31,7 @@ private static final long serialVersionUID = 0L;
     flowId_ = "";
     stepType_ = "";
     stepExecutionNumber_ = "";
+    requestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -64,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -80,7 +81,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -107,7 +108,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepType_ = s;
@@ -127,7 +128,7 @@ private static final long serialVersionUID = 0L;
       getStepTypeBytes() {
     java.lang.Object ref = stepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepType_ = b;
@@ -150,7 +151,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepExecutionNumber_ = s;
@@ -166,7 +167,7 @@ private static final long serialVersionUID = 0L;
       getStepExecutionNumberBytes() {
     java.lang.Object ref = stepExecutionNumber_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepExecutionNumber_ = b;
@@ -185,6 +186,53 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public int getWaitTimeSeconds() {
     return waitTimeSeconds_;
+  }
+
+  public static final int REQUEST_ID_FIELD_NUMBER = 6;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object requestId_ = "";
+  /**
+   * <pre>
+   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 6;</code>
+   * @return The requestId.
+   */
+  @java.lang.Override
+  public java.lang.String getRequestId() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      requestId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * </pre>
+   *
+   * <code>string request_id = 6;</code>
+   * @return The bytes for requestId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRequestIdBytes() {
+    java.lang.Object ref = requestId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      requestId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
   }
 
   private byte memoizedIsInitialized = -1;
@@ -213,6 +261,9 @@ private static final long serialVersionUID = 0L;
     if (waitTimeSeconds_ != 0) {
       output.writeInt32(5, waitTimeSeconds_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, requestId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -229,6 +280,9 @@ private static final long serialVersionUID = 0L;
     if (waitTimeSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(5, waitTimeSeconds_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, requestId_);
     }
     return size;
   }
@@ -262,6 +316,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getStepExecutionNumber())) return false;
     if (getWaitTimeSeconds()
         != other.getWaitTimeSeconds()) return false;
+    if (!getRequestId()
+        .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -281,6 +337,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getStepExecutionNumber().hashCode();
     hash = (37 * hash) + WAIT_TIME_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getWaitTimeSeconds();
+    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -416,6 +474,7 @@ private static final long serialVersionUID = 0L;
       stepType_ = "";
       stepExecutionNumber_ = "";
       waitTimeSeconds_ = 0;
+      requestId_ = "";
       return this;
     }
 
@@ -461,6 +520,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.waitTimeSeconds_ = waitTimeSeconds_;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.requestId_ = requestId_;
+      }
     }
 
     @java.lang.Override
@@ -492,6 +554,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getWaitTimeSeconds() != 0) {
         setWaitTimeSeconds(other.getWaitTimeSeconds());
+      }
+      if (!other.getRequestId().isEmpty()) {
+        requestId_ = other.requestId_;
+        bitField0_ |= 0x00000010;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -539,6 +606,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 40
+            case 50: {
+              requestId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -581,7 +653,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -661,7 +733,7 @@ private static final long serialVersionUID = 0L;
         getStepTypeBytes() {
       java.lang.Object ref = stepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepType_ = b;
@@ -745,7 +817,7 @@ private static final long serialVersionUID = 0L;
         getStepExecutionNumberBytes() {
       java.lang.Object ref = stepExecutionNumber_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepExecutionNumber_ = b;
@@ -824,6 +896,98 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.lang.Object requestId_ = "";
+    /**
+     * <pre>
+     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * </pre>
+     *
+     * <code>string request_id = 6;</code>
+     * @return The requestId.
+     */
+    public java.lang.String getRequestId() {
+      java.lang.Object ref = requestId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        requestId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * </pre>
+     *
+     * <code>string request_id = 6;</code>
+     * @return The bytes for requestId.
+     */
+    public com.google.protobuf.ByteString
+        getRequestIdBytes() {
+      java.lang.Object ref = requestId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        requestId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * </pre>
+     *
+     * <code>string request_id = 6;</code>
+     * @param value The requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      requestId_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * </pre>
+     *
+     * <code>string request_id = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRequestId() {
+      requestId_ = getDefaultInstance().getRequestId();
+      bitField0_ = (bitField0_ & ~0x00000010);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * </pre>
+     *
+     * <code>string request_id = 6;</code>
+     * @param value The bytes for requestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequestIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      requestId_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:dex.WaitForStepCompletionRequest)
   }
 
@@ -874,4 +1038,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

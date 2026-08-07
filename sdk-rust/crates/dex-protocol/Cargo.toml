@@ -1,0 +1,18 @@
+[package]
+name = "dex-protocol"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Generated Dex protobuf and gRPC protocol"
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+
+[build-dependencies]
+protoc-bin-vendored.workspace = true
+tonic-prost-build.workspace = true
