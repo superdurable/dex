@@ -61,11 +61,15 @@ func (b *Builder) RecordStart(
 	eventID int64,
 	eventTime time.Time,
 	input *dexpb.InterpreterWorkflowInput,
+	flowTimeout time.Duration,
 ) {
 	payload := &dexpb.FlowStartedOrContinuedHistoryEvent{
 		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: b.flowID, RunId: b.runID},
 		FlowType:        input.GetFlowType(),
 		FlowConfig:      input.GetConfig(),
+	}
+	if flowTimeout > 0 {
+		payload.FlowTimeout = durationpb.New(flowTimeout)
 	}
 	if input.GetIsResumeFromContinueAsNew() {
 		payload.StartOrContinue = &dexpb.FlowStartedOrContinuedHistoryEvent_ContinuedStart{

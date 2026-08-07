@@ -50,6 +50,9 @@ Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
 supports incremental refresh. `GetFlowState` returns the interpreter
 snapshot for a running flow.
 
+Flow started/continued events expose the configured flow timeout as a protobuf
+duration. An absent duration means the flow has no timeout.
+
 Step method events expose the same `input`, `output`, and `context` structure
 for sync, async, and async-fallback execution. Regular Activity inputs come from
 scheduled history; successful local Activity inputs come from run-scoped

@@ -626,7 +626,10 @@ function InitialStartDetails({ payload, showHeading = true }: { payload: Data; s
   return (
     <>
       <DetailSection title={showHeading ? 'Initial start' : undefined}>
-        <Fields values={[['Start step', start.startStepType]]} />
+        <Fields values={[
+          ['Flow timeout', protobufDuration(payload.flowTimeout) ?? 'No timeout'],
+          ['Start step', start.startStepType],
+        ]} />
         <ValueBlock label="Step input" value={start.stepInput} />
         <StepOptionsView value={start.stepOptions} />
       </DetailSection>
@@ -645,7 +648,10 @@ function ContinuedStartDetails({ payload, showHeading = true }: { payload: Data;
   return (
     <>
       <DetailSection title={showHeading ? 'Continued run' : undefined}>
-        <Fields values={[['Previous run ID', continued.previousRunId]]} />
+        <Fields values={[
+          ['Previous run ID', continued.previousRunId],
+          ['Flow timeout', protobufDuration(payload.flowTimeout) ?? 'No timeout'],
+        ]} />
       </DetailSection>
       {Array.isArray(continued.stepsToStart) && continued.stepsToStart.length > 0 && (
         <DetailSection title="Steps to start"><StepMovements values={continued.stepsToStart} /></DetailSection>
