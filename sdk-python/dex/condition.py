@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from dex._contract_utils import validate_condition_id
+from dex._utils import validate_condition_id
 
 if TYPE_CHECKING:
     from dex.channel import Channel, ChannelMap

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, TypeVar, overload
 
-from dex._contract_utils import require_name
+from dex._utils import require_name
 from dex.attribute import Attribute, AttributeMap
 from dex.flow_config import FlowConfig
 from dex.step import RetryPolicy

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dex._contract_utils import require_name
+from dex._utils import require_name
 
 
 @dataclass(frozen=True)

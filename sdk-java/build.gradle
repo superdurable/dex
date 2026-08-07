@@ -132,6 +132,7 @@ tasks.named('test') {
 tasks.register('dexDevTest', Test) {
     group = 'verification'
     description = 'Runs Java SDK integration tests against dexcli dev.'
+    outputs.upToDateWhen { false }
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {

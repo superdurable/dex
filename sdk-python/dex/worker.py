@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from types import TracebackType
 
-from dex._contract_utils import PhaseNotImplementedError
+from dex._utils import PhaseNotImplementedError
 from dex.blob_cache import BlobCache
 from dex.flow import Registry
 from dex.worker_options import WorkerOptions

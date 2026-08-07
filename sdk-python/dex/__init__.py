@@ -8,7 +8,7 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex._contract_utils import PhaseNotImplementedError
+from dex._utils import PhaseNotImplementedError
 from dex.attribute import (
     Attribute,
     AttributeIndex,

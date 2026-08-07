@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar, cast
 
-from dex._contract_utils import require_name
+from dex._utils import require_name
 from dex.context import Context
 
 ValueT = TypeVar("ValueT")

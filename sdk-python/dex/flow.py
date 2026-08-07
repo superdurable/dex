@@ -26,7 +26,7 @@ from typing import (
     overload,
 )
 
-from dex._contract_utils import require_name
+from dex._utils import require_name
 from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry

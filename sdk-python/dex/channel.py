@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, Sequence, TypeVar, cast
 
-from dex._contract_utils import require_name
+from dex._utils import require_name
 from dex.condition import ChannelCondition, Condition
 from dex.context import Context
 

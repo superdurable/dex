@@ -53,8 +53,8 @@ repos:
 
   - id: mypy
     name: Validate types with MyPy
-    entry: bash -c 'cd sdk-python && uv run --frozen mypy dex'
+    entry: uv run --project sdk-python --frozen mypy --strict
     language: system
     types: [python]
-    pass_filenames: false
+    require_serial: true
     files: ^sdk-python/(dex|tests)/

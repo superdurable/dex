@@ -205,25 +205,18 @@ Edit [`protos/dex.proto`](../protos/dex.proto), then run `make -C ../protos prot
 
 ### Local testing
 
-Start Dex, register the IWF persistence-test search attributes, then run the
-dedicated integration task:
+Run the JVM/native integration tests and all 58 E2E scenarios against a fresh
+`dexcli dev` environment:
 
 ```shell
-dexcli dev
-temporal operator search-attribute create \
-  --name CustomKeywordField --type Keyword \
-  --name CustomIntField --type Int \
-  --name CustomTextField --type Text \
-  --name CustomDoubleField --type Double \
-  --name CustomBoolField --type Bool \
-  --name CustomKeywordArrayField --type KeywordList \
-  --name CustomDatetimeField --type Datetime
-DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
+./run-integration-tests.sh
 ```
 
-The Gradle task builds the Rust BlobCache JNI library and starts a fresh native
-Java Worker for each test with a unique worker port and flow ID. The suite
-contains 58 integration scenarios ported from the IWF Java SDK inventory.
+The script builds `dexcli` from the current checkout, starts an isolated local
+Temporal and Dex server, and registers the test search attributes. Gradle builds
+the Rust BlobCache JNI library and starts a fresh Java Worker for each E2E case
+with a unique worker port and flow ID. A clean checkout also requires Go 1.24+,
+Node.js 22+, Rust 1.88+, and Temporal CLI.
 
 If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
 use the local publishing command:

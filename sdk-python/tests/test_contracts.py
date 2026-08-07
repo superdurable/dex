@@ -216,7 +216,7 @@ def test_registry_rejects_invalid_handler_signatures() -> None:
 
 def test_registry_rejects_mismatched_wait_for_input() -> None:
     class MismatchedStep(Step[int]):
-        def wait_for(self, context: Context, input: str) -> Wait:
+        def wait_for(self, context: Context, input: str) -> Wait:  # type: ignore[override]
             del context, input
             return Wait.skip_immediately()
 

@@ -14,7 +14,7 @@ from datetime import timedelta
 from types import TracebackType
 from typing import Any, Callable, TypeVar, overload
 
-from dex._contract_utils import PhaseNotImplementedError
+from dex._utils import PhaseNotImplementedError
 from dex.attribute import Attribute, AttributeMap
 from dex.blob_cache import BlobCache
 from dex.channel import Channel, ChannelMap
