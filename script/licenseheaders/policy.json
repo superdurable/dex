@@ -32,7 +32,8 @@
   "retained_license_prefixes": {
     "examples/go": "mit",
     "examples/java": "apache-2.0",
-    "examples/python": "apache-2.0"
+    "examples/python": "apache-2.0",
+    "examples/typescript": "apache-2.0"
   },
   "reviewed_mixed_paths": [
     "sdk-go/dex/blobcache/concurrency_test.go",

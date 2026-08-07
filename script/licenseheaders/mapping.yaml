@@ -13,3 +13,4 @@
 examples/go: mit
 examples/java: apache-2.0
 examples/python: apache-2.0
+examples/typescript: apache-2.0

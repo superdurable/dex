@@ -1,0 +1,104 @@
+/*
+ * Copyright (c) 2022-2026 Super Durable, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import {
+  StepList,
+  goTo,
+  gracefulComplete,
+  stringCodec,
+  voidCodec,
+  type Context,
+  type Flow,
+  type PersistenceSchema,
+  type Step,
+  type StepDecision,
+  type StepOptions,
+} from "@superdurable/dex";
+
+import {
+  serviceDependency,
+  type ServiceDependency,
+} from "../../services/service-dependency.js";
+
+class ReadExternalDep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public constructor(
+    private readonly flow: BackoffPollingFlow,
+    private readonly service: ServiceDependency,
+  ) {}
+
+  public getStepType(): string {
+    return "ReadExternalDep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: {
+        backoffCoefficient: 2,
+        maximumAttempts: 5,
+        totalDurationMs: 3_600_000,
+        initialIntervalMs: 3000,
+        maximumIntervalMs: 60_000,
+      },
+    };
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    const result = this.service.attemptExternalApiCall("Read for BackoffPollingFlow");
+    return goTo(this.flow.pollingCompleteStep, result);
+  }
+}
+
+class PollingComplete implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "PollingComplete";
+  }
+
+  public execute(_context: Context, externalDataInput: string): StepDecision {
+    console.log(`Executing final state to complete the workflow: (${externalDataInput})`);
+    return gracefulComplete(externalDataInput);
+  }
+}
+
+export class BackoffPollingFlow implements Flow<void> {
+  private readonly readExternalDep: ReadExternalDep;
+  private readonly pollingComplete = new PollingComplete();
+
+  public constructor(service: ServiceDependency = serviceDependency) {
+    this.readExternalDep = new ReadExternalDep(this, service);
+  }
+
+  public get pollingCompleteStep(): Step<string> {
+    return this.pollingComplete;
+  }
+
+  public getFlowType(): string {
+    return "BackoffPollingFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.readExternalDep).otherSteps(this.pollingComplete);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {};
+  }
+}
+
+export const backoffPollingFlow = new BackoffPollingFlow();
