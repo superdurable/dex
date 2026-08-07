@@ -1,0 +1,27 @@
+{
+  "name": "@superdurable/dex-examples-typescript",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Dex TypeScript examples mirroring examples/java",
+  "type": "module",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "npm run build && node dist/src/main.js",
+    "test": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
+    "test:integ": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
+    "smoke": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/all-routes.test.js'"
+  },
+  "dependencies": {
+    "@superdurable/dex": "^0.1.2",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
