@@ -12,6 +12,7 @@ on:
       - "cli/**"
       - "server/**"
       - "protos/**"
+      - "codecov.yml"
       - ".github/workflows/sdk-java-ci.yml"
       - ".github/workflows/sdk-java-publish.yml"
   pull_request:
@@ -24,6 +25,7 @@ on:
       - "cli/**"
       - "server/**"
       - "protos/**"
+      - "codecov.yml"
       - ".github/workflows/sdk-java-ci.yml"
       - ".github/workflows/sdk-java-publish.yml"
   workflow_dispatch:
@@ -87,6 +89,9 @@ jobs:
     name: Integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     env:
       RUSTUP_TOOLCHAIN: "1.88.0"
     defaults:
@@ -116,8 +121,24 @@ jobs:
           java-version: "8"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
-      - name: Run JVM and dexcli dev integration tests
-        run: ./run-integration-tests.sh
+      - name: Run JVM and dexcli dev integration coverage
+        run: ./run-integration-tests.sh --coverage
+      - name: Upload Java integration coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./sdk-java/build/reports/jacoco/integration/jacoco.xml
+          flags: sdk-java-integration
+          name: sdk-java-integration
+          use_oidc: true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-java-integration-coverage
+          path: sdk-java/build/reports/jacoco/integration/
+          if-no-files-found: ignore
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7

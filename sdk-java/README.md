@@ -223,6 +223,21 @@ the Rust BlobCache JNI library and starts a fresh Java Worker for each E2E case
 with a unique worker port and flow ID. A clean checkout also requires Go 1.24+,
 Node.js 22+, Rust 1.88+, and Temporal CLI.
 
+### Measure integration coverage
+
+Run the same integration suite with JaCoCo coverage:
+
+```shell
+./run-integration-tests.sh --coverage
+```
+
+The report combines the local JNI and WorkerService integration tests with all
+`dexcli dev` E2E scenarios. It measures only production classes under
+`io.superdurable.dex`; contract tests, other unit tests, test fixtures, and
+generated protobuf classes are excluded. The XML report is written to
+`build/reports/jacoco/integration/jacoco.xml`, and the browser report starts at
+`build/reports/jacoco/integration/html/index.html`.
+
 ### Validate the publication
 
 The validation command builds a Maven repository, verifies its JAR and POM,

@@ -10,6 +10,16 @@
 
 set -euo pipefail
 
+coverage=false
+if [[ "${1:-}" == "--coverage" ]]; then
+  coverage=true
+  shift
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0 [--coverage]" >&2
+  exit 2
+fi
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 dex_port="${DEX_INTEG_DEX_PORT:-18801}"
@@ -103,8 +113,8 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-./gradlew test \
-  --tests io.superdurable.dex.NativeBlobCacheIntegrationTest \
-  --tests io.superdurable.dex.WorkerServiceIntegrationTest \
-  --no-daemon
+./gradlew localIntegrationTest --no-daemon
 DEX_SERVER_ADDRESS="$dex_address" ./gradlew dexDevTest --no-daemon
+if $coverage; then
+  ./gradlew integrationCoverageReport --no-daemon
+fi

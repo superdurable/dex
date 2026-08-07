@@ -141,6 +141,19 @@ tasks.named('test') {
     }
 }
 
+tasks.register('localIntegrationTest', Test) {
+    group = 'verification'
+    description = 'Runs Java SDK integration tests that do not require dexcli dev.'
+    outputs.upToDateWhen { false }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching 'io.superdurable.dex.NativeBlobCacheIntegrationTest'
+        includeTestsMatching 'io.superdurable.dex.WorkerServiceIntegrationTest'
+    }
+    useJUnitPlatform()
+}
+
 tasks.register('dexDevTest', Test) {
     group = 'verification'
     description = 'Runs Java SDK integration tests against dexcli dev.'
@@ -189,6 +202,34 @@ jacocoTestReport {
 }
 
 check.dependsOn jacocoTestReport
+
+tasks.register('integrationCoverageReport', JacocoReport) {
+    group = 'verification'
+    description = 'Reports coverage from only Java SDK integration tests.'
+    executionData.setFrom(files(
+            layout.buildDirectory.file('jacoco/localIntegrationTest.exec'),
+            layout.buildDirectory.file('jacoco/dexDevTest.exec')))
+    sourceDirectories.setFrom(sourceSets.main.allJava.srcDirs)
+    classDirectories.setFrom(sourceSets.main.output.classesDirs.asFileTree.matching {
+        include 'io/superdurable/dex/**'
+    })
+    reports {
+        xml.required = true
+        xml.outputLocation = layout.buildDirectory.file(
+                'reports/jacoco/integration/jacoco.xml')
+        html.required = true
+        html.outputLocation = layout.buildDirectory.dir(
+                'reports/jacoco/integration/html')
+        csv.required = false
+    }
+    doFirst {
+        def missingExecutionData = executionData.files.findAll { !it.isFile() }
+        if (!missingExecutionData.isEmpty()) {
+            throw new GradleException(
+                    "integration coverage data is missing: ${missingExecutionData*.name.join(', ')}")
+        }
+    }
+}
 
 // Custom task to unpublish from local Maven repository
 // Usage: ./gradlew unpublishFromMavenLocal
