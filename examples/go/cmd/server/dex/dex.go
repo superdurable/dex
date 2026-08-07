@@ -28,10 +28,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/service"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
@@ -54,7 +56,9 @@ func Run(ctx context.Context) error {
 }
 
 func newSampleServer() (*sampleServer, error) {
-	registry, err := sdk.NewRegistry(workflows.Flows())
+	var client *sdk.Client
+	flows := workflows.New(service.NewMyService(), func() *sdk.Client { return client })
+	registry, err := sdk.NewRegistry(flows)
 	if err != nil {
 		return nil, fmt.Errorf("register example flows: %w", err)
 	}
@@ -76,7 +80,7 @@ func newSampleServer() (*sampleServer, error) {
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
 	}
-	client, err := sdk.NewClient(registry, cache, sdk.ClientOptions{
+	client, err = sdk.NewClient(registry, cache, sdk.ClientOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 		WorkerTarget:       worker.WorkerTarget(),
 	})
@@ -113,10 +117,15 @@ func (server *sampleServer) router() http.Handler {
 	newMicroserviceController(server.client).registerRoutes(router)
 	newMoneyTransferController(server.client).registerRoutes(router)
 	newPollingController(server.client).registerRoutes(router)
+	newSignupController(server.client).registerRoutes(router)
+	newJobPostController(server.client).registerRoutes(router)
+	newShortlistController(server.client).registerRoutes(router)
+	newDesignPatternController(server.client).registerRoutes(router)
 	return router
 }
 
 func (server *sampleServer) Run(ctx context.Context) error {
+	startCronSchedule(server.client)
 	go func() {
 		server.workerResult <- server.worker.Start()
 	}()
@@ -185,4 +194,29 @@ func respond(request *gin.Context, value any, err error) {
 
 func newFlowID(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func startCronSchedule(client *sdk.Client) {
+	timeout := time.Hour
+	_, err := client.StartFlow(
+		context.Background(),
+		workflows.CronSchedule,
+		"cron-schedule-sample",
+		nil,
+		sdk.StartFlowOptions{
+			Timeout:      &timeout,
+			CronSchedule: "*/1 * * * *",
+		},
+	)
+	if err != nil {
+		var dexErr *sdk.Error
+		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+			return
+		}
+		// Temporal Schedule.Create returns no run ID; SDK surfaces that after register.
+		if strings.Contains(err.Error(), "no run ID") {
+			return
+		}
+		panic(fmt.Errorf("start cron schedule sample: %w", err))
+	}
 }

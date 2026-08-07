@@ -16,6 +16,17 @@ make bins
 ./dex-samples
 ```
 
+When Temporal search attributes are not pre-created:
+
+```bash
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name ActiveStepTypes --type KeywordList
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name CustomKeywordField --type Keyword
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name CustomStringField --type Text
+```
+
 The defaults connect to Dex at `localhost:8801`. These environment variables override the local addresses:
 
 - `DEX_FLOW_SERVICE_ADDRESS`: Dex gRPC target.
@@ -28,16 +39,38 @@ When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 
 ## Verify every example
 
-The E2E suite starts Dex through `dexcli dev` and runs every start, channel publish, and RPC path:
+The E2E suite starts Dex through `dexcli dev` and runs every start, channel publish, and RPC path covered by the existing product integ tests:
 
 ```bash
 make e2eTests
 ```
 
-## Examples
+## Product examples
 
 - [Money transfer saga](./workflows/moneytransfer)
 - [Microservice orchestration](./workflows/microservices)
 - [Employer/job-seeker engagement](./workflows/engagement)
 - [Subscription](./workflows/subscription)
 - [Polling and channel coordination](./workflows/polling)
+- [Signup](./workflows/signup)
+- [Job post](./workflows/jobpost)
+- [Shortlist candidates](./workflows/shortlistcandidates)
+
+## Design patterns
+
+All under [`workflows/patterns`](./workflows/patterns), HTTP under `/design-pattern/...`:
+
+- [Cron schedule](./workflows/patterns/cron) (auto-started; no HTTP)
+- [Drain internal / signal channels](./workflows/patterns/drainchannels)
+- [Interruptible execution](./workflows/patterns/interruptible)
+- [Manual intervention](./workflows/patterns/intervention)
+- [Parallel states](./workflows/patterns/parallel)
+- [Parent–child](./workflows/patterns/parentchild)
+- [Polling (simple / backoff)](./workflows/patterns/polling)
+- [Failure recovery](./workflows/patterns/recovery)
+- [Reminders](./workflows/patterns/reminders)
+- [Resettable timer](./workflows/patterns/resettabletimer)
+- [Scalable parallel](./workflows/patterns/scalableparallel)
+- [Storage singleton](./workflows/patterns/storage)
+- [Timeout handling](./workflows/patterns/timeout)
+- [Wait for state completion](./workflows/patterns/waitforstatecompletion)
