@@ -1,0 +1,12 @@
+[package]
+name = "dex-sdk"
+description = "Strongly typed Rust SDK for Dex"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dex-blob-cache = { path = "../dex-blob-cache" }
+serde.workspace = true

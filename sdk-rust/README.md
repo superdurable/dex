@@ -7,6 +7,7 @@ foundation for the Rust SDK. Each language SDK owns its Worker runtime.
 
 The crates are:
 
+- `dex-sdk`: strongly typed Rust Flow, Step, RPC, persistence, and client contracts.
 - `dex-blob-cache`: transport-neutral, Go-compatible disk cache.
 - `dex-blob-cache-jni`: Java 8-compatible binding containing only cache APIs.
 - `dex-blob-cache-python`: PyO3 binding for the Python SDK.
@@ -15,6 +16,8 @@ The crates are:
 
 The architecture is defined in
 [Multi-language Rust SDK Core](../docs/design/multi-language-rust-sdk-core.md).
+The public Rust API is defined in
+[Rust SDK User Interface](../docs/design/rust-sdk-user-interface.md).
 
 ## Blob cache
 
