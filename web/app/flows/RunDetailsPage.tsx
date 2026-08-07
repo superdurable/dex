@@ -30,6 +30,7 @@ import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { ResetFlowDialog } from './details/ResetFlowDialog';
+import { StopFlowDialog } from './details/StopFlowDialog';
 import { StepGraph } from './details/StepGraph';
 import { Timeline } from './details/Timeline';
 
@@ -97,6 +98,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [resetOpen, setResetOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
@@ -424,6 +426,13 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               Copy link
             </button>
             <button className="button ghost" onClick={() => void refresh()}>Refresh</button>
+            <button
+              className="button danger"
+              disabled={!summary || terminalStatuses.has(summary.flowStatusCode)}
+              onClick={() => setStopOpen(true)}
+            >
+              Stop
+            </button>
             <button className="button danger" onClick={() => setResetOpen(true)}>Reset</button>
           </div>
         </div>
@@ -545,6 +554,14 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           summary={summary}
           events={history}
           onClose={() => setResetOpen(false)}
+        />
+      )}
+      {summary && (
+        <StopFlowDialog
+          open={stopOpen}
+          summary={summary}
+          onClose={() => setStopOpen(false)}
+          onStopped={() => void refresh()}
         />
       )}
     </div>
