@@ -177,14 +177,6 @@ test("blob cache contract validates config before the native phase", () => {
   assert.throws(() => openBlobCache({ directory: "", maxBytes: 1024 }), TypeError);
 });
 
-test("runtime boundary fails explicitly", async () => {
-  const client = new Client(new Registry([orders]), blobCache);
-  await assert.rejects(
-    client.startFlow(orders, "order-1", { orderId: "order-1" }),
-    PhaseNotImplementedError,
-  );
-});
-
 async function compileStrongTypes(client: Client): Promise<void> {
   const runId: string = await client.startFlow(orders, "order-1", { orderId: "order-1" });
   const output: OrderOutput = await client.invokeRPC(

@@ -25,6 +25,7 @@ export type ActiveStepSearchMode =
 
 export const IdReusePolicy = Object.freeze({
   DEFAULT: "default",
+  ALLOW_IF_PREVIOUS_FAILED: "allowIfPreviousFailed",
   ALLOW_IF_NOT_RUNNING: "allowIfNotRunning",
   ALLOW_TERMINATE_IF_RUNNING: "allowTerminateIfRunning",
   DISALLOW: "disallow",
@@ -69,7 +70,8 @@ export type FlowStatus =
   | "failed"
   | "cancelled"
   | "terminated"
-  | "timedOut";
+  | "timedOut"
+  | "continuedAsNew";
 
 export interface FlowInfo {
   readonly flowId: string;

@@ -19,11 +19,17 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "generate:proto": "node scripts/generate-proto.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/test/contracts.test.js"
+    "test": "npm run build && node --test dist/test/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "ts-proto": "^2.12.0",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.13.0",
+    "@grpc/grpc-js": "^1.14.4"
   }
 }
