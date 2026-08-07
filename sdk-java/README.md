@@ -120,8 +120,8 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
         .build();
 ```
 
-The legacy IWF integration inventory is implemented as 58 real Dex E2E tests under
-[`src/test/java/io/superdurable/dex/iwfcompat`](src/test/java/io/superdurable/dex/iwfcompat/README.md).
+The IWF integration inventory is implemented as real Dex E2E tests under
+[`src/test/java/io/superdurable/dex/integ`](src/test/java/io/superdurable/dex/integ/README.md).
 They run Java Client and Java Worker against `dexcli dev`, with Rust used only
 for BlobCache. They cover flows, steps, RPCs, persistence, reset, timers,
 failure modes, and options.

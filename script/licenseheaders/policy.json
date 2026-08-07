@@ -21,7 +21,7 @@
     "web"
   ],
   "third_party_mixed_prefixes": [
-    "sdk-java/src/test/java/io/superdurable/dex/iwfcompat",
+    "sdk-java/src/test/java/io/superdurable/dex/integ",
     "sdk-python/tests/iwfcompat",
     "sdk-typescript/test/iwfcompat"
   ],
