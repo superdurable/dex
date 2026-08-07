@@ -105,6 +105,46 @@ final class ValueMapper {
         return (T) boxed(valueType).cast(decoded);
     }
 
+    Object decodeToObject(final Value value) {
+        if (value == null || value.getKindCase() == Value.KindCase.KIND_NOT_SET) {
+            throw new IllegalArgumentException("Value has no concrete kind");
+        }
+        switch (value.getKindCase()) {
+            case STRING_VALUE:
+                return value.getStringValue();
+            case BOOL_VALUE:
+                return value.getBoolValue();
+            case INT_VALUE:
+                return value.getIntValue();
+            case DOUBLE_VALUE:
+                return value.getDoubleValue();
+            case OBJ_VALUE:
+                return decodeObjectTree(value.getObjValue());
+            case INTERNAL_BLOB_ID_FOR_STRING_VALUE:
+            case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
+                throw new IllegalArgumentException("blob-backed Value was not hydrated");
+            case NULL_VALUE:
+                return null;
+            default:
+                throw new IllegalArgumentException("unsupported Value kind");
+        }
+    }
+
+    private Object decodeObjectTree(final EncodedObject object) {
+        if (RAW_BYTES.equals(object.getEncoding())) {
+            return object.getPayload().toByteArray();
+        }
+        if (!JSON.equals(object.getEncoding())) {
+            throw new IllegalArgumentException(
+                    "unsupported object encoding " + object.getEncoding());
+        }
+        try {
+            return objectMapper.readValue(object.getPayload().toByteArray(), Object.class);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("cannot decode JSON value", exception);
+        }
+    }
+
     Value deletion() {
         return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
     }
