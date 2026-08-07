@@ -19,13 +19,16 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "coverage:integration": "./run-integration-tests.sh --coverage",
     "generate:proto": "node scripts/generate-proto.mjs",
     "test:integration": "npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
+    "test:integration:coverage": "npm run build && c8 node --test --test-concurrency=1 dist/test/integ/*.integration.test.js && node scripts/report-uncovered.mjs coverage/lcov.info",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "c8": "^12.0.0",
     "ts-proto": "^2.12.0",
     "typescript": "^5.9.0"
   },

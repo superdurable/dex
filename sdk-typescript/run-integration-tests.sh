@@ -10,6 +10,16 @@
 
 set -euo pipefail
 
+test_script="test:integration"
+if [[ "${1:-}" == "--coverage" ]]; then
+  test_script="test:integration:coverage"
+  shift
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0 [--coverage]" >&2
+  exit 2
+fi
+
 available_port() {
   node -e 'const net=require("node:net");const server=net.createServer();server.listen(0,"127.0.0.1",()=>{console.log(server.address().port);server.close();});'
 }
@@ -118,4 +128,4 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-DEX_SERVER_ADDRESS="$dex_address" npm run test:integration
+DEX_SERVER_ADDRESS="$dex_address" npm run "$test_script"

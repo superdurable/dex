@@ -46,6 +46,7 @@ sdk-rust/target/
 # TypeScript
 sdk-typescript/node_modules/
 sdk-typescript/dist/
+sdk-typescript/coverage/
 
 # Logs / local
 *.log
