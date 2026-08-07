@@ -89,8 +89,8 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
           files: ./sdk-typescript/coverage/lcov.info
-          flags: typescript-integration
-          name: typescript-integration
+          flags: sdk-typescript-integration
+          name: sdk-typescript-integration
           use_oidc: true
       - name: Upload coverage report
         if: always()

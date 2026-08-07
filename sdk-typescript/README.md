@@ -104,12 +104,12 @@ line. Open `coverage/index.html` for annotated source, or inspect
 report uploaded by CI. Generated protobuf code under `src/gen/` is excluded.
 
 CI uploads the LCOV report to Codecov with GitHub OIDC, so no upload secret is
-stored in this repository. To enable the browser dashboard and PR annotations,
-sign in to [Codecov](https://app.codecov.io/) with GitHub and install the
-[Codecov GitHub App](https://github.com/apps/codecov) for `superdurable/dex`.
-After the first successful `main` upload, Codecov displays project and patch
-coverage in its dashboard, GitHub checks, and PR comments. The Actions run also
-publishes the complete HTML report as `sdk-typescript-integration-coverage`.
+stored in this repository. The report uses the `sdk-typescript-integration`
+flag and contributes to the TypeScript SDK component defined in the root
+`codecov.yml`. After the first successful `main` upload, Codecov displays
+project and patch coverage in its dashboard, GitHub checks, and PR comments.
+The Actions run also publishes the complete HTML report as
+`sdk-typescript-integration-coverage`.
 
 The complete legacy IWF integration inventory lives under
 [`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java
