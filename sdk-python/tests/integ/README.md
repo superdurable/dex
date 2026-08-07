@@ -1,6 +1,6 @@
-# IWF integration port
+# Python SDK integration tests
 
-This directory mirrors the Java `iwfcompat` inventory. Its 58 executable
+This directory mirrors the Java integration inventory. Its executable
 scenarios preserve the Java workflows, client operations, and assertions while
 using idiomatic Python contracts.
 
