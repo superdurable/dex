@@ -41,8 +41,10 @@ class ConditionalCompleteWorkflow implements Flow<Boolean> {
     }
 
     @RPC
-    public void publishToInternalChannel(final Context context) {
-        internal.publish(context, null);
+    public void publishToInternalChannel(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            internal.publish(context, null);
+        }
     }
 
     final class ConditionalStep implements Step<Boolean> {

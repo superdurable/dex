@@ -87,14 +87,14 @@ public final class RpcTest {
     }
 
     @Test
-    void testRpcNoPersistence() throws Exception {
+    void testRpcProcedureWithoutAttributeAccess() throws Exception {
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory,
                 WORKFLOW)) {
-            final String flowId = flowId("rpc-no-persistence");
+            final String flowId = flowId("rpc-no-attributes");
             environment.client().startFlow(WORKFLOW, flowId, 999);
             final RpcWorkflow stub = stub(environment, flowId);
-            environment.client().invokeRPC(stub::noPersistence);
+            environment.client().invokeRPC(stub::publishWithoutAttributeAccess);
             assertEquals(2, environment.client().waitForFlow(
                     flowId,
                     Integer.class,
@@ -243,7 +243,7 @@ public final class RpcTest {
         final RpcWorkflow stub = client.newRpcStub(
                 RpcWorkflow.class,
                 "rpc");
-        client.invokeRPC(stub::noPersistence);
+        client.invokeRPC(stub::publishWithoutAttributeAccess);
         final Long one = client.invokeRPC(stub::functionOne, "input");
         final Long zero = client.invokeRPC(stub::functionZero);
         client.invokeRPC(stub::procedureOne, "input");

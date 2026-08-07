@@ -27,6 +27,8 @@ import io.superdurable.dex.Wait;
 final class InternalChannelWorkflow implements Flow<Integer> {
     private final Channel<Integer> firstChannel =
             Channel.define("test-inter-state-channel-1", Integer.class);
+    private final Channel<Integer> secondChannel =
+            Channel.define("test-inter-state-channel-2", Integer.class);
     private final ChannelMap<Integer> channelMap =
             ChannelMap.define("test-inter-state-channel-map", Integer.class);
     private final ForkStep start = new ForkStep();
@@ -40,7 +42,7 @@ final class InternalChannelWorkflow implements Flow<Integer> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(firstChannel, channelMap);
+        return PersistenceSchema.of(firstChannel, secondChannel, channelMap);
     }
 
     final class ForkStep implements Step<Integer> {
@@ -66,14 +68,23 @@ final class InternalChannelWorkflow implements Flow<Integer> {
         @Override
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyCombinationOf(
-                    ConditionCombination.of(firstChannel.forOne("first")),
-                    ConditionCombination.of(channelMap.forOne("one")));
+                    ConditionCombination.of(
+                            firstChannel.forOne("first"),
+                            channelMap.forOne("one")),
+                    ConditionCombination.of(secondChannel.forOne("second")));
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.gracefulComplete(
-                    input + firstChannel.getConditionResults(context).size());
+            if (!secondChannel.getConditionResults(context).isEmpty()) {
+                throw new IllegalStateException("second channel should still be waiting");
+            }
+            final Integer firstValue = firstChannel.getConditionResults(context).get(0);
+            final Integer mappedValue = channelMap.getConditionResults(context, "one").get(0);
+            if (mappedValue.intValue() != 3) {
+                throw new IllegalStateException("mapped channel returned " + mappedValue);
+            }
+            return StepDecision.gracefulComplete(input + firstValue);
         }
     }
 
@@ -85,8 +96,8 @@ final class InternalChannelWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            firstChannel.publish(context, input);
-            channelMap.publish(context, "one", input);
+            firstChannel.publish(context, 2);
+            channelMap.publish(context, "one", 3);
             return StepDecision.deadEnd();
         }
     }

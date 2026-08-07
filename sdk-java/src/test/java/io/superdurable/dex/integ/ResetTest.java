@@ -43,13 +43,13 @@ public final class ResetTest {
     void testResetWithLockingReappliesRpc() throws Exception {
         try (DexDevTestEnvironment environment = startEnvironment()) {
             final String flowId = startAndInvoke(environment, true);
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, true);
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
                     resetOptions(false, false));
 
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, true);
             assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
         }
     }
@@ -58,7 +58,7 @@ public final class ResetTest {
     void testResetWithLockingCanSkipRpcReapply() throws Exception {
         try (DexDevTestEnvironment environment = startEnvironment()) {
             final String flowId = startAndInvoke(environment, true);
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, true);
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
@@ -72,13 +72,13 @@ public final class ResetTest {
     void testResetWithoutLockingReappliesChannelRpc() throws Exception {
         try (DexDevTestEnvironment environment = startEnvironment()) {
             final String flowId = startAndInvoke(environment, false);
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, false);
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
                     resetOptions(false, false));
 
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, false);
             assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
         }
     }
@@ -87,7 +87,7 @@ public final class ResetTest {
     void testResetWithoutLockingCanSkipChannelReapply() throws Exception {
         try (DexDevTestEnvironment environment = startEnvironment()) {
             final String flowId = startAndInvoke(environment, false);
-            assertCompletedWithAttributes(environment, flowId);
+            assertCompletedWithAttributes(environment, flowId, false);
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
@@ -137,6 +137,7 @@ public final class ResetTest {
                 StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(3)).build());
         final ResetWorkflow stub = environment.client().newRpcStub(ResetWorkflow.class, flowId);
         if (locking) {
+            environment.client().invokeRPC(stub::withAttributeMapLock);
             environment.client().invokeRPC(stub::withLocking);
         } else {
             environment.client().invokeRPC(stub::withoutLocking);
@@ -156,17 +157,28 @@ public final class ResetTest {
 
     private static void assertCompletedWithAttributes(
             final DexDevTestEnvironment environment,
-            final String flowId) {
+            final String flowId,
+            final boolean expectsAttributeMapValue) {
         assertEquals(
-                "lock complete",
+                2,
                 environment.client().waitForFlow(
                         flowId,
-                        String.class,
+                        Integer.class,
                         Duration.ofSeconds(10)));
         assertEquals(FlowStatus.COMPLETED, environment.client().describeFlow(flowId).getStatus());
         assertEquals(EXPECTED_VALUE, environment.client().getAttribute(flowId, WORKFLOW.data));
         assertEquals(EXPECTED_VALUE, environment.client().getAttribute(flowId, WORKFLOW.keyword));
         assertEquals(100, environment.client().getAttribute(flowId, WORKFLOW.counter));
+        assertEquals(2, environment.client().getAttribute(flowId, WORKFLOW.executionCount));
+        final String item = environment.client().getAttribute(
+                flowId,
+                WORKFLOW.items,
+                "order-1");
+        if (expectsAttributeMapValue) {
+            assertEquals("locked", item);
+        } else {
+            assertNull(item);
+        }
     }
 
     private static void assertResetTimesOutWithoutAttributes(
@@ -177,7 +189,7 @@ public final class ResetTest {
                 FlowUncompletedException.class,
                 () -> environment.client().waitForFlow(
                         flowId,
-                        String.class,
+                        Integer.class,
                         Duration.ofSeconds(10)));
         assertEquals(resetRunId, failure.getRunId());
         assertEquals(FlowStatus.TIMED_OUT, failure.getStatus());
@@ -185,6 +197,8 @@ public final class ResetTest {
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.data));
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.keyword));
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.counter));
+        assertNull(environment.client().getAttribute(flowId, WORKFLOW.executionCount));
+        assertNull(environment.client().getAttribute(flowId, WORKFLOW.items, "order-1"));
     }
 
     private static void consume(final Object value) {

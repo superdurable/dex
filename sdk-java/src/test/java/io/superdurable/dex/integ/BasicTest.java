@@ -12,6 +12,7 @@
 
 package io.superdurable.dex.integ;
 
+import io.grpc.Status;
 import io.superdurable.dex.ActiveStepSearchMode;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.DexException;
@@ -76,6 +77,7 @@ public final class BasicTest {
             final DexException duplicate = assertThrows(
                     DexException.class,
                     () -> environment.client().startFlow(WORKFLOW, flowId, input, options));
+            assertEquals(Status.Code.ALREADY_EXISTS, duplicate.getCode());
             assertEquals(ErrorSubStatus.FLOW_ALREADY_STARTED, duplicate.getSubStatus());
         }
     }
@@ -128,6 +130,7 @@ public final class BasicTest {
                             flowId("missing"),
                             Integer.class,
                             Duration.ofSeconds(1)));
+            assertEquals(Status.Code.NOT_FOUND, missing.getCode());
             assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
         }
     }
@@ -200,6 +203,7 @@ public final class BasicTest {
             final DexException missing = assertThrows(
                     DexException.class,
                     () -> environment.client().describeFlow(flowId("missing")));
+            assertEquals(Status.Code.NOT_FOUND, missing.getCode());
             assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
         }
     }

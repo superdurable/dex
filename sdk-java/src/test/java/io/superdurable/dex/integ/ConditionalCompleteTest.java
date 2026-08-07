@@ -39,8 +39,13 @@ public final class ConditionalCompleteTest {
                 WORKFLOW)) {
             final String flowId = "conditional-signal-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, true);
-            environment.client().publish(flowId, WORKFLOW.signal, (Void) null);
-            assertEquals(1, environment.client().waitForFlow(
+            environment.client().publish(
+                    flowId,
+                    WORKFLOW.signal,
+                    (Void) null,
+                    (Void) null,
+                    (Void) null);
+            assertEquals(3, environment.client().waitForFlow(
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
@@ -57,8 +62,8 @@ public final class ConditionalCompleteTest {
             final ConditionalCompleteWorkflow stub = environment.client().newRpcStub(
                     ConditionalCompleteWorkflow.class,
                     flowId);
-            environment.client().invokeRPC(stub::publishToInternalChannel);
-            assertEquals(1, environment.client().waitForFlow(
+            environment.client().invokeRPC(stub::publishToInternalChannel, 3);
+            assertEquals(3, environment.client().waitForFlow(
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
@@ -67,7 +72,12 @@ public final class ConditionalCompleteTest {
 
     void compileSignalChannel(final Client client) {
         client.startFlow(WORKFLOW, "conditional-signal", true);
-        client.publish("conditional-signal", WORKFLOW.signal, (Void) null);
+        client.publish(
+                "conditional-signal",
+                WORKFLOW.signal,
+                (Void) null,
+                (Void) null,
+                (Void) null);
         final Integer output = client.waitForFlow("conditional-signal", Integer.class);
         consume(output);
     }
@@ -77,7 +87,7 @@ public final class ConditionalCompleteTest {
         final ConditionalCompleteWorkflow stub = client.newRpcStub(
                 ConditionalCompleteWorkflow.class,
                 "conditional-internal");
-        client.invokeRPC(stub::publishToInternalChannel);
+        client.invokeRPC(stub::publishToInternalChannel, 3);
     }
 
     private static void consume(final Object value) {

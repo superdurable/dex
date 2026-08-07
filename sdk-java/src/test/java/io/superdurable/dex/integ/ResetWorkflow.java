@@ -14,6 +14,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
@@ -21,9 +22,12 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCAttributeMapLock;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepMovement;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 
 class ResetWorkflow implements Flow<Void> {
@@ -38,6 +42,9 @@ class ResetWorkflow implements Flow<Void> {
             Integer.class,
             new AttributeIndex(AttributeIndex.Type.INT));
     final AttributeMap<String> items = AttributeMap.define("rpc-lock-items", String.class);
+    final Attribute<Integer> executionCount = Attribute.define(
+            "reset-execution-count",
+            Integer.class);
     private final LockWaitStep first = new LockWaitStep();
     private final LockCompleteStep second = new LockCompleteStep();
 
@@ -48,13 +55,20 @@ class ResetWorkflow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(data, keyword, counter, items, channel);
+        return PersistenceSchema.of(
+                data,
+                keyword,
+                counter,
+                items,
+                executionCount,
+                channel);
     }
 
     @RPC(lockAttributes = {"rpc-lock-data", "CustomKeywordField", "CustomIntField"})
-    public void withLocking(final Context context) {
+    public RPCResult<Void> withLocking(final Context context) {
         writeAttributes(context);
         channel.publish(context, null);
+        return RPCResult.<Void>of(null, StepMovement.of(second, null));
     }
 
     @RPC(lockAttributeMaps = {
@@ -65,9 +79,10 @@ class ResetWorkflow implements Flow<Void> {
     }
 
     @RPC
-    public void withoutLocking(final Context context) {
+    public RPCResult<Void> withoutLocking(final Context context) {
         writeAttributes(context);
         channel.publish(context, null);
+        return RPCResult.<Void>of(null, StepMovement.of(second, null));
     }
 
     private void writeAttributes(final Context context) {
@@ -93,7 +108,7 @@ class ResetWorkflow implements Flow<Void> {
         }
     }
 
-    static final class LockCompleteStep implements Step<Void> {
+    final class LockCompleteStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -101,7 +116,17 @@ class ResetWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.gracefulComplete("lock complete");
+            final Integer current = executionCount.get(context);
+            final int next = current == null ? 1 : current + 1;
+            executionCount.set(context, next);
+            return StepDecision.gracefulComplete(next);
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(executionCount))
+                    .build();
         }
     }
 }

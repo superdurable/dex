@@ -41,7 +41,7 @@ public final class InternalChannelTest {
                 WORKFLOW)) {
             final String flowId = "basic-internal-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, 1);
-            assertEquals(2, environment.client().waitForFlow(
+            assertEquals(3, environment.client().waitForFlow(
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));

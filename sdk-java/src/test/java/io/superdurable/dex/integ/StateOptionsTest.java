@@ -27,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @Tag("dex-dev")
 public final class StateOptionsTest {
     private static final StateOptionsWorkflow WORKFLOW = new StateOptionsWorkflow();
+    private static final StateOptionsLockingWorkflow LOCKING_WORKFLOW =
+            new StateOptionsLockingWorkflow();
 
     @TempDir
     Path cacheDirectory;
@@ -45,9 +47,30 @@ public final class StateOptionsTest {
         }
     }
 
-    void compileTimeoutRetryDurabilityAndLocks(final Client client) {
-        client.startFlow(WORKFLOW, "state-options", null);
-        final String output = client.waitForFlow("state-options", String.class);
+    @Test
+    void testWaitForAndExecuteLocksSerializeParallelSteps() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                LOCKING_WORKFLOW)) {
+            final String flowId = "state-options-locks-" + UUID.randomUUID();
+            final int parallelism = 20;
+            environment.client().startFlow(LOCKING_WORKFLOW, flowId, parallelism);
+            assertEquals("20:20", environment.client().waitForFlow(
+                    flowId,
+                    String.class,
+                    Duration.ofSeconds(30)));
+            assertEquals(
+                    parallelism,
+                    environment.client().getAttribute(flowId, LOCKING_WORKFLOW.waitForCount));
+            assertEquals(
+                    parallelism,
+                    environment.client().getAttribute(flowId, LOCKING_WORKFLOW.executeCount));
+        }
+    }
+
+    void compileStepLocks(final Client client) {
+        client.startFlow(LOCKING_WORKFLOW, "state-options-locks", 10);
+        final String output = client.waitForFlow("state-options-locks", String.class);
         consume(output);
     }
 

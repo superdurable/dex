@@ -12,7 +12,10 @@
 
 package io.superdurable.dex.integ;
 
+import io.grpc.Status;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.DexException;
+import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
@@ -25,6 +28,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Tag("dex-dev")
 public final class SignalTest {
@@ -51,6 +55,11 @@ public final class SignalTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
+            final DexException closed = assertThrows(
+                    DexException.class,
+                    () -> environment.client().publish(flowId, WORKFLOW.first, 8));
+            assertEquals(Status.Code.NOT_FOUND, closed.getCode());
+            assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, closed.getSubStatus());
         }
     }
 

@@ -56,6 +56,7 @@ public final class AnyCommandCombinationTest {
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getMessage().contains("unknown condition ID"));
+            assertEquals(0, failure.getResultCount());
             final FlowInfo info = environment.client().describeFlow(flowId);
             assertEquals(runId, info.getRunId());
             assertEquals(FlowStatus.FAILED, info.getStatus());

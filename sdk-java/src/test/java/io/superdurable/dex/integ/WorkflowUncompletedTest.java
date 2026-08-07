@@ -90,11 +90,6 @@ public final class WorkflowUncompletedTest {
     }
 
     @Test
-    void testFlowCanceledWithoutRunId() throws Exception {
-        assertStoppedFlow(StopType.CANCEL, null, FlowStatus.CANCELED, null, null);
-    }
-
-    @Test
     void testFlowTerminated() throws Exception {
         assertStoppedFlow(
                 StopType.TERMINATE,

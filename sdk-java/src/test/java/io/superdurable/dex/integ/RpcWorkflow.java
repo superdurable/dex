@@ -53,7 +53,7 @@ class RpcWorkflow implements Flow<Integer> {
     }
 
     @RPC
-    public void noPersistence(final Context context) {
+    public void publishWithoutAttributeAccess(final Context context) {
         requireContext(context);
         internal.publish(context, null);
     }

@@ -11,17 +11,17 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | --- | --- |
 | `AnyCommandCombinationTest` | condition combinations and WaitFor failure |
 | `BasicTest` | start inputs, ID reuse, custom names, config, describe, step wait |
-| `ConditionalCompleteTest` | typed signal/internal channels and conditional close |
-| `InternalChannelTest` | parallel movements, channel maps, batched publish |
+| `ConditionalCompleteTest` | multi-message signal/internal channel draining and conditional close |
+| `InternalChannelTest` | parallel movements, payloads, unselected conditions, and channel maps |
 | `NoStartStateTest` | no-start, no-step, dead-end, and RPC-triggered movement |
 | `PersistenceTest` | typed attributes/maps, indexes, initial values, client reads/writes |
-| `ResetTest` | locking-RPC and channel-message reapply policies |
+| `ResetTest` | RPC/channel replay counts, AttributeMap locks, and skip-reapply policies |
 | `RpcTest` | typed functions, procedures, errors, locking, and channel size |
 | `RpcWithMemoTest` | typed RPC persistence without the removed memo API |
-| `SignalTest` | typed publish, channel combinations, and timer skipping |
+| `SignalTest` | typed publish, channel combinations, timer skipping, and closed-flow errors |
 | `SkipWaitUntilTest` | execute-only and mixed wait styles |
 | `StateOptionsOverrideTest` | per-movement StepOptions overrides |
-| `StateOptionsTest` | timeout, retry, durability, and attribute locks |
+| `StateOptionsTest` | attribute visibility and parallel WaitFor/Execute locks |
 | `StateRecoveryTest` | execute-failure recovery with and without WaitFor |
 | `TimerTest` | timer conditions and step-completion waiting |
 | `WorkflowUncompletedTest` | timeouts, stop types, user failures, and empty decisions |
