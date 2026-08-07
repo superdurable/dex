@@ -1,14 +1,16 @@
 # Dex SDK for TypeScript
 
-This package targets Node.js 22 and 24 and contains the strongly typed public
-contracts for the Dex SDK rewrite. Definitions, attributes, channels, waits,
-decisions, codecs, and registry validation work now. Async client and worker
-transport reject with `PhaseNotImplementedError` until the shared Rust Core is
-connected.
+This package targets Node.js 22 and 24. It provides strongly typed workflow
+contracts and a Promise-based gRPC Client. The Client and Worker runtime use
+`@grpc/grpc-js`. The native BlobCache binding remains a separate runtime phase.
 
 Application values use `Codec<T>`. Flow, Step, RPC, Attribute, and Channel
 definitions retain their input and output types. Client methods return Promise
 because Node network I/O is asynchronous.
+
+The Client uses `@grpc/grpc-js` directly. Rust is only the implementation
+boundary for the shared BlobCache; TypeScript callbacks and network transport
+stay in Node.
 
 Step input codecs and RPC input/output codecs remain explicit because
 TypeScript erases generic types at runtime. They are serialization metadata,
@@ -75,12 +77,19 @@ continue importing only from `@superdurable/dex`.
 - `step.ts`: Steps, movements, options, and decisions
 - `rpc.ts`: typed RPC contracts and decorators
 - `flow.ts`: Flows, registration, and validation
-- `client.ts`, `worker.ts`, `blob-cache.ts`: runtime boundaries
+- `client.ts`: Promise-based FlowService Client
+- `worker.ts`: Worker gRPC service and lifecycle
+- `worker-dispatcher.ts`: typed callback dispatch and response mapping
+- `invocation-context.ts`: invocation-scoped persistence and condition state
+- `blob-cache.ts`: injectable cache contract and future N-API binding
+- `gen/`: checked-in protobuf and grpc-js bindings
 
 Run `npm test` for runtime contracts and `npm run typecheck` for strict static
-contracts.
+contracts. Run `./run-integration-tests.sh` for all 58 IWF compatibility
+scenarios against an isolated `dexcli dev` environment. Run
+`npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
+standard protobuf includes must be installed.
 
-The complete legacy IWF integration inventory has a compile-only port under
-[`test/iwfcompat`](test/iwfcompat/README.md). Its 28 Flow fixtures and 16
-scenario files show the TypeScript programming model without starting a
-server.
+The complete legacy IWF integration inventory lives under
+[`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java
+suite's workflow behavior and its 58 assertions run against a real Dex server.

@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-export function requireName(name: string): void {
+export function requireName(name: string): string {
   if (name.trim().length === 0) {
     throw new TypeError("durable name is required");
   }
+  return name;
 }
 
 export function requireConditionId(conditionId: string | undefined): void {

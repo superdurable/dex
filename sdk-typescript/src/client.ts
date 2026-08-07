@@ -6,31 +6,92 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+import { credentials, status as GrpcStatus, type ServiceError } from "@grpc/grpc-js";
+
 import type { BlobCache } from "./blob-cache.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
-import { laterPhase } from "./errors.js";
-import type { Flow, Registry } from "./flow.js";
-import type {
-  ClientOptions,
-  FlowConfig,
-  FlowInfo,
-  ResetFlowOptions,
-  StartFlowOptions,
-  StepExecutionId,
-  StopFlowOptions,
-  TimerId,
+import {
+  ActiveStepSearchMode as ProtoActiveStepSearchMode,
+  FlowErrorType as ProtoFlowErrorType,
+  FlowResetType as ProtoFlowResetType,
+  FlowServiceClient,
+  FlowStatus as ProtoFlowStatus,
+  IdReusePolicy as ProtoIdReusePolicy,
+  IndexType as ProtoIndexType,
+  ExecuteMethodFailurePolicy,
+  type GetAttributesResponse,
+  type GetFlowSummaryResponse,
+  type InvokeRPCResponse,
+  type ResetFlowResponse,
+  type StartFlowResponse,
+  StartFlowRequest,
+  StepDurability as ProtoStepDurability,
+  StepOptions as ProtoStepOptions,
+  StopType as ProtoStopType,
+  WaitForMethodFailurePolicy,
+  type FlowServiceClient as FlowServiceClientType,
+  type FlowConfig as ProtoFlowConfig,
+  type IndexConfig,
+  type WaitForFlowResponse,
+  type WaitForStepCompletionResponse,
+} from "./gen/dex.js";
+import type { Empty } from "./gen/google/protobuf/empty.js";
+import {
+  DexError,
+  ErrorSubStatus,
+  FlowErrorType,
+  FlowUncompletedError,
+  LongPollTimeoutError,
+  type FlowErrorType as FlowErrorTypeValue,
+} from "./errors.js";
+import {
+  registeredFlow,
+  registeredRPC,
+  type Flow,
+  type RegisteredFlow,
+  type Registry,
+} from "./flow.js";
+import { translateServiceError } from "./grpc-status.js";
+import {
+  ActiveStepSearchMode,
+  IdReusePolicy,
+  ResetType,
+  StopType,
+  type ClientOptions,
+  type FlowConfig,
+  type FlowInfo,
+  type FlowStatus,
+  type ResetFlowOptions,
+  type StartFlowOptions,
+  type StepExecutionId,
+  type StopFlowOptions,
+  type TimerId,
 } from "./options.js";
-import type { Attribute, AttributeMap } from "./persistence.js";
+import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
-import type { Channel, ChannelMap } from "./wait.js";
+import type { RetryPolicy, StepOptions } from "./step.js";
+import { requireName } from "./validation.js";
+import { decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
+import { ChannelMap, type Channel } from "./wait.js";
+
+const defaultServerAddress = "localhost:8801";
 
 export class Client {
+  private readonly service: FlowServiceClientType;
+  private readonly hydrator: ValueHydrator;
+
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: ClientOptions = {},
-  ) {}
+  ) {
+    this.service = new FlowServiceClient(
+      options.serverAddress ?? defaultServerAddress,
+      credentials.createInsecure(),
+    );
+    this.hydrator = new ValueHydrator(this.service, blobCache);
+  }
 
   public async startFlow<StartInput>(
     flow: Flow<StartInput>,
@@ -38,11 +99,43 @@ export class Client {
     input: StartInput,
     options: StartFlowOptions = {},
   ): Promise<string> {
-    void flow;
-    void flowId;
-    void input;
-    void options;
-    throw laterPhase("Client transport");
+    const registered = registeredFlow(this.registry, flow);
+    const request = StartFlowRequest.create({
+      flowId: requireName(flowId),
+      flowType: registered.name,
+      flowTimeoutSeconds: seconds(options.timeoutMs),
+      requestId: options.requestId ?? crypto.randomUUID(),
+      flowStartOptions: {
+        idReusePolicy: mapIdReusePolicy(options.idReusePolicy),
+        cronSchedule: options.cronSchedule ?? "",
+        flowStartDelaySeconds: seconds(options.startDelayMs),
+        retryPolicy: mapFlowRetryPolicy(options.retryPolicy),
+        attributes: (options.attributes ?? []).map((initial) => ({
+          key: physicalName(initial.attribute.name, initial.instance),
+          value: encodeValue(initial.attribute.codec, initial.value),
+          indexConfig: mapIndex(initial.attribute.index),
+        })),
+        flowConfigOverride: mapFlowConfig(options.configOverride, this.options),
+        flowAlreadyStartedOptions: {
+          ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,
+        },
+      },
+    });
+    if (registered.startStep === undefined) {
+      if (input !== undefined) {
+        throw new TypeError("Flow without a start Step requires undefined input");
+      }
+    } else {
+      request.startStepType = registered.startStep.name;
+      request.stepInput = encodeValue(registered.startStep.step.inputCodec, input);
+      request.stepOptions = mapStepOptions(
+        registered.startStep.step.getStepOptions?.(),
+        registered.startStep.step.waitFor === undefined,
+        registered,
+      );
+    }
+    return (await unary<StartFlowResponse>((callback) => this.service.startFlow(request, callback)))
+      .runId;
   }
 
   public invokeRPC<Input, Output>(
@@ -77,21 +170,44 @@ export class Client {
     inputOrRunId?: unknown,
     runId = "",
   ): Promise<unknown> {
-    void rpcMethod;
-    void flowId;
-    void inputOrRunId;
-    void runId;
-    throw laterPhase("Client transport");
+    const rpc = registeredRPC(this.registry, rpcMethod);
+    const hasInput = rpc.options.inputCodec !== undefined;
+    const response = await unary<InvokeRPCResponse>((callback) =>
+      this.service.invokeRpc(
+        {
+          flowId: requireName(flowId),
+          runId: hasInput ? runId : (inputOrRunId as string | undefined) ?? "",
+          rpcName: rpc.name,
+          input: hasInput
+            ? encodeValue(rpc.options.inputCodec!, inputOrRunId)
+            : undefined,
+          timeoutSeconds: seconds(rpc.options.timeoutMs),
+          lockAttributeKeys: (rpc.options.lockAttributes ?? []).map((lock) =>
+            physicalName(lock.attribute.name, lock.instance),
+          ),
+          requestId: crypto.randomUUID(),
+        },
+        callback,
+      ),
+    );
+    if (rpc.options.outputCodec === undefined) {
+      return undefined;
+    }
+    return decodeValue(rpc.options.outputCodec, await this.hydrator.hydrate(response.output));
   }
 
-  public getAttribute<T>(flowId: string, attribute: Attribute<T>, runId?: string): Promise<T>;
+  public getAttribute<T>(
+    flowId: string,
+    attribute: Attribute<T>,
+    runId?: string,
+  ): Promise<T | undefined>;
 
   public getAttribute<T>(
     flowId: string,
     attribute: AttributeMap<T>,
     instance: string,
     runId?: string,
-  ): Promise<T>;
+  ): Promise<T | undefined>;
 
   public async getAttribute(
     flowId: string,
@@ -99,11 +215,23 @@ export class Client {
     instanceOrRunId = "",
     runId = "",
   ): Promise<unknown> {
-    void flowId;
-    void attribute;
-    void instanceOrRunId;
-    void runId;
-    throw laterPhase("Client transport");
+    const isMap = attribute instanceof AttributeMap;
+    const response = await unary<GetAttributesResponse>((callback) =>
+      this.service.getAttributes(
+        {
+          flowId: requireName(flowId),
+          runId: isMap ? runId : instanceOrRunId,
+          keys: [physicalName(attribute.name, isMap ? instanceOrRunId : undefined)],
+          allKeys: false,
+        },
+        callback,
+      ),
+    );
+    const value = response.attributes[0]?.value;
+    if (value === undefined) {
+      return undefined;
+    }
+    return decodeValue(attribute.codec, await this.hydrator.hydrate(value));
   }
 
   public setAttribute<T>(
@@ -128,12 +256,26 @@ export class Client {
     valueOrRunId?: unknown,
     runId = "",
   ): Promise<void> {
-    void flowId;
-    void attribute;
-    void instanceOrValue;
-    void valueOrRunId;
-    void runId;
-    throw laterPhase("Client transport");
+    const isMap = attribute instanceof AttributeMap;
+    const instance = isMap ? String(instanceOrValue) : undefined;
+    const value = isMap ? valueOrRunId : instanceOrValue;
+    await unary<Empty>((callback) =>
+      this.service.setAttributes(
+        {
+          flowId: requireName(flowId),
+          runId: isMap ? runId : typeof valueOrRunId === "string" ? valueOrRunId : "",
+          attributes: [
+            {
+              key: physicalName(attribute.name, instance),
+              value: encodeValue(attribute.codec, value),
+              indexConfig: mapIndex(attribute.index),
+            },
+          ],
+          requestId: crypto.randomUUID(),
+        },
+        callback,
+      ),
+    );
   }
 
   public publish<T>(flowId: string, channel: Channel<T>, ...values: readonly T[]): Promise<void>;
@@ -150,10 +292,22 @@ export class Client {
     channel: Channel<unknown> | ChannelMap<unknown>,
     ...instanceAndValues: readonly unknown[]
   ): Promise<void> {
-    void flowId;
-    void channel;
-    void instanceAndValues;
-    throw laterPhase("Client transport");
+    const isMap = channel instanceof ChannelMap;
+    const instance = isMap ? String(instanceAndValues[0]) : undefined;
+    const values = isMap ? instanceAndValues.slice(1) : instanceAndValues;
+    await unary<Empty>((callback) =>
+      this.service.publishToChannel(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          messages: values.map((value) => ({
+            channelName: physicalName(channel.name, instance),
+            value: encodeValue(channel.codec, value),
+          })),
+        },
+        callback,
+      ),
+    );
   }
 
   public waitForFlow(flowId: string): Promise<void>;
@@ -169,27 +323,103 @@ export class Client {
     outputCodec?: Codec<unknown>,
     timeoutMs?: number,
   ): Promise<unknown> {
-    void flowId;
-    void outputCodec;
-    void timeoutMs;
-    throw laterPhase("Client transport");
+    let response: WaitForFlowResponse;
+    try {
+      response = await unary<WaitForFlowResponse>((callback) =>
+        this.service.waitForFlow(
+          {
+            flowId: requireName(flowId),
+            runId: "",
+            needsResults: outputCodec !== undefined,
+            waitTimeSeconds: seconds(timeoutMs),
+          },
+          callback,
+        ),
+      );
+    } catch (failure) {
+      if (
+        failure instanceof DexError &&
+        (failure.code === GrpcStatus.DEADLINE_EXCEEDED ||
+          failure.subStatus === ErrorSubStatus.LONG_POLL_TIMEOUT)
+      ) {
+        throw new LongPollTimeoutError(flowId, { cause: failure });
+      }
+      throw failure;
+    }
+    if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
+      const summary = await this.describeFlow(flowId);
+      const results = await this.hydrator.hydrateAll(
+        response.results.map((result) => result.completedStepOutput),
+      );
+      throw new FlowUncompletedError(
+        summary.runId,
+        mapFlowStatus(response.flowStatus),
+        mapFlowErrorType(response.errorType),
+        response.errorMessage || undefined,
+        results,
+      );
+    }
+    if (outputCodec === undefined) {
+      return undefined;
+    }
+    for (let index = response.results.length - 1; index >= 0; index -= 1) {
+      const value = response.results[index]?.completedStepOutput;
+      if (value !== undefined) {
+        return decodeValue(outputCodec, await this.hydrator.hydrate(value));
+      }
+    }
+    throw new TypeError(`Flow ${flowId} completed without an output`);
   }
 
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
-    void flowId;
-    void options;
-    throw laterPhase("Client transport");
+    await unary<Empty>((callback) =>
+      this.service.stopFlow(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          reason: options.reason ?? "",
+          stopType: mapStopType(options.type),
+        },
+        callback,
+      ),
+    );
   }
 
   public async describeFlow(flowId: string): Promise<FlowInfo> {
-    void flowId;
-    throw laterPhase("Client transport");
+    const response = await unary<GetFlowSummaryResponse>((callback) =>
+      this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
+    );
+    if (response.flowExecutionId === undefined || response.startTime === undefined) {
+      throw new TypeError(`Dex returned an incomplete summary for Flow ${flowId}`);
+    }
+    return {
+      flowId: response.flowExecutionId.flowId,
+      runId: response.flowExecutionId.runId,
+      flowType: response.flowType,
+      status: mapFlowStatus(response.flowStatus),
+      startedAt: response.startTime,
+    };
   }
 
   public async resetFlow(flowId: string, options: ResetFlowOptions): Promise<string> {
-    void flowId;
-    void options;
-    throw laterPhase("Client transport");
+    const response = await unary<ResetFlowResponse>((callback) =>
+      this.service.resetFlow(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          resetType: mapResetType(options.type),
+          historyEventId: number64(options.historyEventId),
+          reason: options.reason ?? "",
+          historyEventTime: options.historyEventTime?.toISOString() ?? "",
+          stepType: options.stepType ?? "",
+          stepExecutionId: options.stepExecutionId ?? "",
+          skipChannelMessagesReapply: options.skipChannelMessagesReapply ?? false,
+          skipLockingRpcReapply: options.skipLockingRpcReapply ?? false,
+        },
+        callback,
+      ),
+    );
+    return response.runId;
   }
 
   public async skipTimer(
@@ -197,10 +427,18 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timerId: TimerId,
   ): Promise<void> {
-    void flowId;
-    void stepExecutionId;
-    void timerId;
-    throw laterPhase("Client transport");
+    await unary<Empty>((callback) =>
+      this.service.skipTimer(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          stepExecutionId: `${stepExecutionId.stepType}-${stepExecutionId.number ?? 1}`,
+          timerConditionId: timerId.conditionId ?? "",
+          timerConditionIndex: timerId.conditionIndex,
+        },
+        callback,
+      ),
+    );
   }
 
   public async waitForStepCompletion(
@@ -208,19 +446,287 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timeoutMs: number,
   ): Promise<void> {
-    void flowId;
-    void stepExecutionId;
-    void timeoutMs;
-    throw laterPhase("Client transport");
+    await unary<WaitForStepCompletionResponse>((callback) =>
+      this.service.waitForStepCompletion(
+        {
+          flowId: requireName(flowId),
+          stepType: stepExecutionId.stepType,
+          stepExecutionNumber: String(stepExecutionId.number ?? 1),
+          waitTimeSeconds: seconds(timeoutMs),
+          requestId: crypto.randomUUID(),
+        },
+        callback,
+      ),
+    );
   }
 
   public async updateFlowConfig(flowId: string, config: FlowConfig): Promise<void> {
-    void flowId;
-    void config;
-    throw laterPhase("Client transport");
+    await unary<Empty>((callback) =>
+      this.service.updateFlowConfig(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          flowConfig: mapFlowConfig(config, this.options),
+        },
+        callback,
+      ),
+    );
   }
 
   public async close(): Promise<void> {
-    throw laterPhase("Client transport");
+    this.service.close();
   }
+}
+
+function mapStepOptions(
+  options: StepOptions | undefined,
+  skipWaitFor: boolean,
+  flow: RegisteredFlow,
+): ProtoStepOptions {
+  const executeFailureStep = options?.executeFailure?.step;
+  const executeFailureDefinition =
+    executeFailureStep === undefined
+      ? undefined
+      : flow.steps.find((definition) => definition.step === executeFailureStep);
+  if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
+    throw new TypeError("execute failure Step must belong to the Flow");
+  }
+  const executeFailureOptions =
+    options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
+  return ProtoStepOptions.create({
+    waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
+    executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
+    waitForRetryPolicy: mapRetryPolicy(options?.waitForRetry),
+    executeRetryPolicy: mapRetryPolicy(options?.executeRetry),
+    waitForFailurePolicy:
+      options?.waitForFailure === "proceed"
+        ? WaitForMethodFailurePolicy.WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE
+        : options?.waitForFailure === "failFlow"
+          ? WaitForMethodFailurePolicy.WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE
+          : WaitForMethodFailurePolicy.WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED,
+    executeFailurePolicy:
+      executeFailureDefinition === undefined
+        ? ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED
+        : ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+    executeFailureProceedStepType: executeFailureDefinition?.name ?? "",
+    executeFailureProceedStepOptions:
+      executeFailureDefinition === undefined
+        ? undefined
+        : mapStepOptions(
+            executeFailureOptions,
+            executeFailureDefinition.step.waitFor === undefined,
+            flow,
+          ),
+    skipWaitFor,
+    waitForDurabilityOverride: mapDurability(options?.waitForDurability),
+    executeDurabilityOverride: mapDurability(options?.executeDurability),
+    waitForLockAttributeKeys: (options?.waitForLockAttributes ?? []).map((lock) =>
+      physicalName(lock.attribute.name, lock.instance),
+    ),
+    executeLockAttributeKeys: (options?.executeLockAttributes ?? []).map((lock) =>
+      physicalName(lock.attribute.name, lock.instance),
+    ),
+  });
+}
+
+function mapRetryPolicy(retry: RetryPolicy | undefined) {
+  if (retry === undefined) {
+    return undefined;
+  }
+  return {
+    initialIntervalSeconds: seconds(retry.initialIntervalMs),
+    backoffCoefficient: retry.backoffCoefficient ?? 0,
+    maximumIntervalSeconds: seconds(retry.maximumIntervalMs),
+    maximumAttempts: retry.maximumAttempts ?? 0,
+    totalDurationSeconds: seconds(retry.totalDurationMs),
+  };
+}
+
+function mapFlowRetryPolicy(retry: RetryPolicy | undefined) {
+  if (retry === undefined) {
+    return undefined;
+  }
+  return {
+    initialIntervalSeconds: seconds(retry.initialIntervalMs),
+    backoffCoefficient: retry.backoffCoefficient ?? 0,
+    maximumIntervalSeconds: seconds(retry.maximumIntervalMs),
+    maximumAttempts: retry.maximumAttempts ?? 0,
+  };
+}
+
+function mapFlowConfig(
+  config: FlowConfig | undefined,
+  clientOptions: ClientOptions,
+): ProtoFlowConfig | undefined {
+  const workerTarget = config?.workerTarget ?? clientOptions.workerTarget;
+  if (config === undefined && workerTarget === undefined) {
+    return undefined;
+  }
+  return {
+    activeStepSearchMode:
+      config?.activeStepSearchMode === undefined
+        ? undefined
+        : config.activeStepSearchMode === ActiveStepSearchMode.ALL
+          ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
+          : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+    continueAsNewThreshold: config?.continueAsNewThreshold,
+    continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
+    stepDurability:
+      config?.stepDurability === undefined ? undefined : mapDurability(config.stepDurability),
+    workerTarget:
+      workerTarget === undefined
+        ? undefined
+        : { address: workerTarget.address, isHeadlessAddress: workerTarget.headless ?? false },
+  };
+}
+
+function mapIndex(index: Attribute<unknown>["index"] | undefined): IndexConfig | undefined {
+  if (index === undefined) {
+    return undefined;
+  }
+  const types: Record<IndexType, ProtoIndexType> = {
+    [IndexType.KEYWORD]: ProtoIndexType.INDEX_TYPE_KEYWORD,
+    [IndexType.FULL_TEXT]: ProtoIndexType.INDEX_TYPE_TEXT,
+    [IndexType.KEYWORD_ARRAY]: ProtoIndexType.INDEX_TYPE_KEYWORD_ARRAY,
+    [IndexType.INT]: ProtoIndexType.INDEX_TYPE_INT,
+    [IndexType.DOUBLE]: ProtoIndexType.INDEX_TYPE_DOUBLE,
+    [IndexType.BOOL]: ProtoIndexType.INDEX_TYPE_BOOL,
+    [IndexType.DATETIME]: ProtoIndexType.INDEX_TYPE_DATETIME,
+  };
+  return {
+    enable: true,
+    type: types[index.type],
+    indexKey: index.indexKey ?? "",
+  };
+}
+
+function mapIdReusePolicy(policy: IdReusePolicy | undefined): ProtoIdReusePolicy {
+  switch (policy) {
+    case IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED:
+      return ProtoIdReusePolicy.ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY;
+    case IdReusePolicy.ALLOW_IF_NOT_RUNNING:
+      return ProtoIdReusePolicy.ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING;
+    case IdReusePolicy.ALLOW_TERMINATE_IF_RUNNING:
+      return ProtoIdReusePolicy.ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING;
+    case IdReusePolicy.DISALLOW:
+      return ProtoIdReusePolicy.ID_REUSE_POLICY_DISALLOW_REUSE;
+    default:
+      return ProtoIdReusePolicy.ID_REUSE_POLICY_UNSPECIFIED;
+  }
+}
+
+function mapStopType(type: StopType | undefined): ProtoStopType {
+  switch (type) {
+    case StopType.TERMINATE:
+      return ProtoStopType.STOP_TYPE_TERMINATE;
+    case StopType.FAIL:
+      return ProtoStopType.STOP_TYPE_FAIL;
+    default:
+      return ProtoStopType.STOP_TYPE_CANCEL;
+  }
+}
+
+function mapResetType(type: ResetType): ProtoFlowResetType {
+  const types: Record<ResetType, ProtoFlowResetType> = {
+    [ResetType.BEGINNING]: ProtoFlowResetType.FLOW_RESET_TYPE_BEGINNING,
+    [ResetType.HISTORY_EVENT_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID,
+    [ResetType.HISTORY_EVENT_TIME]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
+    [ResetType.STEP_TYPE]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
+    [ResetType.STEP_EXECUTION_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+  };
+  return types[type];
+}
+
+function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability {
+  if (value === "sync") {
+    return ProtoStepDurability.STEP_DURABILITY_SYNC;
+  }
+  if (value === "async") {
+    return ProtoStepDurability.STEP_DURABILITY_ASYNC;
+  }
+  return ProtoStepDurability.STEP_DURABILITY_UNSPECIFIED;
+}
+
+function mapFlowStatus(status: ProtoFlowStatus): FlowStatus {
+  switch (status) {
+    case ProtoFlowStatus.FLOW_STATUS_RUNNING:
+      return "running";
+    case ProtoFlowStatus.FLOW_STATUS_COMPLETED:
+      return "completed";
+    case ProtoFlowStatus.FLOW_STATUS_FAILED:
+      return "failed";
+    case ProtoFlowStatus.FLOW_STATUS_TIMEOUT:
+      return "timedOut";
+    case ProtoFlowStatus.FLOW_STATUS_TERMINATED:
+      return "terminated";
+    case ProtoFlowStatus.FLOW_STATUS_CANCELED:
+      return "cancelled";
+    case ProtoFlowStatus.FLOW_STATUS_CONTINUED_AS_NEW:
+      return "continuedAsNew";
+    default:
+      throw new TypeError(`unsupported Flow status ${status}`);
+  }
+}
+
+function mapFlowErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefined {
+  switch (type) {
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW:
+      return FlowErrorType.STEP_DECISION_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW:
+      return FlowErrorType.CLIENT_API_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_WORKER_API_FAIL:
+      return FlowErrorType.WORKER_API_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE:
+      return FlowErrorType.INVALID_USER_FLOW_CODE;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_INTERNAL:
+      return FlowErrorType.INTERNAL;
+    default:
+      return undefined;
+  }
+}
+
+function physicalName(name: string, instance?: string): string {
+  if (instance === undefined) {
+    return name;
+  }
+  requireName(instance);
+  const encoded = encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${name}/${encoded}`;
+}
+
+function seconds(milliseconds: number | undefined): number {
+  if (milliseconds === undefined) {
+    return 0;
+  }
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0 || milliseconds % 1_000 !== 0) {
+    throw new RangeError("duration must be a non-negative whole number of seconds");
+  }
+  return milliseconds / 1_000;
+}
+
+function number64(value: bigint | undefined): number {
+  if (value === undefined) {
+    return 0;
+  }
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) {
+    throw new RangeError("history event ID exceeds JavaScript's safe integer range");
+  }
+  return number;
+}
+
+function unary<Response>(
+  invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    invoke((error, response) => {
+      if (error !== null) {
+        reject(translateServiceError(error));
+        return;
+      }
+      resolve(response);
+    });
+  });
 }
