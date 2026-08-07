@@ -1,60 +1,77 @@
 /*
- * Legacy Materials in this file remain under their original licenses.
- * See LEGACY_NOTICES.md.
- */
-
-/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
  * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Modifications after the Legacy Cutoff are licensed under the
- * Super Durable Source License 1.0.
- * Legacy Materials remain under their original licenses.
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ClientOptions;
-import io.superdurable.dex.core.WorkflowUncompletedException;
-import io.superdurable.dex.gen.models.WorkflowErrorType;
-import io.superdurable.dex.gen.models.WorkflowStatus;
-import io.superdurable.dex.integ.anycommandcombination.AnyCommandCombinationFailWorkflow;
-import io.superdurable.dex.spring.TestSingletonWorkerService;
-import io.superdurable.dex.spring.controller.WorkflowRegistry;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowInfo;
+import io.superdurable.dex.FlowErrorType;
+import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.FlowUncompletedException;
+import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.concurrent.ExecutionException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 
-class AnyCommandCombinationTest {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-    @BeforeEach
-    public void setup() throws ExecutionException, InterruptedException {
-        TestSingletonWorkerService.startWorkerIfNotUp();
-    }
+@Tag("dex-dev")
+public final class AnyCommandCombinationTest {
+    private static final AnyCommandCombinationWorkflow WORKFLOW =
+            new AnyCommandCombinationWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
 
     @Test
-    void testStateApiFailWorkflow() {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "testStateApiFailWorkflow" + startTs / 1000;
-        final Integer input = 5;
-
-        final String runId = client.startWorkflow(
-                AnyCommandCombinationFailWorkflow.class, wfId, 10, input);
-
-        try {
-            client.waitForWorkflowCompletion(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(WorkflowErrorType.STATE_API_FAIL_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertTrue(e.getErrorMessage().contains("CommandNotFoundException: Found unknown commandId in the combination list"));
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+    void testStateApiFailWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "any-combination-fail-" + UUID.randomUUID();
+            final String runId = environment.client().startFlow(WORKFLOW, flowId, 5);
+            final FlowUncompletedException failure = assertThrows(
+                    FlowUncompletedException.class,
+                    () -> environment.client().waitForFlow(
+                            flowId,
+                            Integer.class,
+                            Duration.ofSeconds(30)));
+            assertEquals(runId, failure.getRunId());
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
+            assertTrue(failure.getMessage().contains("unknown condition ID"));
+            assertEquals(0, failure.getResultCount());
+            final FlowInfo info = environment.client().describeFlow(flowId);
+            assertEquals(runId, info.getRunId());
+            assertEquals(FlowStatus.FAILED, info.getStatus());
         }
-        Assertions.fail("no exception caught");
+    }
+
+    void compileStateApiFailure(final Client client) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        client.startFlow(WORKFLOW, "any-combination", 0, options);
+        final Integer result = client.waitForFlow("any-combination", Integer.class);
+        consume(result);
+    }
+
+    private static void consume(final Object value) {
     }
 }

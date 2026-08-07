@@ -1,55 +1,64 @@
 /*
- * Legacy Materials in this file remain under their original licenses.
- * See LEGACY_NOTICES.md.
- */
-
-/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
  * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Modifications after the Legacy Cutoff are licensed under the
- * Super Durable Source License 1.0.
- * Legacy Materials remain under their original licenses.
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ClientOptions;
-import io.superdurable.dex.core.WorkflowOptions;
-import io.superdurable.dex.integ.timer.BasicTimerWorkflow;
-import io.superdurable.dex.integ.timer.BasicTimerWorkflowState1;
-import io.superdurable.dex.spring.TestSingletonWorkerService;
-import io.superdurable.dex.spring.controller.WorkflowRegistry;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.concurrent.ExecutionException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 
-public class TimerTest {
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-    @BeforeEach
-    public void setup() throws ExecutionException, InterruptedException {
-        TestSingletonWorkerService.startWorkerIfNotUp();
-    }
+@Tag("dex-dev")
+public final class TimerTest {
+    private static final TimerWorkflow WORKFLOW = new TimerWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
 
     @Test
-    public void testBasicTimerWorkflow() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "basic-timer-test-id" + startTs / 1000;
-        final Integer input = 5;
+    void testBasicTimerWorkflow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "basic-timer-" + UUID.randomUUID();
+            final long startedAt = System.nanoTime();
+            environment.client().startFlow(WORKFLOW, flowId, 5);
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    new StepExecutionId("TimerStep"),
+                    Duration.ofSeconds(10));
+            environment.client().waitForFlow(flowId);
+            final long elapsedMillis = Duration.ofNanos(
+                    System.nanoTime() - startedAt).toMillis();
+            assertTrue(
+                    elapsedMillis >= 4_000L && elapsedMillis <= 7_000L,
+                    "actual duration: " + elapsedMillis);
+        }
+    }
 
-        client.startWorkflow(
-                BasicTimerWorkflow.class, wfId, 10, input,
-                WorkflowOptions.extendedBuilder()
-                        .waitForCompletionStates(BasicTimerWorkflowState1.class)
-                        .getBuilder().build());
-
-        client.waitForStateExecutionCompletion(wfId, BasicTimerWorkflowState1.class);
-        client.waitForWorkflowCompletion(wfId);
-        final long elapsed = System.currentTimeMillis() - startTs;
-        Assertions.assertTrue(elapsed >= 4000 && elapsed <= 7000, String.format("actual duration: %d", elapsed));
+    void compileTimerAndStepWait(final Client client) {
+        client.startFlow(WORKFLOW, "timer", 1);
+        client.waitForStepCompletion(
+                "timer",
+                new StepExecutionId("TimerStep"),
+                Duration.ofSeconds(10));
+        client.waitForFlow("timer");
     }
 }

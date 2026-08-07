@@ -1,76 +1,95 @@
 /*
- * Legacy Materials in this file remain under their original licenses.
- * See LEGACY_NOTICES.md.
- */
-
-/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
  * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Modifications after the Legacy Cutoff are licensed under the
- * Super Durable Source License 1.0.
- * Legacy Materials remain under their original licenses.
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ClientOptions;
-import io.superdurable.dex.integ.conditional.ConditionalCompleteWorkflow;
-import io.superdurable.dex.spring.TestSingletonWorkerService;
-import io.superdurable.dex.spring.controller.WorkflowRegistry;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.concurrent.ExecutionException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 
-public class ConditionalCompleteTest {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    @BeforeEach
-    public void setup() throws ExecutionException, InterruptedException {
-        TestSingletonWorkerService.startWorkerIfNotUp();
+@Tag("dex-dev")
+public final class ConditionalCompleteTest {
+    private static final ConditionalCompleteWorkflow WORKFLOW =
+            new ConditionalCompleteWorkflow();
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testSignalChannel() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "conditional-signal-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, true);
+            environment.client().publish(
+                    flowId,
+                    WORKFLOW.signal,
+                    (Void) null,
+                    (Void) null,
+                    (Void) null);
+            assertEquals(3, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
     }
 
     @Test
-    public void testCompleteIfInternalChannelEmpty() throws InterruptedException {
-        testCompleteIfChannelEmpty(false);
+    void testInternalChannel() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WORKFLOW)) {
+            final String flowId = "conditional-internal-" + UUID.randomUUID();
+            environment.client().startFlow(WORKFLOW, flowId, false);
+            final ConditionalCompleteWorkflow stub = environment.client().newRpcStub(
+                    ConditionalCompleteWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::publishToInternalChannel, 3);
+            assertEquals(3, environment.client().waitForFlow(
+                    flowId,
+                    Integer.class,
+                    Duration.ofSeconds(30)));
+        }
     }
 
-    @Test
-    public void testCompleteIfSignalChannelEmpty() throws InterruptedException {
-        testCompleteIfChannelEmpty(true);
+    void compileSignalChannel(final Client client) {
+        client.startFlow(WORKFLOW, "conditional-signal", true);
+        client.publish(
+                "conditional-signal",
+                WORKFLOW.signal,
+                (Void) null,
+                (Void) null,
+                (Void) null);
+        final Integer output = client.waitForFlow("conditional-signal", Integer.class);
+        consume(output);
     }
 
-    public void testCompleteIfChannelEmpty(boolean useSignal) throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        String namePart;
-        if (useSignal) {
-            namePart = "Signal";
-        } else {
-            namePart = "Internal";
-        }
-        final String wfId = "testCompleteIf" + namePart + "ChannelEmpty" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                ConditionalCompleteWorkflow.class, wfId, 10, useSignal);
+    void compileInternalChannel(final Client client) {
+        client.startFlow(WORKFLOW, "conditional-internal", false);
+        final ConditionalCompleteWorkflow stub = client.newRpcStub(
+                ConditionalCompleteWorkflow.class,
+                "conditional-internal");
+        client.invokeRPC(stub::publishToInternalChannel, 3);
+    }
 
-        Thread.sleep(1000);
-
-        for (int i = 0; i < 3; i++) {
-            if (useSignal) {
-                client.signalWorkflow(ConditionalCompleteWorkflow.class, wfId, "", ConditionalCompleteWorkflow.SIGNAL_CHANNEL_NAME, null);
-            } else {
-                final ConditionalCompleteWorkflow rpcStub = client.newRpcStub(ConditionalCompleteWorkflow.class, wfId, "");
-                client.invokeRPC(rpcStub::publishToInternalChannel);
-            }
-            if (i == 0) {
-                // wait for a second so that the workflow is in execute state
-                Thread.sleep(1000);
-            }
-        }
-
-        final Integer output = client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        Assertions.assertEquals(3, output);
-
+    private static void consume(final Object value) {
     }
 }

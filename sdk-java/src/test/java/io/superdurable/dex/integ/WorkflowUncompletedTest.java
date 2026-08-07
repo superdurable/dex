@@ -1,285 +1,255 @@
 /*
- * Legacy Materials in this file remain under their original licenses.
- * See LEGACY_NOTICES.md.
- */
-
-/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
  * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Modifications after the Legacy Cutoff are licensed under the
- * Super Durable Source License 1.0.
- * Legacy Materials remain under their original licenses.
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.core.*;
-import io.superdurable.dex.core.exceptions.LongPollTimeoutException;
-import io.superdurable.dex.gen.models.ErrorSubStatus;
-import io.superdurable.dex.gen.models.WorkflowErrorType;
-import io.superdurable.dex.gen.models.WorkflowStatus;
-import io.superdurable.dex.gen.models.WorkflowStopType;
-import io.superdurable.dex.integ.forcefail.ForceFailWorkflow;
-import io.superdurable.dex.integ.signal.BasicSignalWorkflow;
-import io.superdurable.dex.integ.stateapifail.WorkflowBasicStateFail;
-import io.superdurable.dex.integ.stateapitimeout.StateApiTimeoutFailWorkflow;
-import io.superdurable.dex.integ.statedecision.EmptyStateDecisionWorkflow;
-import io.superdurable.dex.spring.TestSingletonWorkerService;
-import io.superdurable.dex.spring.controller.WorkflowRegistry;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowErrorType;
+import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.FlowUncompletedException;
+import io.superdurable.dex.LongPollTimeoutException;
+import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.StopFlowOptions;
+import io.superdurable.dex.StopType;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.concurrent.ExecutionException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 
-import static io.superdurable.dex.gen.models.WorkflowErrorType.CLIENT_API_FAILING_WORKFLOW_ERROR_TYPE;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class WorkflowUncompletedTest {
+@Tag("dex-dev")
+public final class WorkflowUncompletedTest {
+    private static final SignalWorkflow WAIT_TIMEOUT_WORKFLOW = new SignalWorkflow();
+    private static final WorkflowUncompletedForceFailWorkflow FORCE_FAIL_WORKFLOW =
+            new WorkflowUncompletedForceFailWorkflow();
+    private static final WorkflowUncompletedStateFailureWorkflow STATE_FAILURE_WORKFLOW =
+            new WorkflowUncompletedStateFailureWorkflow();
+    private static final WorkflowUncompletedStateTimeoutWorkflow STATE_TIMEOUT_WORKFLOW =
+            new WorkflowUncompletedStateTimeoutWorkflow();
+    private static final WorkflowUncompletedEmptyDecisionWorkflow EMPTY_DECISION_WORKFLOW =
+            new WorkflowUncompletedEmptyDecisionWorkflow();
 
-    @BeforeEach
-    public void setup() throws ExecutionException, InterruptedException {
-        TestSingletonWorkerService.startWorkerIfNotUp();
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testFlowWaitTimeout() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WAIT_TIMEOUT_WORKFLOW)) {
+            final String flowId = flowId("wait-timeout");
+            environment.client().startFlow(WAIT_TIMEOUT_WORKFLOW, flowId, 1);
+
+            final LongPollTimeoutException failure = assertThrows(
+                    LongPollTimeoutException.class,
+                    () -> environment.client().waitForFlow(
+                            flowId,
+                            Integer.class,
+                            Duration.ofSeconds(1)));
+            assertEquals(flowId, failure.getFlowId());
+        }
     }
 
     @Test
-    public void testWorkflowWaitTimeout() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTimeout" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
+    void testFlowTimeout() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WAIT_TIMEOUT_WORKFLOW)) {
+            final String flowId = flowId("flow-timeout");
+            final String runId = environment.client().startFlow(
+                    WAIT_TIMEOUT_WORKFLOW,
+                    flowId,
+                    1,
+                    StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(1)).build());
 
-        final String runId = client.startWorkflow(BasicSignalWorkflow.class, wfId, 100, input);
-
-        Assertions.assertThrows(WorkflowUncompletedException.class, () -> client.tryGettingSimpleWorkflowResult(Integer.class, wfId));
-        Assertions.assertThrows(WorkflowUncompletedException.class, () -> client.tryGettingSimpleWorkflowResult(Integer.class, wfId, runId));
-        Assertions.assertThrows(WorkflowUncompletedException.class, () -> client.tryGettingComplexWorkflowResult(wfId));
-        Assertions.assertThrows(WorkflowUncompletedException.class, () -> client.tryGettingComplexWorkflowResult(wfId, runId));
-
-        long startMs = System.currentTimeMillis();
-        long elapsedMs;
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (LongPollTimeoutException e) {
-            Assertions.assertEquals(ErrorSubStatus.LONG_POLL_TIME_OUT_SUB_STATUS, e.getErrorSubStatus());
-            Assertions.assertEquals(420, e.getStatusCode());
-
-            elapsedMs = (System.currentTimeMillis() - startMs) / 1000;
-            // NOTE: because the default poll timeout is 60-2 = 28s in Dex service
-            Assertions.assertTrue(elapsedMs >= 55 && elapsedMs <= 62, "expect to poll for 58 seconds, actual is %d " + elapsedMs);
-            return;
-        } catch (Exception e) {
-            Assertions.fail("expected to catch LongPollTimeoutException");
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertFailure(failure, runId, FlowStatus.TIMED_OUT, null, null, 0);
         }
-        Assertions.fail("expected to catch LongPollTimeoutException");
     }
 
     @Test
-    public void testWorkflowTimeout() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTimeout" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
-        final String runId = client.startWorkflow(
-                BasicSignalWorkflow.class, wfId, 1, input);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.TIMEOUT, e.getClosedStatus());
-            Assertions.assertNull(e.getErrorSubType());
-            Assertions.assertNull(e.getErrorMessage());
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
-        }
-        Assertions.fail("no exception caught");
+    void testFlowCanceled() throws Exception {
+        assertStoppedFlow(StopType.CANCEL, null, FlowStatus.CANCELED, null, null);
     }
 
     @Test
-    public void testWorkflowCanceled() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTimeout" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
-        final String runId = client.startWorkflow(
-                BasicSignalWorkflow.class, wfId, 10, input);
-
-        client.stopWorkflow(wfId);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.CANCELED, e.getClosedStatus());
-            Assertions.assertNull(e.getErrorSubType());
-            Assertions.assertNull(e.getErrorMessage());
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
-        }
-        Assertions.fail("no exception caught");
+    void testFlowTerminated() throws Exception {
+        assertStoppedFlow(
+                StopType.TERMINATE,
+                "terminated",
+                FlowStatus.TERMINATED,
+                null,
+                null);
     }
 
     @Test
-    public void testWorkflowCanceledWhenNotProvidingRunId() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTimeout" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
-        final String runId = client.startWorkflow(
-                BasicSignalWorkflow.class, wfId, 10, input);
-
-        client.stopWorkflow(wfId);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.CANCELED, e.getClosedStatus());
-            Assertions.assertNull(e.getErrorSubType());
-            Assertions.assertNull(e.getErrorMessage());
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
-        }
-        Assertions.fail("no exception caught");
+    void testFlowFailedByApi() throws Exception {
+        assertStoppedFlow(
+                StopType.FAIL,
+                "fail by API",
+                FlowStatus.FAILED,
+                FlowErrorType.CLIENT_API_FAILED,
+                "fail by API");
     }
 
     @Test
-    public void testWorkflowTerminated() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTerminated" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
-        final String runId = client.startWorkflow(
-                BasicSignalWorkflow.class, wfId, 10, input);
+    void testForceFailFlow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                FORCE_FAIL_WORKFLOW)) {
+            final String flowId = flowId("force-fail");
+            final String runId = environment.client().startFlow(
+                    FORCE_FAIL_WORKFLOW,
+                    flowId,
+                    5);
 
-        client.stopWorkflow(wfId, "", ImmutableStopWorkflowOptions.builder().workflowStopType(WorkflowStopType.TERMINATE).build());
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.TERMINATED, e.getClosedStatus());
-            Assertions.assertNull(e.getErrorSubType());
-            Assertions.assertNull(e.getErrorMessage());
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertFailure(
+                    failure,
+                    runId,
+                    FlowStatus.FAILED,
+                    FlowErrorType.STEP_DECISION_FAILED,
+                    "a failing message",
+                    0);
         }
-        Assertions.fail("no exception caught");
     }
 
     @Test
-    public void testWorkflowFailByAPI() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testWorkflowTerminated" + System.currentTimeMillis() / 1000;
-        final Integer input = 1;
-        final String runId = client.startWorkflow(
-                BasicSignalWorkflow.class, wfId, 10, input);
+    void testWorkerApiFailure() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                STATE_FAILURE_WORKFLOW)) {
+            final String flowId = flowId("worker-api-failure");
+            final String runId = environment.client().startFlow(
+                    STATE_FAILURE_WORKFLOW,
+                    flowId,
+                    5);
 
-        client.stopWorkflow(wfId, "", ImmutableStopWorkflowOptions.builder().workflowStopType(WorkflowStopType.FAIL).reason("fail by API").build());
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(CLIENT_API_FAILING_WORKFLOW_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertEquals("fail by API", e.getErrorMessage());
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertEquals(runId, failure.getRunId());
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
+            assertTrue(failure.getMessage().contains("test api failing"), failure.getMessage());
+            assertEquals(0, failure.getResultCount());
         }
-        Assertions.fail("no exception caught");
     }
 
     @Test
-    public void testForceFailWorkflow() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "testForceFailWorkflow" + startTs / 1000;
-        final Integer input = 5;
+    void testWorkerApiTimeout() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                STATE_TIMEOUT_WORKFLOW)) {
+            final String flowId = flowId("worker-api-timeout");
+            final String runId = environment.client().startFlow(
+                    STATE_TIMEOUT_WORKFLOW,
+                    flowId,
+                    5);
 
-        final String runId = client.startWorkflow(
-                ForceFailWorkflow.class, wfId, 10, input);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(WorkflowErrorType.STATE_DECISION_FAILING_WORKFLOW_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertNotNull(e.getErrorMessage());
-            Assertions.assertTrue(e.getErrorMessage().contains("a failing message"));
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertEquals(runId, failure.getRunId());
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
+            assertTrue(failure.getMessage().toLowerCase().contains("timeout"), failure.getMessage());
+            assertEquals(0, failure.getResultCount());
         }
-        Assertions.fail("no exception caught");
     }
 
     @Test
-    public void testStateApiFailWorkflow() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "testStateApiFailWorkflow" + startTs / 1000;
-        final Integer input = 5;
+    void testEmptyDecisionFailsFlow() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                EMPTY_DECISION_WORKFLOW)) {
+            final String flowId = flowId("empty-decision");
+            final String runId = environment.client().startFlow(
+                    EMPTY_DECISION_WORKFLOW,
+                    flowId,
+                    5);
 
-        final String runId = client.startWorkflow(
-                WorkflowBasicStateFail.class, wfId, 10, input);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(WorkflowErrorType.STATE_API_FAIL_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertTrue(e.getErrorMessage().contains("test api failing"));
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertEquals(runId, failure.getRunId());
+            assertEquals(FlowStatus.FAILED, failure.getStatus());
+            assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
+            assertTrue(
+                    failure.getMessage().contains("goToMulti requires a movement"),
+                    failure.getMessage());
+            assertEquals(0, failure.getResultCount());
         }
-        Assertions.fail("no exception caught");
     }
 
-    @Test
-    public void testStateApiTimeoutWorkflow() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "testStateApiTimeoutWorkflow" + startTs / 1000;
-        final Integer input = 5;
+    private void assertStoppedFlow(
+            final StopType stopType,
+            final String reason,
+            final FlowStatus expectedStatus,
+            final FlowErrorType expectedErrorType,
+            final String expectedMessage) throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WAIT_TIMEOUT_WORKFLOW)) {
+            final String flowId = flowId("stopped");
+            final String runId = environment.client().startFlow(
+                    WAIT_TIMEOUT_WORKFLOW,
+                    flowId,
+                    1);
+            environment.client().stopFlow(flowId, new StopFlowOptions(stopType, reason));
 
-        final String runId = client.startWorkflow(
-                StateApiTimeoutFailWorkflow.class, wfId, 10, input);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(WorkflowErrorType.STATE_API_FAIL_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertTrue(
-                    e.getErrorMessage().contains("activity StartToClose timeout"),
-                    e.getErrorMessage()
-            );
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            assertFailure(
+                    failure,
+                    runId,
+                    expectedStatus,
+                    expectedErrorType,
+                    expectedMessage,
+                    0);
         }
-        Assertions.fail("no exception caught");
     }
 
-    @Test
-    public void testEmptyStateDecisionTimeoutWorkflow() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final long startTs = System.currentTimeMillis();
-        final String wfId = "testEmptyStateDecisionTimeoutWorkflow" + startTs / 1000;
+    private static FlowUncompletedException waitForFailure(
+            final DexDevTestEnvironment environment,
+            final String flowId) {
+        return assertThrows(
+                FlowUncompletedException.class,
+                () -> environment.client().waitForFlow(
+                        flowId,
+                        Integer.class,
+                        Duration.ofSeconds(15)));
+    }
 
-        final String runId = client.startWorkflow(
-                EmptyStateDecisionWorkflow.class, wfId, 10, null);
-
-        try {
-            client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        } catch (WorkflowUncompletedException e) {
-            Assertions.assertEquals(runId, e.getRunId());
-            Assertions.assertEquals(WorkflowStatus.FAILED, e.getClosedStatus());
-            Assertions.assertEquals(WorkflowErrorType.STATE_API_FAIL_ERROR_TYPE, e.getErrorSubType());
-            Assertions.assertTrue(
-                    e.getErrorMessage().contains("State decision returned by execute method cannot be null or empty")
-            );
-            Assertions.assertEquals(0, e.getStateResultsSize());
-            return;
+    private static void assertFailure(
+            final FlowUncompletedException failure,
+            final String runId,
+            final FlowStatus status,
+            final FlowErrorType errorType,
+            final String message,
+            final int resultCount) {
+        assertEquals(runId, failure.getRunId());
+        assertEquals(status, failure.getStatus());
+        assertEquals(errorType, failure.getErrorType());
+        if (message == null) {
+            assertNull(failure.getMessage());
+        } else {
+            assertEquals(message, failure.getMessage());
         }
-        Assertions.fail("no exception caught");
+        assertEquals(resultCount, failure.getResultCount());
+    }
+
+    private static String flowId(final String prefix) {
+        return prefix + "-" + UUID.randomUUID();
     }
 }

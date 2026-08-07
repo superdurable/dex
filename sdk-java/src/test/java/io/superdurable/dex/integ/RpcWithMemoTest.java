@@ -1,237 +1,151 @@
 /*
- * Legacy Materials in this file remain under their original licenses.
- * See LEGACY_NOTICES.md.
- */
-
-/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
  * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Modifications after the Legacy Cutoff are licensed under the
- * Super Durable Source License 1.0.
- * Legacy Materials remain under their original licenses.
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex.integ;
 
-import com.google.common.collect.ImmutableMap;
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ClientOptions;
-import io.superdurable.dex.core.ImmutableStopWorkflowOptions;
-import io.superdurable.dex.gen.models.WorkflowStopType;
-import io.superdurable.dex.integ.persistence.BasicPersistenceWorkflow;
-import io.superdurable.dex.integ.rpc.RpcMemoWorkflow;
-import io.superdurable.dex.integ.rpc.RpcWorkflowState2;
-import io.superdurable.dex.spring.TestSingletonWorkerService;
-import io.superdurable.dex.spring.controller.WorkflowRegistry;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.StopFlowOptions;
+import io.superdurable.dex.StopType;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.Arrays;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
 
-import static io.superdurable.dex.integ.persistence.BasicPersistenceWorkflow.TEST_SEARCH_ATTRIBUTE_INT;
-import static io.superdurable.dex.integ.persistence.BasicPersistenceWorkflow.TEST_SEARCH_ATTRIBUTE_KEYWORD;
-import static io.superdurable.dex.integ.rpc.RpcMemoWorkflow.TEST_DATA_OBJECT_KEY;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-public class RpcWithMemoTest {
+@Tag("dex-dev")
+public final class RpcWithMemoTest {
+    private static final RpcWorkflow WORKFLOW = new RpcWorkflow();
 
-    private static final String RPC_INPUT = "rpc-input";
+    @TempDir
+    Path cacheDirectory;
 
-    public static final Long RPC_OUTPUT = 100L;
-    public static final String HARDCODED_STR = "random-string";
-
-    @BeforeEach
-    public void setup() throws ExecutionException, InterruptedException {
-        TestSingletonWorkerService.startWorkerIfNotUp();
+    @Test
+    void testRpcMemoWorkflowFunc1() throws Exception {
+        try (DexDevTestEnvironment environment = start()) {
+            final String flowId = startFlow(environment, "rpc-attribute-func-1");
+            final RpcWorkflow stub = stub(environment, flowId);
+            environment.client().invokeRPC(stub::setData, "test-value");
+            assertEquals("test-value", environment.client().invokeRPC(stub::getData));
+            environment.client().invokeRPC(stub::setData, null);
+            assertNull(environment.client().invokeRPC(stub::getData));
+            environment.client().invokeRPC(stub::setKeyword, "test-value");
+            assertEquals("test-value", environment.client().invokeRPC(stub::getKeyword));
+            environment.client().invokeRPC(stub::setKeyword, null);
+            assertNull(environment.client().invokeRPC(stub::getKeyword));
+            assertEquals(
+                    RpcWorkflow.RPC_OUTPUT,
+                    environment.client().invokeRPC(stub::functionOne, "rpc-input"));
+            assertCompletion(environment, flowId, "rpc-input");
+        }
     }
 
     @Test
-    public void testRpcMemoWorkflowFunc1() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testRpcMemoWorkflowFunc1" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                RpcMemoWorkflow.class, wfId, 10, 999);
-
-        final RpcMemoWorkflow rpcStub = client.newRpcStub(RpcMemoWorkflow.class, wfId, "");
-
-        String value;
-        client.invokeRPC(rpcStub::testRpcSetDataAttribute, "test-value");
-        value = client.invokeRPC(rpcStub::testRpcGetDataAttributeStrongConsistent);
-        Assertions.assertEquals("test-value", value);
-        Thread.sleep(100);
-        value = client.invokeRPC(rpcStub::testRpcGetDataAttribute);
-        Assertions.assertEquals("test-value", value);
-
-        client.invokeRPC(rpcStub::testRpcSetDataAttribute, null);
-        value = client.invokeRPC(rpcStub::testRpcGetDataAttributeStrongConsistent);
-        Assertions.assertNull(value);
-        Thread.sleep(100);
-        value = client.invokeRPC(rpcStub::testRpcGetDataAttribute);
-        Assertions.assertNull(value);
-
-        client.invokeRPC(rpcStub::testRpcSetKeyword, "test-value");
-        value = client.invokeRPC(rpcStub::testRpcGetKeywordStrongConsistency);
-        Assertions.assertEquals("test-value", value);
-        Thread.sleep(100);
-        value = client.invokeRPC(rpcStub::testRpcGetKeyword);
-        Assertions.assertEquals("test-value", value);
-
-        client.invokeRPC(rpcStub::testRpcSetKeyword, null);
-        value = client.invokeRPC(rpcStub::testRpcGetKeywordStrongConsistency);
-        Assertions.assertNull(value);
-        Thread.sleep(100);
-        value = client.invokeRPC(rpcStub::testRpcGetKeyword);
-        Assertions.assertTrue(value == null || value.isEmpty());
-
-        final Long rpcOutput = client.invokeRPC(rpcStub::testRpcFunc1, RPC_INPUT);
-
-        Assertions.assertEquals(RPC_OUTPUT, rpcOutput);
-
-        // output
-        final Integer output = client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        RpcWorkflowState2.resetCounter();
-        Assertions.assertEquals(2, output);
-
-        // data attrs
-        Map<String, Object> dataAttrs =
-                client.getWorkflowDataAttributes(BasicPersistenceWorkflow.class, wfId, runId, Arrays.asList(BasicPersistenceWorkflow.TEST_DATA_OBJECT_KEY));
-        Assertions.assertEquals(
-                ImmutableMap.builder()
-                        .put(TEST_DATA_OBJECT_KEY, RPC_INPUT)
-                        .build(), dataAttrs);
-
-        // search attrs
-        final Map<String, Object> searchAttributes = client.getWorkflowSearchAttributes(BasicPersistenceWorkflow.class,
-                wfId, "", Arrays.asList(TEST_SEARCH_ATTRIBUTE_KEYWORD, TEST_SEARCH_ATTRIBUTE_INT));
-
-        Assertions.assertEquals(ImmutableMap.builder()
-                .put(TEST_SEARCH_ATTRIBUTE_INT, RPC_OUTPUT)
-                .put(TEST_SEARCH_ATTRIBUTE_KEYWORD, RPC_INPUT)
-                .build(), searchAttributes);
+    void testRpcMemoWorkflowFunc0() throws Exception {
+        try (DexDevTestEnvironment environment = start()) {
+            final String flowId = startFlow(environment, "rpc-attribute-func-0");
+            final RpcWorkflow stub = stub(environment, flowId);
+            assertEquals(
+                    RpcWorkflow.RPC_OUTPUT,
+                    environment.client().invokeRPC(stub::functionZero));
+            assertCompletion(environment, flowId, RpcWorkflow.HARDCODED_VALUE);
+        }
     }
 
     @Test
-    public void testRpcMemoWorkflowFunc0() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testRpcMemoWorkflowFunc0" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                RpcMemoWorkflow.class, wfId, 10, 999);
-
-        final RpcMemoWorkflow rpcStub = client.newRpcStub(RpcMemoWorkflow.class, wfId, "");
-        final Long rpcOutput = client.invokeRPC(rpcStub::testRpcFunc0);
-
-        Assertions.assertEquals(RPC_OUTPUT, rpcOutput);
-
-        // output
-        final Integer output = client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        RpcWorkflowState2.resetCounter();
-        Assertions.assertEquals(2, output);
-
-        // data attrs
-        Map<String, Object> dataAttrs =
-                client.getWorkflowDataAttributes(BasicPersistenceWorkflow.class, wfId, runId, Arrays.asList(BasicPersistenceWorkflow.TEST_DATA_OBJECT_KEY));
-        Assertions.assertEquals(
-                ImmutableMap.builder()
-                        .put(TEST_DATA_OBJECT_KEY, HARDCODED_STR)
-                        .build(), dataAttrs);
-
-        // search attrs
-        final Map<String, Object> searchAttributes = client.getWorkflowSearchAttributes(BasicPersistenceWorkflow.class,
-                wfId, "", Arrays.asList(TEST_SEARCH_ATTRIBUTE_KEYWORD, TEST_SEARCH_ATTRIBUTE_INT));
-
-        Assertions.assertEquals(ImmutableMap.builder()
-                .put(TEST_SEARCH_ATTRIBUTE_INT, RPC_OUTPUT)
-                .put(TEST_SEARCH_ATTRIBUTE_KEYWORD, HARDCODED_STR)
-                .build(), searchAttributes);
-
+    void testRpcMemoWorkflowProc1() throws Exception {
+        try (DexDevTestEnvironment environment = start()) {
+            final String flowId = startFlow(environment, "rpc-attribute-proc-1");
+            final RpcWorkflow stub = stub(environment, flowId);
+            environment.client().invokeRPC(stub::procedureOne, "rpc-input");
+            assertCompletion(environment, flowId, "rpc-input");
+        }
     }
 
     @Test
-    public void testRpcMemoWorkflowProc1() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testRpcMemoWorkflowProc1" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                RpcMemoWorkflow.class, wfId, 10, 999);
-
-        final RpcMemoWorkflow rpcStub = client.newRpcStub(RpcMemoWorkflow.class, wfId, "");
-        client.invokeRPC(rpcStub::testRpcProc1, RPC_INPUT);
-
-        // output
-        final Integer output = client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        RpcWorkflowState2.resetCounter();
-        Assertions.assertEquals(2, output);
-
-        // data attrs
-        Map<String, Object> dataAttrs =
-                client.getWorkflowDataAttributes(BasicPersistenceWorkflow.class, wfId, runId, Arrays.asList(BasicPersistenceWorkflow.TEST_DATA_OBJECT_KEY));
-        Assertions.assertEquals(
-                ImmutableMap.builder()
-                        .put(TEST_DATA_OBJECT_KEY, RPC_INPUT)
-                        .build(), dataAttrs);
-
-        // search attrs
-        final Map<String, Object> searchAttributes = client.getWorkflowSearchAttributes(BasicPersistenceWorkflow.class,
-                wfId, "", Arrays.asList(TEST_SEARCH_ATTRIBUTE_KEYWORD, TEST_SEARCH_ATTRIBUTE_INT));
-
-        Assertions.assertEquals(ImmutableMap.builder()
-                .put(TEST_SEARCH_ATTRIBUTE_INT, RPC_OUTPUT)
-                .put(TEST_SEARCH_ATTRIBUTE_KEYWORD, RPC_INPUT)
-                .build(), searchAttributes);
+    void testRpcMemoWorkflowProc0() throws Exception {
+        try (DexDevTestEnvironment environment = start()) {
+            final String flowId = startFlow(environment, "rpc-attribute-proc-0");
+            final RpcWorkflow stub = stub(environment, flowId);
+            environment.client().invokeRPC(stub::procedureZero);
+            assertCompletion(environment, flowId, RpcWorkflow.HARDCODED_VALUE);
+        }
     }
 
     @Test
-    public void testRpcMemoWorkflowProc0() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testRpcMemoWorkflowProc0" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                RpcMemoWorkflow.class, wfId, 10, 999);
-
-        final RpcMemoWorkflow rpcStub = client.newRpcStub(RpcMemoWorkflow.class, wfId, "");
-        client.invokeRPC(rpcStub::testRpcProc0);
-
-        // output
-        final Integer output = client.getSimpleWorkflowResultWithWait(Integer.class, wfId);
-        RpcWorkflowState2.resetCounter();
-        Assertions.assertEquals(2, output);
-
-        // data attrs
-        Map<String, Object> dataAttrs =
-                client.getWorkflowDataAttributes(BasicPersistenceWorkflow.class, wfId, runId, Arrays.asList(BasicPersistenceWorkflow.TEST_DATA_OBJECT_KEY));
-        Assertions.assertEquals(
-                ImmutableMap.builder()
-                        .put(TEST_DATA_OBJECT_KEY, HARDCODED_STR)
-                        .build(), dataAttrs);
-
-        // search attrs
-        final Map<String, Object> searchAttributes = client.getWorkflowSearchAttributes(BasicPersistenceWorkflow.class,
-                wfId, "", Arrays.asList(TEST_SEARCH_ATTRIBUTE_KEYWORD, TEST_SEARCH_ATTRIBUTE_INT));
-
-        Assertions.assertEquals(ImmutableMap.builder()
-                .put(TEST_SEARCH_ATTRIBUTE_INT, RPC_OUTPUT)
-                .put(TEST_SEARCH_ATTRIBUTE_KEYWORD, HARDCODED_STR)
-                .build(), searchAttributes);
+    void testRpcMemoWorkflowFunc1ReadOnly() throws Exception {
+        try (DexDevTestEnvironment environment = start()) {
+            final String flowId = startFlow(environment, "rpc-attribute-read-only");
+            final RpcWorkflow stub = stub(environment, flowId);
+            assertEquals(
+                    RpcWorkflow.RPC_OUTPUT,
+                    environment.client().invokeRPC(stub::readOnly, "rpc-input"));
+            environment.client().stopFlow(
+                    flowId,
+                    new StopFlowOptions(StopType.FAIL, RpcWorkflow.HARDCODED_VALUE));
+        }
     }
 
-    @Test
-    public void testRpcMemoWorkflowFunc1ReadOnly() throws InterruptedException {
-        final Client client = new Client(WorkflowRegistry.registry, ClientOptions.localDefault);
-        final String wfId = "testRpcMemoWorkflowFunc1ReadOnly" + System.currentTimeMillis() / 1000;
-        final String runId = client.startWorkflow(
-                RpcMemoWorkflow.class, wfId, 10, 999);
-
-        final RpcMemoWorkflow rpcStub = client.newRpcStub(RpcMemoWorkflow.class, wfId, "");
-        final Long rpcOutput = client.invokeRPC(rpcStub::testRpcFunc1Readonly, RPC_INPUT);
-
-        Assertions.assertEquals(RPC_OUTPUT, rpcOutput);
-
-        client.stopWorkflow(wfId, "", ImmutableStopWorkflowOptions.builder()
-                .workflowStopType(WorkflowStopType.FAIL)
-                .reason(HARDCODED_STR)
-                .build());
-
+    void compileMemoReplacement(final Client client) {
+        client.startFlow(WORKFLOW, "rpc-cache", 0);
+        final RpcWorkflow stub = client.newRpcStub(
+                RpcWorkflow.class,
+                "rpc-cache");
+        client.invokeRPC(stub::setData, "value");
+        final String data = client.invokeRPC(stub::getData);
+        client.invokeRPC(stub::setKeyword, "keyword");
+        final String keyword = client.invokeRPC(stub::getKeyword);
+        final Long result = client.invokeRPC(stub::functionOne, "input");
+        consume(data, keyword, result);
     }
 
+    private static void consume(final Object... values) {
+    }
+
+    private DexDevTestEnvironment start() throws Exception {
+        return DexDevTestEnvironment.start(cacheDirectory, WORKFLOW);
+    }
+
+    private static String startFlow(
+            final DexDevTestEnvironment environment,
+            final String prefix) {
+        final String flowId = prefix + "-" + UUID.randomUUID();
+        environment.client().startFlow(WORKFLOW, flowId, 999);
+        return flowId;
+    }
+
+    private static RpcWorkflow stub(
+            final DexDevTestEnvironment environment,
+            final String flowId) {
+        return environment.client().newRpcStub(RpcWorkflow.class, flowId);
+    }
+
+    private static void assertCompletion(
+            final DexDevTestEnvironment environment,
+            final String flowId,
+            final String expectedValue) {
+        assertEquals(2, environment.client().waitForFlow(
+                flowId,
+                Integer.class,
+                Duration.ofSeconds(30)));
+        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.data));
+        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.keyword));
+        assertEquals(
+                Math.toIntExact(RpcWorkflow.RPC_OUTPUT),
+                environment.client().getAttribute(flowId, WORKFLOW.integer));
+    }
 }
