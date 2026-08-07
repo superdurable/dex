@@ -56,6 +56,9 @@ jobs:
     name: Integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: sdk-typescript
@@ -78,8 +81,24 @@ jobs:
         uses: temporalio/setup-temporal@v0
       - name: Install dependencies
         run: npm ci
-      - name: Run integration tests with dexcli dev
-        run: ./run-integration-tests.sh
+      - name: Run integration coverage with dexcli dev
+        run: npm run coverage:integration
+      - name: Upload TypeScript coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./sdk-typescript/coverage/lcov.info
+          flags: sdk-typescript-integration
+          name: sdk-typescript-integration
+          use_oidc: true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-typescript-integration-coverage
+          path: sdk-typescript/coverage/
+          if-no-files-found: ignore
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7

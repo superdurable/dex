@@ -90,6 +90,27 @@ scenarios against an isolated `dexcli dev` environment. Run
 `npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
 standard protobuf includes must be installed.
 
+## Integration coverage
+
+Run the complete integration suite with TypeScript source coverage:
+
+```shell
+npm run coverage:integration
+```
+
+The terminal report lists coverage per SDK source file and every uncovered
+line. Open `coverage/index.html` for annotated source, or inspect
+`coverage/coverage-summary.json` programmatically. `coverage/lcov.info` is the
+report uploaded by CI. Generated protobuf code under `src/gen/` is excluded.
+
+CI uploads the LCOV report to Codecov with GitHub OIDC, so no upload secret is
+stored in this repository. The report uses the `sdk-typescript-integration`
+flag and contributes to the TypeScript SDK component defined in the root
+`codecov.yml`. After the first successful `main` upload, Codecov displays
+project and patch coverage in its dashboard, GitHub checks, and PR comments.
+The Actions run also publishes the complete HTML report as
+`sdk-typescript-integration-coverage`.
+
 The complete legacy IWF integration inventory lives under
 [`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java
 suite's workflow behavior and its 58 assertions run against a real Dex server.

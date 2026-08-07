@@ -4,3 +4,4 @@ sdk-typescript/node_modules/
 sdk-rust/target/
 sdk-typescript/dist/
 sdk-java/publication-smoke-test/target/
+sdk-typescript/coverage/
