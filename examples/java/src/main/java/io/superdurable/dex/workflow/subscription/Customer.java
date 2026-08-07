@@ -14,25 +14,28 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.workflow.money.transfer;
+package io.superdurable.dex.workflow.subscription;
 
-public class TransferRequest {
-    public String fromAccount;
-    public String toAccount;
-    public int amount;
-    public String notes;
+public class Customer {
+    public String firstName;
+    public String lastName;
+    public String id;
+    public String email;
+    public Subscription subscription;
 
-    public TransferRequest() {
+    public Customer() {
     }
 
-    public TransferRequest(
-            final String fromAccount,
-            final String toAccount,
-            final int amount,
-            final String notes) {
-        this.fromAccount = fromAccount;
-        this.toAccount = toAccount;
-        this.amount = amount;
-        this.notes = notes;
+    public Customer(
+            final String firstName,
+            final String lastName,
+            final String id,
+            final String email,
+            final Subscription subscription) {
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.id = id;
+        this.email = email;
+        this.subscription = subscription;
     }
 }

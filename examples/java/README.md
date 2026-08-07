@@ -1,198 +1,80 @@
 # Dex Java examples
 
-Samples for [Dex Java SDK](../sdk-java) (`io.superdurable:dex-sdk`) that run against [Dex server](../server).
+These examples target `io.superdurable:dex-sdk:0.0.3` (`io.superdurable.dex`).
 
-```gradle
-implementation 'io.superdurable:dex-sdk:0.0.2'
+The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP
+controller on port `8080`. One Registry and disk BlobCache are shared by its
+Worker and Client.
+
+## Run locally
+
+Start Dex, ensure Temporal search attributes exist, then run the examples:
+
+```bash
+dexcli dev --temporal-db-filename /tmp/dex-examples.db
+
+# Required once per Temporal namespace (dexcli usually creates FlowType /
+# ActiveStepTypes; CustomKeywordField is used by engagement):
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name ActiveStepTypes --type KeywordList
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name CustomKeywordField --type Keyword
+
+./gradlew bootRun
 ```
 
-## Setup
+Use JDK 17 (Spring Boot 2.7). The Gradle Java toolchain targets 17 when it is
+installed. Defaults connect to Dex at `localhost:8801`. Override with:
 
-1. Start an Dex server (for local monorepo testing, use `sdk-java/script/docker-compose.yml` which pulls `superdurable/dex-server:latest`).
-2. Run this project with Gradle `bootRun`.
+- `DEX_FLOW_SERVICE_ADDRESS`: Dex gRPC target
+- `DEX_WORKER_BIND_ADDRESS`: WorkerService bind address
+- `DEX_WORKER_TARGET`: address advertised to Dex when it differs from the bind
+  address
+- `DEX_BLOB_CACHE_DIR`: shared Client/Worker blob-cache directory
 
-_Note that by default this project listens on port 8803._
+If host port `7233` is already taken (for example by OrbStack), pass alternate
+Temporal ports to `dexcli`, for example
+`--temporal-port 17233 --temporal-ui-port 18233`, and point `temporal ...`
+commands at that address.
 
-## Design Patterns
-Check out all the [design patterns](./src/main/java/io/dex/patterns) that we use dex to build applications.
+When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 
-### [Cron Schedule Workflow](./src/main/java/io/dex/patterns/workflow/cron)
-A pattern for replacing traditional Orc jobs with workflow-based cron scheduling. This pattern demonstrates how to use scheduled workflows to execute tasks at specified intervals using CRON expressions. Key features include automatic initialization, configurable scheduling, and management through Temporal Cloud UI.
+## Try each example
 
-**Use Cases**: Periodic data processing, cleanup tasks, automated reports, scheduled maintenance
-**Endpoints**: N/A (automatically scheduled)
+With `bootRun` up:
 
-### [Drain Channels Patterns](./src/main/java/io/dex/patterns/workflow/drainchannels)
+```bash
+# Money transfer saga
+curl 'http://127.0.0.1:8080/moneytransfer/start?fromAccount=a&toAccount=b&amount=42&notes=hi'
 
-#### [Drain Internal Channels](./src/main/java/io/dex/patterns/workflow/drainchannels/internal)
-Demonstrates graceful shutdown of internal communication channels between workflow threads. One thread sends commands through internal channels while another continuously processes messages, ensuring no messages are lost during shutdown.
+# Microservice orchestration
+curl 'http://127.0.0.1:8080/microservice/start?workflowId=ms-1'
+curl 'http://127.0.0.1:8080/microservice/swap?workflowId=ms-1&data=new'
+curl 'http://127.0.0.1:8080/microservice/signal?workflowId=ms-1'
 
-**Use Cases**: Consumer-producer patterns, message processing with graceful shutdown
-**Endpoints**: `GET /design-pattern/drainchannels/internal/start?workflowId={workflowId}`
+# Engagement
+curl 'http://127.0.0.1:8080/engagement/start'
+curl 'http://127.0.0.1:8080/engagement/describe?workflowId=<id>'
+curl 'http://127.0.0.1:8080/engagement/decline?workflowId=<id>&notes=no'
+curl 'http://127.0.0.1:8080/engagement/accept?workflowId=<id>&notes=yes'
+curl 'http://127.0.0.1:8080/engagement/optout?workflowId=<id>'
 
-#### [Drain Signal Channels](./src/main/java/io/dex/patterns/workflow/drainchannels/signal)
-Shows how to process signals until channels are empty, then immediately complete the workflow to keep it short-lived. Uses atomic checking to determine if channels are empty before closing.
+# Subscription
+curl 'http://127.0.0.1:8080/subscription/start'
+curl 'http://127.0.0.1:8080/subscription/describe?workflowId=<id>'
+curl 'http://127.0.0.1:8080/subscription/updateChargeAmount?workflowId=<id>&newChargeAmount=250'
+curl 'http://127.0.0.1:8080/subscription/cancel?workflowId=<id>'
 
-**Use Cases**: Processing queued refund requests, LLM evaluation with bandwidth limits
-**Endpoints**: `GET /drainchannels/signal/startorsignal?workflowId={workflowId}`
+# Polling
+curl 'http://127.0.0.1:8080/polling/start?workflowId=poll-1&pollingCompletionThreshold=3'
+curl 'http://127.0.0.1:8080/polling/complete?workflowId=poll-1&channel=task-a-completed'
+curl 'http://127.0.0.1:8080/polling/complete?workflowId=poll-1&channel=task-b-completed'
+```
 
-### [Interruptible Execution](./src/main/java/io/dex/patterns/workflow/interruptible)
-Allows workflows to be gracefully interrupted and terminated based on external signals. This pattern enables dynamic control over long-running workflow execution with proper state management.
+## Examples
 
-**Use Cases**: Dynamic task management, resource optimization, error handling and recovery
-**Endpoints**: 
-- Start: `GET /design-pattern/interruptible/start?workflowId={workflowId}`
-- Cancel: `GET /design-pattern/interruptible/cancel?workflowId={workflowId}`
-
-### [Manual Intervention](./src/main/java/io/dex/patterns/workflow/intervention)
-Handles scenarios where API calls fail and require human intervention to retry or skip operations. Supports manual interaction through Temporal Cloud UI, built-in endpoints, or custom RPC endpoints.
-
-**Use Cases**: API failure handling, manual decision points, external system integration issues
-**Endpoints**: `GET /design-pattern/intervention/start?workflowId={workflowId}`
-
-### [Parallel States](./src/main/java/io/dex/patterns/workflow/parallel)
-Demonstrates running multiple states concurrently with two variants: simple parallel execution and parallel execution with await completion. Supports both different states running in parallel and the same state running multiple times.
-
-**Use Cases**: Independent concurrent operations, bulk processing, simultaneous notifications
-**Endpoints**:
-- Simple: `GET /parallel/start/simple?workflowId={workflowId}`
-- With Await: `GET /parallel/start/withAwait?workflowId={workflowId}`
-
-### [Parent-Child Workflows](./src/main/java/io/dex/patterns/workflow/parentchild)
-Shows how to start child workflows and wait for their completion using client API. This pattern supports many-to-many relationships between parent and child workflows, making it more flexible than signal-based approaches.
-
-**Use Cases**: Fan-out execution patterns, hierarchical task processing
-**Endpoints**: Varies based on implementation
-
-### [Polling Patterns](./src/main/java/io/dex/patterns/workflow/polling)
-
-#### Simple Polling
-Periodically checks external system readiness using timer commands with consistent intervals.
-
-#### Backoff Polling  
-Uses exponential backoff retry mechanism with state API retry policies for more efficient resource usage.
-
-**Use Cases**: External system readiness checks, data ingestion, payment verification, resource availability monitoring
-**Endpoints**:
-- Simple: `GET /design-pattern/polling/start/simple?workflowId={workflowId}`
-- Backoff: `GET /design-pattern/polling/start/backoff?workflowId={workflowId}`
-
-### [Failure Recovery](./src/main/java/io/dex/patterns/workflow/recovery)
-Implements the Saga pattern for handling failures in multi-step transactions with compensation actions. Demonstrates both state API backoff retry and failure recovery mechanisms.
-
-**Use Cases**: Payment processing, distributed transactions, multi-step operations requiring rollback
-**Endpoints**: `GET /recovery/start?workflowId={workflowId}&itemName={itemName}&quantity={quantity}`
-
-### [Reminders](./src/main/java/io/dex/patterns/workflow/reminders)
-Sends periodic reminders to users while handling opt-out requests and managing timeouts. Includes automatic reminder scheduling and user preference management.
-
-**Use Cases**: User engagement, task completion reminders, automated follow-ups
-**Endpoints**:
-- Start: `GET /design-pattern/workflow-with-reminder/start`
-- Accept: `GET /design-pattern/workflow-with-reminder/accept?workflowId={workflowId}`
-- Opt-out: `GET /design-pattern/workflow-with-reminder/optout?workflowId={workflowId}`
-
-### [Resettable Timer](./src/main/java/io/dex/patterns/workflow/resettabletimer)
-Implements a timer that can be reset before firing, useful for scenarios requiring action after periods of inactivity with the ability to restart the countdown.
-
-**Use Cases**: Inactivity notifications, data cleanup after abandonment, time-sensitive processes
-**Endpoints**:
-- Start: `GET /design-pattern/resettabletimer/start?workflowId={workflowId}`
-- Reset: `GET /design-pattern/resettabletimer/reset?workflowId={workflowId}`
-
-### [Scalable Parallel Processing](./src/main/java/io/dex/patterns/workflow/scalableparallel)
-Advanced parent-child pattern for high scalability with unlimited request acceptance, partitioned processing, and configurable parallelism control. Includes request buffering and queue management.
-
-**Use Cases**: CSV file processing, large dataset analysis, high-volume task processing
-**Endpoints**: `GET /design-pattern/parallelism/start?workflowId={workflowId}&numOfChildWfs={number}`
-
-### [Storage Pattern](./src/main/java/io/dex/patterns/workflow/storage)
-Implements a singleton workflow acting as persistent storage service with RPC-based operations. Provides long-lived data persistence across workflow executions with a 4MB storage limit.
-
-**Use Cases**: Small database replacement, persistent workflow state, demo/MVP data storage
-**Endpoints**:
-- Add: `POST /design-pattern/storage/add`
-- Get: `GET /design-pattern/storage/get` 
-- Remove: `POST /design-pattern/storage/remove`
-
-### [Timeout Handling](./src/main/java/io/dex/patterns/workflow/timeout)
-Manages task execution within designated time frames with parallel timeout monitoring. Can forcibly terminate workflows that exceed time limits or handle timeouts gracefully.
-
-**Use Cases**: Task duration control, preventing endless execution, time-bounded operations
-**Endpoints**: `GET /design-pattern/timeout/start?workflowId={workflowId}&successfulWorkflow={boolean}`
-
-### [Wait for State Completion](./src/main/java/io/dex/patterns/workflow/waitforstatecompletion)
-Notifies clients when operations complete while starting background processes. Simplifies architectures by replacing complex CDC patterns and polling mechanisms.
-
-**Use Cases**: Database CDC replacement, frontend data rendering, background operation triggers
-**Endpoints**: `GET /design-pattern/waitforstatecompletion/start?workflowId={workflowId}`
-
-## Product Use case samples
-
-### [Money transfer workflow/SAGA Patten](src/main/java/io/dex/workflow/money/transfer)
-This example shows how to transfer money from one account to another account.
-The transfer involves multiple steps. When any step fails, the whole transfer is canceled with some compensation steps.
-
-### [User sign-up/registry workflow](src/main/java/io/dex/workflow/signup)
-
-A [common use case](src/main/java/io/dex/workflow/signup) that is almost everywhere -- new user sign-up/register a new account in a website/system.
-E.g. Amazon/Linkedin/Google/etc...
-
-### [Microservice ochestration](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/microservices)
-This is the code that is [shown in Dex server as an example of microservice orchestration](https://github.com/superdurable/dex#example-microservice-orchestration).
-
-### [JobSeeker Engagement workflow](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/engagement)
-<img width="709" alt="Screenshot 2023-04-21 at 8 53 25 AM" src="https://user-images.githubusercontent.com/4523955/233680837-6a6267a0-4b31-419e-87f0-667bb48582d1.png">
-
-
-See [Engagement](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/engagement)
-for
-how to build an jobSeeker engagement workflow.
-
-
-* An engagement is initiated by an employer to reach out to a jobSeeker(via email/SMS/etc)
-* The jobSeeker could respond with decline or accept
-* If jobSeeker doesn't respond, it will get reminder
-* An engagement can change from declined to accepted, but cannot change from accepted to declined
-
-### [Job Post System (a mini Indeed.com)](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/jobpost)
-
-See [JobPost](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/jobpost) for
-how to build an JobPost system like Indeed.com
-
-Support typical CRUD operations:
-
-* Create a job with tile, description and notes
-* Read a job
-* Update a job
-* Delete a job
-
-And also
-
-* Search for jobs using full-text search
-* Update will trigger a background action to update external system with eventual consistency
-
-### Subscription workflow
-
-See [Subscription](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/subscription)
-with [unit tests](https://github.com/superdurable/dex/tree/main/examples/java/src/test/java/io/dex/workflow/subscription)
-for the use case also described in:
-
-* [Temporal TypeScript tutorials](https://learn.temporal.io/tutorials/typescript/subscriptions/)
-* [Temporal go sample](https://github.com/temporalio/subscription-workflow-project-template-go)
-* [Temporal Java Sample](https://github.com/temporalio/subscription-workflow-project-template-java)
-* [Cadence Java example](https://cadenceworkflow.io/docs/concepts/workflows/#example)
-
-In additional, Dex provides "Auto-ContinueAsNew feature to allow running the workflow infinitely
-
-### [Shortlist Candidates workflow](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/shortlistcandidates)
-<img width="709" alt="Candidate Shortlisting Use Case" src="src/main/java/io/dex/workflow/shortlistcandidates/use_case.png">
-
-
-See [ShortlistCandidates](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/dex/workflow/shortlistcandidates)
-for
-how to build a workflow to automatically establish connections with shortlisted candidates on behalf of an employer.
-
-* Design a workflow as long-term storage: leveraging the attributes of Dex to retain the employer opt-in information in [EmployerOptInWorkflow](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/dex/workflow/shortlistcandidates/EmployerOptInWorkflow.java).
-* Retrieve the attributes of another workflow from within a different workflow: checking the employer's opt-in status stored in the [EmployerOptInWorkflow](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/dex/workflow/shortlistcandidates/EmployerOptInWorkflow.java) when making a decision on whether to automatically contact shortlisted candidates for that employer in the [ShortlistWorkflow](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/dex/workflow/shortlistcandidates/ShortlistWorkflow.java).
-
+- [Money transfer saga](./src/main/java/io/superdurable/dex/workflow/money/transfer)
+- [Microservice orchestration](./src/main/java/io/superdurable/dex/workflow/microservices)
+- [Employer/job-seeker engagement](./src/main/java/io/superdurable/dex/workflow/engagement)
+- [Subscription](./src/main/java/io/superdurable/dex/workflow/subscription)
+- [Polling and channel coordination](./src/main/java/io/superdurable/dex/workflow/polling)

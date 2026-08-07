@@ -14,25 +14,22 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.workflow.money.transfer;
+package io.superdurable.dex.workflow.engagement;
 
-public class TransferRequest {
-    public String fromAccount;
-    public String toAccount;
-    public int amount;
+public class EngagementInput {
+    public String employerId;
+    public String jobSeekerId;
     public String notes;
 
-    public TransferRequest() {
+    public EngagementInput() {
     }
 
-    public TransferRequest(
-            final String fromAccount,
-            final String toAccount,
-            final int amount,
+    public EngagementInput(
+            final String employerId,
+            final String jobSeekerId,
             final String notes) {
-        this.fromAccount = fromAccount;
-        this.toAccount = toAccount;
-        this.amount = amount;
+        this.employerId = employerId;
+        this.jobSeekerId = jobSeekerId;
         this.notes = notes;
     }
 }

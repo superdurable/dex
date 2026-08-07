@@ -1,12 +1,10 @@
 server:
-  port: 8803
-
+  port: 8080
 spring:
   jackson:
     default-property-inclusion: NON_NULL
-
 dex:
-  worker:
-    url: http://localhost:8803/worker
-  server:
-    url: http://localhost:8801
+  server-address: ${DEX_FLOW_SERVICE_ADDRESS:localhost:8801}
+  worker-bind-address: ${DEX_WORKER_BIND_ADDRESS:127.0.0.1:8803}
+  worker-target: ${DEX_WORKER_TARGET:}
+  blob-cache-dir: ${DEX_BLOB_CACHE_DIR:${java.io.tmpdir}/dex-java-examples-blobs}

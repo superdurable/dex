@@ -16,8 +16,10 @@
 
 package io.superdurable.dex.controller;
 
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
-import io.superdurable.dex.workflow.microservices.OrchestrationFlow;
+import io.superdurable.dex.workflow.polling.PollingFlow;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,25 +31,24 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/microservice")
-public class MicroserviceWorkflowController {
+@RequestMapping("/polling")
+public class PollingController {
     private final Client client;
-    private final OrchestrationFlow flow;
+    private final PollingFlow flow;
 
-    public MicroserviceWorkflowController(
-            final Client client,
-            final OrchestrationFlow flow) {
+    public PollingController(final Client client, final PollingFlow flow) {
         this.client = client;
         this.flow = flow;
     }
 
     @GetMapping("/start")
-    public ResponseEntity<Map<String, String>> start(
-            @RequestParam final String workflowId) {
+    public ResponseEntity<?> start(
+            @RequestParam final String workflowId,
+            @RequestParam final int pollingCompletionThreshold) {
         final String runId = client.startFlow(
                 flow,
                 workflowId,
-                "test initial data",
+                pollingCompletionThreshold,
                 ExampleFlows.startOptions());
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", workflowId);
@@ -55,18 +56,21 @@ public class MicroserviceWorkflowController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/swap")
-    public ResponseEntity<String> swap(
+    @GetMapping("/complete")
+    public ResponseEntity<?> complete(
             @RequestParam final String workflowId,
-            @RequestParam final String data) {
-        final OrchestrationFlow stub = client.newRpcStub(OrchestrationFlow.class, workflowId);
-        return ResponseEntity.ok(client.invokeRPC(stub::swap, data));
-    }
-
-    @GetMapping("/signal")
-    public ResponseEntity<Map<String, Object>> signal(
-            @RequestParam final String workflowId) {
-        client.publish(workflowId, flow.ready, (Void) null);
+            @RequestParam final String channel) {
+        final Channel<Void> target;
+        if (PollingFlow.TASK_A_COMPLETED.equals(channel)) {
+            target = flow.taskACompleted;
+        } else if (PollingFlow.TASK_B_COMPLETED.equals(channel)) {
+            target = flow.taskBCompleted;
+        } else {
+            final Map<String, String> error = new LinkedHashMap<String, String>();
+            error.put("error", "channel must identify task A or task B");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+        }
+        client.publish(workflowId, target, (Void) null);
         return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 }

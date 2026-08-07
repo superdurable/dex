@@ -14,25 +14,19 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.workflow.money.transfer;
+package io.superdurable.dex.controller;
 
-public class TransferRequest {
-    public String fromAccount;
-    public String toAccount;
-    public int amount;
-    public String notes;
+import io.superdurable.dex.StartFlowOptions;
 
-    public TransferRequest() {
+import java.time.Duration;
+
+final class ExampleFlows {
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(24);
+
+    private ExampleFlows() {
     }
 
-    public TransferRequest(
-            final String fromAccount,
-            final String toAccount,
-            final int amount,
-            final String notes) {
-        this.fromAccount = fromAccount;
-        this.toAccount = toAccount;
-        this.amount = amount;
-        this.notes = notes;
+    static StartFlowOptions startOptions() {
+        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
     }
 }

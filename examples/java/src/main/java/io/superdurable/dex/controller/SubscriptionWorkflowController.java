@@ -16,89 +16,73 @@
 
 package io.superdurable.dex.controller;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ImmutableWorkflowOptions;
-import io.superdurable.dex.gen.models.WorkflowConfig;
-import io.superdurable.dex.workflow.subscription.SubscriptionWorkflow;
-import io.superdurable.dex.workflow.subscription.model.Customer;
-import io.superdurable.dex.workflow.subscription.model.ImmutableCustomer;
-import io.superdurable.dex.workflow.subscription.model.ImmutableSubscription;
-import io.superdurable.dex.workflow.subscription.model.Subscription;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.workflow.subscription.Customer;
+import io.superdurable.dex.workflow.subscription.Subscription;
+import io.superdurable.dex.workflow.subscription.SubscriptionFlow;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-import static io.superdurable.dex.workflow.subscription.SubscriptionWorkflow.signalCancelSubscription;
-import static io.superdurable.dex.workflow.subscription.SubscriptionWorkflow.signalUpdateBillingPeriodCharge;
-
-@Controller
+@RestController
 @RequestMapping("/subscription")
 public class SubscriptionWorkflowController {
-
     private final Client client;
+    private final SubscriptionFlow flow;
 
     public SubscriptionWorkflowController(
-            final Client client
-    ) {
+            final Client client,
+            final SubscriptionFlow flow) {
         this.client = client;
+        this.flow = flow;
     }
 
     @GetMapping("/start")
-    public ResponseEntity<String> start() {
-        final String wfId = "subscription_test_id_" + System.currentTimeMillis() / 1000;
-        final Customer customer = ImmutableCustomer.builder()
-                .firstName("Quanzheng")
-                .lastName("Long")
-                .id("qlong")
-                .email("qlong.seattle@gmail.com")
-                .subscription(
-                        ImmutableSubscription.builder()
-                                .trialPeriod(Duration.ofSeconds(20))
-                                .billingPeriod(Duration.ofSeconds(10))
-                                .maxBillingPeriods(0) // support unlimited periods because of auto continueAsNew in DEX
-                                .billingPeriodCharge(100)
-                                .build()
-                )
-                .build();
-        final String runId = client.startWorkflow(SubscriptionWorkflow.class, wfId, 3600, customer,
-                ImmutableWorkflowOptions.builder()
-                        .workflowConfigOverride(
-                                // set lower threshold to demo auto continueAsNew
-                                new WorkflowConfig().continueAsNewThreshold(10)
-                        )
-                        .build());
-
-        return ResponseEntity.ok(String.format("workflowId: %s: runId: %s", wfId, runId));
+    public ResponseEntity<Map<String, String>> start() {
+        final String flowId = "subscription-" + System.nanoTime();
+        final Customer customer = new Customer(
+                "Quanzheng",
+                "Long",
+                "qlong",
+                "qlong@example.com",
+                new Subscription(
+                        Duration.ofSeconds(20),
+                        Duration.ofSeconds(10),
+                        10,
+                        100));
+        final String runId = client.startFlow(flow, flowId, customer, ExampleFlows.startOptions());
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", flowId);
+        response.put("runID", runId);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/cancel")
-    public ResponseEntity<String> cancel(
-            @RequestParam String workflowId
-    ) {
-        client.signalWorkflow(SubscriptionWorkflow.class, workflowId, signalCancelSubscription, null);
-        return ResponseEntity.ok("done");
+    public ResponseEntity<Map<String, Object>> cancel(
+            @RequestParam final String workflowId) {
+        client.publish(workflowId, flow.cancelSubscription, (Void) null);
+        return ResponseEntity.ok(Collections.<String, Object>emptyMap());
+    }
+
+    @GetMapping("/updateChargeAmount")
+    public ResponseEntity<Map<String, Object>> updateChargeAmount(
+            @RequestParam final String workflowId,
+            @RequestParam final int newChargeAmount) {
+        client.publish(workflowId, flow.updateChargeAmount, newChargeAmount);
+        return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 
     @GetMapping("/describe")
     public ResponseEntity<Subscription> describe(
-            @RequestParam String workflowId
-    ) {
-        final SubscriptionWorkflow rpcStub = client.newRpcStub(SubscriptionWorkflow.class, workflowId);
-        final Subscription subscription = client.invokeRPC(rpcStub::describe);
-
-        return ResponseEntity.ok(subscription);
-    }
-
-    @GetMapping("/updateChargeAmount")
-    public ResponseEntity<String> updateChargeAmount(
-            @RequestParam String workflowId,
-            @RequestParam int newChargeAmount
-    ) {
-        client.signalWorkflow(SubscriptionWorkflow.class, workflowId, signalUpdateBillingPeriodCharge, newChargeAmount);
-        return ResponseEntity.ok("done");
+            @RequestParam final String workflowId) {
+        final SubscriptionFlow stub = client.newRpcStub(SubscriptionFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::describe));
     }
 }

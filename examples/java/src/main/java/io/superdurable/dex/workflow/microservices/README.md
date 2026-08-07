@@ -1,7 +1,11 @@
-This is the code that is [shown in Dex server as an example of microservice orchestration](https://github.com/superdurable/dex#example-microservice-orchestration).
+# Microservice orchestration
 
-## How to test the APIs in browser
+The starting Step calls API 1 and schedules API 2 and API 3 concurrently. API 3 waits for either a typed `Ready` Channel message or a timer. The Flow's `Swap` method is a typed RPC that atomically returns and replaces the persisted data Attribute.
 
-* start workflow: http://localhost:8803/microservice/start?workflowId=1234
-* swap the data: http://localhost:8803/microservice/swap?workflowId=1234&data=122
-* signal the workflow: http://localhost:8803/microservice/signal?workflowId=1234
+With the sample server running:
+
+```text
+http://localhost:8080/microservice/start?workflowId=microservice-1
+http://localhost:8080/microservice/swap?workflowId=microservice-1&data=updated
+http://localhost:8080/microservice/signal?workflowId=microservice-1
+```
