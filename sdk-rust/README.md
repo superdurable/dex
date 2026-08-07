@@ -2,15 +2,13 @@
 
 [![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
 
-This workspace contains the Rust SDK runtime and the shared DXBC BlobCache.
-Other language SDKs do not use the Rust Worker runtime.
+This workspace contains the shared DXBC BlobCache and generated Rust protocol
+foundation for the Rust SDK. Each language SDK owns its Worker runtime.
 
 The crates are:
 
 - `dex-blob-cache`: transport-neutral, Go-compatible disk cache.
 - `dex-blob-cache-jni`: Java 8-compatible binding containing only cache APIs.
-- `dex-core`: Rust invocation dispatch, completion routing, and shutdown.
-- `dex-runtime`: tonic WorkerService transport for the Rust SDK.
 - `dex-protocol`: generated Rust protobuf and gRPC protocol.
 
 The architecture is defined in
