@@ -26,12 +26,11 @@ import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
 import io.superdurable.dex.WorkerTarget;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -80,14 +79,15 @@ public class DexConfig {
     @Component
     public static class WorkerLifecycle {
         private final Worker worker;
+        private Thread workerThread;
 
         public WorkerLifecycle(final Worker worker) {
             this.worker = worker;
         }
 
-        @EventListener(ApplicationReadyEvent.class)
+        @PostConstruct
         public void startWorker() {
-            final Thread workerThread = new Thread(worker::start, "dex-java-examples-worker");
+            workerThread = new Thread(worker::start, "dex-java-examples-worker");
             workerThread.setDaemon(true);
             workerThread.start();
         }

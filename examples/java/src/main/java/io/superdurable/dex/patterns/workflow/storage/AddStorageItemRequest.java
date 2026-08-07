@@ -14,19 +14,23 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.storage;
 
-import io.superdurable.dex.StartFlowOptions;
+public class AddStorageItemRequest {
+    public String key;
+    public String value;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public AddStorageItemRequest() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public AddStorageItemRequest(final String key, final String value) {
+        if (key == null) {
+            throw new IllegalArgumentException("key is null");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("value is null");
+        }
+        this.key = key;
+        this.value = value;
     }
 }

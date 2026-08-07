@@ -14,19 +14,15 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.workflow.shortlistcandidates;
 
-import io.superdurable.dex.StartFlowOptions;
+public class EmployerOptInInput {
+    public String employerId;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public EmployerOptInInput() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public EmployerOptInInput(final String employerId) {
+        this.employerId = employerId;
     }
 }

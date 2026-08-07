@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.parentchild;
 
-import io.superdurable.dex.StartFlowOptions;
+public class WaitForChildInput {
+    public String childWFId;
+    public int timerSeconds;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public WaitForChildInput() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public WaitForChildInput(final String childWFId, final int timerSeconds) {
+        this.childWFId = childWFId;
+        this.timerSeconds = timerSeconds;
     }
 }

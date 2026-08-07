@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.workflow.jobpost;
 
-import io.superdurable.dex.StartFlowOptions;
+public class JobInfo {
+    public String title;
+    public String description;
+    public String notes;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public JobInfo() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public JobInfo(final String title, final String description, final String notes) {
+        this.title = title;
+        this.description = description;
+        this.notes = notes;
     }
 }

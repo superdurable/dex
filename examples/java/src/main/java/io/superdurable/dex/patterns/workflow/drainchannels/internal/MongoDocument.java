@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.drainchannels.internal;
 
-import io.superdurable.dex.StartFlowOptions;
+public class MongoDocument {
+    public String id;
+    public String status = "RECEIVED";
+    public boolean finalCommand;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public MongoDocument() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public MongoDocument(final String id, final String status, final boolean finalCommand) {
+        this.id = id;
+        this.status = status;
+        this.finalCommand = finalCommand;
     }
 }

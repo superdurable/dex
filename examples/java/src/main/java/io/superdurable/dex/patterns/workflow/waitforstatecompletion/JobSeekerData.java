@@ -14,19 +14,18 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.waitforstatecompletion;
 
-import io.superdurable.dex.StartFlowOptions;
+public class JobSeekerData {
+    public Integer id;
+    public String name = "Test Job Seeker";
+    public String resume = "Test Resume";
+    public String email = "testjobseeker@indeed.com";
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public JobSeekerData() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public JobSeekerData(final Integer id) {
+        this.id = id;
     }
 }

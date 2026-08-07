@@ -14,19 +14,25 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.workflow.signup;
 
-import io.superdurable.dex.StartFlowOptions;
+public class SignupForm {
+    public String username;
+    public String email;
+    public String firstName;
+    public String lastName;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public SignupForm() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public SignupForm(
+            final String username,
+            final String email,
+            final String firstName,
+            final String lastName) {
+        this.username = username;
+        this.email = email;
+        this.firstName = firstName;
+        this.lastName = lastName;
     }
 }

@@ -14,19 +14,10 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+@NonNullApi
+@NonNullFields
 
-import io.superdurable.dex.StartFlowOptions;
+package io.superdurable.dex.patterns;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
-    }
-
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
-    }
-}
+import org.springframework.lang.NonNullApi;
+import org.springframework.lang.NonNullFields;

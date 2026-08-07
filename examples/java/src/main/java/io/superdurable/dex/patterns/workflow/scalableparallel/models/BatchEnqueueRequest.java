@@ -14,19 +14,18 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.scalableparallel.models;
 
-import io.superdurable.dex.StartFlowOptions;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.time.Duration;
+public class BatchEnqueueRequest {
+    public List<String> list = new ArrayList<String>();
 
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public BatchEnqueueRequest() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public BatchEnqueueRequest(final List<String> list) {
+        this.list = list;
     }
 }

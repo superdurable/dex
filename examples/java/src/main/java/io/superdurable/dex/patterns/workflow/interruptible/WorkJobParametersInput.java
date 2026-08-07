@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.interruptible;
 
-import io.superdurable.dex.StartFlowOptions;
+public class WorkJobParametersInput {
+    public int jobUpperBound;
+    public int progress;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public WorkJobParametersInput() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public WorkJobParametersInput(final int jobUpperBound, final int progress) {
+        this.jobUpperBound = jobUpperBound;
+        this.progress = progress;
     }
 }

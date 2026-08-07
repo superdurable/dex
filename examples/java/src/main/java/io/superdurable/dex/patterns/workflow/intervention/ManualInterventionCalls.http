@@ -1,0 +1,18 @@
+POST http://localhost:8801/api/v1/workflow/signal
+Content-Type: application/json
+
+{
+  "workflowId": "<workflowId>",
+  "signalChannelName": "signal_channel_command_retry"
+}
+
+######
+POST http://localhost:8801/api/v1/workflow/signal
+Content-Type: application/json
+
+{
+  "workflowId": "<workflowId>",
+  "signalChannelName": "signal_channel_command_skip"
+}
+
+###

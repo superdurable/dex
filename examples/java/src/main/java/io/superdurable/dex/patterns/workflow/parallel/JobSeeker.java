@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.parallel;
 
-import io.superdurable.dex.StartFlowOptions;
+public class JobSeeker {
+    public String id;
+    public String email;
+    public String phoneNumber;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public JobSeeker() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public JobSeeker(final String id, final String email, final String phoneNumber) {
+        this.id = id;
+        this.email = email;
+        this.phoneNumber = phoneNumber;
     }
 }

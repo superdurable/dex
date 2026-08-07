@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.controller;
+package io.superdurable.dex.patterns.workflow.recovery;
 
-import io.superdurable.dex.StartFlowOptions;
+public class FailureRecoveryWorkflowInput {
+    public String itemName;
+    public int requestedQuantity;
 
-import java.time.Duration;
-
-public final class ExampleFlows {
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofHours(1);
-
-    private ExampleFlows() {
+    public FailureRecoveryWorkflowInput() {
     }
 
-    public static StartFlowOptions startOptions() {
-        return StartFlowOptions.newBuilder().timeout(DEFAULT_TIMEOUT).build();
+    public FailureRecoveryWorkflowInput(final String itemName, final int requestedQuantity) {
+        this.itemName = itemName;
+        this.requestedQuantity = requestedQuantity;
     }
 }
