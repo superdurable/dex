@@ -62,6 +62,17 @@ warn_unused_ignores = false
 warn_return_any = false
 namespace_packages = true
 
+[tool.coverage.run]
+branch = true
+source = ["dex"]
+omit = [
+    "dex/dexpb/*",
+    "dex/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+
 [build-system]
 requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"

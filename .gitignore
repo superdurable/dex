@@ -35,6 +35,7 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+sdk-python/coverage/
 dist/
 *.egg-info/
 .tox/
