@@ -23,6 +23,7 @@
   "third_party_mixed_prefixes": [
     "sdk-java/src/test/java/io/superdurable/dex/iwfcompat",
     "sdk-python/tests/iwfcompat",
+    "sdk-rust/crates/dex-sdk/tests/iwfcompat",
     "sdk-typescript/test/iwfcompat"
   ],
   "excluded_prefixes": [

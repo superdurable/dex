@@ -3,6 +3,7 @@ members = [
     "crates/dex-blob-cache",
     "crates/dex-blob-cache-jni",
     "crates/dex-protocol",
+    "crates/dex-sdk",
 ]
 resolver = "3"
 
@@ -20,6 +21,7 @@ prost = "0.14"
 prost-types = "0.14"
 protoc-bin-vendored = "3.2"
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
 stretto = "0.9"
 tempfile = "3"
 tonic = "0.14"
