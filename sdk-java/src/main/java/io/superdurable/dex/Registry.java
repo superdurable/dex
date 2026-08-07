@@ -15,6 +15,7 @@
 package io.superdurable.dex;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -154,6 +155,7 @@ public final class Registry {
             if (annotation == null) {
                 continue;
             }
+            validateRpcInterceptability(flow.getClass(), method);
             if (annotation.timeoutSeconds() < 0) {
                 throw new IllegalArgumentException("RPC timeout must not be negative");
             }
@@ -169,6 +171,23 @@ public final class Registry {
             }
         }
         return rpcs;
+    }
+
+    private static void validateRpcInterceptability(
+            final Class<?> flowClass,
+            final Method method) {
+        if (Modifier.isFinal(flowClass.getModifiers())) {
+            throw new IllegalArgumentException(
+                    "RPC Flow class must not be final because RPC stubs subclass it. "
+                            + "In Kotlin, classes are final by default; declare the Flow class "
+                            + "with 'open': " + flowClass.getName());
+        }
+        if (Modifier.isFinal(method.getModifiers())) {
+            throw new IllegalArgumentException(
+                    "RPC method must not be final because RPC stubs override it. "
+                            + "In Kotlin, methods are final by default; declare the RPC method "
+                            + "with 'open': " + flowClass.getName() + "." + method.getName());
+        }
     }
 
     private static List<String> validateRpcLocks(

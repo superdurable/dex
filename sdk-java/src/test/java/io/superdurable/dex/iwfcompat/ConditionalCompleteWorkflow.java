@@ -24,7 +24,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 
-final class ConditionalCompleteWorkflow implements Flow<Boolean> {
+class ConditionalCompleteWorkflow implements Flow<Boolean> {
     final Channel<Void> signal = Channel.define("test-signal-channel", Void.class);
     final Channel<Void> internal = Channel.define("test-internal-channel", Void.class);
     private final Attribute<Integer> counter = Attribute.define("counter", Integer.class);

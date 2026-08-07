@@ -23,7 +23,7 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 
-final class NoStartStateDeadEndWorkflow implements Flow<Void> {
+class NoStartStateDeadEndWorkflow implements Flow<Void> {
     static final long RPC_OUTPUT = 100L;
     final Channel<Void> idleSignal = Channel.define("idle-signal", Void.class);
     final Channel<Void> idleInternal = Channel.define("idle-internal", Void.class);

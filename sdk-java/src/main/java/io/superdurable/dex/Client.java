@@ -46,9 +46,14 @@ import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForFlowResponse;
 import io.superdurable.gen.WaitForStepCompletionRequest;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy;
+import net.bytebuddy.implementation.InvocationHandlerAdapter;
+import net.bytebuddy.matcher.ElementMatchers;
+import org.objenesis.ObjenesisStd;
 
-import java.lang.invoke.SerializedLambda;
-import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -56,9 +61,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -71,8 +74,6 @@ public final class Client implements AutoCloseable {
     private final ValueMapper values;
     private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
-    private final Map<Object, RpcTarget> rpcStubs =
-            Collections.synchronizedMap(new IdentityHashMap<Object, RpcTarget>());
 
     public Client(final Registry registry, final BlobCache blobCache) {
         this(registry, blobCache, new ClientOptions());
@@ -167,35 +168,39 @@ public final class Client implements AutoCloseable {
             final String runId) {
         final Registry.RegisteredFlow flow = registry.getFlow(rpcClass);
         try {
-            final Constructor<T> constructor = rpcClass.getDeclaredConstructor();
-            constructor.setAccessible(true);
-            final T stub = constructor.newInstance();
-            rpcStubs.put(stub, new RpcTarget(flow, flowId, runId));
-            return stub;
-        } catch (ReflectiveOperationException exception) {
+            final Class<? extends T> stubClass = new ByteBuddy()
+                    .subclass(rpcClass, ConstructorStrategy.Default.NO_CONSTRUCTORS)
+                    .method(ElementMatchers.isAnnotatedWith(RPC.class))
+                    .intercept(InvocationHandlerAdapter.of(
+                            new RpcInvocationHandler(new RpcTarget(flow, flowId, runId))))
+                    .make()
+                    .load(rpcClass.getClassLoader(), ClassLoadingStrategy.Default.INJECTION)
+                    .getLoaded();
+            return new ObjenesisStd().newInstance(stubClass);
+        } catch (RuntimeException exception) {
             throw new IllegalArgumentException(
-                    "RPC stub class requires a no-argument constructor", exception);
+                    "RPC stub could not subclass " + rpcClass.getName(), exception);
         }
     }
 
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
             final I input) {
-        return invokeRpc(rpcStubMethod, input);
+        return rpcStubMethod.execute(null, input).getOutput();
     }
 
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
-        return invokeRpc(rpcStubMethod, null);
+        return rpcStubMethod.execute(null).getOutput();
     }
 
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
             final I input) {
-        invokeRpc(rpcStubMethod, input);
+        rpcStubMethod.execute(null, input);
     }
 
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
-        invokeRpc(rpcStubMethod, null);
+        rpcStubMethod.execute(null);
     }
 
     public <T> T getAttribute(
@@ -405,16 +410,11 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private <O> O invokeRpc(final Object lambda, final Object input) {
-        final SerializedLambda serialized = serializedLambda(lambda);
-        final Object receiver = serialized.getCapturedArg(0);
-        final RpcTarget target = rpcStubs.get(receiver);
-        if (target == null) {
-            throw new IllegalArgumentException("RPC method reference is not from this Client stub");
-        }
-        final Registry.RegisteredRpc rpc =
-                target.flow.getRpcByMethod(serialized.getImplMethodName());
+    private Object invokeRpc(
+            final RpcTarget target,
+            final Method method,
+            final Object input) {
+        final Registry.RegisteredRpc rpc = target.flow.getRpcByMethod(method.getName());
         final InvokeRPCRequest request = InvokeRPCRequest.newBuilder()
                 .setFlowId(target.flowId)
                 .setRunId(target.runId)
@@ -434,17 +434,7 @@ public final class Client implements AutoCloseable {
         if (!(outputType instanceof Class)) {
             throw new IllegalArgumentException("RPC output must be a concrete Class");
         }
-        return (O) values.decode(output, (Class<?>) outputType);
-    }
-
-    private static SerializedLambda serializedLambda(final Object lambda) {
-        try {
-            final Method replacement = lambda.getClass().getDeclaredMethod("writeReplace");
-            replacement.setAccessible(true);
-            return (SerializedLambda) replacement.invoke(lambda);
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalArgumentException("RPC must be a direct method reference", exception);
-        }
+        return values.decode(output, (Class<?>) outputType);
     }
 
     private <T> T getAttributeValue(
@@ -791,6 +781,24 @@ public final class Client implements AutoCloseable {
             return io.superdurable.gen.StepDurability.STEP_DURABILITY_ASYNC;
         }
         return io.superdurable.gen.StepDurability.STEP_DURABILITY_UNSPECIFIED;
+    }
+
+    private final class RpcInvocationHandler implements InvocationHandler {
+        private final RpcTarget target;
+
+        private RpcInvocationHandler(final RpcTarget target) {
+            this.target = target;
+        }
+
+        @Override
+        public Object invoke(
+                final Object stub,
+                final Method method,
+                final Object[] arguments) {
+            final Object input = arguments.length == 2 ? arguments[1] : null;
+            final Object output = invokeRpc(target, method, input);
+            return method.getReturnType() == Void.TYPE ? null : RPCResult.of(output);
+        }
     }
 
     private static final class RpcTarget {
