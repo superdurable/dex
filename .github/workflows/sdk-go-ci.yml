@@ -11,6 +11,7 @@ on:
       - "web/**"
       - "go.work"
       - "go.work.sum"
+      - "codecov.yml"
       - ".github/workflows/sdk-go-ci.yml"
   pull_request:
     paths:
@@ -21,8 +22,16 @@ on:
       - "web/**"
       - "go.work"
       - "go.work.sum"
+      - "codecov.yml"
       - ".github/workflows/sdk-go-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-go-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:
@@ -94,8 +103,12 @@ jobs:
         run: make clientIntegTests
 
   e2e:
-    name: End-to-end tests
+    name: Integration coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: sdk-go
@@ -106,6 +119,8 @@ jobs:
           go-version-file: sdk-go/go.mod
           cache-dependency-path: |
             sdk-go/go.sum
+            cli/go.sum
+            server/go.sum
             go.work.sum
       - uses: actions/setup-node@v6
         with:
@@ -114,8 +129,24 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
-      - name: End-to-end tests
-        run: make e2eTests
+      - name: Run integration coverage with dexcli dev
+        run: ./run-e2e-tests.sh --coverage
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./sdk-go/coverage/coverage.out
+          flags: sdk-go-integration
+          name: sdk-go-integration
+          use_oidc: true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-go-integration-coverage
+          path: sdk-go/coverage/
+          if-no-files-found: ignore
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7

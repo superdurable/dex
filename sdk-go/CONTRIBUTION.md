@@ -36,6 +36,8 @@ make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 `clientIntegTests` and `workerIntegTests` use real in-process gRPC with the race
 detector. `e2eTests` builds `dexcli`, starts its local Dex and Temporal
 environment, migrates the former iWF SDK scenarios, and owns cleanup.
+`integrationCoverage` runs the Client/Worker suites plus `e2eTests` with
+coverage limited to `./dex/...`, writing reports under `coverage/`.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
