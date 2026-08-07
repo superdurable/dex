@@ -13,8 +13,8 @@ Run the complete suite against a fresh `dexcli dev` environment:
 The compile-oriented call-site modules remain part of strict static checking:
 
 ```shell
-uv run --frozen mypy tests/iwfcompat
-uv run --frozen pyright tests/iwfcompat
+uv run --frozen mypy tests/integ
+uv run --frozen pyright tests/integ
 ```
 
 ## Programming experience

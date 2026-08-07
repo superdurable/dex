@@ -104,4 +104,4 @@ fi
 
 cd "$script_dir"
 DEX_SERVER_ADDRESS="$dex_address" \
-  uv run --frozen pytest -q tests/iwfcompat/test_*_runtime.py
+  uv run --frozen pytest -q tests/integ/test_*_runtime.py

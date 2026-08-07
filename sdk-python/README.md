@@ -100,7 +100,7 @@ codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
 The legacy IWF integration inventory is ported under
-[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 58 executable scenarios
+[`tests/integ`](tests/integ/README.md). Its 58 executable scenarios
 exercise the same workflows, client operations, and assertions as the Java
 suite against an isolated `dexcli dev` environment.
 
