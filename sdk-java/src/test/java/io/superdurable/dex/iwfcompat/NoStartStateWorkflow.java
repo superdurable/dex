@@ -21,7 +21,7 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 
-final class NoStartStateWorkflow implements Flow<Void> {
+class NoStartStateWorkflow implements Flow<Void> {
     static final long RPC_OUTPUT = 100L;
     private final TriggeredStep triggered = new TriggeredStep();
 

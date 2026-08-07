@@ -26,7 +26,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 
-final class RpcWorkflow implements Flow<Integer> {
+class RpcWorkflow implements Flow<Integer> {
     static final long RPC_OUTPUT = 100L;
     static final String HARDCODED_VALUE = "random-string";
     final Channel<Void> internal = Channel.define("rpc-internal", Void.class);

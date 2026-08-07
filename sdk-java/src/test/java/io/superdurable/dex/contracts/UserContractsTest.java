@@ -132,6 +132,31 @@ public class UserContractsTest {
     }
 
     @Test
+    public void rpcStubBypassesFlowConstructors() {
+        ConstructorOnlyRpcFlow.constructorCalls = 0;
+        final ConstructorOnlyRpcFlow flow = new ConstructorOnlyRpcFlow("registered");
+        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
+        try (Client client = new Client(registry, BLOB_CACHE)) {
+            final ConstructorOnlyRpcFlow stub =
+                    client.newRpcStub(ConstructorOnlyRpcFlow.class, "flow-id");
+            Assertions.assertEquals(1, ConstructorOnlyRpcFlow.constructorCalls);
+            Assertions.assertNotEquals(ConstructorOnlyRpcFlow.class, stub.getClass());
+        }
+    }
+
+    @Test
+    public void rpcStubRejectsFinalFlowClasses() {
+        final FinalRpcFlow flow = new FinalRpcFlow();
+        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
+        try (Client client = new Client(registry, BLOB_CACHE)) {
+            final IllegalArgumentException error = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> client.newRpcStub(FinalRpcFlow.class, "flow-id"));
+            Assertions.assertTrue(error.getMessage().contains("must not be final"));
+        }
+    }
+
+    @Test
     public void blobCacheStoresAndReadsPayload() {
         final BlobCacheConfig config = new BlobCacheConfig(
                 cacheDirectory.toString(),
@@ -271,6 +296,29 @@ public class UserContractsTest {
 
     public static class OrderOutput {
         public boolean accepted;
+    }
+
+    public static class ConstructorOnlyRpcFlow implements Flow<Void> {
+        static int constructorCalls;
+
+        private ConstructorOnlyRpcFlow(final String dependency) {
+            constructorCalls++;
+            if (dependency == null) {
+                throw new IllegalArgumentException("dependency is required");
+            }
+        }
+
+        @RPC
+        public RPCResult<String> read(final Context context) {
+            throw new AssertionError("RPC stub must intercept the implementation");
+        }
+    }
+
+    public static final class FinalRpcFlow implements Flow<Void> {
+        @RPC
+        public RPCResult<String> read(final Context context) {
+            return RPCResult.of("local");
+        }
     }
 
     private static final class ContractBlobCache implements BlobCache {

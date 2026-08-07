@@ -29,7 +29,7 @@ public final class IncrementStep implements Step<Long> {
     }
 }
 
-public final class CounterFlow implements Flow<Long> {
+public class CounterFlow implements Flow<Long> {
     private final IncrementStep start = new IncrementStep();
 
     @Override
@@ -46,6 +46,9 @@ public final class CounterFlow implements Flow<Long> {
 CounterFlow stub = client.newRpcStub(CounterFlow.class, flowId, runId);
 long value = client.invokeRPC(stub::increment, 1L);
 ```
+
+Flows exposing RPC methods and their annotated methods must not be `final`.
+RPC stubs intercept those methods without invoking Flow constructors.
 
 `Step<I>` declares `Class<I> getInputType()`; parameterized Step inputs are not
 supported. Steps, attributes, and channels declare Java classes, not codecs:

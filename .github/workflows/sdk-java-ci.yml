@@ -58,7 +58,7 @@ jobs:
         run: ./gradlew test --tests io.superdurable.dex.contracts.UserContractsTest --no-daemon
 
   tests:
-    name: Integration tests (58 scenarios)
+    name: Integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
