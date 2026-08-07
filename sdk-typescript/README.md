@@ -2,7 +2,8 @@
 
 This package targets Node.js 22 and 24. It provides strongly typed workflow
 contracts and a Promise-based gRPC Client. The Client and Worker runtime use
-`@grpc/grpc-js`. The native BlobCache binding remains a separate runtime phase.
+`@grpc/grpc-js`. Blob caching uses the shared Rust DXBC implementation through
+a Node-API addon.
 
 Application values use `Codec<T>`. Flow, Step, RPC, Attribute, and Channel
 definitions retain their input and output types. Client methods return Promise
@@ -81,12 +82,13 @@ continue importing only from `@superdurable/dex`.
 - `worker.ts`: Worker gRPC service and lifecycle
 - `worker-dispatcher.ts`: typed callback dispatch and response mapping
 - `invocation-context.ts`: invocation-scoped persistence and condition state
-- `blob-cache.ts`: injectable cache contract and future N-API binding
+- `blob-cache.ts`: DXBC BlobCache contract and Node-API binding loader
 - `gen/`: checked-in protobuf and grpc-js bindings
 
-Run `npm test` for runtime contracts and `npm run typecheck` for strict static
-contracts. Run `./run-integration-tests.sh` for all 58 IWF compatibility
-scenarios against an isolated `dexcli dev` environment. Run
+Run `npm run build:native` once to stage the DXBC Node addon for the current
+platform, then `npm test` for runtime contracts and `npm run typecheck` for
+strict static contracts. Run `./run-integration-tests.sh` for all 58 IWF
+compatibility scenarios against an isolated `dexcli dev` environment. Run
 `npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
 standard protobuf includes must be installed.
 

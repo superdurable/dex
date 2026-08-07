@@ -9,6 +9,8 @@ The crates are:
 
 - `dex-blob-cache`: transport-neutral, Go-compatible disk cache.
 - `dex-blob-cache-jni`: Java 8-compatible binding containing only cache APIs.
+- `dex-blob-cache-python`: PyO3 binding for the Python SDK.
+- `dex-blob-cache-node`: Node-API binding for the TypeScript SDK.
 - `dex-protocol`: generated Rust protobuf and gRPC protocol.
 
 The architecture is defined in
@@ -43,6 +45,14 @@ Build the Java cache binding as an optimized native library:
 
 ```bash
 cargo build --release -p dex-blob-cache-jni --locked
+```
+
+Build the Node cache binding and stage it into the TypeScript package:
+
+```bash
+cargo build --release -p dex-blob-cache-node --locked
+# or from sdk-typescript:
+npm run build:native
 ```
 
 ## Development

@@ -18,6 +18,7 @@
   },
   "files": [
     "dist/src",
+    "native",
     "LICENSE"
   ],
   "exports": {
@@ -32,13 +33,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:native": "node scripts/build-native.mjs",
     "coverage:integration": "./run-integration-tests.sh --coverage",
     "generate:proto": "node scripts/generate-proto.mjs",
-    "prepack": "npm run build",
-    "test:integration": "npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
-    "test:integration:coverage": "npm run build && c8 node --test --test-concurrency=1 dist/test/integ/*.integration.test.js && node scripts/report-uncovered.mjs coverage/lcov.info",
+    "prepack": "npm run build:native && npm run build",
+    "test:integration": "npm run build:native && npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
+    "test:integration:coverage": "npm run build:native && npm run build && c8 node --test --test-concurrency=1 dist/test/integ/*.integration.test.js && node scripts/report-uncovered.mjs coverage/lcov.info",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/test/*.test.js"
+    "test": "npm run build:native && npm run build && node --test dist/test/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -7,13 +7,15 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   Attribute,
   Channel,
   Client,
-  PhaseNotImplementedError,
   Registry,
   StepList,
   Timer,
@@ -169,11 +171,18 @@ test("registry rejects duplicate definitions", () => {
   assert.throws(() => new Registry([orders, orders]), /duplicate Flow Orders/);
 });
 
-test("blob cache contract validates config before the native phase", () => {
-  assert.throws(
-    () => openBlobCache({ directory: "contract-cache", maxBytes: 1024 }),
-    PhaseNotImplementedError,
-  );
+test("blob cache contract opens the native DXBC cache", () => {
+  const directory = mkdtempSync(join(tmpdir(), "dex-typescript-blob-cache-"));
+  const cache = openBlobCache({ directory, maxBytes: 1024, frequencyCounters: 0 });
+  try {
+    assert.equal(cache.put("blob", Buffer.from("payload")), true);
+    assert.deepEqual(cache.get("blob"), new Uint8Array(Buffer.from("payload")));
+    cache.delete("blob");
+    assert.equal(cache.get("blob"), undefined);
+  } finally {
+    cache.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
   assert.throws(() => openBlobCache({ directory: "", maxBytes: 1024 }), TypeError);
 });
 

@@ -1,0 +1,19 @@
+[package]
+name = "dex-blob-cache-node"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Node-API binding for the shared Dex DXBC blob cache"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dex-blob-cache = { path = "../dex-blob-cache" }
+napi = { workspace = true, features = ["napi6"] }
+napi-derive.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
