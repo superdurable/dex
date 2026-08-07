@@ -8,7 +8,7 @@
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
 * [Dex Web Phase 1](design/plan/design-web.md)
 * [Dex CLI](design/plan/dexcli.md)
-* [Multi-language Rust SDK Core](design/multi-language-rust-sdk-core.md)
+* [Multi-language SDK runtime architecture](design/multi-language-rust-sdk-core.md)
 * [Go SDK rewrite plan](design/plan/go-sdk-rewrite.md)
 
 ## Case studies / examples
