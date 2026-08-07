@@ -8,23 +8,17 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from datetime import timedelta
-
 from dex import (
     Attribute,
     Context,
     Flow,
     PersistenceSchema,
-    RetryPolicy,
     Step,
     StepDecision,
     StepList,
-    StepDurability,
-    StepMovement,
     StepOptions,
     Wait,
     go_to,
-    go_to_multi,
     graceful_complete,
 )
 
@@ -34,8 +28,16 @@ class OptionsThirdStep(Step[None]):
         self.both_value = both_value
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
+        del input
+        if self.both_value.get(context) != "both":
+            raise RuntimeError("shared attribute was not loaded in execute")
         return graceful_complete("success")
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del input
+        if self.both_value.get(context) != "both":
+            raise RuntimeError("shared attribute was not loaded in wait_for")
+        return Wait.skip_immediately()
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -59,40 +61,49 @@ class OptionsSecondStep(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del input
-        self.wait_value.set(context, "wait")
-        self.both_value.set(context, "wait")
+        if self.wait_value.get(context) != "wait_until":
+            raise RuntimeError("wait_for attribute was not loaded")
+        if self.execute_value.get(context) != "execute":
+            raise RuntimeError("execute attribute was not loaded in wait_for")
+        if self.both_value.get(context) != "both":
+            raise RuntimeError("shared attribute was not loaded in wait_for")
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        self.execute_value.set(context, "execute")
-        self.both_value.set(context, "execute")
-        override = StepOptions(execute_method_timeout=timedelta(seconds=2))
-        return go_to_multi(StepMovement.of(self.third, None, options=override))
+        if self.execute_value.get(context) != "execute":
+            raise RuntimeError("execute attribute was not loaded")
+        if self.wait_value.get(context) != "wait_until":
+            raise RuntimeError("wait_for attribute was not loaded in execute")
+        if self.both_value.get(context) != "both":
+            raise RuntimeError("shared attribute was not loaded in execute")
+        return go_to(self.third, None)
 
     def get_step_options(self) -> StepOptions:
-        retry = RetryPolicy(
-            initial_interval=timedelta(milliseconds=10),
-            maximum_attempts=3,
-        )
         return StepOptions(
-            wait_for_method_timeout=timedelta(seconds=1),
-            execute_method_timeout=timedelta(seconds=1),
-            wait_for_retry=retry,
-            execute_retry=retry,
-            wait_for_durability=StepDurability.SYNC,
-            execute_durability=StepDurability.ASYNC,
             wait_for_lock_attributes=(self.wait_value.lock(),),
             execute_lock_attributes=(self.execute_value.lock(),),
         )
 
 
 class OptionsFirstStep(Step[None]):
-    def __init__(self, second: OptionsSecondStep) -> None:
+    def __init__(
+        self,
+        second: OptionsSecondStep,
+        wait_value: Attribute[str],
+        execute_value: Attribute[str],
+        both_value: Attribute[str],
+    ) -> None:
         self.second = second
+        self.wait_value = wait_value
+        self.execute_value = execute_value
+        self.both_value = both_value
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
+        del input
+        self.execute_value.set(context, "execute")
+        self.wait_value.set(context, "wait_until")
+        self.both_value.set(context, "both")
         return go_to(self.second, None)
 
 
@@ -108,7 +119,12 @@ class StateOptionsFlow(Flow[None]):
             self.execute_value,
             self.both_value,
         )
-        self.first = OptionsFirstStep(self.second)
+        self.first = OptionsFirstStep(
+            self.second,
+            self.wait_value,
+            self.execute_value,
+            self.both_value,
+        )
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.first).other_steps(self.second, self.third)

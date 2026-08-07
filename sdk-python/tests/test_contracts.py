@@ -28,7 +28,6 @@ from dex import (
     Flow,
     JsonCodec,
     PersistenceSchema,
-    PhaseNotImplementedError,
     Registry,
     RPCResult,
     Step,
@@ -112,7 +111,7 @@ class OrderFlow(Flow[OrderInput]):
 
 
 class AsyncApproveOrder(Step[OrderInput]):
-    async def execute(
+    async def execute(  # type: ignore[override]
         self,
         context: Context,
         input: OrderInput,
@@ -120,7 +119,9 @@ class AsyncApproveOrder(Step[OrderInput]):
         del context, input
         return graceful_complete()
 
-    async def wait_for(self, context: Context, input: OrderInput) -> Wait:
+    async def wait_for(  # type: ignore[override]
+        self, context: Context, input: OrderInput
+    ) -> Wait:
         del context, input
         return Wait.skip_immediately()
 
@@ -163,7 +164,7 @@ def test_python_defaults_match_java_contracts() -> None:
 
     options = StepOptions()
     assert Container.NestedStep().get_step_type() == "NestedStep"
-    assert AsyncOrderFlow().get_flow_type() == "AsyncOrderFlow"
+    assert OrderFlow().get_flow_type() == "Orders"
     assert options.wait_for_failure is WaitForFailurePolicy.FAIL_FLOW
     assert options.wait_for_durability is StepDurability.DEFAULT
     assert options.execute_durability is StepDurability.DEFAULT
@@ -188,9 +189,9 @@ def test_registry_infers_handler_codecs_from_annotations() -> None:
     assert output_codec.decode(output_codec.encode(output)) == output
 
 
-def test_registry_accepts_async_step_and_rpc_handlers() -> None:
-    registry = Registry((AsyncOrderFlow(),))
-    assert len(registry.flows) == 1
+def test_registry_rejects_async_step_and_rpc_handlers() -> None:
+    with pytest.raises(TypeError, match="must be synchronous"):
+        Registry((AsyncOrderFlow(),))
 
 
 def test_registry_rejects_duplicate_interfaces() -> None:
@@ -271,11 +272,15 @@ def test_explicit_custom_codec_remains_available() -> None:
     assert codecs.resolve(OrderInput) is ORDER_INPUT
 
 
-def test_blob_cache_contract_matches_core_config() -> None:
-    config = BlobCacheConfig("contract-cache", 1024, 0)
+def test_blob_cache_contract_matches_core_config(tmp_path: Any) -> None:
+    config = BlobCacheConfig(str(tmp_path), 1024, 0)
     assert config.frequency_counters == 10_000
-    with pytest.raises(PhaseNotImplementedError):
-        open_blob_cache(config)
+    cache = open_blob_cache(config)
+    assert cache.put("blob", b"payload")
+    assert cache.get("blob") == b"payload"
+    cache.delete("blob")
+    assert cache.get("blob") is None
+    cache.close()
 
 
 def test_client_has_single_public_definition() -> None:
@@ -284,7 +289,6 @@ def test_client_has_single_public_definition() -> None:
     assert client.options == ClientModuleOptions()
 
 
-def test_transport_contract_fails_explicitly() -> None:
+def test_client_transport_is_initialized_lazily() -> None:
     client = Client(Registry((ORDERS,)), cast(BlobCache, object()))
-    with pytest.raises(PhaseNotImplementedError):
-        client.start_flow(ORDERS, "order-1", OrderInput("order-1"))
+    client.close()

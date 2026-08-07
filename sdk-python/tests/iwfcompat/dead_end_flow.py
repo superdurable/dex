@@ -17,7 +17,9 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepMovement,
     dead_end,
+    graceful_complete,
     rpc,
 )
 
@@ -28,17 +30,26 @@ class DeadEndStep(Step[None]):
         return dead_end()
 
 
+class DeadEndCompleteStep(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
+        return graceful_complete()
+
+
 class DeadEndFlow(Flow[None]):
+    RPC_OUTPUT = 100
     idle_signal = Channel[None]("idle-signal", type(None))
+    idle_internal = Channel[None]("idle-internal", type(None))
 
     def __init__(self) -> None:
         self.start = DeadEndStep()
+        self.complete = DeadEndCompleteStep()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.start)
+        return StepList.start_step(self.start).other_steps(self.complete)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.idle_signal)
+        return PersistenceSchema.of(self.idle_signal, self.idle_internal)
 
     @rpc
     def signal_size(self, context: Context) -> RPCResult[int]:
@@ -46,5 +57,15 @@ class DeadEndFlow(Flow[None]):
 
     @rpc
     def publish_internal(self, context: Context) -> RPCResult[int]:
-        self.idle_signal.publish(context, None)
-        return RPCResult(self.idle_signal.size(context))
+        self.idle_internal.publish(context, None)
+        return RPCResult(self.idle_internal.size(context))
+
+    @rpc
+    def invoke(self, context: Context, input: str) -> RPCResult[int]:
+        del input
+        if not context.flow_id or not context.run_id:
+            raise RuntimeError("invalid RPC context")
+        return RPCResult(
+            self.RPC_OUTPUT,
+            (StepMovement.of(self.complete, None),),
+        )

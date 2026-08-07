@@ -174,9 +174,9 @@ and RPCStub typing inside the JVM. JNI is used only for BlobCache operations.
 ### Python
 
 Python implements WorkerService with `grpcio`. Registry assembly uses Python
-classes, decorators, and type annotations. The public handler contract may be
-synchronous. Synchronous application handlers run in a bounded Python executor
-so a handler does not block gRPC progress.
+classes, decorators, and type annotations. The public handler contract is
+synchronous. Application handlers run in a bounded Python executor so a handler
+does not block gRPC progress.
 
 The transport implementation may internally use asynchronous I/O without
 requiring application handlers to be `async def`. PyO3 is used only for the

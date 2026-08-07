@@ -8,7 +8,7 @@ Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 The rewrite targets Python 3.11+ and exposes strongly typed workflow contracts
 from `dex`. This phase includes definitions, attributes, channels, waits,
 decisions, codecs, registry validation, synchronous client calls, and synchronous
-or asynchronous worker handlers. Python owns its gRPC Client and Worker transport;
+worker handlers. Python owns its gRPC Client and Worker transport;
 the shared Rust Core is used only for BlobCache.
 
 ```python
@@ -89,8 +89,8 @@ Applications implement two generic interfaces from [`dex.contracts`](dex/contrac
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
   binds the Flow input to the starting Step input. Use `StepList.empty()` when
   a Flow has no Steps.
-- `Step[INPUT]` implements `execute` and optionally `wait_for`; either handler
-  may be synchronous or asynchronous.
+- `Step[INPUT]` implements synchronous `execute` and optionally synchronous
+  `wait_for`.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
@@ -99,15 +99,16 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
-The complete legacy IWF integration inventory has a compile-only port under
-[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 28 Flow fixtures and 16
-scenario files show the Python programming model without starting a server.
+The legacy IWF integration inventory is ported under
+[`tests/iwfcompat`](tests/iwfcompat/README.md). Its 58 executable scenarios
+exercise the same workflows, client operations, and assertions as the Java
+suite against an isolated `dexcli dev` environment.
 
 ## Implementation status
 
-The new public contracts and validation are implemented. Client and Worker
-transport will use Python gRPC directly. The native bridge is limited to the
-shared Rust BlobCache.
+The strongly typed contracts, registry, synchronous Client, Worker gRPC
+service, and Rust-backed BlobCache are implemented. Python owns its gRPC
+transport; the native bridge is limited to the shared BlobCache.
 
 ## Running dex-server locally
 
@@ -135,6 +136,13 @@ To install requirements:
 
 ```bash
 uv sync --locked
+```
+
+Run the complete Python SDK integration suite with an isolated Dex development
+environment:
+
+```bash
+./run-integration-tests.sh
 ```
 
 #### Update IDL

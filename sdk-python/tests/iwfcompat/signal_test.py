@@ -18,7 +18,7 @@ def compile_signals_and_timer_skip(client: Client) -> None:
     client.start_flow(flow, "signal", 0)
     client.publish("signal", flow.first, 1)
     client.publish("signal", flow.second, 2)
-    client.publish("signal", flow.third, 3, 4)
+    client.publish("signal", flow.third, None)
     client.publish("signal", flow.signal_map, "one", 5)
     client.skip_timer(
         "signal",

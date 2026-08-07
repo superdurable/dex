@@ -7,13 +7,10 @@
 # SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 
-class PhaseNotImplementedError(RuntimeError):
-    """Raised when a contract reaches an unimplemented runtime phase."""
-
-
-def require_name(name: str) -> None:
+def require_name(name: str) -> str:
     if not name.strip():
         raise ValueError("durable name is required")
+    return name
 
 
 def validate_condition_id(condition_id: str | None) -> None:

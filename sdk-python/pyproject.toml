@@ -9,6 +9,7 @@ license-files = ["LICENSE", "LEGACY_NOTICES.md", "LICENSES/**"]
 requires-python = ">=3.11"
 dependencies = [
     "grpcio>=1.83.0",
+    "grpcio-status>=1.83.0",
     "httpx==0.28.1",
     "protobuf>=7.35.1",
 ]
@@ -22,6 +23,7 @@ dev = [
     "anyio>=4.9,<5",
     "black==24.10.0",
     "flask>=2.3.2,<3",
+    "googleapis-common-protos-stubs>=2.3.1",
     "grpcio-tools==1.83.0",
     "isort>=6.0.1,<7",
     "mypy>=1.15,<2",
@@ -31,16 +33,14 @@ dev = [
     "pytest-cov>=6.1.1,<7",
     "pytest-env>=1.1.5,<2",
     "ruff==0.8.1",
+    "types-grpcio>=1.83.0.20260730",
+    "types-grpcio-status>=1.0.0.20260408",
+    "types-protobuf>=7.34.1.20260518",
     "wemake-python-styleguide>=0.19.2,<0.20",
 ]
 
 [tool.uv]
 required-version = "==0.12.2"
-
-[tool.uv.build-backend]
-module-name = "dex"
-module-root = ""
-source-include = ["LEGACY_NOTICES.md", "LICENSES/**"]
 
 [tool.ruff]
 lint.ignore = ["E501"]
@@ -63,5 +63,10 @@ warn_return_any = false
 namespace_packages = true
 
 [build-system]
-requires = ["uv_build>=0.11.32,<0.13"]
-build-backend = "uv_build"
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "../sdk-rust/crates/dex-blob-cache-python/Cargo.toml"
+python-source = "."
+module-name = "dex._native"

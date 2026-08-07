@@ -9,17 +9,33 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from datetime import timedelta
+from time import sleep
 
-from dex import Context, Flow, Step, StepDecision, StepList, StepOptions
+from dex import (
+    Context,
+    Flow,
+    RetryPolicy,
+    Step,
+    StepDecision,
+    StepDurability,
+    StepList,
+    StepOptions,
+    graceful_complete,
+)
 
 
 class StateTimeoutStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context, input
-        raise RuntimeError("timeout simulation")
+        del context
+        sleep(2)
+        return graceful_complete(input)
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_method_timeout=timedelta(milliseconds=1))
+        return StepOptions(
+            execute_method_timeout=timedelta(seconds=1),
+            execute_retry=RetryPolicy(maximum_attempts=1),
+            execute_durability=StepDurability.SYNC,
+        )
 
 
 class StateTimeoutFlow(Flow[int]):

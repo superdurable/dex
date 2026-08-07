@@ -13,7 +13,8 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass
 from datetime import timedelta
-from inspect import signature
+from inspect import iscoroutinefunction, signature
+from types import MappingProxyType
 from typing import (
     Any,
     Callable,
@@ -25,6 +26,7 @@ from typing import (
     get_type_hints,
     overload,
 )
+from urllib.parse import quote
 
 from dex._utils import require_name
 from dex.attribute import Attribute, AttributeLock, AttributeMap
@@ -125,15 +127,43 @@ class Flow(Generic[StartT], ABC):
 
 @dataclass(frozen=True)
 class _RegisteredStep:
+    name: str
     step: Step[Any]
     input_codec: Codec[Any]
+    starting: bool
+    skips_wait_for: bool
 
 
 @dataclass(frozen=True)
 class _RegisteredRPC:
+    name: str
     method: Callable[..., Any]
+    options: _RPCOptions
     input_codec: Codec[Any] | None
     output_codec: Codec[Any] | None
+    locks: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _RegisteredFlow:
+    name: str
+    flow: Flow[Any]
+    steps: MappingProxyType[str, _RegisteredStep]
+    start_step: _RegisteredStep | None
+    rpcs: MappingProxyType[str, _RegisteredRPC]
+    persistence: MappingProxyType[str, _PersistenceDefinition]
+
+    def step(self, name: str) -> _RegisteredStep:
+        try:
+            return self.steps[name]
+        except KeyError as error:
+            raise ValueError(f"Step is not registered: {name}") from error
+
+    def rpc(self, name: str) -> _RegisteredRPC:
+        try:
+            return self.rpcs[name]
+        except KeyError as error:
+            raise ValueError(f"RPC is not registered: {name}") from error
 
 
 @dataclass(frozen=True)
@@ -142,6 +172,7 @@ class Registry:
     codec_registry: CodecRegistry
     _steps: tuple[_RegisteredStep, ...]
     _rpcs: tuple[_RegisteredRPC, ...]
+    _registered_flows: MappingProxyType[str, _RegisteredFlow]
 
     def __init__(
         self,
@@ -150,64 +181,84 @@ class Registry:
     ) -> None:
         immutable_flows = tuple(flows)
         resolved_codecs = codec_registry or CodecRegistry()
-        registered_steps, registered_rpcs = self._validate(
-            immutable_flows, resolved_codecs
+        registered_flows = self._assemble(immutable_flows, resolved_codecs)
+        registered_steps = tuple(
+            step
+            for registered_flow in registered_flows.values()
+            for step in registered_flow.steps.values()
+        )
+        registered_rpcs = tuple(
+            registered_rpc
+            for registered_flow in registered_flows.values()
+            for registered_rpc in registered_flow.rpcs.values()
         )
         object.__setattr__(self, "flows", immutable_flows)
         object.__setattr__(self, "codec_registry", resolved_codecs)
         object.__setattr__(self, "_steps", registered_steps)
         object.__setattr__(self, "_rpcs", registered_rpcs)
+        object.__setattr__(
+            self,
+            "_registered_flows",
+            MappingProxyType(registered_flows),
+        )
 
     @staticmethod
-    def _validate(
+    def _assemble(
         flows: tuple[Flow[Any], ...], codec_registry: CodecRegistry
-    ) -> tuple[tuple[_RegisteredStep, ...], tuple[_RegisteredRPC, ...]]:
-        flow_names: set[str] = set()
-        registered_steps: list[_RegisteredStep] = []
-        registered_rpcs: list[_RegisteredRPC] = []
+    ) -> dict[str, _RegisteredFlow]:
+        registered_flows: dict[str, _RegisteredFlow] = {}
         for flow in flows:
+            if not isinstance(flow, Flow):
+                raise TypeError("Flow definition is invalid")
             flow_name = flow.get_flow_type()
             require_name(flow_name)
-            if flow_name in flow_names:
+            if flow_name in registered_flows:
                 raise ValueError(f"duplicate Flow {flow_name}")
-            flow_names.add(flow_name)
-            steps, rpcs = Registry._validate_flow(flow, codec_registry)
-            registered_steps.extend(steps)
-            registered_rpcs.extend(rpcs)
-        return tuple(registered_steps), tuple(registered_rpcs)
+            registered_flows[flow_name] = Registry._assemble_flow(
+                flow_name,
+                flow,
+                codec_registry,
+            )
+        return registered_flows
 
     @staticmethod
-    def _validate_flow(
-        flow: Flow[Any], codec_registry: CodecRegistry
-    ) -> tuple[list[_RegisteredStep], list[_RegisteredRPC]]:
+    def _assemble_flow(
+        flow_name: str,
+        flow: Flow[Any],
+        codec_registry: CodecRegistry,
+    ) -> _RegisteredFlow:
         definitions = flow.get_steps()
         if not isinstance(definitions, StepList):
             raise TypeError("Flow steps must be a StepList")
-        step_names: set[str] = set()
-        registered_steps: list[_RegisteredStep] = []
-        has_start_step = False
+        registered_steps: dict[str, _RegisteredStep] = {}
+        start_step: _RegisteredStep | None = None
         for definition in definitions:
             if not isinstance(definition, _StepDef):
                 raise TypeError("Flow StepList contains an invalid definition")
             if definition.is_start_step:
-                if has_start_step:
+                if start_step is not None:
                     raise ValueError("Flow must not have multiple start Steps")
-                has_start_step = True
             step = definition.step
             step_name = step.get_step_type()
             require_name(step_name)
-            if step_name in step_names:
+            if step_name in registered_steps:
                 raise ValueError(f"duplicate Step {step_name}")
-            step_names.add(step_name)
-            registered_steps.append(
-                _RegisteredStep(step, Registry._step_input_codec(step, codec_registry))
+            registered_step = _RegisteredStep(
+                step_name,
+                step,
+                Registry._step_input_codec(step, codec_registry),
+                definition.is_start_step,
+                type(step).wait_for is Step.wait_for,
             )
+            registered_steps[step_name] = registered_step
+            if definition.is_start_step:
+                start_step = registered_step
 
         schema = flow.get_persistence_schema()
         if not isinstance(schema, PersistenceSchema):
             raise TypeError("Flow persistence schema must be a PersistenceSchema")
-        registered_rpcs: list[_RegisteredRPC] = []
-        rpc_names: set[str] = set()
+        persistence = Registry._assemble_persistence(schema)
+        registered_rpcs: dict[str, _RegisteredRPC] = {}
         for attribute_name in dir(flow):
             method = getattr(flow, attribute_name)
             function = getattr(method, "__func__", method)
@@ -215,12 +266,40 @@ class Registry:
             if not isinstance(options, _RPCOptions):
                 continue
             rpc_name = options.name or attribute_name
-            if rpc_name in rpc_names:
+            require_name(rpc_name)
+            if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
-            rpc_names.add(rpc_name)
             Registry._validate_rpc_locks(rpc_name, options, schema)
-            registered_rpcs.append(Registry._rpc_codecs(method, codec_registry))
-        return registered_steps, registered_rpcs
+            input_codec, output_codec = Registry._rpc_codecs(method, codec_registry)
+            registered_rpcs[rpc_name] = _RegisteredRPC(
+                rpc_name,
+                method,
+                options,
+                input_codec,
+                output_codec,
+                tuple(
+                    Registry._physical_lock(lock) for lock in options.lock_attributes
+                ),
+            )
+        return _RegisteredFlow(
+            flow_name,
+            flow,
+            MappingProxyType(registered_steps),
+            start_step,
+            MappingProxyType(registered_rpcs),
+            MappingProxyType(persistence),
+        )
+
+    @staticmethod
+    def _assemble_persistence(
+        schema: PersistenceSchema,
+    ) -> dict[str, _PersistenceDefinition]:
+        persistence: dict[str, _PersistenceDefinition] = {}
+        for definition in (*schema.attributes, *schema.channels):
+            if definition.name in persistence:
+                raise ValueError(f"duplicate persistence definition {definition.name}")
+            persistence[definition.name] = definition
+        return persistence
 
     @staticmethod
     def _validate_rpc_locks(
@@ -277,6 +356,10 @@ class Registry:
         handler: Callable[..., Any],
         return_type: type[Any],
     ) -> Any:
+        if iscoroutinefunction(handler):
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} must be synchronous"
+            )
         parameters = tuple(signature(handler).parameters.values())
         hints = get_type_hints(handler)
         if len(parameters) != 2:
@@ -303,7 +386,9 @@ class Registry:
     @staticmethod
     def _rpc_codecs(
         method: Callable[..., Any], codec_registry: CodecRegistry
-    ) -> _RegisteredRPC:
+    ) -> tuple[Codec[Any] | None, Codec[Any] | None]:
+        if iscoroutinefunction(method):
+            raise TypeError("RPC must be synchronous")
         parameters = tuple(signature(method).parameters.values())
         hints = get_type_hints(method)
         if len(parameters) not in (1, 2) or "return" not in hints:
@@ -326,4 +411,46 @@ class Registry:
             output_codec = codec_registry.resolve(arguments[0])
         elif return_type not in (None, type(None)):
             raise TypeError("RPC must return RPCResult[O] or None")
-        return _RegisteredRPC(method, input_codec, output_codec)
+        return input_codec, output_codec
+
+    @staticmethod
+    def physical_name(name: str, instance: str) -> str:
+        require_name(instance)
+        return f"{name}/{quote(instance, safe='')}"
+
+    @staticmethod
+    def _physical_lock(lock: AttributeLock) -> str:
+        if lock.instance is None:
+            return lock.attribute.name
+        return Registry.physical_name(lock.attribute.name, lock.instance)
+
+    def _flow_by_type(self, flow_type: str) -> _RegisteredFlow:
+        try:
+            return self._registered_flows[flow_type]
+        except KeyError as error:
+            raise ValueError(f"Flow is not registered: {flow_type}") from error
+
+    def _flow_for_instance(self, flow: Flow[Any]) -> _RegisteredFlow:
+        registered = self._flow_by_type(flow.get_flow_type())
+        if registered.flow is not flow:
+            raise ValueError("Flow instance is not registered")
+        return registered
+
+    def _rpc_for_method(
+        self,
+        method: Callable[..., Any],
+    ) -> tuple[_RegisteredFlow, _RegisteredRPC]:
+        receiver = getattr(method, "__self__", None)
+        function = getattr(method, "__func__", method)
+        for flow in self._registered_flows.values():
+            if receiver is not flow.flow:
+                continue
+            for registered_rpc in flow.rpcs.values():
+                registered_function = getattr(
+                    registered_rpc.method,
+                    "__func__",
+                    registered_rpc.method,
+                )
+                if registered_function is function:
+                    return flow, registered_rpc
+        raise ValueError("RPC method is not registered")

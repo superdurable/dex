@@ -106,13 +106,57 @@ BYTES: Codec[bytes] = _ScalarCodec("bytes", WireKind.BYTES, bytes)
 
 
 @dataclass(frozen=True)
+class _NoneCodec:
+    type_name: str = "None"
+    wire_kind: WireKind = WireKind.JSON
+
+    def encode(self, value: None) -> Value:
+        if value is not None:
+            raise TypeError("None codec requires None")
+        return Value(WireKind.JSON, "null")
+
+    def decode(self, value: Value) -> None:
+        if value.kind is not WireKind.JSON or value.data != "null":
+            raise TypeError("None codec requires JSON null")
+        return None
+
+
+@dataclass(frozen=True)
+class _DateTimeCodec:
+    type_name: str = "datetime"
+    wire_kind: WireKind = WireKind.STRING
+
+    def encode(self, value: datetime) -> Value:
+        if not isinstance(value, datetime):
+            raise TypeError("datetime codec requires datetime")
+        return Value(WireKind.STRING, value.isoformat())
+
+    def decode(self, value: Value) -> datetime:
+        if value.kind is not WireKind.STRING or not isinstance(value.data, str):
+            raise TypeError("datetime codec requires a string value")
+        return datetime.fromisoformat(value.data)
+
+
+_NONE: Codec[None] = _NoneCodec()
+_DATETIME: Codec[datetime] = _DateTimeCodec()
+
+
+@dataclass(frozen=True)
 class JsonCodec(Generic[ValueT]):
     type_name: str
     decoder: Callable[[Any], ValueT]
     encoder: Callable[[ValueT], Any] = field(default=lambda value: value)
+    expected_type: object | None = None
     wire_kind: WireKind = field(default=WireKind.JSON, init=False)
 
     def encode(self, value: ValueT) -> Value:
+        if self.expected_type is not None and not _matches_type(
+            value, self.expected_type
+        ):
+            raise TypeError(
+                f"{self.type_name} requires {_type_name(self.expected_type)}, "
+                f"got {type(value).__name__}"
+            )
         payload = json.dumps(
             self.encoder(value),
             allow_nan=False,
@@ -141,6 +185,8 @@ class CodecRegistry:
             int: INT64,
             float: DOUBLE,
             bytes: BYTES,
+            type(None): _NONE,
+            datetime: _DATETIME,
         }
         builtin = builtins.get(type_hint)
         if builtin is not None:
@@ -150,6 +196,7 @@ class CodecRegistry:
                 _type_name(type_hint),
                 lambda value: _decode_json_value(value, type_hint),
                 _encode_json_value,
+                type_hint,
             )
         raise TypeError(
             f"no codec for {_type_name(type_hint)}; register one in CodecRegistry"
@@ -159,17 +206,32 @@ class CodecRegistry:
 def _supports_automatic_json(type_hint: object) -> bool:
     origin = get_origin(type_hint)
     return (
-        (
-            isinstance(type_hint, type)
-            and (is_dataclass(type_hint) or issubclass(type_hint, Enum))
-        )
-        or type_hint is datetime
-        or origin in (list, tuple, dict, Mapping, Sequence)
-    )
+        isinstance(type_hint, type)
+        and (is_dataclass(type_hint) or issubclass(type_hint, Enum))
+    ) or origin in (list, tuple, dict, Mapping, Sequence)
 
 
 def _type_name(type_hint: object) -> str:
     return getattr(type_hint, "__qualname__", str(type_hint))
+
+
+def _matches_type(value: object, type_hint: object) -> bool:
+    origin = get_origin(type_hint)
+    arguments = get_args(type_hint)
+    if origin is list:
+        return isinstance(value, list) and all(
+            _matches_type(item, arguments[0]) for item in value
+        )
+    if origin is tuple:
+        return isinstance(value, tuple) and all(
+            _matches_type(item, arguments[0]) for item in value
+        )
+    if origin in (dict, Mapping):
+        return isinstance(value, Mapping) and all(
+            _matches_type(key, arguments[0]) and _matches_type(item, arguments[1])
+            for key, item in value.items()
+        )
+    return isinstance(type_hint, type) and type(value) is type_hint
 
 
 def _encode_json_value(value: Any) -> Any:

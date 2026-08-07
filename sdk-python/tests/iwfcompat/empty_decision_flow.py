@@ -8,13 +8,25 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepList, go_to_multi
+from dex import (
+    Context,
+    Flow,
+    RetryPolicy,
+    Step,
+    StepDecision,
+    StepList,
+    StepOptions,
+    go_to_multi,
+)
 
 
 class EmptyDecisionStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
         return go_to_multi()
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
 
 class EmptyDecisionFlow(Flow[int]):

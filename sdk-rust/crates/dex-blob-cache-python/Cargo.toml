@@ -1,0 +1,16 @@
+[package]
+name = "dex-blob-cache-python"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Python binding for the shared Dex DXBC blob cache"
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+dex-blob-cache = { path = "../dex-blob-cache" }
+pyo3 = { workspace = true, features = ["extension-module"] }

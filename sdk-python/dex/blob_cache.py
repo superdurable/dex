@@ -9,7 +9,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from dex._utils import PhaseNotImplementedError
+from dex._native import NativeBlobCache
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,30 @@ class BlobCache(Protocol):
     def close(self) -> None: ...
 
 
+class _RustBlobCache:
+    def __init__(self, config: BlobCacheConfig) -> None:
+        self.config = config
+        self._native = NativeBlobCache(
+            config.directory,
+            config.max_bytes,
+            config.frequency_counters,
+        )
+
+    def get(self, blob_id: str) -> bytes | None:
+        return self._native.get(blob_id)
+
+    def put(self, blob_id: str, payload: bytes) -> bool:
+        return self._native.put(blob_id, payload)
+
+    def delete(self, blob_id: str) -> None:
+        self._native.delete(blob_id)
+
+    def delete_all(self) -> None:
+        self._native.delete_all()
+
+    def close(self) -> None:
+        self._native.close()
+
+
 def open_blob_cache(config: BlobCacheConfig) -> BlobCache:
-    del config
-    raise PhaseNotImplementedError("BlobCache bridge belongs to a later phase")
+    return _RustBlobCache(config)

@@ -28,6 +28,8 @@ class TriggeredStep(Step[None]):
 
 
 class NoStartFlow(Flow[None]):
+    RPC_OUTPUT = 100
+
     def __init__(self) -> None:
         self.triggered = TriggeredStep()
 
@@ -36,5 +38,10 @@ class NoStartFlow(Flow[None]):
 
     @rpc
     def invoke(self, context: Context, input: str) -> RPCResult[int]:
-        del context, input
-        return RPCResult(1, (StepMovement.of(self.triggered, None),))
+        del input
+        if not context.flow_id or not context.run_id:
+            raise RuntimeError("invalid RPC context")
+        return RPCResult(
+            self.RPC_OUTPUT,
+            (StepMovement.of(self.triggered, None),),
+        )

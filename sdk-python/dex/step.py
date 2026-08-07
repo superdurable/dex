@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Awaitable, Generic, Iterator, TypeAlias, TypeVar
+from typing import Any, Generic, Iterator, TypeVar
 
 from dex.attribute import AttributeLock
 from dex.channel import Channel, ChannelMap
@@ -22,9 +22,7 @@ from dex.context import Context
 from dex.wait import Wait
 
 InputT = TypeVar("InputT")
-ResultT = TypeVar("ResultT")
 StartT = TypeVar("StartT")
-MaybeAwaitable: TypeAlias = ResultT | Awaitable[ResultT]
 
 
 class StepDurability(Enum):
@@ -79,10 +77,10 @@ class Step(Generic[InputT], ABC):
         self,
         context: Context,
         input: InputT,
-    ) -> MaybeAwaitable[StepDecision]:
+    ) -> StepDecision:
         raise NotImplementedError
 
-    def wait_for(self, context: Context, input: InputT) -> MaybeAwaitable[Wait]:
+    def wait_for(self, context: Context, input: InputT) -> Wait:
         del context, input
         raise RuntimeError("framework must skip the default wait_for")
 

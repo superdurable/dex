@@ -8,7 +8,16 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepList, Wait
+from dex import (
+    Context,
+    Flow,
+    RetryPolicy,
+    Step,
+    StepDecision,
+    StepList,
+    StepOptions,
+    Wait,
+)
 
 
 class StateFailureStep(Step[int]):
@@ -18,7 +27,10 @@ class StateFailureStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        raise RuntimeError("state API failure")
+        raise RuntimeError("test api failing")
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
 
 class StateFailureFlow(Flow[int]):

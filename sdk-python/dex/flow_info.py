@@ -18,9 +18,10 @@ class FlowStatus(Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
-    CANCELLED = "cancelled"
+    CANCELED = "canceled"
     TERMINATED = "terminated"
     TIMED_OUT = "timed_out"
+    CONTINUED_AS_NEW = "continued_as_new"
 
 
 @dataclass(frozen=True)

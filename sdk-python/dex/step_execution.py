@@ -18,13 +18,19 @@ from dex._utils import require_name
 @dataclass(frozen=True)
 class StepExecutionId:
     step_type: str
-    number: int = 0
+    number: int = 1
 
 
 @dataclass(frozen=True)
 class TimerId:
     condition_id: str | None = None
     condition_index: int | None = None
+
+    def __post_init__(self) -> None:
+        if (self.condition_id is None) == (self.condition_index is None):
+            raise ValueError("TimerId requires exactly one selector")
+        if self.condition_index is not None and self.condition_index < 0:
+            raise ValueError("timer condition index must not be negative")
 
     @staticmethod
     def by_condition_id(condition_id: str) -> TimerId:

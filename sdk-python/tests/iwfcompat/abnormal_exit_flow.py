@@ -8,13 +8,16 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Context, Flow, Step, StepDecision, StepList
+from dex import Context, Flow, RetryPolicy, Step, StepDecision, StepList, StepOptions
 
 
 class AbnormalExitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
         raise RuntimeError("abnormal exit")
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
 
 class AbnormalExitFlow(Flow[int]):

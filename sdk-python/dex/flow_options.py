@@ -25,6 +25,7 @@ ValueT = TypeVar("ValueT")
 
 class IdReusePolicy(Enum):
     DEFAULT = "default"
+    ALLOW_IF_PREVIOUS_FAILED = "allow_if_previous_failed"
     ALLOW_IF_NOT_RUNNING = "allow_if_not_running"
     ALLOW_TERMINATE_IF_RUNNING = "allow_terminate_if_running"
     DISALLOW = "disallow"

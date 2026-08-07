@@ -8,7 +8,6 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex._utils import PhaseNotImplementedError
 from dex.attribute import (
     Attribute,
     AttributeIndex,
@@ -44,6 +43,13 @@ from dex.flow_options import (
     StartFlowOptions,
     StopFlowOptions,
     StopType,
+)
+from dex.runtime_errors import (
+    DexException,
+    ErrorSubStatus,
+    FlowErrorType,
+    FlowUncompletedError,
+    LongPollTimeoutError,
 )
 from dex.step import (
     RetryPolicy,
@@ -89,16 +95,20 @@ __all__ = [
     "CodecRegistry",
     "ConditionCombination",
     "Context",
+    "DexException",
+    "ErrorSubStatus",
     "Flow",
     "FlowConfig",
+    "FlowErrorType",
     "FlowInfo",
     "FlowStatus",
+    "FlowUncompletedError",
     "HealthInfo",
     "IdReusePolicy",
     "IndexType",
     "JsonCodec",
+    "LongPollTimeoutError",
     "PersistenceSchema",
-    "PhaseNotImplementedError",
     "RPCResult",
     "Registry",
     "ResetFlowOptions",

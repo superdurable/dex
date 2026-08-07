@@ -14,55 +14,76 @@ from dex import (
     Attribute,
     AttributeIndex,
     AttributeMap,
+    Channel,
+    Context,
     Flow,
     IndexType,
     PersistenceSchema,
+    Step,
+    StepDecision,
     StepList,
+    Wait,
+    graceful_complete,
 )
 
-from .shared import CompleteStringStep
+from .shared import ModelInput
+
+
+class SetAttributesCompleteStep(Step[str]):
+    def __init__(self, proceed: Channel[None]) -> None:
+        self.proceed = proceed
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        del context, input
+        return Wait.all_of(self.proceed.for_one())
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context, input
+        return graceful_complete("test-result")
 
 
 class SetAttributesFlow(Flow[str]):
     def __init__(self) -> None:
         self.data = Attribute("data", str)
         self.data_map = AttributeMap("data-map", str)
+        self.model = Attribute("data-model", ModelInput)
         self.keyword = Attribute(
-            "keyword",
+            "CustomKeywordField",
             str,
             AttributeIndex(IndexType.KEYWORD),
         )
         self.text = Attribute(
-            "text",
+            "CustomTextField",
             str,
             AttributeIndex(IndexType.FULL_TEXT),
         )
         self.decimal = Attribute(
-            "double",
+            "CustomDoubleField",
             float,
             AttributeIndex(IndexType.DOUBLE),
         )
         self.integer = Attribute(
-            "int",
+            "CustomIntField",
             int,
             AttributeIndex(IndexType.INT),
         )
         self.bool = Attribute(
-            "bool",
+            "CustomBoolField",
             bool,
             AttributeIndex(IndexType.BOOL),
         )
         self.keywords = Attribute[tuple[str, ...]](
-            "keywords",
-            tuple,
+            "CustomKeywordArrayField",
+            tuple[str, ...],
             AttributeIndex(IndexType.KEYWORD_ARRAY),
         )
         self.datetime = Attribute(
-            "datetime",
+            "CustomDatetimeField",
             datetime,
             AttributeIndex(IndexType.DATETIME),
         )
-        self.start = CompleteStringStep()
+        self.proceed = Channel("proceed", type(None))
+        self.start = SetAttributesCompleteStep(self.proceed)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.start)
@@ -71,6 +92,7 @@ class SetAttributesFlow(Flow[str]):
         return PersistenceSchema.of(
             self.data,
             self.data_map,
+            self.model,
             self.keyword,
             self.text,
             self.decimal,
@@ -78,4 +100,5 @@ class SetAttributesFlow(Flow[str]):
             self.bool,
             self.keywords,
             self.datetime,
+            self.proceed,
         )
