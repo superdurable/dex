@@ -12,6 +12,7 @@ jobs:
         working-directory: examples/python
     steps:
       - uses: actions/checkout@v7
+      # Shared Temporal/Dex compose; Python no longer ships its own dex-service-env.
       - name: Start Dex environment
         working-directory: sdk-java/script
         env:
