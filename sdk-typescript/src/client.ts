@@ -24,6 +24,8 @@ import {
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
   type ResetFlowResponse,
+  type SearchFlowsResponse,
+  type SearchFlowsResponseEntry,
   type StartFlowResponse,
   StartFlowRequest,
   StepDurability as ProtoStepDurability,
@@ -63,6 +65,8 @@ import {
   type FlowInfo,
   type FlowStatus,
   type ResetFlowOptions,
+  type SearchFlowEntry,
+  type SearchFlowsPage,
   type StartFlowOptions,
   type StepExecutionId,
   type StopFlowOptions,
@@ -72,7 +76,7 @@ import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { requireName } from "./validation.js";
-import { decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
+import { decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel } from "./wait.js";
 
 const defaultServerAddress = "localhost:8801";
@@ -398,6 +402,42 @@ export class Client {
       flowType: response.flowType,
       status: mapFlowStatus(response.flowStatus),
       startedAt: response.startTime,
+    };
+  }
+
+  public async searchFlows(
+    query: string,
+    pageSize: number,
+    nextPageToken = "",
+  ): Promise<SearchFlowsPage> {
+    if (pageSize < 0) {
+      throw new RangeError("search page size must not be negative");
+    }
+    const response = await unary<SearchFlowsResponse>((callback) =>
+      this.service.searchFlows({ query, pageSize, nextPageToken }, callback),
+    );
+    const flows = await Promise.all(
+      response.flowRuns.map((entry) => this.mapSearchEntry(entry)),
+    );
+    return { flows, nextPageToken: response.nextPageToken };
+  }
+
+  private async mapSearchEntry(entry: SearchFlowsResponseEntry): Promise<SearchFlowEntry> {
+    if (entry.startTime === undefined) {
+      throw new TypeError(`Dex returned a search entry without a start time for Flow ${entry.flowId}`);
+    }
+    const searchAttributes = new Map<string, unknown>();
+    for (const attribute of entry.searchAttributes) {
+      searchAttributes.set(attribute.key, decodeUnknown(await this.hydrator.hydrate(attribute.value)));
+    }
+    return {
+      flowId: entry.flowId,
+      runId: entry.runId,
+      flowType: entry.flowType,
+      status: mapFlowStatus(entry.flowStatus),
+      startedAt: entry.startTime,
+      closedAt: entry.closeTime,
+      searchAttributes,
     };
   }
 
