@@ -16,99 +16,75 @@
 
 package io.superdurable.dex.controller;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.gen.models.WorkflowSearchResponse;
-import io.superdurable.dex.workflow.engagement.EngagementWorkflow;
-import io.superdurable.dex.workflow.engagement.model.EngagementDescription;
-import io.superdurable.dex.workflow.engagement.model.EngagementInput;
-import io.superdurable.dex.workflow.engagement.model.ImmutableEngagementInput;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.workflow.engagement.EngagementDescription;
+import io.superdurable.dex.workflow.engagement.EngagementFlow;
+import io.superdurable.dex.workflow.engagement.EngagementInput;
+import io.superdurable.dex.workflow.engagement.Status;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-@Controller
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@RestController
 @RequestMapping("/engagement")
 public class EngagementWorkflowController {
-
     private final Client client;
+    private final EngagementFlow flow;
 
     public EngagementWorkflowController(
-            final Client client
-    ) {
+            final Client client,
+            final EngagementFlow flow) {
         this.client = client;
+        this.flow = flow;
     }
 
     @GetMapping("/start")
-    public ResponseEntity<String> start(
-            @RequestParam(defaultValue = "test-employer") String employerId,
-            @RequestParam(defaultValue = "test-jobseeker") String jobSeekerId,
-            @RequestParam(defaultValue = "test-notes") String notes
-    ) {
-        final String wfId = "engagement_test_id_" + System.currentTimeMillis() / 1000;
-        final EngagementInput input = ImmutableEngagementInput.builder()
-                .employerId(employerId)
-                .jobSeekerId(jobSeekerId)
-                .notes(notes)
-                .build();
-        client.startWorkflow(EngagementWorkflow.class, wfId, 3600, input);
-
-        return ResponseEntity.ok(String.format("started workflowId: %s", wfId));
-    }
-
-    @GetMapping("/optout")
-    public ResponseEntity<String> optout(
-            @RequestParam String workflowId
-    ) {
-        client.signalWorkflow(EngagementWorkflow.class, workflowId, EngagementWorkflow.SIGNAL_NAME_OPT_OUT_REMINDER, null);
-        return ResponseEntity.ok("done");
-    }
-
-    @GetMapping("/decline")
-    public ResponseEntity<String> decline(
-            @RequestParam String workflowId,
-            @RequestParam String notes
-    ) {
-        final EngagementWorkflow rpcStub = client.newRpcStub(EngagementWorkflow.class, workflowId);
-        client.invokeRPC(rpcStub::decline, notes);
-
-        return ResponseEntity.ok("declined");
+    public ResponseEntity<Map<String, String>> start() {
+        final String flowId = "engagement-" + System.nanoTime();
+        final EngagementInput input = new EngagementInput(
+                "test-employer-id",
+                "test-job-seeker-id",
+                "test-notes");
+        final String runId = client.startFlow(flow, flowId, input, ExampleFlows.startOptions());
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", flowId);
+        response.put("runID", runId);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/describe")
     public ResponseEntity<EngagementDescription> describe(
-            @RequestParam String workflowId
-    ) {
-        final EngagementWorkflow rpcStub = client.newRpcStub(EngagementWorkflow.class, workflowId);
-        final EngagementDescription description = client.invokeRPC(rpcStub::describe);
+            @RequestParam final String workflowId) {
+        final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::describe));
+    }
 
-        return ResponseEntity.ok(description);
+    @GetMapping("/optout")
+    public ResponseEntity<Map<String, Object>> optOut(
+            @RequestParam final String workflowId) {
+        client.publish(workflowId, flow.optOutReminder, (Void) null);
+        return ResponseEntity.ok(Collections.<String, Object>emptyMap());
+    }
+
+    @GetMapping("/decline")
+    public ResponseEntity<Status> decline(
+            @RequestParam final String workflowId,
+            @RequestParam(defaultValue = "") final String notes) {
+        final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::decline, notes));
     }
 
     @GetMapping("/accept")
-    public ResponseEntity<String> accept(
-            @RequestParam String workflowId,
-            @RequestParam String notes
-    ) {
-        final EngagementWorkflow rpcStub = client.newRpcStub(EngagementWorkflow.class, workflowId);
-        client.invokeRPC(rpcStub::accept, notes);
-
-        return ResponseEntity.ok("accepted");
-    }
-
-    @GetMapping("/list")
-    public ResponseEntity<WorkflowSearchResponse> list(
-            @RequestParam String query
-    ) {
-        if (query.startsWith("'")) {
-            query = query.substring(1, query.length() - 1);
-        }
-        System.out.println("got query for search: " + query);
-        // this is just a shortcut for demo for how flexible the search can be
-        // in real world you may want to provide some search patterns like listByEmployerId+status etc
-        WorkflowSearchResponse response = client.searchWorkflow(query, 1000);
-
-        return ResponseEntity.ok(response);
+    public ResponseEntity<Status> accept(
+            @RequestParam final String workflowId,
+            @RequestParam(defaultValue = "") final String notes) {
+        final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::accept, notes));
     }
 }

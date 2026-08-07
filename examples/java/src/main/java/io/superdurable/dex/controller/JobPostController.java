@@ -16,111 +16,95 @@
 
 package io.superdurable.dex.controller;
 
-import com.google.common.collect.ImmutableMap;
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.ImmutableWorkflowOptions;
-import io.superdurable.dex.gen.models.WorkflowConfig;
-import io.superdurable.dex.gen.models.WorkflowSearchResponse;
-import io.superdurable.dex.workflow.jobpost.ImmutableJobInfo;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowConfig;
+import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.workflow.jobpost.JobInfo;
-import io.superdurable.dex.workflow.jobpost.JobPostWorkflow;
+import io.superdurable.dex.workflow.jobpost.JobPostFlow;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-@Controller
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@RestController
 @RequestMapping("/jobpost")
 public class JobPostController {
-
     private final Client client;
+    private final JobPostFlow flow;
 
     public JobPostController(
-            final Client client
-    ) {
+            final Client client,
+            final JobPostFlow flow) {
         this.client = client;
+        this.flow = flow;
     }
 
     @GetMapping("/create")
     public ResponseEntity<String> create(
             @RequestParam String title,
-            @RequestParam String description
-    ) {
-        final String wfId = "job_id_" + System.currentTimeMillis() / 1000;
-
+            @RequestParam String description) {
+        final String flowId = "job_id_" + System.currentTimeMillis() / 1000;
         title = escapeQuote(title);
         description = escapeQuote(description);
 
-        client.startWorkflow(JobPostWorkflow.class, wfId, 3600, null,
-                ImmutableWorkflowOptions.builder()
-                        .initialSearchAttribute(ImmutableMap.of(
-                                JobPostWorkflow.SA_KEY_TITLE, title,
-                                JobPostWorkflow.SA_KEY_JOB_DESCRIPTION, description,
-                                JobPostWorkflow.SA_KEY_LAST_UPDATE_TIMESTAMP, System.currentTimeMillis() / 1000
-                        ))
-                        .workflowConfigOverride(
-                                // set lower threshold to demo auto continueAsNew
-                                new WorkflowConfig().continueAsNewThreshold(10)
-                        )
-                        .build());
-
-        return ResponseEntity.ok(String.format("started workflowId: %s", wfId));
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .timeout(Duration.ofHours(24))
+                .addAttribute(flow.title, title)
+                .addAttribute(flow.jobDescription, description)
+                .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
+                .configOverride(FlowConfig.newBuilder().continueAsNewThreshold(10).build())
+                .build();
+        client.startFlow(flow, flowId, null, options);
+        return ResponseEntity.ok(String.format("started workflowId: %s", flowId));
     }
 
     @GetMapping("/read")
-    public ResponseEntity<JobInfo> read(
-            @RequestParam String workflowId) {
-        final JobPostWorkflow rpcStub = client.newRpcStub(JobPostWorkflow.class, workflowId);
-
-        JobInfo jobInfo = client.invokeRPC(rpcStub::get);
-
-        return ResponseEntity.ok(jobInfo);
+    public ResponseEntity<JobInfo> read(@RequestParam final String workflowId) {
+        final JobPostFlow stub = client.newRpcStub(JobPostFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::get));
     }
 
     @GetMapping("/update")
     public ResponseEntity<String> update(
-            @RequestParam String workflowId,
+            @RequestParam final String workflowId,
             @RequestParam String title,
             @RequestParam String description,
-            @RequestParam(defaultValue = "test-notes") String notes
-    ) {
+            @RequestParam(defaultValue = "test-notes") String notes) {
         title = escapeQuote(title);
         description = escapeQuote(description);
         notes = escapeQuote(notes);
 
-        final JobPostWorkflow rpcStub = client.newRpcStub(JobPostWorkflow.class, workflowId);
-        JobInfo input = ImmutableJobInfo.builder()
-                .description(description)
-                .title(title)
-                .notes(notes)
-                .build();
-        client.invokeRPC(rpcStub::update, input);
-
+        final JobPostFlow stub = client.newRpcStub(JobPostFlow.class, workflowId);
+        client.invokeRPC(stub::update, new JobInfo(title, description, notes));
         return ResponseEntity.ok("updated");
     }
 
     @GetMapping("/delete")
-    public ResponseEntity<String> delete(
-            @RequestParam String workflowId) {
-        client.stopWorkflow(workflowId);
-        return ResponseEntity.ok("marked as soft deleted, will be delete later after retention");
+    public ResponseEntity<String> delete(@RequestParam final String workflowId) {
+        client.stopFlow(workflowId);
+        return ResponseEntity.ok(
+                "marked as soft deleted, will be delete later after retention");
     }
 
     @GetMapping("/search")
-    public ResponseEntity<WorkflowSearchResponse> search(
-            @RequestParam String query
-    ) {
+    public ResponseEntity<Map<String, String>> search(@RequestParam String query) {
         query = escapeQuote(query);
-        System.out.println("got query for search: " + query);
-        // this is just a shortcut for demo for how flexible the search can be
-        // in real world you may want to provide some search patterns like listByEmployerId+status etc
-        WorkflowSearchResponse response = client.searchWorkflow(query, 1000);
-
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put(
+                "message",
+                "Java Client 0.0.3 does not expose SearchFlows; "
+                        + "Title and JobDescription are FULL_TEXT AttributeIndexes "
+                        + "for when SearchFlows is available.");
+        response.put("query", query);
         return ResponseEntity.ok(response);
     }
 
-    String escapeQuote(String input) {
+    private static String escapeQuote(String input) {
         if (input.startsWith("'")) {
             input = input.substring(1, input.length() - 1);
         }

@@ -16,17 +16,17 @@
 
 package io.superdurable.dex.workflow.jobpost;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.immutables.value.Value;
+public class JobInfo {
+    public String title;
+    public String description;
+    public String notes;
 
-import java.util.Optional;
+    public JobInfo() {
+    }
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableJobInfo.class)
-public abstract class JobInfo {
-    public abstract String getTitle();
-
-    public abstract String getDescription();
-
-    public abstract Optional<String> getNotes();
+    public JobInfo(final String title, final String description, final String notes) {
+        this.title = title;
+        this.description = description;
+        this.notes = notes;
+    }
 }

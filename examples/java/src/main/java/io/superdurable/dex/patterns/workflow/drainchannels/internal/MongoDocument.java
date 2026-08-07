@@ -16,21 +16,17 @@
 
 package io.superdurable.dex.patterns.workflow.drainchannels.internal;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.immutables.value.Value;
+public class MongoDocument {
+    public String id;
+    public String status = "RECEIVED";
+    public boolean finalCommand;
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableMongoDocument.class)
-public abstract class MongoDocument {
-    public abstract String getId();
-
-    @Value.Default
-    public String getStatus() {
-        return "RECEIVED";
+    public MongoDocument() {
     }
 
-    @Value.Default
-    public boolean isFinalCommand() {
-        return false;
+    public MongoDocument(final String id, final String status, final boolean finalCommand) {
+        this.id = id;
+        this.status = status;
+        this.finalCommand = finalCommand;
     }
 }

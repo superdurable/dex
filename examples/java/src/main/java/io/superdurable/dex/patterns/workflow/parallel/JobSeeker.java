@@ -16,6 +16,17 @@
 
 package io.superdurable.dex.patterns.workflow.parallel;
 
-public record JobSeeker(
-        String id, String email, String phoneNumber
-){};
+public class JobSeeker {
+    public String id;
+    public String email;
+    public String phoneNumber;
+
+    public JobSeeker() {
+    }
+
+    public JobSeeker(final String id, final String email, final String phoneNumber) {
+        this.id = id;
+        this.email = email;
+        this.phoneNumber = phoneNumber;
+    }
+}

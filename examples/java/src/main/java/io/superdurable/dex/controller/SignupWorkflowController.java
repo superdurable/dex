@@ -16,52 +16,49 @@
 
 package io.superdurable.dex.controller;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.exceptions.WorkflowAlreadyStartedException;
-import io.superdurable.dex.workflow.microservices.ImmutableSignupForm;
-import io.superdurable.dex.workflow.signup.UserSignupWorkflow;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.DexException;
+import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.workflow.signup.SignupForm;
+import io.superdurable.dex.workflow.signup.UserSignupFlow;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-@Controller
+@RestController
 @RequestMapping("/signup")
 public class SignupWorkflowController {
-
     private final Client client;
+    private final UserSignupFlow flow;
 
     public SignupWorkflowController(
-            final Client client
-    ) {
+            final Client client,
+            final UserSignupFlow flow) {
         this.client = client;
+        this.flow = flow;
     }
 
     @GetMapping("/submit")
-    public ResponseEntity<String> start(
-            @RequestParam String username,
-            @RequestParam String email
-    ) {
+    public ResponseEntity<String> submit(
+            @RequestParam final String username,
+            @RequestParam final String email) {
+        final SignupForm form = new SignupForm(username, email, "Test", "Test");
         try {
-            final ImmutableSignupForm form = ImmutableSignupForm.builder()
-                    .username(username)
-                    .email(email)
-                    .firstName("Test")
-                    .lastName("Test")
-                    .build();
-            client.startWorkflow(UserSignupWorkflow.class, username, 3600, form);
-        } catch (WorkflowAlreadyStartedException e) {
-            return ResponseEntity.ok("username already started registry");
+            client.startFlow(flow, username, form, ExampleFlows.startOptions());
+        } catch (final DexException exception) {
+            if (exception.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
+                return ResponseEntity.ok("username already started registry");
+            }
+            throw exception;
         }
         return ResponseEntity.ok("success");
     }
 
     @GetMapping("/verify")
-    ResponseEntity<String> verify(
-            @RequestParam String username) {
-        final UserSignupWorkflow rpcStub = client.newRpcStub(UserSignupWorkflow.class, username);
-        String result = client.invokeRPC(rpcStub::verify);
-        return ResponseEntity.ok(result);
+    public ResponseEntity<String> verify(@RequestParam final String username) {
+        final UserSignupFlow stub = client.newRpcStub(UserSignupFlow.class, username);
+        return ResponseEntity.ok(client.invokeRPC(stub::verify));
     }
 }

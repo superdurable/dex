@@ -16,15 +16,14 @@
 
 package io.superdurable.dex.controller;
 
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.core.exceptions.NoRunningWorkflowException;
-import io.superdurable.dex.core.exceptions.WorkflowAlreadyStartedException;
-import io.superdurable.dex.workflow.shortlistcandidates.EmployerOptInWorkflow;
-import io.superdurable.dex.workflow.shortlistcandidates.ShortlistWorkflow;
-import io.superdurable.dex.workflow.shortlistcandidates.model.ImmutableEmployerOptInInput;
-import io.superdurable.dex.workflow.shortlistcandidates.model.ImmutableShortlistInput;
-import io.superdurable.dex.workflow.shortlistcandidates.utils.WorkflowUtil;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.DexException;
+import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.workflow.shortlistcandidates.EmployerOptInFlow;
+import io.superdurable.dex.workflow.shortlistcandidates.EmployerOptInInput;
+import io.superdurable.dex.workflow.shortlistcandidates.ShortlistFlow;
+import io.superdurable.dex.workflow.shortlistcandidates.ShortlistInput;
+import io.superdurable.dex.workflow.shortlistcandidates.WorkflowIds;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,88 +37,93 @@ import java.util.Map;
 @Controller
 @RequestMapping("/shortlist_candidates")
 public class ShortlistCandidatesController {
+    private final Client client;
+    private final EmployerOptInFlow employerOptInFlow;
+    private final ShortlistFlow shortlistFlow;
 
-    @Autowired
-    private Client client;
+    public ShortlistCandidatesController(
+            final Client client,
+            final EmployerOptInFlow employerOptInFlow,
+            final ShortlistFlow shortlistFlow) {
+        this.client = client;
+        this.employerOptInFlow = employerOptInFlow;
+        this.shortlistFlow = shortlistFlow;
+    }
 
     @PostMapping("/opt_in")
-    public ResponseEntity<String> optIn(
-            @RequestBody Map<String, String> requestBody
-    ) {
+    public ResponseEntity<String> optIn(@RequestBody final Map<String, String> requestBody) {
         final String employerId = requestBody.get("employerId");
-
-        final String workflowId = WorkflowUtil.buildEmployerOptInWorkflowId(employerId);
-
-        final ImmutableEmployerOptInInput input = ImmutableEmployerOptInInput.builder()
-                .employerId(employerId)
-                .build();
+        final String workflowId = WorkflowIds.employerOptIn(employerId);
+        final EmployerOptInInput input = new EmployerOptInInput(employerId);
 
         try {
-            // The timeout is set to 0, indicating that the workflow will never time out
-            client.startWorkflow(EmployerOptInWorkflow.class, workflowId, 0, input);
-        } catch (final WorkflowAlreadyStartedException e) {
-            return ResponseEntity.ok(String.format("Employer %s has already opted in", employerId));
+            client.startFlow(
+                    employerOptInFlow,
+                    workflowId,
+                    input,
+                    ExampleFlows.startOptions());
+        } catch (final DexException e) {
+            if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
+                return ResponseEntity.ok(
+                        String.format("Employer %s has already opted in", employerId));
+            }
+            throw e;
         }
 
         return ResponseEntity.ok(String.format("Started workflowId: %s", workflowId));
     }
 
     @PostMapping("/opt_out")
-    public ResponseEntity<String> optOut(
-            @RequestBody Map<String, String> requestBody
-    ) {
+    public ResponseEntity<String> optOut(@RequestBody final Map<String, String> requestBody) {
         final String employerId = requestBody.get("employerId");
-
-        final String workflowId = WorkflowUtil.buildEmployerOptInWorkflowId(employerId);
-
-        final EmployerOptInWorkflow rpcStub = client.newRpcStub(
-                EmployerOptInWorkflow.class,
-                workflowId
-        );
+        final String workflowId = WorkflowIds.employerOptIn(employerId);
+        final EmployerOptInFlow stub =
+                client.newRpcStub(EmployerOptInFlow.class, workflowId);
         try {
-            client.invokeRPC(rpcStub::optOut);
-        } catch (final NoRunningWorkflowException e) {
-            return ResponseEntity.ok(String.format("Employer %s is not in the opt-in status", employerId));
+            client.invokeRPC(stub::optOut);
+        } catch (final DexException e) {
+            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
+                return ResponseEntity.ok(
+                        String.format("Employer %s is not in the opt-in status", employerId));
+            }
+            throw e;
         }
-
         return ResponseEntity.ok(String.format("Employer %s has opted out", employerId));
     }
 
     @GetMapping("/is_opted_in")
     public ResponseEntity<Boolean> isOptedIn(
-            @RequestParam(defaultValue = "test-employer") String employerId
-    ) {
-        final Boolean isOptedIn = WorkflowUtil.isOptedIn(client, employerId);
-        return ResponseEntity.ok(isOptedIn);
+            @RequestParam(defaultValue = "test-employer") final String employerId) {
+        return ResponseEntity.ok(
+                WorkflowIds.isOptedIn(client, employerOptInFlow, employerId));
     }
 
     @PostMapping("/shortlist")
-    public ResponseEntity<String> shortlist(
-            @RequestBody Map<String, String> requestBody
-    ) {
+    public ResponseEntity<String> shortlist(@RequestBody final Map<String, String> requestBody) {
         final String employerId = requestBody.get("employerId");
         final String candidateId = requestBody.get("candidateId");
 
-        // Check whether the employer has opted in
-        final Boolean isOptedIn = WorkflowUtil.isOptedIn(client, employerId);
-        if (!isOptedIn) {
-            return ResponseEntity.ok(
-                    String.format("Do nothing for %s because of no opt-in", employerId + "-" + candidateId)
-            );
+        if (!WorkflowIds.isOptedIn(client, employerOptInFlow, employerId)) {
+            return ResponseEntity.ok(String.format(
+                    "Do nothing for %s because of no opt-in",
+                    employerId + "-" + candidateId));
         }
 
-        final String workflowId = WorkflowUtil.buildShortlistWorkflowId(employerId, candidateId);
-
-        final ImmutableShortlistInput input = ImmutableShortlistInput.builder()
-                .employerId(employerId)
-                .candidateId(candidateId)
-                .build();
+        final String workflowId = WorkflowIds.shortlist(employerId, candidateId);
+        final ShortlistInput input = new ShortlistInput(employerId, candidateId);
 
         try {
-            // Set the timeout to 8 minutes because there is a 5-minute window before sending the email
-            client.startWorkflow(ShortlistWorkflow.class, workflowId, 8 * 3600, input);
-        } catch (final WorkflowAlreadyStartedException e) {
-            return ResponseEntity.ok(String.format("Already running workflowId: %s", workflowId));
+            client.startFlow(
+                    shortlistFlow,
+                    workflowId,
+                    input,
+                    ExampleFlows.startOptions());
+        } catch (final DexException e) {
+            if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
+                return ResponseEntity.ok(
+                        String.format("Already running workflowId: %s", workflowId));
+            }
+            throw e;
         }
 
         return ResponseEntity.ok(String.format("Started workflowId: %s", workflowId));
@@ -127,40 +131,40 @@ public class ShortlistCandidatesController {
 
     @PostMapping("/revoke_shortlist")
     public ResponseEntity<String> revokeShortlist(
-            @RequestBody Map<String, String> requestBody
-    ) {
+            @RequestBody final Map<String, String> requestBody) {
         final String employerId = requestBody.get("employerId");
         final String candidateId = requestBody.get("candidateId");
-
-        final String workflowId = WorkflowUtil.buildShortlistWorkflowId(employerId, candidateId);
+        final String workflowId = WorkflowIds.shortlist(employerId, candidateId);
 
         try {
-            client.signalWorkflow(ShortlistWorkflow.class, workflowId, ShortlistWorkflow.SIGNAL_REVOKE_SHORTLIST, null);
-        } catch (final NoRunningWorkflowException e) {
-            return ResponseEntity.ok(String.format("No running workflow to revoke for %s", employerId + "-" + candidateId));
+            client.publish(workflowId, shortlistFlow.revokeShortlist, (Void) null);
+        } catch (final DexException e) {
+            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
+                return ResponseEntity.ok(String.format(
+                        "No running workflow to revoke for %s",
+                        employerId + "-" + candidateId));
+            }
+            throw e;
         }
 
-        return ResponseEntity.ok(String.format("Revoked shortlist for %s", employerId + "-" + candidateId));
+        return ResponseEntity.ok(String.format(
+                "Revoked shortlist for %s",
+                employerId + "-" + candidateId));
     }
 
     @GetMapping("/email_sent_timestamp")
     public ResponseEntity<Long> getEmailSentTimestamp(
-            @RequestParam(defaultValue = "test-employer") String employerId,
-            @RequestParam(defaultValue = "test-candidate") String candidateId
-    ) {
-        final String workflowId = WorkflowUtil.buildShortlistWorkflowId(employerId, candidateId);
-
-        final ShortlistWorkflow rpcStub = client.newRpcStub(
-                ShortlistWorkflow.class,
-                workflowId
-        );
-
-        Long timestamp;
+            @RequestParam(defaultValue = "test-employer") final String employerId,
+            @RequestParam(defaultValue = "test-candidate") final String candidateId) {
+        final String workflowId = WorkflowIds.shortlist(employerId, candidateId);
+        final ShortlistFlow stub = client.newRpcStub(ShortlistFlow.class, workflowId);
         try {
-            timestamp = client.invokeRPC(rpcStub::getEmailSentTimestamp);
-        } catch (final NoRunningWorkflowException e) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.ok(client.invokeRPC(stub::getEmailSentTimestamp));
+        } catch (final DexException e) {
+            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
+                return ResponseEntity.notFound().build();
+            }
+            throw e;
         }
-        return ResponseEntity.ok(timestamp);
     }
 }

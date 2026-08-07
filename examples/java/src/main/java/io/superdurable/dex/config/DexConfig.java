@@ -16,45 +16,80 @@
 
 package io.superdurable.dex.config;
 
-import io.superdurable.dex.core.*;
+import io.superdurable.dex.BlobCache;
+import io.superdurable.dex.BlobCacheConfig;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.ClientOptions;
+import io.superdurable.dex.Flow;
+import io.superdurable.dex.Registry;
+import io.superdurable.dex.Worker;
+import io.superdurable.dex.WorkerOptions;
+import io.superdurable.dex.WorkerTarget;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class DexConfig {
-    @Bean
-    public Registry registry() {
-        return new Registry();
-    }
 
     @Bean
-    public WorkerService workerService(final Registry registry) {
-        return new WorkerService(registry, WorkerOptions.defaultOptions);
+    public Registry registry(final List<Flow<?>> flows) {
+        return new Registry(new ArrayList<Flow<?>>(flows));
     }
 
-    @Bean
-    public UnregisteredClient unregisteredClient(final @Value("${dex.worker.url}") String workerUrl,
-                                                 final @Value("${dex.server.url}") String serverUrl) {
-        return new UnregisteredClient(
-                ClientOptions.builder()
-                        .workerUrl(workerUrl)
-                        .serverUrl(serverUrl)
-                        .objectEncoder(new JacksonJsonObjectEncoder())
-                        .build()
-        );
+    @Bean(destroyMethod = "close")
+    public BlobCache blobCache(
+            @Value("${dex.blob-cache-dir}") final String blobCacheDir) {
+        return BlobCache.open(new BlobCacheConfig(blobCacheDir, 1L << 30));
     }
 
-    @Bean
-    public Client client(Registry registry,
-                         final @Value("${dex.worker.url}") String workerUrl,
-                         final @Value("${dex.server.url}") String serverUrl) {
-        return new Client(registry,
-                ClientOptions.builder()
-                        .workerUrl(workerUrl)
-                        .serverUrl(serverUrl)
-                        .objectEncoder(new JacksonJsonObjectEncoder())
-                        .build()
-        );
+    @Bean(destroyMethod = "close")
+    public Worker worker(
+            final Registry registry,
+            final BlobCache blobCache,
+            @Value("${dex.server-address}") final String serverAddress,
+            @Value("${dex.worker-bind-address}") final String workerBindAddress,
+            @Value("${dex.worker-target:}") final String workerTarget) {
+        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
+                .bindAddress(workerBindAddress)
+                .serverAddress(serverAddress);
+        if (workerTarget != null && !workerTarget.trim().isEmpty()) {
+            options.workerTarget(new WorkerTarget(workerTarget, false));
+        }
+        return new Worker(registry, blobCache, options.build());
+    }
+
+    @Bean(destroyMethod = "close")
+    public Client client(
+            final Registry registry,
+            final BlobCache blobCache,
+            final Worker worker,
+            @Value("${dex.server-address}") final String serverAddress) {
+        return new Client(
+                registry,
+                blobCache,
+                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+    }
+
+    @Component
+    public static class WorkerLifecycle {
+        private final Worker worker;
+        private Thread workerThread;
+
+        public WorkerLifecycle(final Worker worker) {
+            this.worker = worker;
+        }
+
+        @PostConstruct
+        public void startWorker() {
+            workerThread = new Thread(worker::start, "dex-java-examples-worker");
+            workerThread.setDaemon(true);
+            workerThread.start();
+        }
     }
 }

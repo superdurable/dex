@@ -16,20 +16,23 @@
 
 package io.superdurable.dex.workflow.money.transfer;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import io.superdurable.dex.workflow.jobpost.ImmutableJobInfo;
-import org.immutables.value.Value;
+public class TransferRequest {
+    public String fromAccount;
+    public String toAccount;
+    public int amount;
+    public String notes;
 
-import java.util.Optional;
+    public TransferRequest() {
+    }
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableTransferRequest.class)
-public abstract class TransferRequest {
-    public abstract String getFromAccountId();
-
-    public abstract String getToAccountId();
-
-    public abstract int getAmount();
-
-    public abstract Optional<String> getNotes();
+    public TransferRequest(
+            final String fromAccount,
+            final String toAccount,
+            final int amount,
+            final String notes) {
+        this.fromAccount = fromAccount;
+        this.toAccount = toAccount;
+        this.amount = amount;
+        this.notes = notes;
+    }
 }

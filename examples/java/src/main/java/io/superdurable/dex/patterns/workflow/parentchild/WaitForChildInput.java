@@ -16,6 +16,15 @@
 
 package io.superdurable.dex.patterns.workflow.parentchild;
 
-public record WaitForChildInput(
-        String childWFId, int timerSeconds
-){};
+public class WaitForChildInput {
+    public String childWFId;
+    public int timerSeconds;
+
+    public WaitForChildInput() {
+    }
+
+    public WaitForChildInput(final String childWFId, final int timerSeconds) {
+        this.childWFId = childWFId;
+        this.timerSeconds = timerSeconds;
+    }
+}

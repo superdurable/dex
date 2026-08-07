@@ -22,8 +22,15 @@ jobs:
         run: ./gradlew test --tests 'io.superdurable.dex.workflow.*' --refresh-dependencies
       - name: Verify published SDK coordinate
         run: |
-          ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath | tee /tmp/dex-sdk-insight.txt
-          grep -q 'io.superdurable:dex-sdk:0.0.2' /tmp/dex-sdk-insight.txt
+          ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath \
+            | tee /tmp/dex-sdk-insight.txt
+          # Assert Maven Central coordinate (group:artifact), not a composite/project dep.
+          # Version lives only in build.gradle — do not pin it here.
+          grep -qE 'io\.superdurable:dex-sdk:[0-9]' /tmp/dex-sdk-insight.txt
+          if grep -E 'project :|ProjectDependency' /tmp/dex-sdk-insight.txt; then
+            echo "examples/java must depend on published dex-sdk, not a Gradle project"
+            exit 1
+          fi
 
   integ:
     name: Integration tests

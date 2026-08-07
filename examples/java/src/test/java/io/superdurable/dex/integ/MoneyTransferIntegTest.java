@@ -16,42 +16,42 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.SpringMainApplication;
-import io.superdurable.dex.core.Client;
-import io.superdurable.dex.workflow.money.transfer.ImmutableTransferRequest;
-import io.superdurable.dex.workflow.money.transfer.MoneyTransferWorkflow;
 import io.superdurable.dex.workflow.money.transfer.TransferRequest;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-@SpringBootTest(
-        classes = SpringMainApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT
-)
+import java.time.Duration;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@ExtendWith(SharedIntegExtension.class)
 public class MoneyTransferIntegTest {
-
-    @Autowired
-    private Client client;
-
     @Test
-    public void testMoneyTransferCompletes() {
-        final String wfId = "examples/java-moneytransfer-" + System.nanoTime();
-        final TransferRequest request = ImmutableTransferRequest.builder()
-                .fromAccountId("from-ci")
-                .toAccountId("to-ci")
-                .amount(42)
-                .notes("examples/java integ")
-                .build();
+    void moneyTransferStart() {
+        final IntegEnvironment environment = SharedIntegExtension.environment();
+        final String flowId = environment.newFlowId("money-transfer");
+        final TransferRequest input = new TransferRequest(
+                "from-ci",
+                "to-ci",
+                42,
+                "examples/java integration");
 
-        final String runId = client.startWorkflow(MoneyTransferWorkflow.class, wfId, 60, request);
-        Assertions.assertNotNull(runId);
-        Assertions.assertFalse(runId.isEmpty());
+        final String runId = environment.client().startFlow(
+                environment.moneyTransferFlow(),
+                flowId,
+                input,
+                environment.startOptions());
+        assertNotNull(runId);
+        assertFalse(runId.isEmpty());
 
-        final String result = client.getSimpleWorkflowResultWithWait(String.class, wfId);
-        Assertions.assertTrue(result.contains("transfer is done"));
-        Assertions.assertTrue(result.contains("from-ci"));
-        Assertions.assertTrue(result.contains("to-ci"));
+        final String output = environment.client().waitForFlow(
+                flowId,
+                String.class,
+                Duration.ofSeconds(45));
+        assertTrue(output.contains("transfer is done"));
+        assertTrue(output.contains("from-ci"));
+        assertTrue(output.contains("to-ci"));
     }
 }

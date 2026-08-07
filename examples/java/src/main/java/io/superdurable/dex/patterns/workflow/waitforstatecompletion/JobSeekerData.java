@@ -16,26 +16,16 @@
 
 package io.superdurable.dex.patterns.workflow.waitforstatecompletion;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.immutables.value.Value;
+public class JobSeekerData {
+    public Integer id;
+    public String name = "Test Job Seeker";
+    public String resume = "Test Resume";
+    public String email = "testjobseeker@indeed.com";
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableJobSeekerData.class)
-public abstract class JobSeekerData {
-    public abstract Integer getId();
-
-    @Value.Default
-    public String getName() {
-        return "Test Job Seeker";
+    public JobSeekerData() {
     }
 
-    @Value.Default
-    public String getResume() {
-        return "Test Resume";
-    }
-
-    @Value.Default
-    public String getEmail() {
-        return "testjobseeker@indeed.com";
+    public JobSeekerData(final Integer id) {
+        this.id = id;
     }
 }

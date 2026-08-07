@@ -16,9 +16,16 @@
 
 package io.superdurable.dex.patterns.workflow.scalableparallel.models;
 
+import java.util.ArrayList;
 import java.util.List;
 
-public record BatchEnqueueRequest(
-        List<String> list
-) {
+public class BatchEnqueueRequest {
+    public List<String> list = new ArrayList<String>();
+
+    public BatchEnqueueRequest() {
+    }
+
+    public BatchEnqueueRequest(final List<String> list) {
+        this.list = list;
+    }
 }

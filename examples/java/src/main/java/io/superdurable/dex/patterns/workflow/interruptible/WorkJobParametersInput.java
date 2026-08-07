@@ -16,17 +16,15 @@
 
 package io.superdurable.dex.patterns.workflow.interruptible;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.immutables.value.Value;
+public class WorkJobParametersInput {
+    public int jobUpperBound;
+    public int progress;
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableWorkJobParametersInput.class)
-public abstract class WorkJobParametersInput {
-    public abstract int getJobUpperBound();
+    public WorkJobParametersInput() {
+    }
 
-    // Optional field
-    @Value.Default
-    public int getProgress() {
-        return 1;
+    public WorkJobParametersInput(final int jobUpperBound, final int progress) {
+        this.jobUpperBound = jobUpperBound;
+        this.progress = progress;
     }
 }

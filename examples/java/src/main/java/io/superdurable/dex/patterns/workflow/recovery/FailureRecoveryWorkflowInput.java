@@ -16,12 +16,15 @@
 
 package io.superdurable.dex.patterns.workflow.recovery;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.immutables.value.Value;
+public class FailureRecoveryWorkflowInput {
+    public String itemName;
+    public int requestedQuantity;
 
-@Value.Immutable
-@JsonDeserialize(as = ImmutableFailureRecoveryWorkflowInput.class)
-public abstract class FailureRecoveryWorkflowInput {
-    public abstract String getItemName();
-    public abstract int getRequestedQuantity();
+    public FailureRecoveryWorkflowInput() {
+    }
+
+    public FailureRecoveryWorkflowInput(final String itemName, final int requestedQuantity) {
+        this.itemName = itemName;
+        this.requestedQuantity = requestedQuantity;
+    }
 }

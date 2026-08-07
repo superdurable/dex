@@ -1,56 +1,33 @@
 # Storage Pattern Implementation
 
-This package demonstrates a singleton workflow pattern that acts as a persistent storage service.
-It is important to remember that there is a strict storage size limit of 4MB for the workflow.
+This package demonstrates a singleton flow that acts as a small persistent
+key-value store via RPC.
 
 ## Key Components
 
-1. **StorageWorkflow**: A long-running singleton workflow that maintains state and handles storage operations through RPC calls
-   from the Controller.
-2. **Storage**: Class defining the storage operations.
-3. **AddStorageItemRequest**: Request object for adding items to the storage workflow.
+1. **StorageFlow**: Long-running singleton flow; RPCs add/get/remove items.
+2. **`AttributeMap<String>`**: One Dex attribute instance per key (not one blob for
+   the whole map).
+3. **AddStorageItemRequest**: Request body for add.
 
 ## API Endpoints
 
-The storage pattern exposes three main operations:
+- `POST /design-pattern/storage/add` — add or overwrite a key
+- `GET /design-pattern/storage/get` — get a key (null if missing)
+- `POST /design-pattern/storage/remove` — delete a key
 
-- **Add Item**:
-    - `POST /design-pattern/storage/add`
-    - Adds a new item to the storage data
+## Why AttributeMap
 
-- **Get Item**:
-    - `GET /design-pattern/storage/get`
-    - Gets a specific item from the storage data (or null if it doesn't exist)
+Storing a `Map` inside a single `Attribute` rewrites the entire map on every
+update and serializes all keys under one lock. `AttributeMap` keeps each key as
+its own persistence entry, so updates are smaller and different keys do not
+contend. Per-key `set` / `delete` need no whole-store RPC lock.
 
-- **Remove Item**:
-    - `POST /design-pattern/storage/remove`
-    - Removes a specific item from the storage data
+Each physical attribute still has a size limit (on the order of a few MB); this
+pattern is for small KV state, not a general database.
 
-## Implementation Details
+## Usage notes
 
-- Uses RPC (Remote Procedure Call) mechanism to interact with the workflow
-- Automatically starts the singleton workflow if not running
-- Implement RPC locking in the cases where race conditions may occur (notable example: fetching and then re-setting a
-  persistence data attribute)
-- If RPC is using a List/Map, a wrapper class is needed due to a limitation of Jackson, which can handle single objects. The
-  wrapper class is used to wrap the List/Map and pass it as a single object containing the collection.
-- Not all storage workflows have to singletons. If you are using non-singleton storage workflows, consider using
-  *initialSearchAttribute* to make the workflows easier to search (e.g. per hiringEventId, jobseekerId, etc.) since these won't
-  be able to have a static getWorkflowId() method.
-
-## Usage Example
-
-The storage pattern provides a way to maintain persistent state within a workflow, allowing for storage operations through
-workflow RPCs.
-- This is not useful for
-    - storing large amounts data that will exceed the 4MB limit.
-    - storing data that can be passed within the workflow's execution or within its own data persistence schema.
-    - small workflows (<100KB), but has a large number of them (e.g. 10K or unbounded)
-    - workflows that need flexible query with indexes, maybe for filtering, aggregation, or ordering
-    - high volume of read QPS (>100QPS)
-- This is useful if you
-    - have long-lived data that needs to persist across workflow executions.
-    - wanted to replace a small database.
-
-I would encourage any team building POC/demo to use this. Also, many product MVP could start with this as the traffic/data
-volume usually start with small, as long as there is a plan to switch later.
+- Controller auto-starts the singleton flow if it is not running.
+- Prefer search attributes when you need many non-singleton storage flows to be
+  queryable.
