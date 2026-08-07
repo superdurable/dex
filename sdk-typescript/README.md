@@ -114,3 +114,32 @@ The Actions run also publishes the complete HTML report as
 The complete legacy IWF integration inventory lives under
 [`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java
 suite's workflow behavior and its 58 assertions run against a real Dex server.
+
+## Releases
+
+The npm package is published as [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex).
+Update `package.json` and `package-lock.json` to the same version, merge the
+change, then publish a GitHub Release tagged `sdk-typescript/vX.Y.Z`. The
+release workflow verifies that the tag matches `package.json`, runs type checks
+and tests, inspects the tarball, and publishes through npm Trusted Publishing.
+Prerelease versions use the `next` npm dist-tag; stable versions use `latest`.
+
+Trusted Publishing can only be configured after the package exists. Bootstrap
+the first version from a maintainer workstation with 2FA:
+
+```shell
+cd sdk-typescript
+npm ci
+npm run typecheck
+npm test
+npm pack --dry-run
+npm login
+npm publish --access public
+```
+
+Then open the package settings on npmjs.com and add a GitHub Actions trusted
+publisher with organization `superdurable`, repository `dex`, workflow
+`sdk-typescript-publish.yml`, no environment, and `npm publish` permission.
+Future releases use short-lived OIDC credentials and require no `NPM_TOKEN`.
+After verifying the first OIDC release, configure npm publishing access to
+require 2FA and disallow token-based publication.

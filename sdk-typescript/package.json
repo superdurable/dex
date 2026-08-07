@@ -1,8 +1,17 @@
 {
   "name": "@superdurable/dex",
   "version": "0.1.0",
-  "description": "TypeScript SDK contracts for Dex",
+  "description": "TypeScript SDK for the Dex durable workflow engine",
   "license": "LicenseRef-Super-Durable-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "sdk-typescript"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/sdk-typescript#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
   "type": "module",
   "engines": {
     "node": "^22.0.0 || ^24.0.0"
@@ -17,10 +26,15 @@
       "import": "./dist/src/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "coverage:integration": "./run-integration-tests.sh --coverage",
     "generate:proto": "node scripts/generate-proto.mjs",
+    "prepack": "npm run build",
     "test:integration": "npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
     "test:integration:coverage": "npm run build && c8 node --test --test-concurrency=1 dist/test/integ/*.integration.test.js && node scripts/report-uncovered.mjs coverage/lcov.info",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -10,6 +10,7 @@ on:
       - "protos/**"
       - "web/**"
       - ".github/workflows/sdk-typescript-ci.yml"
+      - ".github/workflows/sdk-typescript-publish.yml"
   pull_request:
     paths:
       - "sdk-typescript/**"
@@ -18,6 +19,7 @@ on:
       - "protos/**"
       - "web/**"
       - ".github/workflows/sdk-typescript-ci.yml"
+      - ".github/workflows/sdk-typescript-publish.yml"
   workflow_dispatch:
 
 permissions:
