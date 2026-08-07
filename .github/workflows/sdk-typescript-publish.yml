@@ -13,16 +13,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  native:
+    name: Native ${{ matrix.platform }}
+    if: startsWith(github.event.release.tag_name, 'sdk-typescript/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+            library: libdex_blob_cache_node.so
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            library: libdex_blob_cache_node.so
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            library: libdex_blob_cache_node.dylib
+          - platform: macos-aarch64
+            runner: macos-latest
+            library: libdex_blob_cache_node.dylib
+          - platform: windows-x86_64
+            runner: windows-latest
+            library: dex_blob_cache_node.dll
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: "1.88.0"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Build BlobCache Node binding
+        working-directory: sdk-rust
+        run: cargo build --release -p dex-blob-cache-node --locked
+      - name: Stage native library
+        shell: bash
+        run: |
+          destination="sdk-typescript/native/${{ matrix.platform }}"
+          mkdir -p "${destination}"
+          cp "sdk-rust/target/release/${{ matrix.library }}" \
+            "${destination}/dex_blob_cache_node.node"
+      - name: Upload native library
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-typescript-native-${{ matrix.platform }}
+          path: sdk-typescript/native
+          if-no-files-found: error
+
   publish:
     name: Publish @superdurable/dex
+    needs: native
     if: startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: "1.88.0"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -47,12 +99,20 @@ jobs:
           else
             echo "dist_tag=latest" >> "${GITHUB_OUTPUT}"
           fi
+      - name: Download native libraries
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dex-typescript-native-*
+          path: sdk-typescript/native
+          merge-multiple: true
       - name: Install dependencies
         run: npm ci
       - name: Check static types
         run: npm run typecheck
+      - name: Build TypeScript
+        run: npm run build
       - name: Test package
-        run: npm test
+        run: node --test dist/test/*.test.js
       - name: Inspect package contents
         run: npm pack --dry-run
       - name: Publish package

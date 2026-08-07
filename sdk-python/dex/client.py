@@ -31,7 +31,7 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, Registry, RPCResult
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
-from dex.flow_info import FlowInfo, FlowStatus
+from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_options import (
     IdReusePolicy,
     ResetFlowOptions,
@@ -416,6 +416,48 @@ class Client:
             response.flow_type,
             self._map_flow_status(response.flow_status),
             response.start_time.ToDatetime(tzinfo=timezone.utc),
+        )
+
+    def search_flows(
+        self,
+        query: str,
+        page_size: int,
+        next_page_token: str = "",
+    ) -> SearchFlowsPage:
+        if page_size < 0:
+            raise ValueError("search page size must not be negative")
+        response = cast(
+            pb.SearchFlowsResponse,
+            self._call(
+                self._service.SearchFlows,
+                pb.SearchFlowsRequest(
+                    query=query,
+                    page_size=page_size,
+                    next_page_token=next_page_token,
+                ),
+            ),
+        )
+        flows = [self._map_search_entry(entry) for entry in response.flow_runs]
+        return SearchFlowsPage(flows, response.next_page_token)
+
+    def _map_search_entry(self, entry: pb.SearchFlowsResponseEntry) -> SearchFlowEntry:
+        attributes = {
+            kv.key: self._values.to_value(self._hydrator.hydrate(kv.value))
+            for kv in entry.search_attributes
+        }
+        closed_at = (
+            entry.close_time.ToDatetime(tzinfo=timezone.utc)
+            if entry.HasField("close_time")
+            else None
+        )
+        return SearchFlowEntry(
+            entry.flow_id,
+            entry.run_id,
+            entry.flow_type,
+            self._map_flow_status(entry.flow_status),
+            entry.start_time.ToDatetime(tzinfo=timezone.utc),
+            closed_at,
+            attributes,
         )
 
     def reset_flow(self, flow_id: str, options: ResetFlowOptions) -> str:

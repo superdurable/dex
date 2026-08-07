@@ -2,6 +2,7 @@
 members = [
     "crates/dex-blob-cache",
     "crates/dex-blob-cache-jni",
+    "crates/dex-blob-cache-node",
     "crates/dex-blob-cache-python",
     "crates/dex-protocol",
 ]
@@ -17,6 +18,9 @@ rust-version = "1.88"
 [workspace.dependencies]
 crc32c = "0.6"
 jni = "0.21"
+napi = { version = "3.12.0", default-features = false }
+napi-build = "2.4.0"
+napi-derive = "3.6.2"
 pyo3 = "0.23"
 prost = "0.14"
 prost-types = "0.14"

@@ -9,7 +9,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from dex.codec import Value
 
@@ -45,7 +45,13 @@ class SearchFlowEntry:
     flow_id: str
     run_id: str
     flow_type: str
-    status: str
+    status: FlowStatus
     started_at: datetime
     closed_at: datetime | None
     attributes: Mapping[str, Value]
+
+
+@dataclass(frozen=True)
+class SearchFlowsPage:
+    flows: Sequence[SearchFlowEntry]
+    next_page_token: str

@@ -79,6 +79,38 @@ export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
   return codec.decode(toCodecValue(value));
 }
 
+export function decodeUnknown(value: ProtoValue): unknown {
+  const kind = value.kind;
+  if (kind === undefined) {
+    throw new TypeError("Value has no concrete kind");
+  }
+  switch (kind.$case) {
+    case "stringValue":
+      return kind.value;
+    case "boolValue":
+      return kind.value;
+    case "intValue":
+      return kind.value;
+    case "doubleValue":
+      return kind.value;
+    case "objValue": {
+      const object = kind.value;
+      if (object.encoding === "rawbytes") {
+        return object.payload;
+      }
+      if (object.encoding === "json") {
+        return JSON.parse(textDecoder.decode(object.payload));
+      }
+      throw new TypeError(`unsupported object encoding ${object.encoding}`);
+    }
+    case "internalBlobIdForStringValue":
+    case "internalBlobIdForObjValue":
+      throw new TypeError("blob-backed Value was not hydrated");
+    case "nullValue":
+      return undefined;
+  }
+}
+
 export function deletionValue(): ProtoValue {
   return ProtoValue.create({
     kind: { $case: "nullValue", value: NullValue.NULL_VALUE },

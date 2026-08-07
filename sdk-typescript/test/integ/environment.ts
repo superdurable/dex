@@ -10,13 +10,16 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   Client,
   Registry,
   Worker,
-  type BlobCache,
+  openBlobCache,
   type Flow,
 } from "../../src/index.js";
 
@@ -30,7 +33,11 @@ export async function startEnvironment(...flows: readonly Flow<any>[]): Promise<
   const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
   const workerAddress = `127.0.0.1:${await availablePort()}`;
   const registry = new Registry(flows);
-  const blobCache = new MemoryBlobCache();
+  const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-typescript-integration-cache-"));
+  const blobCache = openBlobCache({
+    directory: cacheDirectory,
+    maxBytes: 64 * 1_024 * 1_024,
+  });
   const worker = new Worker(registry, blobCache, {
     bindAddress: workerAddress,
     serverAddress,
@@ -47,6 +54,7 @@ export async function startEnvironment(...flows: readonly Flow<any>[]): Promise<
       await client.close();
       await worker.close();
       blobCache.close();
+      rmSync(cacheDirectory, { recursive: true, force: true });
     },
   };
 }
@@ -78,32 +86,6 @@ export async function expectError<Failure extends Error>(
     return failure;
   }
   assert.fail(`expected ${errorType.name}`);
-}
-
-class MemoryBlobCache implements BlobCache {
-  public readonly config = { directory: "memory", maxBytes: 64 * 1_024 * 1_024 };
-  private readonly values = new Map<string, Uint8Array>();
-
-  public get(blobId: string): Uint8Array | undefined {
-    return this.values.get(blobId)?.slice();
-  }
-
-  public put(blobId: string, payload: Uint8Array): boolean {
-    this.values.set(blobId, payload.slice());
-    return true;
-  }
-
-  public delete(blobId: string): void {
-    this.values.delete(blobId);
-  }
-
-  public deleteAll(): void {
-    this.values.clear();
-  }
-
-  public close(): void {
-    this.values.clear();
-  }
 }
 
 function availablePort(): Promise<number> {
