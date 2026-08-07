@@ -9,42 +9,39 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dex import (
-    Channel,
     Context,
     Flow,
-    PersistenceSchema,
     RPCResult,
     Step,
     StepDecision,
     StepList,
-    dead_end,
+    StepMovement,
+    graceful_complete,
     rpc,
 )
 
 
-class DeadEndStep(Step[None]):
+class TriggeredStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return dead_end()
+        return graceful_complete(1)
 
 
-class DeadEndFlow(Flow[None]):
-    idle_signal = Channel[None]("idle-signal", type(None))
+class NoStartFlow(Flow[None]):
+    RPC_OUTPUT = 100
 
     def __init__(self) -> None:
-        self.start = DeadEndStep()
+        self.triggered = TriggeredStep()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.start)
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.idle_signal)
+        return StepList.without_start_step(self.triggered)
 
     @rpc
-    def signal_size(self, context: Context) -> RPCResult[int]:
-        return RPCResult(self.idle_signal.size(context))
-
-    @rpc
-    def publish_internal(self, context: Context) -> RPCResult[int]:
-        self.idle_signal.publish(context, None)
-        return RPCResult(self.idle_signal.size(context))
+    def invoke(self, context: Context, input: str) -> RPCResult[int]:
+        del input
+        if not context.flow_id or not context.run_id:
+            raise RuntimeError("invalid RPC context")
+        return RPCResult(
+            self.RPC_OUTPUT,
+            (StepMovement.of(self.triggered, None),),
+        )

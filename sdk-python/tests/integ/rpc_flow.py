@@ -20,7 +20,6 @@ from dex import (
     Step,
     StepDecision,
     StepList,
-    StepMovement,
     Wait,
     go_to,
     graceful_complete,
@@ -31,7 +30,7 @@ from dex import (
 class RpcSecondStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return graceful_complete(input + 1)
+        return graceful_complete(2)
 
 
 class RpcFirstStep(Step[int]):
@@ -49,12 +48,19 @@ class RpcFirstStep(Step[int]):
 
 
 class RpcFlow(Flow[int]):
+    RPC_OUTPUT = 100
+    HARDCODED_VALUE = "random-string"
     internal = Channel[None]("rpc-internal", type(None))
     data = Attribute("rpc-data", str)
     keyword = Attribute(
-        "rpc-keyword",
+        "CustomKeywordField",
         str,
         AttributeIndex(IndexType.KEYWORD),
+    )
+    integer = Attribute(
+        "CustomIntField",
+        int,
+        AttributeIndex(IndexType.INT),
     )
 
     def __init__(self) -> None:
@@ -65,48 +71,80 @@ class RpcFlow(Flow[int]):
         return StepList.start_step(self.first).other_steps(self.second)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.data, self.keyword, self.internal)
+        return PersistenceSchema.of(
+            self.data,
+            self.keyword,
+            self.integer,
+            self.internal,
+        )
+
+    @staticmethod
+    def _require_context(context: Context) -> None:
+        if not context.flow_id or not context.run_id:
+            raise RuntimeError("invalid RPC context")
 
     @rpc
     def no_persistence(self, context: Context) -> None:
+        self._require_context(context)
         self.internal.publish(context, None)
 
     @rpc
     def function_one(self, context: Context, input: str) -> RPCResult[int]:
+        self._require_context(context)
+        self.data.set(context, None)  # type: ignore[arg-type]
         self.data.set(context, input)
         self.keyword.set(context, input)
-        return RPCResult(1, (StepMovement.of(self.second, 0),))
+        self.integer.set(context, self.RPC_OUTPUT)
+        self.internal.publish(context, None)
+        return RPCResult(self.RPC_OUTPUT)
 
     @rpc
     def function_zero(self, context: Context) -> RPCResult[int]:
-        del context
-        return RPCResult(1, (StepMovement.of(self.second, 0),))
+        self._require_context(context)
+        self.data.set(context, self.HARDCODED_VALUE)
+        self.keyword.set(context, self.HARDCODED_VALUE)
+        self.integer.set(context, self.RPC_OUTPUT)
+        self.internal.publish(context, None)
+        return RPCResult(self.RPC_OUTPUT)
 
     @rpc
     def procedure_one(self, context: Context, input: str) -> None:
+        self._require_context(context)
         self.data.set(context, input)
+        self.keyword.set(context, input)
+        self.integer.set(context, self.RPC_OUTPUT)
+        self.internal.publish(context, None)
 
     @rpc
     def procedure_zero(self, context: Context) -> None:
+        self._require_context(context)
+        self.data.set(context, self.HARDCODED_VALUE)
+        self.keyword.set(context, self.HARDCODED_VALUE)
+        self.integer.set(context, self.RPC_OUTPUT)
         self.internal.publish(context, None)
 
     @rpc
     def read_only(self, context: Context, input: str) -> RPCResult[int]:
-        del context
-        return RPCResult(len(input))
+        del input
+        self._require_context(context)
+        return RPCResult(self.RPC_OUTPUT)
 
     @rpc
     def set_data(self, context: Context, input: str) -> None:
+        self._require_context(context)
         self.data.set(context, input)
 
     @rpc
     def get_data(self, context: Context) -> RPCResult[str]:
+        self._require_context(context)
         return RPCResult(self.data.get(context))
 
     @rpc
     def set_keyword(self, context: Context, input: str) -> None:
+        self._require_context(context)
         self.keyword.set(context, input)
 
     @rpc
     def get_keyword(self, context: Context) -> RPCResult[str]:
+        self._require_context(context)
         return RPCResult(self.keyword.get(context))

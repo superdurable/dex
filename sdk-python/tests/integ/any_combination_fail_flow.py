@@ -8,19 +8,16 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from datetime import timedelta
-
 from dex import (
     Channel,
-    ConditionCombination,
     Context,
     Flow,
     PersistenceSchema,
+    RetryPolicy,
     Step,
     StepDecision,
     StepList,
     StepOptions,
-    Timer,
     Wait,
     graceful_complete,
 )
@@ -39,26 +36,14 @@ class AnyCombinationStep(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
-        return Wait.any_combination_of(
-            ConditionCombination.of(
-                self.first.for_one(condition_id="test-signal-1"),
-                Timer.by_duration(
-                    timedelta(seconds=1),
-                    condition_id="test-timer-id",
-                ),
-            ),
-            ConditionCombination.of(
-                self.second.for_one(condition_id="test-signal-2"),
-                self.third.for_one(condition_id="test-signal-3"),
-            ),
-        )
+        raise ValueError("Found unknown condition ID in the combination list")
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         return graceful_complete(input)
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(wait_for_method_timeout=timedelta(seconds=1))
+        return StepOptions(wait_for_retry=RetryPolicy(maximum_attempts=1))
 
 
 class AnyCombinationFailFlow(Flow[int]):

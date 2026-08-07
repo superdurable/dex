@@ -11,6 +11,7 @@
 from dex import (
     Context,
     Flow,
+    RetryPolicy,
     Step,
     StepDecision,
     StepList,
@@ -36,7 +37,10 @@ class FailingWaitStep(Step[str]):
         return go_to(self.second, input + "-recovered")
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)
+        return StepOptions(
+            wait_for_failure=WaitForFailurePolicy.PROCEED,
+            wait_for_retry=RetryPolicy(maximum_attempts=2),
+        )
 
 
 class ProceedOnWaitFailureFlow(Flow[str]):

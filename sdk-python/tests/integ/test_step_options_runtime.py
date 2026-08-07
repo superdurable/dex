@@ -1,0 +1,88 @@
+# Portions of this file are derived from indeedeng/iwf-java-sdk.
+# Those portions are licensed under the Apache License, Version 2.0.
+# See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+#
+# Modifications Copyright (c) 2026 Super Durable, Inc.
+#
+# Modifications are licensed under the Super Durable Source License 1.0.
+# Third-Party Materials remain under the Apache License, Version 2.0.
+# See LICENSE and LEGACY_NOTICES.md.
+
+from datetime import timedelta
+from time import monotonic
+
+from dex import FlowConfig, StartFlowOptions, StepExecutionId
+
+from .environment import DexDevTestEnvironment
+from .execute_only_flow import ExecuteOnlyFlow
+from .state_options_flow import StateOptionsFlow
+from .state_options_override_flow import StateOptionsOverrideFlow
+from .state_recovery_flow import StateRecoveryFlow
+from .state_recovery_no_wait_flow import StateRecoveryNoWaitFlow
+from .test_basic_runtime import unique_id
+from .timer_flow import TimerFlow
+
+WAIT_TIMEOUT = timedelta(seconds=30)
+
+
+def test_skip_wait_for_execute_only_steps() -> None:
+    flow = ExecuteOnlyFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("skip-wait-for")
+        environment.client.start_flow(
+            flow,
+            flow_id,
+            0,
+            StartFlowOptions(config_override=FlowConfig(continue_as_new_threshold=1)),
+        )
+        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+
+
+def test_state_options_locks() -> None:
+    flow = StateOptionsFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("state-options")
+        environment.client.start_flow(flow, flow_id, None)
+        assert environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "success"
+
+
+def test_movement_options_override_step_defaults() -> None:
+    flow = StateOptionsOverrideFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("state-options-override")
+        environment.client.start_flow(flow, flow_id, "input")
+        assert environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == (
+            "input_state1_start_state1_decide_state2_start_state2_decide"
+        )
+
+
+def test_execute_failure_recovery_with_wait_for() -> None:
+    flow = StateRecoveryFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("state-recovery")
+        environment.client.start_flow(flow, flow_id, 5)
+        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 10
+
+
+def test_execute_failure_recovery_without_wait_for() -> None:
+    flow = StateRecoveryNoWaitFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("state-recovery-no-wait")
+        environment.client.start_flow(flow, flow_id, 5)
+        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 10
+
+
+def test_timer_duration_and_step_completion() -> None:
+    flow = TimerFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("basic-timer")
+        started_at = monotonic()
+        environment.client.start_flow(flow, flow_id, 5)
+        environment.client.wait_for_step_completion(
+            flow_id,
+            StepExecutionId("TimerStep"),
+            timedelta(seconds=10),
+        )
+        environment.client.wait_for_flow(flow_id)
+        elapsed = monotonic() - started_at
+        assert 4 <= elapsed <= 7, f"actual duration: {elapsed}"

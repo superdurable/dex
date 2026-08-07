@@ -4,12 +4,28 @@ on:
   push:
     branches: [main]
     paths:
-      - "sdk-python/**"
-      - ".github/workflows/sdk-python-ci.yml"
+    - "sdk-python/**"
+    - "sdk-rust/Cargo.lock"
+    - "sdk-rust/Cargo.toml"
+    - "sdk-rust/crates/dex-blob-cache/**"
+    - "sdk-rust/crates/dex-blob-cache-python/**"
+    - "cli/**"
+    - "server/**"
+    - "web/**"
+    - "protos/**"
+    - ".github/workflows/sdk-python-ci.yml"
   pull_request:
     paths:
-      - "sdk-python/**"
-      - ".github/workflows/sdk-python-ci.yml"
+    - "sdk-python/**"
+    - "sdk-rust/Cargo.lock"
+    - "sdk-rust/Cargo.toml"
+    - "sdk-rust/crates/dex-blob-cache/**"
+    - "sdk-rust/crates/dex-blob-cache-python/**"
+    - "cli/**"
+    - "server/**"
+    - "web/**"
+    - "protos/**"
+    - ".github/workflows/sdk-python-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -31,22 +47,24 @@ jobs:
       run:
         working-directory: sdk-python
     steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.12.2"
-          python-version: ${{ matrix.python-version }}
-          working-directory: sdk-python
-          enable-cache: true
-      - name: Install dependencies
-        run: uv sync --locked
-      - name: Test contracts
-        run: uv run --frozen pytest tests/test_contracts.py
-      - name: Check static types with mypy
-        run: uv run --frozen mypy --strict tests/typecheck_contracts.py tests/iwfcompat
-      - name: Check static types with pyright
-        run: uv run --frozen pyright tests/typecheck_contracts.py tests/iwfcompat
+    - uses: actions/checkout@v7
+    - name: Install Rust
+      run: rustup toolchain install 1.88.0 --profile minimal
+    - name: Install uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
+      with:
+        version: "0.12.2"
+        python-version: ${{ matrix.python-version }}
+        working-directory: sdk-python
+        enable-cache: true
+    - name: Install dependencies
+      run: uv sync --locked
+    - name: Test contracts
+      run: uv run --frozen pytest tests/test_contracts.py
+    - name: Check static types with mypy
+      run: uv run --frozen mypy --strict tests/typecheck_contracts.py tests/integ
+    - name: Check static types with pyright
+      run: uv run --frozen pyright tests/typecheck_contracts.py tests/integ
 
   lint:
     runs-on: ubuntu-latest
@@ -54,117 +72,101 @@ jobs:
       run:
         working-directory: sdk-python
     steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.12.2"
-          python-version: "3.11"
-          working-directory: sdk-python
-          enable-cache: true
-      - name: Install dependencies
-        run: uv sync --locked
-      - name: Run contract linters
-        run: |
-          uv run --frozen pre-commit run \
-            --show-diff-on-failure \
-            --color=always \
-            --files \
-              dex/_utils.py \
-              dex/attribute.py \
-              dex/blob_cache.py \
-              dex/channel.py \
-              dex/client.py \
-              dex/client_options.py \
-              dex/codec.py \
-              dex/condition.py \
-              dex/context.py \
-              dex/flow.py \
-              dex/flow_config.py \
-              dex/flow_info.py \
-              dex/flow_options.py \
-              dex/step.py \
-              dex/step_execution.py \
-              dex/timer.py \
-              dex/wait.py \
-              dex/worker.py \
-              dex/worker_options.py \
-              tests/*.py \
-              tests/iwfcompat/*.py \
-              pyproject.toml \
-              uv.lock
+    - uses: actions/checkout@v7
+    - name: Install Rust
+      run: rustup toolchain install 1.88.0 --profile minimal
+    - name: Install uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
+      with:
+        version: "0.12.2"
+        python-version: "3.11"
+        working-directory: sdk-python
+        enable-cache: true
+    - name: Install dependencies
+      run: uv sync --locked
+    - name: Verify generated protobuf stubs
+      run: |
+        make -C ../protos proto-python
+        git diff --exit-code -- dex/dexpb
+    - name: Run contract linters
+      run: |
+        uv run --frozen pre-commit run \
+          --show-diff-on-failure \
+          --color=always \
+          --files \
+            dex/__init__.py \
+            dex/_grpc_errors.py \
+            dex/_invocation_context.py \
+            dex/_native.pyi \
+            dex/_utils.py \
+            dex/_value_hydrator.py \
+            dex/_value_mapper.py \
+            dex/_worker_dispatcher.py \
+            dex/_worker_service.py \
+            dex/attribute.py \
+            dex/blob_cache.py \
+            dex/channel.py \
+            dex/client.py \
+            dex/client_options.py \
+            dex/codec.py \
+            dex/condition.py \
+            dex/context.py \
+            dex/flow.py \
+            dex/flow_config.py \
+            dex/flow_info.py \
+            dex/flow_options.py \
+            dex/runtime_errors.py \
+            dex/step.py \
+            dex/step_execution.py \
+            dex/timer.py \
+            dex/wait.py \
+            dex/worker.py \
+            dex/worker_options.py \
+            tests/*.py \
+            tests/integ/*.py \
+            pyproject.toml \
+            uv.lock
 
-  pytest:
-    if: github.event_name == 'workflow_dispatch'
+  integration:
+    name: Integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: sdk-python
     steps:
-      - uses: actions/checkout@v7
-      - name: Start Dex environment
-        working-directory: sdk-python/dex/tests/dex-service-env
-        env:
-          DEX_SERVER_IMAGE: superdurable/dex-server:latest
-        run: |
-          docker pull "$DEX_SERVER_IMAGE"
-          docker compose up -d
-      - name: Wait for Dex server
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          echo "Waiting for Elasticsearch..."
-          for i in $(seq 1 60); do
-            if docker exec temporal-elasticsearch-dex curl -fsS http://localhost:9200/_cluster/health >/dev/null 2>&1; then
-              echo "Elasticsearch ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Timed out waiting for Elasticsearch"
-              docker logs temporal-elasticsearch-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 5
-          done
-          echo "Waiting for search attributes..."
-          for i in $(seq 1 120); do
-            if docker logs temporal-admin-tools-dex 2>&1 | grep -q "All search attributes are registered"; then
-              echo "Search attributes ready (attempt $i)"
-              break
-            fi
-            if [ "$i" -eq 120 ]; then
-              echo "Timed out waiting for search attributes"
-              docker logs temporal-admin-tools-dex 2>&1 | tail -80 || true
-              docker logs temporal-dex 2>&1 | tail -80 || true
-              exit 1
-            fi
-            sleep 2
-          done
-          echo "Waiting for Dex healthcheck..."
-          for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:8801/info/healthcheck >/dev/null 2>&1; then
-              echo "Dex server healthy (attempt $i)"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Timed out waiting for Dex server"
-          docker logs dex-server 2>&1 | tail -80 || true
-          exit 1
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.12.2"
-          python-version: "3.11"
-          working-directory: sdk-python
-          enable-cache: true
-      - name: Install dependencies
-        run: uv sync --locked
-      - name: Pytest
-        run: |
-          echo "[run]">>.coveragerc
-          echo "omit = dex/dexpb/">>.coveragerc
-          uv run --frozen pytest -vv --cov-config=.coveragerc --cov="dex/" .
-      - name: Dump docker logs
-        if: always()
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: cli/go.mod
+        cache-dependency-path: |
+          cli/go.sum
+          server/go.sum
+          web/go.sum
+    - name: Install Temporal CLI runtime for dexcli dev
+      uses: temporalio/setup-temporal@v0
+    - name: Install Rust
+      run: rustup toolchain install 1.88.0 --profile minimal
+    - name: Install uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
+      with:
+        version: "0.12.2"
+        python-version: "3.11"
+        working-directory: sdk-python
+        enable-cache: true
+    - name: Install dependencies
+      run: uv sync --locked
+    - name: Run Python and dexcli dev integration tests
+      run: ./run-integration-tests.sh
+    - name: Upload service logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: sdk-python-integration-services
+        path: /tmp/test-python-sdk-integration-services.log
+        if-no-files-found: ignore

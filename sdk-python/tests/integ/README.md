@@ -1,17 +1,20 @@
-# IWF integration compile port
+# IWF integration port
 
-This directory mirrors the complete Java `iwfcompat` inventory: 28 Flow
-fixtures and 16 integration scenario files. Every scenario imports and creates
-the Flow classes it exercises directly.
+This directory mirrors the Java `iwfcompat` inventory. Its 58 executable
+scenarios preserve the Java workflows, client operations, and assertions while
+using idiomatic Python contracts.
 
-The scenario functions are intentionally not pytest tests. They describe the
-typed Client call sites without contacting a Dex server.
-
-Static verification only:
+Run the complete suite against a fresh `dexcli dev` environment:
 
 ```shell
-uv run --frozen mypy tests/iwfcompat
-uv run --frozen pyright tests/iwfcompat
+./run-integration-tests.sh
+```
+
+The compile-oriented call-site modules remain part of strict static checking:
+
+```shell
+uv run --frozen mypy tests/integ
+uv run --frozen pyright tests/integ
 ```
 
 ## Programming experience

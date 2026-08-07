@@ -21,9 +21,8 @@ from dex import (
     RPCResult,
     StartFlowOptions,
     Step,
-    StepList,
     StepDecision,
-    Wait,
+    StepList,
     Worker,
     graceful_complete,
     rpc,
@@ -58,32 +57,6 @@ class TypedFlow(Flow[Input]):
         return RPCResult(Output(1))
 
 
-class AsyncTypedStep(Step[Input]):
-    async def wait_for(self, context: Context, input: Input) -> Wait:
-        del context, input
-        return Wait.skip_immediately()
-
-    async def execute(self, context: Context, input: Input) -> StepDecision:
-        del context, input
-        return graceful_complete()
-
-
-class AsyncTypedFlow(Flow[Input]):
-    start = AsyncTypedStep()
-
-    def get_steps(self) -> StepList[Input]:
-        return StepList.start_step(self.start)
-
-    @rpc()
-    async def typed_rpc(
-        self,
-        context: Context,
-        input: Input,
-    ) -> RPCResult[Output]:
-        del context, input
-        return RPCResult(Output(1))
-
-
 flow: Flow[Input] = TypedFlow()
 client = Client(Registry((flow,)), cast(BlobCache, object()))
 run_id: str = client.start_flow(flow, "flow-id", Input("input"))
@@ -91,15 +64,6 @@ typed_flow = cast(TypedFlow, flow)
 output: Output = client.invoke_rpc(
     typed_flow.typed_rpc,
     "flow-id",
-    Input("input"),
-)
-
-async_flow: Flow[Input] = AsyncTypedFlow()
-async_client = Client(Registry((async_flow,)), cast(BlobCache, object()))
-typed_async_flow = cast(AsyncTypedFlow, async_flow)
-async_output: Output = async_client.invoke_rpc(
-    typed_async_flow.typed_rpc,
-    "async-flow-id",
     Input("input"),
 )
 

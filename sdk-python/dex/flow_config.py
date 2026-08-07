@@ -16,6 +16,8 @@ from dex.worker_options import WorkerTarget
 class ActiveStepSearchMode(Enum):
     DEFAULT = "default"
     ALL = "all"
+    WITH_WAIT_FOR = "with_wait_for"
+    DISABLED = "disabled"
 
 
 @dataclass(frozen=True)

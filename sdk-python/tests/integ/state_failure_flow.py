@@ -8,22 +8,33 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from datetime import timedelta
+from dex import (
+    Context,
+    Flow,
+    RetryPolicy,
+    Step,
+    StepDecision,
+    StepList,
+    StepOptions,
+    Wait,
+)
 
-from dex import Context, Flow, Step, StepDecision, StepList, StepOptions
 
+class StateFailureStep(Step[int]):
+    def wait_for(self, context: Context, input: int) -> Wait:
+        del context, input
+        return Wait.skip_immediately()
 
-class StateTimeoutStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        raise RuntimeError("timeout simulation")
+        raise RuntimeError("test api failing")
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_method_timeout=timedelta(milliseconds=1))
+        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
 
-class StateTimeoutFlow(Flow[int]):
-    start = StateTimeoutStep()
+class StateFailureFlow(Flow[int]):
+    start = StateFailureStep()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

@@ -12,6 +12,7 @@ from dex import Attribute, Context, Flow, PersistenceSchema, RPCResult, rpc
 
 
 class NoStateFlow(Flow[None]):
+    RPC_OUTPUT = 100
     counter = Attribute("counter", int)
 
     def get_persistence_schema(self) -> PersistenceSchema:
@@ -19,7 +20,8 @@ class NoStateFlow(Flow[None]):
 
     @rpc(lock_attributes=(counter.lock(),))
     def increase_counter(self, context: Context) -> RPCResult[int]:
-        next_value = self.counter.get(context) + 1
+        current = self.counter.get(context)
+        next_value = 1 if current is None else current + 1
         self.counter.set(context, next_value)
         return RPCResult(next_value)
 
@@ -31,3 +33,10 @@ class NoStateFlow(Flow[None]):
     def fail(self, context: Context, input: str) -> RPCResult[int]:
         del context
         raise ValueError(input)
+
+    @rpc
+    def invoke(self, context: Context, input: str) -> RPCResult[int]:
+        del input
+        if not context.flow_id or not context.run_id:
+            raise RuntimeError("invalid RPC context")
+        return RPCResult(self.RPC_OUTPUT)

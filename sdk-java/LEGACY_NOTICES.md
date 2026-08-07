@@ -53,8 +53,8 @@ or translations of the `indeedeng/iwf-java-sdk` integration suite at commit
 `8fa04457c0abcc4473300f17ea0a033d8f93ed88`:
 
 - `sdk-java/src/test/java/io/superdurable/dex/integ/`
-- `sdk-python/tests/iwfcompat/`
-- `sdk-typescript/test/iwfcompat/`
+- `sdk-python/tests/integ/`
+- `sdk-typescript/test/integ/`
 
 The upstream portions remain licensed under the Apache License 2.0. Super
 Durable modifications are licensed under the Super Durable Source License 1.0.

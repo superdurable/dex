@@ -11,36 +11,26 @@
 from dex import (
     Context,
     Flow,
+    RetryPolicy,
     Step,
     StepDecision,
     StepList,
     StepOptions,
-    graceful_complete,
+    go_to_multi,
 )
 
 
-class RecoverNoWaitStep(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        del context
-        return graceful_complete(input * 2)
-
-
-class FailingNoWaitStep(Step[int]):
-    def __init__(self, recover: RecoverNoWaitStep) -> None:
-        self.recover = recover
-
+class EmptyDecisionStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        raise RuntimeError("execute failure")
+        return go_to_multi()
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions().on_execute_failure_proceed_to(self.recover)
+        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
 
-class StateRecoveryNoWaitFlow(Flow[int]):
-    def __init__(self) -> None:
-        self.recover = RecoverNoWaitStep()
-        self.start = FailingNoWaitStep(self.recover)
+class EmptyDecisionFlow(Flow[int]):
+    start = EmptyDecisionStep()
 
     def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.start).other_steps(self.recover)
+        return StepList.start_step(self.start)
