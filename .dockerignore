@@ -5,3 +5,4 @@ sdk-rust/target/
 sdk-typescript/dist/
 sdk-java/publication-smoke-test/target/
 sdk-typescript/coverage/
+sdk-python/coverage/

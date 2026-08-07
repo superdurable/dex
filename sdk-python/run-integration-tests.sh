@@ -10,6 +10,24 @@
 
 set -euo pipefail
 
+pytest_args=(-q)
+if [[ "${1:-}" == "--coverage" ]]; then
+  pytest_args+=(
+    --cov=dex
+    --cov-branch
+    --cov-config=pyproject.toml
+    --cov-report=term-missing
+    --cov-report=html:coverage/html
+    --cov-report=xml:coverage/coverage.xml
+    --cov-report=lcov:coverage/lcov.info
+  )
+  shift
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0 [--coverage]" >&2
+  exit 2
+fi
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 dex_port="${DEX_INTEG_DEX_PORT:-18802}"
@@ -104,4 +122,4 @@ fi
 
 cd "$script_dir"
 DEX_SERVER_ADDRESS="$dex_address" \
-  uv run --frozen pytest -q tests/integ/test_*_runtime.py
+  uv run --frozen pytest "${pytest_args[@]}" tests/integ/test_*_runtime.py

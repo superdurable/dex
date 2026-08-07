@@ -145,6 +145,25 @@ environment:
 ./run-integration-tests.sh
 ```
 
+### Measure integration coverage
+
+Run the same integration suite with Python source coverage:
+
+```bash
+./run-integration-tests.sh --coverage
+```
+
+Only the integration scenarios contribute execution data, and only production
+Python modules under `dex` are measured. Generated protobuf modules under
+`dex/dexpb` and packaged legacy tests under `dex/tests` are excluded. The
+terminal report lists uncovered line ranges. The browser report starts at
+`coverage/html/index.html`; `coverage/coverage.xml` and `coverage/lcov.info`
+are also generated.
+
+CI uploads LCOV to Codecov with GitHub OIDC under the
+`sdk-python-integration` flag and retains the full report as the
+`sdk-python-integration-coverage` Actions artifact.
+
 #### Update IDL
 
 Edit [`protos/dex.proto`](../protos/dex.proto). Rename catalog: [`docs/design/idl-renames.md`](../docs/design/idl-renames.md).

@@ -57,6 +57,8 @@ ignore:
   - "server/gen/**/*"
   - "sdk-go/gen/**/*"
   - "sdk-java/src/main/java/io/superdurable/gen/**/*"
+  - "sdk-python/dex/dexpb/**/*"
+  - "sdk-python/dex/tests/**/*"
   - "sdk-typescript/src/gen/**/*"
   - "**/*_test.go"
   - "**/mock*.go"
