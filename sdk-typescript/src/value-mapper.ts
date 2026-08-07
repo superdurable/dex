@@ -19,6 +19,9 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
+  if (value === undefined || value === null) {
+    return objectValue("json", textEncoder.encode("null"));
+  }
   const encoded = codec.encode(value);
   switch (encoded.kind) {
     case "string":
@@ -36,7 +39,43 @@ export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
   }
 }
 
+export function encodeUnknown(value: unknown): ProtoValue {
+  if (value === undefined || value === null) {
+    return objectValue("json", textEncoder.encode("null"));
+  }
+  if (typeof value === "string") {
+    return ProtoValue.create({ kind: { $case: "stringValue", value } });
+  }
+  if (typeof value === "boolean") {
+    return ProtoValue.create({ kind: { $case: "boolValue", value } });
+  }
+  if (typeof value === "bigint") {
+    return ProtoValue.create({ kind: { $case: "intValue", value } });
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new RangeError("non-finite numbers are unsupported");
+    }
+    return ProtoValue.create({ kind: { $case: "doubleValue", value } });
+  }
+  if (value instanceof Uint8Array) {
+    return objectValue("rawbytes", value);
+  }
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError("value cannot be encoded as JSON");
+  }
+  return objectValue("json", textEncoder.encode(json));
+}
+
 export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
+  if (
+    value.kind?.$case === "objValue" &&
+    value.kind.value.encoding === "json" &&
+    textDecoder.decode(value.kind.value.payload) === "null"
+  ) {
+    return undefined as T;
+  }
   return codec.decode(toCodecValue(value));
 }
 
@@ -73,6 +112,57 @@ export class ValueHydrator {
     }
     this.blobCache.put(blobId, ProtoValue.encode(hydrated).finish());
     return hydrated;
+  }
+
+  public async hydrateAll(values: readonly (ProtoValue | undefined)[]): Promise<ProtoValue[]> {
+    const hydrated: Array<ProtoValue | undefined> = new Array(values.length);
+    const missing = new Map<string, { value: ProtoValue; indexes: number[] }>();
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      if (value?.kind === undefined) {
+        throw new TypeError("Value has no concrete kind");
+      }
+      const blobId = blobIdOf(value);
+      if (blobId === undefined) {
+        hydrated[index] = value;
+        continue;
+      }
+      const cached = this.blobCache.get(blobId);
+      if (cached !== undefined) {
+        hydrated[index] = ProtoValue.decode(cached);
+        continue;
+      }
+      const pending = missing.get(blobId);
+      if (pending === undefined) {
+        missing.set(blobId, { value, indexes: [index] });
+      } else {
+        pending.indexes.push(index);
+      }
+    }
+    if (missing.size > 0) {
+      const response = await unary<LoadBlobsResponse>((callback) =>
+        this.service.loadBlobs(
+          { values: [...missing.values()].map((pending) => pending.value) },
+          callback,
+        ),
+      );
+      for (const [blobId, pending] of missing) {
+        const value = response.values[blobId];
+        if (value?.kind === undefined || blobIdOf(value) !== undefined) {
+          throw new TypeError(`Dex did not hydrate blob ${blobId}`);
+        }
+        this.blobCache.put(blobId, ProtoValue.encode(value).finish());
+        for (const index of pending.indexes) {
+          hydrated[index] = value;
+        }
+      }
+    }
+    return hydrated.map((value) => {
+      if (value === undefined) {
+        throw new TypeError("Value hydration left an unresolved entry");
+      }
+      return value;
+    });
   }
 }
 

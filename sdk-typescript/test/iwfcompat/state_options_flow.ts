@@ -11,17 +11,14 @@
 import {
   Attribute,
   StepList,
-  StepMovement,
   Wait,
   goTo,
-  goToMulti,
   gracefulComplete,
   stringCodec,
   voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
-  type RetryPolicy,
   type Step,
   type StepDecision,
   type StepOptions,
@@ -37,7 +34,17 @@ class OptionsThirdStep implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
+    if (this.bothValue.get(_context) !== "both") {
+      throw new Error("shared attribute was not loaded in execute");
+    }
     return gracefulComplete("success");
+  }
+
+  public waitFor(context: Context, _input: void): Wait {
+    if (this.bothValue.get(context) !== "both") {
+      throw new Error("shared attribute was not loaded in waitFor");
+    }
+    return Wait.skipImmediately();
   }
 
   public getStepOptions(): StepOptions {
@@ -63,31 +70,33 @@ class OptionsSecondStep implements Step<void> {
   }
 
   public waitFor(context: Context, _input: void): Wait {
-    this.waitValue.set(context, "wait");
-    this.bothValue.set(context, "wait");
+    if (this.waitValue.get(context) !== "wait_until") {
+      throw new Error("waitFor attribute was not loaded");
+    }
+    if (this.executeValue.get(context) !== "execute") {
+      throw new Error("execute attribute was not loaded in waitFor");
+    }
+    if (this.bothValue.get(context) !== "both") {
+      throw new Error("shared attribute was not loaded in waitFor");
+    }
     return Wait.skipImmediately();
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    this.executeValue.set(context, "execute");
-    this.bothValue.set(context, "execute");
-    return goToMulti(
-      StepMovement.of(this.third, undefined, { executeMethodTimeoutMs: 2_000 }),
-    );
+    if (this.executeValue.get(context) !== "execute") {
+      throw new Error("execute attribute was not loaded");
+    }
+    if (this.waitValue.get(context) !== "wait_until") {
+      throw new Error("waitFor attribute was not loaded in execute");
+    }
+    if (this.bothValue.get(context) !== "both") {
+      throw new Error("shared attribute was not loaded in execute");
+    }
+    return goTo(this.third, undefined);
   }
 
   public getStepOptions(): StepOptions {
-    const retry: RetryPolicy = {
-      initialIntervalMs: 10,
-      maximumAttempts: 3,
-    };
     return {
-      waitForMethodTimeoutMs: 1_000,
-      executeMethodTimeoutMs: 1_000,
-      waitForRetry: retry,
-      executeRetry: retry,
-      waitForDurability: "sync",
-      executeDurability: "async",
       waitForLockAttributes: [this.waitValue.lock()],
       executeLockAttributes: [this.executeValue.lock()],
     };
@@ -97,13 +106,21 @@ class OptionsSecondStep implements Step<void> {
 class OptionsFirstStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
-  public constructor(private readonly second: OptionsSecondStep) {}
+  public constructor(
+    private readonly second: OptionsSecondStep,
+    private readonly waitValue: Attribute<string>,
+    private readonly executeValue: Attribute<string>,
+    private readonly bothValue: Attribute<string>,
+  ) {}
 
   public getStepType(): string {
     return "OptionsFirstStep";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
+  public execute(context: Context, _input: void): StepDecision {
+    this.executeValue.set(context, "execute");
+    this.waitValue.set(context, "wait_until");
+    this.bothValue.set(context, "both");
     return goTo(this.second, undefined);
   }
 }
@@ -119,7 +136,12 @@ export class StateOptionsFlow implements Flow {
     this.executeValue,
     this.bothValue,
   );
-  private readonly first = new OptionsFirstStep(this.second);
+  private readonly first = new OptionsFirstStep(
+    this.second,
+    this.waitValue,
+    this.executeValue,
+    this.bothValue,
+  );
 
   public getFlowType(): string {
     return "StateOptionsFlow";

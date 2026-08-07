@@ -20,9 +20,9 @@ export async function compilePersistenceReads(client: Client): Promise<void> {
   await client.startFlow(flow, "persistence", "input", {
     attributes: [InitialAttribute.of(flow.initial, "initial")],
   });
-  const data: string = await client.getAttribute("persistence", flow.data);
-  const integer: number = await client.getAttribute("persistence", flow.integer);
-  const datetime: Date = await client.getAttribute("persistence", flow.datetime);
+  const data: string | undefined = await client.getAttribute("persistence", flow.data);
+  const integer: number | undefined = await client.getAttribute("persistence", flow.integer);
+  const datetime: Date | undefined = await client.getAttribute("persistence", flow.datetime);
   void data;
   void integer;
   void datetime;

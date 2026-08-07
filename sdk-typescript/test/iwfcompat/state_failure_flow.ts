@@ -16,6 +16,7 @@ import {
   type Flow,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "../../src/index.js";
 
 class StateFailureStep implements Step<number> {
@@ -30,7 +31,11 @@ class StateFailureStep implements Step<number> {
   }
 
   public execute(_context: Context, _input: number): StepDecision {
-    throw new Error("state API failure");
+    throw new Error("test api failing");
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeRetry: { maximumAttempts: 1 } };
   }
 }
 

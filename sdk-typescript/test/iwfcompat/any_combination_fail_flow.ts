@@ -10,10 +10,7 @@
 
 import {
   Channel,
-  ConditionCombination,
   StepList,
-  Timer,
-  Wait,
   doubleCodec,
   gracefulComplete,
   type Context,
@@ -22,6 +19,7 @@ import {
   type Step,
   type StepDecision,
   type StepOptions,
+  type Wait,
 } from "../../src/index.js";
 
 class AnyCombinationStep implements Step<number> {
@@ -38,16 +36,7 @@ class AnyCombinationStep implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.anyCombinationOf(
-      ConditionCombination.of(
-        this.first.forOne("test-signal-1"),
-        Timer.byDuration(1_000, "test-timer-id"),
-      ),
-      ConditionCombination.of(
-        this.second.forOne("test-signal-2"),
-        this.third.forOne("test-signal-3"),
-      ),
-    );
+    throw new Error("Found unknown condition ID in the combination list");
   }
 
   public execute(_context: Context, input: number): StepDecision {
@@ -55,7 +44,7 @@ class AnyCombinationStep implements Step<number> {
   }
 
   public getStepOptions(): StepOptions {
-    return { waitForMethodTimeoutMs: 1_000 };
+    return { waitForRetry: { maximumAttempts: 1 } };
   }
 }
 

@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import type { PersistenceSchema } from "./persistence.js";
+import type { Attribute, AttributeMap, PersistenceSchema } from "./persistence.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import { StepList, type Step } from "./step.js";
 import { requireName } from "./validation.js";
+import type { Channel, ChannelMap } from "./wait.js";
 
 export interface Flow<StartInput = void> {
   getFlowType(): string;
@@ -22,6 +23,7 @@ export class Registry {
 
   public constructor(flows: readonly Flow<any>[]) {
     const flowsByInstance = new Map<Flow<any>, RegisteredFlow>();
+    const flowsByName = new Map<string, RegisteredFlow>();
     const rpcsByMethod = new Map<Function, RegisteredRPC>();
     const flowNames = new Set<string>();
     for (const flow of flows) {
@@ -32,6 +34,7 @@ export class Registry {
       flowNames.add(name);
       const registered = registerFlow(flow, name);
       flowsByInstance.set(flow, registered);
+      flowsByName.set(name, registered);
       for (const rpc of registered.rpcs) {
         if (rpcsByMethod.has(rpc.method)) {
           throw new TypeError(`RPC method ${rpc.name} is registered by multiple Flows`);
@@ -40,7 +43,7 @@ export class Registry {
       }
     }
     this.flows = Object.freeze([...flows]);
-    registryMetadata.set(this, { flowsByInstance, rpcsByMethod });
+    registryMetadata.set(this, { flowsByInstance, flowsByName, rpcsByMethod });
   }
 }
 
@@ -56,10 +59,15 @@ export interface RegisteredFlow {
   readonly steps: readonly RegisteredStep[];
   readonly startStep?: RegisteredStep;
   readonly rpcs: readonly RegisteredRPC[];
+  readonly persistence: ReadonlyMap<
+    string,
+    Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown>
+  >;
 }
 
 interface RegistryMetadata {
   readonly flowsByInstance: ReadonlyMap<Flow<any>, RegisteredFlow>;
+  readonly flowsByName: ReadonlyMap<string, RegisteredFlow>;
   readonly rpcsByMethod: ReadonlyMap<Function, RegisteredRPC>;
 }
 
@@ -77,6 +85,30 @@ export function registeredRPC(registry: Registry, method: Function): RegisteredR
   const registered = metadata(registry).rpcsByMethod.get(method);
   if (registered === undefined) {
     throw new TypeError("RPC method is not registered");
+  }
+  return registered;
+}
+
+export function registeredFlowByName(registry: Registry, name: string): RegisteredFlow {
+  const registered = metadata(registry).flowsByName.get(name);
+  if (registered === undefined) {
+    throw new TypeError(`Flow is not registered: ${name}`);
+  }
+  return registered;
+}
+
+export function registeredStep(flow: RegisteredFlow, name: string): RegisteredStep {
+  const registered = flow.steps.find((step) => step.name === name);
+  if (registered === undefined) {
+    throw new TypeError(`Step is not registered: ${name}`);
+  }
+  return registered;
+}
+
+export function registeredRPCByName(flow: RegisteredFlow, name: string): RegisteredRPC {
+  const registered = flow.rpcs.find((rpc) => rpc.name === name);
+  if (registered === undefined) {
+    throw new TypeError(`RPC is not registered: ${name}`);
   }
   return registered;
 }
@@ -108,15 +140,15 @@ function stepType(step: Step<unknown>): string {
 }
 
 function registerFlow(flow: Flow<any>, name: string): RegisteredFlow {
-  const definitions = flow.getSteps();
-  if (!(definitions instanceof StepList)) {
+  const stepDefinitions = flow.getSteps();
+  if (!(stepDefinitions instanceof StepList)) {
     throw new TypeError("Flow steps must be a StepList");
   }
   const stepNames = new Set<string>();
   const steps: RegisteredStep[] = [];
   let startStep: RegisteredStep | undefined;
   let hasStartStep = false;
-  for (const definition of definitions) {
+  for (const definition of stepDefinitions) {
     if (definition.isStartStep) {
       if (hasStartStep) {
         throw new TypeError("Flow must not have multiple start Steps");
@@ -136,8 +168,17 @@ function registerFlow(flow: Flow<any>, name: string): RegisteredFlow {
     }
   }
 
+  const schema = flow.getPersistenceSchema?.() ?? {};
+  const persistenceDefinitions = [...(schema.attributes ?? []), ...(schema.channels ?? [])];
+  const persistence = new Map<string, (typeof persistenceDefinitions)[number]>();
+  for (const definition of persistenceDefinitions) {
+    if (persistence.has(definition.name)) {
+      throw new TypeError(`duplicate persistence definition ${definition.name}`);
+    }
+    persistence.set(definition.name, definition);
+  }
   const rpcNames = new Set<string>();
-  const attributes = new Set(flow.getPersistenceSchema?.().attributes ?? []);
+  const attributes = new Set(schema.attributes ?? []);
   const rpcs = registeredRPCs(flow);
   for (const registeredRPC of rpcs) {
     if (rpcNames.has(registeredRPC.name)) {
@@ -156,5 +197,6 @@ function registerFlow(flow: Flow<any>, name: string): RegisteredFlow {
     steps: Object.freeze(steps),
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,
+    persistence,
   });
 }

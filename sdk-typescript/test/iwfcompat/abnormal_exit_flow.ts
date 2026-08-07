@@ -15,6 +15,7 @@ import {
   type Flow,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "../../src/index.js";
 
 class AbnormalExitStep implements Step<number> {
@@ -26,6 +27,10 @@ class AbnormalExitStep implements Step<number> {
 
   public execute(_context: Context, _input: number): StepDecision {
     throw new Error("abnormal exit");
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeRetry: { maximumAttempts: 1 } };
   }
 }
 

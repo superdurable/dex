@@ -16,6 +16,7 @@ import {
   type Flow,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "../../src/index.js";
 
 class EmptyDecisionStep implements Step<number> {
@@ -27,6 +28,10 @@ class EmptyDecisionStep implements Step<number> {
 
   public execute(_context: Context, _input: number): StepDecision {
     return goToMulti();
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeRetry: { maximumAttempts: 1 } };
   }
 }
 

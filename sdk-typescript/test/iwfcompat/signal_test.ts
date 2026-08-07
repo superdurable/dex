@@ -17,7 +17,7 @@ export async function compileSignalsAndTimerSkip(client: Client): Promise<void> 
   await client.startFlow(flow, "signal", 0);
   await client.publish("signal", flow.first, 1);
   await client.publish("signal", flow.second, 2);
-  await client.publish("signal", flow.third, 3, 4);
+  await client.publish("signal", flow.third, undefined);
   await client.publish("signal", flow.signalMap, "one", 5);
   await client.skipTimer(
     "signal",

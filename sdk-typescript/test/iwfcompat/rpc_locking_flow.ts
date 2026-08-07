@@ -29,7 +29,10 @@ import {
 } from "../../src/index.js";
 
 const data = new Attribute("rpc-lock-data", stringCodec);
-const counter = new Attribute("rpc-lock-counter", doubleCodec, {
+const keyword = new Attribute("CustomKeywordField", stringCodec, {
+  type: IndexType.KEYWORD,
+});
+const counter = new Attribute("CustomIntField", doubleCodec, {
   type: IndexType.INT,
 });
 const items = new AttributeMap("rpc-lock-items", stringCodec);
@@ -70,6 +73,7 @@ class LockWaitStep implements Step<void> {
 export class RpcLockingFlow implements Flow {
   public readonly channel = new Channel("rpc-channel", voidCodec);
   public readonly data = data;
+  public readonly keyword = keyword;
   public readonly counter = counter;
   public readonly items = items;
   private readonly second = new LockCompleteStep();
@@ -85,15 +89,14 @@ export class RpcLockingFlow implements Flow {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.data, this.counter, this.items],
+      attributes: [this.data, this.keyword, this.counter, this.items],
       channels: [this.channel],
     };
   }
 
-  @rpc({ lockAttributes: [data.lock(), counter.lock()] })
+  @rpc({ lockAttributes: [data.lock(), keyword.lock(), counter.lock()] })
   public withLocking(context: Context): void {
-    this.data.set(context, "locked");
-    this.counter.set(context, 1);
+    this.writeAttributes(context);
     this.channel.publish(context, undefined);
   }
 
@@ -104,6 +107,13 @@ export class RpcLockingFlow implements Flow {
 
   @rpc()
   public withoutLocking(context: Context): void {
+    this.writeAttributes(context);
     this.channel.publish(context, undefined);
+  }
+
+  private writeAttributes(context: Context): void {
+    this.data.set(context, "random-string");
+    this.keyword.set(context, "random-string");
+    this.counter.set(context, 100);
   }
 }

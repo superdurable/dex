@@ -11,9 +11,12 @@
 import {
   Channel,
   StepList,
+  StepMovement,
   deadEnd,
   doubleCodec,
+  gracefulComplete,
   rpc,
+  stringCodec,
   voidCodec,
   type Context,
   type Flow,
@@ -35,20 +38,34 @@ class DeadEndStep implements Step<void> {
   }
 }
 
+class DeadEndCompleteStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public getStepType(): string {
+    return "DeadEndCompleteStep";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return gracefulComplete();
+  }
+}
+
 export class DeadEndFlow implements Flow {
   public readonly idleSignal = new Channel("idle-signal", voidCodec);
+  public readonly idleInternal = new Channel("idle-internal", voidCodec);
   private readonly start = new DeadEndStep();
+  private readonly complete = new DeadEndCompleteStep();
 
   public getFlowType(): string {
     return "DeadEndFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.start);
+    return StepList.startStep(this.start).otherSteps(this.complete);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.idleSignal] };
+    return { channels: [this.idleSignal, this.idleInternal] };
   }
 
   @rpc({ outputCodec: doubleCodec })
@@ -58,7 +75,15 @@ export class DeadEndFlow implements Flow {
 
   @rpc({ outputCodec: doubleCodec })
   public publishInternal(context: Context): RPCResult<number> {
-    this.idleSignal.publish(context, undefined);
-    return { output: this.idleSignal.size(context) };
+    this.idleInternal.publish(context, undefined);
+    return { output: this.idleInternal.size(context) };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
+  public invoke(context: Context, _input: string): RPCResult<number> {
+    if (context.flowId === "" || context.runId === "") {
+      throw new Error("invalid RPC context");
+    }
+    return { output: 100, nextSteps: [StepMovement.of(this.complete, undefined)] };
   }
 }

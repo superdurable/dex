@@ -1,8 +1,8 @@
 # Dex SDK for TypeScript
 
 This package targets Node.js 22 and 24. It provides strongly typed workflow
-contracts and a Promise-based gRPC Client. The Worker runtime and native
-BlobCache binding are the remaining runtime phases.
+contracts and a Promise-based gRPC Client. The Client and Worker runtime use
+`@grpc/grpc-js`. The native BlobCache binding remains a separate runtime phase.
 
 Application values use `Codec<T>`. Flow, Step, RPC, Attribute, and Channel
 definitions retain their input and output types. Client methods return Promise
@@ -78,15 +78,18 @@ continue importing only from `@superdurable/dex`.
 - `rpc.ts`: typed RPC contracts and decorators
 - `flow.ts`: Flows, registration, and validation
 - `client.ts`: Promise-based FlowService Client
-- `worker.ts`: Worker runtime boundary
+- `worker.ts`: Worker gRPC service and lifecycle
+- `worker-dispatcher.ts`: typed callback dispatch and response mapping
+- `invocation-context.ts`: invocation-scoped persistence and condition state
 - `blob-cache.ts`: injectable cache contract and future N-API binding
 - `gen/`: checked-in protobuf and grpc-js bindings
 
 Run `npm test` for runtime contracts and `npm run typecheck` for strict static
-contracts. Run `npm run generate:proto` after changing `protos/dex.proto`;
-`protoc` and its standard protobuf includes must be installed.
+contracts. Run `./run-integration-tests.sh` for all 58 IWF compatibility
+scenarios against an isolated `dexcli dev` environment. Run
+`npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
+standard protobuf includes must be installed.
 
-The complete legacy IWF integration inventory has a compile-only port under
-[`test/iwfcompat`](test/iwfcompat/README.md). Its 28 Flow fixtures and 16
-scenario files show the TypeScript programming model without starting a
-server.
+The complete legacy IWF integration inventory lives under
+[`test/iwfcompat`](test/iwfcompat/README.md). Its Flow fixtures retain the Java
+suite's workflow behavior and its 58 assertions run against a real Dex server.

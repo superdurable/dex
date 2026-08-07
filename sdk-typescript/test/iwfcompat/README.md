@@ -1,16 +1,23 @@
-# IWF integration compile port
+# IWF integration port
 
 This directory mirrors the complete Java `iwfcompat` inventory: 28 Flow
 fixtures and 16 integration scenario files. Every Flow has its own module;
 `iwf_flows.ts` only creates the shared instances used by scenarios.
 
-The scenario functions are compile-only examples. They are not registered with
-Node's test runner and never contact a Dex server.
+The `*.integration.test.ts` files port all 58 Java assertions and run through
+the TypeScript Client and Worker against `dexcli dev`. The older scenario
+functions remain compile-contract coverage for representative call sites.
 
-Static verification only:
+Static verification:
 
 ```shell
 npm run typecheck
+```
+
+Full integration verification:
+
+```shell
+./run-integration-tests.sh
 ```
 
 ## Programming experience

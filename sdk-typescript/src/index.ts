@@ -10,7 +10,7 @@ export * from "./blob-cache.js";
 export * from "./client.js";
 export * from "./codec.js";
 export * from "./context.js";
-export { PhaseNotImplementedError } from "./errors.js";
+export * from "./errors.js";
 export { Registry } from "./flow.js";
 export type { Flow } from "./flow.js";
 export * from "./options.js";

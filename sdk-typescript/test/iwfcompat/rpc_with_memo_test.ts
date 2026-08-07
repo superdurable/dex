@@ -16,9 +16,9 @@ export async function compileMemoReplacement(client: Client): Promise<void> {
   const flow = flows.RPC;
   await client.startFlow(flow, "rpc-cache", 0);
   await client.invokeRPC(flow.setData, "rpc-cache", "value");
-  const data: string = await client.invokeRPC(flow.getData, "rpc-cache");
+  const data: string | undefined = await client.invokeRPC(flow.getData, "rpc-cache");
   await client.invokeRPC(flow.setKeyword, "rpc-cache", "keyword");
-  const keyword: string = await client.invokeRPC(flow.getKeyword, "rpc-cache");
+  const keyword: string | undefined = await client.invokeRPC(flow.getKeyword, "rpc-cache");
   const result: number = await client.invokeRPC(
     flow.functionOne,
     "rpc-cache",

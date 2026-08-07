@@ -13,6 +13,8 @@ import {
   StepList,
   Wait,
   doubleCodec,
+  forceFail,
+  goTo,
   gracefulComplete,
   type Context,
   type Flow,
@@ -24,12 +26,24 @@ import {
 class RecoverStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
+  public constructor(private readonly failingStep: () => FailingStep) {}
+
   public getStepType(): string {
     return "RecoverStep";
   }
 
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.skipImmediately();
+  }
+
   public execute(_context: Context, input: number): StepDecision {
-    return gracefulComplete(input * 2);
+    if (input === 10) {
+      return gracefulComplete(input);
+    }
+    if (input === 5) {
+      return goTo(this.failingStep(), input * 2);
+    }
+    return forceFail(`unexpected input ${input}`);
   }
 }
 
@@ -51,13 +65,16 @@ class FailingStep implements Step<number> {
   }
 
   public getStepOptions(): StepOptions {
-    return { executeFailure: ExecuteFailure.proceedTo(this.recover) };
+    return {
+      executeRetry: { maximumAttempts: 1, backoffCoefficient: 2 },
+      executeFailure: ExecuteFailure.proceedTo(this.recover),
+    };
   }
 }
 
 export class StateRecoveryFlow implements Flow<number> {
-  private readonly recover = new RecoverStep();
-  private readonly start = new FailingStep(this.recover);
+  private readonly recover: RecoverStep = new RecoverStep((): FailingStep => this.start);
+  private readonly start: FailingStep = new FailingStep(this.recover);
 
   public getFlowType(): string {
     return "StateRecoveryFlow";

@@ -11,6 +11,7 @@
 import {
   StepList,
   doubleCodec,
+  gracefulComplete,
   type Context,
   type Flow,
   type Step,
@@ -25,12 +26,17 @@ class StateTimeoutStep implements Step<number> {
     return "StateTimeoutStep";
   }
 
-  public execute(_context: Context, _input: number): StepDecision {
-    throw new Error("timeout simulation");
+  public execute(_context: Context, input: number): StepDecision {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
+    return gracefulComplete(input);
   }
 
   public getStepOptions(): StepOptions {
-    return { executeMethodTimeoutMs: 1 };
+    return {
+      executeMethodTimeoutMs: 1_000,
+      executeRetry: { maximumAttempts: 1 },
+      executeDurability: "sync",
+    };
   }
 }
 

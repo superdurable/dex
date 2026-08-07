@@ -39,7 +39,7 @@ export class NoStateFlow implements Flow {
 
   @rpc({ outputCodec: doubleCodec, lockAttributes: [counter.lock()] })
   public increaseCounter(context: Context): RPCResult<number> {
-    const next = this.counter.get(context) + 1;
+    const next = (this.counter.get(context) ?? 0) + 1;
     this.counter.set(context, next);
     return { output: next };
   }
@@ -52,5 +52,13 @@ export class NoStateFlow implements Flow {
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public fail(_context: Context, input: string): RPCResult<number> {
     throw new Error(input);
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
+  public invoke(context: Context, _input: string): RPCResult<number> {
+    if (context.flowId === "" || context.runId === "") {
+      throw new Error("invalid RPC context");
+    }
+    return { output: 100 };
   }
 }

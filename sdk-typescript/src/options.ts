@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import type { Attribute } from "./persistence.js";
+import type { Attribute, AttributeMap } from "./persistence.js";
 import type { RetryPolicy, StepDurability } from "./step.js";
 import { requireName } from "./validation.js";
 
@@ -42,13 +42,22 @@ export interface FlowConfig {
 }
 
 export interface InitialAttribute<T> {
-  readonly attribute: Attribute<T>;
+  readonly attribute: Attribute<T> | AttributeMap<T>;
+  readonly instance?: string;
   readonly value: T;
 }
 
 export const InitialAttribute = Object.freeze({
   of<T>(attribute: Attribute<T>, value: T): InitialAttribute<T> {
     return { attribute, value };
+  },
+  mapValue<T>(
+    attribute: AttributeMap<T>,
+    instance: string,
+    value: T,
+  ): InitialAttribute<T> {
+    requireName(instance);
+    return { attribute, instance, value };
   },
 });
 
@@ -88,7 +97,7 @@ export interface StepExecutionId {
 
 export const StepExecutionId = Object.freeze({
   of(stepType: string, number?: number): StepExecutionId {
-    return { stepType, ...(number === undefined ? {} : { number }) };
+    return { stepType, number: number ?? 1 };
   },
 });
 

@@ -23,7 +23,18 @@ export interface ModelInput {
 
 export const modelInputCodec = jsonCodec<ModelInput>({
   typeName: "ModelInput",
-  decode: (value) => value as ModelInput,
+  decode: (value) => {
+    if (typeof value !== "object" || value === null || typeof (value as ModelInput).value !== "number") {
+      throw new TypeError("invalid ModelInput");
+    }
+    return value as ModelInput;
+  },
+  encode: (value) => {
+    if (typeof value !== "object" || value === null || typeof value.value !== "number") {
+      throw new TypeError("invalid ModelInput");
+    }
+    return value;
+  },
 });
 
 export const dateCodec = jsonCodec<Date>({

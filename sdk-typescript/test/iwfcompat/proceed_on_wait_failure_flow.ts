@@ -40,7 +40,10 @@ class FailingWaitStep implements Step<string> {
   }
 
   public getStepOptions(): StepOptions {
-    return { waitForFailure: "proceed" };
+    return {
+      waitForFailure: "proceed",
+      waitForRetry: { maximumAttempts: 2 },
+    };
   }
 }
 

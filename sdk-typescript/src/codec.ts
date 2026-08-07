@@ -79,6 +79,15 @@ export const voidCodec: Codec<void> = {
   },
 };
 
+export function optionalCodec<T>(codec: Codec<T>): Codec<T | undefined> {
+  return {
+    typeName: `${codec.typeName} | undefined`,
+    wireKind: "json",
+    encode: (value) => value === undefined ? { kind: "json", data: "null" } : codec.encode(value),
+    decode: (value) => value.kind === "json" && value.data === "null" ? undefined : codec.decode(value),
+  };
+}
+
 export function jsonCodec<T>(options: {
   readonly typeName: string;
   readonly decode: (value: unknown) => T;

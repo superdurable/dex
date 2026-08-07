@@ -48,6 +48,9 @@ export class NoStartFlow implements Flow {
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public invoke(_context: Context, _input: string): RPCResult<number> {
-    return { output: 1, nextSteps: [StepMovement.of(this.triggered, undefined)] };
+    if (_context.flowId === "" || _context.runId === "") {
+      throw new Error("invalid RPC context");
+    }
+    return { output: 100, nextSteps: [StepMovement.of(this.triggered, undefined)] };
   }
 }

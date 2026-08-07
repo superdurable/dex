@@ -6,13 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import { credentials, type ServiceError } from "@grpc/grpc-js";
+import { credentials, status as GrpcStatus, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import {
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
+  FlowErrorType as ProtoFlowErrorType,
   FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
@@ -37,12 +38,21 @@ import {
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
+  DexError,
+  ErrorSubStatus,
+  FlowErrorType,
+  FlowUncompletedError,
+  LongPollTimeoutError,
+  type FlowErrorType as FlowErrorTypeValue,
+} from "./errors.js";
+import {
   registeredFlow,
   registeredRPC,
   type Flow,
   type RegisteredFlow,
   type Registry,
 } from "./flow.js";
+import { translateServiceError } from "./grpc-status.js";
 import {
   ActiveStepSearchMode,
   IdReusePolicy,
@@ -101,7 +111,7 @@ export class Client {
         flowStartDelaySeconds: seconds(options.startDelayMs),
         retryPolicy: mapFlowRetryPolicy(options.retryPolicy),
         attributes: (options.attributes ?? []).map((initial) => ({
-          key: initial.attribute.name,
+          key: physicalName(initial.attribute.name, initial.instance),
           value: encodeValue(initial.attribute.codec, initial.value),
           indexConfig: mapIndex(initial.attribute.index),
         })),
@@ -186,14 +196,18 @@ export class Client {
     return decodeValue(rpc.options.outputCodec, await this.hydrator.hydrate(response.output));
   }
 
-  public getAttribute<T>(flowId: string, attribute: Attribute<T>, runId?: string): Promise<T>;
+  public getAttribute<T>(
+    flowId: string,
+    attribute: Attribute<T>,
+    runId?: string,
+  ): Promise<T | undefined>;
 
   public getAttribute<T>(
     flowId: string,
     attribute: AttributeMap<T>,
     instance: string,
     runId?: string,
-  ): Promise<T>;
+  ): Promise<T | undefined>;
 
   public async getAttribute(
     flowId: string,
@@ -215,7 +229,7 @@ export class Client {
     );
     const value = response.attributes[0]?.value;
     if (value === undefined) {
-      throw new TypeError(`attribute ${attribute.name} was not found`);
+      return undefined;
     }
     return decodeValue(attribute.codec, await this.hydrator.hydrate(value));
   }
@@ -309,18 +323,42 @@ export class Client {
     outputCodec?: Codec<unknown>,
     timeoutMs?: number,
   ): Promise<unknown> {
-    const response = await unary<WaitForFlowResponse>((callback) =>
-      this.service.waitForFlow(
-        {
-          flowId: requireName(flowId),
-          runId: "",
-          needsResults: outputCodec !== undefined,
-          waitTimeSeconds: seconds(timeoutMs),
-        },
-        callback,
-      ),
-    );
-    requireCompleted(response);
+    let response: WaitForFlowResponse;
+    try {
+      response = await unary<WaitForFlowResponse>((callback) =>
+        this.service.waitForFlow(
+          {
+            flowId: requireName(flowId),
+            runId: "",
+            needsResults: outputCodec !== undefined,
+            waitTimeSeconds: seconds(timeoutMs),
+          },
+          callback,
+        ),
+      );
+    } catch (failure) {
+      if (
+        failure instanceof DexError &&
+        (failure.code === GrpcStatus.DEADLINE_EXCEEDED ||
+          failure.subStatus === ErrorSubStatus.LONG_POLL_TIMEOUT)
+      ) {
+        throw new LongPollTimeoutError(flowId, { cause: failure });
+      }
+      throw failure;
+    }
+    if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
+      const summary = await this.describeFlow(flowId);
+      const results = await this.hydrator.hydrateAll(
+        response.results.map((result) => result.completedStepOutput),
+      );
+      throw new FlowUncompletedError(
+        summary.runId,
+        mapFlowStatus(response.flowStatus),
+        mapFlowErrorType(response.errorType),
+        response.errorMessage || undefined,
+        results,
+      );
+    }
     if (outputCodec === undefined) {
       return undefined;
     }
@@ -394,7 +432,7 @@ export class Client {
         {
           flowId: requireName(flowId),
           runId: "",
-          stepExecutionId: `${stepExecutionId.stepType}-${stepExecutionId.number ?? 0}`,
+          stepExecutionId: `${stepExecutionId.stepType}-${stepExecutionId.number ?? 1}`,
           timerConditionId: timerId.conditionId ?? "",
           timerConditionIndex: timerId.conditionIndex,
         },
@@ -413,7 +451,7 @@ export class Client {
         {
           flowId: requireName(flowId),
           stepType: stepExecutionId.stepType,
-          stepExecutionNumber: String(stepExecutionId.number ?? 0),
+          stepExecutionNumber: String(stepExecutionId.number ?? 1),
           waitTimeSeconds: seconds(timeoutMs),
           requestId: crypto.randomUUID(),
         },
@@ -453,6 +491,8 @@ function mapStepOptions(
   if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
     throw new TypeError("execute failure Step must belong to the Flow");
   }
+  const executeFailureOptions =
+    options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
   return ProtoStepOptions.create({
     waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
     executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
@@ -470,9 +510,13 @@ function mapStepOptions(
         : ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
     executeFailureProceedStepType: executeFailureDefinition?.name ?? "",
     executeFailureProceedStepOptions:
-      options?.executeFailure?.options === undefined
+      executeFailureDefinition === undefined
         ? undefined
-        : mapStepOptions(options.executeFailure.options, false, flow),
+        : mapStepOptions(
+            executeFailureOptions,
+            executeFailureDefinition.step.waitFor === undefined,
+            flow,
+          ),
     skipWaitFor,
     waitForDurabilityOverride: mapDurability(options?.waitForDurability),
     executeDurabilityOverride: mapDurability(options?.executeDurability),
@@ -624,9 +668,20 @@ function mapFlowStatus(status: ProtoFlowStatus): FlowStatus {
   }
 }
 
-function requireCompleted(response: WaitForFlowResponse): void {
-  if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
-    throw new Error(response.errorMessage || `Flow stopped with status ${response.flowStatus}`);
+function mapFlowErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefined {
+  switch (type) {
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW:
+      return FlowErrorType.STEP_DECISION_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW:
+      return FlowErrorType.CLIENT_API_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_WORKER_API_FAIL:
+      return FlowErrorType.WORKER_API_FAILED;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE:
+      return FlowErrorType.INVALID_USER_FLOW_CODE;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_INTERNAL:
+      return FlowErrorType.INTERNAL;
+    default:
+      return undefined;
   }
 }
 
@@ -668,7 +723,7 @@ function unary<Response>(
   return new Promise((resolve, reject) => {
     invoke((error, response) => {
       if (error !== null) {
-        reject(error);
+        reject(translateServiceError(error));
         return;
       }
       resolve(response);

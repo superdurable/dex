@@ -13,8 +13,10 @@ import type { Codec } from "./codec.js";
 export interface Context {
   readonly flowId: string;
   readonly runId: string;
+  readonly flowStartedAt: Date;
   readonly stepExecutionId: string;
   readonly fromStepExecutionId: string;
+  readonly firstAttemptAt: Date;
   readonly attempt: number;
   hasTimerFired(index?: number): boolean;
   waitForMethodFailed(): boolean;

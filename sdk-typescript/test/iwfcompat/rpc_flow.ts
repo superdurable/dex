@@ -13,11 +13,11 @@ import {
   Channel,
   IndexType,
   StepList,
-  StepMovement,
   Wait,
   doubleCodec,
   goTo,
   gracefulComplete,
+  optionalCodec,
   rpc,
   stringCodec,
   voidCodec,
@@ -37,7 +37,7 @@ class RpcSecondStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return gracefulComplete(input + 1);
+    return gracefulComplete(2);
   }
 }
 
@@ -63,10 +63,15 @@ class RpcFirstStep implements Step<number> {
 }
 
 export class RpcFlow implements Flow<number> {
+  public static readonly RPC_OUTPUT = 100;
+  public static readonly HARDCODED_VALUE = "random-string";
   public readonly internal = new Channel("rpc-internal", voidCodec);
-  public readonly data = new Attribute("rpc-data", stringCodec);
-  public readonly keyword = new Attribute("rpc-keyword", stringCodec, {
+  public readonly data = new Attribute("rpc-data", optionalCodec(stringCodec));
+  public readonly keyword = new Attribute("CustomKeywordField", optionalCodec(stringCodec), {
     type: IndexType.KEYWORD,
+  });
+  public readonly integer = new Attribute("CustomIntField", doubleCodec, {
+    type: IndexType.INT,
   });
   private readonly second = new RpcSecondStep();
   private readonly first = new RpcFirstStep(this.internal, this.second);
@@ -80,58 +85,90 @@ export class RpcFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.data, this.keyword], channels: [this.internal] };
+    return {
+      attributes: [this.data, this.keyword, this.integer],
+      channels: [this.internal],
+    };
   }
 
   @rpc()
   public noPersistence(context: Context): void {
+    this.requireContext(context);
     this.internal.publish(context, undefined);
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public functionOne(context: Context, input: string): RPCResult<number> {
+    this.requireContext(context);
+    this.data.set(context, undefined);
     this.data.set(context, input);
     this.keyword.set(context, input);
-    return { output: 1, nextSteps: [StepMovement.of(this.second, 0)] };
+    this.integer.set(context, RpcFlow.RPC_OUTPUT);
+    this.internal.publish(context, undefined);
+    return { output: RpcFlow.RPC_OUTPUT };
   }
 
   @rpc({ outputCodec: doubleCodec })
   public functionZero(_context: Context): RPCResult<number> {
-    return { output: 1, nextSteps: [StepMovement.of(this.second, 0)] };
+    this.requireContext(_context);
+    this.data.set(_context, RpcFlow.HARDCODED_VALUE);
+    this.keyword.set(_context, RpcFlow.HARDCODED_VALUE);
+    this.integer.set(_context, RpcFlow.RPC_OUTPUT);
+    this.internal.publish(_context, undefined);
+    return { output: RpcFlow.RPC_OUTPUT };
   }
 
   @rpc({ inputCodec: stringCodec })
   public procedureOne(context: Context, input: string): void {
+    this.requireContext(context);
     this.data.set(context, input);
+    this.keyword.set(context, input);
+    this.integer.set(context, RpcFlow.RPC_OUTPUT);
+    this.internal.publish(context, undefined);
   }
 
   @rpc()
   public procedureZero(context: Context): void {
+    this.requireContext(context);
+    this.data.set(context, RpcFlow.HARDCODED_VALUE);
+    this.keyword.set(context, RpcFlow.HARDCODED_VALUE);
+    this.integer.set(context, RpcFlow.RPC_OUTPUT);
     this.internal.publish(context, undefined);
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public readOnly(_context: Context, input: string): RPCResult<number> {
-    return { output: input.length };
+    this.requireContext(_context);
+    return { output: RpcFlow.RPC_OUTPUT };
   }
 
-  @rpc({ inputCodec: stringCodec })
-  public setData(context: Context, input: string): void {
+  @rpc({ inputCodec: optionalCodec(stringCodec) })
+  public setData(context: Context, input: string | undefined): void {
+    this.requireContext(context);
     this.data.set(context, input);
   }
 
-  @rpc({ outputCodec: stringCodec })
-  public getData(context: Context): RPCResult<string> {
+  @rpc({ outputCodec: optionalCodec(stringCodec) })
+  public getData(context: Context): RPCResult<string | undefined> {
+    this.requireContext(context);
     return { output: this.data.get(context) };
   }
 
-  @rpc({ inputCodec: stringCodec })
-  public setKeyword(context: Context, input: string): void {
+  @rpc({ inputCodec: optionalCodec(stringCodec) })
+  public setKeyword(context: Context, input: string | undefined): void {
+    this.requireContext(context);
     this.keyword.set(context, input);
   }
 
-  @rpc({ outputCodec: stringCodec })
-  public getKeyword(context: Context): RPCResult<string> {
+  @rpc({ outputCodec: optionalCodec(stringCodec) })
+  public getKeyword(context: Context): RPCResult<string | undefined> {
+    this.requireContext(context);
     return { output: this.keyword.get(context) };
+  }
+
+  private requireContext(context: Context): void {
+    if (context.flowId === "" || context.runId === "") {
+      throw new Error("invalid RPC context");
+    }
   }
 }

@@ -31,9 +31,9 @@ export async function compileFunctionsAndProcedures(client: Client): Promise<voi
   await client.invokeRPC(flow.procedureZero, "rpc");
   const readOnly: number = await client.invokeRPC(flow.readOnly, "rpc", "input");
   await client.invokeRPC(flow.setData, "rpc", "value");
-  const data: string = await client.invokeRPC(flow.getData, "rpc");
+  const data: string | undefined = await client.invokeRPC(flow.getData, "rpc");
   await client.invokeRPC(flow.setKeyword, "rpc", "value");
-  const keyword: string = await client.invokeRPC(flow.getKeyword, "rpc");
+  const keyword: string | undefined = await client.invokeRPC(flow.getKeyword, "rpc");
   void one;
   void zero;
   void readOnly;
