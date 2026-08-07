@@ -6,9 +6,48 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, SemanticEventDetails } from './EventDetails';
+
+const sectionExpandByKey = new Map<string, boolean>();
+
+function useSectionExpand(persistKey: string) {
+  const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
+  const [collapseNonce, setCollapseNonce] = useState(0);
+  return {
+    expanded,
+    collapseNonce,
+    setExpanded: (next: boolean) => {
+      sectionExpandByKey.set(persistKey, next);
+      setExpanded(next);
+      if (!next) setCollapseNonce((current) => current + 1);
+    },
+  };
+}
+
+function SectionExpandToggle({
+  expanded,
+  onChange,
+  label,
+}: {
+  expanded: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="section-expand-toggle">
+      <input
+        type="checkbox"
+        checked={expanded}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {expanded ? 'Collapse all' : 'Expand all'}
+      <span className="sr-only">{label}</span>
+    </label>
+  );
+}
 
 export function FlowOverview({
   summary,
@@ -24,6 +63,10 @@ export function FlowOverview({
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = events.findLast((event) => event.type === 'FlowClosed');
   const startKind = started?.payload.initialStart ? 'Initial start' : 'Continued run';
+  const activeStepsExpand = useSectionExpand('overview:expand:active-steps');
+  const attributesExpand = useSectionExpand('overview:expand:attributes');
+  const channelsExpand = useSectionExpand('overview:expand:channels');
+
   return (
     <div className="overview-grid">
       <div className="overview-column">
@@ -49,10 +92,17 @@ export function FlowOverview({
               </div>
 
               <div className="live-state-block">
-                <p className="eyebrow">Active steps</p>
+                <div className="live-state-block-heading">
+                  <p className="eyebrow">Active steps</p>
+                  <SectionExpandToggle
+                    expanded={activeStepsExpand.expanded}
+                    onChange={activeStepsExpand.setExpanded}
+                    label="active steps"
+                  />
+                </div>
                 {state.activeStepExecutions.map((step) => (
                   <div className="active-step-card" key={step.stepExecutionId}>
-                    <div>
+                    <div className="active-step-heading">
                       <b>{step.stepType}</b>
                       <span className={`phase phase-${step.phase.toLowerCase()}`}>{step.phase}</span>
                     </div>
@@ -62,14 +112,18 @@ export function FlowOverview({
                       <JsonView
                         value={step.waitingCondition}
                         label="Waiting condition"
-                        persistKey={`overview:active-step:${step.stepExecutionId}:waiting-condition`}
+                        persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
+                        forceOpen={activeStepsExpand.expanded || undefined}
+                        collapseNonce={activeStepsExpand.collapseNonce}
                       />
                     )}
                     {step.timers.length > 0 && (
                       <JsonView
                         value={step.timers}
                         label={`${step.timers.length} timers`}
-                        persistKey={`overview:active-step:${step.stepExecutionId}:timers`}
+                        persistKey={`overview:active-step:${step.stepType}:timers`}
+                        forceOpen={activeStepsExpand.expanded || undefined}
+                        collapseNonce={activeStepsExpand.collapseNonce}
                       />
                     )}
                   </div>
@@ -80,31 +134,55 @@ export function FlowOverview({
               </div>
 
               <div className="live-state-block">
-                <p className="eyebrow">Attributes</p>
-                <h3>{state.attributes.length} values</h3>
+                <div className="live-state-block-heading">
+                  <div>
+                    <p className="eyebrow">Attributes</p>
+                    <h3>{state.attributes.length} values</h3>
+                  </div>
+                  <SectionExpandToggle
+                    expanded={attributesExpand.expanded}
+                    onChange={attributesExpand.setExpanded}
+                    label="attributes"
+                  />
+                </div>
                 <JsonView
                   value={state.attributes}
                   label="Attributes"
                   persistKey="overview:attributes"
+                  forceOpen={attributesExpand.expanded || undefined}
+                  collapseNonce={attributesExpand.collapseNonce}
                 />
               </div>
 
               <div className="live-state-block">
-                <p className="eyebrow">Queues & channels</p>
+                <div className="live-state-block-heading">
+                  <p className="eyebrow">Channels & Others Internals</p>
+                  <SectionExpandToggle
+                    expanded={channelsExpand.expanded}
+                    onChange={channelsExpand.setExpanded}
+                    label="channels and other internals"
+                  />
+                </div>
                 <JsonView
                   value={state.queuedSteps}
                   label={`${state.queuedSteps.length} queued steps`}
                   persistKey="overview:queued-steps"
+                  forceOpen={channelsExpand.expanded || undefined}
+                  collapseNonce={channelsExpand.collapseNonce}
                 />
                 <JsonView
                   value={state.pendingChannelMessages}
                   label="Pending channel messages"
                   persistKey="overview:pending-channels"
+                  forceOpen={channelsExpand.expanded || undefined}
+                  collapseNonce={channelsExpand.collapseNonce}
                 />
                 <JsonView
                   value={state.completedSteps}
                   label="Completed outputs"
                   persistKey="overview:completed-outputs"
+                  forceOpen={channelsExpand.expanded || undefined}
+                  collapseNonce={channelsExpand.collapseNonce}
                 />
               </div>
 

@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
 import { StructuredValue } from './StructuredValue';
 
@@ -20,11 +20,15 @@ export function JsonView({
   label = 'Details',
   initiallyOpen = false,
   persistKey,
+  forceOpen,
+  collapseNonce = 0,
 }: {
   value: unknown;
   label?: string;
   initiallyOpen?: boolean;
   persistKey?: string;
+  forceOpen?: boolean;
+  collapseNonce?: number;
 }) {
   const storageKey = persistKey ?? label;
   const [open, setOpen] = useState(() => openByKey.get(storageKey) ?? initiallyOpen);
@@ -32,11 +36,26 @@ export function JsonView({
     () => viewByKey.get(storageKey) ?? 'details',
   );
 
+  useEffect(() => {
+    if (!forceOpen) return;
+    setOpen(true);
+    openByKey.set(storageKey, true);
+  }, [forceOpen, storageKey]);
+
+  useEffect(() => {
+    if (collapseNonce <= 0) return;
+    setOpen(false);
+    openByKey.set(storageKey, false);
+  }, [collapseNonce, storageKey]);
+
+  const effectiveOpen = forceOpen || open;
+
   return (
     <div className="json-view">
       <button
         type="button"
         className="json-toggle"
+        disabled={forceOpen}
         onClick={() => {
           setOpen((current) => {
             const next = !current;
@@ -45,10 +64,10 @@ export function JsonView({
           });
         }}
       >
-        <span>{open ? '−' : '+'}</span>
+        <span>{effectiveOpen ? '−' : '+'}</span>
         {label}
       </button>
-      {open && (
+      {effectiveOpen && (
         <div className="json-view-body">
           <div className="event-detail-tabs" role="tablist" aria-label={`${label} view`}>
             <button
