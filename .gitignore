@@ -10,6 +10,7 @@
 *.test
 *.out
 coverage.out
+sdk-go/coverage/
 dex-server
 examples/go/dex-samples
 cli/dexcli
