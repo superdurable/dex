@@ -112,6 +112,29 @@ class ValueMapper:
             raise ValueError("attribute deletion marker cannot be decoded")
         raise TypeError(f"cannot decode {kind or 'empty Value'} as {codec.type_name}")
 
+    def to_value(self, value: pb.Value) -> Value:
+        kind = value.WhichOneof("kind")
+        if kind == "string_value":
+            return Value(WireKind.STRING, value.string_value)
+        if kind == "bool_value":
+            return Value(WireKind.BOOL, value.bool_value)
+        if kind == "int_value":
+            return Value(WireKind.INT64, value.int_value)
+        if kind == "double_value":
+            return Value(WireKind.DOUBLE, value.double_value)
+        if kind == "obj_value":
+            if value.obj_value.encoding == _RAW_BYTES_ENCODING:
+                return Value(WireKind.BYTES, value.obj_value.payload)
+            if value.obj_value.encoding == _JSON_ENCODING:
+                return Value(WireKind.JSON, value.obj_value.payload.decode("utf-8"))
+            raise ValueError(f"unsupported object encoding {value.obj_value.encoding}")
+        if kind in (
+            "internal_blob_id_for_string_value",
+            "internal_blob_id_for_obj_value",
+        ):
+            raise ValueError("blob-backed Value was not hydrated")
+        raise TypeError(f"cannot wrap {kind or 'empty Value'} as Value")
+
     @staticmethod
     def deletion() -> pb.Value:
         return pb.Value(null_value=cast(struct_pb2.NullValue, struct_pb2.NULL_VALUE))
