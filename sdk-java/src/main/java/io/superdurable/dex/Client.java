@@ -37,6 +37,9 @@ import io.superdurable.gen.InvokeRPCRequest;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.PublishToChannelRequest;
 import io.superdurable.gen.ResetFlowRequest;
+import io.superdurable.gen.SearchFlowsRequest;
+import io.superdurable.gen.SearchFlowsResponse;
+import io.superdurable.gen.SearchFlowsResponseEntry;
 import io.superdurable.gen.SetAttributesRequest;
 import io.superdurable.gen.SkipTimerRequest;
 import io.superdurable.gen.StartFlowRequest;
@@ -61,7 +64,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -325,6 +330,48 @@ public final class Client implements AutoCloseable {
                 response.getFlowType(),
                 mapFlowStatus(response.getFlowStatus()),
                 instant(response.getStartTime()));
+    }
+
+    public SearchFlowsPage searchFlows(final String query, final int pageSize) {
+        return searchFlows(query, pageSize, "");
+    }
+
+    public SearchFlowsPage searchFlows(
+            final String query,
+            final int pageSize,
+            final String nextPageToken) {
+        if (pageSize < 0) {
+            throw new IllegalArgumentException("search page size must not be negative");
+        }
+        final SearchFlowsResponse response = call(() -> service.searchFlows(
+                SearchFlowsRequest.newBuilder()
+                        .setQuery(query == null ? "" : query)
+                        .setPageSize(pageSize)
+                        .setNextPageToken(nextPageToken == null ? "" : nextPageToken)
+                        .build()));
+        final List<SearchFlowEntry> flows =
+                new ArrayList<SearchFlowEntry>(response.getFlowRunsCount());
+        for (final SearchFlowsResponseEntry entry : response.getFlowRunsList()) {
+            flows.add(mapSearchEntry(entry));
+        }
+        return new SearchFlowsPage(flows, response.getNextPageToken());
+    }
+
+    private SearchFlowEntry mapSearchEntry(final SearchFlowsResponseEntry entry) {
+        final Map<String, Object> attributes = new LinkedHashMap<String, Object>();
+        for (final KV attribute : entry.getSearchAttributesList()) {
+            attributes.put(
+                    attribute.getKey(),
+                    values.decodeToObject(hydrator.hydrate(attribute.getValue())));
+        }
+        return new SearchFlowEntry(
+                entry.getFlowId(),
+                entry.getRunId(),
+                entry.getFlowType(),
+                mapFlowStatus(entry.getFlowStatus()),
+                entry.hasStartTime() ? instant(entry.getStartTime()) : null,
+                entry.hasCloseTime() ? instant(entry.getCloseTime()) : null,
+                attributes);
     }
 
     public String resetFlow(final String flowId, final ResetFlowOptions options) {
