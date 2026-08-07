@@ -23,7 +23,7 @@ See [cli/README.md](cli/README.md) for ports, persistence, and all flags.
 
 ## Releases
 
-Versions are per-component. Tag with a prefix (for example `server-v1.0.0`, `sdk-python-v0.12.0`, `sdk-java-v2.11.1`, `sdk-go/v1.2.3`). Details: [CONTRIBUTING.md — Releases](CONTRIBUTING.md#releases-monorepo-tags).
+Versions are per-component. Tag with a prefix (for example `server-v1.0.0`, `sdk-python/v0.12.0`, `sdk-java/v2.11.1`, `sdk-go/v1.2.3`). Details: [CONTRIBUTING.md — Releases](CONTRIBUTING.md#releases-monorepo-tags).
 
 ## Licensing
 

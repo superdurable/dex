@@ -142,8 +142,8 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
 | Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `dex-server:v1.0.0` and `dex-server-lite:v1.0.0` |
-| Python SDK | `sdk-python-vX.Y.Z` | `sdk-python-v0.12.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) (version from `sdk-python/pyproject.toml`) |
-| Java SDK | `sdk-java-vX.Y.Z` | `sdk-java-v0.0.2` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from `sdk-java/build.gradle`) |
+| Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.0.2` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) (version from `sdk-python/pyproject.toml`) |
+| Java SDK | `sdk-java/vX.Y.Z` | `sdk-java/v0.0.3` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from the tag) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
 
@@ -151,7 +151,7 @@ Notes:
 
 - Bump the component’s own version file before tagging (`pyproject.toml`, `build.gradle`, etc.).
 - Go uses a path-style tag (`sdk-go/v…`) so `go get` resolves the subdirectory module.
-- Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs.
+- Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 
 ## Package-specific guides
 
