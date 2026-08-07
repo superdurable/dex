@@ -35,7 +35,13 @@ from dex.condition import ConditionCombination
 from dex.context import Context
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
-from dex.flow_info import FlowInfo, FlowStatus, HealthInfo, SearchFlowEntry
+from dex.flow_info import (
+    FlowInfo,
+    FlowStatus,
+    HealthInfo,
+    SearchFlowEntry,
+    SearchFlowsPage,
+)
 from dex.flow_options import (
     IdReusePolicy,
     ResetFlowOptions,
@@ -115,6 +121,7 @@ __all__ = [
     "ResetType",
     "RetryPolicy",
     "SearchFlowEntry",
+    "SearchFlowsPage",
     "StartFlowOptions",
     "StepExecutionId",
     "StepDecision",
