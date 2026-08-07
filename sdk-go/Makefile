@@ -145,6 +145,9 @@ integTests:
 e2eTests:
 	$Q ./run-e2e-tests.sh
 
+integrationCoverage:
+	$Q ./run-e2e-tests.sh --coverage
+
 blobCacheTests:
 	$Q go test -race ./dex/blobcache
 

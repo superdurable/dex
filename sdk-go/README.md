@@ -293,5 +293,26 @@ make copyright-check
 `e2eTests` uses the current checkout's `dexcli dev` environment. It
 runs the migrated iWF Go SDK scenarios through the public Dex SDK.
 
+### Measure integration coverage
+
+Run the local Client and Worker integration suites plus all `dexcli dev`
+E2E scenarios with Go coverage:
+
+```shell
+make integrationCoverage
+```
+
+The report measures only production packages under `./dex/...`. Unit
+tests, BlobCache package tests, examples, generated protobuf stubs under
+`gen/`, and `*_test.go` files are excluded. Open `coverage/index.html` for
+annotated source, or inspect `coverage/coverage.txt` for per-function
+totals. `coverage/coverage.out` is the profile uploaded by CI.
+
+CI uploads the profile to Codecov with GitHub OIDC, so no upload secret is
+stored in this repository. The report uses the `sdk-go-integration` flag
+and contributes to the Go SDK component defined in the root `codecov.yml`.
+The Actions run also publishes the report directory as
+`sdk-go-integration-coverage`.
+
 The detailed design and later phase boundaries are in the
 [Go SDK rewrite plan](../docs/design/plan/go-sdk-rewrite.md).

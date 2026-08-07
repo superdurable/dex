@@ -16,27 +16,73 @@
 
 set -euo pipefail
 
-dex_port="${DEX_INTEG_DEX_PORT:-18801}"
-web_port="${DEX_INTEG_WEB_PORT:-18901}"
-temporal_port="${DEX_INTEG_TEMPORAL_PORT:-17233}"
-temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-18233}"
+coverage=false
+if [[ "${1:-}" == "--coverage" ]]; then
+  coverage=true
+  shift
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0 [--coverage]" >&2
+  exit 2
+fi
+
+available_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$script_dir"
+
+dex_port="${DEX_INTEG_DEX_PORT:-$(available_port)}"
+web_port="${DEX_INTEG_WEB_PORT:-$(available_port)}"
+temporal_port="${DEX_INTEG_TEMPORAL_PORT:-$(available_port)}"
+temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-$(available_port)}"
 dex_address="127.0.0.1:${dex_port}"
 temporal_address="127.0.0.1:${temporal_port}"
 log_file="/tmp/test-go-sdk-phase5-e2e-services.log"
 test_dir=$(mktemp -d)
 dexcli_pid=""
+cover_dir=""
+coverpkg="./dex/..."
+: >"$log_file"
 
 cleanup() {
+  status=$?
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
+  if [[ "$status" -ne 0 ]]; then
+    cat "$log_file" >&2
+  fi
   rm -r "$test_dir"
+  if [[ -n "$cover_dir" ]]; then
+    rm -rf "$cover_dir"
+  fi
 }
 trap cleanup EXIT
 
+run_go_test() {
+  if $coverage; then
+    go test \
+      -covermode=atomic \
+      -coverpkg="$coverpkg" \
+      "$@" \
+      -args \
+      -test.gocoverdir="$cover_dir"
+  else
+    go test "$@"
+  fi
+}
+
+if $coverage; then
+  rm -rf coverage
+  cover_dir=$(mktemp -d "$script_dir/coverage-raw.XXXXXX")
+  run_go_test -count=1 -race -v ./dex -run '^TestClient'
+  run_go_test -count=1 -race -v ./dex -run '^TestWorker'
+fi
+
 make -C ../cli build
-: >"$log_file"
 ../cli/dexcli dev \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
@@ -54,14 +100,12 @@ for _ in {1..240}; do
     break
   fi
   if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    cat "$log_file" >&2
     echo "dexcli exited before Temporal became ready" >&2
     exit 1
   fi
   sleep 0.25
 done
 if ! $temporal_ready; then
-  cat "$log_file" >&2
   echo "Temporal did not become ready" >&2
   exit 1
 fi
@@ -73,6 +117,30 @@ temporal --address "$temporal_address" operator search-attribute create --name C
 temporal --address "$temporal_address" operator search-attribute create --name CustomIntField --type Int
 temporal --address "$temporal_address" operator search-attribute create --name CustomDoubleField --type Double
 
+dex_ready=false
+for _ in {1..240}; do
+  if grep -q "Dex development environment is ready" "$log_file"; then
+    dex_ready=true
+    break
+  fi
+  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
+    echo "dexcli exited before Dex became ready" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! $dex_ready; then
+  echo "Dex did not become ready" >&2
+  exit 1
+fi
+
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \
-  go test -count=1 -race -v ./integ
+  run_go_test -count=1 -race -v ./integ
+
+if $coverage; then
+  mkdir -p coverage
+  go tool covdata textfmt -i="$cover_dir" -o=coverage/coverage.out
+  go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
+  go tool cover -html=coverage/coverage.out -o=coverage/index.html
+fi
