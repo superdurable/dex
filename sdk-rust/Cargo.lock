@@ -229,13 +229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dex-core"
-version = "0.1.0"
-dependencies = [
- "tokio",
-]
-
-[[package]]
 name = "dex-protocol"
 version = "0.1.0"
 dependencies = [
@@ -245,18 +238,6 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
-]
-
-[[package]]
-name = "dex-runtime"
-version = "0.1.0"
-dependencies = [
- "dex-core",
- "dex-protocol",
- "prost",
- "prost-types",
- "tokio",
- "tonic",
 ]
 
 [[package]]

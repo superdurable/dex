@@ -98,10 +98,10 @@ can supply another implementation.
 
 ## Rust workspace boundaries
 
-### `dex-core`
+### `dex-blob-cache`
 
-`dex-core` contains code that is independent of a language runtime and network
-transport. Its primary shared responsibility is the blob cache:
+`dex-blob-cache` contains the shared code that is independent of a language
+runtime and network transport:
 
 - DXBC disk format;
 - CRC32C validation;
@@ -114,17 +114,15 @@ transport. Its primary shared responsibility is the blob cache:
 - typed, transport-neutral errors.
 
 It must not depend on tonic, JNI, PyO3, Node-API, or host-language callback
-interfaces. A queue or registry model belongs here only if it has a real
-transport-neutral consumer. Code used solely by the Rust gRPC Worker belongs in
-the Rust Worker runtime instead.
+interfaces. Registry, invocation queues, and Worker dispatch belong in their
+language SDKs.
 
-The cache may be split into a dedicated `dex-blob-cache` crate when that makes
-the dependency boundary clearer. `dex-core` must not become a miscellaneous
-collection of code merely because several SDKs exist.
+Do not introduce a shared `dex-core` umbrella without a concrete,
+transport-neutral consumer beyond BlobCache.
 
-### Rust Worker runtime
+### Rust SDK runtime
 
-The Rust SDK needs its own runtime for:
+The Rust SDK implements its own runtime for:
 
 - tonic/prost WorkerService transport;
 - Rust Registry assembly;
@@ -132,10 +130,9 @@ The Rust SDK needs its own runtime for:
 - cancellation and shutdown; and
 - Rust client transport.
 
-If the current `dex-runtime` crate primarily implements tonic WorkerService,
-rename it to a responsibility-oriented name such as `dex-worker-grpc` or
-`dex-worker-runtime`. It is a Rust SDK component, not a mandatory runtime for
-other languages.
+The public crate should be named `dex-sdk`. If Worker transport later warrants
+a separate internal crate, use a responsibility-oriented name such as
+`dex-worker-grpc` or `dex-worker-runtime`. Other languages do not depend on it.
 
 ### Native cache bindings
 
