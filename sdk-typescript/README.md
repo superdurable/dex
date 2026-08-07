@@ -91,5 +91,5 @@ scenarios against an isolated `dexcli dev` environment. Run
 standard protobuf includes must be installed.
 
 The complete legacy IWF integration inventory lives under
-[`test/iwfcompat`](test/iwfcompat/README.md). Its Flow fixtures retain the Java
+[`test/integ`](test/integ/README.md). Its Flow fixtures retain the Java
 suite's workflow behavior and its 58 assertions run against a real Dex server.

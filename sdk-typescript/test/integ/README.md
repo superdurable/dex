@@ -1,6 +1,6 @@
 # IWF integration port
 
-This directory mirrors the complete Java `iwfcompat` inventory: 28 Flow
+This directory mirrors the complete Java integration inventory: 28 Flow
 fixtures and 16 integration scenario files. Every Flow has its own module;
 `iwf_flows.ts` only creates the shared instances used by scenarios.
 

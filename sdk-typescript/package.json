@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "generate:proto": "node scripts/generate-proto.mjs",
-    "test:integration": "npm run build && node --test --test-concurrency=1 dist/test/iwfcompat/*.integration.test.js",
+    "test:integration": "npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js"
   },
