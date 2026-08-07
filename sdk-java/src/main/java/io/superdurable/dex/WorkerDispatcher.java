@@ -14,7 +14,6 @@
 
 package io.superdurable.dex;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.superdurable.gen.ChannelCondition;
 import io.superdurable.gen.CloseDecision;
 import io.superdurable.gen.CloseDecisionType;
@@ -47,38 +46,23 @@ final class WorkerDispatcher {
 
     private final Registry registry;
     private final ValueMapper values;
+    private final ValueHydrator hydrator;
 
-    WorkerDispatcher(final Registry registry, final ValueMapper values) {
+    WorkerDispatcher(
+            final Registry registry,
+            final ValueMapper values,
+            final ValueHydrator hydrator) {
         this.registry = registry;
         this.values = values;
+        this.hydrator = hydrator;
     }
 
-    byte[] dispatch(final NativeInvocation invocation) {
-        try {
-            switch (invocation.getKind()) {
-                case NativeInvocation.WAIT_FOR:
-                    return invokeWaitFor(InvokeWaitForMethodRequest.parseFrom(
-                            invocation.getRequest())).toByteArray();
-                case NativeInvocation.EXECUTE:
-                    return invokeExecute(InvokeExecuteMethodRequest.parseFrom(
-                            invocation.getRequest())).toByteArray();
-                case NativeInvocation.WORKER_RPC:
-                    return invokeRpc(InvokeWorkerRPCRequest.parseFrom(
-                            invocation.getRequest())).toByteArray();
-                default:
-                    throw new IllegalArgumentException("unsupported invocation kind");
-            }
-        } catch (InvalidProtocolBufferException exception) {
-            throw new IllegalArgumentException("invalid Worker request protobuf", exception);
-        }
-    }
-
-    private InvokeWaitForMethodResponse invokeWaitFor(
-            final InvokeWaitForMethodRequest request) {
+    InvokeWaitForMethodResponse invokeWaitFor(final InvokeWaitForMethodRequest original) {
+        final InvokeWaitForMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
-                NativeInvocation.WAIT_FOR,
+                InvocationContext.Method.WAIT_FOR,
                 flow,
                 request.getContext(),
                 values,
@@ -102,12 +86,12 @@ final class WorkerDispatcher {
         return response.build();
     }
 
-    private InvokeExecuteMethodResponse invokeExecute(
-            final InvokeExecuteMethodRequest request) {
+    InvokeExecuteMethodResponse invokeExecute(final InvokeExecuteMethodRequest original) {
+        final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
-                NativeInvocation.EXECUTE,
+                InvocationContext.Method.EXECUTE,
                 flow,
                 request.getContext(),
                 values,
@@ -126,11 +110,12 @@ final class WorkerDispatcher {
                 .build();
     }
 
-    private InvokeWorkerRPCResponse invokeRpc(final InvokeWorkerRPCRequest request) {
+    InvokeWorkerRPCResponse invokeRpc(final InvokeWorkerRPCRequest original) {
+        final InvokeWorkerRPCRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredRpc rpc = flow.getRpc(request.getRpcName());
         final InvocationContext context = new InvocationContext(
-                NativeInvocation.WORKER_RPC,
+                InvocationContext.Method.RPC,
                 flow,
                 request.getContext(),
                 values,

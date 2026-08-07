@@ -99,20 +99,21 @@ dependencies {
     implementation 'com.cronutils:cron-utils:9.2.0'
 }
 
-def nativeLibraryName = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
+def blobCacheNativeLibraryName = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
         ? 'libdex_bridge_jni.dylib'
         : org.gradle.internal.os.OperatingSystem.current().isWindows()
                 ? 'dex_bridge_jni.dll'
                 : 'libdex_bridge_jni.so'
-def nativeLibraryPath = file("../sdk-rust/target/debug/${nativeLibraryName}").absolutePath
+def blobCacheNativeLibraryPath =
+        file("../sdk-rust/target/debug/${blobCacheNativeLibraryName}").absolutePath
 
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform {
         excludeTags 'dex-dev'
     }
-    dependsOn 'buildRustCore'
-    systemProperty 'dex.native.library', nativeLibraryPath
+    dependsOn 'buildBlobCacheNative'
+    systemProperty 'dex.native.library', blobCacheNativeLibraryPath
 }
 
 tasks.register('dexDevTest', Test) {
@@ -123,20 +124,21 @@ tasks.register('dexDevTest', Test) {
     useJUnitPlatform {
         includeTags 'dex-dev'
     }
-    dependsOn 'buildRustCore'
-    systemProperty 'dex.native.library', nativeLibraryPath
+    dependsOn 'buildBlobCacheNative'
+    systemProperty 'dex.native.library', blobCacheNativeLibraryPath
     systemProperty 'dex.test.serverAddress',
             System.getenv('DEX_SERVER_ADDRESS') ?: '127.0.0.1:8801'
 }
 
-tasks.register('buildRustCore', Exec) {
+tasks.register('buildBlobCacheNative', Exec) {
+    description = 'Builds the Rust JNI library used only by BlobCache.'
     workingDir '../sdk-rust'
     commandLine 'cargo', 'build', '-p', 'dex-bridge-jni', '--locked'
     inputs.files(fileTree('../sdk-rust') {
         include 'Cargo.toml', 'Cargo.lock', 'crates/**'
         exclude 'target/**'
     })
-    outputs.file nativeLibraryPath
+    outputs.file blobCacheNativeLibraryPath
 }
 
 jacocoTestReport {

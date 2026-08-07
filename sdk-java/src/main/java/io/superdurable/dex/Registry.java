@@ -14,9 +14,6 @@
 
 package io.superdurable.dex;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -61,43 +58,6 @@ public final class Registry {
             }
         }
         throw new IllegalArgumentException("Flow class is not registered: " + flowClass.getName());
-    }
-
-    String nativeSpecJson(final ObjectMapper objectMapper) {
-        final Map<String, Object> root = new LinkedHashMap<String, Object>();
-        final List<Map<String, Object>> flowSpecs = new ArrayList<Map<String, Object>>();
-        for (RegisteredFlow flow : registeredFlows.values()) {
-            final Map<String, Object> flowSpec = new LinkedHashMap<String, Object>();
-            flowSpec.put("name", flow.getName());
-
-            final List<Map<String, Object>> steps = new ArrayList<Map<String, Object>>();
-            for (RegisteredStep step : flow.getSteps().values()) {
-                final Map<String, Object> stepSpec = new LinkedHashMap<String, Object>();
-                stepSpec.put("name", step.getName());
-                stepSpec.put("starting", step.isStarting());
-                steps.add(stepSpec);
-            }
-            flowSpec.put("steps", steps);
-            flowSpec.put("rpcs", new ArrayList<String>(flow.getRpcs().keySet()));
-
-            final List<Map<String, Object>> persistence =
-                    new ArrayList<Map<String, Object>>();
-            for (PersistenceDefinition definition : flow.getPersistence().values()) {
-                final Map<String, Object> persistenceSpec =
-                        new LinkedHashMap<String, Object>();
-                persistenceSpec.put("name", definition.getName());
-                persistenceSpec.put("kind", persistenceKind(definition));
-                persistence.add(persistenceSpec);
-            }
-            flowSpec.put("persistence", persistence);
-            flowSpecs.add(flowSpec);
-        }
-        root.put("flows", flowSpecs);
-        try {
-            return objectMapper.writeValueAsString(root);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("cannot encode Registry specification", exception);
-        }
     }
 
     private static Map<String, RegisteredFlow> assemble(final List<Flow<?>> flows) {
@@ -327,22 +287,6 @@ public final class Registry {
         } catch (NoSuchMethodException exception) {
             throw new IllegalArgumentException("Step waitFor signature is invalid", exception);
         }
-    }
-
-    private static String persistenceKind(final PersistenceDefinition definition) {
-        if (definition instanceof Attribute) {
-            return "attribute";
-        }
-        if (definition instanceof AttributeMap) {
-            return "attributeMap";
-        }
-        if (definition instanceof Channel) {
-            return "channel";
-        }
-        if (definition instanceof ChannelMap) {
-            return "channelMap";
-        }
-        throw new IllegalArgumentException("unsupported persistence definition");
     }
 
     static final class RegisteredFlow {

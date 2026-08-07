@@ -69,6 +69,7 @@ public final class Client implements AutoCloseable {
     private final ManagedChannel channel;
     private final FlowServiceGrpc.FlowServiceBlockingStub service;
     private final ValueMapper values;
+    private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
     private final Map<Object, RpcTarget> rpcStubs =
             Collections.synchronizedMap(new IdentityHashMap<Object, RpcTarget>());
@@ -88,11 +89,12 @@ public final class Client implements AutoCloseable {
         this.blobCache = blobCache;
         this.options = options;
         this.values = new ValueMapper(options.getObjectMapper());
-        this.mappings = new WorkerDispatcher(registry, values);
         this.channel = ManagedChannelBuilder.forTarget(options.getServerAddress())
                 .usePlaintext()
                 .build();
         this.service = FlowServiceGrpc.newBlockingStub(channel);
+        this.hydrator = new ValueHydrator(service, blobCache);
+        this.mappings = new WorkerDispatcher(registry, values, hydrator);
     }
 
     Registry getRegistry() {
@@ -301,7 +303,7 @@ public final class Client implements AutoCloseable {
         for (int index = response.getResultsCount() - 1; index >= 0; index--) {
             if (response.getResults(index).hasCompletedStepOutput()) {
                 return values.decode(
-                        response.getResults(index).getCompletedStepOutput(),
+                        hydrator.hydrate(response.getResults(index).getCompletedStepOutput()),
                         outputType);
             }
         }
@@ -422,7 +424,8 @@ public final class Client implements AutoCloseable {
                 .addAllLockAttributeKeys(rpc.getLocks())
                 .setRequestId(UUID.randomUUID().toString())
                 .build();
-        final io.superdurable.gen.Value output = call(() -> service.invokeRPC(request)).getOutput();
+        final io.superdurable.gen.Value output = hydrator.hydrate(
+                call(() -> service.invokeRPC(request)).getOutput());
         if (rpc.getMethod().getReturnType() == Void.TYPE) {
             return null;
         }
@@ -462,7 +465,9 @@ public final class Client implements AutoCloseable {
         if (response.getAttributesCount() == 0) {
             return null;
         }
-        return values.decode(response.getAttributes(0).getValue(), valueType);
+        return values.decode(
+                hydrator.hydrate(response.getAttributes(0).getValue()),
+                valueType);
     }
 
     private void setAttributeValue(
@@ -532,7 +537,7 @@ public final class Client implements AutoCloseable {
                     mapFlowStatus(response.getFlowStatus()),
                     mapFlowErrorType(response.getErrorType()),
                     response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
-                    response.getResultsList(),
+                    hydrator.hydrateStepOutputs(response.getResultsList()),
                     values);
         }
         return response;

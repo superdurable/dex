@@ -35,7 +35,13 @@ import java.util.Map;
 import java.util.Set;
 
 final class InvocationContext implements Context {
-    private final int method;
+    enum Method {
+        WAIT_FOR,
+        EXECUTE,
+        RPC
+    }
+
+    private final Method method;
     private final Registry.RegisteredFlow flow;
     private final io.superdurable.gen.Context metadata;
     private final ValueMapper values;
@@ -51,7 +57,7 @@ final class InvocationContext implements Context {
     private final List<ChannelMessage> publications = new ArrayList<ChannelMessage>();
 
     InvocationContext(
-            final int method,
+            final Method method,
             final Registry.RegisteredFlow flow,
             final io.superdurable.gen.Context metadata,
             final ValueMapper values,
@@ -316,7 +322,7 @@ final class InvocationContext implements Context {
                 .setChannelName(name)
                 .setValue(values.encode(value))
                 .build());
-        if (method == NativeInvocation.WORKER_RPC) {
+        if (method == Method.RPC) {
             final ChannelInfo existing = channelInfos.get(name);
             final int size = existing == null ? 0 : existing.getSize();
             channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());

@@ -18,7 +18,6 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.WorkerTarget;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -58,7 +57,6 @@ public final class DexDevTestEnvironment implements AutoCloseable {
                 "127.0.0.1:8801");
         final int workerPort = availablePort();
         final String workerAddress = "127.0.0.1:" + workerPort;
-        final WorkerTarget workerTarget = new WorkerTarget(workerAddress, false);
         final Registry registry = new Registry(Arrays.asList(flows));
         final BlobCache blobCache = BlobCache.open(new BlobCacheConfig(
                 cacheDirectory.toString(),
@@ -68,7 +66,6 @@ public final class DexDevTestEnvironment implements AutoCloseable {
                 blobCache,
                 WorkerOptions.newBuilder()
                         .bindAddress(workerAddress)
-                        .workerTarget(workerTarget)
                         .serverAddress(serverAddress)
                         .build());
         final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
@@ -84,7 +81,7 @@ public final class DexDevTestEnvironment implements AutoCloseable {
         final Client client = new Client(
                 registry,
                 blobCache,
-                new ClientOptions(serverAddress, workerTarget));
+                new ClientOptions(serverAddress, worker.getWorkerTarget()));
         return new DexDevTestEnvironment(
                 blobCache,
                 worker,

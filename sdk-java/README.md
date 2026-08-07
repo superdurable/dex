@@ -10,8 +10,8 @@ Maven coordinates: `io.superdurable:dex-sdk` (namespace for domain [superdurable
 
 The canonical rewrite API is under `io.superdurable.dex`. This phase includes
 strongly typed workflow definitions, persistence handles, registry
-validation, synchronous gRPC Client operations, and a Java Worker backed by the
-shared Rust Core through JNI.
+validation, synchronous gRPC Client operations, and a native Java gRPC Worker.
+Rust is used only by the DXBC BlobCache JNI binding.
 
 Java workflows and steps are interfaces, while RPCs keep the annotation and
 typed-stub model:
@@ -78,6 +78,11 @@ WorkerOptions options = WorkerOptions.newBuilder()
         .build();
 ```
 
+`bindAddress` is the Java WorkerService listener. `serverAddress` is used only
+to hydrate blob-backed values through Dex FlowService. `workerTarget` is the
+address advertised in Flow configuration; when omitted, Worker derives it from
+the bind address and exposes it through `worker.getWorkerTarget()`.
+
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
 Use `StepList.empty()` when a Flow has no Steps, or
@@ -113,8 +118,27 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
 
 The legacy IWF integration inventory is implemented as 58 real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/iwfcompat`](src/test/java/io/superdurable/dex/iwfcompat/README.md).
-They run Java Client, Java Worker, and Rust Core against `dexcli dev`, covering
-flows, steps, RPCs, persistence, reset, timers, failure modes, and options.
+They run Java Client and Java Worker against `dexcli dev`, with Rust used only
+for BlobCache. They cover flows, steps, RPCs, persistence, reset, timers,
+failure modes, and options.
+
+## Runtime architecture
+
+Java owns Registry reflection, FlowService client transport, WorkerService gRPC
+transport, callback dispatch, and exception mapping. Worker requests never
+cross JNI. Synchronous Step and RPC handlers run on a bounded JVM executor so
+they do not block gRPC event-loop progress. Java failures are logged with their
+stack and returned with their Java type and message.
+
+Client and Worker accept the Java `BlobCache` interface. The default
+`BlobCache.open(...)` implementation is the shared Rust DXBC cache. Blob-backed
+values are hydrated in Java: cache hits are decoded locally, while misses use
+FlowService `LoadBlobs` and populate the cache.
+
+The native library is loaded as `dex_bridge_jni`, or from the absolute path in
+`-Ddex.native.library=...`. Loading failures report this configuration directly.
+Application callbacks, Registry, Client, and Worker remain usable with another
+`BlobCache` implementation and do not load JNI.
 
 ## License
 
@@ -189,9 +213,9 @@ temporal operator search-attribute create \
 DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
 ```
 
-The Gradle task builds the JNI library and starts a fresh Java Worker for each
-test with a unique worker port and flow ID. The suite contains 58 integration
-scenarios ported from the IWF Java SDK inventory.
+The Gradle task builds the Rust BlobCache JNI library and starts a fresh native
+Java Worker for each test with a unique worker port and flow ID. The suite
+contains 58 integration scenarios ported from the IWF Java SDK inventory.
 
 If you'd like to test your changes to the SDK with the workflows in the [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo, 
 use the local publishing command:

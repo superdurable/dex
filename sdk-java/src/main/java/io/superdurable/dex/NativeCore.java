@@ -14,35 +14,23 @@ final class NativeCore {
     private static final String LIBRARY_PROPERTY = "dex.native.library";
 
     static {
-        final String path = System.getProperty(LIBRARY_PROPERTY);
-        if (path == null || path.isEmpty()) {
-            System.loadLibrary("dex_bridge_jni");
-        } else {
-            System.load(path);
+        try {
+            final String path = System.getProperty(LIBRARY_PROPERTY);
+            if (path == null || path.isEmpty()) {
+                System.loadLibrary("dex_bridge_jni");
+            } else {
+                System.load(path);
+            }
+        } catch (UnsatisfiedLinkError failure) {
+            throw new IllegalStateException(
+                    "cannot load the Dex BlobCache native library; set -D"
+                            + LIBRARY_PROPERTY + " to its absolute path",
+                    failure);
         }
     }
 
     private NativeCore() {
     }
-
-    static native long create(String registryJson, int queueCapacity);
-
-    static native void serve(long handle, String bindAddress);
-
-    static native byte[] poll(long handle);
-
-    static native void complete(
-            long handle,
-            int protocolVersion,
-            long invocationId,
-            boolean success,
-            byte[] payload,
-            String errorType,
-            String errorMessage);
-
-    static native void stop(long handle);
-
-    static native void destroy(long handle);
 
     static native long cacheOpen(String directory, long maxBytes, long frequencyCounters);
 
