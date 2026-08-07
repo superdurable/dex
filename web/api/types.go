@@ -113,3 +113,10 @@ type resetFlowRequest struct {
 type resetFlowResponse struct {
 	RunID string `json:"runId"`
 }
+
+type stopFlowRequest struct {
+	FlowID   string `json:"flowId"`
+	RunID    string `json:"runId"`
+	StopType int32  `json:"stopType"`
+	Reason   string `json:"reason"`
+}

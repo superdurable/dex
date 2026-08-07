@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type flowService struct {
@@ -36,6 +37,7 @@ type flowService struct {
 	waitCanceled      chan struct{}
 	loadBlobsRequests chan *dexpb.LoadBlobsRequest
 	loadBlobsError    error
+	stopRequests      chan *dexpb.StopFlowRequest
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
@@ -195,6 +197,42 @@ func TestWaitRequestPropagatesCancellation(t *testing.T) {
 	}
 }
 
+func TestWebServerStopsFlow(t *testing.T) {
+	service := &flowService{
+		stopRequests: make(chan *dexpb.StopFlowRequest, 1),
+	}
+	harness := newHarness(t, service)
+
+	response := postJSON(t, harness.http.URL+"/api/flows/stop", `{
+		"flowId":"checkout-1",
+		"runId":"run-1",
+		"stopType":3,
+		"reason":"operator fail"
+	}`)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stop status = %d", response.StatusCode)
+	}
+	stopRequest := <-service.stopRequests
+	if stopRequest.GetFlowId() != "checkout-1" ||
+		stopRequest.GetRunId() != "run-1" ||
+		stopRequest.GetStopType() != dexpb.StopType_STOP_TYPE_FAIL ||
+		stopRequest.GetReason() != "operator fail" {
+		t.Fatalf("unexpected StopFlow request: %+v", stopRequest)
+	}
+
+	missingReason := postJSON(t, harness.http.URL+"/api/flows/stop", `{
+		"flowId":"checkout-1",
+		"runId":"run-1",
+		"stopType":2,
+		"reason":" "
+	}`)
+	defer missingReason.Body.Close()
+	if missingReason.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing reason status = %d", missingReason.StatusCode)
+	}
+}
+
 func (s *flowService) SearchFlows(
 	context.Context,
 	*dexpb.SearchFlowsRequest,
@@ -240,6 +278,14 @@ func (s *flowService) WaitForHistoryEvent(
 	<-ctx.Done()
 	close(s.waitCanceled)
 	return nil, ctx.Err()
+}
+
+func (s *flowService) StopFlow(
+	_ context.Context,
+	request *dexpb.StopFlowRequest,
+) (*emptypb.Empty, error) {
+	s.stopRequests <- request
+	return &emptypb.Empty{}, nil
 }
 
 type harness struct {

@@ -43,6 +43,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("POST /api/flows/reset", handler.resetFlow)
+	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
 }
@@ -232,6 +233,42 @@ func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(response, http.StatusOK, resetFlowResponse{RunID: result.GetRunId()})
+}
+
+func (h *handler) stopFlow(response http.ResponseWriter, request *http.Request) {
+	var body stopFlowRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.FlowID == "" || body.StopType == 0 {
+		WriteError(response, http.StatusBadRequest, "flowId and stopType are required", nil)
+		return
+	}
+	stopType := dexpb.StopType(body.StopType)
+	switch stopType {
+	case dexpb.StopType_STOP_TYPE_CANCEL,
+		dexpb.StopType_STOP_TYPE_TERMINATE,
+		dexpb.StopType_STOP_TYPE_FAIL:
+	default:
+		WriteError(response, http.StatusBadRequest, "stopType must be cancel, terminate, or fail", nil)
+		return
+	}
+	if stopType != dexpb.StopType_STOP_TYPE_CANCEL && strings.TrimSpace(body.Reason) == "" {
+		WriteError(response, http.StatusBadRequest, "reason is required for terminate and fail", nil)
+		return
+	}
+	_, err := h.client.StopFlow(request.Context(), &dexpb.StopFlowRequest{
+		FlowId:   body.FlowID,
+		RunId:    body.RunID,
+		Reason:   body.Reason,
+		StopType: stopType,
+	})
+	if err != nil {
+		writeGRPCError(response, err, "StopFlow")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]struct{}{})
 }
 
 func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request) {
