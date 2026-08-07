@@ -1,0 +1,5 @@
+/dist/
+/native/
+/coverage/
+/node_modules/
+*.tgz

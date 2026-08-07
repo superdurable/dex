@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "sdk-typescript/**"
+      - "sdk-rust/Cargo.lock"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
+      - "sdk-rust/crates/dex-blob-cache-node/**"
       - "cli/**"
       - "server/**"
       - "protos/**"
@@ -14,6 +18,10 @@ on:
   pull_request:
     paths:
       - "sdk-typescript/**"
+      - "sdk-rust/Cargo.lock"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
+      - "sdk-rust/crates/dex-blob-cache-node/**"
       - "cli/**"
       - "server/**"
       - "protos/**"
@@ -37,11 +45,15 @@ jobs:
       fail-fast: false
       matrix:
         node-version: ["22", "24"]
+    env:
+      RUSTUP_TOOLCHAIN: "1.88.0"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
@@ -61,11 +73,15 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      RUSTUP_TOOLCHAIN: "1.88.0"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
