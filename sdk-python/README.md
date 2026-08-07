@@ -71,7 +71,7 @@ options = (
 ```
 
 ```
-pip install dex-python-sdk==0.0.1
+pip install dex-python-sdk==0.0.2
 ```
 
 See [samples](../examples/python) for use case examples.
@@ -169,9 +169,12 @@ This project is governed by the [Contributor Covenant v 1.4.1](CODE_OF_CONDUCT.m
 
 ## Publishing to PyPI
 
-1. Bump `version` in `pyproject.toml` (and the `pip install` line above).
-2. Create a GitHub Release with tag `sdk-python-vX.Y.Z` (for example `sdk-python-v0.0.1`), or run the **Publish Python SDK to PyPI** workflow manually.
-3. CI runs `uv build --no-sources` and `uv publish` using the `PYPI_TOKEN` repository secret.
+1. Bump `version` in `pyproject.toml`, refresh `uv.lock`, and update the `pip install` line above.
+2. Run **Publish Python SDK to PyPI** manually without `publish` to validate all distributions.
+3. Create a GitHub Release with tag `sdk-python/vX.Y.Z` (for example `sdk-python/v0.0.2`).
+4. CI builds and smoke-tests Linux x86_64/ARM64, macOS x86_64/ARM64, and Windows x86_64 wheels, verifies the source distribution, and publishes them with `PYPI_TOKEN`.
+
+A manual run publishes only from `main`, when its version matches `pyproject.toml` and `publish` is explicitly selected.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo tag conventions.
 

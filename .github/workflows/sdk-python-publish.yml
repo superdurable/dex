@@ -3,16 +3,188 @@ name: Publish Python SDK to PyPI
 on:
   release:
     types: [published]
+  pull_request:
+    paths:
+      - "sdk-python/pyproject.toml"
+      - "sdk-python/uv.lock"
+      - "sdk-rust/Cargo.lock"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
+      - "sdk-rust/crates/dex-blob-cache-python/**"
+      - ".github/workflows/sdk-python-publish.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: Python SDK release version
+        required: true
+        type: string
+      publish:
+        description: Publish the validated distributions to PyPI
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-python-publish-${{ github.event.release.tag_name || inputs.version || github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Validate release
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'sdk-python/v')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    defaults:
+      run:
+        working-directory: sdk-python
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Resolve and validate release version
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            version="${RELEASE_TAG#sdk-python/v}"
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "Release tag must point to a commit on main" >&2
+              exit 1
+            fi
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${DISPATCH_VERSION}"
+            if [[ "${DISPATCH_PUBLISH}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
+              echo "Manual publishing is allowed only from main" >&2
+              exit 1
+            fi
+          else
+            version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid Python SDK release version: ${version}" >&2
+            exit 1
+          fi
+          project_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ "${version}" != "${project_version}" ]]; then
+            echo "Release version ${version} does not match pyproject.toml ${project_version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  wheels:
+    name: Wheel ${{ matrix.platform.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2_17"
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: "2_17"
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: "off"
+          - name: macos-aarch64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            manylinux: "off"
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: "off"
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: v1.14.1
+          rust-toolchain: "1.88.0"
+          working-directory: sdk-python
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          args: --release --locked --compatibility pypi --out dist
+      - name: Smoke test installed wheel
+        shell: bash
+        run: |
+          python -m pip install sdk-python/dist/*.whl
+          python - <<'PY'
+          import tempfile
+
+          from dex import BlobCacheConfig, open_blob_cache
+
+          with tempfile.TemporaryDirectory() as directory:
+              cache = open_blob_cache(BlobCacheConfig(directory, 1024 * 1024))
+              assert cache.put("release-smoke", b"payload")
+              assert cache.get("release-smoke") == b"payload"
+              cache.close()
+          PY
+      - name: Upload wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-python-wheel-${{ matrix.platform.name }}
+          path: sdk-python/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build source distribution
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          maturin-version: v1.14.1
+          rust-toolchain: "1.88.0"
+          working-directory: sdk-python
+          args: --out dist
+      - name: Build wheel from source distribution
+        run: python -m pip wheel --no-deps sdk-python/dist/*.tar.gz --wheel-dir /tmp/dex-python-sdist-wheel
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-python-sdist
+          path: sdk-python/dist/*.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Publish dex-python-sdk
+    if: github.event_name == 'release' || inputs.publish == true
+    needs: [prepare, wheels, sdist]
     runs-on: ubuntu-latest
-    # Monorepo: only publish on sdk-python-v* release tags, or manual dispatch.
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-python-v')
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: sdk-python
@@ -24,9 +196,39 @@ jobs:
           version: "0.12.2"
           python-version: "3.11"
           working-directory: sdk-python
-      - name: Build distributions
-        run: uv build --no-sources
+      - name: Download distributions
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dex-python-*
+          path: sdk-python/dist
+          merge-multiple: true
+      - name: Validate distributions
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          if [[ "${#wheels[@]}" -ne 5 || "${#sdists[@]}" -ne 1 ]]; then
+            echo "Expected five wheels and one source distribution" >&2
+            printf '%s\n' dist/* >&2
+            exit 1
+          fi
+          for distribution in "${wheels[@]}" "${sdists[@]}"; do
+            if [[ "$(basename "${distribution}")" != *-"${RELEASE_VERSION}"-* &&
+                  "$(basename "${distribution}")" != *-"${RELEASE_VERSION}".tar.gz ]]; then
+              echo "Distribution version does not match ${RELEASE_VERSION}: ${distribution}" >&2
+              exit 1
+            fi
+          done
+      - name: Validate PyPI credentials
+        shell: bash
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          [[ -n "${PYPI_TOKEN}" ]] || { echo 'PYPI_TOKEN is missing' >&2; exit 1; }
       - name: Publish distributions
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: uv publish
+        run: uv publish --check-url https://pypi.org/simple dist/*
