@@ -145,12 +145,12 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 | Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.0.2` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) (version from `sdk-python/pyproject.toml`) |
 | Java SDK | `sdk-java/vX.Y.Z` | `sdk-java/v0.0.3` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from the tag) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
-| TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) |
+| TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
 
 Notes:
 
-- Bump the component’s own version file before tagging (`pyproject.toml`, `build.gradle`, etc.).
+- Bump a component's version file when its release workflow uses it; Java and TypeScript derive versions from tags.
 - Go uses a path-style tag (`sdk-go/v…`) so `go get` resolves the subdirectory module.
 - Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 - TypeScript publishing requires a GitHub Release after its one-time npm bootstrap publish.

@@ -118,11 +118,12 @@ suite's workflow behavior and its 58 assertions run against a real Dex server.
 ## Releases
 
 The npm package is published as [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex).
-Update `package.json` and `package-lock.json` to the same version, merge the
-change, then publish a GitHub Release tagged `sdk-typescript/vX.Y.Z`. The
-release workflow verifies that the tag matches `package.json`, runs type checks
-and tests, inspects the tarball, and publishes through npm Trusted Publishing.
-Prerelease versions use the `next` npm dist-tag; stable versions use `latest`.
+After the initial bootstrap, publish a GitHub Release tagged
+`sdk-typescript/vX.Y.Z`. The tag is the release version source of truth; CI
+temporarily writes it to `package.json` and `package-lock.json` without
+committing either file. The release workflow then runs type checks and tests,
+inspects the tarball, and publishes through npm Trusted Publishing. Prerelease
+versions use the `next` npm dist-tag; stable versions use `latest`.
 
 Trusted Publishing can only be configured after the package exists. Bootstrap
 the first version from a maintainer workstation with 2FA:

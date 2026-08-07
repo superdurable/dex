@@ -30,19 +30,19 @@ jobs:
           package-manager-cache: false
       - name: Install npm with trusted publishing support
         run: npm install --global npm@11.19.0
-      - name: Verify release version
+      - name: Resolve release version
         id: release
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          package_version="$(node -p "require('./package.json').version")"
-          expected_tag="sdk-typescript/v${package_version}"
-          if [[ "${RELEASE_TAG}" != "${expected_tag}" ]]; then
-            echo "Release tag ${RELEASE_TAG} does not match package version ${package_version}" >&2
+          release_version="${RELEASE_TAG#sdk-typescript/v}"
+          npm version "${release_version}" --no-git-tag-version --allow-same-version
+          if [[ "$(node -p "require('./package.json').version")" != "${release_version}" ]]; then
+            echo "npm did not resolve release version ${release_version}" >&2
             exit 1
           fi
-          if [[ "${package_version}" == *-* ]]; then
+          if [[ "${release_version}" == *-* ]]; then
             echo "dist_tag=next" >> "${GITHUB_OUTPUT}"
           else
             echo "dist_tag=latest" >> "${GITHUB_OUTPUT}"
