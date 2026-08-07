@@ -10,24 +10,81 @@
 
 import { useState } from 'react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
+import { StructuredValue } from './StructuredValue';
+
+const openByKey = new Map<string, boolean>();
+const viewByKey = new Map<string, 'details' | 'raw'>();
 
 export function JsonView({
   value,
   label = 'Details',
   initiallyOpen = false,
+  persistKey,
 }: {
   value: unknown;
   label?: string;
   initiallyOpen?: boolean;
+  persistKey?: string;
 }) {
-  const [open, setOpen] = useState(initiallyOpen);
+  const storageKey = persistKey ?? label;
+  const [open, setOpen] = useState(() => openByKey.get(storageKey) ?? initiallyOpen);
+  const [view, setView] = useState<'details' | 'raw'>(
+    () => viewByKey.get(storageKey) ?? 'details',
+  );
+
   return (
     <div className="json-view">
-      <button type="button" className="json-toggle" onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="json-toggle"
+        onClick={() => {
+          setOpen((current) => {
+            const next = !current;
+            openByKey.set(storageKey, next);
+            return next;
+          });
+        }}
+      >
         <span>{open ? '−' : '+'}</span>
         {label}
       </button>
-      {open && <pre>{JSON.stringify(value, storedValueJSONReplacer, 2)}</pre>}
+      {open && (
+        <div className="json-view-body">
+          <div className="event-detail-tabs" role="tablist" aria-label={`${label} view`}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'details'}
+              className={view === 'details' ? 'active' : ''}
+              onClick={() => {
+                setView('details');
+                viewByKey.set(storageKey, 'details');
+              }}
+            >
+              Details
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'raw'}
+              className={view === 'raw' ? 'active' : ''}
+              onClick={() => {
+                setView('raw');
+                viewByKey.set(storageKey, 'raw');
+              }}
+            >
+              Raw JSON
+            </button>
+          </div>
+          {view === 'details'
+            ? <StructuredValue value={value} />
+            : (
+              <pre className="json-view-raw">
+                {JSON.stringify(value, storedValueJSONReplacer, 2)}
+              </pre>
+            )}
+        </div>
+      )}
     </div>
   );
 }

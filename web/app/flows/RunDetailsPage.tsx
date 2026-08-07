@@ -453,7 +453,11 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       </div>
 
       <div
-        className={`run-content ${resizingSidebar ? 'is-resizing-sidebar' : ''}`}
+        className={[
+          'run-content',
+          tab === 'overview' ? 'run-content--overview' : '',
+          resizingSidebar ? 'is-resizing-sidebar' : '',
+        ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
       >
@@ -470,7 +474,12 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
         )}
         <section className="run-primary">
           {tab === 'overview' && summary && (
-            <FlowOverview summary={summary} events={displayedHistory} state={state} />
+            <FlowOverview
+              summary={summary}
+              events={displayedHistory}
+              state={state}
+              selectedEvent={selected}
+            />
           )}
           {tab === 'steps' && (
             <StepGraph
@@ -507,27 +516,27 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             </div>
           )}
         </section>
-        <aside className="run-sidebar">
-          <button
-            type="button"
-            className="run-sidebar-resizer"
-            role="separator"
-            aria-label="Resize selected event panel"
-            aria-orientation="vertical"
-            aria-valuemin={minimumSidebarWidth}
-            aria-valuemax={maximumSidebarWidth}
-            aria-valuenow={sidebarWidth}
-            onDoubleClick={() => persistSidebarWidth(updateSidebarWidth(defaultSidebarWidth))}
-            onKeyDown={resizeSidebarWithKeyboard}
-            onPointerDown={startSidebarResize}
-          />
-          <FlowStatePanel
-            state={state}
-            selectedEvent={selected}
-            summary={summary}
-            history={displayedHistory}
-          />
-        </aside>
+        {tab !== 'overview' && (
+          <aside className="run-sidebar">
+            <button
+              type="button"
+              className="run-sidebar-resizer"
+              role="separator"
+              aria-label="Resize selected event panel"
+              aria-orientation="vertical"
+              aria-valuemin={minimumSidebarWidth}
+              aria-valuemax={maximumSidebarWidth}
+              aria-valuenow={sidebarWidth}
+              onDoubleClick={() => persistSidebarWidth(updateSidebarWidth(defaultSidebarWidth))}
+              onKeyDown={resizeSidebarWithKeyboard}
+              onPointerDown={startSidebarResize}
+            />
+            <FlowStatePanel
+              selectedEvent={selected}
+              history={displayedHistory}
+            />
+          </aside>
+        )}
       </div>
 
       {summary && (

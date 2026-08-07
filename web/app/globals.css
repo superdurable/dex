@@ -1244,18 +1244,57 @@ pre {
   font-size: 16px;
 }
 
+.json-view-body {
+  display: flex;
+  padding: 10px;
+  flex-direction: column;
+  gap: 9px;
+  border-top: 1px solid var(--line);
+  background: #fbfcfc;
+}
+
+.json-view-body .event-detail-tabs {
+  background: #f1f4f3;
+}
+
+.json-view-raw,
 .json-view pre {
   max-height: 420px;
   margin: 0;
   padding: 11px;
   overflow: auto;
-  border-top: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   color: #33413e;
-  background: #fbfcfc;
+  background: white;
   font-size: 10px;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.structured-value {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.structured-value .semantic-record {
+  background: white;
+}
+
+.structured-value .semantic-fields {
+  margin: 0;
+}
+
+.structured-value .semantic-value {
+  margin-top: 4px;
+}
+
+.structured-value .semantic-value pre,
+.structured-value dd pre {
+  max-height: 220px;
 }
 
 .active-step-card {
@@ -1307,18 +1346,51 @@ pre {
   font-size: 12px;
 }
 
+.run-content--overview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .overview-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.overview-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
   gap: 16px;
 }
 
 .overview-card {
   padding: 18px;
+  min-width: 0;
 }
 
 .overview-card.wide {
   grid-column: 1 / -1;
+}
+
+.overview-live-state .metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+.overview-selected-event-header > h2 {
+  margin-bottom: 10px;
+}
+
+.overview-selected-event-header .event-meta {
+  margin-bottom: 0;
+}
+
+.overview-selected-event-body {
+  margin-top: 14px;
+}
+
+.overview-selected-event-body .event-details {
+  margin-top: 0;
 }
 
 .definition-list {
@@ -1369,6 +1441,17 @@ pre {
 
 .metric-grid b {
   font-size: 22px;
+}
+
+.live-state-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #edf1ef;
+}
+
+.live-state-block > h3 {
+  margin: 4px 0 8px;
+  font-size: 14px;
 }
 
 .view-toolbar {

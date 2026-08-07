@@ -1,7 +1,7 @@
 # Dex Web
 
 Dex Web searches flows and displays Dex semantic history, step topology,
-current interpreter state, and reset points.
+live flow state, and reset points.
 
 The production Web server is Go. It serves an embedded React SPA and translates
 same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
@@ -65,8 +65,10 @@ The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, custom search attributes, and timezone
 preferences.
 
-The Run page provides Overview, Step graph, Timeline, active/waiting state,
-attributes, timers, queued steps, channels, completed outputs, and reset.
+The Run page provides Overview (Live Flow State beside Selected event, then
+Run input beside Identity), Step graph, Timeline, attributes, timers, queued
+steps, channels, completed outputs, and reset. Timeline and Step graph keep
+Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Timeline and Step graph share structured event details for flow, step method, RPC,
