@@ -124,6 +124,26 @@ class FlowServiceStub:
                 request_serializer=dex__pb2.SearchFlowsRequest.SerializeToString,
                 response_deserializer=dex__pb2.SearchFlowsResponse.FromString,
                 _registered_method=True)
+        self.GetFlowSummary = channel.unary_unary(
+                '/dex.FlowService/GetFlowSummary',
+                request_serializer=dex__pb2.GetFlowSummaryRequest.SerializeToString,
+                response_deserializer=dex__pb2.GetFlowSummaryResponse.FromString,
+                _registered_method=True)
+        self.GetHistoryEvents = channel.unary_unary(
+                '/dex.FlowService/GetHistoryEvents',
+                request_serializer=dex__pb2.GetHistoryEventsRequest.SerializeToString,
+                response_deserializer=dex__pb2.GetHistoryEventsResponse.FromString,
+                _registered_method=True)
+        self.WaitForHistoryEvent = channel.unary_unary(
+                '/dex.FlowService/WaitForHistoryEvent',
+                request_serializer=dex__pb2.WaitForHistoryEventRequest.SerializeToString,
+                response_deserializer=dex__pb2.WaitForHistoryEventResponse.FromString,
+                _registered_method=True)
+        self.GetFlowState = channel.unary_unary(
+                '/dex.FlowService/GetFlowState',
+                request_serializer=dex__pb2.GetFlowStateRequest.SerializeToString,
+                response_deserializer=dex__pb2.GetFlowStateResponse.FromString,
+                _registered_method=True)
         self.ResetFlow = channel.unary_unary(
                 '/dex.FlowService/ResetFlow',
                 request_serializer=dex__pb2.ResetFlowRequest.SerializeToString,
@@ -266,6 +286,30 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetFlowSummary(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetHistoryEvents(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WaitForHistoryEvent(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetFlowState(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ResetFlow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -356,6 +400,26 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     servicer.SearchFlows,
                     request_deserializer=dex__pb2.SearchFlowsRequest.FromString,
                     response_serializer=dex__pb2.SearchFlowsResponse.SerializeToString,
+            ),
+            'GetFlowSummary': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFlowSummary,
+                    request_deserializer=dex__pb2.GetFlowSummaryRequest.FromString,
+                    response_serializer=dex__pb2.GetFlowSummaryResponse.SerializeToString,
+            ),
+            'GetHistoryEvents': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetHistoryEvents,
+                    request_deserializer=dex__pb2.GetHistoryEventsRequest.FromString,
+                    response_serializer=dex__pb2.GetHistoryEventsResponse.SerializeToString,
+            ),
+            'WaitForHistoryEvent': grpc.unary_unary_rpc_method_handler(
+                    servicer.WaitForHistoryEvent,
+                    request_deserializer=dex__pb2.WaitForHistoryEventRequest.FromString,
+                    response_serializer=dex__pb2.WaitForHistoryEventResponse.SerializeToString,
+            ),
+            'GetFlowState': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFlowState,
+                    request_deserializer=dex__pb2.GetFlowStateRequest.FromString,
+                    response_serializer=dex__pb2.GetFlowStateResponse.SerializeToString,
             ),
             'ResetFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.ResetFlow,
@@ -663,6 +727,114 @@ class FlowService:
             '/dex.FlowService/SearchFlows',
             dex__pb2.SearchFlowsRequest.SerializeToString,
             dex__pb2.SearchFlowsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFlowSummary(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetFlowSummary',
+            dex__pb2.GetFlowSummaryRequest.SerializeToString,
+            dex__pb2.GetFlowSummaryResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetHistoryEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetHistoryEvents',
+            dex__pb2.GetHistoryEventsRequest.SerializeToString,
+            dex__pb2.GetHistoryEventsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WaitForHistoryEvent(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/WaitForHistoryEvent',
+            dex__pb2.WaitForHistoryEventRequest.SerializeToString,
+            dex__pb2.WaitForHistoryEventResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFlowState(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetFlowState',
+            dex__pb2.GetFlowStateRequest.SerializeToString,
+            dex__pb2.GetFlowStateResponse.FromString,
             options,
             channel_credentials,
             insecure,

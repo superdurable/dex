@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "sdk-python/**"
+      - "protos/**"
       - ".github/workflows/sdk-python-ci.yml"
   pull_request:
     paths:
       - "sdk-python/**"
+      - "protos/**"
       - ".github/workflows/sdk-python-ci.yml"
   workflow_dispatch:
 
@@ -64,6 +66,10 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --locked
+      - name: Verify generated protobuf stubs
+        run: |
+          make -C ../protos proto-python
+          git diff --exit-code -- dex/dexpb
       - name: Run contract linters
         run: |
           uv run --frozen pre-commit run \

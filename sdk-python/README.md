@@ -8,8 +8,8 @@ Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 The rewrite targets Python 3.11+ and exposes strongly typed workflow contracts
 from `dex`. This phase includes definitions, attributes, channels, waits,
 decisions, codecs, registry validation, synchronous client calls, and synchronous
-or asynchronous worker handlers. Client and worker transport intentionally raise
-`PhaseNotImplementedError` until the shared Rust Core is connected.
+or asynchronous worker handlers. Python owns its gRPC Client and Worker transport;
+the shared Rust Core is used only for BlobCache.
 
 ```python
 from datetime import timedelta
@@ -105,9 +105,9 @@ scenario files show the Python programming model without starting a server.
 
 ## Implementation status
 
-The new public contracts and validation are implemented. Client transport,
-Worker transport, and the native bridge will be connected through Rust Core in
-a later phase.
+The new public contracts and validation are implemented. Client and Worker
+transport will use Python gRPC directly. The native bridge is limited to the
+shared Rust BlobCache.
 
 ## Running dex-server locally
 
@@ -144,7 +144,7 @@ Edit [`protos/dex.proto`](../protos/dex.proto). Rename catalog: [`docs/design/id
 #### Generate stubs from IDL
 
 ```bash
-make -C ../protos proto
+make -C ../protos proto-python
 ```
 
 Checked-in Python stubs land in `dex/dexpb/`.

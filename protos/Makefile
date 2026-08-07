@@ -19,10 +19,6 @@ export PATH := $(GOPATH_BIN):$(PATH)
 
 TOOLS_DIR := .tools
 GRPC_JAVA_PLUGIN := $(TOOLS_DIR)/protoc-gen-grpc-java
-PYTHON_VENV := $(TOOLS_DIR)/pyvenv
-PYTHON := $(PYTHON_VENV)/bin/python
-PIP := $(PYTHON_VENV)/bin/pip
-
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_S),Darwin)
@@ -41,7 +37,7 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-server-go proto-sdk-go clean ensure-tools
+.PHONY: proto proto-server-go proto-sdk-go proto-python clean ensure-tools ensure-python-tools
 
 proto: proto-server-go
 
@@ -82,20 +78,20 @@ proto-sdk-go: ensure-tools
 # 		--grpc-java_out=$(SDK_JAVA_OUT) \
 # 		$(PROTO_FILE)
 #
-# proto-python: ensure-tools
-# 	rm -rf $(SDK_PYTHON_OUT)
-# 	mkdir -p $(SDK_PYTHON_OUT)
-# 	$(PYTHON) -m grpc_tools.protoc \
-# 		-I $(PROTO_DIR) \
-# 		--python_out=$(SDK_PYTHON_OUT) \
-# 		--grpc_python_out=$(SDK_PYTHON_OUT) \
-# 		--pyi_out=$(SDK_PYTHON_OUT) \
-# 		$(PROTO_FILE)
-# 	printf '%s\n' '# Generated package for Dex protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
-# 	# grpc stubs import "dex_pb2"; fix to relative for package layout.
-# 	@if [ -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py ]; then \
-# 		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
-# 	fi
+proto-python: ensure-python-tools
+	rm -rf $(SDK_PYTHON_OUT)
+	mkdir -p $(SDK_PYTHON_OUT)
+	uv run --project ../sdk-python --frozen python -m grpc_tools.protoc \
+		-I $(PROTO_DIR) \
+		--python_out=$(SDK_PYTHON_OUT) \
+		--grpc_python_out=$(SDK_PYTHON_OUT) \
+		--pyi_out=$(SDK_PYTHON_OUT) \
+		$(PROTO_FILE)
+	printf '%s\n' '# Generated package for Dex protobuf stubs.' > $(SDK_PYTHON_OUT)/__init__.py
+	# grpc stubs import "dex_pb2"; fix to relative for package layout.
+	@if [ -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py ]; then \
+		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
+	fi
 
 clean:
 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
@@ -107,12 +103,8 @@ ensure-tools:
 	@which protoc-gen-go > /dev/null 2>&1 || go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	@which protoc-gen-go-grpc > /dev/null 2>&1 || go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 
-$(PYTHON_VENV)/.grpcio-tools:
-	mkdir -p $(TOOLS_DIR)
-	python3 -m venv $(PYTHON_VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install 'grpcio-tools>=1.60'
-	touch $@
+ensure-python-tools:
+	@which uv > /dev/null 2>&1 || (echo "uv not found. Install uv 0.12.2" && exit 1)
 
 $(GRPC_JAVA_PLUGIN):
 	mkdir -p $(TOOLS_DIR)
