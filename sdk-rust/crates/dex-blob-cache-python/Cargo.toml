@@ -13,4 +13,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 dex-blob-cache = { path = "../dex-blob-cache" }
-pyo3 = { workspace = true, features = ["extension-module"] }
+pyo3 = { workspace = true, features = ["abi3-py311", "extension-module"] }

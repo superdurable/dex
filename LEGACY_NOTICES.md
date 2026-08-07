@@ -52,8 +52,8 @@ The workflow and integration-test fixtures under these paths are adaptations
 or translations of the `indeedeng/iwf-java-sdk` integration suite at commit
 `8fa04457c0abcc4473300f17ea0a033d8f93ed88`:
 
-- `sdk-java/src/test/java/io/superdurable/dex/iwfcompat/`
-- `sdk-python/tests/iwfcompat/`
+- `sdk-java/src/test/java/io/superdurable/dex/integ/`
+- `sdk-python/tests/integ/`
 - `sdk-typescript/test/iwfcompat/`
 
 The upstream portions remain licensed under the Apache License 2.0. Super
