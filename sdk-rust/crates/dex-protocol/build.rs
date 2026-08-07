@@ -7,8 +7,15 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_prost_build::configure()
-        .compile_protos(&["../../../protos/dex.proto"], &["../../../protos"])?;
+    let mut prost_config = tonic_prost_build::Config::new();
+    prost_config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);
+    let protos = [std::path::PathBuf::from("../../../protos/dex.proto")];
+    let includes = [
+        std::path::PathBuf::from("../../../protos"),
+        protoc_bin_vendored::include_path()?,
+    ];
+
+    tonic_prost_build::configure().compile_with_config(prost_config, &protos, &includes)?;
     println!("cargo:rerun-if-changed=../../../protos/dex.proto");
     Ok(())
 }
