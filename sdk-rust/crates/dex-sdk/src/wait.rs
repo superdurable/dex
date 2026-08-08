@@ -101,27 +101,3 @@ impl ConditionCombination {
         Self { _private: () }
     }
 }
-
-pub struct Timer;
-
-impl Timer {
-    pub fn by_duration(duration: Duration) -> Condition {
-        Condition::timer(duration)
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TimerId {
-    ConditionId(String),
-    ConditionIndex(usize),
-}
-
-impl TimerId {
-    pub fn by_condition_id(id: impl Into<String>) -> Self {
-        Self::ConditionId(id.into())
-    }
-
-    pub fn by_condition_index(index: usize) -> Self {
-        Self::ConditionIndex(index)
-    }
-}

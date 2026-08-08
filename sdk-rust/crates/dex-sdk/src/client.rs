@@ -7,42 +7,13 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::{
-    Attribute, AttributeMap, BlobCache, Channel, ChannelMap, Flow, FlowConfig, ResetFlowOptions,
-    Rpc, SdkError, SdkResult, StartFlowOptions, StepExecutionId, StopFlowOptions, TimerId, Value,
-    WorkerTarget,
+    Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions, Flow, FlowConfig,
+    FlowInfo, Registry, ResetFlowOptions, Rpc, SdkError, SdkResult, StartFlowOptions,
+    StepExecutionId, StopFlowOptions, TimerId, Value,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FlowStatus {
-    Running,
-    Completed,
-    Failed,
-    TimedOut,
-    Terminated,
-    Canceled,
-    ContinuedAsNew,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FlowErrorType {
-    StepDecisionFailed,
-    ClientApiFailed,
-    WorkerApiFailed,
-    InvalidUserFlowCode,
-    Internal,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FlowInfo {
-    pub flow_id: String,
-    pub run_id: String,
-    pub flow_type: String,
-    pub status: FlowStatus,
-    pub started_at: SystemTime,
-}
 
 pub struct Client {
     _private: (),
@@ -201,105 +172,5 @@ impl Client {
 
     pub fn trigger_continue_as_new(&self, _flow_id: &str) -> SdkResult<()> {
         Err(SdkError::NotImplemented("Client transport"))
-    }
-}
-
-#[derive(Clone)]
-pub struct Registry {
-    _private: (),
-}
-
-#[derive(Clone, Debug)]
-pub struct ClientOptions {
-    server_address: String,
-    worker_target: Option<WorkerTarget>,
-}
-
-impl ClientOptions {
-    pub fn new() -> Self {
-        Self {
-            server_address: "127.0.0.1:8801".to_string(),
-            worker_target: None,
-        }
-    }
-
-    pub fn server_address(mut self, value: impl Into<String>) -> Self {
-        self.server_address = value.into();
-        self
-    }
-
-    pub fn worker_target(mut self, value: WorkerTarget) -> Self {
-        self.worker_target = Some(value);
-        self
-    }
-}
-
-impl Default for ClientOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Registry {
-    pub fn new() -> Self {
-        Self { _private: () }
-    }
-
-    pub fn register<SomeFlow: Flow>(self, _flow: SomeFlow) -> Self {
-        self
-    }
-}
-
-impl Default for Registry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct WorkerOptions {
-    bind_address: String,
-    server_address: String,
-    worker_target: Option<WorkerTarget>,
-}
-
-impl WorkerOptions {
-    pub fn new() -> Self {
-        Self {
-            bind_address: "0.0.0.0:8803".to_string(),
-            server_address: "127.0.0.1:8801".to_string(),
-            worker_target: None,
-        }
-    }
-
-    pub fn bind_address(mut self, value: impl Into<String>) -> Self {
-        self.bind_address = value.into();
-        self
-    }
-
-    pub fn server_address(mut self, value: impl Into<String>) -> Self {
-        self.server_address = value.into();
-        self
-    }
-
-    pub fn worker_target(mut self, value: WorkerTarget) -> Self {
-        self.worker_target = Some(value);
-        self
-    }
-}
-
-impl Default for WorkerOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct Worker {
-    _private: (),
-}
-
-impl Worker {
-    pub fn new(_registry: Registry, _blob_cache: Arc<BlobCache>, _options: WorkerOptions) -> Self {
-        Self { _private: () }
     }
 }

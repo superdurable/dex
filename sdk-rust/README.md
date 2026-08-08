@@ -19,6 +19,12 @@ The architecture is defined in
 The public Rust API is defined in
 [Rust SDK User Interface](../docs/design/rust-sdk-user-interface.md).
 
+The `dex-sdk` source layout follows the application developer's mental model:
+Flows, Steps, Attributes, Channels, RPCs, timers, and waits each have dedicated
+modules. Client, Worker, Registry, and each options family are separated as
+their own entry points instead of being collected into infrastructure-oriented
+files.
+
 ## Blob cache
 
 The shared cache keeps opaque payload bytes on disk and uses Stretto only for

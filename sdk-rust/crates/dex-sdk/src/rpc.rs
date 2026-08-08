@@ -9,7 +9,7 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::state::AttributeLock;
+use crate::attribute::AttributeLock;
 use crate::{Context, HandlerResult, StepMovement, Value};
 
 pub struct Rpc<Input, Output> {
