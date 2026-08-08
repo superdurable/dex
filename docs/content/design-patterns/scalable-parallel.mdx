@@ -1,0 +1,94 @@
+---
+title: Scalable parallel
+---
+
+# Scalable parallel
+
+Control fan-out with parent/child Flows for large parallel workloads.
+
+## Problem and approach
+
+Here we demonstrate a Parent-Child Flow Pattern implemented using the Dex.
+This pattern demonstrates how Flows can be designed with scalable parallelism control.
+
+This is an advanced design pattern for high scalability needs. For simpler approach for controlling parallelism, you can check out parallel design pattern or parentchild
+
+## Overview
+
+This design pattern can accept unlimited requests, and then dispatch them into different parents based on partitioning, and then each parent will control the parallelism of executing child Flows. So total concurrency = numberOfParents * numOfChildrenPerParent. By scaling up numberOfParents,you can have any number of total concurrency/parallelism of executing child Flows. 
+
+We can consider the Parent Flow to be a controller and the Child Flow a task processor. This is particularly useful in scenarios where a simple task needs to be handled multiple times and those tasks can be parallelized. Limits on how many Parent Flows can be created and how many Child Flows each of them can control can and should be applied. All tasks are queued and processed in a FIFO manner. The queue also has a limit on how many tasks can be stored in it at a time. If the limit is reached, further requests will be rejected.
+
+Because of request can be rejected, the request will be first sent to RequestReceiverFlow as "buffer". The request Flow will then keep on retrying to send to parent if being rejected.
+
+### Key Components
+
+NOTE: Term `request` and `task` are used in a specific context. Request consist of multiple tasks. For example, in a line-by-line CSV processing scenario, `request` would be seen as a file to process and `task` would be a single line that is processed by a ChildFlow.
+
+1. **RequestReceiverFlow**: The Flow handling the incoming requests. It sends all received request to a randomly chosen ParentFlow. If the ParentFlow's request queue has not enough capacity to take on new tasks, it will reject the request. The RequestReceiverFlow will retry to send again later. It may retry on a different parent Flow which has capacity. RequestReceiverFlow is buffering the requests until handed off to a ParentFlow.
+2. **ParentFlow**: The controller Flow that manages the child Flows. It receives requests from the RequestReceiverFlow and starts a ChildFlow for each task. It also manages the queue of tasks and the number of active ChildFlows.
+    - **Request Queue** (internal channel): The queue of tasks that the ParentFlow manages. It has a limit on how many tasks can be queued at a time. If the limit is reached, the further requests will be rejected.
+    - **Child Complete** (internal channel): The channel that is used to signal the completion of a ChildFlow back to the ParentFlow. It allows the ParentFlow to know when it is safe to start a new ChildFlow.
+3. **ChildFlow**: The processing Flow that handles the actual task. It receives the task from the ParentFlow and processes it.
+
+### Scalability
+
+The pattern is designed to be scalable in multiple ways. The main variables that can be scaled are:
+- `NUM_PARENT_WORKFLOWS`:
+  - Number of parent (controller) Flows to control the concurrent processing of tasks (ChildFlows)
+- `CONCURRENCY_PER_PARENT_WORKFLOW`:
+  - The number of parallel child Flows that each parent Flow can control
+- `MAX_BUFFERED_TASKS`
+  - Maximum number of elements in the `TASK_QUEUE` as buffer, before processing
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/scalableparallel/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/scalableparallel/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// Parent Step starts children with await getClient().startFlow(...)
+// on the same Worker (@superdurable/dex ^0.1.3+). No sync sidecar.
+
+async execute(context: Context, _input: void): Promise<StepDecision> {
+  const request = this.flow.taskQueue.results(context)[0];
+  const childWorkflowId = `processing-${request}`;
+  await getClient().startFlow(this.child, childWorkflowId, request, {
+    ignoreAlreadyStarted: true,
+    requestId: context.stepExecutionId,
+  });
+  // track child ids on an Attribute; wait via ChannelMap / conditions
+  return goTo(this.flow.loopForNextMessageStep, undefined);
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

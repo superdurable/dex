@@ -1,0 +1,60 @@
+---
+title: Error handling & SAGA
+---
+
+# Error handling & SAGA
+
+## Why you need it
+
+Failures need explicit transitions and compensating actions, not silent queue DLQs.
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# On execute failure → ProceedTo compensation Step
+# See examples money transfer saga.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+getOptions(): StepOptions {
+  return {
+    executeRetry: { totalDurationMs: HOUR_MS },
+    executeFailure: ExecuteFailure.proceedTo(compensateStep),
+  };
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Use execute failure movements and compensating Steps (see money-transfer use case).
+
+## How Dex implements it
+
+Step failure policies and recovery options are first-class. Compensations are just more Steps.
+
+## Traditional workarounds
+
+SAGA coordinators, choreography via events, and brittle “undo” scripts are common without Durable Execution.

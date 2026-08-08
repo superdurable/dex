@@ -1,0 +1,278 @@
+---
+title: Failure recovery
+---
+
+# Failure recovery
+
+Recover from failed Steps with retries and compensating paths.
+
+## Problem and approach
+
+## Overview
+
+The key element to understanding the Failure Recovery in Dex is understanding
+the difference between the Dex Step API Backoff Retry and the Failure Recovery
+feature. These two are independent, but strongly related. The Recovery Feature
+is used when the Dex Step API Backoff Retry attempts exhausted. The key concept
+is to let Step API retry for a number of times, and if finally failed, then go
+to the recovery solution.
+
+## Dex Step API Backoff Retry and Failure Handling After Retry Exhausted
+
+Dex Step API (waitUntil/execute) will retry on any failure. If the retry policy
+is not explicitly set, the default values will be used. By default, there is no
+limit set for the number of failures. This means that the Step API can fail
+repeatedly until the Flow timeout is reached. The retry policy options and
+their default values are as follows:
+
+- InitialIntervalSeconds: 1
+   - The initial amount time, in seconds, between a Step failure and Dex
+   retrying a Step.
+- MaxInternalSeconds: 100
+   - The maximum amount of time, in seconds, between a Step failure and Dex
+   retrying a Step.
+- MaximumAttempts: 0
+   - The maximum number of times Dex will retry a failing Step.
+   - `0` means infinite
+- MaximumAttemptsDurationSeconds: 0
+   - The maximum total time, in seconds, that Dex will allow a failing Step to
+   retry.
+  - `0` means infinite
+- BackoffCoefficient: 2
+   - How quickly the time interval between Step failure and retry increases
+   with each failure.
+
+This policy is primarily concerned with the `MaximumAttempts` and the
+`MaximumAttemptsDurationSeconds` options. Their default values are set to 0,
+meaning that a Step will retry until the Flow timeout is reached.
+`MaximumAttempts` tells Dex that, if this Step API continues to fail, only
+retry the Step this number of times. `MaximumAttemptsDurationsSeconds` tells Dex
+to continue retrying a failing Step any number of times for a certain amount of
+time. If only one is set, Dex will follow that setting. If both are set,
+whichever threshold is reached first will determine when the Step can no longer
+be retried. If neither is set to a value other than 0, the Step will retry
+until the Flow reaches its timeout. The retry policy `MaximumAttempts` or
+`MaximumAttemptsDurationSeconds` must be set to allow for failure recovery.
+
+Along with having retry policies, the Step API also has a failure recovery
+policy. For the `waitUntil` API, the failure recovery policy is set with
+`setProceedToExecuteWhenWaitUntilRetryExhausted`. The value passed will determine the
+`WaitUntilApiFailurePolicy` to control Step flow. At this time, is only supports
+two options, false: `FAIL_WORKFLOW_ON_FAILURE` and true: `PROCEED_ON_FAILURE`.
+`FAIL_WORKFLOW_ON_FAILURE` will fail a Flow if the `waitUntil` API has failed
+out of its retry policy. `PROCEED_ON_FAILURE` will allow the Step to proceed to
+its `execute` API instead of failing the Flow.
+
+For the `execute` API, the failure recovery policy is set with
+`setProceedToStepWhenExecuteRetryExhausted`. The value passed will determine the
+`ExecuteApiFailurePolicy` and allows for deciding between two options, null or default:
+`FAIL_WORKFLOW_ON_FAILURE` and a specified Step: `PROCEED_TO_CONFIGURED_STATE`. While the first
+option is self-explanatory, the second allows the Flow to proceed to the
+configured Step instead of failing the Flow.
+
+## Recovery with and without the Failure Recovery feature
+
+### Without Failure Recovery feature
+
+```java
+public StepDecision execute(
+    Context context,
+    Void input,
+    CommandResults commandResults) \{
+       try \{
+             doExecute();
+       \} catch (RetriableException ex) \{
+          if (context.getAttempt().get() > 5) \{
+              return StepDecision.singleNextStep(FailureRecoveryStep.class);    
+          \} else \{
+              throw ex;
+         \}
+       \}
+    \}
+```
+
+### With Failure Recovery feature
+
+```java
+public StepDecision execute(
+    Context context,
+    Void input,
+    CommandResults commandResults) \{
+        doExecute();
+\}
+
+@Override
+public FlowStepOptions getStepOptions() \{
+    return new FlowStepOptions().setProceedToStepWhenExecuteRetryExhausted(FailureRecoveryStep.class)
+            .setExecuteApiRetryPolicy(new RetryPolicy().maximumAttempts(5)); // must have maximumAttempts or maximumAttemptsDurationSeconds otherwise it won't work, because the Flow will time out with no chance to run the recovery
+\}
+```
+
+## Why Use Dex's Recovery Pattern
+
+Dex's Recovery Pattern simplifies the process of recovering from failures.
+Instead of having to write a try-catch block for every Step, the Recovery
+Pattern can be applied by adding a single line of code to the
+FlowStepOptions object.
+
+## The Saga Pattern
+
+Simply put, the Saga Pattern represents splitting up a transactional process
+into steps that can be rolled back if any of the steps fail.
+
+- Examples:
+    - **Payment Processing**
+    - **Online Purchases**
+
+Saga Pattern is an architectural design pattern that’s intended to ensure Step
+consistency in multi-step and distributed business transactions. You can think of
+the Saga pattern as a design pattern that ensures application consistency by using
+compensations to revert the system to its last known good Step when faced with
+failure at any point in the transaction. [source:
+[temporal.io](https://pages.temporal.io/download-saga-pattern-made-easy-pw.html)]
+
+```java
+class ProceedOnWaitUntilApiFailure1 implements FlowStep&lt;Void&gt; \{
+   @Override
+   public Class&lt;Void&gt; getInputType() \{
+       return Void.class;
+   \}
+
+   @Override
+   public FlowStepOptions getStepOptions() \{
+       return new FlowStepOptions()
+               // Need to set the retry policy so that Dex knows when to let
+               // the Step proceed past its `waitUntil` API
+               .setWaitUntilApiRetryPolicy(new RetryPolicy().maximumAttempts(5))
+               // This tells Dex what to do when the `waitUntil` API has failed
+               // too many times
+               .setProceedToExecuteWhenWaitUntilRetryExhausted(true);
+   \}
+
+   @Override
+   public CommandRequest waitUntil(
+         Context context,
+         Void input,
+         Persistence persistence,
+         Communication communication) \{
+       int timerDuration = callSomeAPI();
+       return CommandRequest.anyCommandCompleted(Timer condition.createByDuration(timerDuration));
+   \}
+
+    private int callSomeAPI() \{
+        System.out.println("Assuming calling some API");
+        throw new RuntimeException("Fail at calling an API");
+    \}
+
+   @Override
+   public StepDecision execute(
+         Context context,
+         Void input,
+         CommandResults commandResults,
+         Persistence persistence,
+         Communication communication) \{
+      if (commandResults.getWaitUntilApiSucceeded().isPresent()
+            && commandResults.getWaitUntilApiSucceeded().get() == false) \{
+         throw new RuntimeException("`waitUntil` failed");
+      \}
+
+      return StepDecision.singleNextStep(ProceedOnWaitUntilApiFailure2.class, output);
+   \}
+\}
+```
+
+## Failure Recovery Flow
+
+This is a simplified example of an online ecommerce site handling an order being
+placed. The golden path for this Flow includes reducing the current number
+of items that are available and charging the buyer for the items ordered.
+Because both of these actions can fail, both Steps include failure recovery
+mechanisms that will roll back the actions that fail. For example, if the site
+has run out of the requested item, that step will fail and the process should
+revert any changes that were made.
+
+*(diagram omitted — see example README)*
+
+### Key Components
+
+1. `UpdateItemQuantityStep`: This Step handles reducing the number of items
+that are available.
+
+2. `ChargeForItemsStep`: This Step handles processing payments for the items
+included in the order.
+
+3. `UpdateQuantityRecoveryStep`: This Step handles undoing the work in the
+`UpdateItemQuantityStep` if either of the previous Steps fails.
+
+4. `VoidPaymentRecoveryStep`: This Step ensures that customers won't be
+charged if a payment fails for any reason.
+
+5. `DatabaseConnection`: This class is used to stand in for a an actual database
+which could fail to update.
+
+6. `PaymentProcessor`: This class is used to simulate requesting payment for an
+order. It will always fail to secure payment to force the Flow into recovery
+Steps.
+
+### API Endpoint
+
+- Start a recovery Flow:
+
+```
+GET /recovery/start
+   ?FlowId=\{FlowId\}
+   &itemName=\{itemName\}
+   &quantity=\{quantityRequested\}
+```
+
+This endpoint will start a recovery Flow with the with the specified
+FlowId, item name, and number of items to order
+
+## References
+
+- A more in depth explanation of the SAGA pattern and how it can be used with
+Dex can be found [in this
+article](https://medium.com/@qlong/saga-pattern-deep-dive-with-indeed-Flow-engine-b7e82c59e51f).
+
+- [Dex Flow Options Wiki](https://github.com/superdurable/dex/wiki/FlowStepOptions)
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/recovery/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/recovery/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
+// See examples/typescript/src/patterns/workflow/recovery/
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

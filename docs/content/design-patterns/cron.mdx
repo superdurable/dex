@@ -1,0 +1,100 @@
+---
+title: Cron schedule
+---
+
+# Cron schedule
+
+Run a Flow on a recurring schedule without inventing a scheduler service.
+
+## Problem and approach
+
+Demonstrates starting a Dex flow with a cron schedule so each tick runs the
+flow like a recurring job.
+
+## Key components
+
+1. **`CronScheduleStarter`** — on Spring `ApplicationReadyEvent`, starts flow ID
+   `cron-schedule-sample` with cron expression `*/1 * * * *` (idempotent if
+   already started).
+2. **`CronScheduleFlow`** — the scheduled flow; each trigger runs its start step
+   and completes.
+
+## Useful links
+
+- [CRON Expression Format](https://pkg.go.dev/github.com/robfig/cron#hdr-CRON_Expression_Format)
+- [CRON Expression Tester](https://crontab.guru/)
+
+## How it starts
+
+`CronScheduleStarter` uses the shared Dex `Client` after the Worker is up:
+
+```java
+client.startFlow(
+    cronScheduleFlow,
+    "cron-schedule-sample",
+    null,
+    StartFlowOptions.newBuilder()
+        .timeout(Duration.ofHours(1))
+        .cronSchedule("*/1 * * * *")
+        .build());
+```
+
+If the flow is already running, `FLOW_ALREADY_STARTED` is ignored so restarts
+are safe.
+
+## Schedule management
+
+View and manage the underlying Temporal schedule in the Temporal UI (local
+`dexcli` Temporal or Temporal Cloud):
+
+- **Flows** — filter by Flow ID `cron-schedule-sample`
+- **Schedules** — pause, trigger, or delete
+
+To change the schedule: update `CronScheduleStarter`, deploy, delete the old
+schedule in the UI if needed, then restart the sample process so it recreates
+the schedule.
+
+## Current limitations
+
+Schedule overlap policy is not exposed and defaults to skip overlapping runs.
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/cron/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/cron/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
+// See examples/typescript/src/patterns/workflow/cron/
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

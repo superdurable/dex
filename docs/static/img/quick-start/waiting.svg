@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540">
+  <rect width="100%" height="100%" fill="#edf6e6"/>
+  <rect x="40" y="40" width="880" height="460" fill="#fff" stroke="#2e6d3a" stroke-dasharray="8 6"/>
+  <text x="480" y="260" text-anchor="middle" font-family="Helvetica, Arial" font-size="28" fill="#2e6d3a">Dex Web — Step waiting</text>
+  <text x="480" y="300" text-anchor="middle" font-family="Helvetica, Arial" font-size="16" fill="#718373">TODO: upload Dex Web screenshot</text>
+</svg>

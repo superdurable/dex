@@ -1,0 +1,37 @@
+---
+id: index
+title: Capabilities Overview
+sidebar_label: Overview
+slug: /capabilities
+---
+
+# Capabilities Overview
+
+Each Dex capability is a **distributed-system abstraction**. Durable Execution is not a single feature — it is the set of these abstractions working together so backend engineers can persist both data and actions without rebuilding orchestration by hand.
+
+Capabilities are grouped the same way as on [superdurable.io/dex](https://superdurable.io/dex):
+
+## Basic
+
+Familiar control-flow concepts made durable:
+
+- [Durable variables](/capabilities/basic/durable-variables)
+- [Branch & loop](/capabilities/basic/branch-and-loop)
+- [Backoff retry](/capabilities/basic/backoff-retry)
+- [Durable timer](/capabilities/basic/durable-timer)
+
+## Advanced
+
+Communication, concurrency, and recovery:
+
+- [RPC](/capabilities/advanced/rpc)
+- [Channels](/capabilities/advanced/channels)
+- [Fan-out + fan-in](/capabilities/advanced/fan-out-fan-in)
+- [Error handling & SAGA](/capabilities/advanced/error-handling-saga)
+- [Multi-threading](/capabilities/advanced/multi-threading)
+- [Locking](/capabilities/advanced/locking)
+- [Waiting](/capabilities/advanced/waiting)
+- [Storage sync](/capabilities/advanced/storage-sync)
+- [And more](/capabilities/advanced/and-more)
+
+Each page covers: why it exists, code examples, a brief implementation sketch, and how teams traditionally work around the problem.

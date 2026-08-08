@@ -1,0 +1,32 @@
+---
+id: what-is-dex
+title: What is Dex?
+sidebar_label: Intro
+---
+
+# What is Dex?
+
+Dex is **Durable Execution**: an abstraction over distributed systems for backend engineering.
+
+Most systems already have durable *storage* — databases that persist data. Durable Execution persists **data and actions together as an execution**. When a process dies, a network blips, or a dependency is slow, the program resumes from where it left off instead of being reconstructed from queues, cron jobs, and custom recovery code.
+
+## The core idea
+
+| Layer | What it persists |
+| --- | --- |
+| Durable storage | Data |
+| Durable Execution | Data **+** Actions (as execution) |
+
+A Dex **Flow** is ordinary application code structured as **Steps**, **Attributes**, **Channels**, timers, and RPCs. Dex keeps those control-flow decisions durable so you write business logic, not a second orchestration framework.
+
+## Abstractions as a set of capabilities
+
+Durable Execution is not one feature. It is a set of distributed-system abstractions — durable variables, timers, waiting, channels, RPC, locking, retries, and more.
+
+See the [Capabilities Overview](/capabilities) for a breakdown of each abstraction, with why it exists, how to use it, how Dex implements it, and what teams traditionally build by hand.
+
+## Next steps
+
+- [Quick Start](/quick-start) — install `dexcli`, write a Hello Flow, and watch it in Dex Web
+- [Design Patterns](/design-patterns) — reusable Flow shapes
+- [Use Cases](/use-cases) — product examples

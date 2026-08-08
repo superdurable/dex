@@ -1,0 +1,9 @@
+---
+title: Persistence (Attributes)
+---
+
+# Persistence (Attributes)
+
+**Attributes** are the durable variables of a Flow. They replace the older “data object / search attribute” split with one Attribute model (optional index config on write).
+
+Use Attributes for state that must survive waits and be visible to RPCs/search. Prefer small values; large blobs use the blob store.

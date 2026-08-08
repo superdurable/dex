@@ -1,0 +1,56 @@
+---
+title: Drain signal channels
+---
+
+# Drain signal channels
+
+Complete short-lived Flows when external channel traffic is drained.
+
+## Problem and approach
+
+## Overview
+
+The `DrainChannelChannelsFlow` demonstrates a pattern where a Flow remains active only as long as there are signals to process, and close immediately when all signals are processed, to keep the Flow as short-lived as possible. The Flow can be started again as a different Flow execution (with the same FlowID), when new signals are received.
+It's generally preferable to have multiple short-lived Flows rather than a single long-lived one, for reasons related to cost and code management, such as version control.
+DEX offers the `StepDecision.forceCompleteIfChannelChannelEmptyOrElse()` feature for signal (external) channels and the `StepDecision.forceCompleteIfInternalChannelEmptyOrElse()` feature for internal channels ([wiki](https://github.com/superdurable/dex/wiki/Conditionally-complete-Flow-with-atomic-checking-on-signal-or-internal-channel) for both). These features allow for an atomic check to determine if the channel is empty before closing the Flow. *NOTE:* For this feature to maintain atomicity, the channel used must be consumed by only one Flow Step. This example Flow waits for signals to be sent to the channel and then processes them until the channel is empty.
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/drainchannels/signal/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/drainchannels/signal/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
+// See examples/typescript/src/patterns/workflow/drainchannels/signal/
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

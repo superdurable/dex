@@ -6,7 +6,7 @@
 |------|----------|
 | [server/](server/) | Dex server (Temporal/Cadence backend) |
 | [protos/](protos/) | Protobuf IDL ([`dex.proto`](protos/dex.proto); renames in [`docs/design/idl-renames.md`](docs/design/idl-renames.md)) |
-| [docs/](docs/) | Docs: [`design/`](docs/design/), [`case-study/`](docs/case-study/), [`wiki/`](docs/wiki/) (start at [README.md](docs/README.md)) |
+| [docs/](docs/) | Product docs site ([docs.superdurable.io](https://docs.superdurable.io)); design notes in [`design/`](docs/design/); start at [README.md](docs/README.md) |
 | [cli/](cli/) | `dexcli` local development environment |
 | [web/](web/) | Dex Web console |
 | [sdk-go/](sdk-go/) | Go SDK |

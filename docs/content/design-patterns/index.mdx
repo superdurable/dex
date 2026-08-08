@@ -1,0 +1,26 @@
+---
+id: index
+title: Design Patterns
+sidebar_label: Overview
+slug: /design-patterns
+---
+
+# Design Patterns
+
+Reusable Flow shapes from the Dex examples. Each pattern page explains the problem, the approach, and links to multi-language code.
+
+- [Cron schedule](/design-patterns/cron) — Run a Flow on a recurring schedule without inventing a scheduler service.
+- [Drain internal channels](/design-patterns/drain-internal-channels) — Gracefully finish producer/consumer Flows without losing in-flight channel messages.
+- [Drain signal channels](/design-patterns/drain-signal-channels) — Complete short-lived Flows when external channel traffic is drained.
+- [Interruptible execution](/design-patterns/interruptible) — Stop or redirect long work gracefully based on durable control signals.
+- [Manual intervention](/design-patterns/intervention) — When an API fails, let a human retry or skip without abandoning the Flow.
+- [Parallel Steps](/design-patterns/parallel) — Run Steps concurrently and optionally await results.
+- [Parent–child Flows](/design-patterns/parent-child) — Start a child Flow and wait for its completion from the parent.
+- [Polling](/design-patterns/polling) — Wait on external readiness with simple timers or backoff Step retries.
+- [Failure recovery](/design-patterns/recovery) — Recover from failed Steps with retries and compensating paths.
+- [Reminders](/design-patterns/reminders) — Send periodic reminders until opt-out or timeout.
+- [Resettable timer](/design-patterns/resettable-timer) — Extend or reset a wait window based on fresh activity.
+- [Scalable parallel](/design-patterns/scalable-parallel) — Control fan-out with parent/child Flows for large parallel workloads.
+- [Storage singleton](/design-patterns/storage) — Expose a durable key-value style store via RPC on a singleton Flow.
+- [Timeout](/design-patterns/timeout) — Bound work with graceful timeout and dead-end paths.
+- [Wait for Step completion](/design-patterns/wait-for-step-completion) — Let callers wait for a Step while background work continues.

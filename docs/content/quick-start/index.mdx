@@ -1,0 +1,257 @@
+---
+id: index
+title: Quick Start
+sidebar_label: Quick Start
+slug: /quick-start
+---
+
+# Quick Start
+
+Build a Hello Flow end to end: install Dex locally, define two Steps with a wait, unblock it with an RPC, and inspect the result in Dex Web.
+
+Choose an SDK once — the preference is stored in this browser (`localStorage`) and defaults to **Python**.
+
+:::tip TypeScript SDK
+Use `@superdurable/dex` **^0.1.3+**. `waitFor`, `execute`, and RPC handlers may be `async` and `await` `Client` calls on the **same** Worker — no sync sidecar. See [TypeScript SDK notes](/references/typescript-sdk).
+:::
+
+## 1. Install Dex server + web
+
+```bash
+brew install superdurable/tap/dexcli
+brew upgrade superdurable/tap/dexcli   # when you want the latest
+dexcli dev --open
+```
+
+`dexcli` starts Temporal, Dex Server, and Dex Web. Defaults:
+
+| Service | Address |
+| --- | --- |
+| Dex Web | `http://127.0.0.1:8802` |
+| Dex Server | `127.0.0.1:8801` |
+| Temporal Web | `http://127.0.0.1:8233` |
+
+See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md) for flags and persistence options.
+
+## 2. Hello Flow design
+
+You will implement:
+
+1. A **Flow** with **StepA → StepB**
+2. **StepA** uses `waitFor` with **anyOf(timer, channel)**; **StepB** has no wait
+3. One **Attribute**, one **Channel**, one **RPC** that updates the attribute and publishes the channel to unblock StepA
+4. A client (and optional REST controller) to start the Flow and invoke the RPC
+5. Inspection in Dex Web
+
+```text
+Start → StepA (wait anyOf timer | channel)
+              │ channel msg or timer
+              ▼
+            StepB (execute only) → complete
+```
+
+## 3. Flow definition
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+from datetime import timedelta
+from dex import (
+    Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult,
+    Step, StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc,
+)
+
+class StepA(Step[str]):
+    def __init__(self, unblock: Channel[str]):
+        self.unblock = unblock
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        return Wait.any_of(
+            self.unblock.for_one(),
+            Timer.by_duration(timedelta(seconds=60)),
+        )
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        msgs = self.unblock.results(context)
+        note = msgs[0] if msgs else "timer"
+        return go_to(StepB(), f"{input}:{note}")
+
+class StepB(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return graceful_complete(input)
+
+class HelloFlow(Flow[str]):
+    status = Attribute("status", str)
+    unblock = Channel("unblock", str)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(StepA(self.unblock)).other_steps(StepB())
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.attributes(self.status).channels(self.unblock)
+
+    @rpc
+    def nudge(self, context: Context, message: str) -> RPCResult:
+        self.status.set(context, "nudged")
+        self.unblock.publish(context, message)
+        return RPCResult(output="ok")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// StepA WaitFor: anyOf(channel, timer); Execute → StepB
+// StepB Execute only → complete
+// Attribute "status", Channel "unblock"
+// RPC Nudge: SetAttributes(status) + PublishToChannel(unblock)
+// See examples in sdk-go and examples/go for full Worker registration.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// StepA: waitFor anyOf(Channel, Timer); execute → StepB
+// StepB: execute only → gracefulComplete
+// Attribute status; Channel unblock
+// @RPC nudge: set status + publish unblock
+// See examples/java for Worker + Spring controller wiring.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+import {
+  Attribute, Channel, StepList, Timer, Wait,
+  goTo, gracefulComplete, rpc, stringCodec,
+  type Context, type Flow, type PersistenceSchema,
+  type RPCResult, type Step, type StepDecision,
+} from "@superdurable/dex";
+
+// @superdurable/dex ^0.1.3+: waitFor / execute / RPC may be async
+// and await Client on the same Worker (no sidecar).
+
+class StepA implements Step<string> {
+  readonly inputCodec = stringCodec;
+  constructor(private readonly flow: HelloFlow) {}
+  getStepType() { return "StepA"; }
+
+  waitFor(_context: Context, _input: string): Wait {
+    return Wait.anyOf(
+      this.flow.unblock.forOne(),
+      Timer.byDuration(60_000),
+    );
+  }
+
+  execute(context: Context, input: string): StepDecision {
+    const msgs = this.flow.unblock.results(context);
+    const note = msgs[0] ?? "timer";
+    return goTo(this.flow.stepB, `${input}:${note}`);
+  }
+}
+
+class StepB implements Step<string> {
+  readonly inputCodec = stringCodec;
+  getStepType() { return "StepB"; }
+  execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
+export class HelloFlow implements Flow<string> {
+  readonly status = new Attribute("status", stringCodec);
+  readonly unblock = new Channel("unblock", stringCodec);
+  readonly stepA = new StepA(this);
+  readonly stepB = new StepB();
+
+  getFlowType() { return "HelloFlow"; }
+  getSteps() {
+    return StepList.startStep(this.stepA).otherSteps(this.stepB);
+  }
+  getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [this.status], channels: [this.unblock] };
+  }
+
+  @rpc({ name: "nudge", inputCodec: stringCodec, outputCodec: stringCodec })
+  nudge(context: Context, message: string): RPCResult<string> {
+    this.status.set(context, "nudged");
+    this.unblock.publish(context, message);
+    return { output: "ok" };
+  }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 4. Start the Flow and invoke the RPC
+
+Register the Flow on a Worker pointed at `dexcli` (`worker_target` / server address `127.0.0.1:8801`), then:
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# Start
+client.start_flow(HelloFlow(), flow_id="hello-1", input="hi")
+
+# Unblock StepA via RPC (also updates attribute + publishes channel)
+client.invoke_rpc(flow_id="hello-1", rpc="nudge", input="from-client")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// client.StartFlow(...) then client.InvokeRPC(..., "Nudge", ...)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// client.startFlow(...) then client.invokeRPC(..., "nudge", ...)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const hello = new HelloFlow();
+const client = new Client("127.0.0.1:8801"); // Promise-based gRPC client
+
+await client.startFlow(hello, "hello-1", "hi");
+await client.invokeRPC(hello.nudge, "hello-1", "from-client");
+// optional: await client.waitForFlow("hello-1", stringCodec, 30_000);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+A thin REST controller is optional — useful when a browser or partner system should start / nudge the Flow. The [Python basic example](https://github.com/superdurable/dex/tree/main/examples/python) exposes `/basic` routes in the same process as the Worker.
+
+## 5. View results in Dex Web
+
+1. Open [http://127.0.0.1:8802](http://127.0.0.1:8802)
+2. Find Flow `hello-1`
+3. Observe StepA waiting, then after the RPC, StepB completing and attributes/channel updates
+
+![Dex Web Flow list placeholder](/img/quick-start/flow-list.svg)
+
+<ScreenshotPlaceholder caption="Replace static/img/quick-start/flow-list.svg with a real Dex Web screenshot" />
+
+![Dex Web waiting placeholder](/img/quick-start/waiting.svg)
+
+<ScreenshotPlaceholder caption="Replace static/img/quick-start/waiting.svg with StepA waiting" />
+
+![Dex Web completed placeholder](/img/quick-start/completed.svg)
+
+<ScreenshotPlaceholder caption="Replace static/img/quick-start/completed.svg after RPC completes" />
+
+## Next
+
+- Deepen primitives in [Capabilities Overview](/capabilities)
+- Browse [Design Patterns](/design-patterns) and [Use Cases](/use-cases)

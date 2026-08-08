@@ -1,0 +1,158 @@
+/**
+ * Super Durable brand tokens adapted from the marketing portal.
+ * https://superdurable.io
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --ink: #f8fbf5;
+  --ink-soft: #f0f6ea;
+  --panel: #ffffff;
+  --panel-light: #edf6e6;
+  --line: rgba(55, 103, 55, 0.14);
+  --line-strong: rgba(63, 120, 61, 0.28);
+  --text: #183c25;
+  --muted: #718373;
+  --muted-strong: #445d48;
+  --cyan: #89c82e;
+  --blue: #5fbcc6;
+  --amber: #dfa93d;
+  --green: #4d9148;
+  --forest: #2e6d3a;
+  --lime-soft: #edf8da;
+  --water-soft: #e6f6f7;
+  --shadow: rgba(38, 82, 39, 0.18);
+
+  --ifm-color-primary: #2e6d3a;
+  --ifm-color-primary-dark: #296334;
+  --ifm-color-primary-darker: #265d31;
+  --ifm-color-primary-darkest: #1f4d28;
+  --ifm-color-primary-light: #3c8548;
+  --ifm-color-primary-lighter: #4d9148;
+  --ifm-color-primary-lightest: #74bb6f;
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --ifm-font-family-monospace: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ifm-heading-font-family: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --ifm-background-color: var(--ink);
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.92);
+  --ifm-footer-background-color: #102419;
+  --docusaurus-highlighted-code-line-bg: rgba(137, 200, 46, 0.12);
+}
+
+[data-theme='dark'] {
+  --ink: #07130d;
+  --text: #eef7ed;
+  --muted: #91a794;
+  --forest: #91d17e;
+  --cyan: #9bd64d;
+  --panel: #102419;
+  --ifm-color-primary: #91d17e;
+  --ifm-color-primary-dark: #7fc46a;
+  --ifm-color-primary-darker: #74bb6f;
+  --ifm-color-primary-darkest: #4d9148;
+  --ifm-color-primary-light: #9bd64d;
+  --ifm-color-primary-lighter: #a8e066;
+  --ifm-color-primary-lightest: #c4f08a;
+  --ifm-background-color: var(--ink);
+  --ifm-navbar-background-color: rgba(7, 19, 13, 0.92);
+  --docusaurus-highlighted-code-line-bg: rgba(155, 214, 77, 0.15);
+}
+
+html {
+  background: var(--ink);
+}
+
+body {
+  background:
+    radial-gradient(circle at 90% 0%, rgba(137, 200, 46, 0.12), transparent 30rem),
+    radial-gradient(circle at 10% 40%, rgba(95, 188, 198, 0.08), transparent 24rem),
+    var(--ink);
+  color: var(--text);
+}
+
+.navbar__logo {
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.navbar__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.sdk-tabs {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.sdk-tabs__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.sdk-tabs__button {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--muted-strong);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.sdk-tabs__button:hover {
+  border-color: var(--forest);
+  color: var(--forest);
+}
+
+.sdk-tabs__button--active {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: #fff;
+}
+
+[data-theme='dark'] .sdk-tabs__button--active {
+  color: #07130d;
+}
+
+.sdk-tabs__panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0.25rem 0.75rem;
+}
+
+.screenshot-placeholder {
+  border: 1px dashed var(--line-strong);
+  background: var(--panel-light);
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+  color: var(--muted-strong);
+  margin: 1rem 0 1.5rem;
+  border-radius: 2px;
+}
+
+.screenshot-placeholder strong {
+  display: block;
+  color: var(--forest);
+  font-family: var(--ifm-font-family-monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.eyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--forest);
+  margin-bottom: 0.35rem;
+}

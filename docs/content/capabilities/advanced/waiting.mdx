@@ -1,0 +1,67 @@
+---
+title: Waiting
+---
+
+# Waiting
+
+## Why you need it
+
+You need to wait for timers, messages, Attribute values, or Step completion without burning a worker.
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_of(
+    channel.for_one(),
+    Timer.by_duration(timedelta(seconds=30)),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+waitFor(_context: Context, _input: void): Wait {
+  return Wait.anyOf(
+    this.channel.forOne(),
+    Timer.byDuration(30_000),
+  );
+}
+
+// Handlers may also be async:
+async waitFor(): Promise<Wait> {
+  return Wait.skipImmediately();
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+`Wait.any_of` / `all_of` over Conditions; client APIs like WaitForStepCompletion / WaitForAttribute.
+
+## How Dex implements it
+
+Waiting is expressed as durable Conditions. Completions rehydrate the Step Execute path.
+
+## Traditional workarounds
+
+Busy-poll loops, sleep+retry, or parking threads are the usual costly alternatives.

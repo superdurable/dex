@@ -1,0 +1,61 @@
+---
+title: Channels for communication
+---
+
+# Channels for communication
+
+## Why you need it
+
+Flows need durable messages from the outside world and between concurrent Steps.
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+unblock = Channel("unblock", str)
+
+def wait_for(self, context, input):
+    return Wait.any_of(self.unblock.for_one())
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+readonly unblock = new Channel("unblock", stringCodec);
+
+waitFor(_context: Context, _input: void): Wait {
+  return Wait.anyOf(this.unblock.forOne());
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Define Channels on the Flow; wait with `channel.for_one()` / `for_n`; publish from RPC or another Step.
+
+## How Dex implements it
+
+Channel messages are persisted. Waiting Steps subscribe via Conditions; PublishToChannel completes matching waits.
+
+## Traditional workarounds
+
+Workarounds: Kafka topics + consumer offsets + correlation IDs, or DB outboxes polled by workers.

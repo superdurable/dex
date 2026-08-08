@@ -1,0 +1,59 @@
+---
+title: Backoff retry
+---
+
+# Backoff retry
+
+## Why you need it
+
+External calls fail. Retries must survive process death and surface errors for debugging.
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# StepOptions: execute retry with exponential backoff
+# See SDK Step options / examples recovery pattern.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+getOptions(): StepOptions {
+  return {
+    executeRetry: { initialIntervalMs: 1000, backoffCoefficient: 2 },
+  };
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Attach execute retry policies on Step options so Dex retries the Step Execute with backoff.
+
+## How Dex implements it
+
+Failed Worker calls become Temporal activities with retry policies. Dex surfaces error details in Dex Web / history for debugging.
+
+## Traditional workarounds
+
+Homegrown retries live in application loops or queue consumers — easy to lose on deploy, hard to observe, easy to thundering-herd.

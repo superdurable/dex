@@ -1,0 +1,78 @@
+---
+title: Timeout
+---
+
+# Timeout
+
+Bound work with graceful timeout and dead-end paths.
+
+## Problem and approach
+
+## Overview
+
+The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout mechanism. This Flow ensures that tasks are completed within a designated time frame. If a task exceeds this duration, the Flow can forcibly terminate to prevent endless execution or a log can be emitted and the Step can return `StepDecision.deadEnd()`.
+
+## Flow Details
+
+*(diagram omitted — see example README)*
+
+
+([diagram link](https://drive.google.com/file/d/1MZXEXlF3WbzwFAaove0cySbbC798KPlV/view?usp=drive_link))
+
+### Flow Steps
+
+- **InitStep**: Accepts a `Boolean` indicating whether the Flow should simulate a successful or long-running task that exceeds the timeout. Transitions to both `TimeoutStep` and `TaskStep` simultaneously, allowing them to run in parallel.
+- **TimeoutStep**: Waits for a timer to complete, set to 1 minute. If the timer completes before the task, it forcefully fails the Flow, indicating that the task did not finish in time.
+- **TaskStep**: Represents the main task execution within the Flow. Accepts a `Boolean` to determine if the task should complete successfully or exceed the timeout. If simulating a delay, waits for a timer longer than the timeout (65 seconds) fails the Flow. If the task completes successfully, it forcefully completes the Flow, closing the timeout Step thread.
+
+### Usage
+
+1. Start a Flow using an endpoint. Example:
+```http request
+http://localhost:8080/design-pattern/timeout/start?FlowId=handleTimeoutFlow
+```
+2. If you want the timeout Step to be triggered add the parameter `successfulFlow=false`
+```http request
+http://localhost:8080/design-pattern/timeout/start?FlowId=handleTimeoutFlow&successfulFlow=false
+```
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/timeout/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/timeout/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
+// See examples/typescript/src/patterns/workflow/timeout/
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)
