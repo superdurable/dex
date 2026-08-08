@@ -41,7 +41,6 @@ def test_async_client_basic_workflow() -> None:
 async def _async_client_basic_workflow() -> None:
     flow = BasicFlow()
     async with AsyncDexDevTestEnvironment(flow) as environment:
-        assert environment.client is not None
         flow_id = unique_id("async-basic")
         await environment.client.start_flow(flow, flow_id, 0)
         assert (
@@ -56,7 +55,6 @@ def test_async_client_concurrent_start_and_wait() -> None:
 async def _async_client_concurrent_start_and_wait() -> None:
     flow = BasicFlow()
     async with AsyncDexDevTestEnvironment(flow) as environment:
-        assert environment.client is not None
         client = environment.client
 
         async def one(index: int) -> int:
@@ -82,7 +80,6 @@ async def _async_worker_async_execute_starts_child() -> None:
         child,
         allow_async_handlers=True,
     ) as environment:
-        assert environment.client is not None
         client_holder["client"] = environment.client
         flow_id = unique_id("async-parent")
         await environment.client.start_flow(parent, flow_id, 1)

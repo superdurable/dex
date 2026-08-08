@@ -160,12 +160,16 @@ These are independent workstreams; no doc cross-links required.
 
 Integration tests against a running Dex (`sdk-python` integ suite). Do not add unit tests unless an edge cannot be reached through integ.
 
+About half of the runtime integ modules use `AsyncClient` / `AsyncWorker`
+(`test_basic_runtime`, `test_rpc_runtime`, `test_channels_runtime`, plus
+`test_async_runtime`); the rest stay on sync `Client` / `Worker`.
+
 ### Phase 1
 
 1. `AsyncClient.start_flow` + `wait_for_flow` happy path.
 2. `AsyncClient.invoke_rpc` / `publish` parity with sync `Client`.
 3. Concurrent awaits on one `AsyncClient` (multiple in-flight RPCs) without deadlock.
-4. Existing sync `Client` integ suite unchanged (regression).
+4. Remaining sync `Client` integ modules still pass (regression).
 
 ### Phase 2
 

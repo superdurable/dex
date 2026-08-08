@@ -51,12 +51,18 @@ class AsyncDexDevTestEnvironment:
             ),
         )
         self._worker_task: asyncio.Task[None] | None = None
-        self.client: AsyncClient | None = None
+        self._client: AsyncClient | None = None
+
+    @property
+    def client(self) -> AsyncClient:
+        if self._client is None:
+            raise RuntimeError("AsyncDexDevTestEnvironment is not entered")
+        return self._client
 
     async def __aenter__(self) -> AsyncDexDevTestEnvironment:
         self._worker_task = asyncio.create_task(self._worker.start())
         await _await_worker(self._worker_port, self._worker_task)
-        self.client = AsyncClient(
+        self._client = AsyncClient(
             self._registry,
             self._cache,
             ClientOptions(self._server_address, self._worker.worker_target),
@@ -69,8 +75,9 @@ class AsyncDexDevTestEnvironment:
         exception: BaseException | None,
         traceback: object,
     ) -> None:
-        if self.client is not None:
-            await self.client.close()
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
         await self._worker.close()
         if self._worker_task is not None:
             try:

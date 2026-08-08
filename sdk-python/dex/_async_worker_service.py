@@ -15,7 +15,7 @@ from typing import TypeVar
 import grpc
 
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
-from dex._grpc_errors import abort_worker_error
+from dex._grpc_errors import async_abort_worker_error
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 
@@ -61,5 +61,5 @@ class AsyncWorkerService(dex_pb2_grpc.WorkerServiceServicer):
             return await invocation()
         except BaseException as error:
             _LOGGER.exception("Python AsyncWorker invocation failed")
-            abort_worker_error(context, error)
+            await async_abort_worker_error(context, error)
             raise RuntimeError("gRPC abort returned unexpectedly") from error
