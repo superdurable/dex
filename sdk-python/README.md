@@ -204,12 +204,17 @@ This project is governed by the [Contributor Covenant v 1.4.1](CODE_OF_CONDUCT.m
 
 ## Publishing to PyPI
 
-1. Bump `version` in `pyproject.toml`, refresh `uv.lock`, and update the `pip install` line above.
-2. Run **Publish Python SDK to PyPI** manually without `publish` to validate all distributions.
-3. Create a GitHub Release with tag `sdk-python/vX.Y.Z` (for example `sdk-python/v0.0.2`).
-4. CI builds and smoke-tests Linux x86_64/ARM64, macOS x86_64/ARM64, and Windows x86_64 wheels, verifies the source distribution, and publishes them with `PYPI_TOKEN`.
+1. Optionally run **Publish Python SDK to PyPI** via workflow_dispatch with a version and
+   `publish=false` to validate all distributions without uploading.
+2. Create a GitHub Release with tag `sdk-python/vX.Y.Z` (for example `sdk-python/v0.1.0`).
+   CI stamps that version into `pyproject.toml` for the build (same idea as the TypeScript
+   SDK release), then builds and smoke-tests Linux x86_64/ARM64, macOS x86_64/ARM64, and
+   Windows x86_64 wheels, verifies the source distribution, and publishes with `PYPI_TOKEN`.
+3. After publishing, bump the committed `pyproject.toml` / docs install line when you want
+   the repo tip to reflect the released version.
 
-A manual run publishes only from `main`, when its version matches `pyproject.toml` and `publish` is explicitly selected.
+A manual run publishes only from `main`, and only when `publish` is explicitly selected.
+The dispatch `version` input is stamped the same way as a release tag.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo tag conventions.
 
