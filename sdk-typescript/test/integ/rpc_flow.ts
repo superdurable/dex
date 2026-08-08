@@ -98,7 +98,8 @@ export class RpcFlow implements Flow<number> {
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
-  public functionOne(context: Context, input: string): RPCResult<number> {
+  public async functionOne(context: Context, input: string): Promise<RPCResult<number>> {
+    await Promise.resolve();
     this.requireContext(context);
     this.data.set(context, undefined);
     this.data.set(context, input);
@@ -109,7 +110,8 @@ export class RpcFlow implements Flow<number> {
   }
 
   @rpc({ outputCodec: doubleCodec })
-  public functionZero(_context: Context): RPCResult<number> {
+  public async functionZero(_context: Context): Promise<RPCResult<number>> {
+    await Promise.resolve();
     this.requireContext(_context);
     this.data.set(_context, RpcFlow.HARDCODED_VALUE);
     this.keyword.set(_context, RpcFlow.HARDCODED_VALUE);

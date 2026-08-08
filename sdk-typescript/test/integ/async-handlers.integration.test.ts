@@ -18,6 +18,10 @@ import {
   AsyncWaitForFlow,
 } from "./async_handlers_flows.js";
 import { flowId, withEnvironment } from "./environment.js";
+import {
+  MixedSyncAsyncStepsFlow,
+  MixedSyncStepAsyncRpcFlow,
+} from "./mixed_sync_async_flow.js";
 
 // A synchronous Step could not await the child; that these pass on a single Worker
 // proves the async handler yields the event loop so the same Worker serves the child.
@@ -53,5 +57,27 @@ test("Step waitFor may resolve a Wait asynchronously", async () => {
     const id = flowId("async-waitfor");
     await client.startFlow(flow, id, "done");
     assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "done");
+  });
+});
+
+test("sync and async Step handlers compose across movements", async () => {
+  const flow = new MixedSyncAsyncStepsFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("mixed-sync-async-steps");
+    await client.startFlow(flow, id, "mix");
+    assert.equal(
+      await client.waitForFlow(id, stringCodec, 30_000),
+      "mix-async-exec-sync-exec-done",
+    );
+  });
+});
+
+test("async RPC wakes a synchronous waiting Step on the same Worker", async () => {
+  const flow = new MixedSyncStepAsyncRpcFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("mixed-sync-async-rpc");
+    await client.startFlow(flow, id, "payload");
+    assert.equal(await client.invokeRPC(flow.wake, id, "rpc"), "woke:rpc");
+    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "payload");
   });
 });

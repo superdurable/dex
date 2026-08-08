@@ -31,3 +31,5 @@ Full integration verification:
 - Attribute-map locks retain the instance through
   `items.lock("order-1")`.
 - Client methods return Promise because blocking the Node event loop is unsafe.
+- Step / waitFor / RPC handlers may be sync or async; several ported fixtures and
+  `mixed_sync_async_flow.ts` exercise both styles on one Worker.

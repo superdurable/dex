@@ -143,27 +143,30 @@ export class Client {
   }
 
   public invokeRPC<Input, Output>(
-    rpcMethod: (context: Context, input: Input) => RPCResult<Output>,
+    rpcMethod: (
+      context: Context,
+      input: Input,
+    ) => RPCResult<Output> | Promise<RPCResult<Output>>,
     flowId: string,
     input: Input,
     runId?: string,
   ): Promise<Output>;
 
   public invokeRPC<Output>(
-    rpcMethod: (context: Context) => RPCResult<Output>,
+    rpcMethod: (context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>,
     flowId: string,
     runId?: string,
   ): Promise<Output>;
 
   public invokeRPC<Input>(
-    rpcMethod: (context: Context, input: Input) => void,
+    rpcMethod: (context: Context, input: Input) => void | Promise<void>,
     flowId: string,
     input: Input,
     runId?: string,
   ): Promise<void>;
 
   public invokeRPC(
-    rpcMethod: (context: Context) => void,
+    rpcMethod: (context: Context) => void | Promise<void>,
     flowId: string,
     runId?: string,
   ): Promise<void>;
