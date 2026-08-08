@@ -178,10 +178,16 @@ class Registry:
         self,
         flows: Sequence[Flow[Any]],
         codec_registry: CodecRegistry | None = None,
+        *,
+        allow_async_handlers: bool = False,
     ) -> None:
         immutable_flows = tuple(flows)
         resolved_codecs = codec_registry or CodecRegistry()
-        registered_flows = self._assemble(immutable_flows, resolved_codecs)
+        registered_flows = self._assemble(
+            immutable_flows,
+            resolved_codecs,
+            allow_async_handlers=allow_async_handlers,
+        )
         registered_steps = tuple(
             step
             for registered_flow in registered_flows.values()
@@ -204,7 +210,10 @@ class Registry:
 
     @staticmethod
     def _assemble(
-        flows: tuple[Flow[Any], ...], codec_registry: CodecRegistry
+        flows: tuple[Flow[Any], ...],
+        codec_registry: CodecRegistry,
+        *,
+        allow_async_handlers: bool,
     ) -> dict[str, _RegisteredFlow]:
         registered_flows: dict[str, _RegisteredFlow] = {}
         for flow in flows:
@@ -218,6 +227,7 @@ class Registry:
                 flow_name,
                 flow,
                 codec_registry,
+                allow_async_handlers=allow_async_handlers,
             )
         return registered_flows
 
@@ -226,6 +236,8 @@ class Registry:
         flow_name: str,
         flow: Flow[Any],
         codec_registry: CodecRegistry,
+        *,
+        allow_async_handlers: bool,
     ) -> _RegisteredFlow:
         definitions = flow.get_steps()
         if not isinstance(definitions, StepList):
@@ -246,7 +258,11 @@ class Registry:
             registered_step = _RegisteredStep(
                 step_name,
                 step,
-                Registry._step_input_codec(step, codec_registry),
+                Registry._step_input_codec(
+                    step,
+                    codec_registry,
+                    allow_async_handlers=allow_async_handlers,
+                ),
                 definition.is_start_step,
                 type(step).wait_for is Step.wait_for,
             )
@@ -270,7 +286,11 @@ class Registry:
             if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             Registry._validate_rpc_locks(rpc_name, options, schema)
-            input_codec, output_codec = Registry._rpc_codecs(method, codec_registry)
+            input_codec, output_codec = Registry._rpc_codecs(
+                method,
+                codec_registry,
+                allow_async_handlers=allow_async_handlers,
+            )
             registered_rpcs[rpc_name] = _RegisteredRPC(
                 rpc_name,
                 method,
@@ -329,12 +349,18 @@ class Registry:
             lock_identities.add(identity)
 
     @staticmethod
-    def _step_input_codec(step: Step[Any], codec_registry: CodecRegistry) -> Codec[Any]:
+    def _step_input_codec(
+        step: Step[Any],
+        codec_registry: CodecRegistry,
+        *,
+        allow_async_handlers: bool,
+    ) -> Codec[Any]:
         input_type = Registry._step_handler_input_type(
             step,
             "execute",
             step.execute,
             StepDecision,
+            allow_async_handlers=allow_async_handlers,
         )
         if type(step).wait_for is not Step.wait_for:
             wait_input_type = Registry._step_handler_input_type(
@@ -342,6 +368,7 @@ class Registry:
                 "wait_for",
                 step.wait_for,
                 Wait,
+                allow_async_handlers=allow_async_handlers,
             )
             if wait_input_type != input_type:
                 raise TypeError(
@@ -355,8 +382,10 @@ class Registry:
         handler_name: str,
         handler: Callable[..., Any],
         return_type: type[Any],
+        *,
+        allow_async_handlers: bool,
     ) -> Any:
-        if iscoroutinefunction(handler):
+        if iscoroutinefunction(handler) and not allow_async_handlers:
             raise TypeError(
                 f"Step {step.get_step_type()} {handler_name} must be synchronous"
             )
@@ -385,9 +414,12 @@ class Registry:
 
     @staticmethod
     def _rpc_codecs(
-        method: Callable[..., Any], codec_registry: CodecRegistry
+        method: Callable[..., Any],
+        codec_registry: CodecRegistry,
+        *,
+        allow_async_handlers: bool,
     ) -> tuple[Codec[Any] | None, Codec[Any] | None]:
-        if iscoroutinefunction(method):
+        if iscoroutinefunction(method) and not allow_async_handlers:
             raise TypeError("RPC must be synchronous")
         parameters = tuple(signature(method).parameters.values())
         hints = get_type_hints(method)

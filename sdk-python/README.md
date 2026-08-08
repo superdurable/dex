@@ -89,8 +89,10 @@ Applications implement two generic interfaces from [`dex`](dex/):
   `.other_steps(...)`, from one `get_steps()` method. The `StepList` generic
   binds the Flow input to the starting Step input. Use `StepList.empty()` when
   a Flow has no Steps.
-- `Step[INPUT]` implements synchronous `execute` and optionally synchronous
-  `wait_for`.
+- `Step[INPUT]` implements `execute` and optionally `wait_for`. The default
+  Worker path requires synchronous handlers. With `AsyncWorker` and
+  `Registry(..., allow_async_handlers=True)`, handlers may be `async def` and
+  `await` an `AsyncClient`.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
@@ -99,6 +101,18 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
+### Sync vs asyncio
+
+- **Sync (default):** `Client` and `Worker` use blocking gRPC and a thread-pool
+  Worker. Blocking `Client` calls inside `Step.execute` are safe (one pool
+  thread is occupied; other RPCs still run).
+- **Asyncio:** `AsyncClient` and `AsyncWorker` use `grpc.aio`. Use
+  `Registry(..., allow_async_handlers=True)` when Steps/RPCs are coroutines.
+  Inside async `execute`, inject `AsyncClient` — do not call sync `Client` on
+  the Worker event loop. Sync `Worker` still rejects coroutine handlers at
+  registry construction unless `allow_async_handlers=True` (and even then the
+  sync Worker dispatcher rejects awaitable return values).
+
 Integration scenarios live under
 [`tests/integ`](tests/integ/README.md). They exercise the same workflows,
 client operations, and assertions as the Java suite against an isolated
@@ -106,9 +120,11 @@ client operations, and assertions as the Java suite against an isolated
 
 ## Implementation status
 
-The strongly typed contracts, registry, synchronous Client, Worker gRPC
-service, and Rust-backed BlobCache are implemented. Python owns its gRPC
-transport; the native bridge is limited to the shared BlobCache.
+The strongly typed contracts, registry, synchronous Client/Worker, optional
+`AsyncClient`/`AsyncWorker` (`grpc.aio`), and Rust-backed BlobCache are
+implemented. Python owns its gRPC transport; the native bridge is limited to
+the shared BlobCache. Design notes:
+[`docs/design/plan/python-sdk-async-apis.md`](../docs/design/plan/python-sdk-async-apis.md).
 
 ## Running dex-server locally
 

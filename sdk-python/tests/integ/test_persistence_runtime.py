@@ -16,7 +16,7 @@ from .basic_persistence_flow import BasicPersistenceFlow
 from .environment import DexDevTestEnvironment
 from .set_attributes_flow import SetAttributesFlow
 from .shared import ModelInput
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 

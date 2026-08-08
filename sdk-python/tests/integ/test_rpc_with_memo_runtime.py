@@ -8,14 +8,16 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
+from datetime import timedelta
 from typing import cast
 
 from dex import StopFlowOptions, StopType
 
 from .environment import DexDevTestEnvironment
 from .rpc_flow import RpcFlow
-from .test_basic_runtime import unique_id
-from .test_rpc_runtime import assert_rpc_completion
+from .shared import unique_id
+
+WAIT_TIMEOUT = timedelta(seconds=30)
 
 
 def test_rpc_memo_function_one() -> None:
@@ -86,3 +88,15 @@ def start_flow(
     flow_id = unique_id(prefix)
     environment.client.start_flow(flow, flow_id, 999)
     return flow_id
+
+
+def assert_rpc_completion(
+    environment: DexDevTestEnvironment,
+    flow: RpcFlow,
+    flow_id: str,
+    expected_value: str,
+) -> None:
+    assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+    assert environment.client.get_attribute(flow_id, flow.data) == expected_value
+    assert environment.client.get_attribute(flow_id, flow.keyword) == expected_value
+    assert environment.client.get_attribute(flow_id, flow.integer) == RpcFlow.RPC_OUTPUT
