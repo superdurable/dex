@@ -62,6 +62,33 @@ Flows without a start input.
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two
 handler calls. Timer and channel conditions determine how long a Step waits.
 
+### Async handlers
+
+`Step.execute`, `Step.waitFor`, and RPC methods may be `async` and return a
+`Promise` of their result. Because the Worker runs on Node's single event loop,
+an async handler that `await`s `Client` calls (`startFlow`, `waitForFlow`,
+`invokeRPC`, ...) yields the loop, so the **same** Worker keeps serving other
+WorkerService calls — including the child Flow or RPC you just started. One
+Worker is enough; no sidecar Worker is needed.
+
+```ts
+async execute(context: Context, childId: string): Promise<StepDecision> {
+  await client.startFlow(childFlow, childId, input);
+  const output = await client.waitForFlow(childId, stringCodec, 5_000);
+  return gracefulComplete(output);
+}
+```
+
+Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
+`RPCResult` needs no change. Two rules keep the loop healthy:
+
+- Never block the event loop from a handler (`Atomics.wait`,
+  `child_process.spawnSync`). That freezes the Worker and defeats the point.
+- A long `await client.waitForFlow(...)` holds the current WorkerService call
+  until it resolves or times out. Prefer a short timeout plus Step retry (or a
+  timer-backed re-check) over one unbounded poll. `executeMethodTimeoutMs` /
+  `waitForMethodTimeoutMs` clock the full async handler duration.
+
 Every TypeScript Flow and Step must return an explicit durable name from
 `getFlowType()` or `getStepType()`. Class names are never used as fallbacks
 because bundlers and minifiers may rename them.
