@@ -10,7 +10,7 @@
 
 import asyncio
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -68,9 +68,7 @@ async def _basic_workflow_abnormal_exit_reuse() -> None:
         options = StartFlowOptions(
             id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED
         )
-        failed_run = await environment.client.start_flow(
-            abnormal, flow_id, 0, options
-        )
+        failed_run = await environment.client.start_flow(abnormal, flow_id, 0, options)
         with pytest.raises(FlowUncompletedError) as captured:
             await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
         assert captured.value.run_id == failed_run
@@ -88,7 +86,9 @@ async def _empty_input_workflow() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("empty-input")
         await environment.client.start_flow(flow, flow_id, None)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) is None
+        assert (
+            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) is None
+        )
         with pytest.raises(DexException) as captured:
             await environment.client.wait_for_flow(
                 unique_id("missing"), int, timedelta(seconds=1)
@@ -106,10 +106,12 @@ async def _custom_flow_type() -> None:
         flow_id = unique_id("type-specified")
         assert flow.get_flow_type() == "test-customized-flow-type"
         await environment.client.start_flow(flow, flow_id, None)
-        assert (
-            await environment.client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
-            is None
+        completed = await environment.client.wait_for_flow(
+            flow_id,
+            cast(type[Any], type(None)),
+            WAIT_TIMEOUT,
         )
+        assert completed is None
         with pytest.raises(ValueError, match="Flow instance is not registered"):
             await environment.client.start_flow(
                 EmptyInputFlow(), unique_id("unregistered"), None

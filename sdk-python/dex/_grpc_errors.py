@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import grpc
 from google.protobuf import any_pb2
@@ -49,7 +49,7 @@ def abort_worker_error(
 
 
 async def async_abort_worker_error(
-    context: grpc.aio.ServicerContext,
+    context: grpc.aio.ServicerContext[Any, Any],
     error: BaseException,
 ) -> None:
     await context.abort_with_status(rpc_status.to_status(_worker_error_status(error)))

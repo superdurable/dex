@@ -10,7 +10,7 @@
 
 import asyncio
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 import grpc
 import pytest
@@ -72,10 +72,12 @@ async def _dead_end_flow_can_be_completed_from_rpc() -> None:
             await environment.client.invoke_rpc(flow.invoke, flow_id, "rpc-input")
             == 100
         )
-        assert (
-            await environment.client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
-            is None
+        completed = await environment.client.wait_for_flow(
+            flow_id,
+            cast(type[Any], type(None)),
+            WAIT_TIMEOUT,
         )
+        assert completed is None
 
 
 def test_locking_rpc_serializes_successful_updates() -> None:
@@ -100,7 +102,9 @@ async def _locking_rpc_serializes_successful_updates() -> None:
         results = await asyncio.gather(*(increase() for _ in range(100)))
         succeeded = sum(results)
         assert succeeded > 0
-        assert await environment.client.invoke_rpc(flow.get_counter, flow_id) == succeeded
+        assert (
+            await environment.client.invoke_rpc(flow.get_counter, flow_id) == succeeded
+        )
         await environment.client.stop_flow(flow_id)
 
 
@@ -131,9 +135,7 @@ def test_rpc_functions_and_procedures(
     argument: str | None,
     expected_value: str,
 ) -> None:
-    asyncio.run(
-        _rpc_functions_and_procedures(method_name, argument, expected_value)
-    )
+    asyncio.run(_rpc_functions_and_procedures(method_name, argument, expected_value))
 
 
 async def _rpc_functions_and_procedures(
@@ -154,7 +156,7 @@ async def _rpc_functions_and_procedures(
             assert output == RpcFlow.RPC_OUTPUT
         else:
             assert output is None
-        await assert_rpc_completion(environment, flow, flow_id, expected_value)
+        await assert_async_rpc_completion(environment, flow, flow_id, expected_value)
 
 
 def test_rpc_attribute_round_trip_and_read_only_call() -> None:
@@ -167,7 +169,9 @@ async def _rpc_attribute_round_trip_and_read_only_call() -> None:
         flow_id = unique_id("rpc-read-only")
         await environment.client.start_flow(flow, flow_id, 999)
         await environment.client.invoke_rpc(flow.set_data, flow_id, "test-value")
-        assert await environment.client.invoke_rpc(flow.get_data, flow_id) == "test-value"
+        assert (
+            await environment.client.invoke_rpc(flow.get_data, flow_id) == "test-value"
+        )
         await environment.client.invoke_rpc(flow.set_data, flow_id, cast(str, None))
         assert await environment.client.invoke_rpc(flow.get_data, flow_id) is None
         await environment.client.invoke_rpc(flow.set_keyword, flow_id, "test-value")
@@ -222,7 +226,7 @@ async def _rpc_channel_size_info() -> None:
         await environment.client.stop_flow(flow_id)
 
 
-async def assert_rpc_completion(
+async def assert_async_rpc_completion(
     environment: AsyncDexDevTestEnvironment,
     flow: RpcFlow,
     flow_id: str,

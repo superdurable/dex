@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Callable
 
 from dex import (
+    AsyncClient,
     Context,
     Flow,
     PersistenceSchema,
@@ -39,9 +40,7 @@ async def _async_client_basic_workflow() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("async-basic")
         await environment.client.start_flow(flow, flow_id, 0)
-        assert (
-            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
-        )
+        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
 
 
 def test_async_client_concurrent_start_and_wait() -> None:
@@ -79,18 +78,16 @@ async def _async_worker_async_execute_starts_child() -> None:
         client_holder["client"] = environment.client
         flow_id = unique_id("async-parent")
         await environment.client.start_flow(parent, flow_id, 1)
-        assert (
-            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 1
-        )
+        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 1
 
 
-client_holder: dict[str, object] = {}
+client_holder: dict[str, AsyncClient] = {}
 
 
 class StartChild(Step[int]):
     def __init__(
         self,
-        client_provider: Callable[[], object],
+        client_provider: Callable[[], AsyncClient],
         child: BasicFlow,
         finish: Finish,
     ) -> None:
@@ -98,12 +95,14 @@ class StartChild(Step[int]):
         self._child = child
         self._finish = finish
 
-    async def execute(self, context: Context, input: int) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
         del context
         client = self._client_provider()
         child_id = unique_id("async-child")
-        await client.start_flow(self._child, child_id, 0)  # type: ignore[union-attr]
-        await client.wait_for_flow(child_id, int, WAIT_TIMEOUT)  # type: ignore[union-attr]
+        await client.start_flow(self._child, child_id, 0)
+        await client.wait_for_flow(child_id, int, WAIT_TIMEOUT)
         return go_to(self._finish, input)
 
 
@@ -116,7 +115,7 @@ class Finish(Step[int]):
 class ParentStartsChildFlow(Flow[int]):
     def __init__(
         self,
-        client_provider: Callable[[], object],
+        client_provider: Callable[[], AsyncClient],
         child: BasicFlow,
     ) -> None:
         self.finish = Finish()
