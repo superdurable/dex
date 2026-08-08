@@ -23,6 +23,7 @@ import { Client, Worker, openBlobCache } from "@superdurable/dex";
 import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
+import { createDatasetDealRouter } from "./controller/dataset-deal-controller.js";
 import { createEngagementRouter } from "./controller/engagement-workflow-controller.js";
 import { createJobPostRouter } from "./controller/job-post-controller.js";
 import { createMicroserviceRouter } from "./controller/microservice-workflow-controller.js";
@@ -82,6 +83,7 @@ export async function startSampleServer(): Promise<SampleServer> {
 
   const app = express();
   app.use(express.json());
+  app.use("/dataset-deal", createDatasetDealRouter(client));
   app.use("/moneytransfer", createMoneyTransferRouter(client));
   app.use("/microservice", createMicroserviceRouter(client));
   app.use("/engagement", createEngagementRouter(client));

@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { Client, Registry, Worker, openBlobCache, type Flow } from "@superdurable/dex";
 
 import { HOUR_MS } from "../../src/config/env.js";
+import { datasetDealFlow } from "../../src/workflow/datasetdeal/dataset-deal-flow.js";
 import { engagementFlow } from "../../src/workflow/engagement/engagement-flow.js";
 import { orchestrationFlow } from "../../src/workflow/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/workflow/money/transfer/money-transfer-flow.js";
@@ -31,6 +32,7 @@ import { subscriptionFlow } from "../../src/workflow/subscription/subscription-f
 
 export interface IntegEnvironment {
   readonly client: Client;
+  readonly datasetDealFlow: typeof datasetDealFlow;
   readonly moneyTransferFlow: typeof moneyTransferFlow;
   readonly engagementFlow: typeof engagementFlow;
   readonly orchestrationFlow: typeof orchestrationFlow;
@@ -63,6 +65,7 @@ export async function releaseIntegEnvironment(): Promise<void> {
 async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
   const flows: readonly Flow<any>[] = [
+    datasetDealFlow,
     moneyTransferFlow,
     engagementFlow,
     orchestrationFlow,
@@ -86,6 +89,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   });
   return {
     client,
+    datasetDealFlow,
     moneyTransferFlow,
     engagementFlow,
     orchestrationFlow,

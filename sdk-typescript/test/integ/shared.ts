@@ -19,6 +19,7 @@ import {
 
 export interface ModelInput {
   value: number;
+  payload?: string;
 }
 
 export const modelInputCodec = jsonCodec<ModelInput>({
