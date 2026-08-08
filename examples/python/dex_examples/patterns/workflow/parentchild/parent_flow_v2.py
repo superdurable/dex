@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Callable
+from typing import Any, Callable, cast
 
 from dex import (
+    AsyncClient,
     Channel,
-    Client,
     Context,
     DexException,
     ErrorSubStatus,
@@ -51,7 +51,7 @@ MAX_WAIT_SECONDS = 10
 class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         loop_for_next_task_provider: Callable[[], LoopForNextTask],
     ) -> None:
         self.client_provider = client_provider
@@ -61,12 +61,14 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
         del context
         return Wait.any_of(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
 
-    def execute(self, context: Context, input: WaitForChildInput) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: WaitForChildInput
+    ) -> StepDecision:
         del context
         try:
-            self.client_provider().wait_for_flow(
+            await self.client_provider().wait_for_flow(
                 input.child_wf_id,
-                type(None),
+                cast(type[Any], type(None)),
                 timedelta(seconds=max(input.timer_seconds, 1)),
             )
         except LongPollTimeoutError:
@@ -83,7 +85,7 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
 class StartChildWorkflow(Step[int]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         child_flow: ChildFlow,
         await_child_workflow_completion: AwaitChildWorkflowCompletion,
     ) -> None:
@@ -91,11 +93,13 @@ class StartChildWorkflow(Step[int]):
         self.child_flow = child_flow
         self.await_child_workflow_completion = await_child_workflow_completion
 
-    def execute(self, context: Context, input: int) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
         del context
         child_workflow_id = f"child-wf-{input}"
         try:
-            self.client_provider().start_flow(
+            await self.client_provider().start_flow(
                 self.child_flow,
                 child_workflow_id,
                 str(input),
@@ -158,7 +162,7 @@ class ParentFlowV2(Flow[int]):
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         child_flow: ChildFlow,
     ) -> None:
         self.await_child_workflow_completion = AwaitChildWorkflowCompletion(

@@ -18,7 +18,7 @@ import json
 import time
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from dex import (
     DexException,
@@ -27,7 +27,7 @@ from dex import (
     StartFlowOptions,
     StepExecutionId,
 )
-from flask import Blueprint
+from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -61,8 +61,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("design_pattern", __name__, url_prefix="/design-pattern")
 
     @blueprint.get("/polling/start/simple")
-    def start_simple_polling() -> str:
-        return app_state.client.start_flow(
+    async def start_simple_polling() -> str:
+        return await app_state.client.start_flow(
             app_state.simple_polling,
             required_query("workflowId"),
             None,
@@ -70,8 +70,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/polling/start/backoff")
-    def start_backoff_polling() -> str:
-        return app_state.client.start_flow(
+    async def start_backoff_polling() -> str:
+        return await app_state.client.start_flow(
             app_state.backoff_polling,
             required_query("workflowId"),
             None,
@@ -79,8 +79,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/interruptible/start")
-    def start_interruptible() -> str:
-        return app_state.client.start_flow(
+    async def start_interruptible() -> str:
+        return await app_state.client.start_flow(
             app_state.interruptible,
             required_query("workflowId"),
             None,
@@ -88,17 +88,17 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/interruptible/cancel")
-    def cancel_interruptible() -> str:
-        app_state.client.invoke_rpc(
+    async def cancel_interruptible() -> str:
+        await app_state.client.invoke_rpc(
             app_state.interruptible.interrupt,
             required_query("workflowId"),
         )
         return "done"
 
     @blueprint.get("/workflow-with-reminder/start")
-    def start_reminder() -> str:
+    async def start_reminder() -> str:
         flow_id = f"reminder_test_id_{time.time_ns()}"
-        app_state.client.start_flow(
+        await app_state.client.start_flow(
             app_state.reminder,
             flow_id,
             None,
@@ -107,16 +107,16 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return f"started workflowId: {flow_id}"
 
     @blueprint.get("/workflow-with-reminder/accept")
-    def accept_reminder() -> str:
-        app_state.client.invoke_rpc(
+    async def accept_reminder() -> str:
+        await app_state.client.invoke_rpc(
             app_state.reminder.accept,
             required_query("workflowId"),
         )
         return "accepted"
 
     @blueprint.get("/workflow-with-reminder/optout")
-    def opt_out_reminder() -> str:
-        app_state.client.publish(
+    async def opt_out_reminder() -> str:
+        await app_state.client.publish(
             required_query("workflowId"),
             app_state.reminder.opt_out_reminder,
             None,
@@ -124,12 +124,12 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "done"
 
     @blueprint.post("/storage/add")
-    def add_storage_item() -> str:
+    async def add_storage_item() -> str:
         item = AddStorageItemRequest(
-            required_body_field("key"),
-            required_body_field("value"),
+            await required_body_field("key"),
+            await required_body_field("value"),
         )
-        invoke_storage_rpc(
+        await invoke_storage_rpc(
             app_state,
             lambda: app_state.client.invoke_rpc(
                 app_state.storage.add_item,
@@ -140,9 +140,9 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "Added storage item"
 
     @blueprint.get("/storage/get")
-    def get_storage_item() -> str:
+    async def get_storage_item() -> str:
         item_key = required_query("itemKey")
-        item_value = invoke_storage_rpc(
+        item_value = await invoke_storage_rpc(
             app_state,
             lambda: app_state.client.invoke_rpc(
                 app_state.storage.get_item,
@@ -153,9 +153,9 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return f"Item: {item_value}"
 
     @blueprint.post("/storage/remove")
-    def remove_storage_item() -> str:
+    async def remove_storage_item() -> str:
         item_key = required_query("itemKey")
-        invoke_storage_rpc(
+        await invoke_storage_rpc(
             app_state,
             lambda: app_state.client.invoke_rpc(
                 app_state.storage.remove_item,
@@ -166,8 +166,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "Removed storage item"
 
     @blueprint.get("/intervention/start")
-    def start_intervention() -> str:
-        return app_state.client.start_flow(
+    async def start_intervention() -> str:
+        return await app_state.client.start_flow(
             app_state.manual_intervention,
             required_query("workflowId"),
             None,
@@ -175,8 +175,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/resettabletimer/start")
-    def start_resettable_timer() -> str:
-        return app_state.client.start_flow(
+    async def start_resettable_timer() -> str:
+        return await app_state.client.start_flow(
             app_state.resettable_timer,
             required_query("workflowId"),
             None,
@@ -184,16 +184,16 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/resettabletimer/reset")
-    def reset_resettable_timer() -> str:
-        app_state.client.invoke_rpc(
+    async def reset_resettable_timer() -> str:
+        await app_state.client.invoke_rpc(
             app_state.resettable_timer.send_reset_message,
             required_query("workflowId"),
         )
         return "reset"
 
     @blueprint.get("/parallel/start/simple")
-    def start_simple_parallel() -> str:
-        return app_state.client.start_flow(
+    async def start_simple_parallel() -> str:
+        return await app_state.client.start_flow(
             app_state.simple_parallel,
             required_query("workflowId"),
             JobSeeker("123", "jobseeker@indeed.com", "0987654321"),
@@ -201,8 +201,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/parallel/start/withAwait")
-    def start_parallel_with_await() -> str:
-        return app_state.client.start_flow(
+    async def start_parallel_with_await() -> str:
+        return await app_state.client.start_flow(
             app_state.parallel_with_await,
             required_query("workflowId"),
             50,
@@ -210,8 +210,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/recovery/start")
-    def start_recovery() -> str:
-        app_state.client.start_flow(
+    async def start_recovery() -> str:
+        await app_state.client.start_flow(
             app_state.failure_recovery,
             required_query("workflowId"),
             FailureRecoveryWorkflowInput(
@@ -223,8 +223,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "recovery workflow started"
 
     @blueprint.get("/scalableparallel/start")
-    def start_scalable_parallel() -> str:
-        app_state.client.start_flow(
+    async def start_scalable_parallel() -> str:
+        await app_state.client.start_flow(
             app_state.request_receiver,
             required_query("workflowId"),
             required_int_query("numOfChildWfs"),
@@ -233,8 +233,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "success"
 
     @blueprint.get("/parentchild/start")
-    def start_parent_child() -> str:
-        app_state.client.start_flow(
+    async def start_parent_child() -> str:
+        await app_state.client.start_flow(
             app_state.parent_flow_v2,
             required_query("workflowId"),
             required_int_query("numOfChildWfs"),
@@ -243,8 +243,8 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "success"
 
     @blueprint.get("/drainchannels/internal/start")
-    def start_drain_internal_channels() -> str:
-        return app_state.client.start_flow(
+    async def start_drain_internal_channels() -> str:
+        return await app_state.client.start_flow(
             app_state.drain_internal,
             required_query("workflowId"),
             "start-input",
@@ -252,10 +252,10 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     @blueprint.get("/drainchannels/signal/startorsignal")
-    def start_or_signal_drain_signal_channels() -> str:
+    async def start_or_signal_drain_signal_channels() -> str:
         flow_id = required_query("workflowId")
         try:
-            app_state.client.publish(
+            await app_state.client.publish(
                 flow_id,
                 app_state.drain_signal.queue_signal_channel,
                 "signal from startorsignal endpoint",
@@ -263,7 +263,7 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         except DexException as error:
             if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
                 raise
-            run_id = app_state.client.start_flow(
+            run_id = await app_state.client.start_flow(
                 app_state.drain_signal,
                 flow_id,
                 "first message from start",
@@ -273,20 +273,20 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return "Signaled the workflow"
 
     @blueprint.get("/waitforstatecompletion/start")
-    def start_wait_for_state_completion() -> str:
+    async def start_wait_for_state_completion() -> str:
         flow_id = required_query("workflowId")
-        app_state.client.start_flow(
+        await app_state.client.start_flow(
             app_state.wait_for_state_completion,
             flow_id,
             JobSeekerData(1),
             start_options(),
         )
-        app_state.client.wait_for_step_completion(
+        await app_state.client.wait_for_step_completion(
             flow_id,
             PERSIST_DATA_STEP,
             PERSIST_DATA_TIMEOUT,
         )
-        persisted = app_state.client.invoke_rpc(
+        persisted = await app_state.client.invoke_rpc(
             app_state.wait_for_state_completion.get_job_seeker_data,
             flow_id,
         )
@@ -294,9 +294,9 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return f"success for workflow {flow_id} with data {payload}"
 
     @blueprint.get("/timeout/start")
-    def start_timeout() -> str:
+    async def start_timeout() -> str:
         flow_id = required_query("workflowId")
-        app_state.client.start_flow(
+        await app_state.client.start_flow(
             app_state.timeout,
             flow_id,
             optional_query("successfulWorkflow", "true").lower() == "true",
@@ -307,17 +307,19 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
     return blueprint
 
 
-def invoke_storage_rpc(app_state: ExampleApp, invoke: Callable[[], Any]) -> Any:
+async def invoke_storage_rpc(
+    app_state: ExampleApp, invoke: Callable[[], Awaitable[Any]]
+) -> Any:
     """Returns the RPC result, starting the singleton storage Flow on first use."""
     try:
-        return invoke()
+        return await invoke()
     except DexException as error:
         if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
             raise
-    app_state.client.start_flow(
+    await app_state.client.start_flow(
         app_state.storage,
         STORAGE_FLOW_ID,
         None,
         start_options(),
     )
-    return invoke()
+    return await invoke()

@@ -24,10 +24,10 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
+    AsyncClient,
     Attribute,
     Channel,
     ChannelMap,
-    Client,
     Context,
     DexException,
     ErrorSubStatus,
@@ -71,7 +71,7 @@ class MoveToAnotherInstance(Step[None]):
 class LoopForNextRequest(Step[None]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         processing_flow_provider: Callable[[], ProcessingFlow],
         move_to_another_instance: MoveToAnotherInstance,
         request_queue: Channel[Request],
@@ -97,13 +97,15 @@ class LoopForNextRequest(Step[None]):
             conditions.insert(0, self.request_queue.for_one())
         return Wait.any_of(*conditions)
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: None
+    ) -> StepDecision:
         del input
         waiting = list(self.current_wait_child_wfs.get(context) or [])
 
         requests = self.request_queue.results(context)
         if requests:
-            started = self.start_child_flow(context, requests[0])
+            started = await self.start_child_flow(context, requests[0])
             if started is not None:
                 waiting.append(started)
 
@@ -123,12 +125,12 @@ class LoopForNextRequest(Step[None]):
             )
         return go_to(self, None)
 
-    def start_child_flow(self, context: Context, request: Request) -> str | None:
+    async def start_child_flow(self, context: Context, request: Request) -> str | None:
         """Returns the child Flow ID to wait for, or None when another run owns it."""
         processing_flow = self.processing_flow_provider()
         child_flow_id = f"processing-{request.id}"
         try:
-            self.client_provider().start_flow(
+            await self.client_provider().start_flow(
                 processing_flow,
                 child_flow_id,
                 request,
@@ -184,7 +186,7 @@ class ControllerFlow(Flow[Request]):
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         processing_flow_provider: Callable[[], ProcessingFlow],
     ) -> None:
         self.move_to_another_instance = MoveToAnotherInstance()

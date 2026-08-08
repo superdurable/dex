@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import Client
+from dex import AsyncClient
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -27,16 +27,16 @@ from tests.integ.conftest import WAIT_TIMEOUT
 pytestmark = pytest.mark.integ
 
 
-def test_money_transfer_completes_the_saga(
+async def test_money_transfer_completes_the_saga(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("money-transfer")
     request = TransferRequest("from-account", "to-account", 100, "test-notes")
 
-    client.start_flow(app.money_transfer, flow_id, request, start_options())
-    output = client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+    await client.start_flow(app.money_transfer, flow_id, request, start_options())
+    output = await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
 
     assert "transfer is done" in output
     assert "from from-account to to-account for amount 100" in output

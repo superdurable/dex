@@ -19,8 +19,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
+    AsyncClient,
     Attribute,
-    Client,
     Context,
     DexException,
     ErrorSubStatus,
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 class Processing(Step[str]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         parent_flow_provider: Callable[[], ParentFlow],
         parent_workflow_id: Attribute[str],
     ) -> None:
@@ -53,7 +53,9 @@ class Processing(Step[str]):
         del context, input
         return Wait.any_of(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
 
-    def execute(self, context: Context, input: str) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: str
+    ) -> StepDecision:
         del input
         try:
             parent_id = self.parent_workflow_id.get(context)
@@ -62,7 +64,7 @@ class Processing(Step[str]):
             parent_id = ""
         if parent_id:
             try:
-                self.client_provider().invoke_rpc(
+                await self.client_provider().invoke_rpc(
                     self.parent_flow_provider().complete_child_workflow,
                     parent_id,
                     context.flow_id,
@@ -84,7 +86,7 @@ class ChildFlow(Flow[str]):
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         parent_flow_provider: Callable[[], ParentFlow],
     ) -> None:
         self.processing = Processing(

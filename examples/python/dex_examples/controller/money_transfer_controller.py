@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response
+from quart import Blueprint, Response
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -32,7 +32,7 @@ def create_money_transfer_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("money_transfer", __name__, url_prefix="/moneytransfer")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         request = TransferRequest(
             required_query("fromAccount"),
             required_query("toAccount"),
@@ -40,7 +40,7 @@ def create_money_transfer_blueprint(app_state: ExampleApp) -> Blueprint:
             optional_query("notes", ""),
         )
         flow_id = new_flow_id("money-transfer")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.money_transfer,
             flow_id,
             request,

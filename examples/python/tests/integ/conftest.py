@@ -21,14 +21,16 @@ unreachable the whole package is skipped instead of failing.
 
 from __future__ import annotations
 
+import asyncio
 import os
-import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
-from typing import Any, Callable, Iterator
+from typing import Any
 from uuid import uuid4
 
 import pytest
-from dex import Attribute, Client, DexException, ErrorSubStatus, FlowStatus
+import pytest_asyncio
+from dex import AsyncClient, Attribute, DexException, ErrorSubStatus, FlowStatus
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
@@ -47,8 +49,10 @@ def server_address() -> str:
     return os.environ.get("DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS)
 
 
-@pytest.fixture(scope="session")
-def example_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ExampleApp]:
+@pytest_asyncio.fixture(scope="session")
+async def example_app(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> AsyncIterator[ExampleApp]:
     """Boots one ExampleApp with every Flow on an ephemeral Worker port."""
     config = ExamplesConfig(
         server_address=server_address(),
@@ -60,9 +64,9 @@ def example_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ExampleApp
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
     )
     app = ExampleApp(config)
-    app.start_worker()
-    if not server_is_ready(app.client):
-        app.close()
+    await app.start_worker()
+    if not await server_is_ready(app.client):
+        await app.close()
         pytest.skip(
             "no Dex server at "
             f"{config.server_address}; set DEX_FLOW_SERVICE_ADDRESS to a running "
@@ -71,16 +75,16 @@ def example_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ExampleApp
     try:
         yield app
     finally:
-        app.close()
+        await app.close()
 
 
-@pytest.fixture(scope="session")
-def app(example_app: ExampleApp) -> ExampleApp:
+@pytest_asyncio.fixture(scope="session")
+async def app(example_app: ExampleApp) -> ExampleApp:
     return example_app
 
 
-@pytest.fixture(scope="session")
-def client(example_app: ExampleApp) -> Client:
+@pytest_asyncio.fixture(scope="session")
+async def client(example_app: ExampleApp) -> AsyncClient:
     return example_app.client
 
 
@@ -94,72 +98,80 @@ def new_flow_id() -> Callable[[str], str]:
     return make
 
 
-def server_is_ready(client: Client) -> bool:
-    deadline = time.monotonic() + SERVER_READY_TIMEOUT.total_seconds()
-    while time.monotonic() < deadline:
+async def server_is_ready(client: AsyncClient) -> bool:
+    deadline = asyncio.get_running_loop().time() + SERVER_READY_TIMEOUT.total_seconds()
+    while asyncio.get_running_loop().time() < deadline:
         try:
-            return client.health_check()
+            return await client.health_check()
         except DexException:
-            time.sleep(POLL_INTERVAL_SECONDS)
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
     return False
 
 
-def wait_until(
+async def wait_until(
     description: str,
-    predicate: Callable[[], Any],
+    predicate: Callable[[], Awaitable[Any]],
     timeout: timedelta = WAIT_TIMEOUT,
 ) -> Any:
     """Returns the first truthy value from predicate, or fails the test."""
-    deadline = time.monotonic() + timeout.total_seconds()
+    deadline = asyncio.get_running_loop().time() + timeout.total_seconds()
     while True:
-        value = predicate()
+        value = await predicate()
         if value:
             return value
-        if time.monotonic() >= deadline:
+        if asyncio.get_running_loop().time() >= deadline:
             raise AssertionError(f"timed out waiting for {description}")
-        time.sleep(POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
-def wait_for_attribute(
-    client: Client,
+async def wait_for_attribute(
+    client: AsyncClient,
     flow_id: str,
     attribute: Attribute[Any],
     timeout: timedelta = WAIT_TIMEOUT,
 ) -> Any:
     """Returns the Attribute value once the Flow has written something to it."""
-    return wait_until(
+    return await wait_until(
         f"attribute {attribute.name} on {flow_id}",
         lambda: attribute_or_none(client, flow_id, attribute),
         timeout,
     )
 
 
-def attribute_or_none(client: Client, flow_id: str, attribute: Attribute[Any]) -> Any:
+async def attribute_or_none(
+    client: AsyncClient, flow_id: str, attribute: Attribute[Any]
+) -> Any:
     try:
-        return client.get_attribute(flow_id, attribute)
+        return await client.get_attribute(flow_id, attribute)
     except DexException as error:
         if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
             return None
         raise
 
 
-def flow_status_or_none(client: Client, flow_id: str) -> FlowStatus | None:
+async def flow_status_or_none(client: AsyncClient, flow_id: str) -> FlowStatus | None:
     try:
-        return client.describe_flow(flow_id).status
+        return (await client.describe_flow(flow_id)).status
     except DexException as error:
         if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
             return None
         raise
 
 
-def wait_for_flow_status(
-    client: Client,
+async def wait_for_flow_status(
+    client: AsyncClient,
     flow_id: str,
     status: FlowStatus,
     timeout: timedelta = WAIT_TIMEOUT,
 ) -> None:
-    wait_until(
+    await wait_until(
         f"Flow {flow_id} to reach {status.value}",
-        lambda: flow_status_or_none(client, flow_id) is status,
+        lambda: _status_matches(client, flow_id, status),
         timeout,
     )
+
+
+async def _status_matches(
+    client: AsyncClient, flow_id: str, status: FlowStatus
+) -> bool:
+    return await flow_status_or_none(client, flow_id) is status

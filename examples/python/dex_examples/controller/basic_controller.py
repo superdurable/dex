@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response
+from quart import Blueprint, Response
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -29,9 +29,9 @@ def create_basic_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("basic", __name__, url_prefix="/basic")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         flow_id = required_query("workflowId")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.basic,
             flow_id,
             required_int_query("inputNum"),
@@ -40,16 +40,16 @@ def create_basic_blueprint(app_state: ExampleApp) -> Blueprint:
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/appendString")
-    def append_string() -> str:
-        return app_state.client.invoke_rpc(
+    async def append_string() -> str:
+        return await app_state.client.invoke_rpc(
             app_state.basic.append_string,
             required_query("workflowId"),
             required_query("str"),
         )
 
     @blueprint.get("/approve")
-    def approve() -> str:
-        app_state.client.invoke_rpc(
+    async def approve() -> str:
+        await app_state.client.invoke_rpc(
             app_state.basic.approve,
             required_query("workflowId"),
         )

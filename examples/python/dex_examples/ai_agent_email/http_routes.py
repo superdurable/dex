@@ -19,7 +19,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from dex import StartFlowOptions
-from flask import Blueprint, Response, jsonify, render_template
+from quart import Blueprint, Response, jsonify, render_template
 
 from dex_examples.app import ExampleApp
 from dex_examples.controller.query import optional_query, required_query
@@ -36,12 +36,12 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("ai_agent", __name__)
 
     @blueprint.get("/ai-agent")
-    def index() -> str:
-        return render_template("index.html")
+    async def index() -> str:
+        return await render_template("index.html")
 
     @blueprint.get("/api/ai-agent/start")
-    def start() -> str:
-        app_state.client.start_flow(
+    async def start() -> str:
+        await app_state.client.start_flow(
             app_state.email_agent,
             required_query("workflowId"),
             None,
@@ -50,8 +50,8 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         return "workflow started"
 
     @blueprint.get("/api/ai-agent/request")
-    def send_request() -> str:
-        accepted = app_state.client.invoke_rpc(
+    async def send_request() -> str:
+        accepted = await app_state.client.invoke_rpc(
             app_state.email_agent.send_request,
             required_query("workflowId"),
             required_query("request"),
@@ -59,16 +59,16 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         return str(accepted)
 
     @blueprint.get("/api/ai-agent/describe")
-    def describe() -> Response:
-        details = app_state.client.invoke_rpc(
+    async def describe() -> Response:
+        details = await app_state.client.invoke_rpc(
             app_state.email_agent.describe,
             required_query("workflowId"),
         )
         return jsonify(asdict(details))
 
     @blueprint.get("/api/ai-agent/save_draft")
-    def save_draft() -> str:
-        app_state.client.invoke_rpc(
+    async def save_draft() -> str:
+        await app_state.client.invoke_rpc(
             app_state.email_agent.save_draft,
             required_query("workflowId"),
             optional_query("draft", ""),

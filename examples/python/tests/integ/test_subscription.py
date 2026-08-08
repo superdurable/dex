@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import Client
+from dex import AsyncClient
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -46,68 +46,65 @@ def customer(trial_seconds: int, max_billing_periods: int) -> Customer:
     )
 
 
-def test_subscription_bills_every_period_then_ends(
+async def test_subscription_bills_every_period_then_ends(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("subscription")
-    client.start_flow(app.subscription, flow_id, customer(2, 2), start_options())
+    await client.start_flow(app.subscription, flow_id, customer(2, 2), start_options())
 
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription ended"
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription ended"
 
 
-def test_subscription_describe_returns_the_stored_plan(
+async def test_subscription_describe_returns_the_stored_plan(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("subscription")
-    client.start_flow(
+    await client.start_flow(
         app.subscription,
         flow_id,
         customer(LONG_TRIAL_SECONDS, 10),
         start_options(),
     )
 
-    subscription = wait_until(
+    subscription = await wait_until(
         "Initialize to store the customer",
         lambda: client.invoke_rpc(app.subscription.describe, flow_id),
     )
     assert subscription.trial_period_seconds == LONG_TRIAL_SECONDS
     assert subscription.billing_period_charge == 100
 
-    client.publish(flow_id, app.subscription.cancel_subscription, None)
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+    await client.publish(flow_id, app.subscription.cancel_subscription, None)
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
 
 
-def test_subscription_update_charge_amount(
+async def test_subscription_update_charge_amount(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("subscription")
-    client.start_flow(
+    await client.start_flow(
         app.subscription,
         flow_id,
         customer(LONG_TRIAL_SECONDS, 10),
         start_options(),
     )
 
-    wait_until(
+    await wait_until(
         "Initialize to store the customer",
         lambda: client.invoke_rpc(app.subscription.describe, flow_id),
     )
-    client.publish(flow_id, app.subscription.update_charge_amount, 250)
+    await client.publish(flow_id, app.subscription.update_charge_amount, 250)
 
-    wait_until(
-        "the new charge amount to be applied",
-        lambda: client.invoke_rpc(
-            app.subscription.describe,
-            flow_id,
-        ).billing_period_charge
-        == 250,
-    )
+    async def charge_updated() -> bool:
+        subscription = await client.invoke_rpc(app.subscription.describe, flow_id)
+        return subscription.billing_period_charge == 250
 
-    client.publish(flow_id, app.subscription.cancel_subscription, None)
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+    await wait_until("the new charge amount to be applied", charge_updated)
+
+    await client.publish(flow_id, app.subscription.cancel_subscription, None)
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"

@@ -20,10 +20,10 @@ from datetime import timedelta
 from typing import Callable
 
 from dex import (
+    AsyncClient,
     Attribute,
     Channel,
     ChannelMap,
-    Client,
     Context,
     DexException,
     ErrorSubStatus,
@@ -55,7 +55,7 @@ MAX_BUFFERED_TASKS = 10
 class LoopForNextMessage(Step[None]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         child_flow: ChildFlow,
         task_queue: Channel[str],
         child_complete: ChannelMap[None],
@@ -78,7 +78,9 @@ class LoopForNextMessage(Step[None]):
             conditions.insert(0, self.task_queue.for_one())
         return Wait.any_of(*conditions)
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: None
+    ) -> StepDecision:
         del input
         new_wait_list = list(self.current_wait_child_wfs.get(context) or [])
 
@@ -87,7 +89,7 @@ class LoopForNextMessage(Step[None]):
             request = task_results[0]
             child_workflow_id = f"processing-{request}"
             try:
-                self.client_provider().start_flow(
+                await self.client_provider().start_flow(
                     self.child_flow,
                     child_workflow_id,
                     request,
@@ -148,7 +150,7 @@ class ParentFlow(Flow[BatchEnqueueRequest]):
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         child_flow: ChildFlow,
     ) -> None:
         self.loop_for_next_message = LoopForNextMessage(

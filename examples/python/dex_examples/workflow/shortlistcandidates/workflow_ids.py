@@ -14,7 +14,7 @@
 
 from typing import Callable, Protocol
 
-from dex import Client, DexException, ErrorSubStatus
+from dex import AsyncClient, DexException, ErrorSubStatus
 
 from dex_examples.workflow.shortlistcandidates.employer_opt_in_flow import (
     EmployerOptInFlow,
@@ -30,7 +30,7 @@ def shortlist(employer_id: str, candidate_id: str) -> str:
 
 
 class OptInChecker(Protocol):
-    def is_opted_in(self, employer_id: str) -> bool: ...
+    async def is_opted_in(self, employer_id: str) -> bool: ...
 
 
 class ClientOptInChecker:
@@ -38,16 +38,16 @@ class ClientOptInChecker:
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         opt_in_flow: EmployerOptInFlow,
     ) -> None:
         # A provider defers Client creation, which needs the Registry of all Flows.
         self.client_provider = client_provider
         self.opt_in_flow = opt_in_flow
 
-    def is_opted_in(self, employer_id: str) -> bool:
+    async def is_opted_in(self, employer_id: str) -> bool:
         try:
-            return self.client_provider().invoke_rpc(
+            return await self.client_provider().invoke_rpc(
                 self.opt_in_flow.is_opted_in,
                 employer_opt_in(employer_id),
             )

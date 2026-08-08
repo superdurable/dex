@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -34,9 +34,9 @@ def create_polling_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("polling", __name__, url_prefix="/polling")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         flow_id = required_query("workflowId")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.polling,
             flow_id,
             required_int_query("pollingCompletionThreshold"),
@@ -45,7 +45,7 @@ def create_polling_blueprint(app_state: ExampleApp) -> Blueprint:
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/complete")
-    def complete() -> Response | tuple[Response, int]:
+    async def complete() -> Response | tuple[Response, int]:
         flow_id = required_query("workflowId")
         channel_name = required_query("channel")
         if channel_name == TASK_A_COMPLETED:
@@ -54,7 +54,7 @@ def create_polling_blueprint(app_state: ExampleApp) -> Blueprint:
             channel = app_state.polling.task_b_completed
         else:
             return jsonify({"error": "channel must identify task A or task B"}), 400
-        app_state.client.publish(flow_id, channel, None)
+        await app_state.client.publish(flow_id, channel, None)
         return accepted()
 
     return blueprint

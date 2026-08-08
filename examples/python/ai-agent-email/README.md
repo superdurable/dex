@@ -12,7 +12,7 @@
 ## What it is
 
 The AI Agent Email is a feature-rich application that leverages AI to streamline email composition
-and management. It combines a React frontend with a Flask backend powered by Dex (Indeed Workflow Framework) to
+and management. It combines a React frontend with a Quart backend powered by Dex to
 provide a durable, scalable email assistant.
 
 ### Why Dex?
@@ -128,7 +128,7 @@ To start the application, execute the following command:
 uv run --frozen python ai-agent-email/main.py
 ```
 
-This will launch the Flask application at http://localhost:8802. Open your browser and navigate to this URL to access
+This will launch the Quart application at http://localhost:8802. Open your browser and navigate to this URL to access
 the AI Agent Email interface.
 
 ## Using the Application

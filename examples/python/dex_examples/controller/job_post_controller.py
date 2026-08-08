@@ -19,7 +19,7 @@ from dataclasses import asdict
 from datetime import timedelta
 
 from dex import FlowConfig, StartFlowOptions
-from flask import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.controller.query import optional_query, required_query
@@ -35,7 +35,7 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("job_post", __name__, url_prefix="/jobpost")
 
     @blueprint.get("/create")
-    def create() -> str:
+    async def create() -> str:
         flow = app_state.job_post
         flow_id = f"job_id_{int(time.time())}"
         options = (
@@ -50,25 +50,25 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
             )
             .with_attribute(flow.last_update_time_millis, int(time.time() * 1000))
         )
-        app_state.client.start_flow(flow, flow_id, None, options)
+        await app_state.client.start_flow(flow, flow_id, None, options)
         return f"started workflowId: {flow_id}"
 
     @blueprint.get("/read")
-    def read() -> Response:
-        job_info = app_state.client.invoke_rpc(
+    async def read() -> Response:
+        job_info = await app_state.client.invoke_rpc(
             app_state.job_post.get,
             required_query("workflowId"),
         )
         return jsonify(asdict(job_info))
 
     @blueprint.get("/update")
-    def update() -> str:
+    async def update() -> str:
         job_info = JobInfo(
             unquote(required_query("title")),
             unquote(required_query("description")),
             unquote(optional_query("notes", "test-notes")),
         )
-        app_state.client.invoke_rpc(
+        await app_state.client.invoke_rpc(
             app_state.job_post.update,
             required_query("workflowId"),
             job_info,
@@ -76,8 +76,8 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
         return "updated"
 
     @blueprint.get("/delete")
-    def delete() -> str:
-        app_state.client.stop_flow(required_query("workflowId"))
+    async def delete() -> str:
+        await app_state.client.stop_flow(required_query("workflowId"))
         return "marked as soft deleted, will be delete later after retention"
 
     @blueprint.get("/search")

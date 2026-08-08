@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Runs every Dex Python example behind one Flask app and one Worker."""
+"""Runs every Dex Python example behind one Quart app and one AsyncWorker."""
 
 from __future__ import annotations
+
+import asyncio
 
 from dex import DexException, ErrorSubStatus, StartFlowOptions
 
@@ -26,23 +28,26 @@ CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample"
 CRON_EXPRESSION = "*/1 * * * *"
 
 
-def main() -> None:
+async def main() -> None:
     config = ExamplesConfig.from_env()
     app_state = ExampleApp(config)
-    app_state.start_worker()
-    start_cron_schedule(app_state)
-
-    host, port = parse_http_address(config.http_address)
-    print(
-        f"Dex Python examples listening on http://{config.http_address} "
-        f"(worker {app_state.worker.worker_target.address})"
-    )
-    create_app(app_state).run(host=host, port=port)
-
-
-def start_cron_schedule(app_state: ExampleApp) -> None:
+    await app_state.start_worker()
     try:
-        app_state.client.start_flow(
+        await start_cron_schedule(app_state)
+
+        host, port = parse_http_address(config.http_address)
+        print(
+            f"Dex Python examples listening on http://{config.http_address} "
+            f"(worker {app_state.worker.worker_target.address})"
+        )
+        await create_app(app_state).run_task(host=host, port=port)
+    finally:
+        await app_state.close()
+
+
+async def start_cron_schedule(app_state: ExampleApp) -> None:
+    try:
+        await app_state.client.start_flow(
             app_state.cron_schedule,
             CRON_SCHEDULE_FLOW_ID,
             None,
@@ -62,4 +67,4 @@ def parse_http_address(address: str) -> tuple[str, int]:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

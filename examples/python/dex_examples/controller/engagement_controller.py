@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from flask import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -34,9 +34,9 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("engagement", __name__, url_prefix="/engagement")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         flow_id = new_flow_id("engagement")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.engagement,
             flow_id,
             EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
@@ -45,16 +45,16 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/describe")
-    def describe() -> Response:
-        description = app_state.client.invoke_rpc(
+    async def describe() -> Response:
+        description = await app_state.client.invoke_rpc(
             app_state.engagement.describe,
             required_query("workflowId"),
         )
         return jsonify(asdict(description))
 
     @blueprint.get("/optout")
-    def opt_out() -> Response:
-        app_state.client.publish(
+    async def opt_out() -> Response:
+        await app_state.client.publish(
             required_query("workflowId"),
             app_state.engagement.opt_out_reminder,
             None,
@@ -62,8 +62,8 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
         return accepted()
 
     @blueprint.get("/decline")
-    def decline() -> Response:
-        status = app_state.client.invoke_rpc(
+    async def decline() -> Response:
+        status = await app_state.client.invoke_rpc(
             app_state.engagement.decline,
             required_query("workflowId"),
             optional_query("notes", ""),
@@ -71,8 +71,8 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
         return jsonify(status.value)
 
     @blueprint.get("/accept")
-    def accept() -> Response:
-        status = app_state.client.invoke_rpc(
+    async def accept() -> Response:
+        status = await app_state.client.invoke_rpc(
             app_state.engagement.accept,
             required_query("workflowId"),
             optional_query("notes", ""),

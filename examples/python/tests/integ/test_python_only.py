@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import Client
+from dex import AsyncClient
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -29,57 +29,62 @@ from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 pytestmark = pytest.mark.integ
 
 
-def test_basic_approve_completes(
+async def test_basic_approve_completes(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("basic")
-    client.start_flow(app.basic, flow_id, 5, start_options())
-    appended = client.invoke_rpc(app.basic.append_string, flow_id, "hello")
+    await client.start_flow(app.basic, flow_id, 5, start_options())
+    appended = await client.invoke_rpc(app.basic.append_string, flow_id, "hello")
     assert "hello" in appended
-    client.invoke_rpc(app.basic.approve, flow_id)
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "approved"
+    await client.invoke_rpc(app.basic.approve, flow_id)
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "approved"
 
 
-def test_resourcecontrol_enqueue(
+async def test_resourcecontrol_enqueue(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     controller_id = new_flow_id(SPOT_INSTANCE_IDS[0])
-    client.start_flow(
+    await client.start_flow(
         app.controller,
         controller_id,
         Request("bootstrap", "boot"),
         start_options(),
     )
     request = Request(new_flow_id("req"), "payload")
-    assert client.invoke_rpc(app.controller.enqueue, controller_id, request) is True
-    wait_until(
+    assert await client.invoke_rpc(app.controller.enqueue, controller_id, request) is True
+
+    async def controller_running() -> bool:
+        info = await client.describe_flow(controller_id)
+        return info.flow_id == controller_id
+
+    await wait_until(
         "controller still running after enqueue",
-        lambda: client.describe_flow(controller_id).flow_id == controller_id,
+        controller_running,
         LONG_WAIT_TIMEOUT,
     )
 
 
-def test_ai_agent_email_without_openai(
+async def test_ai_agent_email_without_openai(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("ai-agent")
-    client.start_flow(app.email_agent, flow_id, None, start_options())
+    await client.start_flow(app.email_agent, flow_id, None, start_options())
 
-    def waiting() -> bool:
-        details = client.invoke_rpc(app.email_agent.describe, flow_id)
+    async def waiting() -> bool:
+        details = await client.invoke_rpc(app.email_agent.describe, flow_id)
         return details.status == STATUS_WAITING
 
-    wait_until("email agent waiting", waiting, WAIT_TIMEOUT)
-    assert client.invoke_rpc(
+    await wait_until("email agent waiting", waiting, WAIT_TIMEOUT)
+    assert await client.invoke_rpc(
         app.email_agent.send_request,
         flow_id,
         "Draft a short intro email",
     )
-    details = client.invoke_rpc(app.email_agent.describe, flow_id)
+    details = await client.invoke_rpc(app.email_agent.describe, flow_id)
     assert details.current_request

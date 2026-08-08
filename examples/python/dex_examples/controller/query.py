@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 
-from flask import Response, abort, jsonify, request
+from quart import Response, abort, jsonify, request
 
 
 def required_query(name: str) -> str:
@@ -41,8 +41,8 @@ def required_int_query(name: str) -> int:
         abort(400, description=f"{name} must be an integer")
 
 
-def required_body_field(name: str) -> str:
-    body = request.get_json(silent=True)
+async def required_body_field(name: str) -> str:
+    body = await request.get_json(silent=True)
     value = body.get(name) if isinstance(body, dict) else None
     if not isinstance(value, str) or not value:
         abort(400, description=f"{name} is required in the request body")

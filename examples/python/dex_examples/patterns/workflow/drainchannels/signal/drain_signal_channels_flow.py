@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-import time
+import asyncio
 
 from dex import (
     Channel,
@@ -42,7 +42,9 @@ class ProcessSignal(Step[str]):
             return Wait.any_of(self.queue_signal_channel.for_one())
         return Wait.skip_immediately()
 
-    def execute(self, context: Context, input: str) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: str
+    ) -> StepDecision:
         if input is not None:
             print(f"DrainSignalChannelsFlow process signal value: {input}")
         else:
@@ -54,8 +56,8 @@ class ProcessSignal(Step[str]):
                 raise RuntimeError("No signal value found")
             print(f"DrainSignalChannelsFlow process signal value: {value}")
 
-        # Stay alive briefly so more signals can arrive before the empty check.
-        time.sleep(DRAIN_WINDOW_SECONDS)
+        # Yield so AsyncWorker can serve other Flows during the drain window.
+        await asyncio.sleep(DRAIN_WINDOW_SECONDS)
 
         return force_complete_when_channels_empty(
             None,
