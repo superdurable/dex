@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response
+from quart import Blueprint, Response
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -29,9 +29,9 @@ def create_microservice_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("microservice", __name__, url_prefix="/microservice")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         flow_id = required_query("workflowId")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.orchestration,
             flow_id,
             "test initial data",
@@ -40,16 +40,16 @@ def create_microservice_blueprint(app_state: ExampleApp) -> Blueprint:
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/swap")
-    def swap() -> str:
-        return app_state.client.invoke_rpc(
+    async def swap() -> str:
+        return await app_state.client.invoke_rpc(
             app_state.orchestration.swap,
             required_query("workflowId"),
             required_query("data"),
         )
 
     @blueprint.get("/signal")
-    def signal() -> Response:
-        app_state.client.publish(
+    async def signal() -> Response:
+        await app_state.client.publish(
             required_query("workflowId"),
             app_state.orchestration.ready,
             None,

@@ -20,8 +20,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
+    AsyncClient,
     Attribute,
-    Client,
     Context,
     DexException,
     ErrorSubStatus,
@@ -54,7 +54,7 @@ STATUS_PROCESSING_COMPLETED = "gpu processing completed"
 class Complete(Step[None]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         controller_flow_provider: Callable[[], ControllerFlow],
         parent_flow_id: Attribute[str],
     ) -> None:
@@ -62,12 +62,14 @@ class Complete(Step[None]):
         self.controller_flow_provider = controller_flow_provider
         self.parent_flow_id = parent_flow_id
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: None
+    ) -> StepDecision:
         del input
         parent_flow_id = self.parent_flow_id.get(context)
         if parent_flow_id:
             try:
-                self.client_provider().invoke_rpc(
+                await self.client_provider().invoke_rpc(
                     self.controller_flow_provider().complete_child_flow,
                     parent_flow_id,
                     context.flow_id,
@@ -192,7 +194,7 @@ class ProcessingFlow(Flow[Request]):
 
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         controller_flow_provider: Callable[[], ControllerFlow],
     ) -> None:
         self.complete = Complete(

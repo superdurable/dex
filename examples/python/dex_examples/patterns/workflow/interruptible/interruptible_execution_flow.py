@@ -114,8 +114,7 @@ class Init(Step[None]):
         self.interrupt_signal = interrupt_signal
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
-        self.interrupt_signal.set(context, "")
+        del context, input
         parameters = WorkJobParametersInput(15, 1)
         return go_to_multi(
             StepMovement.of(self.work_a_execution, parameters),

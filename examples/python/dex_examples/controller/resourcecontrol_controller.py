@@ -17,7 +17,7 @@ from __future__ import annotations
 import random
 
 from dex import DexException, ErrorSubStatus
-from flask import Blueprint
+from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -33,14 +33,14 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("resource_control", __name__, url_prefix="/controller")
 
     @blueprint.get("/request")
-    def enqueue_request() -> str:
+    async def enqueue_request() -> str:
         request = Request(required_query("id"), optional_query("data", "abcd"))
         # A real deployment would rank instances by usage instead of picking one
         # at random, then check availability before enqueueing.
         instance_id = random.choice(SPOT_INSTANCE_IDS)
         flow_id = f"controller_flow_{instance_id}"
         try:
-            accepted = app_state.client.invoke_rpc(
+            accepted = await app_state.client.invoke_rpc(
                 app_state.controller.enqueue,
                 flow_id,
                 request,
@@ -48,7 +48,7 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
         except DexException as error:
             if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
                 raise
-            app_state.client.start_flow(
+            await app_state.client.start_flow(
                 app_state.controller,
                 flow_id,
                 request,
@@ -63,17 +63,17 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
         return "request is denied because instance is busy. Please retry later"
 
     @blueprint.get("/shutdown")
-    def shutdown() -> str:
+    async def shutdown() -> str:
         instance_id = required_query("instance_id")
-        app_state.client.invoke_rpc(
+        await app_state.client.invoke_rpc(
             app_state.controller.shutdown,
             f"controller_flow_{instance_id}",
         )
         return "done"
 
     @blueprint.get("/processing/describe")
-    def describe_processing() -> str:
-        return app_state.client.invoke_rpc(
+    async def describe_processing() -> str:
+        return await app_state.client.invoke_rpc(
             app_state.processing.describe,
             f"processing-{required_query('id')}",
         )

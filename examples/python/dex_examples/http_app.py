@@ -17,7 +17,7 @@ from __future__ import annotations
 import traceback
 
 from dex import DexException, ErrorSubStatus
-from flask import Flask
+from quart import Quart
 from werkzeug.exceptions import HTTPException
 
 from dex_examples.ai_agent_email.http_routes import (
@@ -51,36 +51,36 @@ SUB_STATUS_HTTP_CODES = {
 }
 
 
-def create_app(app_state: ExampleApp) -> Flask:
-    flask_app = Flask(
+def create_app(app_state: ExampleApp) -> Quart:
+    quart_app = Quart(
         __name__,
         template_folder=str(TEMPLATE_DIR),
         static_folder=str(STATIC_DIR),
         static_url_path="/static",
     )
 
-    flask_app.register_blueprint(create_money_transfer_blueprint(app_state))
-    flask_app.register_blueprint(create_microservice_blueprint(app_state))
-    flask_app.register_blueprint(create_engagement_blueprint(app_state))
-    flask_app.register_blueprint(create_subscription_blueprint(app_state))
-    flask_app.register_blueprint(create_polling_blueprint(app_state))
-    flask_app.register_blueprint(create_signup_blueprint(app_state))
-    flask_app.register_blueprint(create_job_post_blueprint(app_state))
-    flask_app.register_blueprint(create_shortlist_blueprint(app_state))
-    flask_app.register_blueprint(create_basic_blueprint(app_state))
-    flask_app.register_blueprint(create_resource_control_blueprint(app_state))
-    flask_app.register_blueprint(create_design_pattern_blueprint(app_state))
-    flask_app.register_blueprint(create_ai_agent_blueprint(app_state))
+    quart_app.register_blueprint(create_money_transfer_blueprint(app_state))
+    quart_app.register_blueprint(create_microservice_blueprint(app_state))
+    quart_app.register_blueprint(create_engagement_blueprint(app_state))
+    quart_app.register_blueprint(create_subscription_blueprint(app_state))
+    quart_app.register_blueprint(create_polling_blueprint(app_state))
+    quart_app.register_blueprint(create_signup_blueprint(app_state))
+    quart_app.register_blueprint(create_job_post_blueprint(app_state))
+    quart_app.register_blueprint(create_shortlist_blueprint(app_state))
+    quart_app.register_blueprint(create_basic_blueprint(app_state))
+    quart_app.register_blueprint(create_resource_control_blueprint(app_state))
+    quart_app.register_blueprint(create_design_pattern_blueprint(app_state))
+    quart_app.register_blueprint(create_ai_agent_blueprint(app_state))
 
-    flask_app.register_error_handler(HTTPException, handle_http_exception)
-    flask_app.register_error_handler(DexException, handle_dex_exception)
-    flask_app.register_error_handler(Exception, handle_unexpected_exception)
+    quart_app.register_error_handler(HTTPException, handle_http_exception)
+    quart_app.register_error_handler(DexException, handle_dex_exception)
+    quart_app.register_error_handler(Exception, handle_unexpected_exception)
 
-    @flask_app.get("/")
+    @quart_app.get("/")
     def index() -> str:
         return "dex examples home"
 
-    return flask_app
+    return quart_app
 
 
 def handle_http_exception(error: HTTPException) -> tuple[str, int]:

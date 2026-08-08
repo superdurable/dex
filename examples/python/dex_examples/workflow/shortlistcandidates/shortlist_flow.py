@@ -68,7 +68,9 @@ class SendEmail(Step[None]):
             self.revoke_shortlist.for_one(),
         )
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: None
+    ) -> StepDecision:
         del input
         employer = self.employer_id.get(context)
         candidate = self.candidate_id.get(context)
@@ -77,7 +79,7 @@ class SendEmail(Step[None]):
             print(f"Not sending the email to {employer}-{candidate} because of revoking")
             return force_complete()
 
-        if not self.opt_in_checker.is_opted_in(employer):
+        if not await self.opt_in_checker.is_opted_in(employer):
             print(
                 f"Not sending the email to {employer}-{candidate} "
                 "because of not opted-in"

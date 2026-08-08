@@ -1,11 +1,11 @@
 # Dex Python examples
 
-These examples target [`dex-python-sdk==0.0.2`](https://pypi.org/project/dex-python-sdk/0.0.2/)
+These examples target [`dex-python-sdk==0.1.1`](https://pypi.org/project/dex-python-sdk/0.1.1/)
 (`import dex`). Requires Python 3.11+.
 
-The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP
-controller on `127.0.0.1:8080`. One Registry and disk BlobCache are shared by its
-Worker and Client.
+The sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a Quart
+HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps use
+`AsyncClient`. One Registry and disk BlobCache are shared by Worker and Client.
 
 ## Run locally
 

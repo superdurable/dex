@@ -14,8 +14,8 @@
 
 from __future__ import annotations
 
+import asyncio
 import random
-import time
 from typing import Any
 
 from dex import (
@@ -40,8 +40,10 @@ class NotifyUser(Step[JobSeeker]):
     def __init__(self, notify_channel: Channel[str]) -> None:
         self.notify_channel = notify_channel
 
-    def execute(self, context: Context, input: JobSeeker) -> StepDecision:
-        time.sleep(random.random() * 5)
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: JobSeeker
+    ) -> StepDecision:
+        await asyncio.sleep(random.random() * 5)
 
         message = f"[FAKE] Notifying user of something: {input.id}"
         print(message)

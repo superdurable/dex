@@ -14,16 +14,18 @@
 
 from __future__ import annotations
 
-import threading
+import asyncio
+import socket
+import time
 from typing import Any, Callable
 
 from dex import (
+    AsyncClient,
+    AsyncWorker,
     BlobCacheConfig,
-    Client,
     ClientOptions,
     Flow,
     Registry,
-    Worker,
     WorkerOptions,
     WorkerTarget,
     open_blob_cache,
@@ -88,8 +90,8 @@ from dex_examples.workflow.subscription.subscription_flow import SubscriptionFlo
 class ExampleApp:
     def __init__(self, config: ExamplesConfig) -> None:
         self.config = config
-        self._client: Client | None = None
-        client_provider: Callable[[], Client] = self.require_client
+        self._client: AsyncClient | None = None
+        client_provider: Callable[[], AsyncClient] = self.require_client
 
         service = MyDependencyService()
         pattern_service = ServiceDependency()
@@ -168,7 +170,7 @@ class ExampleApp:
             self.processing,
             self.email_agent,
         ]
-        self.registry = Registry(tuple(flows))
+        self.registry = Registry(tuple(flows), allow_async_handlers=True)
         config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
         self.blob_cache = open_blob_cache(
             BlobCacheConfig(str(config.blob_cache_dir), 1 << 30)
@@ -182,8 +184,8 @@ class ExampleApp:
                 else None
             ),
         )
-        self.worker = Worker(self.registry, self.blob_cache, worker_options)
-        self._client = Client(
+        self.worker = AsyncWorker(self.registry, self.blob_cache, worker_options)
+        self._client = AsyncClient(
             self.registry,
             self.blob_cache,
             ClientOptions(
@@ -191,28 +193,50 @@ class ExampleApp:
                 worker_target=self.worker.worker_target,
             ),
         )
-        self._worker_thread: threading.Thread | None = None
+        self._worker_task: asyncio.Task[None] | None = None
 
     @property
-    def client(self) -> Client:
+    def client(self) -> AsyncClient:
         return self.require_client()
 
-    def require_client(self) -> Client:
+    def require_client(self) -> AsyncClient:
         if self._client is None:
             raise RuntimeError("client is not ready")
         return self._client
 
-    def start_worker(self) -> None:
-        if self._worker_thread is not None:
+    async def start_worker(self) -> None:
+        if self._worker_task is not None:
             return
-        self._worker_thread = threading.Thread(
-            target=self.worker.start,
-            name="dex-examples-worker",
-            daemon=True,
-        )
-        self._worker_thread.start()
+        self._worker_task = asyncio.create_task(self.worker.start())
+        await _await_worker(self.worker.worker_target.address, self._worker_task)
 
-    def close(self) -> None:
-        self.worker.close()
-        self.client.close()
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+        await self.worker.close()
+        if self._worker_task is not None:
+            try:
+                await asyncio.wait_for(self._worker_task, timeout=10)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._worker_task.cancel()
+            self._worker_task = None
         self.blob_cache.close()
+
+
+async def _await_worker(address: str, worker_task: asyncio.Task[None]) -> None:
+    host, _, port_text = address.rpartition(":")
+    port = int(port_text)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if worker_task.done():
+            error = worker_task.exception()
+            if error is not None:
+                raise RuntimeError("AsyncWorker failed") from error
+            raise RuntimeError("AsyncWorker stopped before becoming ready")
+        try:
+            with socket.create_connection((host or "127.0.0.1", port), timeout=0.1):
+                return
+        except OSError:
+            await asyncio.sleep(0.01)
+    raise RuntimeError("AsyncWorker did not become ready")

@@ -18,7 +18,7 @@ from datetime import timedelta
 from typing import Callable
 
 import pytest
-from dex import Client, StartFlowOptions
+from dex import AsyncClient, StartFlowOptions
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -33,21 +33,21 @@ from tests.integ.conftest import WAIT_TIMEOUT
 pytestmark = pytest.mark.integ
 
 
-def test_signup_verify_completes(
+async def test_signup_verify_completes(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("signup")
     form = SignupForm(flow_id, f"{flow_id}@example.com", "Test", "User")
-    client.start_flow(app.signup, flow_id, form, start_options())
-    assert client.invoke_rpc(app.signup.verify, flow_id) == "done"
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    await client.start_flow(app.signup, flow_id, form, start_options())
+    assert await client.invoke_rpc(app.signup.verify, flow_id) == "done"
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
 
 
-def test_job_post_create_and_read(
+async def test_job_post_create_and_read(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("jobpost")
@@ -58,16 +58,16 @@ def test_job_post_create_and_read(
         .with_attribute(app.job_post.last_update_time_millis, 1)
         .with_attribute(app.job_post.notes, "initial")
     )
-    client.start_flow(app.job_post, flow_id, None, options)
-    info = client.invoke_rpc(app.job_post.get, flow_id)
+    await client.start_flow(app.job_post, flow_id, None, options)
+    info = await client.invoke_rpc(app.job_post.get, flow_id)
     assert info.title == "Software Engineer"
     assert info.description == "Build durable workflows"
     assert info.notes == "initial"
 
 
-def test_shortlist_opt_in_and_revoke(
+async def test_shortlist_opt_in_and_revoke(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     employer_id = new_flow_id("employer")
@@ -75,19 +75,19 @@ def test_shortlist_opt_in_and_revoke(
     opt_in_id = workflow_ids.employer_opt_in(employer_id)
     shortlist_id = workflow_ids.shortlist(employer_id, candidate_id)
 
-    client.start_flow(
+    await client.start_flow(
         app.employer_opt_in,
         opt_in_id,
         EmployerOptInInput(employer_id),
         start_options(),
     )
-    assert client.invoke_rpc(app.employer_opt_in.is_opted_in, opt_in_id) is True
+    assert await client.invoke_rpc(app.employer_opt_in.is_opted_in, opt_in_id) is True
 
-    client.start_flow(
+    await client.start_flow(
         app.shortlist,
         shortlist_id,
         ShortlistInput(employer_id, candidate_id),
         start_options(),
     )
-    client.publish(shortlist_id, app.shortlist.revoke_shortlist, None)
-    client.wait_for_flow(shortlist_id, timeout=WAIT_TIMEOUT)
+    await client.publish(shortlist_id, app.shortlist.revoke_shortlist, None)
+    await client.wait_for_flow(shortlist_id, timeout=WAIT_TIMEOUT)

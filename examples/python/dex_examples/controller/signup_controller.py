@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dex import DexException, ErrorSubStatus
-from flask import Blueprint
+from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -27,11 +27,11 @@ def create_signup_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("signup", __name__, url_prefix="/signup")
 
     @blueprint.get("/submit")
-    def submit() -> str:
+    async def submit() -> str:
         username = required_query("username")
         form = SignupForm(username, required_query("email"), "Test", "Test")
         try:
-            app_state.client.start_flow(
+            await app_state.client.start_flow(
                 app_state.signup,
                 username,
                 form,
@@ -44,8 +44,8 @@ def create_signup_blueprint(app_state: ExampleApp) -> Blueprint:
         return "success"
 
     @blueprint.get("/verify")
-    def verify() -> str:
-        return app_state.client.invoke_rpc(
+    async def verify() -> str:
+        return await app_state.client.invoke_rpc(
             app_state.signup.verify,
             required_query("username"),
         )

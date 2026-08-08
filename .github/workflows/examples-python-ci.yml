@@ -30,14 +30,14 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.12.2"
-          python-version: "3.9"
+          python-version: "3.11"
           working-directory: examples/python
           enable-cache: true
       - name: Install dependencies (PyPI dex-python-sdk)
         run: uv sync --locked
       - name: Verify published package
         run: |
-          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.0.1'"
+          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.1.1'"
       - name: Integ tests with dexcli dev
         run: ./run-integ-tests.sh
       - name: Upload service logs

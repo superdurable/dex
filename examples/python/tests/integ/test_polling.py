@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import Client
+from dex import AsyncClient
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -28,13 +28,13 @@ pytestmark = pytest.mark.integ
 POLLING_COMPLETION_THRESHOLD = 2
 
 
-def test_polling_completes_after_all_three_tasks(
+async def test_polling_completes_after_all_three_tasks(
     app: ExampleApp,
-    client: Client,
+    client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("polling")
-    client.start_flow(
+    await client.start_flow(
         app.polling,
         flow_id,
         POLLING_COMPLETION_THRESHOLD,
@@ -42,7 +42,7 @@ def test_polling_completes_after_all_three_tasks(
     )
 
     # Task C completes on its own once Poll reaches the threshold.
-    client.publish(flow_id, app.polling.task_a_completed, None)
-    client.publish(flow_id, app.polling.task_b_completed, None)
+    await client.publish(flow_id, app.polling.task_a_completed, None)
+    await client.publish(flow_id, app.polling.task_b_completed, None)
 
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "all tasks completed"
+    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "all tasks completed"

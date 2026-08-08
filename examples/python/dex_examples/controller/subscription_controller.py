@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from flask import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -35,7 +35,7 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("subscription", __name__, url_prefix="/subscription")
 
     @blueprint.get("/start")
-    def start() -> Response:
+    async def start() -> Response:
         customer = Customer(
             "Quanzheng",
             "Long",
@@ -49,7 +49,7 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
             ),
         )
         flow_id = new_flow_id("subscription")
-        run_id = app_state.client.start_flow(
+        run_id = await app_state.client.start_flow(
             app_state.subscription,
             flow_id,
             customer,
@@ -58,8 +58,8 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/cancel")
-    def cancel() -> Response:
-        app_state.client.publish(
+    async def cancel() -> Response:
+        await app_state.client.publish(
             required_query("workflowId"),
             app_state.subscription.cancel_subscription,
             None,
@@ -67,8 +67,8 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
         return accepted()
 
     @blueprint.get("/updateChargeAmount")
-    def update_charge_amount() -> Response:
-        app_state.client.publish(
+    async def update_charge_amount() -> Response:
+        await app_state.client.publish(
             required_query("workflowId"),
             app_state.subscription.update_charge_amount,
             required_int_query("newChargeAmount"),
@@ -76,8 +76,8 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
         return accepted()
 
     @blueprint.get("/describe")
-    def describe() -> Response:
-        subscription = app_state.client.invoke_rpc(
+    async def describe() -> Response:
+        subscription = await app_state.client.invoke_rpc(
             app_state.subscription.describe,
             required_query("workflowId"),
         )

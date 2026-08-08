@@ -19,19 +19,21 @@ import uuid
 from typing import Callable
 
 from dex import (
-    Client,
+    AsyncClient,
     Context,
     DexException,
     ErrorSubStatus,
     Flow,
+    IdReusePolicy,
     PersistenceSchema,
+    StartFlowOptions,
     Step,
     StepDecision,
     StepList,
     graceful_complete,
 )
 
-from dex_examples.config import start_options
+from dex_examples.config import DEFAULT_TIMEOUT
 from dex_examples.patterns.workflow.scalableparallel.exceptions.enqueue_failed_error import (
     EnqueueFailedError,
 )
@@ -47,29 +49,39 @@ from dex_examples.patterns.workflow.scalableparallel.parent_flow import (
 class Request(Step[int]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         parent_flow: ParentFlow,
     ) -> None:
         self.client_provider = client_provider
         self.parent_flow = parent_flow
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        del context
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
         batch = self._generate_tasks(input)
-        parent_workflow_id = f"parent_workflow_{random.randint(1, NUM_PARENT_WORKFLOWS)}"
+        # Scope parent IDs to this receiver run so completed parents from earlier
+        # runs do not block enqueue / restart.
+        parent_workflow_id = (
+            f"{context.flow_id}-parent-{random.randint(1, NUM_PARENT_WORKFLOWS)}"
+        )
 
         client = self.client_provider()
         try:
-            if not client.invoke_rpc(self.parent_flow.enqueue, parent_workflow_id, batch):
+            if not await client.invoke_rpc(
+                self.parent_flow.enqueue, parent_workflow_id, batch
+            ):
                 raise EnqueueFailedError("Enqueue failed, retry in next attempt")
         except DexException as error:
             if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
                 raise
-            client.start_flow(
+            await client.start_flow(
                 self.parent_flow,
                 parent_workflow_id,
                 batch,
-                start_options(),
+                StartFlowOptions(
+                    timeout=DEFAULT_TIMEOUT,
+                    id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING,
+                ),
             )
 
         return graceful_complete()
@@ -84,7 +96,7 @@ class Request(Step[int]):
 class RequestReceiverFlow(Flow[int]):
     def __init__(
         self,
-        client_provider: Callable[[], Client],
+        client_provider: Callable[[], AsyncClient],
         parent_flow: ParentFlow,
     ) -> None:
         self.request = Request(client_provider, parent_flow)
