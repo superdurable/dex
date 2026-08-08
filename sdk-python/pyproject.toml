@@ -1,5 +1,6 @@
 [project]
 name = "dex-python-sdk"
+# Publish uses tag sdk-python/v*; CI stamps this for release builds.
 version = "0.0.2"
 description = "Python SDK for the Dex workflow engine"
 authors = [{name = "Super Durable"}]
