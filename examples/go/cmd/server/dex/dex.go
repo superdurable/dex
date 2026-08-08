@@ -32,42 +32,58 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/examples/go/workflows"
+	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
 	"github.com/superdurable/dex/examples/go/workflows/service"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
+const defaultDatasetDealPostgresURL = "postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable"
+
 type sampleServer struct {
-	client       *sdk.Client
-	worker       *sdk.Worker
-	cache        *blobcache.Cache
-	httpServer   *http.Server
-	workerResult chan error
-	httpResult   chan error
+	client         *sdk.Client
+	worker         *sdk.Worker
+	cache          *blobcache.Cache
+	database       *pgxpool.Pool
+	dealFlow       *datasetdeal.DealFlow
+	dealRepository datasetdeal.Repository
+	httpServer     *http.Server
+	workerResult   chan error
+	httpResult     chan error
 }
 
 func Run(ctx context.Context) error {
-	server, err := newSampleServer()
+	server, err := newSampleServer(ctx)
 	if err != nil {
 		return err
 	}
 	return server.Run(ctx)
 }
 
-func newSampleServer() (*sampleServer, error) {
-	var client *sdk.Client
-	flows := workflows.New(service.NewMyService(), func() *sdk.Client { return client })
-	registry, err := sdk.NewRegistry(flows)
-	if err != nil {
-		return nil, fmt.Errorf("register example flows: %w", err)
-	}
+func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	cache, err := blobcache.New(&blobcache.Config{
 		Dir:      environmentOr("DEX_BLOB_CACHE_DIR", filepath.Join(os.TempDir(), "dex-go-examples-blobs")),
 		MaxBytes: 1 << 30,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create blob cache: %w", err)
+	}
+	database, dealRepository, err := newDatasetDealRepository(ctx)
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	dealFlow := datasetdeal.NewDealFlow(dealRepository, cache.Logger())
+	var client *sdk.Client
+	flows := append(
+		workflows.New(service.NewMyService(), func() *sdk.Client { return client }),
+		dealFlow,
+	)
+	registry, err := sdk.NewRegistry(flows)
+	if err != nil {
+		database.Close()
+		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
 	}
 	workerOptions := sdk.WorkerOptions{
 		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
@@ -78,6 +94,7 @@ func newSampleServer() (*sampleServer, error) {
 	}
 	worker, err := sdk.NewWorker(registry, cache, workerOptions)
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err = sdk.NewClient(registry, cache, sdk.ClientOptions{
@@ -87,20 +104,46 @@ func newSampleServer() (*sampleServer, error) {
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		database.Close()
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close())
 	}
 	server := &sampleServer{
-		client:       client,
-		worker:       worker,
-		cache:        cache,
-		workerResult: make(chan error, 1),
-		httpResult:   make(chan error, 1),
+		client:         client,
+		worker:         worker,
+		cache:          cache,
+		database:       database,
+		dealFlow:       dealFlow,
+		dealRepository: dealRepository,
+		workerResult:   make(chan error, 1),
+		httpResult:     make(chan error, 1),
 	}
 	server.httpServer = &http.Server{
 		Addr:    environmentOr("DEX_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8080"),
 		Handler: server.router(),
 	}
 	return server, nil
+}
+
+func newDatasetDealRepository(
+	ctx context.Context,
+) (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
+	database, err := pgxpool.New(
+		ctx,
+		environmentOr("DATASET_DEAL_POSTGRES_URL", defaultDatasetDealPostgresURL),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
+	}
+	if err := database.Ping(ctx); err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
+	}
+	repository := datasetdeal.NewPostgresRepository(database)
+	if err := repository.EnsureSchema(ctx); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
+	return database, repository, nil
 }
 
 func environmentOr(name string, fallback string) string {
@@ -111,16 +154,26 @@ func environmentOr(name string, fallback string) string {
 }
 
 func (server *sampleServer) router() http.Handler {
+	return NewRouter(server.client, server.dealFlow, server.dealRepository)
+}
+
+// NewRouter builds the Go examples HTTP API and Dataset Deal UI.
+func NewRouter(
+	client *sdk.Client,
+	dealFlow *datasetdeal.DealFlow,
+	dealRepository datasetdeal.Repository,
+) http.Handler {
 	router := gin.Default()
-	newSubscriptionController(server.client).registerRoutes(router)
-	newEngagementController(server.client).registerRoutes(router)
-	newMicroserviceController(server.client).registerRoutes(router)
-	newMoneyTransferController(server.client).registerRoutes(router)
-	newPollingController(server.client).registerRoutes(router)
-	newSignupController(server.client).registerRoutes(router)
-	newJobPostController(server.client).registerRoutes(router)
-	newShortlistController(server.client).registerRoutes(router)
-	newDesignPatternController(server.client).registerRoutes(router)
+	newSubscriptionController(client).registerRoutes(router)
+	newEngagementController(client).registerRoutes(router)
+	newMicroserviceController(client).registerRoutes(router)
+	newMoneyTransferController(client).registerRoutes(router)
+	newPollingController(client).registerRoutes(router)
+	newSignupController(client).registerRoutes(router)
+	newJobPostController(client).registerRoutes(router)
+	newShortlistController(client).registerRoutes(router)
+	newDesignPatternController(client).registerRoutes(router)
+	newDatasetDealController(client, dealFlow, dealRepository).registerRoutes(router)
 	return router
 }
 
@@ -155,6 +208,7 @@ func (server *sampleServer) close() error {
 	workerErr := server.worker.Stop(stopCtx)
 	clientErr := server.client.Close()
 	cacheErr := server.cache.Close()
+	server.database.Close()
 	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 

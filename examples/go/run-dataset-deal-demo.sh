@@ -22,20 +22,29 @@
 
 set -euo pipefail
 
-dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
-web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
-temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19233}"
-temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19333}"
-postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
+postgres_port="${DATASET_DEAL_POSTGRES_PORT:-15432}"
+dex_port="${DATASET_DEAL_DEX_PORT:-20801}"
+dex_web_port="${DATASET_DEAL_DEX_WEB_PORT:-20802}"
+worker_port="${DATASET_DEAL_WORKER_PORT:-20803}"
+api_port="${DATASET_DEAL_API_PORT:-20804}"
+temporal_port="${DATASET_DEAL_TEMPORAL_PORT:-20233}"
+temporal_ui_port="${DATASET_DEAL_TEMPORAL_UI_PORT:-20333}"
 dex_address="127.0.0.1:${dex_port}"
 temporal_address="127.0.0.1:${temporal_port}"
+api_address="127.0.0.1:${api_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
-compose_project="dataset-deal-e2e-$$"
-log_file="/tmp/test-go-examples-e2e-services.log"
+compose_project="dataset-deal-demo-$$"
 test_dir=$(mktemp -d)
+dex_log="/tmp/dataset-deal-dex.log"
+app_log="/tmp/dataset-deal-app.log"
 dexcli_pid=""
+app_pid=""
 
 cleanup() {
+  if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
+    kill -TERM "$app_pid"
+    wait "$app_pid" || true
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
@@ -48,21 +57,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+for command_name in docker temporal curl jq; do
+  if ! command -v "$command_name" >/dev/null; then
+    echo "$command_name is required" >&2
+    exit 1
+  fi
+done
+
 DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -p "$compose_project" \
   -f dataset-deal/docker-compose.yml \
   up -d --wait
 
 make -C ../../cli build
-: >"$log_file"
+make bins
+: >"$dex_log"
+: >"$app_log"
 ../../cli/dexcli dev \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
-  -web-port "$web_port" \
+  -web-port "$dex_web_port" \
   -temporal-port "$temporal_port" \
   -temporal-ui-port "$temporal_ui_port" \
   -temporal-db-filename "$test_dir/temporal.db" \
-  >>"$log_file" 2>&1 &
+  >>"$dex_log" 2>&1 &
 dexcli_pid=$!
 
 temporal_ready=false
@@ -72,25 +90,64 @@ for _ in {1..240}; do
     break
   fi
   if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    cat "$log_file" >&2
+    cat "$dex_log" >&2
     echo "dexcli exited before Temporal became ready" >&2
     exit 1
   fi
   sleep 0.25
 done
 if ! $temporal_ready; then
-  cat "$log_file" >&2
+  cat "$dex_log" >&2
   echo "Temporal did not become ready" >&2
   exit 1
 fi
 
-temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
 ./dataset-deal/register-search-attributes.sh "$temporal_address"
 
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-DEX_WORKER_HOST=127.0.0.1 \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
-GOWORK=off \
-GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
-GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
-  go test -count=1 -race -v ./integ
+DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+DEX_WORKER_BIND_ADDRESS="127.0.0.1:${worker_port}" \
+DEX_WORKER_TARGET="127.0.0.1:${worker_port}" \
+DEX_EXAMPLES_HTTP_ADDRESS="$api_address" \
+DEX_BLOB_CACHE_DIR="$test_dir/blob-cache" \
+  ./dex-samples >>"$app_log" 2>&1 &
+app_pid=$!
+
+api_ready=false
+for _ in {1..240}; do
+  if curl --fail --silent "http://${api_address}/api/dataset-deal/actions" >/dev/null; then
+    api_ready=true
+    break
+  fi
+  if ! kill -0 "$app_pid" 2>/dev/null; then
+    cat "$app_log" >&2
+    echo "Go examples server exited before becoming ready" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! $api_ready; then
+  cat "$app_log" >&2
+  echo "Go examples API did not become ready" >&2
+  exit 1
+fi
+
+tables=$(DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+  -p "$compose_project" \
+  -f dataset-deal/docker-compose.yml \
+  exec -T postgres psql -U dataset_deal -d dataset_deal -Atc \
+  "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
+if [[ "$tables" != "dataset_deal_processes" ]]; then
+  echo "unexpected Dataset Deal tables: ${tables}" >&2
+  exit 1
+fi
+
+DATASET_DEAL_API_URL="http://${api_address}" ./trigger-dataset-deal-demo.sh
+
+echo "  Dex UI:  http://127.0.0.1:${dex_web_port}"
+echo "  Temporal: http://127.0.0.1:${temporal_ui_port}"
+echo "  logs:     ${dex_log}, ${app_log}"
+if [[ "${KEEP_DATASET_DEAL_DEMO:-0}" == "1" ]]; then
+  echo "Services remain running. Press Ctrl+C to stop and clean up."
+  wait "$app_pid"
+fi

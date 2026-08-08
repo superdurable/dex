@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
-.PHONY: bins clean e2eTests fmt tests unitTests
+.PHONY: bins clean datasetDealDemo e2eTests fmt tests triggerDatasetDealDemo unitTests
 
 default: help
 
@@ -10,6 +10,12 @@ bins:
 
 clean:
 	rm -f dex-samples
+
+datasetDealDemo:
+	./run-dataset-deal-demo.sh
+
+triggerDatasetDealDemo:
+	./trigger-dataset-deal-demo.sh
 
 e2eTests:
 	./run-e2e-tests.sh
