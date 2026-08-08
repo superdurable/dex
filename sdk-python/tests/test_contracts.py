@@ -194,6 +194,11 @@ def test_registry_rejects_async_step_and_rpc_handlers() -> None:
         Registry((AsyncOrderFlow(),))
 
 
+def test_registry_allows_async_handlers_when_enabled() -> None:
+    registry = Registry((AsyncOrderFlow(),), allow_async_handlers=True)
+    assert registry.flows[0].get_flow_type() == AsyncOrderFlow().get_flow_type()
+
+
 def test_registry_rejects_duplicate_interfaces() -> None:
     with pytest.raises(ValueError, match="duplicate Flow Orders"):
         Registry((ORDERS, ORDERS))

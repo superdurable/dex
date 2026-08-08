@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from inspect import isawaitable
 from typing import Any, cast
 
 from dex._invocation_context import InvocationContext, InvocationMethod
@@ -60,6 +61,10 @@ class WorkerDispatcher:
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
+        if isawaitable(wait):
+            raise TypeError(
+                "wait_for returned an awaitable; use AsyncWorker for async handlers"
+            )
         if not isinstance(wait, Wait):
             raise TypeError("wait_for must return Wait")
         response = pb.InvokeWaitForMethodResponse(
@@ -94,6 +99,10 @@ class WorkerDispatcher:
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision = step.step.execute(context, input)
+        if isawaitable(decision):
+            raise TypeError(
+                "execute returned an awaitable; use AsyncWorker for async handlers"
+            )
         if not isinstance(decision, StepDecision):
             raise TypeError("execute must return StepDecision")
         return pb.InvokeExecuteMethodResponse(
@@ -123,6 +132,10 @@ class WorkerDispatcher:
         if rpc.input_codec is not None:
             arguments.append(self._values.decode(request.input, rpc.input_codec))
         returned = rpc.method(*arguments)
+        if isawaitable(returned):
+            raise TypeError(
+                "RPC returned an awaitable; use AsyncWorker for async handlers"
+            )
         response = pb.InvokeWorkerRPCResponse(
             upsert_attributes=list(context.attribute_writes.values()),
             record_events=context.events,

@@ -17,6 +17,8 @@ from dex.attribute import (
 )
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
 from dex.channel import Channel, ChannelMap
+from dex.async_client import AsyncClient
+from dex.async_worker import AsyncWorker
 from dex.client import Client
 from dex.client_options import ClientOptions
 from dex.codec import (
@@ -91,6 +93,8 @@ __all__ = [
     "AttributeIndex",
     "AttributeLock",
     "AttributeMap",
+    "AsyncClient",
+    "AsyncWorker",
     "BlobCache",
     "BlobCacheConfig",
     "Channel",
