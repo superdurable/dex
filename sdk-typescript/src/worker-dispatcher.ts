@@ -76,7 +76,7 @@ export class WorkerDispatcher {
     if (step.step.waitFor === undefined) {
       throw new TypeError(`Step ${step.name} does not implement waitFor`);
     }
-    const wait = step.step.waitFor(context, input);
+    const wait = await step.step.waitFor(context, input);
     return InvokeWaitForMethodResponse.create({
       upsertAttributes: [...context.getAttributeWrites()],
       waitingCondition: mapWait(flow, wait),
@@ -101,7 +101,7 @@ export class WorkerDispatcher {
       request.conditionResults,
     );
     const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
-    const decision = step.step.execute(context, input);
+    const decision = await step.step.execute(context, input);
     return InvokeExecuteMethodResponse.create({
       stepDecision: mapDecision(flow, decision),
       upsertAttributes: [...context.getAttributeWrites()],
@@ -124,7 +124,7 @@ export class WorkerDispatcher {
       undefined,
       request.channelInfos,
     );
-    const returned = invokeRPC(flow, rpc, context, request.input);
+    const returned = await invokeRPC(flow, rpc, context, request.input);
     const result = rpcResult(rpc, returned);
     return InvokeWorkerRPCResponse.create({
       output:

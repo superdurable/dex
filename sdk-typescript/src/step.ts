@@ -53,8 +53,8 @@ export interface Step<Input> {
   readonly inputCodec: Codec<Input>;
   getStepType(): string;
   getStepOptions?(): StepOptions | undefined;
-  waitFor?(context: Context, input: Input): Wait;
-  execute(context: Context, input: Input): StepDecision;
+  waitFor?(context: Context, input: Input): Wait | Promise<Wait>;
+  execute(context: Context, input: Input): StepDecision | Promise<StepDecision>;
 }
 
 interface StartStepDefinition<StartInput> {

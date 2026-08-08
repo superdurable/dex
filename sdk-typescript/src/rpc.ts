@@ -18,7 +18,10 @@ export interface RPCResult<Output> {
   readonly nextSteps?: readonly StepMovement<unknown>[];
 }
 
-export type RPC<Input, Output> = (context: Context, input: Input) => RPCResult<Output>;
+export type RPC<Input, Output> = (
+  context: Context,
+  input: Input,
+) => RPCResult<Output> | Promise<RPCResult<Output>>;
 
 export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly name?: string;
@@ -40,10 +43,18 @@ export function rpc<Input, Output>(options: RPCOptions<Input, Output> & {
   readonly inputCodec: Codec<Input>;
   readonly outputCodec: Codec<Output>;
 }): <This>(
-  method: (this: This, context: Context, input: Input) => RPCResult<Output>,
+  method: (
+    this: This,
+    context: Context,
+    input: Input,
+  ) => RPCResult<Output> | Promise<RPCResult<Output>>,
   context: ClassMethodDecoratorContext<
     This,
-    (this: This, context: Context, input: Input) => RPCResult<Output>
+    (
+      this: This,
+      context: Context,
+      input: Input,
+    ) => RPCResult<Output> | Promise<RPCResult<Output>>
   >,
 ) => void;
 
@@ -51,10 +62,10 @@ export function rpc<Output>(options: RPCOptions<never, Output> & {
   readonly inputCodec?: never;
   readonly outputCodec: Codec<Output>;
 }): <This>(
-  method: (this: This, context: Context) => RPCResult<Output>,
+  method: (this: This, context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>,
   context: ClassMethodDecoratorContext<
     This,
-    (this: This, context: Context) => RPCResult<Output>
+    (this: This, context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>
   >,
 ) => void;
 
@@ -62,16 +73,19 @@ export function rpc<Input>(options: RPCOptions<Input, never> & {
   readonly inputCodec: Codec<Input>;
   readonly outputCodec?: never;
 }): <This>(
-  method: (this: This, context: Context, input: Input) => void,
-  context: ClassMethodDecoratorContext<This, (this: This, context: Context, input: Input) => void>,
+  method: (this: This, context: Context, input: Input) => void | Promise<void>,
+  context: ClassMethodDecoratorContext<
+    This,
+    (this: This, context: Context, input: Input) => void | Promise<void>
+  >,
 ) => void;
 
 export function rpc(options?: RPCOptions<never, never> & {
   readonly inputCodec?: never;
   readonly outputCodec?: never;
 }): <This>(
-  method: (this: This, context: Context) => void,
-  context: ClassMethodDecoratorContext<This, (this: This, context: Context) => void>,
+  method: (this: This, context: Context) => void | Promise<void>,
+  context: ClassMethodDecoratorContext<This, (this: This, context: Context) => void | Promise<void>>,
 ) => void;
 
 export function rpc(options: RPCOptions<any, any> = {}) {
