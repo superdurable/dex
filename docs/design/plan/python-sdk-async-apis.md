@@ -161,8 +161,9 @@ These are independent workstreams; no doc cross-links required.
 Integration tests against a running Dex (`sdk-python` integ suite). Do not add unit tests unless an edge cannot be reached through integ.
 
 About half of the runtime integ modules use `AsyncClient` / `AsyncWorker`
-(`test_basic_runtime`, `test_rpc_runtime`, `test_channels_runtime`, plus
-`test_async_runtime`); the rest stay on sync `Client` / `Worker`.
+(`test_basic_runtime_async`, `test_rpc_runtime`, `test_channels_runtime`,
+plus `test_async_runtime`); `test_basic_runtime_sync` keeps the basic suite
+on sync `Client` / `Worker`, and the remaining modules stay sync.
 
 ### Phase 1
 

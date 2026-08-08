@@ -11,7 +11,6 @@
 import asyncio
 from datetime import timedelta
 from typing import cast
-from uuid import uuid4
 
 import pytest
 
@@ -35,7 +34,7 @@ from .immutable_step_options_flow import ImmutableStepOptionsFlow
 from .mixed_wait_flow import MixedWaitFlow
 from .model_input_flow import ModelInputFlow
 from .proceed_on_wait_failure_flow import ProceedOnWaitFailureFlow
-from .shared import ModelInput
+from .shared import ModelInput, unique_id
 from .signal_flow import SignalFlow
 
 WAIT_TIMEOUT = timedelta(seconds=30)
@@ -235,7 +234,3 @@ async def _movement_options_do_not_mutate_step_defaults() -> None:
         assert captured.value.status is FlowStatus.FAILED
         assert captured.value.error_type is FlowErrorType.WORKER_API_FAILED
         assert str(captured.value) == "expected wait failure 2"
-
-
-def unique_id(prefix: str) -> str:
-    return f"{prefix}-{uuid4()}"

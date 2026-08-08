@@ -19,7 +19,7 @@ from .state_options_flow import StateOptionsFlow
 from .state_options_override_flow import StateOptionsOverrideFlow
 from .state_recovery_flow import StateRecoveryFlow
 from .state_recovery_no_wait_flow import StateRecoveryNoWaitFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 from .timer_flow import TimerFlow
 
 WAIT_TIMEOUT = timedelta(seconds=30)

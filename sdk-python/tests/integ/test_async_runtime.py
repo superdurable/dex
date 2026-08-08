@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from typing import Callable
-from uuid import uuid4
 
 from dex import (
     Context,
@@ -26,12 +25,9 @@ from dex import (
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .basic_flow import BasicFlow
+from .shared import unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
-
-
-def unique_id(prefix: str) -> str:
-    return f"{prefix}-{uuid4()}"
 
 
 def test_async_client_basic_workflow() -> None:

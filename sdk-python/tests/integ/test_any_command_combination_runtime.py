@@ -16,7 +16,7 @@ from dex import FlowErrorType, FlowStatus, FlowUncompletedError
 
 from .any_combination_fail_flow import AnyCombinationFailFlow
 from .environment import DexDevTestEnvironment
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 
 def test_unknown_condition_id_fails_flow() -> None:

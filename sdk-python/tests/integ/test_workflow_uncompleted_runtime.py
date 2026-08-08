@@ -28,7 +28,7 @@ from .force_fail_flow import ForceFailFlow
 from .signal_flow import SignalFlow
 from .state_failure_flow import StateFailureFlow
 from .state_timeout_flow import StateTimeoutFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 
 def test_flow_wait_timeout() -> None:

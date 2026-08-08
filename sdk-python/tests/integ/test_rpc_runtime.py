@@ -22,7 +22,7 @@ from .dead_end_flow import DeadEndFlow
 from .no_start_flow import NoStartFlow
 from .no_state_flow import NoStateFlow
 from .rpc_flow import RpcFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 

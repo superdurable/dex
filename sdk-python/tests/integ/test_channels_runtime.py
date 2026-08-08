@@ -17,7 +17,7 @@ from .async_environment import AsyncDexDevTestEnvironment
 from .basic_internal_channel_flow import BasicInternalChannelFlow
 from .conditional_complete_flow import ConditionalCompleteFlow
 from .signal_flow import SignalFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 from .waiting_internal_channel_flow import WaitingInternalChannelFlow
 
 WAIT_TIMEOUT = timedelta(seconds=30)

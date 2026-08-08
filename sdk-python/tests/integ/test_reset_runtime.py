@@ -22,7 +22,7 @@ from dex import (
 
 from .environment import DexDevTestEnvironment
 from .reset_flow import ResetFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 
 @pytest.mark.parametrize("locking", (True, False))

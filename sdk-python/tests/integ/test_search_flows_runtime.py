@@ -21,7 +21,7 @@ from dex.flow_info import SearchFlowEntry
 
 from .environment import DexDevTestEnvironment
 from .search_flows_flow import KEYWORD_KEY, SearchFlowsFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 

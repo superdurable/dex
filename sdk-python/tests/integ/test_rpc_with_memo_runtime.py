@@ -14,7 +14,7 @@ from dex import StopFlowOptions, StopType
 
 from .environment import DexDevTestEnvironment
 from .rpc_flow import RpcFlow
-from .test_basic_runtime import unique_id
+from .shared import unique_id
 from .test_rpc_runtime import assert_rpc_completion
 
 
