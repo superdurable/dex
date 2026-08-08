@@ -27,7 +27,8 @@ class BasicSecondStep implements Step<number> {
     return "BasicSecondStep";
   }
 
-  public execute(_context: Context, input: number): StepDecision {
+  public async execute(_context: Context, input: number): Promise<StepDecision> {
+    await Promise.resolve();
     return gracefulComplete(input + 1);
   }
 }
@@ -41,12 +42,14 @@ class BasicFirstStep implements Step<number> {
     return "BasicFirstStep";
   }
 
-  public waitFor(context: Context, input: number): Wait {
+  public async waitFor(context: Context, input: number): Promise<Wait> {
+    await Promise.resolve();
     context.setStepExecutionLocal("input", input, doubleCodec);
     return Wait.skipImmediately();
   }
 
-  public execute(_context: Context, input: number): StepDecision {
+  public async execute(_context: Context, input: number): Promise<StepDecision> {
+    await Promise.resolve();
     return goTo(this.second, input + 1);
   }
 }

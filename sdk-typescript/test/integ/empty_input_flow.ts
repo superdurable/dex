@@ -26,7 +26,8 @@ class EmptySecondStep implements Step<void> {
     return "EmptySecondStep";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
+  public async execute(_context: Context, _input: void): Promise<StepDecision> {
+    await Promise.resolve();
     return gracefulComplete();
   }
 }
@@ -40,7 +41,8 @@ class EmptyFirstStep implements Step<void> {
     return "EmptyFirstStep";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
+  public async execute(_context: Context, _input: void): Promise<StepDecision> {
+    await Promise.resolve();
     return goTo(this.second, undefined);
   }
 }
