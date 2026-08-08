@@ -172,7 +172,7 @@ Javadoc: [javadoc.io](https://www.javadoc.io/doc/io.superdurable/dex-sdk/latest/
 ### Gradle
 
 ```gradle
-implementation 'io.superdurable:dex-sdk:0.0.2'
+implementation 'io.superdurable:dex-sdk:0.0.3'
 ```
 
 ### Maven
@@ -181,7 +181,7 @@ implementation 'io.superdurable:dex-sdk:0.0.2'
 <dependency>
     <groupId>io.superdurable</groupId>
     <artifactId>dex-sdk</artifactId>
-    <version>0.0.2</version>
+    <version>0.0.3</version>
 </dependency>
 ```
 
@@ -245,7 +245,7 @@ then compiles and runs independent Gradle and Maven consumers. Both consumers
 open the packaged Rust BlobCache library and perform a cache round trip.
 
 ```shell
-./validate-publication.sh 0.0.2-local
+./validate-publication.sh 0.0.3-local
 ```
 
 The command requires JDK 17, Rust 1.88+, and Maven. Published classes still
@@ -270,7 +270,7 @@ use the local publishing command:
 
 1. Run:
   ```
-  ./gradlew publishToMavenLocal -PreleaseVersion=0.0.2-local
+  ./gradlew publishToMavenLocal -PreleaseVersion=0.0.3-local
   ```
 
 2. In the [samples](https://github.com/superdurable/dex/tree/main/examples/java)
@@ -281,7 +281,7 @@ use the local publishing command:
 
 3. Once you're done, to remove the locally published version, run:
   ```
-  ./gradlew unpublishFromMavenLocal -PreleaseVersion=0.0.2-local
+  ./gradlew unpublishFromMavenLocal -PreleaseVersion=0.0.3-local
   ```
 
 ### Repo structure

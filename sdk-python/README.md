@@ -71,7 +71,7 @@ options = (
 ```
 
 ```
-pip install dex-python-sdk==0.0.2
+pip install dex-python-sdk==0.1.0
 ```
 
 See [samples](../examples/python) for use case examples.

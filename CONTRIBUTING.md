@@ -155,12 +155,13 @@ Notes:
 - Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 - TypeScript publishing requires a GitHub Release after its one-time npm bootstrap publish.
 
-### Committed `version` vs release tags (Python / TypeScript)
+### Committed `version` vs release tags (Python / TypeScript / Java)
 
-For the Python and TypeScript SDKs, the **GitHub Release tag** is the source of truth for
-what gets published (`sdk-python/vX.Y.Z` → PyPI, `sdk-typescript/vX.Y.Z` → npm). CI
-temporarily stamps that version into package metadata on the runner and does **not**
-commit the change.
+For the Python, TypeScript, and Java SDKs, the **GitHub Release tag** is the source of
+truth for what gets published (`sdk-python/vX.Y.Z` → PyPI, `sdk-typescript/vX.Y.Z` → npm,
+`sdk-java/vX.Y.Z` → Maven Central). CI applies that version for the release build (Python
+and TypeScript stamp package metadata on the runner; Java passes `-PreleaseVersion`) and
+does **not** commit the change.
 
 The committed fields still matter; they are not unused:
 
@@ -168,10 +169,12 @@ The committed fields still matter; they are not unused:
 |-------|------|
 | [`sdk-python/pyproject.toml`](sdk-python/pyproject.toml) `project.version` | Required package metadata. Used for local / editable installs (`pip` / `uv`), metadata queries, and aligning `uv.lock`. Also used when [`.github/workflows/sdk-python-publish.yml`](.github/workflows/sdk-python-publish.yml) runs on a **pull_request** (no tag): that dry-run builds wheels/sdists using the committed version. |
 | [`sdk-typescript/package.json`](sdk-typescript/package.json) `version` | Required package metadata. Used for local installs, `npm pack`, and keeping `package-lock.json` in sync. The TypeScript publish workflow only runs on release tags, so the committed value is not what npm receives unless CI has just rewritten it for that job. |
+| [`sdk-java/build.gradle`](sdk-java/build.gradle) default `releaseVersion` | Fallback when `-PreleaseVersion` is omitted (local / SNAPSHOT builds). Maven Central publish always supplies the version from the tag (or workflow_dispatch). |
 
 What the committed value is **not**:
 
-- Not the source of the next PyPI / npm release (the tag / workflow_dispatch version is).
+- Not the source of the next PyPI / npm / Maven Central release (the tag /
+  workflow_dispatch version is).
 - Not automatically updated in git when you publish a tag.
 - Not what examples pin when they depend on a registry version.
 
@@ -179,13 +182,14 @@ Practical workflow:
 
 1. Publish with a tag (for example `sdk-python/v0.1.0`) — no need to bump the committed
    file first.
-2. Optionally open a follow-up PR so `pyproject.toml` / `package.json` (and locks) on
-   `main` match the version you just shipped, if you want the repo tip to self-report
-   the same number.
+2. Follow up with a PR so tip versions match what you shipped:
+   - Python: `pyproject.toml` (+ `uv.lock`) and docs install pins
+   - TypeScript: `package.json` (+ `package-lock.json`)
+   - Java: default `…-SNAPSHOT` in `build.gradle` / smoke-test coords, plus README pins
 
 `package.json` cannot carry comments; the TypeScript SDK README Releases section
-documents the same tag-driven rule. `pyproject.toml` may note that publish stamps from
-the tag.
+documents the same tag-driven rule. `pyproject.toml` and `build.gradle` may note that
+publish takes the version from the tag.
 
 ## Package-specific guides
 
