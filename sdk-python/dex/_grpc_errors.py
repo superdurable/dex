@@ -52,7 +52,10 @@ async def async_abort_worker_error(
     context: grpc.aio.ServicerContext[Any, Any],
     error: BaseException,
 ) -> None:
-    await context.abort_with_status(rpc_status.to_status(_worker_error_status(error)))
+    # types-grpcio on 3.11 omits aio abort_with_status; runtime provides it.
+    await cast(Any, context).abort_with_status(
+        rpc_status.to_status(_worker_error_status(error))
+    )
 
 
 def _worker_error_status(error: BaseException) -> status_pb2.Status:
