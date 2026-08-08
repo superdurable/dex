@@ -1,12 +1,11 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@0.1.2`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@0.1.3`](https://www.npmjs.com/package/@superdurable/dex).
 
-The sample process hosts two gRPC Workers (primary on `127.0.0.1:8803`, sync
-sidecar on `127.0.0.1:8804`) and an HTTP controller on port `8080`. The sync
-Worker is the `workerTarget` for Client calls made from Steps so
-`Atomics.wait` does not deadlock the primary Worker. Disk BlobCaches are under
-`DEX_BLOB_CACHE_DIR`.
+The sample process hosts one gRPC Worker (default `127.0.0.1:8803`) and an HTTP
+controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
+`await` the shared `Client` directly (async await on the Worker). Disk
+BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 
 ## Run locally
 
@@ -27,8 +26,7 @@ npm start
 ```
 
 Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
-`DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`,
-`DEX_SYNC_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
+`DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
 `DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
 
 ## Tests

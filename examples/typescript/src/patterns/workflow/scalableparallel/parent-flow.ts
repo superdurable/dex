@@ -18,6 +18,7 @@ import {
   Attribute,
   Channel,
   ChannelMap,
+  DexError,
   ErrorSubStatus,
   IdReusePolicy,
   InitialAttribute,
@@ -40,8 +41,8 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+import { getClient } from "../../../client-holder.js";
 import { HOUR_MS } from "../../../config/env.js";
-import { startFlowSync, SyncClientError } from "../../client-sync.js";
 import {
   batchEnqueueRequestCodec,
   type BatchEnqueueRequest,
@@ -107,7 +108,7 @@ class LoopForNextMessage implements Step<void> {
     return Wait.anyOf(...conditions);
   }
 
-  public execute(context: Context, _input: void): StepDecision {
+  public async execute(context: Context, _input: void): Promise<StepDecision> {
     let waiting = this.flow.currentWaitChildWfs.get(context) ?? [];
     const newWaitList = [...waiting];
 
@@ -119,24 +120,19 @@ class LoopForNextMessage implements Step<void> {
       }
       const childWorkflowId = `processing-${request}`;
       try {
-        startFlowSync({
-          flowType: this.child.getFlowType(),
-          flowId: childWorkflowId,
-          input: request,
-          options: {
-            timeoutMs: HOUR_MS,
-            ignoreAlreadyStarted: true,
-            requestId: context.stepExecutionId,
-            idReusePolicy: IdReusePolicy.DISALLOW,
-            attributes: [
-              InitialAttribute.of(this.child.parentWorkflowId, context.flowId),
-            ],
-          },
+        await getClient().startFlow(this.child, childWorkflowId, request, {
+          timeoutMs: HOUR_MS,
+          ignoreAlreadyStarted: true,
+          requestId: context.stepExecutionId,
+          idReusePolicy: IdReusePolicy.DISALLOW,
+          attributes: [
+            InitialAttribute.of(this.child.parentWorkflowId, context.flowId),
+          ],
         });
         newWaitList.push(childWorkflowId);
       } catch (error) {
         if (
-          error instanceof SyncClientError &&
+          error instanceof DexError &&
           error.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
         ) {
           console.log(

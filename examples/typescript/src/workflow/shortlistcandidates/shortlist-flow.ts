@@ -42,7 +42,7 @@ import {
 } from "../my-dependency-service.js";
 import { employerOptInFlow } from "./employer-opt-in-flow.js";
 import { shortlistInputCodec, type ShortlistInput } from "./shortlist-input.js";
-import { isOptedInSync } from "./workflow-ids.js";
+import { isOptedIn } from "./workflow-ids.js";
 
 export const SA_KEY_EMPLOYER_ID = "SHORTLIST_EmployerId";
 export const SA_KEY_CANDIDATE_ID = "SHORTLIST_CandidateId";
@@ -119,7 +119,7 @@ class SendEmail implements Step<void> {
     );
   }
 
-  public execute(context: Context, _input: void): StepDecision {
+  public async execute(context: Context, _input: void): Promise<StepDecision> {
     const employer = this.flow.employerId.get(context);
     const candidate = this.flow.candidateId.get(context);
 
@@ -128,7 +128,7 @@ class SendEmail implements Step<void> {
       return forceComplete();
     }
 
-    if (!isOptedInSync(getClient(), employerOptInFlow, employer)) {
+    if (!(await isOptedIn(getClient(), employerOptInFlow, employer))) {
       console.log(`Not sending the email to ${employer}-${candidate} because of not opted-in`);
       return forceComplete();
     }

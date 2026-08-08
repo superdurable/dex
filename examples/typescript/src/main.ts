@@ -55,7 +55,6 @@ import {
 export interface SampleServer {
   readonly client: Client;
   readonly worker: Worker;
-  readonly syncWorker: Worker;
   readonly httpServer: ReturnType<express.Express["listen"]>;
   close(): Promise<void>;
 }
@@ -67,10 +66,6 @@ export async function startSampleServer(): Promise<SampleServer> {
     directory: env.blobCacheDir,
     maxBytes: 1 << 30,
   });
-  const syncBlobCache = openBlobCache({
-    directory: `${env.blobCacheDir}/sync-worker`,
-    maxBytes: 1 << 30,
-  });
   const worker = new Worker(registry, blobCache, {
     bindAddress: env.workerBindAddress,
     serverAddress: env.serverAddress,
@@ -78,17 +73,12 @@ export async function startSampleServer(): Promise<SampleServer> {
       ? { workerTarget: { address: env.workerTarget } }
       : {}),
   });
-  const syncWorker = new Worker(registry, syncBlobCache, {
-    bindAddress: env.syncWorkerBindAddress,
-    serverAddress: env.serverAddress,
-  });
   await worker.start();
-  await syncWorker.start();
   const client = new Client(registry, blobCache, {
     serverAddress: env.serverAddress,
     workerTarget: worker.workerTarget,
   });
-  setClient(client, syncWorker.workerTarget);
+  setClient(client);
 
   const app = express();
   app.use(express.json());
@@ -144,7 +134,6 @@ export async function startSampleServer(): Promise<SampleServer> {
   return {
     client,
     worker,
-    syncWorker,
     httpServer,
     async close() {
       await new Promise<void>((resolve, reject) => {
@@ -160,9 +149,7 @@ export async function startSampleServer(): Promise<SampleServer> {
         (async () => {
           await client.close();
           await worker.close();
-          await syncWorker.close();
           blobCache.close();
-          syncBlobCache.close();
         })(),
         new Promise<void>((resolve) => {
           setTimeout(resolve, 3_000);
@@ -183,7 +170,7 @@ async function main(): Promise<void> {
   const server = await startSampleServer();
   const env = loadEnv();
   console.log(
-    `Dex TypeScript examples listening on http://${env.httpAddress} (worker ${env.workerBindAddress}, sync ${env.syncWorkerBindAddress})`,
+    `Dex TypeScript examples listening on http://${env.httpAddress} (worker ${env.workerBindAddress})`,
   );
   const shutdown = async () => {
     await server.close();

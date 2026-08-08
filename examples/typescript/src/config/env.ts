@@ -31,7 +31,6 @@ export function environmentOr(name: string, fallback: string): string {
 export interface SampleEnv {
   readonly serverAddress: string;
   readonly workerBindAddress: string;
-  readonly syncWorkerBindAddress: string;
   readonly workerTarget: string | undefined;
   readonly httpAddress: string;
   readonly blobCacheDir: string;
@@ -39,14 +38,9 @@ export interface SampleEnv {
 
 export function loadEnv(): SampleEnv {
   const workerTarget = process.env.DEX_WORKER_TARGET?.trim();
-  const workerBindAddress = environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803");
   return {
     serverAddress: environmentOr("DEX_FLOW_SERVICE_ADDRESS", "localhost:8801"),
-    workerBindAddress,
-    syncWorkerBindAddress: environmentOr(
-      "DEX_SYNC_WORKER_BIND_ADDRESS",
-      nextBindAddress(workerBindAddress),
-    ),
+    workerBindAddress: environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
     workerTarget: workerTarget !== undefined && workerTarget.length > 0 ? workerTarget : undefined,
     httpAddress: environmentOr("DEX_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8080"),
     blobCacheDir: environmentOr(
@@ -54,17 +48,4 @@ export function loadEnv(): SampleEnv {
       `${process.env.TMPDIR ?? "/tmp"}/dex-typescript-examples-blobs`,
     ),
   };
-}
-
-function nextBindAddress(address: string): string {
-  const separator = address.lastIndexOf(":");
-  if (separator <= 0) {
-    throw new Error(`invalid worker bind address: ${address}`);
-  }
-  const host = address.slice(0, separator);
-  const port = Number(address.slice(separator + 1));
-  if (!Number.isFinite(port)) {
-    throw new Error(`invalid worker bind address: ${address}`);
-  }
-  return `${host}:${port + 1}`;
 }

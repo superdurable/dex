@@ -16,7 +16,9 @@
 
 import {
   Channel,
+  DexError,
   ErrorSubStatus,
+  LongPollTimeoutError,
   StepList,
   StepMovement,
   Timer,
@@ -33,8 +35,8 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+import { getClient } from "../../../client-holder.js";
 import { startOptions } from "../../../config/env.js";
-import { startFlowSync, SyncClientError, waitForFlowSync } from "../../client-sync.js";
 import { childFlow, type ChildFlow } from "../scalableparallel/child-flow.js";
 import {
   waitForChildInputCodec,
@@ -103,18 +105,13 @@ class StartChildWorkflow implements Step<number> {
     return "StartChildWorkflow";
   }
 
-  public execute(context: Context, uuid: number): StepDecision {
+  public async execute(_context: Context, uuid: number): Promise<StepDecision> {
     const childWorkflowId = `child-wf-${uuid}`;
     try {
-      startFlowSync({
-        flowType: this.child.getFlowType(),
-        flowId: childWorkflowId,
-        input: String(uuid),
-        options: startOptions(),
-      });
+      await getClient().startFlow(this.child, childWorkflowId, String(uuid), startOptions());
     } catch (error) {
       if (
-        error instanceof SyncClientError &&
+        error instanceof DexError &&
         error.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
       ) {
         console.log("ignore this error because it is already started");
@@ -142,16 +139,24 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
     return Wait.anyOf(Timer.byDuration(input.timerSeconds * 1000));
   }
 
-  public execute(context: Context, input: WaitForChildInput): StepDecision {
-    const outcome = waitForFlowSync(
-      input.childWFId,
-      Math.max(input.timerSeconds, 1) * 1000,
-    );
-    if (outcome === "timeout") {
-      return goTo(this.flow.awaitChildWorkflowCompletionStep, {
-        childWFId: input.childWFId,
-        timerSeconds: Math.min(input.timerSeconds * 2, 10),
-      });
+  public async execute(
+    _context: Context,
+    input: WaitForChildInput,
+  ): Promise<StepDecision> {
+    try {
+      await getClient().waitForFlow(
+        input.childWFId,
+        voidCodec,
+        Math.max(input.timerSeconds, 1) * 1000,
+      );
+    } catch (error) {
+      if (error instanceof LongPollTimeoutError) {
+        return goTo(this.flow.awaitChildWorkflowCompletionStep, {
+          childWFId: input.childWFId,
+          timerSeconds: Math.min(input.timerSeconds * 2, 10),
+        });
+      }
+      throw error;
     }
     return goTo(this.flow.loopForNextTaskStep, undefined);
   }
