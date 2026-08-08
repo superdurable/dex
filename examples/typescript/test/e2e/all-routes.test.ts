@@ -20,6 +20,7 @@ import test from "node:test";
 
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
+import { comprehensiveDealProcess } from "../../src/workflow/datasetdeal/comprehensive-process.js";
 
 let server: SampleServer;
 let baseUrl: string;
@@ -109,6 +110,29 @@ test("product moneytransfer start", async () => {
   });
   requireOk(result, "moneytransfer/start");
   assert.ok((result.json as { flowID: string }).flowID);
+});
+
+test("product dataset deal start waits for initialization and triggers a condition", async () => {
+  const process = comprehensiveDealProcess(id("dataset-deal-process"));
+  const start = await post("/dataset-deal/start", {
+    process,
+    buyerId: id("dataset-deal-buyer"),
+  });
+  requireOk(start, "dataset-deal/start");
+  assert.equal(start.status, 201);
+  const { flowID, runID } = start.json as { flowID: string; runID: string };
+  assert.ok(flowID.length > 0);
+  assert.ok(runID.length > 0);
+
+  const trigger = await post(`/dataset-deal/${flowID}/trigger/buyer-proposal`, {
+    data: {
+      proposedSamplePrice: "10",
+      proposedFullPrice: "100",
+      proposedSampleRefundPrice: "5",
+    },
+  });
+  requireOk(trigger, "dataset-deal/trigger");
+  assert.equal(trigger.status, 202);
 });
 
 test("product microservice start swap signal", async () => {

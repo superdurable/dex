@@ -19,6 +19,16 @@ temporal --address 127.0.0.1:7233 operator search-attribute create \
   --name CustomKeywordField --type Keyword
 temporal --address 127.0.0.1:7233 operator search-attribute create \
   --name CustomStringField --type Text
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name ProcessID --type Keyword
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name BuyerID --type Keyword
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name CurrentState --type Keyword
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name PendingPreConditionState --type Keyword
+temporal --address 127.0.0.1:7233 operator search-attribute create \
+  --name PendingPreConditionName --type Keyword
 
 cd examples/typescript
 npm install
@@ -39,6 +49,7 @@ npm run smoke            # every product + design-pattern HTTP route
 
 ## Product examples
 
+- [Dataset deal DSL](./src/workflow/datasetdeal)
 - [Money transfer](./src/workflow/money/transfer)
 - [Microservice orchestration](./src/workflow/microservices)
 - [Engagement](./src/workflow/engagement)

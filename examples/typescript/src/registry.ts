@@ -35,6 +35,7 @@ import { requestReceiverFlow } from "./patterns/workflow/scalableparallel/reques
 import { storageFlow } from "./patterns/workflow/storage/storage-flow.js";
 import { flowGracefulTimeout } from "./patterns/workflow/timeout/flow-graceful-timeout.js";
 import { waitForStateCompletionFlow } from "./patterns/workflow/waitforstatecompletion/wait-for-state-completion-flow.js";
+import { datasetDealFlow } from "./workflow/datasetdeal/dataset-deal-flow.js";
 import { engagementFlow } from "./workflow/engagement/engagement-flow.js";
 import { jobPostFlow } from "./workflow/jobpost/job-post-flow.js";
 import { orchestrationFlow } from "./workflow/microservices/orchestration-flow.js";
@@ -46,6 +47,7 @@ import { userSignupFlow } from "./workflow/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./workflow/subscription/subscription-flow.js";
 
 export const allExampleFlows: readonly Flow<any>[] = [
+  datasetDealFlow,
   moneyTransferFlow,
   orchestrationFlow,
   engagementFlow,
@@ -81,6 +83,7 @@ export function createExampleRegistry(): Registry {
 }
 
 export {
+  datasetDealFlow,
   moneyTransferFlow,
   orchestrationFlow,
   engagementFlow,

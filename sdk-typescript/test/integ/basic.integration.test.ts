@@ -104,6 +104,15 @@ test("model input is serialized and invalid runtime input is rejected", async ()
   });
 });
 
+test("blob-backed model input is hydrated before execute", async () => {
+  const flow = new ModelInputFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("blob-backed-model-input");
+    await client.startFlow(flow, id, { value: 10, payload: "large-input".repeat(1_000) });
+    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 10);
+  });
+});
+
 test("Flow config override survives Continue-As-New", async () => {
   const flow = new BasicFlow();
   await withEnvironment([flow], async ({ client }) => {

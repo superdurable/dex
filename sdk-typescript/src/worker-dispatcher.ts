@@ -180,7 +180,13 @@ export class WorkerDispatcher {
       request.conditionResults,
       values.slice(offset),
     );
-    return { ...request, attributes, stepExeLocals, conditionResults };
+    return {
+      ...request,
+      stepInput: values[0],
+      attributes,
+      stepExeLocals,
+      conditionResults,
+    };
   }
 
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
