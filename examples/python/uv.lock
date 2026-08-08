@@ -275,6 +275,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "dex-python-sdk" },
+    { name = "flask" },
     { name = "openai" },
     { name = "openai-agents" },
     { name = "pydantic" },
@@ -293,6 +294,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dex-python-sdk", specifier = "==0.1.1" },
+    { name = "flask", specifier = ">=3.0,<4" },
     { name = "openai", specifier = ">=1.66.2,<2" },
     { name = "openai-agents", specifier = ">=0.0.4,<0.0.5" },
     { name = "pydantic", specifier = ">=2.10.6,<3" },

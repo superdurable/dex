@@ -80,4 +80,4 @@ temporal --address "$temporal_address" operator search-attribute create \
 cd "$script_dir"
 uv sync --locked
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest tests/unit tests/integ -v 2>&1 | tee "$test_log"
+  uv run --frozen pytest tests/unit tests/integ sync-python/tests/integ -v 2>&1 | tee "$test_log"
