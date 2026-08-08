@@ -8,6 +8,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "dex-python-sdk==0.1.1",
+    "flask>=3.0,<4",
     "openai>=1.66.2,<2",
     "openai-agents>=0.0.4,<0.0.5",
     "pydantic>=2.10.6,<3",
@@ -28,8 +29,8 @@ package = false
 required-version = "==0.12.2"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
+pythonpath = [".", "sync-python"]
+testpaths = ["tests", "sync-python/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"

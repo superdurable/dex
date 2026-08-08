@@ -1,0 +1,156 @@
+# Copyright (c) 2022-2026 Super Durable, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from typing import Callable
+
+import pytest
+from dex import Client, FlowStatus, IdReusePolicy, StartFlowOptions
+
+from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
+from dex_examples.workflow.engagement.engagement_input import EngagementInput
+from dex_examples.workflow.engagement.status import Status
+from dex_examples.workflow.money.transfer.transfer_request import TransferRequest
+from dex_examples.workflow.subscription.customer import Customer
+from dex_examples.workflow.subscription.subscription import Subscription
+from sync_examples.app import SyncExampleApp
+from sync_examples.config import DEFAULT_TIMEOUT, start_options
+from sync_examples.wait import (
+    WAIT_TIMEOUT,
+    flow_status_or_none,
+    wait_for_attribute,
+    wait_until,
+)
+
+pytestmark = pytest.mark.integ
+
+
+def test_basic_approve_completes(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-basic")
+    client.start_flow(app.basic, flow_id, 5, start_options())
+    appended = client.invoke_rpc(app.basic.append_string, flow_id, "hello")
+    assert "hello" in appended
+    client.invoke_rpc(app.basic.approve, flow_id)
+    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "approved"
+
+
+def test_money_transfer_completes_the_saga(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-money")
+    request = TransferRequest("from-account", "to-account", 100, "test-notes")
+    client.start_flow(app.money_transfer, flow_id, request, start_options())
+    output = client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+    assert "transfer is done" in output
+    assert "from from-account to to-account for amount 100" in output
+
+
+def test_engagement_accept_completes(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-engagement")
+    client.start_flow(
+        app.engagement,
+        flow_id,
+        EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
+        start_options(),
+    )
+    wait_for_attribute(client, flow_id, EngagementFlow.engagement_status)
+    description = client.invoke_rpc(app.engagement.describe, flow_id)
+    assert description.employer_id == "test-employer-id"
+    assert description.current_status == Status.INITIATED
+    assert client.invoke_rpc(app.engagement.accept, flow_id, "sounds good") is (
+        Status.ACCEPTED
+    )
+    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+
+
+def test_subscription_describe_and_cancel(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-subscription")
+    customer = Customer(
+        "Quanzheng",
+        "Long",
+        "qlong",
+        "qlong@example.com",
+        Subscription(
+            trial_period_seconds=600,
+            billing_period_seconds=1,
+            max_billing_periods=10,
+            billing_period_charge=100,
+        ),
+    )
+    client.start_flow(app.subscription, flow_id, customer, start_options())
+    subscription = wait_until(
+        "Initialize to store the customer",
+        lambda: client.invoke_rpc(app.subscription.describe, flow_id),
+    )
+    assert subscription.billing_period_charge == 100
+    client.publish(flow_id, app.subscription.cancel_subscription, None)
+    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+
+
+def test_parent_child_starts_a_child(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-parent-child")
+    run_id = client.start_flow(
+        app.parent_flow_v2,
+        flow_id,
+        2,
+        StartFlowOptions(
+            timeout=DEFAULT_TIMEOUT,
+            id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED,
+        ),
+    )
+    assert run_id
+    child_id = f"{flow_id}-child-0"
+    wait_until(
+        "parent-child started a child flow",
+        lambda: flow_status_or_none(client, child_id),
+        WAIT_TIMEOUT,
+    )
+
+
+def test_interruptible_start_and_cancel(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-interruptible")
+    client.start_flow(app.interruptible, flow_id, None, start_options())
+    wait_until(
+        "interruptible flow running",
+        lambda: flow_status_or_none(client, flow_id) is FlowStatus.RUNNING,
+    )
+    client.invoke_rpc(app.interruptible.interrupt, flow_id)
+    wait_until(
+        "interruptible flow completed",
+        lambda: flow_status_or_none(client, flow_id) is FlowStatus.COMPLETED,
+        WAIT_TIMEOUT,
+    )

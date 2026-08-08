@@ -104,4 +104,4 @@ fi
 
 cd "$script_dir"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest -vv tests/
+  uv run --frozen pytest -vv tests/ sync-python/tests/integ

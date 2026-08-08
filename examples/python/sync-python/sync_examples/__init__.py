@@ -12,13 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: unitTests e2eTests syncIntegTests
-
-unitTests:
-	uv run --frozen pytest tests/unit -v
-
-syncIntegTests:
-	uv run --frozen pytest sync-python/tests/integ -v
-
-e2eTests:
-	./run-e2e-tests.sh
+"""Sync Client/Worker showcase (six Flows)."""

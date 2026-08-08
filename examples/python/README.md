@@ -3,9 +3,12 @@
 These examples target [`dex-python-sdk==0.1.1`](https://pypi.org/project/dex-python-sdk/0.1.1/)
 (`import dex`). Requires Python 3.11+.
 
-The sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a Quart
-HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps use
-`AsyncClient`. One Registry and disk BlobCache are shared by Worker and Client.
+The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a
+Quart HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps
+use `AsyncClient`. One Registry and disk BlobCache are shared by Worker and Client.
+
+For the sync `Client` / `Worker` surface (Flask, six Flows), see
+[`sync-python/`](./sync-python/).
 
 ## Run locally
 
@@ -33,7 +36,8 @@ When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 ## Verify every example
 
 The E2E suite starts Dex through `dexcli dev` and runs unit + integ tests that
-exercise every product, design-pattern, and Python-only example:
+exercise every product, design-pattern, and Python-only example, plus the
+[`sync-python`](./sync-python/) showcase:
 
 ```bash
 make e2eTests

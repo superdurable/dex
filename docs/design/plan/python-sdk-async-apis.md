@@ -1,7 +1,8 @@
 # Python SDK: optional asyncio APIs
 
 Status: implemented (Phase 1 + Phase 2 in `sdk-python`)
-Audience: SDK consumers; examples remain sync unless a later FastAPI sample is added
+Audience: SDK consumers; primary examples are async (`examples/python`); sync
+showcase under `examples/python/sync-python/`
 
 ## Problem
 
@@ -65,7 +66,9 @@ Exports: `from dex import AsyncClient, AsyncWorker` alongside existing `Client` 
 
 ## Locked design choices
 
-1. **Sync remains default.** Existing `Client` / `Worker` / `Step` / `@rpc` stay unchanged; `examples/python` stays sync.
+1. **Sync remains a first-class surface.** Existing `Client` / `Worker` / `Step` /
+   `@rpc` stay unchanged. Primary examples use `AsyncClient` / `AsyncWorker`;
+   sync showcase lives under `examples/python/sync-python/`.
 2. **Parallel types, not suffixes.** `AsyncClient`, `AsyncWorker`, and coroutine-capable handlers when served by `AsyncWorker`.
 3. **Transport:** `grpc.aio` for both `AsyncClient` and `AsyncWorker` (reuse generated stubs with aio channel/server where possible).
 4. **Mixing rules:**
