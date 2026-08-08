@@ -15,6 +15,7 @@
  */
 
 import {
+  DexError,
   ErrorSubStatus,
   StepList,
   doubleCodec,
@@ -26,8 +27,8 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+import { getClient } from "../../../client-holder.js";
 import { startOptions } from "../../../config/env.js";
-import { invokeRpcSync, startFlowSync, SyncClientError } from "../../client-sync.js";
 import { EnqueueFailedException } from "./exceptions/enqueue-failed-exception.js";
 import { NUM_PARENT_WORKFLOWS, parentFlow, type ParentFlow } from "./parent-flow.js";
 import type { BatchEnqueueRequest } from "./models/batch-enqueue-request.js";
@@ -41,32 +42,30 @@ class Request implements Step<number> {
     return "Request";
   }
 
-  public execute(_context: Context, numberOfChildWfs: number): StepDecision {
+  public async execute(
+    _context: Context,
+    numberOfChildWfs: number,
+  ): Promise<StepDecision> {
     const batch = this.generateTasks(numberOfChildWfs);
     const randSuffix = Math.floor(Math.random() * NUM_PARENT_WORKFLOWS) + 1;
     const parentWorkflowId = `parent_workflow_${randSuffix}`;
+    const client = getClient();
 
     try {
-      const success = invokeRpcSync<boolean>({
-        flowType: this.parent.getFlowType(),
-        flowId: parentWorkflowId,
-        rpcName: "enqueue",
-        input: batch,
-      });
+      const success = await client.invokeRPC(
+        this.parent.enqueue,
+        parentWorkflowId,
+        batch,
+      );
       if (!success) {
         throw new EnqueueFailedException("Enqueue failed, retry in next attempt");
       }
     } catch (error) {
       if (
-        error instanceof SyncClientError &&
+        error instanceof DexError &&
         error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS
       ) {
-        startFlowSync({
-          flowType: this.parent.getFlowType(),
-          flowId: parentWorkflowId,
-          input: batch,
-          options: startOptions(),
-        });
+        await client.startFlow(this.parent, parentWorkflowId, batch, startOptions());
       } else {
         throw error;
       }

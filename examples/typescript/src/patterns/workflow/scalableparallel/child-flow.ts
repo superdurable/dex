@@ -16,6 +16,7 @@
 
 import {
   Attribute,
+  DexError,
   ErrorSubStatus,
   StepList,
   Timer,
@@ -29,7 +30,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-import { invokeRpcSync, SyncClientError } from "../../client-sync.js";
+import { getClient } from "../../../client-holder.js";
 
 export const PARENT_WORKFLOW_ID = "ParentWorkflowId";
 
@@ -47,19 +48,20 @@ class Processing implements Step<string> {
     return Wait.anyOf(Timer.byDuration(randomSeconds * 1000));
   }
 
-  public execute(context: Context, _input: string): StepDecision {
+  public async execute(context: Context, _input: string): Promise<StepDecision> {
     const parentId = this.flow.parentWorkflowId.get(context);
     if (parentId !== undefined) {
+      // Lazy import avoids the parent↔child module cycle at load time.
+      const { parentFlow } = await import("./parent-flow.js");
       try {
-        invokeRpcSync({
-          flowType: "ParentFlow",
-          flowId: parentId,
-          rpcName: "completeChildWorkflow",
-          input: context.flowId,
-        });
+        await getClient().invokeRPC(
+          parentFlow.completeChildWorkflow,
+          parentId,
+          context.flowId,
+        );
       } catch (error) {
         if (
-          error instanceof SyncClientError &&
+          error instanceof DexError &&
           error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS
         ) {
           console.log(

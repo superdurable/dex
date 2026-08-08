@@ -14,14 +14,12 @@
  * limitations under the License.
  */
 
-import type { Client, WorkerTarget } from "@superdurable/dex";
+import type { Client } from "@superdurable/dex";
 
 let holder: Client | undefined;
-let syncWorkerTargetHolder: WorkerTarget | undefined;
 
-export function setClient(client: Client, syncWorkerTarget: WorkerTarget): void {
+export function setClient(client: Client): void {
   holder = client;
-  syncWorkerTargetHolder = syncWorkerTarget;
 }
 
 export function getClient(): Client {
@@ -29,9 +27,4 @@ export function getClient(): Client {
     throw new Error("Dex client is not initialized; call setClient first");
   }
   return holder;
-}
-
-/** Worker used by sync Client calls from Steps (avoids Atomics.wait deadlock). */
-export function getWorkerTarget(): WorkerTarget | undefined {
-  return syncWorkerTargetHolder;
 }
