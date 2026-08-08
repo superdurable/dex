@@ -1,0 +1,11 @@
+---
+title: Persistence vs Step locals vs input
+---
+
+# Persistence vs Step locals vs input
+
+- **Attribute** — durable across Steps/RPCs
+- **Step input / output** — passed along movements
+- **Step execution locals** — scoped to a Step execution (not a substitute for Attributes)
+
+Pick the narrowest scope that preserves correctness.

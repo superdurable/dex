@@ -1,0 +1,12 @@
+---
+title: Compare with Temporal/Cadence
+---
+
+# Compare with Temporal/Cadence
+
+Dex runs **on** Temporal or Cadence as an interpreter. You write Step/RPC handlers instead of deterministic workflow functions.
+
+- Temporal/Cadence: event-sourced workflow code + activities
+- Dex: structural Steps, Attributes, Channels, Conditions — less determinism burden in app code, richer built-in waiting/RPC/locking model
+
+Use Temporal when you want that programming model directly; use Dex when you want the structural Durable Execution abstractions described in Capabilities.

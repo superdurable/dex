@@ -1,0 +1,122 @@
+---
+title: Parent–child Flows
+---
+
+# Parent–child Flows
+
+Start a child Flow and wait for its completion from the parent.
+
+## Problem and approach
+
+Here we demonstrate how to start a child Flow and wait for its completion.
+
+The pattern is particular useful when you need to fan out the Flow executions for parallelism, or for any other reasons that a parent Flow need to wait for a child to complete.
+
+There are two different ways in Dex.
+
+## Option 1: Let child Flow send back signal on completion
+This is the option that we implemented in scalable parallel design pattern. It's the most efficient but also a bit complex.
+
+1. Parent should use `ignoreAlreadyStarted=true` with `requestId` when starting childFlow
+2. Parent must use dynamic channel name to wait for each child Flow to complete.
+
+Additionally, each child can only notify one single parent on completion. If there could be multiple parents, this approach will not work. This means that multiple parent executions can be mapped to multiple(MtoM) child executions. For real production example, a billing refund request(as a parent Flow) may contain multiple invoices, each invoice will be a child Flow, but different billing refund requests may contain some overlapping invoices, and each refund parent Flow will have to wait for its associated children to complete. 
+
+## Option2: Let parent Flow wait for child Flow completion via client API
+
+In the above MtoM case, there is an even simpler way: from an **async** parent Step, `await client.waitForFlow(childId, timeoutMs)` (TypeScript) or the equivalent SDK long-poll wait API.
+
+Catch long-poll timeouts when the child may take longer than the poll window, then loop with a durable timer. See [TypeScript SDK notes](/references/typescript-sdk).
+
+And potentially, use a timer condition to wait with some interval if it is expected to take more than the poll timeout. 
+
+This approach may look simpler for some people, without the overhead of understanding `ignoreAlreadyStarted + requestId` and "dynamic channel".  
+
+So we will implement it here.
+
+Compared to Option1, this option is less efficient in terms of Temporal actions usage -- it will consume Temporal actions for every iteration of AwaitChildFlowCompletionStep until the child completed, if the child Flow takes very long time (like days), 
+it's not recommended to use this option to wait for child Flow. You should use option1, although a little more code to write. 
+
+But if child Flow can normally complete within minutes, this is probably the easiest way to deal with child Flow, and it's more flexible to support MtoM relationship of parent&child.
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/parentchild/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/parentchild/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// examples/typescript — @superdurable/dex ^0.1.3
+// Start child + wait using async execute on the same Worker.
+
+class StartChildWorkflow implements Step<number> {
+  readonly inputCodec = countInputCodec;
+  constructor(private readonly flow: ParentFlowV2, private readonly child: ChildFlow) {}
+  getStepType() { return "StartChildWorkflow"; }
+
+  async execute(_context: Context, uuid: number): Promise<StepDecision> {
+    const childWorkflowId = `child-wf-${uuid}`;
+    await getClient().startFlow(this.child, childWorkflowId, String(uuid), startOptions());
+    return goTo(this.flow.awaitChildWorkflowCompletionStep, {
+      childWFId: childWorkflowId,
+      timerSeconds: 1,
+    });
+  }
+}
+
+class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
+  // ...
+  waitFor(_context: Context, input: WaitForChildInput): Wait {
+    return Wait.anyOf(Timer.byDuration(input.timerSeconds * 1000));
+  }
+
+  async execute(_context: Context, input: WaitForChildInput): Promise<StepDecision> {
+    try {
+      await getClient().waitForFlow(
+        input.childWFId,
+        voidCodec,
+        Math.max(input.timerSeconds, 1) * 1000,
+      );
+      return goTo(this.flow.loopForNextTaskStep, undefined);
+    } catch (error) {
+      if (error instanceof LongPollTimeoutError) {
+        return goTo(this, {
+          childWFId: input.childWFId,
+          timerSeconds: Math.min(input.timerSeconds * 2, 10),
+        });
+      }
+      throw error;
+    }
+  }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

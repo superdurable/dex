@@ -1,0 +1,54 @@
+---
+title: Resettable timer
+---
+
+# Resettable timer
+
+Extend or reset a wait window based on fresh activity.
+
+## Problem and approach
+
+Here we demonstrate a basic and common design pattern for building Flows with Dex:
+
+1. **Resettable Timer Flow**: This Flow starts a timer with predefined duration value that can be reset before firing.
+
+## Code examples
+
+Full runnable samples live under `examples/{go,java,python,typescript}` (HTTP prefix `/design-pattern/...` where applicable).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# See examples/python/dex_examples/patterns/workflow/resettabletimer/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// See examples/go/workflows/patterns/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// See examples/java/.../patterns/workflow/resettabletimer/
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
+// See examples/typescript/src/patterns/workflow/resettabletimer/
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Capabilities Overview](/capabilities)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

@@ -1,0 +1,33 @@
+---
+title: Dex server operations
+---
+
+# Dex server operations
+
+The Dex **server** interprets Flows on Temporal or Cadence and exposes the FlowService API to clients and Workers.
+
+## Local development
+
+Prefer:
+
+```bash
+brew install superdurable/tap/dexcli
+dexcli dev
+```
+
+This supervises Temporal, Dex Server, and Dex Web for local use. See [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md).
+
+## Production shape
+
+- Run Dex server as a managed service with health checks
+- Point it at a production Temporal/Cadence cluster
+- Configure blob storage for large payloads
+- Expose Dex Web (or your own UI) behind auth as needed
+
+## Configuration
+
+Server configuration is YAML/typed config for the Go server (not every knob is exposed on `dexcli dev`). For Docker-based deploys, see archived notes under `docs/archive/` and current `server/config` docs in the repo.
+
+## Backends
+
+Dex currently interprets on Temporal (primary for `dexcli`) and can target Cadence in server builds that enable it. Production ops for the underlying workflow engine (persistence, multi-cluster, upgrades) follow that engine’s runbooks; Dex adds Flow-level semantics on top.

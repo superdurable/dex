@@ -1,0 +1,66 @@
+---
+title: RPC for external read + write
+---
+
+# RPC for external read + write
+
+## Why you need it
+
+External callers need to read durable state, mutate it, and optionally move the Flow — atomically from the caller’s point of view.
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+@rpc
+def nudge(self, context, message: str) -> RPCResult:
+    status.set(context, "nudged")
+    unblock.publish(context, message)
+    return RPCResult(output="ok")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ name: "nudge", inputCodec: stringCodec, outputCodec: stringCodec })
+nudge(context: Context, message: string): RPCResult<string> {
+  this.status.set(context, "nudged");
+  this.unblock.publish(context, message);
+  return { output: "ok" };
+}
+
+// Client (Promise-based):
+await client.invokeRPC(flow.nudge, flowId, "hello");
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Declare `@rpc` / RPC methods on the Flow; invoke via client `InvokeRPC`.
+
+## How Dex implements it
+
+The server routes InvokeRPC to the Worker, applies Attribute locks if requested, and commits Attribute/channel side effects with the RPC result.
+
+## Traditional workarounds
+
+Without Dex: separate read APIs, write APIs, and “signal” endpoints with careful locking — often inconsistent under concurrency.

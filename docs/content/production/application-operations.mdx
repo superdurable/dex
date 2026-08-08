@@ -1,0 +1,57 @@
+---
+title: Dex application operations
+---
+
+# Dex application operations
+
+Your Dex **application** is the Worker process that hosts Flow definitions (WaitFor / Execute / RPC handlers) and talks to the Dex server.
+
+## What to monitor
+
+### Step API availability
+
+If WaitFor/Execute/RPC Worker calls fail, Dex cannot advance Flows.
+
+- Inspect application logs for handler errors
+- Check network connectivity between Dex server and Workers
+- In Temporal/Cadence UI, inspect pending activities for error details
+- After max retry, failures appear as activity failures in history
+
+### Flow failure
+
+Flows fail when:
+
+- Application code decides to fail a Step
+- Step API retries are exhausted
+
+Mitigation after a fix: [reset](/references/client-apis) failed Flows when appropriate.
+
+### Flow timeout
+
+Timeouts are set at start (0 can mean infinite depending on API). Inspect start options / history for the configured timeout. Mitigate with reset after fixing root causes.
+
+## How to operate
+
+### Scale Workers horizontally
+
+Workers are ordinary services. Add instances behind your worker target / load balancer.
+
+### Debugging tips
+
+- Return rich error details from Worker handlers so pending activity views show stack traces
+- Use Dex Web for Flow/Step/Attribute/channel views
+- Prefer Dex Web first; Temporal/Cadence UI remains useful for underlying activity failures
+
+Useful inspection concepts (Dex terms):
+
+- **Attributes** — current durable variables
+- **Active Steps** — what is running or waiting
+- **Timers / channel waits** — outstanding Conditions
+
+### History reading (mental model)
+
+Focus on application-meaningful events: Flow started (input), Step activity scheduled/completed/failed, and completion. Treat pure Temporal plumbing as implementation detail unless you are debugging the Dex server itself.
+
+### Reset
+
+Reset is the primary mitigation after shipping a Worker bugfix. Prefer resetting from a safe Step boundary. See [Versioning](/production/versioning) and Client APIs.

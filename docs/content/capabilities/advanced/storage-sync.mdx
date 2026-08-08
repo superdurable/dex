@@ -1,0 +1,56 @@
+---
+title: Storage sync
+---
+
+# Storage sync
+
+## Why you need it
+
+Application databases still exist. Teams want Durable Execution state to land in systems they already query (warehouses, OLTP, object stores).
+
+## Code examples
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+# Prefer explicit application writes from Steps when you need OLTP rows.
+# Keep Attributes for execution state.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// Same idea in Go — see examples/go and sdk-go.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same idea in Java — see examples/java and sdk-java.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// Prefer explicit application writes from Steps for OLTP rows.
+// Keep Attributes for execution state. See examples/typescript.
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Today, treat Attributes and your own application writes as the source of truth inside Flows. Export patterns vary by deployment.
+
+## How Dex implements it
+
+Dex persists Flow Attributes and history via its Temporal/Cadence backend and blob store. First-class sync connectors to arbitrary warehouses are a platform direction (see marketing site); OSS Dex does not invent fake sync APIs in the SDKs.
+
+## Traditional workarounds
+
+Teams build ETL from event logs, dual-writes, or CDC — each with consistency headaches.

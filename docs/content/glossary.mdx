@@ -1,0 +1,86 @@
+---
+id: glossary
+title: Glossary
+sidebar_label: Glossary
+slug: /glossary
+---
+
+# Glossary
+
+Short Dex vocabulary. Prefer these terms over legacy Workflow/State names.
+
+#### [Attribute](/capabilities/basic/durable-variables)
+
+Durable typed variable on a Flow (optionally indexed for search).
+
+#### [Channel](/capabilities/advanced/channels)
+
+Durable message pipe for external or internal communication.
+
+#### [Condition](/capabilities/advanced/waiting)
+
+A wait unit (timer, channel, combinations) returned from WaitFor.
+
+#### [Continue-as-new](/production/versioning)
+
+Start a fresh run carrying state forward so history stays bounded.
+
+#### [dexcli](/quick-start)
+
+Homebrew-installed CLI that runs local Temporal + Dex Server + Dex Web.
+
+#### [Execute](/capabilities)
+
+Step method that runs after WaitFor completes (or immediately if there is no wait).
+
+#### [Flow](/intro/what-is-dex)
+
+Durable Execution program: Steps + Attributes + Channels + RPCs.
+
+#### [Flow ID](/references/client-apis)
+
+Application-assigned identity for a Flow execution.
+
+#### [InvokeRPC](/capabilities/advanced/rpc)
+
+Client API to call a Flow RPC handler on the Worker.
+
+#### [Locking](/capabilities/advanced/locking)
+
+Serializing access to Attributes for Steps/RPCs.
+
+#### [Movement](/capabilities/basic/branch-and-loop)
+
+Decision to go to another Step (or complete/fail).
+
+#### [Reset](/production/application-operations)
+
+Jump a Flow back to an earlier Step after a fix.
+
+#### [RPC](/capabilities/advanced/rpc)
+
+Worker handler for external read/write against a running Flow.
+
+#### [Run ID](/references/client-apis)
+
+Engine-assigned ID for a particular Flow run.
+
+#### [Step](/intro/what-is-dex)
+
+Unit of durable control flow with optional WaitFor + Execute.
+
+#### [Step execution](/references/wait-for-step-completion)
+
+One invocation instance of a Step type (`step_type` + number).
+
+#### [Timer](/capabilities/basic/durable-timer)
+
+Durable sleep condition that resumes a waiting Step.
+
+#### [WaitFor](/capabilities/advanced/waiting)
+
+Step method that registers durable wait Conditions before Execute.
+
+#### [Worker](/production/application-operations)
+
+Process hosting Flow definitions and handling WaitFor/Execute/RPC.
