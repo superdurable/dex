@@ -90,7 +90,7 @@ public class DrainInternalChannelsFlow implements Flow<String> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(upsertMongoData.forOne());
+            return Wait.until(upsertMongoData.forOne());
         }
 
         @Override

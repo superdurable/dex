@@ -50,7 +50,7 @@ final class InternalChannelWaitingStep implements Step<Integer> {
 
     @Override
     public Wait waitFor(final Context context, final Integer input) {
-        return Wait.allOf(channel.forN(2));
+        return Wait.until(channel.forN(2));
     }
 
     @Override

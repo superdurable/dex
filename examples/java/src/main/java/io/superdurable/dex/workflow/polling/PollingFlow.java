@@ -110,7 +110,7 @@ public class PollingFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer maximumPolls) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(1)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(1)));
         }
 
         @Override

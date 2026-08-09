@@ -39,7 +39,7 @@ final class TimerStep implements Step<Integer> {
 
     @Override
     public Wait waitFor(final Context context, final Integer input) {
-        return Wait.allOf(Timer.byDuration(Duration.ofSeconds(input), "test-timer-id"));
+        return Wait.until(Timer.byDuration(Duration.ofSeconds(input), "test-timer-id"));
     }
 
     @Override

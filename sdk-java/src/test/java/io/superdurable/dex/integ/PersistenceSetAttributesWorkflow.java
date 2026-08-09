@@ -92,7 +92,7 @@ final class PersistenceSetAttributesWorkflow implements Flow<String> {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
-            return Wait.allOf(proceed.forOne());
+            return Wait.until(proceed.forOne());
         }
 
         @Override

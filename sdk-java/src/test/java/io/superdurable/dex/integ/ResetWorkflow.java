@@ -99,7 +99,7 @@ class ResetWorkflow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(channel.forOne());
+            return Wait.until(channel.forOne());
         }
 
         @Override

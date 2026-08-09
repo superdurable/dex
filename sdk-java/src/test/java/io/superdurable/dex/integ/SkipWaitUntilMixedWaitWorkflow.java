@@ -60,7 +60,7 @@ final class SkipWaitUntilMixedWaitWorkflow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(Timer.byDuration(Duration.ofSeconds(1)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(1)));
         }
 
         @Override

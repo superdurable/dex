@@ -71,7 +71,7 @@ public class ChildFlow implements Flow<String> {
         @Override
         public Wait waitFor(final Context context, final String input) {
             final int random = new Random().nextInt(60);
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(random)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(random)));
         }
 
         @Override

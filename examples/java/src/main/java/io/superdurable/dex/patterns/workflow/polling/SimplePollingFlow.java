@@ -51,7 +51,7 @@ public class SimplePollingFlow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(10)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(10)));
         }
 
         @Override

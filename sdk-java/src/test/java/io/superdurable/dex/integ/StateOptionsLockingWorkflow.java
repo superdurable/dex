@@ -100,7 +100,7 @@ final class StateOptionsLockingWorkflow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer parallelism) {
-            return Wait.allOf(completed.forN(parallelism));
+            return Wait.until(completed.forN(parallelism));
         }
 
         @Override

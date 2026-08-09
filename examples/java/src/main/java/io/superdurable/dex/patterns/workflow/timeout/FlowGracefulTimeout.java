@@ -67,7 +67,7 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofMinutes(1)));
+            return Wait.until(Timer.byDuration(Duration.ofMinutes(1)));
         }
 
         @Override
@@ -87,7 +87,7 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
             if (workflowSuccessful) {
                 return Wait.skipImmediately();
             }
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(65)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(65)));
         }
 
         @Override

@@ -57,7 +57,7 @@ public class DrainSignalChannelsFlow implements Flow<String> {
         @Override
         public Wait waitFor(final Context context, final String input) {
             if (input == null) {
-                return Wait.anyOf(queueSignalChannel.forOne());
+                return Wait.until(queueSignalChannel.forOne());
             }
             return Wait.skipImmediately();
         }

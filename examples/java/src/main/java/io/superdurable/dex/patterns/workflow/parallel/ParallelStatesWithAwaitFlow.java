@@ -101,7 +101,7 @@ public class ParallelStatesWithAwaitFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer countOfJobSeekers) {
-            return Wait.allOf(notifyChannel.forN(countOfJobSeekers));
+            return Wait.until(notifyChannel.forN(countOfJobSeekers));
         }
 
         @Override
