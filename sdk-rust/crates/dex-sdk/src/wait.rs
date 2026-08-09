@@ -17,6 +17,10 @@ impl Wait {
         Self { _private: () }
     }
 
+    pub fn until(condition: Condition) -> Self {
+        Self::all_of([condition])
+    }
+
     pub fn all_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
         for condition in conditions {
             let _ = condition;

@@ -325,7 +325,7 @@ impl Step for SkipWaitUntilMixedSecondStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::all_of([Timer::by_duration(Duration::from_secs(1))]))
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
     fn execute(&self, _context: &mut Context, input: i32) -> HandlerResult<StepDecision> {

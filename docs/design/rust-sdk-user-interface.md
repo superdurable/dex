@@ -53,6 +53,14 @@ Execute-only Steps omit `wait_for`. Wait expressions use domain nouns:
 
 ```rust
 fn wait_for(&self, _context: &mut Context, _input: OrderId) -> HandlerResult<Wait> {
+    Ok(Wait::until(self.approved.for_one()))
+}
+```
+
+Aggregate factories remain available for multiple or dynamic conditions:
+
+```rust
+fn wait_for(&self, _context: &mut Context, _input: OrderId) -> HandlerResult<Wait> {
     Ok(Wait::any_of([
         self.approved.for_one(),
         Timer::by_duration(Duration::from_secs(30)).with_id("approval-timeout"),
@@ -120,6 +128,28 @@ options type.
 Flow IDs and run IDs remain strings, matching the server protocol and the other
 SDKs. Rust newtypes are reserved for IDs whose APIs benefit from distinct types.
 
+## Errors
+
+Client operations return domain-specific `SdkError` variants. Applications
+match the outcome directly instead of branching on gRPC codes and server
+sub-status metadata:
+
+```rust
+match client.start_flow(&orders, "order-123", order) {
+    Ok(run_id) => println!("started {run_id}"),
+    Err(SdkError::FlowAlreadyStarted { .. }) => println!("already started"),
+    Err(error) => return Err(error),
+}
+```
+
+`FlowNotFound` is used by operations requiring an existing Flow;
+`FlowNotActive` is used by mutations and RPCs requiring a running Flow.
+`RpcLockConflict` and `LongPollTimeout` can be retried explicitly, while
+`WorkerInvocation` retains the original Worker error metadata.
+
+`HandlerError` remains separate because it crosses the user Step/RPC boundary;
+`SdkError` represents Client, registration, mapping, and service failures.
+
 ## Runtime construction
 
 Client and Worker share an `Arc<BlobCache>` and cloned Registry metadata:
@@ -134,8 +164,9 @@ let worker = Worker::new(registry, cache, WorkerOptions::new());
 ## Current scope
 
 The current crate defines and type-checks the public contracts. Client transport,
-Registry erasure, WorkerService dispatch, and value encoding deliberately return
-not-implemented errors until their runtime phases are implemented.
+error translation, Registry erasure, WorkerService dispatch, and value encoding
+deliberately return not-implemented errors until their runtime phases are
+implemented.
 
 ## Tests
 

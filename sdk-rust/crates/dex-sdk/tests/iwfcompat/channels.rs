@@ -138,7 +138,7 @@ impl Step for ConditionalCompleteStep {
         } else {
             self.internal.for_one()
         };
-        Ok(Wait::any_of([condition]))
+        Ok(Wait::until(condition))
     }
 
     fn execute(&self, context: &mut Context, use_signal: bool) -> HandlerResult<StepDecision> {
@@ -300,7 +300,7 @@ impl Step for InternalChannelWaitingStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::all_of([self.channel.for_n(2)]))
+        Ok(Wait::until(self.channel.for_n(2)))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
@@ -369,10 +369,7 @@ impl Step for SignalFirstStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([self
-            .first
-            .for_one()
-            .with_id("test-signal-id")]))
+        Ok(Wait::until(self.first.for_one().with_id("test-signal-id")))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
@@ -432,10 +429,9 @@ impl Step for TimerStep {
     type Input = u64;
 
     fn wait_for(&self, _context: &mut Context, input: u64) -> HandlerResult<Wait> {
-        Ok(Wait::all_of([Timer::by_duration(Duration::from_secs(
-            input,
+        Ok(Wait::until(
+            Timer::by_duration(Duration::from_secs(input)).with_id("test-timer-id"),
         ))
-        .with_id("test-timer-id")]))
     }
 
     fn execute(&self, _context: &mut Context, _input: u64) -> HandlerResult<StepDecision> {

@@ -23,7 +23,13 @@ The `dex-sdk` source layout follows the application developer's mental model:
 Flows, Steps, Attributes, Channels, RPCs, timers, and waits each have dedicated
 modules. Client, Worker, Registry, and each options family are separated as
 their own entry points instead of being collected into infrastructure-oriented
-files.
+files. Handler failures and SDK/service failures are also separate modules.
+
+Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
+`Wait::any_of` remain available for aggregate conditions. Client failures use
+domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
+`FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
+requiring callers to inspect transport metadata.
 
 ## Blob cache
 

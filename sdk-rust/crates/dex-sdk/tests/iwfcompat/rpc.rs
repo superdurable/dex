@@ -178,7 +178,7 @@ impl Step for RpcFirstStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([self.internal.for_one()]))
+        Ok(Wait::until(self.internal.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {

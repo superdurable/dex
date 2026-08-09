@@ -11,9 +11,9 @@
 use std::time::{Duration, SystemTime};
 
 use dex_sdk::{
-    Channel, Client, Context, Flow, HandlerResult, PersistenceSchema, ResetFlowOptions, Rpc,
-    RpcList, RpcResult, SdkResult, StartFlowOptions, Step, StepDecision, StepExecutionId, StepList,
-    StepMovement, StopFlowOptions,
+    Channel, Client, Context, Flow, GrpcCode, HandlerResult, PersistenceSchema, ResetFlowOptions,
+    Rpc, RpcList, RpcResult, SdkError, SdkResult, StartFlowOptions, Step, StepDecision,
+    StepExecutionId, StepList, StepMovement, StopFlowOptions,
 };
 
 struct NoStartStateWorkflow {
@@ -215,4 +215,18 @@ fn compile_workflow_uncompleted_test(client: &Client) -> SdkResult<()> {
     client.stop_flow("stopped", StopFlowOptions::terminate().reason("terminated"))?;
     client.trigger_continue_as_new("stopped")?;
     Ok(())
+}
+
+fn compile_domain_error_handling(error: SdkError) -> bool {
+    match error {
+        SdkError::FlowAlreadyStarted { .. } => false,
+        SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. } => false,
+        SdkError::RpcLockConflict { .. } => true,
+        SdkError::WorkerInvocation {
+            worker_code: Some(GrpcCode::Unavailable),
+            ..
+        } => true,
+        SdkError::LongPollTimeout { .. } => true,
+        _ => false,
+    }
 }
