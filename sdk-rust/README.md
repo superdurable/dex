@@ -7,6 +7,7 @@ foundation for the Rust SDK. Each language SDK owns its Worker runtime.
 
 The crates are:
 
+- `dex-sdk`: strongly typed Rust Flow, Step, RPC, persistence, and client contracts.
 - `dex-blob-cache`: transport-neutral, Go-compatible disk cache.
 - `dex-blob-cache-jni`: Java 8-compatible binding containing only cache APIs.
 - `dex-blob-cache-python`: PyO3 binding for the Python SDK.
@@ -15,6 +16,20 @@ The crates are:
 
 The architecture is defined in
 [Multi-language Rust SDK Core](../docs/design/multi-language-rust-sdk-core.md).
+The public Rust API is defined in
+[Rust SDK User Interface](../docs/design/rust-sdk-user-interface.md).
+
+The `dex-sdk` source layout follows the application developer's mental model:
+Flows, Steps, Attributes, Channels, RPCs, timers, and waits each have dedicated
+modules. Client, Worker, Registry, and each options family are separated as
+their own entry points instead of being collected into infrastructure-oriented
+files. Handler failures and SDK/service failures are also separate modules.
+
+Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
+`Wait::any_of` remain available for aggregate conditions. Client failures use
+domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
+`FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
+requiring callers to inspect transport metadata.
 
 ## Blob cache
 
