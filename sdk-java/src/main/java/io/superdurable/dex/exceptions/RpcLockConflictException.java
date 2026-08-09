@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class RpcLockConflictException extends DexException {
+public final class RpcLockConflictException extends DexServiceException {
     public RpcLockConflictException(final String detail, final Throwable cause) {
         super(Status.Code.ABORTED, ErrorSubStatus.WORKER_API_ERROR, detail, cause);
     }

@@ -14,7 +14,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
-import io.superdurable.dex.exceptions.DexException;
+import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -34,7 +34,7 @@ final class GrpcExceptionTranslator {
     private GrpcExceptionTranslator() {
     }
 
-    static DexException translate(
+    static DexServiceException translate(
             final StatusRuntimeException exception,
             final FlowTargetRequirement requirement,
             final String flowId) {
@@ -42,7 +42,7 @@ final class GrpcExceptionTranslator {
         try {
             details = unpackDetails(exception);
         } catch (InvalidProtocolBufferException malformed) {
-            final DexException translated = new DexException(
+            final DexServiceException translated = new DexServiceException(
                     exception.getStatus().getCode(),
                     ErrorSubStatus.UNCATEGORIZED,
                     "Dex returned malformed error details",
@@ -66,7 +66,7 @@ final class GrpcExceptionTranslator {
             case LONG_POLL_TIMEOUT:
                 return new LongPollTimeoutException(code, detail, flowId, exception);
             default:
-                return new DexException(code, subStatus, detail, exception);
+                return new DexServiceException(code, subStatus, detail, exception);
         }
     }
 
@@ -98,7 +98,7 @@ final class GrpcExceptionTranslator {
         return exception.getStatus().getCode().name();
     }
 
-    private static DexException missingFlowException(
+    private static DexServiceException missingFlowException(
             final Status.Code code,
             final String detail,
             final StatusRuntimeException cause,
@@ -109,10 +109,14 @@ final class GrpcExceptionTranslator {
         if (requirement == FlowTargetRequirement.ACTIVE) {
             return new FlowNotActiveException(code, detail, cause);
         }
-        return new DexException(code, ErrorSubStatus.FLOW_NOT_EXISTS, detail, cause);
+        return new DexServiceException(
+                code,
+                ErrorSubStatus.FLOW_NOT_EXISTS,
+                detail,
+                cause);
     }
 
-    private static DexException workerException(
+    private static DexServiceException workerException(
             final Status.Code code,
             final String detail,
             final StatusRuntimeException cause,

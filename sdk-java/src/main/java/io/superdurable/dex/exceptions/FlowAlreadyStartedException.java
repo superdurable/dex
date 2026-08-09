@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class FlowAlreadyStartedException extends DexException {
+public final class FlowAlreadyStartedException extends DexServiceException {
     public FlowAlreadyStartedException(
             final Status.Code code,
             final String detail,

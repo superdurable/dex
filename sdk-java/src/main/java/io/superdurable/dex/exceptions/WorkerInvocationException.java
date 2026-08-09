@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class WorkerInvocationException extends DexException {
+public final class WorkerInvocationException extends DexServiceException {
     private final String workerErrorType;
     private final String workerErrorDetail;
     private final Status.Code workerCode;

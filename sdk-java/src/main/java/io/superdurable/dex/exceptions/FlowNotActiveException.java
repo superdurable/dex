@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class FlowNotActiveException extends DexException {
+public final class FlowNotActiveException extends DexServiceException {
     public FlowNotActiveException(
             final Status.Code code,
             final String detail,

@@ -12,12 +12,12 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public class DexException extends RuntimeException {
+public class DexServiceException extends RuntimeException {
     private final Status.Code code;
     private final ErrorSubStatus subStatus;
     private final String detail;
 
-    public DexException(
+    public DexServiceException(
             final Status.Code code,
             final ErrorSubStatus subStatus,
             final String detail,

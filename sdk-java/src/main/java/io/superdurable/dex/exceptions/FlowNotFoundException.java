@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class FlowNotFoundException extends DexException {
+public final class FlowNotFoundException extends DexServiceException {
     public FlowNotFoundException(
             final Status.Code code,
             final String detail,

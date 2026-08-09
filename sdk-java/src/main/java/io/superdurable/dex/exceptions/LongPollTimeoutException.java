@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class LongPollTimeoutException extends DexException {
+public final class LongPollTimeoutException extends DexServiceException {
     private final String flowId;
 
     public LongPollTimeoutException(

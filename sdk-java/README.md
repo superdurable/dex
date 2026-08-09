@@ -129,8 +129,8 @@ configuration, and step-wait operations that require an open Flow.
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
 `WorkerInvocationException` preserves the original WorkerService error type,
-detail, and gRPC code. `DexException` remains the generic service failure and
-exposes status metadata for diagnostics.
+detail, and gRPC code. `DexServiceException` remains the generic service failure
+and exposes status metadata for diagnostics.
 
 Local definition and value failures use `FlowDefinitionException`,
 `InvalidStepResultException`, and `ValueMappingException`.

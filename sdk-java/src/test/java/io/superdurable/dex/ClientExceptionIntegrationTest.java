@@ -1,11 +1,15 @@
 /*
- * Copyright (c) 2026 Super Durable, Inc.
+ * Legacy Materials in this file remain under their original licenses.
+ * See LEGACY_NOTICES.md.
+ */
+
+/*
+ * Modifications Copyright (c) 2026 Super Durable, Inc.
  *
- * Licensed under the Super Durable Source License 1.0.
- * You may not use this file except in compliance with the License.
- * See the LICENSE file in the repository root.
- *
- * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ * Modifications after the Legacy Cutoff are licensed under the
+ * Super Durable Source License 1.0.
+ * Legacy Materials remain under their original licenses.
+ * See LICENSE and LEGACY_NOTICES.md.
  */
 
 package io.superdurable.dex;
@@ -19,7 +23,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
-import io.superdurable.dex.exceptions.DexException;
+import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
@@ -113,19 +117,19 @@ final class ClientExceptionIntegrationTest {
 
     @Test
     void fallsBackForMissingUnknownAndMalformedDetails() {
-        final DexException missingDetails = assertThrows(
-                DexException.class,
+        final DexServiceException missingDetails = assertThrows(
+                DexServiceException.class,
                 () -> client.describeFlow("no-details"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, missingDetails.getSubStatus());
         assertEquals("plain failure", missingDetails.getDetail());
 
-        final DexException unknown = assertThrows(
-                DexException.class,
+        final DexServiceException unknown = assertThrows(
+                DexServiceException.class,
                 () -> client.describeFlow("unknown"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, unknown.getSubStatus());
 
-        final DexException malformed = assertThrows(
-                DexException.class,
+        final DexServiceException malformed = assertThrows(
+                DexServiceException.class,
                 () -> client.describeFlow("malformed"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, malformed.getSubStatus());
         assertTrue(malformed.getDetail().contains("malformed"));
