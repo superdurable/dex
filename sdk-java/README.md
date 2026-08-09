@@ -286,6 +286,19 @@ open the packaged Rust BlobCache library and perform a cache round trip.
 The command requires JDK 17, Rust 1.88+, and Maven. Published classes still
 target Java 8.
 
+### Validate public API documentation
+
+Every hand-written public API under `io.superdurable.dex` must have detailed
+Javadoc. The documentation check ignores package-private runtime code and
+generated protobuf classes, validates parameter and return tags, and renders
+the same documentation shipped in the Maven Javadoc JAR:
+
+```shell
+./gradlew checkstyleMain javadoc --no-daemon
+```
+
+Open `build/docs/javadoc/index.html` to review the generated documentation.
+
 ### Publish a release
 
 Maven Central publishing requires Portal user-token credentials for the

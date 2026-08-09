@@ -12,7 +12,21 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
+/**
+ * Reports that a Flow start request conflicts with an existing Flow ID.
+ *
+ * <p>Catch this exception when duplicate starts are an expected idempotency outcome. The applicable
+ * {@link io.superdurable.dex.IdReusePolicy} and the state of the existing execution determine
+ * whether Dex rejects the request.
+ */
 public final class FlowAlreadyStartedException extends DexServiceException {
+    /**
+     * Creates a duplicate-Flow exception from a Dex service response.
+     *
+     * @param code the gRPC status code returned by Dex
+     * @param detail the server-provided conflict detail
+     * @param cause the original transport failure
+     */
     public FlowAlreadyStartedException(
             final Status.Code code,
             final String detail,

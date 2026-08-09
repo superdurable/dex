@@ -20,6 +20,25 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Configures timeout, retry, durability, locking, and failure behavior for a Step.
+ *
+ * <p>Return an instance from {@link Step#getStepOptions} to configure every execution, or attach one
+ * to a {@link StepMovement} for a single transition. Wait-for and execute settings are independent.
+ * Durations describe method timeouts, not the potentially much longer time spent waiting for
+ * durable timer or Channel conditions.
+ *
+ * <pre>{@code
+ * public StepOptions getStepOptions() {
+ *     return StepOptions.newBuilder()
+ *             .waitForMethodTimeout(Duration.ofSeconds(5))
+ *             .executeMethodTimeout(Duration.ofSeconds(30))
+ *             .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+ *             .addExecuteLock(AttributeLock.of(balance))
+ *             .build();
+ * }
+ * }</pre>
+ */
 public final class StepOptions {
     private final Duration waitForMethodTimeout;
     private final Duration executeMethodTimeout;
@@ -45,6 +64,11 @@ public final class StepOptions {
         this.executeLocks = immutable(builder.executeLocks);
     }
 
+    /**
+     * Creates a builder initialized with Dex defaults.
+     *
+     * @return a new mutable builder
+     */
     public static Builder newBuilder() {
         return new Builder();
     }
@@ -93,6 +117,7 @@ public final class StepOptions {
         return Collections.unmodifiableList(new ArrayList<AttributeLock>(values));
     }
 
+    /** Builds immutable {@link StepOptions} values. */
     public static final class Builder {
         private Duration waitForMethodTimeout;
         private Duration executeMethodTimeout;
@@ -108,35 +133,85 @@ public final class StepOptions {
         private Builder() {
         }
 
+        /**
+         * Sets the maximum duration of one wait-for method attempt.
+         *
+         * @param value the method timeout, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder waitForMethodTimeout(final Duration value) {
             this.waitForMethodTimeout = value;
             return this;
         }
 
+        /**
+         * Sets the maximum duration of one execute method attempt.
+         *
+         * @param value the method timeout, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder executeMethodTimeout(final Duration value) {
             this.executeMethodTimeout = value;
             return this;
         }
 
+        /**
+         * Sets the retry policy for wait-for method failures.
+         *
+         * @param value the retry policy, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder waitForRetry(final RetryPolicy value) {
             waitForRetry = value;
             return this;
         }
 
+        /**
+         * Sets the retry policy for execute method failures.
+         *
+         * @param value the retry policy, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder executeRetry(final RetryPolicy value) {
             executeRetry = value;
             return this;
         }
 
+        /**
+         * Sets the action taken after wait-for retries are exhausted.
+         *
+         * @param value the failure policy; the default is {@link WaitForFailurePolicy#FAIL_FLOW}
+         * @return this builder
+         */
         public Builder waitForFailure(final WaitForFailurePolicy value) {
             waitForFailure = value;
             return this;
         }
 
+        /**
+         * Continues to a recovery Step after execute retries are exhausted.
+         *
+         * <p>The recovery Step receives {@code null} input. Its input type should therefore accept
+         * {@code null}, commonly {@link Void}.
+         *
+         * @param step the nonnull recovery Step
+         * @param <I> the recovery Step input type
+         * @return this builder
+         * @throws NullPointerException if {@code step} is {@code null}
+         */
         public <I> Builder onExecuteFailureProceedTo(final Step<I> step) {
             return onExecuteFailureProceedTo(step, null);
         }
 
+        /**
+         * Continues to a recovery Step with per-execution options after execute retries fail.
+         *
+         * @param step the nonnull recovery Step
+         * @param options recovery execution options, or {@code null} for the Step defaults
+         * @param <I> the recovery Step input type
+         * @return this builder
+         * @throws NullPointerException if {@code step} is {@code null}
+         */
         public <I> Builder onExecuteFailureProceedTo(
                 final Step<I> step,
                 final StepOptions options) {
@@ -146,26 +221,55 @@ public final class StepOptions {
             return this;
         }
 
+        /**
+         * Sets durability for the wait-for method result.
+         *
+         * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
+         * @return this builder
+         */
         public Builder waitForDurability(final StepDurability value) {
             waitForDurability = value;
             return this;
         }
 
+        /**
+         * Sets durability for the execute method result.
+         *
+         * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
+         * @return this builder
+         */
         public Builder executeDurability(final StepDurability value) {
             executeDurability = value;
             return this;
         }
 
+        /**
+         * Adds an Attribute lock held while the wait-for method runs.
+         *
+         * @param value the lock definition
+         * @return this builder
+         */
         public Builder addWaitForLock(final AttributeLock value) {
             waitForLocks.add(value);
             return this;
         }
 
+        /**
+         * Adds an Attribute lock held while the execute method runs.
+         *
+         * @param value the lock definition
+         * @return this builder
+         */
         public Builder addExecuteLock(final AttributeLock value) {
             executeLocks.add(value);
             return this;
         }
 
+        /**
+         * Builds immutable Step options from the current values.
+         *
+         * @return the configured Step options
+         */
         public StepOptions build() {
             return new StepOptions(this);
         }

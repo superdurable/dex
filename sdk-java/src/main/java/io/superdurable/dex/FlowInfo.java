@@ -12,6 +12,12 @@ package io.superdurable.dex;
 
 import java.time.Instant;
 
+/**
+ * Describes the identity and current status of one Flow execution.
+ *
+ * <p>Obtain this immutable snapshot from {@link Client#describeFlow}. A later request may observe a
+ * different status while the Flow continues to run.
+ */
 public final class FlowInfo {
     private final String flowId;
     private final String runId;
@@ -32,22 +38,47 @@ public final class FlowInfo {
         this.startedAt = startedAt;
     }
 
+    /**
+     * Returns the application-assigned Flow ID.
+     *
+     * @return the Flow ID
+     */
     public String getFlowId() {
         return flowId;
     }
 
+    /**
+     * Returns the server-assigned run ID.
+     *
+     * @return the run ID
+     */
     public String getRunId() {
         return runId;
     }
 
+    /**
+     * Returns the registered durable Flow type.
+     *
+     * @return the Flow type
+     */
     public String getFlowType() {
         return flowType;
     }
 
+    /**
+     * Returns the status captured by this snapshot.
+     *
+     * @return the Flow status
+     */
     public FlowStatus getStatus() {
         return status;
     }
 
+    /**
+     * Returns when this Flow execution started.
+     *
+     * @return the start timestamp
+     */
     public Instant getStartedAt() {
         return startedAt;
     }

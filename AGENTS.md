@@ -122,6 +122,24 @@ semantics.
 Comments documenting function or method return values are also exempt from the
 20-word limit and should describe complete return semantics.
 
+### Detailed Public SDK API Documentation
+
+Public SDK API documentation is exempt from the short-comment and
+no-obvious-comment rules. Document every public or exported SDK type,
+interface, class, method, function, constructor, field, constant, enum value,
+struct member, annotation element, and equivalent language construct. Do not
+add API documentation to non-public or generated declarations.
+
+Write each API document from the application developer's perspective. Start
+with a one-sentence summary, then explain when and how the API is used. Give a
+complete language-native example for each related API family; overloads and
+simple accessors may refer to their enclosing type's example instead of
+repeating it. Explain defaults, units, lifecycle, blocking or concurrency
+behavior, nullability, ownership, side effects, errors, and other tricky
+semantics whenever users must understand them. Finish with language-native
+documentation for every type parameter, input, output, and user-visible error.
+Do not impose a word limit; prefer a complete paragraph over a terse fragment.
+
 ### Preserve Comments During Refactoring
 
 Existing comments are user-owned text. Preserve them verbatim and move them with

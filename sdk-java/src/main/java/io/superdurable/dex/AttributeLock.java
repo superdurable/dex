@@ -10,6 +10,20 @@
 
 package io.superdurable.dex;
 
+/**
+ * Selects one Attribute value to lock while a Step method runs.
+ *
+ * <p>Add locks through {@link StepOptions.Builder#addWaitForLock} or
+ * {@link StepOptions.Builder#addExecuteLock}. Scalar Attributes lock their single value; an
+ * Attribute map lock targets only the supplied instance.
+ *
+ * <pre>{@code
+ * return StepOptions.newBuilder()
+ *         .addExecuteLock(AttributeLock.of(balance))
+ *         .addExecuteLock(AttributeLock.of(orderStatus, orderId))
+ *         .build();
+ * }</pre>
+ */
 public final class AttributeLock {
     private final String attribute;
     private final String instance;
@@ -19,10 +33,24 @@ public final class AttributeLock {
         this.instance = instance;
     }
 
+    /**
+     * Locks a scalar Attribute.
+     *
+     * @param attribute the registered Attribute to lock
+     * @return a lock definition for that Attribute
+     */
     public static AttributeLock of(final Attribute<?> attribute) {
         return new AttributeLock(attribute.getName(), null);
     }
 
+    /**
+     * Locks one instance of an Attribute map.
+     *
+     * @param attribute the registered Attribute map
+     * @param instance the nonblank map instance to lock
+     * @return a lock definition for that map instance
+     * @throws IllegalArgumentException if {@code instance} is {@code null} or blank
+     */
     public static AttributeLock of(final AttributeMap<?> attribute, final String instance) {
         return new AttributeLock(attribute.getName(), Attribute.requireName(instance));
     }

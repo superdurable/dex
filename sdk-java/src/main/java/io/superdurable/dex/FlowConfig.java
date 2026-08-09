@@ -10,6 +10,21 @@
 
 package io.superdurable.dex;
 
+/**
+ * Configures server behavior for one Flow execution.
+ *
+ * <p>Use this value as a start-time override, in an update request, or to select a worker target.
+ * Unset properties remain under server control. Continue-as-new thresholds bound execution history
+ * and page size; consult the server deployment configuration before overriding them.
+ *
+ * <pre>{@code
+ * FlowConfig config = FlowConfig.newBuilder()
+ *         .activeStepSearchMode(ActiveStepSearchMode.WITH_WAIT_FOR)
+ *         .stepDurability(StepDurability.SYNC)
+ *         .workerTarget(new WorkerTarget("orders:8803", false))
+ *         .build();
+ * }</pre>
+ */
 public final class FlowConfig {
     private final ActiveStepSearchMode activeStepSearchMode;
     private final Integer continueAsNewThreshold;
@@ -25,6 +40,11 @@ public final class FlowConfig {
         this.workerTarget = builder.workerTarget;
     }
 
+    /**
+     * Creates a builder whose unset values use server defaults.
+     *
+     * @return a new mutable builder
+     */
     public static Builder newBuilder() {
         return new Builder();
     }
@@ -49,6 +69,7 @@ public final class FlowConfig {
         return workerTarget;
     }
 
+    /** Builds immutable {@link FlowConfig} values. */
     public static final class Builder {
         private ActiveStepSearchMode activeStepSearchMode;
         private Integer continueAsNewThreshold;
@@ -59,31 +80,66 @@ public final class FlowConfig {
         private Builder() {
         }
 
+        /**
+         * Sets which active Steps are searched when routing work.
+         *
+         * @param value the search mode, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder activeStepSearchMode(final ActiveStepSearchMode value) {
             activeStepSearchMode = value;
             return this;
         }
 
+        /**
+         * Sets the history-event threshold that triggers continue-as-new.
+         *
+         * @param value the threshold count
+         * @return this builder
+         */
         public Builder continueAsNewThreshold(final int value) {
             continueAsNewThreshold = value;
             return this;
         }
 
+        /**
+         * Sets the history page-size threshold that triggers continue-as-new.
+         *
+         * @param value the page-size threshold in bytes
+         * @return this builder
+         */
         public Builder continueAsNewPageSizeBytes(final int value) {
             continueAsNewPageSizeBytes = value;
             return this;
         }
 
+        /**
+         * Sets the default durability for Step methods in this Flow.
+         *
+         * @param value the durability mode, or {@code null} for the server default
+         * @return this builder
+         */
         public Builder stepDurability(final StepDurability value) {
             stepDurability = value;
             return this;
         }
 
+        /**
+         * Routes this Flow to a specific worker target.
+         *
+         * @param value the worker target, or {@code null} for default routing
+         * @return this builder
+         */
         public Builder workerTarget(final WorkerTarget value) {
             workerTarget = value;
             return this;
         }
 
+        /**
+         * Builds immutable Flow configuration from the current values.
+         *
+         * @return the configured Flow settings
+         */
         public FlowConfig build() {
             return new FlowConfig(this);
         }

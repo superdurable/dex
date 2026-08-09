@@ -18,6 +18,22 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Describes when Dex may invoke a Step's execute method.
+ *
+ * <p>Return a {@code Wait} from {@link Step#waitFor}. The value is declarative and immutable: Dex
+ * persists and evaluates its timer and Channel conditions without blocking the worker thread that
+ * produced it. Use {@link #until} for a single condition, {@link #allOf} or {@link #anyOf} for a
+ * flat group, and {@link #anyCombinationOf} for alternatives containing multiple conditions.
+ *
+ * <pre>{@code
+ * public Wait waitFor(Context context, Order input) {
+ *     return Wait.anyOf(
+ *             paymentReceived.forOne("payment"),
+ *             Timer.byDuration(Duration.ofHours(1), "timeout"));
+ * }
+ * }</pre>
+ */
 public final class Wait {
     enum Kind {
         SKIP_IMMEDIATELY,
@@ -39,22 +55,51 @@ public final class Wait {
         this.combinations = Collections.unmodifiableList(combinations);
     }
 
+    /**
+     * Skips condition evaluation and makes the Step immediately eligible to execute.
+     *
+     * @return an immediate wait definition
+     */
     public static Wait skipImmediately() {
         return ofConditions(Kind.SKIP_IMMEDIATELY);
     }
 
+    /**
+     * Waits for one condition to be satisfied.
+     *
+     * @param condition the single timer or Channel condition
+     * @return a wait equivalent to {@code allOf(condition)}
+     */
     public static Wait until(final Condition condition) {
         return allOf(condition);
     }
 
+    /**
+     * Waits until every supplied condition is satisfied.
+     *
+     * @param conditions the conditions that must all be satisfied
+     * @return an all-of wait definition
+     */
     public static Wait allOf(final Condition... conditions) {
         return ofConditions(Kind.ALL_OF, conditions);
     }
 
+    /**
+     * Waits until any supplied condition is satisfied.
+     *
+     * @param conditions the alternative conditions
+     * @return an any-of wait definition
+     */
     public static Wait anyOf(final Condition... conditions) {
         return ofConditions(Kind.ANY_OF, conditions);
     }
 
+    /**
+     * Waits until every condition in any one supplied combination is satisfied.
+     *
+     * @param combinations alternative all-of condition groups
+     * @return an any-combination wait definition
+     */
     public static Wait anyCombinationOf(final ConditionCombination... combinations) {
         return new Wait(
                 Kind.ANY_COMBINATION_OF,

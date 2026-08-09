@@ -82,6 +82,8 @@ jobs:
           java-version: '17'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Validate public API documentation
+        run: ./gradlew checkstyleMain javadoc --no-daemon
       - name: Validate Gradle and Maven consumers
         run: ./validate-publication.sh "0.0.2-ci.${GITHUB_RUN_NUMBER}"
 

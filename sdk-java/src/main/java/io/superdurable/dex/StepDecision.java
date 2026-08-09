@@ -18,6 +18,20 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Describes the durable action Dex takes after a Step executes.
+ *
+ * <p>Every {@link Step#execute} call returns one decision. A decision may schedule next Steps,
+ * complete or fail the Flow, leave the execution idle, or complete only after specified Channels
+ * become empty. Output values are serialized by the worker and are available to waiting clients.
+ *
+ * <pre>{@code
+ * if (order.cancelled) {
+ *     return StepDecision.forceComplete("cancelled");
+ * }
+ * return StepDecision.goTo(chargeOrder, order);
+ * }</pre>
+ */
 public final class StepDecision {
     enum Kind {
         NEXT,
@@ -50,10 +64,24 @@ public final class StepDecision {
         this.fallback = fallback;
     }
 
+    /**
+     * Schedules one typed next Step.
+     *
+     * @param step the target Step
+     * @param input the typed target input
+     * @param <I> the target Step input type
+     * @return a next-Step decision
+     */
     public static <I> StepDecision goTo(final Step<I> step, final I input) {
         return goToMulti(StepMovement.of(step, input));
     }
 
+    /**
+     * Schedules zero or more next-Step movements together.
+     *
+     * @param movements the movements to schedule
+     * @return a multi-movement decision
+     */
     public static StepDecision goToMulti(final StepMovement<?>... movements) {
         return new StepDecision(
                 Kind.NEXT,
@@ -64,22 +92,52 @@ public final class StepDecision {
                 null);
     }
 
+    /**
+     * Gracefully completes the Flow without an output value.
+     *
+     * @return a graceful-completion decision
+     */
     public static StepDecision gracefulComplete() {
         return gracefulComplete(null);
     }
 
+    /**
+     * Gracefully completes the Flow with an output value.
+     *
+     * @param output the serializable Flow output, or {@code null}
+     * @return a graceful-completion decision
+     */
     public static StepDecision gracefulComplete(final Object output) {
         return close(Kind.GRACEFUL_COMPLETE, output, null);
     }
 
+    /**
+     * Immediately completes the Flow with an output value.
+     *
+     * @param output the serializable Flow output, or {@code null}
+     * @return a force-completion decision
+     */
     public static StepDecision forceComplete(final Object output) {
         return close(Kind.FORCE_COMPLETE, output, null);
     }
 
+    /**
+     * Immediately completes the Flow without an output value.
+     *
+     * @return a force-completion decision
+     */
     public static StepDecision forceComplete() {
         return forceComplete(null);
     }
 
+    /**
+     * Completes when all selected Channels are empty, otherwise schedules a fallback movement.
+     *
+     * @param output the serializable Flow output used when Channels are empty
+     * @param fallback the movement scheduled when at least one Channel is not empty
+     * @param channels the {@link Channel} or {@link ChannelMap} definitions that must be empty
+     * @return a conditional force-completion decision
+     */
     public static StepDecision forceCompleteWhenChannelsEmpty(
             final Object output,
             final StepMovement<?> fallback,
@@ -93,10 +151,21 @@ public final class StepDecision {
                 fallback);
     }
 
+    /**
+     * Fails the Flow with an application-provided reason.
+     *
+     * @param reason the user-visible failure reason
+     * @return a force-failure decision
+     */
     public static StepDecision forceFail(final String reason) {
         return close(Kind.FORCE_FAIL, null, reason);
     }
 
+    /**
+     * Leaves this execution with no next Step and without completing the Flow.
+     *
+     * @return a dead-end decision
+     */
     public static StepDecision deadEnd() {
         return close(Kind.DEAD_END, null, null);
     }

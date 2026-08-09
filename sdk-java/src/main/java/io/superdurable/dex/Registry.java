@@ -29,10 +29,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Validates and indexes the Flow definitions shared by a client or worker.
+ *
+ * <p>Construct a registry once after assembling all application Flow instances. Construction fails
+ * early for duplicate durable names, invalid start-Step typing, missing definitions, unsupported
+ * RPC signatures, unregistered locks or transition targets, and final RPC classes or methods. RPC
+ * classes must be non-final so the client can create strongly typed stubs; Kotlin users must mark
+ * those classes and methods {@code open}.
+ *
+ * <pre>{@code
+ * Registry registry = new Registry(Arrays.<Flow<?>>asList(
+ *         new OrderFlow(),
+ *         new BillingFlow()));
+ * }</pre>
+ */
 public final class Registry {
     private final List<Flow<?>> flows;
     private final Map<String, RegisteredFlow> registeredFlows;
 
+    /**
+     * Builds and validates a registry from application Flow instances.
+     *
+     * @param flows the nonnull Flow instances available to clients and workers
+     * @throws IllegalArgumentException if the list or any Flow definition violates the registry
+     *     contract
+     */
     public Registry(final List<Flow<?>> flows) {
         if (flows == null) {
             throw new FlowDefinitionException("Flow definitions are required");

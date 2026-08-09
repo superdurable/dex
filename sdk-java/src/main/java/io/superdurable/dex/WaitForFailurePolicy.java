@@ -10,7 +10,17 @@
 
 package io.superdurable.dex;
 
+/**
+ * Controls what happens after a Step's wait-for method exhausts its retry policy.
+ *
+ * <p>Set this value with {@link StepOptions.Builder#waitForFailure}. Proceeding calls
+ * {@link Step#execute(Context, Object)} after the wait-for failure, allowing user code to inspect
+ * {@link Context#waitForMethodFailed()} and recover explicitly.
+ */
 public enum WaitForFailurePolicy {
+    /** Fails the Flow when the wait-for method cannot complete. */
     FAIL_FLOW,
+
+    /** Continues to the execute method after recording the wait-for failure. */
     PROCEED
 }

@@ -10,10 +10,28 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.FlowUncompletedException;
+
+/**
+ * Classifies why a Flow completed abnormally.
+ *
+ * <p>{@link FlowUncompletedException#getErrorType()} exposes this value after
+ * {@link Client#waitForFlow(String)} observes a non-completed Flow. It describes the durable Flow
+ * failure recorded by Dex rather than the Java exception type thrown by the client.
+ */
 public enum FlowErrorType {
+    /** A Step returned a decision that failed the Flow. */
     STEP_DECISION_FAILED,
+
+    /** A client API operation caused the Flow to fail. */
     CLIENT_API_FAILED,
+
+    /** A worker API invocation caused the Flow to fail. */
     WORKER_API_FAILED,
+
+    /** Dex rejected invalid user Flow code or an invalid definition. */
     INVALID_USER_FLOW_CODE,
+
+    /** Dex encountered an internal failure. */
     INTERNAL
 }

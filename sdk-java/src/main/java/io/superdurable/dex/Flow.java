@@ -14,15 +14,62 @@
 
 package io.superdurable.dex;
 
+/**
+ * Defines the Steps, persistence, and RPC surface of one durable Flow type.
+ *
+ * <p>Applications implement this interface on a concrete class and register an instance with
+ * {@link Registry}. The generic parameter is the input accepted by the start Step; the typed
+ * {@link StepList#startStep} factory enforces that relationship at compile time. A Flow may omit a
+ * start Step and begin only through an RPC. The default Flow type is the concrete class's simple
+ * name, so explicit nested classes are preferable to anonymous classes for stable durable names.
+ *
+ * <pre>{@code
+ * final class OrderFlow implements Flow<OrderInput> {
+ *     private final ValidateOrder start = new ValidateOrder();
+ *     private final ChargeOrder charge = new ChargeOrder();
+ *
+ *     @Override
+ *     public StepList<OrderInput> getSteps() {
+ *         return StepList.startStep(start).otherSteps(charge);
+ *     }
+ * }
+ * }</pre>
+ *
+ * @param <StartInput> the Java input type accepted by the Flow's start Step
+ */
 public interface Flow<StartInput> {
+    /**
+     * Returns the stable durable name used to register and start this Flow.
+     *
+     * <p>The default is {@code getClass().getSimpleName()}. Override it when refactoring the Java
+     * class name must not change the durable Flow type.
+     *
+     * @return the nonblank durable Flow type
+     */
     default String getFlowType() {
         return getClass().getSimpleName();
     }
 
+    /**
+     * Returns the Flow's start Step and all other registered Steps.
+     *
+     * <p>The default is an empty list, which is valid for an RPC-only Flow. Every Step targeted by a
+     * decision or RPC result must appear in this list.
+     *
+     * @return the immutable typed Step list; never {@code null}
+     */
     default StepList<StartInput> getSteps() {
         return StepList.empty();
     }
 
+    /**
+     * Returns the durable Attributes and Channels used by this Flow.
+     *
+     * <p>The default schema is empty. Every persistence definition used by Steps or RPC methods must
+     * be registered here.
+     *
+     * @return the Flow's immutable persistence schema; never {@code null}
+     */
     default PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of();
     }

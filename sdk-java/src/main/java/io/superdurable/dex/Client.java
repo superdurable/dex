@@ -20,8 +20,15 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.superdurable.dex.GrpcExceptionTranslator.FlowTargetRequirement;
+import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.FlowUncompletedException;
+import io.superdurable.dex.exceptions.LongPollTimeoutException;
+import io.superdurable.dex.exceptions.RpcLockConflictException;
+import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
 import io.superdurable.gen.FlowExecutionID;
@@ -69,6 +76,25 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Provides synchronous, strongly typed operations for starting and controlling Dex Flows.
+ *
+ * <p>All network methods block the calling thread until the gRPC request completes. Create one
+ * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
+ * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
+ * by the client. Service failures use typed {@link DexServiceException} subclasses; blocking waits
+ * can instead report {@link LongPollTimeoutException} or {@link FlowUncompletedException}.
+ *
+ * <pre>{@code
+ * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
+ * try (Client client = new Client(registry, blobCache)) {
+ *     String runId = client.startFlow(orderFlow, "order-123", input);
+ *     OrderFlow rpc = client.newRpcStub(OrderFlow.class, "order-123", runId);
+ *     OrderStatus status = client.invokeRPC(rpc::getStatus);
+ *     OrderOutput output = client.waitForFlow("order-123", OrderOutput.class);
+ * }
+ * }</pre>
+ */
 public final class Client implements AutoCloseable {
     private final Registry registry;
     private final BlobCache blobCache;
@@ -79,10 +105,25 @@ public final class Client implements AutoCloseable {
     private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
 
+    /**
+     * Creates a client using local development defaults.
+     *
+     * @param registry the nonnull registry of Flow definitions used for typed mapping
+     * @param blobCache the nonnull cache used to hydrate blob-backed values
+     * @throws IllegalArgumentException if either argument is {@code null}
+     */
     public Client(final Registry registry, final BlobCache blobCache) {
         this(registry, blobCache, new ClientOptions());
     }
 
+    /**
+     * Creates a client with explicit connection, routing, and serialization options.
+     *
+     * @param registry the nonnull registry of Flow definitions used for typed mapping
+     * @param blobCache the nonnull cache used to hydrate blob-backed values
+     * @param options the nonnull client options
+     * @throws IllegalArgumentException if any argument is {@code null}
+     */
     public Client(
             final Registry registry,
             final BlobCache blobCache,
@@ -114,6 +155,19 @@ public final class Client implements AutoCloseable {
         return options;
     }
 
+    /**
+     * Starts a registered Flow using default start options.
+     *
+     * @param flow the exact Flow instance registered with this client
+     * @param flowId the nonblank application-assigned Flow ID
+     * @param input the typed start-Step input, or {@code null} for a Flow without a start Step
+     * @param <I> the Flow start input type
+     * @return the server-assigned run ID
+     * @throws IllegalArgumentException if the Flow is unregistered, the ID is invalid, or the input
+     *     does not match the registered start Step
+     * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
+     */
     public <I> String startFlow(
             final Flow<I> flow,
             final String flowId,
@@ -121,6 +175,19 @@ public final class Client implements AutoCloseable {
         return startFlow(flow, flowId, input, new StartFlowOptions());
     }
 
+    /**
+     * Starts a registered Flow with explicit start options.
+     *
+     * @param flow the exact Flow instance registered with this client
+     * @param flowId the nonblank application-assigned Flow ID
+     * @param input the typed start-Step input, or {@code null} for a Flow without a start Step
+     * @param startOptions timeout, scheduling, initial state, routing, and idempotency settings
+     * @param <I> the Flow start input type
+     * @return the server-assigned run ID
+     * @throws IllegalArgumentException if the Flow, ID, input, or duration settings are invalid
+     * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
+     */
     public <I> String startFlow(
             final Flow<I> flow,
             final String flowId,
@@ -163,10 +230,33 @@ public final class Client implements AutoCloseable {
         return call(() -> service.startFlow(request.build())).getRunId();
     }
 
+    /**
+     * Creates a strongly typed RPC stub targeting the current run of a Flow.
+     *
+     * @param rpcClass the non-final registered Flow class containing {@link RPC} methods
+     * @param flowId the target Flow ID
+     * @param <T> the concrete Flow class
+     * @return a constructor-free stub whose RPC methods perform client requests
+     * @throws IllegalArgumentException if the class is unregistered, final, or cannot be subclassed
+     */
     public <T> T newRpcStub(final Class<T> rpcClass, final String flowId) {
         return newRpcStub(rpcClass, flowId, "");
     }
 
+    /**
+     * Creates a strongly typed RPC stub targeting a specific Flow run.
+     *
+     * <p>Dex subclasses the class with ByteBuddy and allocates the stub without invoking a
+     * constructor. RPC methods and the containing class must therefore be non-final. Kotlin classes
+     * and methods are final by default and must be declared {@code open}.
+     *
+     * @param rpcClass the non-final registered Flow class containing {@link RPC} methods
+     * @param flowId the target Flow ID
+     * @param runId the target run ID, or an empty string for the current run
+     * @param <T> the concrete Flow class
+     * @return a constructor-free typed RPC stub
+     * @throws IllegalArgumentException if the class is unregistered, final, or cannot be subclassed
+     */
     public <T> T newRpcStub(
             final Class<T> rpcClass,
             final String flowId,
@@ -188,26 +278,81 @@ public final class Client implements AutoCloseable {
         }
     }
 
+    /**
+     * Invokes a function-style RPC with one input and returns its typed output.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param input the typed RPC input
+     * @param <I> the RPC input type
+     * @param <O> the RPC output type
+     * @return the decoded RPC output
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
             final I input) {
         return rpcStubMethod.execute(null, input).getOutput();
     }
 
+    /**
+     * Invokes a function-style RPC without application input.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param <O> the RPC output type
+     * @return the decoded RPC output
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
         return rpcStubMethod.execute(null).getOutput();
     }
 
+    /**
+     * Invokes a procedure-style RPC with one input.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param input the typed RPC input
+     * @param <I> the RPC input type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
             final I input) {
         rpcStubMethod.execute(null, input);
     }
 
+    /**
+     * Invokes a procedure-style RPC without application input.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
         rpcStubMethod.execute(null);
     }
 
+    /**
+     * Reads a scalar Attribute from a specific Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param runId the target run ID
+     * @param attribute the typed Attribute definition
+     * @param <T> the Attribute value type
+     * @return the decoded value, or {@code null} when absent
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the read
+     */
     public <T> T getAttribute(
             final String flowId,
             final String runId,
@@ -215,10 +360,31 @@ public final class Client implements AutoCloseable {
         return getAttributeValue(flowId, runId, attribute, null, attribute.getValueType());
     }
 
+    /**
+     * Reads a scalar Attribute from the current Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the typed Attribute definition
+     * @param <T> the Attribute value type
+     * @return the decoded value, or {@code null} when absent
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the read
+     */
     public <T> T getAttribute(final String flowId, final Attribute<T> attribute) {
         return getAttribute(flowId, "", attribute);
     }
 
+    /**
+     * Reads one Attribute-map instance from the current Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the typed Attribute-map definition
+     * @param instance the map instance
+     * @param <T> the Attribute value type
+     * @return the decoded value, or {@code null} when absent
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the read
+     */
     public <T> T getAttribute(
             final String flowId,
             final AttributeMap<T> attribute,
@@ -226,6 +392,17 @@ public final class Client implements AutoCloseable {
         return getAttributeValue(flowId, "", attribute, instance, attribute.getValueType());
     }
 
+    /**
+     * Writes a scalar Attribute in a specific Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param runId the target run ID
+     * @param attribute the typed Attribute definition
+     * @param value the value to persist
+     * @param <T> the Attribute value type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the write
+     */
     public <T> void setAttribute(
             final String flowId,
             final String runId,
@@ -234,6 +411,16 @@ public final class Client implements AutoCloseable {
         setAttributeValue(flowId, runId, attribute, null, value, attribute.getIndex());
     }
 
+    /**
+     * Writes a scalar Attribute in the current Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the typed Attribute definition
+     * @param value the value to persist
+     * @param <T> the Attribute value type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the write
+     */
     public <T> void setAttribute(
             final String flowId,
             final Attribute<T> attribute,
@@ -241,6 +428,17 @@ public final class Client implements AutoCloseable {
         setAttribute(flowId, "", attribute, value);
     }
 
+    /**
+     * Writes one Attribute-map instance in the current Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the typed Attribute-map definition
+     * @param instance the map instance
+     * @param value the value to persist
+     * @param <T> the Attribute value type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the write
+     */
     public <T> void setAttribute(
             final String flowId,
             final AttributeMap<T> attribute,
@@ -249,6 +447,17 @@ public final class Client implements AutoCloseable {
         setAttributeValue(flowId, "", attribute, instance, value, attribute.getIndex());
     }
 
+    /**
+     * Publishes one message to a scalar Channel in a specific Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @param runId the target run ID
+     * @param channel the typed Channel definition
+     * @param value the message value
+     * @param <T> the Channel message type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot publish the message
+     */
     public <T> void publish(
             final String flowId,
             final String runId,
@@ -257,6 +466,16 @@ public final class Client implements AutoCloseable {
         publishValues(flowId, runId, channel.getName(), Collections.singletonList(value));
     }
 
+    /**
+     * Publishes one or more messages to a scalar Channel in the current run.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the typed Channel definition
+     * @param values message values published in argument order
+     * @param <T> the Channel message type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot publish the messages
+     */
     @SafeVarargs
     public final <T> void publish(
             final String flowId,
@@ -265,6 +484,17 @@ public final class Client implements AutoCloseable {
         publishValues(flowId, "", channel.getName(), java.util.Arrays.asList(values));
     }
 
+    /**
+     * Publishes one or more messages to a Channel-map instance in the current run.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the typed Channel-map definition
+     * @param instance the map instance
+     * @param values message values published in argument order
+     * @param <T> the Channel message type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot publish the messages
+     */
     @SafeVarargs
     public final <T> void publish(
             final String flowId,
@@ -278,6 +508,16 @@ public final class Client implements AutoCloseable {
                 java.util.Arrays.asList(values));
     }
 
+    /**
+     * Publishes a list of messages to a scalar Channel in the current run.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the typed Channel definition
+     * @param values message values published in list order
+     * @param <T> the Channel message type
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot publish the messages
+     */
     public <T> void publish(
             final String flowId,
             final Channel<T> channel,
@@ -285,10 +525,25 @@ public final class Client implements AutoCloseable {
         publishValues(flowId, "", channel.getName(), values);
     }
 
+    /**
+     * Cancels a running Flow without an explicit reason.
+     *
+     * @param flowId the target Flow ID
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     */
     public void stopFlow(final String flowId) {
         stopFlow(flowId, new StopFlowOptions());
     }
 
+    /**
+     * Stops a running Flow with explicit terminal behavior.
+     *
+     * @param flowId the target Flow ID
+     * @param stopOptions the stop mode and optional reason
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
         call(() -> service.stopFlow(StopFlowRequest.newBuilder()
                 .setFlowId(flowId)
@@ -297,14 +552,47 @@ public final class Client implements AutoCloseable {
                 .build()), FlowTargetRequirement.ACTIVE, flowId);
     }
 
+    /**
+     * Blocks until a Flow completes successfully without decoding an output.
+     *
+     * @param flowId the target Flow ID
+     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     */
     public void waitForFlow(final String flowId) {
         waitForFlowResponse(flowId, null);
     }
 
+    /**
+     * Blocks until a Flow completes and decodes its latest Step output.
+     *
+     * @param flowId the target Flow ID
+     * @param outputType the concrete Java output class
+     * @param <O> the expected output type
+     * @return the latest completed Step output, or {@code null} when no output was recorded
+     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     */
     public <O> O waitForFlow(final String flowId, final Class<O> outputType) {
         return waitForFlow(flowId, outputType, null);
     }
 
+    /**
+     * Blocks for a bounded duration until a Flow completes and decodes its latest output.
+     *
+     * @param flowId the target Flow ID
+     * @param outputType the concrete Java output class
+     * @param timeout the nonnegative whole-second long-poll duration, or {@code null} for no bound
+     * @param <O> the expected output type
+     * @return the latest completed Step output, or {@code null} when no output was recorded
+     * @throws LongPollTimeoutException if the poll ends while the Flow remains running
+     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     */
     public <O> O waitForFlow(
             final String flowId,
             final Class<O> outputType,
@@ -320,6 +608,14 @@ public final class Client implements AutoCloseable {
         return null;
     }
 
+    /**
+     * Returns an identity and status snapshot for the current Flow run.
+     *
+     * @param flowId the target Flow ID
+     * @return the Flow snapshot
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise cannot describe the Flow
+     */
     public FlowInfo describeFlow(final String flowId) {
         final GetFlowSummaryResponse response = call(() -> service.getFlowSummary(
                 GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build()),
@@ -334,10 +630,29 @@ public final class Client implements AutoCloseable {
                 instant(response.getStartTime()));
     }
 
+    /**
+     * Searches Flow executions and returns the first page.
+     *
+     * @param query the server search expression, or {@code null} for an unfiltered search
+     * @param pageSize the nonnegative requested page size; zero uses the server default
+     * @return the first immutable search-results page
+     * @throws IllegalArgumentException if {@code pageSize} is negative
+     * @throws DexServiceException if Dex cannot execute the search
+     */
     public SearchFlowsPage searchFlows(final String query, final int pageSize) {
         return searchFlows(query, pageSize, "");
     }
 
+    /**
+     * Searches Flow executions from a continuation token.
+     *
+     * @param query the same server search expression used for the previous page
+     * @param pageSize the nonnegative requested page size; zero uses the server default
+     * @param nextPageToken the prior page's token, or {@code null} for the first page
+     * @return an immutable search-results page
+     * @throws IllegalArgumentException if {@code pageSize} is negative
+     * @throws DexServiceException if Dex cannot execute the search
+     */
     public SearchFlowsPage searchFlows(
             final String query,
             final int pageSize,
@@ -376,6 +691,15 @@ public final class Client implements AutoCloseable {
                 attributes);
     }
 
+    /**
+     * Resets a Flow and returns the new run ID.
+     *
+     * @param flowId the target Flow ID
+     * @param options the reset point and replay behavior
+     * @return the server-assigned run ID of the reset execution
+     * @throws FlowNotFoundException if no matching Flow execution exists
+     * @throws DexServiceException if Dex otherwise rejects or cannot perform the reset
+     */
     public String resetFlow(final String flowId, final ResetFlowOptions options) {
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
@@ -401,6 +725,15 @@ public final class Client implements AutoCloseable {
                 flowId).getRunId();
     }
 
+    /**
+     * Makes one durable timer condition fire immediately.
+     *
+     * @param flowId the target Flow ID
+     * @param stepExecutionId the Step execution containing the timer
+     * @param timerId the timer selected by condition ID or index
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot find or skip the timer
+     */
     public void skipTimer(
             final String flowId,
             final StepExecutionId stepExecutionId,
@@ -421,6 +754,16 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
+    /**
+     * Blocks until a specific Step execution completes or the wait duration expires.
+     *
+     * @param flowId the target Flow ID
+     * @param stepExecutionId the Step execution to observe
+     * @param timeout the nonnegative whole-second wait duration
+     * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     */
     public void waitForStepCompletion(
             final String flowId,
             final StepExecutionId stepExecutionId,
@@ -438,6 +781,14 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
+    /**
+     * Replaces the mutable Flow configuration for the current run.
+     *
+     * @param flowId the target Flow ID
+     * @param config the new Flow configuration
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot update the Flow
+     */
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
         call(
                 () -> service.updateFlowConfig(UpdateFlowConfigRequest.newBuilder()
@@ -448,6 +799,13 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
+    /**
+     * Requests that the current Flow run continue as new.
+     *
+     * @param flowId the target Flow ID
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot apply the request
+     */
     public void triggerContinueAsNew(final String flowId) {
         call(
                 () -> service.triggerContinueAsNew(
@@ -462,6 +820,12 @@ public final class Client implements AutoCloseable {
         return true;
     }
 
+    /**
+     * Shuts down the client's gRPC channel.
+     *
+     * <p>The method waits up to five seconds for channel termination and preserves interruption
+     * status. It does not close the borrowed {@link BlobCache}.
+     */
     @Override
     public void close() {
         channel.shutdown();

@@ -13,6 +13,7 @@ plugins {
     id 'maven-publish'
     id 'signing'
     id 'jacoco'
+    id 'checkstyle'
 }
 
 group = 'io.superdurable'
@@ -25,6 +26,11 @@ java {
     targetCompatibility = JavaVersion.VERSION_1_8
     withJavadocJar()
     withSourcesJar()
+}
+
+checkstyle {
+    toolVersion = '9.3'
+    configFile = file('config/checkstyle/public-api-javadocs.xml')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -174,7 +180,26 @@ tasks.named('compileJmhJava') {
 }
 
 tasks.named('javadoc') {
+    dependsOn 'checkstyleMain'
     exclude 'io/superdurable/gen/**'
+    failOnError = true
+    // Checkstyle owns public-API coverage; doclint validates links and markup without private noise.
+    options.addStringOption('Xdoclint:all,-missing', '-quiet')
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.addBooleanOption('Werror', true)
+    }
+}
+
+tasks.named('checkstyleMain') {
+    source = fileTree('src/main/java/io/superdurable/dex') {
+        include '**/*.java'
+    }
+}
+
+tasks.matching {
+    it.name.startsWith('checkstyle') && it.name != 'checkstyleMain'
+}.configureEach {
+    enabled = false
 }
 
 tasks.register('blobCacheBenchmark', JavaExec) {
