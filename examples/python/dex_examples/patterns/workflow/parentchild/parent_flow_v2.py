@@ -59,7 +59,7 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
 
     def wait_for(self, context: Context, input: WaitForChildInput) -> Wait:
         del context
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
+        return Wait.until(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
 
     async def execute(  # type: ignore[override]
         self, context: Context, input: WaitForChildInput
@@ -126,7 +126,7 @@ class LoopForNextTask(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(self.task_queue.for_one())
+        return Wait.until(self.task_queue.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

@@ -39,7 +39,7 @@ class SetAttributesCompleteStep implements Step<string> {
   }
 
   public waitFor(_context: Context, _input: string): Wait {
-    return Wait.allOf(this.proceed.forOne());
+    return Wait.until(this.proceed.forOne());
   }
 
   public execute(_context: Context, _input: string): StepDecision {

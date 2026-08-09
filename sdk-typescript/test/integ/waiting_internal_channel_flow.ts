@@ -31,7 +31,7 @@ class WaitingInternalStep implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.allOf(this.channel.forN(2));
+    return Wait.until(this.channel.forN(2));
   }
 
   public execute(context: Context, input: number): StepDecision {

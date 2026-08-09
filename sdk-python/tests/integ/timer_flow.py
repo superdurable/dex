@@ -25,7 +25,7 @@ from dex import (
 class TimerStep(Step[int]):
     def wait_for(self, context: Context, input: int) -> Wait:
         del context
-        return Wait.all_of(
+        return Wait.until(
             Timer.by_duration(
                 timedelta(seconds=input),
                 condition_id="test-timer-id",

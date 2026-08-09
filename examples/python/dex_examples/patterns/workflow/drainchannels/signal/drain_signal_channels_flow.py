@@ -39,7 +39,7 @@ class ProcessSignal(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
         del context
         if input is None:
-            return Wait.any_of(self.queue_signal_channel.for_one())
+            return Wait.until(self.queue_signal_channel.for_one())
         return Wait.skip_immediately()
 
     async def execute(  # type: ignore[override]

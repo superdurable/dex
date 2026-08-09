@@ -91,7 +91,7 @@ func (workAExecutionStep) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(1500 * time.Millisecond)), nil
+	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
 }
 
 func (workAExecutionStep) Execute(
@@ -128,7 +128,7 @@ func (workNExecutionStep) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(3 * time.Second)), nil
+	return dex.Until(dex.Timer(3 * time.Second)), nil
 }
 
 func (workNExecutionStep) Execute(

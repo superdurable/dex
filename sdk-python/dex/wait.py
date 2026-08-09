@@ -34,6 +34,10 @@ class Wait:
         return Wait(WaitKind.SKIP_IMMEDIATELY)
 
     @staticmethod
+    def until(condition: Condition) -> Wait:
+        return Wait.all_of(condition)
+
+    @staticmethod
     def all_of(*conditions: Condition) -> Wait:
         return Wait(WaitKind.ALL_OF, conditions)
 

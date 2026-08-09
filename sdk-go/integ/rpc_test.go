@@ -89,7 +89,7 @@ func (rpcFlowStep) WaitFor(
 	dex.Context,
 	int,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(rpcFlowChannel.ForOne()), nil
+	return dex.Until(rpcFlowChannel.ForOne()), nil
 }
 
 func (rpcFlowStep) Execute(

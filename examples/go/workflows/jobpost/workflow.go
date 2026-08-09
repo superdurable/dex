@@ -31,11 +31,11 @@ import (
 var (
 	Title = dex.DefineAttribute[string](
 		"Title",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexText}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
 	)
 	JobDescription = dex.DefineAttribute[string](
 		"JobDescription",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexText}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
 	)
 	LastUpdateTimeMillis = dex.DefineAttribute[int64](
 		"LastUpdateTimeMillis",

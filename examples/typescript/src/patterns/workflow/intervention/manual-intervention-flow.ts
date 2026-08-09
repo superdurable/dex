@@ -63,7 +63,7 @@ class GetData implements Step<boolean> {
 
   public waitFor(_context: Context, _isRetry: boolean): Wait {
     console.log("Waiting for incoming data");
-    return Wait.allOf(this.flow.dataChannel.forOne());
+    return Wait.until(this.flow.dataChannel.forOne());
   }
 
   public execute(context: Context, isRetry: boolean): StepDecision {

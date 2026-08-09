@@ -86,6 +86,8 @@ Execute-only steps embed `dex.StepDefaultsNoWaitFor[IN]`. Step transitions use
 
 `StepOptions.WaitForMethodTimeout` and `ExecuteMethodTimeout` bound the two
 handler calls. Timer and channel conditions determine how long a Step waits.
+Use `dex.Until(condition)` for one condition, and `dex.AllOf` or `dex.AnyOf`
+for multiple conditions.
 
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes

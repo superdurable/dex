@@ -112,7 +112,7 @@ func (awaitAllUsersNotifiedStep) WaitFor(
 	_ dex.Context,
 	countOfJobSeekers int,
 ) (*dex.Wait, error) {
-	return dex.AllOf(NotifyChannel.ForN(countOfJobSeekers)), nil
+	return dex.Until(NotifyChannel.ForN(countOfJobSeekers)), nil
 }
 
 func (awaitAllUsersNotifiedStep) Execute(

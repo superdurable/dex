@@ -58,7 +58,7 @@ class ChargeCurrentBill(Step[None]):
             context.set_step_execution_local(SUBSCRIPTION_OVER_KEY, True)
             return Wait.skip_immediately()
         self.billing_period_number.set(context, period_number + 1)
-        return Wait.all_of(
+        return Wait.until(
             Timer.by_duration(subscription_billing.billing_period(customer))
         )
 
@@ -89,7 +89,7 @@ class Trial(Step[None]):
         del input
         customer = self.customer_details.get(context)
         subscription_billing.send_welcome_email(customer, self.service)
-        return Wait.all_of(
+        return Wait.until(
             Timer.by_duration(subscription_billing.trial_period(customer))
         )
 
@@ -112,7 +112,7 @@ class Cancel(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.all_of(self.cancel_subscription.for_one())
+        return Wait.until(self.cancel_subscription.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
@@ -132,7 +132,7 @@ class UpdateChargeAmount(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.all_of(self.update_charge_amount.for_one())
+        return Wait.until(self.update_charge_amount.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

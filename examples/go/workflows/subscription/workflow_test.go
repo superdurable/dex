@@ -56,7 +56,7 @@ func TestWaitForTrial(t *testing.T) {
 
 	wait := waitForTrial(testCustomer, applicationService)
 
-	require.Equal(t, dex.AllOf(dex.Timer(testCustomer.Subscription.TrialPeriod)), wait)
+	require.Equal(t, dex.Until(dex.Timer(testCustomer.Subscription.TrialPeriod)), wait)
 	require.Equal(t, []recordedEmail{{
 		recipient: testCustomer.Email,
 		subject:   "welcome email",
@@ -75,7 +75,7 @@ func TestWaitForCharge(t *testing.T) {
 		wait, subscriptionOver := waitForCharge(testCustomer, 0)
 
 		require.False(t, subscriptionOver)
-		require.Equal(t, dex.AllOf(dex.Timer(testCustomer.Subscription.BillingPeriod)), wait)
+		require.Equal(t, dex.Until(dex.Timer(testCustomer.Subscription.BillingPeriod)), wait)
 	})
 
 	t.Run("completed subscription", func(t *testing.T) {
@@ -124,7 +124,7 @@ func TestCancelSubscription(t *testing.T) {
 
 	wait, err := (cancelStep{}).WaitFor(nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, dex.AllOf(CancelSubscription.ForOne()), wait)
+	require.Equal(t, dex.Until(CancelSubscription.ForOne()), wait)
 
 	decision := executeCancel(testCustomer, applicationService)
 	require.Equal(t, []recordedEmail{{
@@ -138,7 +138,7 @@ func TestCancelSubscription(t *testing.T) {
 func TestUpdateChargeAmount(t *testing.T) {
 	wait, err := (updateChargeAmountStep{}).WaitFor(nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, dex.AllOf(UpdateChargeAmount.ForOne()), wait)
+	require.Equal(t, dex.Until(UpdateChargeAmount.ForOne()), wait)
 
 	updatedCustomer, decision, err := executeUpdateChargeAmount(testCustomer, []int{200})
 	require.NoError(t, err)

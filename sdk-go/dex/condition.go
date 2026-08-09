@@ -26,6 +26,10 @@ func SkipWaitImmediately() *Wait {
 	return &Wait{kind: skipWaitImmediately}
 }
 
+func Until(condition Condition) *Wait {
+	return AllOf(condition)
+}
+
 func AllOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAllOf, conditions: conditions}
 }

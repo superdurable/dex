@@ -95,7 +95,7 @@ class UpsertMongoRecord(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(self.upsert_mongo_data.for_one())
+        return Wait.until(self.upsert_mongo_data.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

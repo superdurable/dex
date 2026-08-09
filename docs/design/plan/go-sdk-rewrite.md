@@ -2030,6 +2030,7 @@ type ConditionOption interface {
 }
 
 func SkipWaitImmediately() *Wait
+func Until(condition Condition) *Wait
 func AllOf(conditions ...Condition) *Wait
 func AnyOf(conditions ...Condition) *Wait
 func Combo(conditions ...Condition) ConditionCombination

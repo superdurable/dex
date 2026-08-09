@@ -100,7 +100,7 @@ func (loopForNextTaskStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(TaskQueue.ForOne()), nil
+	return dex.Until(TaskQueue.ForOne()), nil
 }
 
 func (loopForNextTaskStep) Execute(
@@ -160,7 +160,7 @@ func (awaitChildWorkflowCompletionStep) WaitFor(
 	_ dex.Context,
 	input WaitForChildInput,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(time.Duration(input.TimerSeconds) * time.Second)), nil
+	return dex.Until(dex.Timer(time.Duration(input.TimerSeconds) * time.Second)), nil
 }
 
 func (step awaitChildWorkflowCompletionStep) Execute(

@@ -68,7 +68,7 @@ func (timeoutStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(time.Minute)), nil
+	return dex.Until(dex.Timer(time.Minute)), nil
 }
 
 func (timeoutStep) Execute(
@@ -89,7 +89,7 @@ func (taskStep) WaitFor(
 	if workflowSuccessful {
 		return dex.SkipWaitImmediately(), nil
 	}
-	return dex.AnyOf(dex.Timer(65 * time.Second)), nil
+	return dex.Until(dex.Timer(65 * time.Second)), nil
 }
 
 func (taskStep) Execute(

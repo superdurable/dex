@@ -60,7 +60,7 @@ func (processSignalStep) WaitFor(
 	input string,
 ) (*dex.Wait, error) {
 	if input == "" {
-		return dex.AnyOf(QueueSignalChannel.ForOne()), nil
+		return dex.Until(QueueSignalChannel.ForOne()), nil
 	}
 	return dex.SkipWaitImmediately(), nil
 }

@@ -123,7 +123,7 @@ class Poll implements Step<number> {
   }
 
   public waitFor(_context: Context, _maximumPolls: number): Wait {
-    return Wait.anyOf(Timer.byDuration(POLL_INTERVAL_MS));
+    return Wait.until(Timer.byDuration(POLL_INTERVAL_MS));
   }
 
   public execute(context: Context, maximumPolls: number): StepDecision {

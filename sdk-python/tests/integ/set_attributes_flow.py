@@ -35,7 +35,7 @@ class SetAttributesCompleteStep(Step[str]):
 
     def wait_for(self, context: Context, input: str) -> Wait:
         del context, input
-        return Wait.all_of(self.proceed.for_one())
+        return Wait.until(self.proceed.for_one())
 
     def execute(self, context: Context, input: str) -> StepDecision:
         del context, input

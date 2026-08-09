@@ -44,7 +44,7 @@ class ProcessSignal implements Step<string | undefined> {
 
   public waitFor(_context: Context, input: string | undefined): Wait {
     if (input === undefined) {
-      return Wait.anyOf(this.flow.queueSignalChannel.forOne());
+      return Wait.until(this.flow.queueSignalChannel.forOne());
     }
     return Wait.skipImmediately();
   }

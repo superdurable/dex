@@ -38,7 +38,7 @@ SLOW_TASK_DURATION = timedelta(seconds=65)
 class Timeout(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(TIMEOUT_DURATION))
+        return Wait.until(Timer.by_duration(TIMEOUT_DURATION))
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
@@ -50,7 +50,7 @@ class Task(Step[bool]):
         del context
         if input:
             return Wait.skip_immediately()
-        return Wait.any_of(Timer.by_duration(SLOW_TASK_DURATION))
+        return Wait.until(Timer.by_duration(SLOW_TASK_DURATION))
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         del context, input

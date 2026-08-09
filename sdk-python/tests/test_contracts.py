@@ -266,7 +266,7 @@ def test_builtin_codecs_enforce_wire_types_and_ranges() -> None:
 
 
 def test_fluent_wait_factories_validate_channel_bounds() -> None:
-    wait = Wait.all_of(Timer.by_duration(timedelta(seconds=1)))
+    wait = Wait.until(Timer.by_duration(timedelta(seconds=1)))
     assert len(wait.conditions) == 1
     with pytest.raises(ValueError, match="requires a bound"):
         COMMANDS.for_range()

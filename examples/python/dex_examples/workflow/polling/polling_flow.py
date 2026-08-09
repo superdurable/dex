@@ -76,7 +76,7 @@ class Poll(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=1)))
+        return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     def execute(self, context: Context, input: int) -> StepDecision:
         self.service.call_api1("calling API1 for polling service C")

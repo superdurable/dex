@@ -27,7 +27,7 @@ class WaitingInternalStep(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
-        return Wait.all_of(self.channel.for_n(2))
+        return Wait.until(self.channel.for_n(2))
 
     def execute(self, context: Context, input: int) -> StepDecision:
         return graceful_complete(input + sum(self.channel.results(context)))

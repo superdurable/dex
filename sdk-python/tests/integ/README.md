@@ -21,7 +21,7 @@ uv run --frozen pyright tests/integ
 
 - Python annotations derive Step and RPC codecs; Attribute and Channel values
   declare ordinary Python types.
-- `Wait.all_of(Timer.by_duration(...))` and handle methods keep nested calls
+- `Wait.until(Timer.by_duration(...))` and handle methods keep nested calls
   readable.
 - RPC methods remain normal bound methods and are passed directly to
   `Client.invoke_rpc`.

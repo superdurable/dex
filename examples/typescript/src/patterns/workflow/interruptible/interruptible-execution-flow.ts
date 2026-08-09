@@ -71,7 +71,7 @@ class WorkAExecution implements Step<WorkJobParametersInput> {
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
-    return Wait.anyOf(Timer.byDuration(1500));
+    return Wait.until(Timer.byDuration(1500));
   }
 
   public execute(context: Context, input: WorkJobParametersInput): StepDecision {
@@ -107,7 +107,7 @@ class WorkNExecution implements Step<WorkJobParametersInput> {
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
-    return Wait.anyOf(Timer.byDuration(3000));
+    return Wait.until(Timer.byDuration(3000));
   }
 
   public execute(context: Context, input: WorkJobParametersInput): StepDecision {

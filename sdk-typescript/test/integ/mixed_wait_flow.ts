@@ -32,7 +32,7 @@ class MixedTimerStep implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.allOf(Timer.byDuration(1_000));
+    return Wait.until(Timer.byDuration(1_000));
   }
 
   public execute(_context: Context, input: number): StepDecision {

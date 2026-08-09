@@ -110,7 +110,7 @@ func (pollStep) WaitFor(
 	dex.Context,
 	int,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(time.Second)), nil
+	return dex.Until(dex.Timer(time.Second)), nil
 }
 
 func (step pollStep) Execute(

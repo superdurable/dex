@@ -99,7 +99,7 @@ class AwaitAllUsersNotified implements Step<number> {
   }
 
   public waitFor(_context: Context, countOfJobSeekers: number): Wait {
-    return Wait.allOf(this.flow.notifyChannel.forN(countOfJobSeekers));
+    return Wait.until(this.flow.notifyChannel.forN(countOfJobSeekers));
   }
 
   public execute(context: Context, countOfJobSeekers: number): StepDecision {

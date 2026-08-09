@@ -40,7 +40,7 @@ class ConditionalStep implements Step<boolean> {
   }
 
   public waitFor(_context: Context, useSignal: boolean): Wait {
-    return Wait.anyOf((useSignal ? this.signal : this.internal).forOne());
+    return Wait.until((useSignal ? this.signal : this.internal).forOne());
   }
 
   public execute(context: Context, useSignal: boolean): StepDecision {

@@ -89,7 +89,7 @@ func (getDataStep) WaitFor(
 	isRetry bool,
 ) (*dex.Wait, error) {
 	fmt.Println("Waiting for incoming data")
-	return dex.AllOf(DataChannel.ForOne()), nil
+	return dex.Until(DataChannel.ForOne()), nil
 }
 
 func (getDataStep) Execute(

@@ -46,7 +46,7 @@ class WorkAExecution(Step[WorkJobParametersInput]):
 
     def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=2)))
+        return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
     def execute(
         self,
@@ -77,7 +77,7 @@ class WorkNExecution(Step[WorkJobParametersInput]):
 
     def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=3)))
+        return Wait.until(Timer.by_duration(timedelta(seconds=3)))
 
     def execute(
         self,

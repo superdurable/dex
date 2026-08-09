@@ -26,7 +26,7 @@ class ApproveOrder implements Step<string> {
   }
 
   waitFor(_context: Context, _orderId: string): Wait {
-    return Wait.allOf(Timer.byDuration(1_000));
+    return Wait.until(Timer.byDuration(1_000));
   }
 
   execute(_context: Context, orderId: string): StepDecision {

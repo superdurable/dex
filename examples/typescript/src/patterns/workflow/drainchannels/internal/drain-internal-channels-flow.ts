@@ -77,7 +77,7 @@ class UpsertMongoRecord implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(this.flow.upsertMongoData.forOne());
+    return Wait.until(this.flow.upsertMongoData.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {

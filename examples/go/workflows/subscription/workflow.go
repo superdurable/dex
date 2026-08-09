@@ -184,7 +184,7 @@ func (cancelStep) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
-	return dex.AllOf(CancelSubscription.ForOne()), nil
+	return dex.Until(CancelSubscription.ForOne()), nil
 }
 
 func (step cancelStep) Execute(
@@ -206,7 +206,7 @@ func (updateChargeAmountStep) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
-	return dex.AllOf(UpdateChargeAmount.ForOne()), nil
+	return dex.Until(UpdateChargeAmount.ForOne()), nil
 }
 
 func (updateChargeAmountStep) Execute(
@@ -245,7 +245,7 @@ func waitForTrial(
 ) *dex.Wait {
 	// send welcome email
 	applicationService.SendEmail(customer.Email, "welcome email", "hello content")
-	return dex.AllOf(dex.Timer(customer.Subscription.TrialPeriod))
+	return dex.Until(dex.Timer(customer.Subscription.TrialPeriod))
 }
 
 func executeTrial() *dex.StepDecision {
@@ -256,7 +256,7 @@ func waitForCharge(customer Customer, periodNumber int) (*dex.Wait, bool) {
 	if periodNumber >= customer.Subscription.MaxBillingPeriods {
 		return dex.SkipWaitImmediately(), true
 	}
-	return dex.AllOf(dex.Timer(customer.Subscription.BillingPeriod)), false
+	return dex.Until(dex.Timer(customer.Subscription.BillingPeriod)), false
 }
 
 func executeCharge(

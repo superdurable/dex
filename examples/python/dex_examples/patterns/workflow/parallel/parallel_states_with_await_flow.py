@@ -58,7 +58,7 @@ class AwaitAllUsersNotified(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         del context
-        return Wait.all_of(self.notify_channel.for_n(input))
+        return Wait.until(self.notify_channel.for_n(input))
 
     def execute(self, context: Context, input: int) -> StepDecision:
         context.record_event(
