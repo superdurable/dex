@@ -152,7 +152,7 @@ class Agent(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
         del input
         self.flow.status.set(context, STATUS_WAITING)
-        return Wait.any_of(self.flow.user_input.for_one())
+        return Wait.until(self.flow.user_input.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

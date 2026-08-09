@@ -141,7 +141,7 @@ class RpcWorkflow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.anyOf(internal.forOne());
+            return Wait.until(internal.forOne());
         }
 
         @Override

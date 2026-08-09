@@ -108,7 +108,7 @@ class SyncChannelWaitStep implements Step<string> {
   }
 
   public waitFor(): Wait {
-    return Wait.anyOf(this.proceed.forOne());
+    return Wait.until(this.proceed.forOne());
   }
 
   public execute(_context: Context, input: string): StepDecision {

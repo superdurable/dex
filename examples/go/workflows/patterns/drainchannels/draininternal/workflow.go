@@ -92,7 +92,7 @@ func (upsertMongoRecordStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(UpsertMongoData.ForOne()), nil
+	return dex.Until(UpsertMongoData.ForOne()), nil
 }
 
 func (step upsertMongoRecordStep) Execute(

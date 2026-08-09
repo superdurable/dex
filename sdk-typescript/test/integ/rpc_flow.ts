@@ -54,7 +54,7 @@ class RpcFirstStep implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.anyOf(this.internal.forOne());
+    return Wait.until(this.internal.forOne());
   }
 
   public execute(_context: Context, _input: number): StepDecision {

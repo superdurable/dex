@@ -23,7 +23,7 @@ class Run(dex.Step[str]):
     def wait_for(
         self, context: dex.Context, input: str
     ) -> dex.Wait:
-        return dex.Wait.all_of(
+        return dex.Wait.until(
             dex.Timer.by_duration(timedelta(seconds=1))
         )
 

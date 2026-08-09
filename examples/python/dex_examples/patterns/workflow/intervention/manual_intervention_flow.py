@@ -59,7 +59,7 @@ class GetData(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         del context, input
         print("Waiting for incoming data")
-        return Wait.all_of(self.data_channel.for_one())
+        return Wait.until(self.data_channel.for_one())
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         if input:

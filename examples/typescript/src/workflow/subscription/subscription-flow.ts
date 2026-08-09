@@ -127,7 +127,7 @@ class Trial implements Step<void> {
   public waitFor(context: Context, _input: void): Wait {
     const customer = this.flow.customerDetails.get(context);
     SubscriptionBilling.sendWelcomeEmail(customer, this.flow.service);
-    return Wait.allOf(Timer.byDuration(SubscriptionBilling.trialPeriod(customer)));
+    return Wait.until(Timer.byDuration(SubscriptionBilling.trialPeriod(customer)));
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -153,7 +153,7 @@ class ChargeCurrentBill implements Step<void> {
       return Wait.skipImmediately();
     }
     this.flow.billingPeriodNumber.set(context, periodNumber + 1);
-    return Wait.allOf(Timer.byDuration(SubscriptionBilling.billingPeriod(customer)));
+    return Wait.until(Timer.byDuration(SubscriptionBilling.billingPeriod(customer)));
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -179,7 +179,7 @@ class Cancel implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.allOf(this.flow.cancelSubscription.forOne());
+    return Wait.until(this.flow.cancelSubscription.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -199,7 +199,7 @@ class UpdateChargeAmount implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.allOf(this.flow.updateChargeAmount.forOne());
+    return Wait.until(this.flow.updateChargeAmount.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {

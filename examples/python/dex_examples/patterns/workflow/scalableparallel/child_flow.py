@@ -51,7 +51,7 @@ class Processing(Step[str]):
 
     def wait_for(self, context: Context, input: str) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
+        return Wait.until(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
 
     async def execute(  # type: ignore[override]
         self, context: Context, input: str

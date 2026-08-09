@@ -54,7 +54,7 @@ func (simplePollingStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(10 * time.Second)), nil
+	return dex.Until(dex.Timer(10 * time.Second)), nil
 }
 
 func (simplePollingStep) Execute(

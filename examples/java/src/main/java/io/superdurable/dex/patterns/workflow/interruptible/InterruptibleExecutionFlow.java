@@ -80,7 +80,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final WorkJobParametersInput input) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofMillis(1500)));
+            return Wait.until(Timer.byDuration(Duration.ofMillis(1500)));
         }
 
         @Override
@@ -117,7 +117,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final WorkJobParametersInput input) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(3)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(3)));
         }
 
         @Override

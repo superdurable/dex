@@ -52,7 +52,7 @@ MAX_WAIT_SECONDS = 10
 class ChildProcessing(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
+        return Wait.until(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
 
     def execute(self, context: Context, input: str) -> StepDecision:
         del context, input
@@ -81,7 +81,7 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
 
     def wait_for(self, context: Context, input: WaitForChildInput) -> Wait:
         del context
-        return Wait.any_of(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
+        return Wait.until(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
 
     def execute(
         self, context: Context, input: WaitForChildInput
@@ -144,7 +144,7 @@ class LoopForNextTask(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(self.task_queue.for_one())
+        return Wait.until(self.task_queue.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

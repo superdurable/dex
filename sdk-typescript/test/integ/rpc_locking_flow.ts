@@ -62,7 +62,7 @@ class LockWaitStep implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(this.channel.forOne());
+    return Wait.until(this.channel.forOne());
   }
 
   public execute(_context: Context, _input: void): StepDecision {

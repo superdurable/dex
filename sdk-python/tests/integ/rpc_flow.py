@@ -40,7 +40,7 @@ class RpcFirstStep(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
-        return Wait.any_of(self.internal.for_one())
+        return Wait.until(self.internal.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input

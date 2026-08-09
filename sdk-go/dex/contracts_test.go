@@ -329,6 +329,7 @@ var _ = dex.AllOf(
 	commandChannel.ForOne(),
 	dex.Timer(time.Minute, dex.WithConditionID("all")),
 )
+var _ = dex.Until(commandChannel.ForOne())
 var _ = dex.AnyOf(
 	commandChannel.ForOne(),
 	dex.Timer(time.Minute, dex.WithConditionID("any")),

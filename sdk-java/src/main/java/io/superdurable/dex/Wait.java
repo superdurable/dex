@@ -43,6 +43,10 @@ public final class Wait {
         return ofConditions(Kind.SKIP_IMMEDIATELY);
     }
 
+    public static Wait until(final Condition condition) {
+        return allOf(condition);
+    }
+
     public static Wait allOf(final Condition... conditions) {
         return ofConditions(Kind.ALL_OF, conditions);
     }

@@ -97,7 +97,7 @@ class GpuProcessingComplete(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(POLL_INTERVAL))
+        return Wait.until(Timer.by_duration(POLL_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
@@ -145,7 +145,7 @@ class ValidationComplete(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(POLL_INTERVAL))
+        return Wait.until(Timer.by_duration(POLL_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input

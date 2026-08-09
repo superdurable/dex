@@ -162,6 +162,9 @@ export const Wait = Object.freeze({
   skipImmediately(): Wait {
     return { kind: "skipImmediately", conditions: [], combinations: [] };
   },
+  until(condition: Condition): Wait {
+    return Wait.allOf(condition);
+  },
   allOf(...conditions: readonly Condition[]): Wait {
     return { kind: "allOf", conditions, combinations: [] };
   },

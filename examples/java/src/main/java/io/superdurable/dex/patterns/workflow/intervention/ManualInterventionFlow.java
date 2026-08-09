@@ -85,7 +85,7 @@ public class ManualInterventionFlow implements Flow<Void> {
         @Override
         public Wait waitFor(final Context context, final Boolean isRetry) {
             System.out.println("Waiting for incoming data");
-            return Wait.allOf(dataChannel.forOne());
+            return Wait.until(dataChannel.forOne());
         }
 
         @Override

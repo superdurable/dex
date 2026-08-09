@@ -81,7 +81,7 @@ class LoopForNextTask implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(this.flow.taskQueue.forOne());
+    return Wait.until(this.flow.taskQueue.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -136,7 +136,7 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
   }
 
   public waitFor(_context: Context, input: WaitForChildInput): Wait {
-    return Wait.anyOf(Timer.byDuration(input.timerSeconds * 1000));
+    return Wait.until(Timer.byDuration(input.timerSeconds * 1000));
   }
 
   public async execute(

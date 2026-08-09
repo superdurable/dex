@@ -55,7 +55,7 @@ class ConditionalCompleteWorkflow implements Flow<Boolean> {
 
         @Override
         public Wait waitFor(final Context context, final Boolean useSignal) {
-            return Wait.anyOf((useSignal ? signal : internal).forOne());
+            return Wait.until((useSignal ? signal : internal).forOne());
         }
 
         @Override

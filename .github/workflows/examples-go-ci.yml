@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "examples/go/**"
+      - "sdk-go/**"
       - "cli/**"
       - ".github/workflows/examples-go-ci.yml"
   pull_request:
     paths:
       - "examples/go/**"
+      - "sdk-go/**"
       - "cli/**"
       - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
@@ -26,7 +28,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: examples/go/go.mod
-          cache-dependency-path: examples/go/go.sum
+          cache-dependency-path: |
+            examples/go/go.sum
+            sdk-go/go.sum
       - name: Verify released SDK dependency
         env:
           GOWORK: "off"
@@ -48,6 +52,8 @@ jobs:
             echo "::error::$module resolves to $resolved_version, expected $required_version"
             exit 1
           fi
+      - name: Use checkout SDK
+        run: go mod edit -replace github.com/superdurable/dex/sdk-go=../../sdk-go
       - name: Build
         env:
           GOWORK: "off"
@@ -68,7 +74,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: examples/go/go.mod
-          cache-dependency-path: examples/go/go.sum
+          cache-dependency-path: |
+            examples/go/go.sum
+            sdk-go/go.sum
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -76,6 +84,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
+      - name: Use checkout SDK
+        run: go mod edit -replace github.com/superdurable/dex/sdk-go=../../sdk-go
       - name: End-to-end tests
         run: make e2eTests
       - name: Upload service logs

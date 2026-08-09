@@ -38,7 +38,7 @@ class SimplePolling implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(10_000));
+    return Wait.until(Timer.byDuration(10_000));
   }
 
   public execute(_context: Context, _input: void): StepDecision {

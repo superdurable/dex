@@ -62,7 +62,7 @@ Channel<Void> wakeup = Channel.define("wakeup", Void.class);
 Wait factories read from the domain nouns they create:
 
 ```java
-return Wait.allOf(
+return Wait.until(
         Timer.byDuration(Duration.ofSeconds(1)));
 ```
 

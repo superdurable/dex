@@ -171,7 +171,7 @@ func (step preConditionStep) WaitFor(
 	if err := PendingPreConditionName.Set(ctx, state.PreCondition.Name); err != nil {
 		return nil, err
 	}
-	return dex.AllOf(ConditionMessages.ForOne(state.PreCondition.Name)), nil
+	return dex.Until(ConditionMessages.ForOne(state.PreCondition.Name)), nil
 }
 
 func (step preConditionStep) Execute(
@@ -308,7 +308,7 @@ func (step postConditionStep) WaitFor(
 	if state.PostCondition == nil || state.PostCondition.WaitFor == nil {
 		return dex.SkipWaitImmediately(), nil
 	}
-	return dex.AllOf(ConditionMessages.ForOne(state.PostCondition.WaitFor.Name)), nil
+	return dex.Until(ConditionMessages.ForOne(state.PostCondition.WaitFor.Name)), nil
 }
 
 func (step postConditionStep) Execute(

@@ -24,7 +24,7 @@ Full integration verification:
 
 - Flow and Step are interfaces, while explicit codecs provide the runtime type
   information erased by TypeScript.
-- `Wait.allOf(Timer.byDuration(...))` and domain factories keep nested calls
+- `Wait.until(Timer.byDuration(...))` and domain factories keep nested calls
   readable.
 - Decorated RPC method references preserve their input and output types through
   `Client.invokeRPC`.

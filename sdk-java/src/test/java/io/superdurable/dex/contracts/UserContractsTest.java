@@ -291,7 +291,7 @@ public class UserContractsTest {
 
         @Override
         public Wait waitFor(final Context context, final OrderInput input) {
-            return Wait.anyOf(COMMANDS.forOne());
+            return Wait.until(COMMANDS.forOne());
         }
     }
 

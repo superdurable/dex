@@ -162,7 +162,7 @@ test("canonical codecs enforce wire kinds and int64 range", () => {
 });
 
 test("fluent wait factories validate channel bounds", () => {
-  const wait = Wait.allOf(Timer.byDuration(1_000));
+  const wait = Wait.until(Timer.byDuration(1_000));
   assert.equal(wait.conditions.length, 1);
   assert.throws(() => commands.range(), /requires a bound/);
 });

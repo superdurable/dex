@@ -73,7 +73,7 @@ func (processingStep) WaitFor(
 	input string,
 ) (*dex.Wait, error) {
 	delay := time.Duration(rand.Intn(60)) * time.Second
-	return dex.AnyOf(dex.Timer(delay)), nil
+	return dex.Until(dex.Timer(delay)), nil
 }
 
 func (step processingStep) Execute(

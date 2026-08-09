@@ -107,7 +107,7 @@ public class ParentFlowV2 implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(taskQueue.forOne());
+            return Wait.until(taskQueue.forOne());
         }
 
         @Override
@@ -153,7 +153,7 @@ public class ParentFlowV2 implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final WaitForChildInput input) {
-            return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(input.timerSeconds)));
+            return Wait.until(Timer.byDuration(Duration.ofSeconds(input.timerSeconds)));
         }
 
         @Override

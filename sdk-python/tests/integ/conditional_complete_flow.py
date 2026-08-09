@@ -37,7 +37,7 @@ class ConditionalStep(Step[bool]):
 
     def wait_for(self, context: Context, input: bool) -> Wait:
         del context
-        return Wait.any_of((self.signal if input else self.internal).for_one())
+        return Wait.until((self.signal if input else self.internal).for_one())
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         next_value = self.counter.get(context) + 1

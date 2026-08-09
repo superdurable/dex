@@ -56,7 +56,7 @@ class Timeout implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(60_000));
+    return Wait.until(Timer.byDuration(60_000));
   }
 
   public execute(_context: Context, _input: void): StepDecision {
@@ -75,7 +75,7 @@ class Task implements Step<boolean> {
     if (workflowSuccessful) {
       return Wait.skipImmediately();
     }
-    return Wait.anyOf(Timer.byDuration(65_000));
+    return Wait.until(Timer.byDuration(65_000));
   }
 
   public execute(_context: Context, _workflowSuccessful: boolean): StepDecision {

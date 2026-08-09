@@ -35,7 +35,7 @@ func (timerStep) WaitFor(
 	_ dex.Context,
 	seconds int,
 ) (*dex.Wait, error) {
-	return dex.AllOf(dex.Timer(time.Duration(seconds) * time.Second)), nil
+	return dex.Until(dex.Timer(time.Duration(seconds) * time.Second)), nil
 }
 
 func (timerStep) Execute(

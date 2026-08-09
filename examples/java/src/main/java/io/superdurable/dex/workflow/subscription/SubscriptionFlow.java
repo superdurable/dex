@@ -104,7 +104,7 @@ public class SubscriptionFlow implements Flow<Customer> {
         public Wait waitFor(final Context context, final Void input) {
             final Customer customer = customerDetails.get(context);
             SubscriptionBilling.sendWelcomeEmail(customer, service);
-            return Wait.allOf(Timer.byDuration(SubscriptionBilling.trialPeriod(customer)));
+            return Wait.until(Timer.byDuration(SubscriptionBilling.trialPeriod(customer)));
         }
 
         @Override
@@ -129,7 +129,7 @@ public class SubscriptionFlow implements Flow<Customer> {
                 return Wait.skipImmediately();
             }
             billingPeriodNumber.set(context, periodNumber + 1);
-            return Wait.allOf(Timer.byDuration(SubscriptionBilling.billingPeriod(customer)));
+            return Wait.until(Timer.byDuration(SubscriptionBilling.billingPeriod(customer)));
         }
 
         @Override
@@ -155,7 +155,7 @@ public class SubscriptionFlow implements Flow<Customer> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.allOf(cancelSubscription.forOne());
+            return Wait.until(cancelSubscription.forOne());
         }
 
         @Override
@@ -174,7 +174,7 @@ public class SubscriptionFlow implements Flow<Customer> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.allOf(updateChargeAmount.forOne());
+            return Wait.until(updateChargeAmount.forOne());
         }
 
         @Override

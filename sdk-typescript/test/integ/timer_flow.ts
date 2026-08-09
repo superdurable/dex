@@ -29,7 +29,7 @@ class TimerStep implements Step<number> {
 
   public async waitFor(_context: Context, input: number): Promise<Wait> {
     await Promise.resolve();
-    return Wait.allOf(Timer.byDuration(input * 1_000, "test-timer-id"));
+    return Wait.until(Timer.byDuration(input * 1_000, "test-timer-id"));
   }
 
   public async execute(_context: Context, _input: number): Promise<StepDecision> {

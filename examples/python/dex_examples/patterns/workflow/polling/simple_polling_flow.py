@@ -45,7 +45,7 @@ class SimplePolling(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(Timer.by_duration(POLLING_INTERVAL))
+        return Wait.until(Timer.by_duration(POLLING_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
