@@ -26,6 +26,11 @@ Use JDK 17. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
 `DEX_BLOB_CACHE_DIR`.
 
+Examples catch concrete types from `io.superdurable.dex.exceptions`.
+`FlowNotFoundException` is for read operations with no matching execution;
+`FlowNotActiveException` is for RPC or mutation operations after a Flow closes.
+`ErrorSubStatus` remains diagnostic metadata and is not used for control flow.
+
 ## Product examples
 
 - [Money transfer](./src/main/java/io/superdurable/dex/workflow/money/transfer)

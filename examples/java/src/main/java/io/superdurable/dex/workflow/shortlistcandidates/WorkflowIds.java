@@ -17,8 +17,7 @@
 package io.superdurable.dex.workflow.shortlistcandidates;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 
 public final class WorkflowIds {
     private WorkflowIds() {
@@ -40,11 +39,8 @@ public final class WorkflowIds {
             final EmployerOptInFlow stub =
                     client.newRpcStub(EmployerOptInFlow.class, employerOptIn(employerId));
             return Boolean.TRUE.equals(client.invokeRPC(stub::isOptedIn));
-        } catch (final DexException exception) {
-            if (exception.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                return false;
-            }
-            throw exception;
+        } catch (final FlowNotActiveException inactive) {
+            return false;
         }
     }
 }

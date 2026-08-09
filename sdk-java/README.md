@@ -100,6 +100,41 @@ Client result decoding takes the output class and uses the configured mapper:
 String output = client.waitForFlow("flow-123", String.class);
 ```
 
+## Exceptions
+
+Public exceptions live in `io.superdurable.dex.exceptions`. Catch concrete
+types for expected outcomes instead of comparing `ErrorSubStatus`:
+
+```java
+try {
+    client.invokeRPC(stub::updateOrder, input);
+} catch (FlowNotActiveException inactive) {
+    // The Flow never existed or is already closed.
+} catch (RpcLockConflictException conflict) {
+    // Retry the RPC after lock contention.
+} catch (WorkerInvocationException workerFailure) {
+    log.error(
+            "Worker {} failed: {}",
+            workerFailure.getWorkerErrorType(),
+            workerFailure.getWorkerErrorDetail());
+}
+```
+
+`FlowNotFoundException` is returned by read and history operations such as
+`describeFlow`, `getAttribute`, `waitForFlow`, and `resetFlow`. These operations
+can read a closed Flow, so failure means no matching execution was found.
+`FlowNotActiveException` is returned by RPC, publish, mutation, stop, timer,
+configuration, and step-wait operations that require an open Flow.
+
+`FlowAlreadyStartedException` identifies duplicate starts.
+`LongPollTimeoutException` identifies an expected long-poll timeout.
+`WorkerInvocationException` preserves the original WorkerService error type,
+detail, and gRPC code. `DexException` remains the generic service failure and
+exposes status metadata for diagnostics.
+
+Local definition and value failures use `FlowDefinitionException`,
+`InvalidStepResultException`, and `ValueMappingException`.
+
 Persistence schemas use factory methods instead of builders. Definitions may
 be passed directly, as one mixed list, or as separate attribute and channel
 lists:

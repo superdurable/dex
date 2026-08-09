@@ -16,7 +16,7 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.dex.FlowUncompletedException;
+import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;

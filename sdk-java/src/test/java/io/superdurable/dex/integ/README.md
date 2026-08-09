@@ -26,6 +26,13 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | `TimerTest` | timer conditions and step-completion waiting |
 | `WorkflowUncompletedTest` | timeouts, stop types, user failures, and empty decisions |
 
+`ClientExceptionIntegrationTest` runs against a local gRPC service and verifies
+endpoint-aware missing-Flow errors, Worker invocation details, RPC lock
+conflicts, long-poll timeouts, and malformed-status fallback behavior.
+
+The dex-dev suite also verifies that read APIs can access closed Flows while
+RPC, publish, mutation, and step-wait APIs return `FlowNotActiveException`.
+
 Run the compile check:
 
 ```shell
@@ -38,9 +45,10 @@ Run the E2E suite against `dexcli dev`:
 DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
 ```
 
-Indexed persistence cases require `CustomKeywordField`, `CustomIntField`, and
-`CustomDatetimeField` in the Temporal namespace. See the SDK README for the
-setup commands.
+Indexed persistence cases require `CustomKeywordField`,
+`CustomKeywordArrayField`, `CustomStringField`, `CustomDoubleField`,
+`CustomIntField`, `CustomBoolField`, and `CustomDatetimeField` in the Temporal
+namespace. `run-integration-tests.sh` registers them automatically.
 
 The port does not restore unregistered string/Object APIs. Cross-language names
 use explicit Flow, Step, Attribute, and Channel overrides instead.

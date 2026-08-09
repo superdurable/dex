@@ -8,30 +8,24 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-package io.superdurable.dex;
+package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-public final class DexException extends RuntimeException {
+public class DexException extends RuntimeException {
     private final Status.Code code;
     private final ErrorSubStatus subStatus;
     private final String detail;
-    private final String workerErrorType;
-    private final String workerErrorDetail;
 
-    DexException(
+    public DexException(
             final Status.Code code,
             final ErrorSubStatus subStatus,
             final String detail,
-            final String workerErrorType,
-            final String workerErrorDetail,
             final Throwable cause) {
         super(detail, cause);
         this.code = code;
         this.subStatus = subStatus;
         this.detail = detail;
-        this.workerErrorType = workerErrorType;
-        this.workerErrorDetail = workerErrorDetail;
     }
 
     public Status.Code getCode() {
@@ -44,13 +38,5 @@ public final class DexException extends RuntimeException {
 
     public String getDetail() {
         return detail;
-    }
-
-    public String getWorkerErrorType() {
-        return workerErrorType;
-    }
-
-    public String getWorkerErrorDetail() {
-        return workerErrorDetail;
     }
 }

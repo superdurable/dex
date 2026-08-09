@@ -151,6 +151,7 @@ tasks.register('localIntegrationTest', Test) {
     filter {
         includeTestsMatching 'io.superdurable.dex.NativeBlobCacheIntegrationTest'
         includeTestsMatching 'io.superdurable.dex.WorkerServiceIntegrationTest'
+        includeTestsMatching 'io.superdurable.dex.ClientExceptionIntegrationTest'
     }
     useJUnitPlatform()
 }

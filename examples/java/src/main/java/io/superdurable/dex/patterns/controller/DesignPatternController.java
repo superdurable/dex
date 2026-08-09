@@ -19,12 +19,11 @@ package io.superdurable.dex.patterns.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.controller.ExampleFlows;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.patterns.workflow.drainchannels.signal.DrainSignalChannelsFlow;
 import io.superdurable.dex.patterns.workflow.drainchannels.internal.DrainInternalChannelsFlow;
 import io.superdurable.dex.patterns.workflow.interruptible.InterruptibleExecutionFlow;
@@ -202,8 +201,8 @@ public class DesignPatternController {
             final boolean attemptStart) {
         try {
             client.invokeRPC(rpcStubMethod, input);
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS && attemptStart) {
+        } catch (final FlowNotActiveException inactive) {
+            if (attemptStart) {
                 client.startFlow(
                         storageFlow,
                         StorageFlow.getStorageFlowId(),
@@ -211,7 +210,7 @@ public class DesignPatternController {
                         ExampleFlows.startOptions());
                 invokeStorageRpc(rpcStubMethod, input, false);
             } else {
-                throw e;
+                throw inactive;
             }
         }
     }
@@ -222,8 +221,8 @@ public class DesignPatternController {
             final boolean attemptStart) {
         try {
             return client.invokeRPC(rpcStubMethod, input);
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS && attemptStart) {
+        } catch (final FlowNotActiveException inactive) {
+            if (attemptStart) {
                 client.startFlow(
                         storageFlow,
                         StorageFlow.getStorageFlowId(),
@@ -231,7 +230,7 @@ public class DesignPatternController {
                         ExampleFlows.startOptions());
                 return invokeStorageRpc(rpcStubMethod, input, false);
             }
-            throw e;
+            throw inactive;
         }
     }
 
@@ -347,10 +346,7 @@ public class DesignPatternController {
                     drainSignalChannelsFlow.queueSignalChannel,
                     "signal from startorsignal endpoint");
             response = "Signaled the workflow";
-        } catch (final DexException e) {
-            if (e.getSubStatus() != ErrorSubStatus.FLOW_NOT_EXISTS) {
-                throw e;
-            }
+        } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(
                     drainSignalChannelsFlow,
                     workflowId,

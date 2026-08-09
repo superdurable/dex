@@ -17,8 +17,8 @@
 package io.superdurable.dex.controller;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.workflow.shortlistcandidates.EmployerOptInFlow;
 import io.superdurable.dex.workflow.shortlistcandidates.EmployerOptInInput;
 import io.superdurable.dex.workflow.shortlistcandidates.ShortlistFlow;
@@ -62,12 +62,9 @@ public class ShortlistCandidatesController {
                     workflowId,
                     input,
                     ExampleFlows.startOptions());
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
-                return ResponseEntity.ok(
-                        String.format("Employer %s has already opted in", employerId));
-            }
-            throw e;
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            return ResponseEntity.ok(
+                    String.format("Employer %s has already opted in", employerId));
         }
 
         return ResponseEntity.ok(String.format("Started workflowId: %s", workflowId));
@@ -81,12 +78,9 @@ public class ShortlistCandidatesController {
                 client.newRpcStub(EmployerOptInFlow.class, workflowId);
         try {
             client.invokeRPC(stub::optOut);
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                return ResponseEntity.ok(
-                        String.format("Employer %s is not in the opt-in status", employerId));
-            }
-            throw e;
+        } catch (final FlowNotActiveException inactive) {
+            return ResponseEntity.ok(
+                    String.format("Employer %s is not in the opt-in status", employerId));
         }
         return ResponseEntity.ok(String.format("Employer %s has opted out", employerId));
     }
@@ -118,12 +112,9 @@ public class ShortlistCandidatesController {
                     workflowId,
                     input,
                     ExampleFlows.startOptions());
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
-                return ResponseEntity.ok(
-                        String.format("Already running workflowId: %s", workflowId));
-            }
-            throw e;
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            return ResponseEntity.ok(
+                    String.format("Already running workflowId: %s", workflowId));
         }
 
         return ResponseEntity.ok(String.format("Started workflowId: %s", workflowId));
@@ -138,13 +129,10 @@ public class ShortlistCandidatesController {
 
         try {
             client.publish(workflowId, shortlistFlow.revokeShortlist, (Void) null);
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                return ResponseEntity.ok(String.format(
-                        "No running workflow to revoke for %s",
-                        employerId + "-" + candidateId));
-            }
-            throw e;
+        } catch (final FlowNotActiveException inactive) {
+            return ResponseEntity.ok(String.format(
+                    "No running workflow to revoke for %s",
+                    employerId + "-" + candidateId));
         }
 
         return ResponseEntity.ok(String.format(
@@ -160,11 +148,8 @@ public class ShortlistCandidatesController {
         final ShortlistFlow stub = client.newRpcStub(ShortlistFlow.class, workflowId);
         try {
             return ResponseEntity.ok(client.invokeRPC(stub::getEmailSentTimestamp));
-        } catch (final DexException e) {
-            if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                return ResponseEntity.notFound().build();
-            }
-            throw e;
+        } catch (final FlowNotActiveException inactive) {
+            return ResponseEntity.notFound().build();
         }
     }
 }

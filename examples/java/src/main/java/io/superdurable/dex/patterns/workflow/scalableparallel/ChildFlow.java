@@ -19,13 +19,12 @@ package io.superdurable.dex.patterns.workflow.scalableparallel;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import org.springframework.beans.factory.ObjectProvider;
@@ -81,14 +80,10 @@ public class ChildFlow implements Flow<String> {
                 final ParentFlow stub = client().newRpcStub(ParentFlow.class, parentId);
                 try {
                     client().invokeRPC(stub::completeChildWorkflow, context.getFlowId());
-                } catch (final DexException e) {
-                    if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                        System.out.println(
-                                "Parent workflow may have completed, might be duplicate "
-                                        + "completion request, ignore it.");
-                    } else {
-                        throw e;
-                    }
+                } catch (final FlowNotActiveException inactive) {
+                    System.out.println(
+                            "Parent workflow may have completed, might be duplicate "
+                                    + "completion request, ignore it.");
                 }
             }
             return StepDecision.gracefulComplete();

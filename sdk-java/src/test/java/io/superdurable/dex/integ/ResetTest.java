@@ -14,10 +14,11 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.dex.FlowUncompletedException;
 import io.superdurable.dex.ResetFlowOptions;
 import io.superdurable.dex.ResetType;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
+import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,17 @@ public final class ResetTest {
 
     @TempDir
     Path cacheDirectory;
+
+    @Test
+    void testResetMissingFlow() throws Exception {
+        try (DexDevTestEnvironment environment = startEnvironment()) {
+            assertThrows(
+                    FlowNotFoundException.class,
+                    () -> environment.client().resetFlow(
+                            "missing-reset-" + UUID.randomUUID(),
+                            ResetFlowOptions.newBuilder(ResetType.BEGINNING).build()));
+        }
+    }
 
     @Test
     void testResetWithLockingReappliesRpc() throws Exception {

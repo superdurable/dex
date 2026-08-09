@@ -8,13 +8,19 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-package io.superdurable.dex;
+package io.superdurable.dex.exceptions;
 
-public final class LongPollTimeoutException extends RuntimeException {
+import io.grpc.Status;
+
+public final class LongPollTimeoutException extends DexException {
     private final String flowId;
 
-    LongPollTimeoutException(final String flowId, final Throwable cause) {
-        super("Flow is still running: " + flowId, cause);
+    public LongPollTimeoutException(
+            final Status.Code code,
+            final String detail,
+            final String flowId,
+            final Throwable cause) {
+        super(code, ErrorSubStatus.LONG_POLL_TIMEOUT, detail, cause);
         this.flowId = flowId;
     }
 
