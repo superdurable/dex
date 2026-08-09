@@ -46,7 +46,7 @@ DEX_SERVER_ADDRESS=127.0.0.1:8801 ./gradlew dexDevTest
 ```
 
 Indexed persistence cases require `CustomKeywordField`,
-`CustomKeywordArrayField`, `CustomStringField`, `CustomDoubleField`,
+`CustomKeywordArrayField`, `CustomTextField`, `CustomDoubleField`,
 `CustomIntField`, `CustomBoolField`, and `CustomDatetimeField` in the Temporal
 namespace. `run-integration-tests.sh` registers them automatically.
 

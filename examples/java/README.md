@@ -17,7 +17,7 @@ temporal --address 127.0.0.1:7233 operator search-attribute create \
 temporal --address 127.0.0.1:7233 operator search-attribute create \
   --name CustomKeywordField --type Keyword
 temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomStringField --type Text
+  --name CustomTextField --type Text
 
 ./gradlew bootRun
 ```
@@ -25,6 +25,12 @@ temporal --address 127.0.0.1:7233 operator search-attribute create \
 Use JDK 17. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
 `DEX_BLOB_CACHE_DIR`.
+
+Run the integration suite against an isolated `dexcli dev` environment:
+
+```bash
+./run-integration-tests.sh
+```
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.
 `FlowNotFoundException` is for read operations with no matching execution;

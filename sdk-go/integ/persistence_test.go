@@ -22,7 +22,7 @@ import (
 
 const (
 	searchKeywordKey  = "CustomKeywordField"
-	searchTextKey     = "CustomStringField"
+	searchTextKey     = "CustomTextField"
 	searchBoolKey     = "CustomBoolField"
 	searchDatetimeKey = "CustomDatetimeField"
 	searchIntKey      = "CustomIntField"

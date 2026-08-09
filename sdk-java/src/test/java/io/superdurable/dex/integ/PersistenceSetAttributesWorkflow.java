@@ -37,7 +37,7 @@ final class PersistenceSetAttributesWorkflow implements Flow<String> {
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
     final Attribute<String> text = Attribute.define(
-            "CustomStringField",
+            "CustomTextField",
             String.class,
             new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
     final Attribute<Double> decimal = Attribute.define(

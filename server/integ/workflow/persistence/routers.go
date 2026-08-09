@@ -51,7 +51,7 @@ const (
 	TestSearchAttributeBoolKey         = "CustomBoolField"
 	TestSearchAttributeDoubleKey       = "CustomDoubleField"
 	TestSearchAttributeDatetimeKey     = "CustomDatetimeField"
-	TestSearchAttributeTextKey         = "CustomStringField"
+	TestSearchAttributeTextKey         = "CustomTextField"
 	TestSearchAttributeIntValue1       = 1
 	TestSearchAttributeIntValue2       = 2
 )
