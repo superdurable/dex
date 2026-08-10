@@ -14,6 +14,8 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Tag("dex-dev")
 public final class PersistenceTest {
@@ -63,6 +66,14 @@ public final class PersistenceTest {
             assertEquals(
                     0,
                     environment.client().getAttribute(flowId, WORKFLOW.model).value);
+            assertThrows(
+                    FlowNotActiveException.class,
+                    () -> environment.client().setAttribute(flowId, WORKFLOW.data, "closed"));
+            assertThrows(
+                    FlowNotFoundException.class,
+                    () -> environment.client().getAttribute(
+                            "missing-" + UUID.randomUUID(),
+                            WORKFLOW.data));
         }
     }
 

@@ -13,12 +13,12 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.RpcLockConflictException;
+import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
-import io.grpc.Status;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -63,11 +63,8 @@ public final class RpcTest {
                         try {
                             environment.client().invokeRPC(stub::increaseCounter);
                             return true;
-                        } catch (DexException conflict) {
-                            if (conflict.getCode() == Status.Code.ABORTED) {
-                                return false;
-                            }
-                            throw conflict;
+                        } catch (RpcLockConflictException conflict) {
+                            return false;
                         }
                     }));
                 }
@@ -99,6 +96,9 @@ public final class RpcTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
+            assertThrows(
+                    FlowNotActiveException.class,
+                    () -> environment.client().invokeRPC(stub::publishWithoutAttributeAccess));
         }
     }
 
@@ -193,11 +193,9 @@ public final class RpcTest {
             final RpcNoStateWorkflow stub = environment.client().newRpcStub(
                     RpcNoStateWorkflow.class,
                     flowId);
-            final DexException failure = assertThrows(
-                    DexException.class,
+            final WorkerInvocationException failure = assertThrows(
+                    WorkerInvocationException.class,
                     () -> environment.client().invokeRPC(stub::fail, "this is an error"));
-            assertEquals(Status.Code.FAILED_PRECONDITION, failure.getCode());
-            assertEquals(ErrorSubStatus.WORKER_API_ERROR, failure.getSubStatus());
             assertTrue(failure.getWorkerErrorType().contains("IllegalArgumentException"));
             assertTrue(failure.getWorkerErrorDetail().contains("this is an error"));
             environment.client().stopFlow(flowId);

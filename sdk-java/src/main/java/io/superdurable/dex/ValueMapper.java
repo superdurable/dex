@@ -18,6 +18,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
+import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.gen.EncodedObject;
 import io.superdurable.gen.IndexConfig;
 import io.superdurable.gen.IndexType;
@@ -50,7 +51,7 @@ final class ValueMapper {
         if (value instanceof Float || value instanceof Double) {
             final double number = ((Number) value).doubleValue();
             if (!Double.isFinite(number)) {
-                throw new IllegalArgumentException("non-finite numbers are unsupported");
+                throw new ValueMappingException("Cannot encode a non-finite number");
             }
             return Value.newBuilder().setDoubleValue(number).build();
         }
@@ -68,14 +69,16 @@ final class ValueMapper {
                             .setPayload(ByteString.copyFrom(objectMapper.writeValueAsBytes(value))))
                     .build();
         } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("cannot encode JSON value", exception);
+            throw new ValueMappingException(
+                    "Cannot encode JSON value of type " + value.getClass().getName(),
+                    exception);
         }
     }
 
     @SuppressWarnings("unchecked")
     <T> T decode(final Value value, final Class<T> valueType) {
         if (value == null || value.getKindCase() == Value.KindCase.KIND_NOT_SET) {
-            throw new IllegalArgumentException("Value has no concrete kind");
+            throw new ValueMappingException("Cannot decode a Value without a concrete kind");
         }
         final Object decoded;
         switch (value.getKindCase()) {
@@ -96,18 +99,18 @@ final class ValueMapper {
                 break;
             case INTERNAL_BLOB_ID_FOR_STRING_VALUE:
             case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
-                throw new IllegalArgumentException("blob-backed Value was not hydrated");
+                throw new ValueMappingException("Cannot decode an unhydrated blob-backed Value");
             case NULL_VALUE:
-                throw new IllegalArgumentException("attribute deletion marker cannot be decoded");
+                throw new ValueMappingException("Cannot decode an attribute deletion marker");
             default:
-                throw new IllegalArgumentException("unsupported Value kind");
+                throw new ValueMappingException("Cannot decode an unsupported Value kind");
         }
         return (T) boxed(valueType).cast(decoded);
     }
 
     Object decodeToObject(final Value value) {
         if (value == null || value.getKindCase() == Value.KindCase.KIND_NOT_SET) {
-            throw new IllegalArgumentException("Value has no concrete kind");
+            throw new ValueMappingException("Cannot decode a Value without a concrete kind");
         }
         switch (value.getKindCase()) {
             case STRING_VALUE:
@@ -122,11 +125,11 @@ final class ValueMapper {
                 return decodeObjectTree(value.getObjValue());
             case INTERNAL_BLOB_ID_FOR_STRING_VALUE:
             case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
-                throw new IllegalArgumentException("blob-backed Value was not hydrated");
+                throw new ValueMappingException("Cannot decode an unhydrated blob-backed Value");
             case NULL_VALUE:
                 return null;
             default:
-                throw new IllegalArgumentException("unsupported Value kind");
+                throw new ValueMappingException("Cannot decode an unsupported Value kind");
         }
     }
 
@@ -135,13 +138,13 @@ final class ValueMapper {
             return object.getPayload().toByteArray();
         }
         if (!JSON.equals(object.getEncoding())) {
-            throw new IllegalArgumentException(
-                    "unsupported object encoding " + object.getEncoding());
+            throw new ValueMappingException(
+                    "Unsupported object encoding: " + object.getEncoding());
         }
         try {
             return objectMapper.readValue(object.getPayload().toByteArray(), Object.class);
         } catch (IOException exception) {
-            throw new IllegalArgumentException("cannot decode JSON value", exception);
+            throw new ValueMappingException("Cannot decode JSON value as Object", exception);
         }
     }
 
@@ -211,8 +214,8 @@ final class ValueMapper {
             return object.getPayload().toByteArray();
         }
         if (!JSON.equals(object.getEncoding())) {
-            throw new IllegalArgumentException(
-                    "unsupported object encoding " + object.getEncoding());
+            throw new ValueMappingException(
+                    "Unsupported object encoding: " + object.getEncoding());
         }
         try {
             if (valueType == Void.class || valueType == Void.TYPE) {
@@ -221,7 +224,9 @@ final class ValueMapper {
             }
             return objectMapper.readValue(object.getPayload().toByteArray(), valueType);
         } catch (IOException exception) {
-            throw new IllegalArgumentException("cannot decode JSON value", exception);
+            throw new ValueMappingException(
+                    "Cannot decode JSON value as " + valueType.getName(),
+                    exception);
         }
     }
 
@@ -266,11 +271,11 @@ final class ValueMapper {
         return type;
     }
 
-    private static IllegalArgumentException incompatible(
+    private static ValueMappingException incompatible(
             final String kind,
             final Class<?> valueType) {
-        return new IllegalArgumentException(
-                "cannot decode " + kind + " as " + valueType.getName());
+        return new ValueMappingException(
+                "Cannot decode " + kind + " as " + valueType.getName());
     }
 
     private static IndexType indexType(final AttributeIndex.Type type) {
@@ -290,7 +295,7 @@ final class ValueMapper {
             case DATETIME:
                 return IndexType.INDEX_TYPE_DATETIME;
             default:
-                throw new IllegalArgumentException("unsupported Attribute index type");
+                throw new IllegalStateException("Unsupported Attribute index type: " + type);
         }
     }
 }

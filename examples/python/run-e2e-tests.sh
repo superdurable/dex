@@ -75,7 +75,7 @@ temporal --address "$temporal_address" operator search-attribute create \
 temporal --address "$temporal_address" operator search-attribute create \
   --name CustomKeywordField --type Keyword || true
 temporal --address "$temporal_address" operator search-attribute create \
-  --name CustomStringField --type Text || true
+  --name CustomTextField --type Text || true
 
 cd "$script_dir"
 uv sync --locked

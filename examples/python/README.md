@@ -21,7 +21,7 @@ temporal --address 127.0.0.1:7233 operator search-attribute create \
 temporal --address 127.0.0.1:7233 operator search-attribute create \
   --name CustomKeywordField --type Keyword
 temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomStringField --type Text
+  --name CustomTextField --type Text
 
 uv sync --locked
 uv run --frozen python main.py

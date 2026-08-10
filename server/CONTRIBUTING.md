@@ -115,7 +115,7 @@ Assuming you are using `default` namespace:
   temporal  operator search-attribute  create --name CustomBoolField --type Bool
   temporal  operator search-attribute  create --name CustomDoubleField --type Double
   temporal  operator search-attribute  create --name CustomDatetimeField --type Datetime
-  temporal  operator search-attribute  create --name CustomStringField --type Text
+  temporal  operator search-attribute  create --name CustomTextField --type Text
 ```
 
 3. If you run into any issues with Search Attributes registration, use the below command to check the existing Search
@@ -146,7 +146,7 @@ you run the test too early, you may see error:  `"DexWorkflowType is not a valid
 4. For Cadence docker compose, go to Cadence http://localhost:8088/domains/default/workflows?range=last-30-days
 
 5. If not running by Cadence docker-compose, you must register those custom search attributes yourself.
-   `CustomKeywordField, CustomIntField, CustomBoolField, CustomBoolField, CustomDoubleField, CustomDatetimeField, CustomStringField`
+   `CustomKeywordField, CustomIntField, CustomBoolField, CustomBoolField, CustomDoubleField, CustomDatetimeField, CustomTextField`
 
 6. If you run into any issues with Search Attributes registration, use the below command to check the existing Search
    attributes:  `cadence cl get-search-attr`

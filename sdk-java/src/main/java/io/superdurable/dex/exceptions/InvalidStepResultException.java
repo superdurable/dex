@@ -8,12 +8,10 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-package io.superdurable.dex;
+package io.superdurable.dex.exceptions;
 
-public enum ErrorSubStatus {
-    UNCATEGORIZED,
-    FLOW_ALREADY_STARTED,
-    FLOW_NOT_EXISTS,
-    WORKER_API_ERROR,
-    LONG_POLL_TIMEOUT
+public final class InvalidStepResultException extends FlowDefinitionException {
+    public InvalidStepResultException(final String message) {
+        super(message);
+    }
 }

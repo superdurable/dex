@@ -22,6 +22,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
+import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
@@ -101,6 +102,23 @@ final class WorkerServiceIntegrationTest {
                     .unpack(WorkerErrorResponse.class);
             assertEquals(BridgeFailureException.class.getName(), details.getErrorType());
             assertEquals("bridge failed", details.getDetail());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void reportsInvalidStepResultTypeAndContext() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("invalid"))));
+            final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
+            final WorkerErrorResponse details = status.getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertEquals(InvalidStepResultException.class.getName(), details.getErrorType());
+            assertTrue(details.getDetail().contains("Flow BridgeFlow Step BridgeStep"));
         } finally {
             running.close();
         }
@@ -298,6 +316,9 @@ final class WorkerServiceIntegrationTest {
             handlerThread.set(Thread.currentThread().getName());
             if ("fail".equals(input)) {
                 throw new BridgeFailureException("bridge failed");
+            }
+            if ("invalid".equals(input)) {
+                return StepDecision.goToMulti();
             }
             return StepDecision.gracefulComplete(input);
         }

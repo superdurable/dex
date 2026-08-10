@@ -16,9 +16,9 @@ Additionally, each child can only notify one single parent on completion. If the
 
 ## Option2: Let parent workflow wait for child workflow completion via client API
 
-In the above MtoM case, there is a even simpler way to start and wait for child workflow to complete, via `dexClient.waitForWorkflowCompletion(...)` API. 
+In the above MtoM case, there is a even simpler way to start and wait for child workflow to complete, via `client.waitForFlow(...)`.
 
-You need to catch the known exception of "LongPollTimeoutException" if the child workflow could take more than 10 seconds to complete. Because `waitForWorkflowCompletion` only wait for 10s by default(due to default Envoy setting).
+Catch `LongPollTimeoutException` when the selected `waitForFlow` timeout expires before the child Flow completes.
 
 And potentially, use a timer command to wait with some interval if it is expected to take more than 10 seconds. 
 

@@ -18,14 +18,13 @@ package io.superdurable.dex.patterns.workflow.scalableparallel;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.controller.ExampleFlows;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.exceptions.EnqueueFailedException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.models.BatchEnqueueRequest;
 import org.springframework.beans.factory.ObjectProvider;
@@ -80,16 +79,12 @@ public class RequestReceiverFlow implements Flow<Integer> {
                 if (!success) {
                     throw new EnqueueFailedException("Enqueue failed, retry in next attempt");
                 }
-            } catch (final DexException e) {
-                if (e.getSubStatus() == ErrorSubStatus.FLOW_NOT_EXISTS) {
-                    client().startFlow(
-                            parentFlow,
-                            parentWorkflowId,
-                            batch,
-                            ExampleFlows.startOptions());
-                } else {
-                    throw e;
-                }
+            } catch (final FlowNotActiveException inactive) {
+                client().startFlow(
+                        parentFlow,
+                        parentWorkflowId,
+                        batch,
+                        ExampleFlows.startOptions());
             }
 
             return StepDecision.gracefulComplete();

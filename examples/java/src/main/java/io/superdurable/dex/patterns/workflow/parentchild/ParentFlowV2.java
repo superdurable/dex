@@ -19,10 +19,7 @@ package io.superdurable.dex.patterns.workflow.parentchild;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.Flow;
-import io.superdurable.dex.LongPollTimeoutException;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
@@ -31,6 +28,8 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.controller.ExampleFlows;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
+import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.ChildFlow;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -132,12 +131,8 @@ public class ParentFlowV2 implements Flow<Integer> {
                         childWorkflowId,
                         uuid.toString(),
                         ExampleFlows.startOptions());
-            } catch (final DexException e) {
-                if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
-                    System.out.println("ignore this error because it is already started");
-                } else {
-                    throw e;
-                }
+            } catch (final FlowAlreadyStartedException alreadyStarted) {
+                System.out.println("ignore this error because it is already started");
             }
             return StepDecision.goTo(
                     awaitChildWorkflowCompletion,

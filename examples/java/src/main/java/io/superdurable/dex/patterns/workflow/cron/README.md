@@ -31,8 +31,8 @@ client.startFlow(
         .build());
 ```
 
-If the flow is already running, `FLOW_ALREADY_STARTED` is ignored so restarts
-are safe.
+If the flow is already running, `FlowAlreadyStartedException` is ignored so
+restarts are safe.
 
 ## Schedule management
 

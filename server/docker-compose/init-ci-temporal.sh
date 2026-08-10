@@ -26,14 +26,12 @@ for run in {1..120}; do
   sleep 0.1
   temporal  operator search-attribute  create --name CustomDatetimeField --type Datetime
   sleep 0.1
-  temporal  operator search-attribute  create --name CustomStringField --type Text
+  temporal  operator search-attribute  create --name CustomTextField --type Text
   sleep 0.1
   temporal  operator search-attribute  create --name CustomKeywordArrayField --type KeywordList
   sleep 0.1
-  temporal  operator search-attribute  create --name CustomTextField --type Text
-  sleep 0.1
 
-  if checkExists "FlowType" && checkExists "ActiveStepTypes" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomStringField" && checkExists "CustomKeywordArrayField" ; then
+  if checkExists "FlowType" && checkExists "ActiveStepTypes" && checkExists "CustomKeywordField" && checkExists "CustomIntField" && checkExists "CustomBoolField" && checkExists "CustomDoubleField" && checkExists "CustomDatetimeField" && checkExists "CustomTextField" && checkExists "CustomKeywordArrayField" ; then
     echo "All search attributes are registered"
     break
   fi

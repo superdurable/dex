@@ -16,34 +16,18 @@
 
 set -euo pipefail
 
-coverage=false
-if [[ "${1:-}" == "--coverage" ]]; then
-  coverage=true
-  shift
-fi
-if [[ "$#" -ne 0 ]]; then
-  echo "usage: $0 [--coverage]" >&2
-  exit 2
-fi
-
-available_port() {
-  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
-}
-
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-cd "$script_dir"
-
-dex_port="${DEX_INTEG_DEX_PORT:-$(available_port)}"
-web_port="${DEX_INTEG_WEB_PORT:-$(available_port)}"
-temporal_port="${DEX_INTEG_TEMPORAL_PORT:-$(available_port)}"
-temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-$(available_port)}"
+repo_root=$(cd "$script_dir/../.." && pwd)
+dex_port="${DEX_JAVA_EXAMPLES_DEX_PORT:-19803}"
+web_port="${DEX_JAVA_EXAMPLES_WEB_PORT:-19903}"
+temporal_port="${DEX_JAVA_EXAMPLES_TEMPORAL_PORT:-19235}"
+temporal_ui_port="${DEX_JAVA_EXAMPLES_TEMPORAL_UI_PORT:-19335}"
 dex_address="127.0.0.1:${dex_port}"
 temporal_address="127.0.0.1:${temporal_port}"
-log_file="/tmp/test-go-sdk-phase5-e2e-services.log"
+log_file="/tmp/test-java-examples-integration-services.log"
 test_dir=$(mktemp -d)
+binary_dir=$(mktemp -d)
 dexcli_pid=""
-cover_dir=""
-coverpkg="./dex/..."
 : >"$log_file"
 
 cleanup() {
@@ -55,35 +39,24 @@ cleanup() {
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
   fi
-  rm -r "$test_dir"
-  if [[ -n "$cover_dir" ]]; then
-    rm -rf "$cover_dir"
-  fi
+  rm -r "$test_dir" "$binary_dir"
 }
 trap cleanup EXIT
 
-run_go_test() {
-  if $coverage; then
-    go test \
-      -covermode=atomic \
-      -coverpkg="$coverpkg" \
-      "$@" \
-      -args \
-      -test.gocoverdir="$cover_dir"
-  else
-    go test "$@"
-  fi
-}
-
-if $coverage; then
-  rm -rf coverage
-  cover_dir=$(mktemp -d "$script_dir/coverage-raw.XXXXXX")
-  run_go_test -count=1 -race -v ./dex -run '^TestClient'
-  run_go_test -count=1 -race -v ./dex -run '^TestWorker'
+if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
+  (
+    cd "$repo_root/web"
+    npm ci
+    npm run build
+  )
 fi
 
-make -C ../cli build
-../cli/dexcli dev \
+(
+  cd "$repo_root/cli"
+  GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
+)
+
+"$binary_dir/dexcli" dev \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
@@ -112,10 +85,6 @@ fi
 
 temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
 temporal --address "$temporal_address" operator search-attribute create --name CustomTextField --type Text
-temporal --address "$temporal_address" operator search-attribute create --name CustomBoolField --type Bool
-temporal --address "$temporal_address" operator search-attribute create --name CustomDatetimeField --type Datetime
-temporal --address "$temporal_address" operator search-attribute create --name CustomIntField --type Int
-temporal --address "$temporal_address" operator search-attribute create --name CustomDoubleField --type Double
 
 dex_ready=false
 for _ in {1..240}; do
@@ -134,13 +103,7 @@ if ! $dex_ready; then
   exit 1
 fi
 
+cd "$script_dir"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-DEX_WORKER_HOST=127.0.0.1 \
-  run_go_test -count=1 -race -v ./integ
-
-if $coverage; then
-  mkdir -p coverage
-  go tool covdata textfmt -i="$cover_dir" -o=coverage/coverage.out
-  go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
-  go tool cover -html=coverage/coverage.out -o=coverage/index.html
-fi
+  ./gradlew --include-build "$repo_root/sdk-java" \
+    test --tests 'io.superdurable.dex.integ.*' --info --no-daemon

@@ -219,7 +219,7 @@ func upsertSearchAttributes(keywordArraySearchAttributeKey string) []*dexpb.Attr
 				Type:   dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
 			},
 		},
-		indexedTextWrite("CustomStringField", "I am a string"),
+		indexedTextWrite("CustomTextField", "I am a string"),
 		indexedBoolWrite("CustomBoolField", true),
 	}
 }
