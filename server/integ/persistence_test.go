@@ -343,7 +343,7 @@ func doTestPersistenceWorkflow(
 		}
 		expectedExtraSearchAttributes := []*dexpb.AttributeWrite{
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
-			indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"),
+			indexedTextAttribute("CustomTextField", "My name is Quanzheng Long"),
 		}
 		// Cadence has no KeywordList search attribute registration.
 		if backendType == service.BackendTypeTemporal {
@@ -356,7 +356,7 @@ func doTestPersistenceWorkflow(
 			attrs4 = append(attrs4, keywordArray)
 			expectedExtraSearchAttributes = append(expectedExtraSearchAttributes, keywordArray)
 		}
-		attrs4 = append(attrs4, indexedTextAttribute("CustomStringField", "My name is Quanzheng Long"))
+		attrs4 = append(attrs4, indexedTextAttribute("CustomTextField", "My name is Quanzheng Long"))
 		startMore(firstFlowId+"-3", attrs3)
 		startMore(firstFlowId+"-4", attrs4)
 
@@ -401,12 +401,12 @@ func doTestPersistenceWorkflow(
 
 		if flowConfig != nil {
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 15)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomStringField='%v'", nowTimeStr, "Quanzheng"), 3)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 3)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 9)
 			assertSearchFlows(t, flowClient, boolQuery, 0)
 		} else {
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomStringField='%v'", nowTimeStr, "Quanzheng"), 1)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 1)
 			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3)
 			assertSearchFlows(t, flowClient, boolQuery, 0)
 		}

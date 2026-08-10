@@ -12,35 +12,39 @@
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
-package io.superdurable.dex;
+package io.superdurable.dex.exceptions;
 
+import io.superdurable.dex.FlowErrorType;
+import io.superdurable.dex.FlowStatus;
 import io.superdurable.gen.StepCompletionOutput;
+import io.superdurable.gen.Value;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.BiFunction;
 
 public final class FlowUncompletedException extends RuntimeException {
     private final String runId;
     private final FlowStatus status;
     private final FlowErrorType errorType;
     private final List<StepCompletionOutput> results;
-    private final ValueMapper values;
+    private final BiFunction<Value, Class<?>, Object> decoder;
 
-    FlowUncompletedException(
+    public FlowUncompletedException(
             final String runId,
             final FlowStatus status,
             final FlowErrorType errorType,
             final String message,
             final List<StepCompletionOutput> results,
-            final ValueMapper values) {
+            final BiFunction<Value, Class<?>, Object> decoder) {
         super(message);
         this.runId = runId;
         this.status = status;
         this.errorType = errorType;
         this.results = Collections.unmodifiableList(
                 new ArrayList<StepCompletionOutput>(results));
-        this.values = values;
+        this.decoder = decoder;
     }
 
     public String getRunId() {
@@ -60,6 +64,8 @@ public final class FlowUncompletedException extends RuntimeException {
     }
 
     public <T> T getResult(final int index, final Class<T> resultType) {
-        return values.decode(results.get(index).getCompletedStepOutput(), resultType);
+        return resultType.cast(decoder.apply(
+                results.get(index).getCompletedStepOutput(),
+                resultType));
     }
 }

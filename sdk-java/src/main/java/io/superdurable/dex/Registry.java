@@ -14,6 +14,8 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.FlowDefinitionException;
+
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
@@ -33,7 +35,7 @@ public final class Registry {
 
     public Registry(final List<Flow<?>> flows) {
         if (flows == null) {
-            throw new IllegalArgumentException("flows are required");
+            throw new FlowDefinitionException("Flow definitions are required");
         }
         final Map<String, RegisteredFlow> assembled = assemble(flows);
         this.flows = Collections.unmodifiableList(new ArrayList<Flow<?>>(flows));
@@ -47,7 +49,7 @@ public final class Registry {
     RegisteredFlow getFlow(final String flowType) {
         final RegisteredFlow flow = registeredFlows.get(flowType);
         if (flow == null) {
-            throw new IllegalArgumentException("Flow is not registered: " + flowType);
+            throw new FlowDefinitionException("Flow is not registered: " + flowType);
         }
         return flow;
     }
@@ -58,7 +60,8 @@ public final class Registry {
                 return flow;
             }
         }
-        throw new IllegalArgumentException("Flow class is not registered: " + flowClass.getName());
+        throw new FlowDefinitionException(
+                "Flow class is not registered: " + flowClass.getName());
     }
 
     private static Map<String, RegisteredFlow> assemble(final List<Flow<?>> flows) {
@@ -66,11 +69,11 @@ public final class Registry {
                 new LinkedHashMap<String, RegisteredFlow>();
         for (Flow<?> flow : flows) {
             if (flow == null) {
-                throw new IllegalArgumentException("Flow definition is null");
+                throw new FlowDefinitionException("Flow definition is null");
             }
-            final String flowType = Attribute.requireName(flow.getFlowType());
+            final String flowType = requireDefinitionName("Flow type", flow.getFlowType());
             if (assembled.containsKey(flowType)) {
-                throw new IllegalArgumentException("duplicate Flow " + flowType);
+                throw new FlowDefinitionException("Duplicate Flow: " + flowType);
             }
             assembled.put(flowType, assembleFlow(flowType, flow));
         }
@@ -80,29 +83,34 @@ public final class Registry {
     private static RegisteredFlow assembleFlow(final String flowType, final Flow<?> flow) {
         final StepList<?> definitions = flow.getSteps();
         if (definitions == null) {
-            throw new IllegalArgumentException("Flow steps are required");
+            throw new FlowDefinitionException("Flow " + flowType + " requires Steps");
         }
         final Map<String, RegisteredStep> steps =
                 new LinkedHashMap<String, RegisteredStep>();
         RegisteredStep startStep = null;
         for (StepDef definition : definitions.getDefinitions()) {
             if (definition == null || definition.getStep() == null) {
-                throw new IllegalArgumentException("Flow " + flowType + " has a null Step");
+                throw new FlowDefinitionException("Flow " + flowType + " has a null Step");
             }
             final Step<?> step = definition.getStep();
-            final String stepType = Attribute.requireName(step.getStepType());
+            final String stepType = requireDefinitionName(
+                    "Flow " + flowType + " Step type",
+                    step.getStepType());
             if (step.getInputType() == null) {
-                throw new IllegalArgumentException("Step input type is required: " + stepType);
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " Step " + stepType + " requires an input type");
             }
             if (steps.containsKey(stepType)) {
-                throw new IllegalArgumentException("duplicate Step " + stepType);
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " has duplicate Step " + stepType);
             }
             final RegisteredStep registered =
                     new RegisteredStep(stepType, step, definition.isStartStep());
             steps.put(stepType, registered);
             if (definition.isStartStep()) {
                 if (startStep != null) {
-                    throw new IllegalArgumentException("Flow must not have multiple start Steps");
+                    throw new FlowDefinitionException(
+                            "Flow " + flowType + " must not have multiple start Steps");
                 }
                 startStep = registered;
             }
@@ -113,35 +121,41 @@ public final class Registry {
 
         final PersistenceSchema schema = flow.getPersistenceSchema();
         if (schema == null) {
-            throw new IllegalArgumentException("Flow persistence schema is required");
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " requires a persistence schema");
         }
-        final Map<String, PersistenceDefinition> persistence = assemblePersistence(schema);
+        final Map<String, PersistenceDefinition> persistence =
+                assemblePersistence(flowType, schema);
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
         return new RegisteredFlow(flowType, flow, steps, startStep, rpcs, persistence);
     }
 
     private static Map<String, PersistenceDefinition> assemblePersistence(
+            final String flowType,
             final PersistenceSchema schema) {
         final Map<String, PersistenceDefinition> persistence =
                 new LinkedHashMap<String, PersistenceDefinition>();
         for (PersistenceDefinition definition : schema.getAttributes()) {
-            addPersistence(persistence, definition);
+            addPersistence(flowType, persistence, definition);
         }
         for (PersistenceDefinition definition : schema.getChannels()) {
-            addPersistence(persistence, definition);
+            addPersistence(flowType, persistence, definition);
         }
         return persistence;
     }
 
     private static void addPersistence(
+            final String flowType,
             final Map<String, PersistenceDefinition> persistence,
             final PersistenceDefinition definition) {
         if (definition == null) {
-            throw new IllegalArgumentException("persistence definition is null");
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " has a null persistence definition");
         }
         if (persistence.put(definition.getName(), definition) != null) {
-            throw new IllegalArgumentException(
-                    "duplicate persistence definition " + definition.getName());
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " has duplicate persistence definition "
+                            + definition.getName());
         }
     }
 
@@ -157,16 +171,23 @@ public final class Registry {
             }
             validateRpcInterceptability(flow.getClass(), method);
             if (annotation.timeoutSeconds() < 0) {
-                throw new IllegalArgumentException("RPC timeout must not be negative");
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + method.getName()
+                                + " timeout must not be negative");
             }
-            final String name = Attribute.requireName(
+            final String name = requireDefinitionName(
+                    "Flow " + flowType + " RPC name",
                     annotation.name().isEmpty() ? method.getName() : annotation.name());
-            validateRpcSignature(method);
-            final List<String> locks = validateRpcLocks(annotation, persistence);
+            validateRpcSignature(flowType, method);
+            final List<String> locks = validateRpcLocks(
+                    flowType,
+                    name,
+                    annotation,
+                    persistence);
             method.setAccessible(true);
             final RegisteredRpc rpc = new RegisteredRpc(name, method, annotation, locks);
             if (rpcs.put(name, rpc) != null) {
-                throw new IllegalArgumentException(
+                throw new FlowDefinitionException(
                         "Flow " + flowType + " has duplicate RPC " + name);
             }
         }
@@ -177,13 +198,13 @@ public final class Registry {
             final Class<?> flowClass,
             final Method method) {
         if (Modifier.isFinal(flowClass.getModifiers())) {
-            throw new IllegalArgumentException(
+            throw new FlowDefinitionException(
                     "RPC Flow class must not be final because RPC stubs subclass it. "
                             + "In Kotlin, classes are final by default; declare the Flow class "
                             + "with 'open': " + flowClass.getName());
         }
         if (Modifier.isFinal(method.getModifiers())) {
-            throw new IllegalArgumentException(
+            throw new FlowDefinitionException(
                     "RPC method must not be final because RPC stubs override it. "
                             + "In Kotlin, methods are final by default; declare the RPC method "
                             + "with 'open': " + flowClass.getName() + "." + method.getName());
@@ -191,6 +212,8 @@ public final class Registry {
     }
 
     private static List<String> validateRpcLocks(
+            final String flowType,
+            final String rpcName,
             final RPC annotation,
             final Map<String, PersistenceDefinition> persistence) {
         final List<String> locks = new ArrayList<String>();
@@ -198,45 +221,58 @@ public final class Registry {
         for (String name : annotation.lockAttributes()) {
             final PersistenceDefinition definition = persistence.get(name);
             if (!(definition instanceof Attribute)) {
-                throw new IllegalArgumentException("RPC lock Attribute is not registered: " + name);
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName
+                                + " lock Attribute is not registered: " + name);
             }
-            addLock(locks, seen, name);
+            addLock(flowType, rpcName, locks, seen, name);
         }
         for (RPCAttributeMapLock lock : annotation.lockAttributeMaps()) {
             final PersistenceDefinition definition = persistence.get(lock.attribute());
             if (!(definition instanceof AttributeMap)) {
-                throw new IllegalArgumentException(
-                        "RPC lock AttributeMap is not registered: " + lock.attribute());
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName
+                                + " lock AttributeMap is not registered: " + lock.attribute());
             }
-            addLock(locks, seen, physicalName(lock.attribute(), lock.instance()));
+            addLock(
+                    flowType,
+                    rpcName,
+                    locks,
+                    seen,
+                    physicalName(lock.attribute(), lock.instance()));
         }
         return Collections.unmodifiableList(locks);
     }
 
     private static void addLock(
+            final String flowType,
+            final String rpcName,
             final List<String> locks,
             final Set<String> seen,
             final String lock) {
         if (!seen.add(lock)) {
-            throw new IllegalArgumentException("duplicate RPC Attribute lock: " + lock);
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " RPC " + rpcName
+                            + " has duplicate Attribute lock " + lock);
         }
         locks.add(lock);
     }
 
-    private static void validateRpcSignature(final Method method) {
+    private static void validateRpcSignature(
+            final String flowType,
+            final Method method) {
+        final String prefix = "Flow " + flowType + " RPC " + method.getName();
         final Class<?>[] parameters = method.getParameterTypes();
         if (parameters.length < 1 || parameters.length > 2 || parameters[0] != Context.class) {
-            throw new IllegalArgumentException(
-                    "RPC must accept Context and optional typed input: " + method.getName());
+            throw new FlowDefinitionException(
+                    prefix + " must accept Context and optional typed input");
         }
         if (method.getReturnType() != RPCResult.class && method.getReturnType() != Void.TYPE) {
-            throw new IllegalArgumentException(
-                    "RPC must return RPCResult<O> or void: " + method.getName());
+            throw new FlowDefinitionException(prefix + " must return RPCResult<O> or void");
         }
         if (method.getReturnType() == RPCResult.class
                 && !(method.getGenericReturnType() instanceof ParameterizedType)) {
-            throw new IllegalArgumentException(
-                    "RPCResult must declare its output type: " + method.getName());
+            throw new FlowDefinitionException(prefix + " must declare its RPCResult output type");
         }
     }
 
@@ -245,12 +281,12 @@ public final class Registry {
             final Class<?> registeredType) {
         final Class<?> inputType = findFlowInputType(flow.getClass());
         if (inputType == null) {
-            throw new IllegalArgumentException(
+            throw new FlowDefinitionException(
                     "Flow must declare a concrete start input type: "
                             + flow.getClass().getName());
         }
         if (!inputType.isAssignableFrom(registeredType)) {
-            throw new IllegalArgumentException(
+            throw new FlowDefinitionException(
                     "Flow input type " + inputType.getName()
                             + " is not assignable from start Step input type "
                             + registeredType.getName());
@@ -276,7 +312,7 @@ public final class Registry {
                 if (input instanceof Class) {
                     return (Class<?>) input;
                 }
-                throw new IllegalArgumentException(
+                throw new FlowDefinitionException(
                         "Flow start input must be a concrete Class: " + input.getTypeName());
             }
             if (parameterized.getRawType() instanceof Class) {
@@ -304,7 +340,17 @@ public final class Registry {
                     .getMethod("waitFor", Context.class, Object.class)
                     .getDeclaringClass() == Step.class;
         } catch (NoSuchMethodException exception) {
-            throw new IllegalArgumentException("Step waitFor signature is invalid", exception);
+            throw new FlowDefinitionException(
+                    "Step " + step.getStepType() + " waitFor signature is invalid",
+                    exception);
+        }
+    }
+
+    private static String requireDefinitionName(final String description, final String name) {
+        try {
+            return Attribute.requireName(name);
+        } catch (IllegalArgumentException failure) {
+            throw new FlowDefinitionException(description + " is invalid", failure);
         }
     }
 
@@ -341,7 +387,8 @@ public final class Registry {
         RegisteredStep getStep(final String name) {
             final RegisteredStep step = steps.get(name);
             if (step == null) {
-                throw new IllegalArgumentException("Step is not registered: " + name);
+                throw new FlowDefinitionException(
+                        "Flow " + this.name + " Step is not registered: " + name);
             }
             return step;
         }
@@ -349,7 +396,8 @@ public final class Registry {
         RegisteredRpc getRpc(final String name) {
             final RegisteredRpc rpc = rpcs.get(name);
             if (rpc == null) {
-                throw new IllegalArgumentException("RPC is not registered: " + name);
+                throw new FlowDefinitionException(
+                        "Flow " + this.name + " RPC is not registered: " + name);
             }
             return rpc;
         }
@@ -360,7 +408,8 @@ public final class Registry {
                     return rpc;
                 }
             }
-            throw new IllegalArgumentException("RPC method is not registered: " + methodName);
+            throw new FlowDefinitionException(
+                    "Flow " + name + " RPC method is not registered: " + methodName);
         }
     }
 

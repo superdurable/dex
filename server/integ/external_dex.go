@@ -50,7 +50,7 @@ var localDexDevTestSearchAttributes = []temporalSearchAttribute{
 	{"CustomBoolField", enumspb.INDEXED_VALUE_TYPE_BOOL},
 	{"CustomDoubleField", enumspb.INDEXED_VALUE_TYPE_DOUBLE},
 	{"CustomDatetimeField", enumspb.INDEXED_VALUE_TYPE_DATETIME},
-	{"CustomStringField", enumspb.INDEXED_VALUE_TYPE_TEXT},
+	{"CustomTextField", enumspb.INDEXED_VALUE_TYPE_TEXT},
 }
 
 func prepareExternalDex(

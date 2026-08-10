@@ -12,20 +12,21 @@
 
 package io.superdurable.dex.integ;
 
-import io.grpc.Status;
 import io.superdurable.dex.ActiveStepSearchMode;
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.dex.FlowUncompletedException;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.WorkerTarget;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
+import io.superdurable.dex.exceptions.FlowDefinitionException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
+import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -74,11 +75,9 @@ public final class BasicTest {
                     Integer.class,
                     Duration.ofSeconds(30));
             assertEquals(input + 2, output);
-            final DexException duplicate = assertThrows(
-                    DexException.class,
+            assertThrows(
+                    FlowAlreadyStartedException.class,
                     () -> environment.client().startFlow(WORKFLOW, flowId, input, options));
-            assertEquals(Status.Code.ALREADY_EXISTS, duplicate.getCode());
-            assertEquals(ErrorSubStatus.FLOW_ALREADY_STARTED, duplicate.getSubStatus());
         }
     }
 
@@ -124,14 +123,12 @@ public final class BasicTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
-            final DexException missing = assertThrows(
-                    DexException.class,
+            assertThrows(
+                    FlowNotFoundException.class,
                     () -> environment.client().waitForFlow(
                             flowId("missing"),
                             Integer.class,
                             Duration.ofSeconds(1)));
-            assertEquals(Status.Code.NOT_FOUND, missing.getCode());
-            assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
         }
     }
 
@@ -149,7 +146,7 @@ public final class BasicTest {
                     Duration.ofSeconds(30)));
             final BasicEmptyInputWorkflow unregistered = new BasicEmptyInputWorkflow();
             assertThrows(
-                    IllegalArgumentException.class,
+                    FlowDefinitionException.class,
                     () -> environment.client().startFlow(
                             unregistered,
                             flowId("unregistered"),
@@ -200,11 +197,9 @@ public final class BasicTest {
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory,
                 WORKFLOW)) {
-            final DexException missing = assertThrows(
-                    DexException.class,
+            assertThrows(
+                    FlowNotFoundException.class,
                     () -> environment.client().describeFlow(flowId("missing")));
-            assertEquals(Status.Code.NOT_FOUND, missing.getCode());
-            assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
         }
     }
 
@@ -238,6 +233,12 @@ public final class BasicTest {
                     flowId,
                     Integer.class,
                     Duration.ofSeconds(30)));
+            assertThrows(
+                    FlowNotActiveException.class,
+                    () -> environment.client().waitForStepCompletion(
+                            flowId,
+                            new StepExecutionId("BasicSecondStep", 2),
+                            Duration.ofSeconds(1)));
         }
     }
 

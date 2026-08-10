@@ -35,7 +35,7 @@ frontend.validSearchAttributes:
     CustomDoubleField: 3
     CustomIntField: 2
     CustomKeywordField: 1
-    CustomStringField: 0
+    CustomTextField: 0
     DomainID: 1
     ExecutionStatus: 2
     ExecutionTime: 2

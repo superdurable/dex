@@ -14,6 +14,7 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.gen.ChannelCondition;
 import io.superdurable.gen.CloseDecision;
 import io.superdurable.gen.CloseDecisionType;
@@ -79,7 +80,7 @@ final class WorkerDispatcher {
                         .addAllUpsertStepExeLocals(context.getLocalWrites())
                         .addAllRecordEvents(context.getEvents())
                         .addAllPublishToChannel(context.getPublications());
-        final WaitingCondition waiting = mapWait(flow, wait);
+        final WaitingCondition waiting = mapWait(flow, step, wait);
         if (waiting != null) {
             response.setWaitingCondition(waiting);
         }
@@ -102,7 +103,7 @@ final class WorkerDispatcher {
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         final StepDecision decision = callExecute(step.getStep(), context, input);
         return InvokeExecuteMethodResponse.newBuilder()
-                .setStepDecision(mapDecision(flow, decision))
+                .setStepDecision(mapDecision(flow, step, decision))
                 .addAllUpsertAttributes(context.getAttributeWrites())
                 .addAllRecordEvents(context.getEvents())
                 .addAllUpsertStepExeLocals(context.getLocalWrites())
@@ -189,9 +190,11 @@ final class WorkerDispatcher {
 
     private WaitingCondition mapWait(
             final Registry.RegisteredFlow flow,
+            final Registry.RegisteredStep step,
             final Wait wait) {
+        final String source = "Flow " + flow.getName() + " Step " + step.getName();
         if (wait == null) {
-            throw new IllegalArgumentException("WaitFor returned null");
+            throw new InvalidStepResultException(source + " waitFor returned null");
         }
         if (wait.getKind() == Wait.Kind.SKIP_IMMEDIATELY) {
             return null;
@@ -201,11 +204,11 @@ final class WorkerDispatcher {
         if (wait.getKind() == Wait.Kind.ALL_OF) {
             waiting.setWaitingConditionType(
                     WaitingConditionType.WAITING_CONDITION_TYPE_ALL_COMPLETED);
-            addConditions(mapper, wait.getConditions());
+            addConditions(source, mapper, wait.getConditions());
         } else if (wait.getKind() == Wait.Kind.ANY_OF) {
             waiting.setWaitingConditionType(
                     WaitingConditionType.WAITING_CONDITION_TYPE_ANY_COMPLETED);
-            addConditions(mapper, wait.getConditions());
+            addConditions(source, mapper, wait.getConditions());
         } else if (wait.getKind() == Wait.Kind.ANY_COMBINATION_OF) {
             waiting.setWaitingConditionType(
                     WaitingConditionType.WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED);
@@ -218,7 +221,7 @@ final class WorkerDispatcher {
                 waiting.addConditionCombinations(mapped);
             }
         } else {
-            throw new IllegalArgumentException("unsupported Wait kind");
+            throw new InvalidStepResultException(source + " returned an unsupported Wait kind");
         }
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
@@ -226,10 +229,12 @@ final class WorkerDispatcher {
     }
 
     private static void addConditions(
+            final String source,
             final ConditionMapper mapper,
             final List<Condition> conditions) {
         if (conditions.isEmpty()) {
-            throw new IllegalArgumentException("Wait requires at least one Condition");
+            throw new InvalidStepResultException(
+                    source + " Wait requires at least one Condition");
         }
         for (Condition condition : conditions) {
             mapper.add(condition);
@@ -238,16 +243,19 @@ final class WorkerDispatcher {
 
     private io.superdurable.gen.StepDecision mapDecision(
             final Registry.RegisteredFlow flow,
+            final Registry.RegisteredStep step,
             final StepDecision decision) {
+        final String source = "Flow " + flow.getName() + " Step " + step.getName();
         if (decision == null) {
-            throw new IllegalArgumentException("Execute returned null");
+            throw new InvalidStepResultException(source + " execute returned null");
         }
         final io.superdurable.gen.StepDecision.Builder mapped =
                 io.superdurable.gen.StepDecision.newBuilder();
         switch (decision.getKind()) {
             case NEXT:
                 if (decision.getMovements().isEmpty()) {
-                    throw new IllegalArgumentException("goToMulti requires a movement");
+                    throw new InvalidStepResultException(
+                            source + " goToMulti requires a movement");
                 }
                 mapped.addAllNextSteps(mapMovements(flow, decision.getMovements()));
                 break;
@@ -279,8 +287,8 @@ final class WorkerDispatcher {
                         .setCloseInput(values.encode(decision.getOutput()));
                 for (Object channel : decision.getEmptyChannels()) {
                     if (!(channel instanceof Channel)) {
-                        throw new IllegalArgumentException(
-                                "conditional close requires static Channels");
+                        throw new InvalidStepResultException(
+                                source + " conditional close requires static Channels");
                     }
                     conditional.addConditionalChannelNames(((Channel<?>) channel).getName());
                 }
@@ -288,7 +296,8 @@ final class WorkerDispatcher {
                 mapped.addNextSteps(mapMovement(flow, decision.getFallback()));
                 break;
             default:
-                throw new IllegalArgumentException("unsupported StepDecision kind");
+                throw new InvalidStepResultException(
+                        source + " returned an unsupported StepDecision kind");
         }
         return mapped.build();
     }
@@ -321,11 +330,14 @@ final class WorkerDispatcher {
             final Registry.RegisteredFlow flow,
             final io.superdurable.dex.StepMovement<?> movement) {
         if (movement == null) {
-            throw new IllegalArgumentException("Step movement is required");
+            throw new InvalidStepResultException(
+                    "Flow " + flow.getName() + " Step movement is required");
         }
-        final Registry.RegisteredStep target = flow.getStep(movement.getStep().getStepType());
-        if (target.getStep() != movement.getStep()) {
-            throw new IllegalArgumentException("Step movement target does not belong to Flow");
+        final Registry.RegisteredStep target =
+                flow.getSteps().get(movement.getStep().getStepType());
+        if (target == null || target.getStep() != movement.getStep()) {
+            throw new InvalidStepResultException(
+                    "Flow " + flow.getName() + " Step movement target does not belong to Flow");
         }
         final StepMovement.Builder mapped = StepMovement.newBuilder()
                 .setStepType(target.getName())
@@ -455,7 +467,8 @@ final class WorkerDispatcher {
 
         String add(final Condition condition) {
             if (condition == null) {
-                throw new IllegalArgumentException("Condition is required");
+                throw new InvalidStepResultException(
+                        "Flow " + flow.getName() + " Wait Condition is required");
             }
             if (ids.containsKey(condition)) {
                 return ids.get(condition);
@@ -464,7 +477,8 @@ final class WorkerDispatcher {
                     ? INTERNAL_CONDITION_PREFIX + nextId++
                     : condition.getConditionId();
             if (id.isEmpty() || !used.add(id)) {
-                throw new IllegalArgumentException("duplicate or empty Condition ID");
+                throw new InvalidStepResultException(
+                        "Flow " + flow.getName() + " has a duplicate or empty Condition ID");
             }
             if (condition.getKind() == Condition.Kind.TIMER) {
                 timers.add(TimerCondition.newBuilder()
@@ -475,8 +489,9 @@ final class WorkerDispatcher {
                 final io.superdurable.dex.PersistenceDefinition definition =
                         flow.getPersistence().get(condition.getChannelName());
                 if (!(definition instanceof Channel) && !(definition instanceof ChannelMap)) {
-                    throw new IllegalArgumentException(
-                            "Channel is not registered: " + condition.getChannelName());
+                    throw new InvalidStepResultException(
+                            "Flow " + flow.getName() + " Channel is not registered: "
+                                    + condition.getChannelName());
                 }
                 final String channelName = definition instanceof ChannelMap
                         ? Registry.physicalName(

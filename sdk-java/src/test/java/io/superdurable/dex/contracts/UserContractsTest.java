@@ -34,6 +34,8 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
+import io.superdurable.dex.exceptions.FlowDefinitionException;
+import io.superdurable.dex.exceptions.ValueMappingException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -107,7 +109,7 @@ public class UserContractsTest {
     @Test
     public void registryRejectsUnknownAnnotationLocks() {
         Assertions.assertThrows(
-                IllegalArgumentException.class,
+                FlowDefinitionException.class,
                 () -> new Registry(Collections.<Flow<?>>singletonList(new InvalidOrderFlow())));
     }
 
@@ -116,7 +118,7 @@ public class UserContractsTest {
         Assertions.assertNotNull(new Registry(Collections.<Flow<?>>singletonList(
                 new AssignableStartInputFlow())));
         Assertions.assertThrows(
-                IllegalArgumentException.class,
+                FlowDefinitionException.class,
                 () -> new Registry(Collections.<Flow<?>>singletonList(
                         new IncompatibleStartInputFlow())));
     }
@@ -129,6 +131,13 @@ public class UserContractsTest {
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> startWithWrongInput(client));
+        final FlowDefinitionException unregistered = Assertions.assertThrows(
+                FlowDefinitionException.class,
+                () -> client.startFlow(new OrderFlow(), "unregistered", new OrderInput()));
+        Assertions.assertTrue(unregistered.getMessage().contains("OrderFlow"));
+        Assertions.assertThrows(
+                ValueMappingException.class,
+                () -> setNonFiniteAttribute(client));
     }
 
     @Test
@@ -146,15 +155,15 @@ public class UserContractsTest {
 
     @Test
     public void registryRejectsNonInterceptableRpcDefinitions() {
-        final IllegalArgumentException finalFlowError = Assertions.assertThrows(
-                IllegalArgumentException.class,
+        final FlowDefinitionException finalFlowError = Assertions.assertThrows(
+                FlowDefinitionException.class,
                 () -> new Registry(Collections.<Flow<?>>singletonList(new FinalRpcFlow())));
         Assertions.assertTrue(finalFlowError.getMessage().contains("Flow class must not be final"));
         Assertions.assertTrue(
                 finalFlowError.getMessage().contains("declare the Flow class with 'open'"));
 
-        final IllegalArgumentException finalMethodError = Assertions.assertThrows(
-                IllegalArgumentException.class,
+        final FlowDefinitionException finalMethodError = Assertions.assertThrows(
+                FlowDefinitionException.class,
                 () -> new Registry(Collections.<Flow<?>>singletonList(new FinalRpcMethodFlow())));
         Assertions.assertTrue(finalMethodError.getMessage().contains("method must not be final"));
         Assertions.assertTrue(
@@ -198,6 +207,11 @@ public class UserContractsTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static void startWithWrongInput(final Client client) {
         client.startFlow((Flow) ORDERS, "order-1", "wrong input");
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void setNonFiniteAttribute(final Client client) {
+        client.setAttribute("order-1", (Attribute) STATUS, Double.NaN);
     }
 
     @SuppressWarnings("unused")

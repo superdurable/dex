@@ -22,8 +22,6 @@ import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Condition;
 import io.superdurable.dex.Context;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.PersistenceSchema;
@@ -35,6 +33,7 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.models.BatchEnqueueRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -172,14 +171,10 @@ public class ParentFlow implements Flow<BatchEnqueueRequest> {
                                     .idReusePolicy(IdReusePolicy.DISALLOW)
                                     .build());
                     newWaitList.add(childWorkflowId);
-                } catch (final DexException e) {
-                    if (e.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
-                        System.out.println(
-                                "already started by other state/workflow, ignore it "
-                                        + "-- not waiting for it");
-                    } else {
-                        throw e;
-                    }
+                } catch (final FlowAlreadyStartedException alreadyStarted) {
+                    System.out.println(
+                            "already started by other state/workflow, ignore it "
+                                    + "-- not waiting for it");
                 }
             }
 

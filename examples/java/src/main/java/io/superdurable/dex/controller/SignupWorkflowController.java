@@ -17,8 +17,7 @@
 package io.superdurable.dex.controller;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.DexException;
-import io.superdurable.dex.ErrorSubStatus;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.workflow.signup.SignupForm;
 import io.superdurable.dex.workflow.signup.UserSignupFlow;
 import org.springframework.http.ResponseEntity;
@@ -47,11 +46,8 @@ public class SignupWorkflowController {
         final SignupForm form = new SignupForm(username, email, "Test", "Test");
         try {
             client.startFlow(flow, username, form, ExampleFlows.startOptions());
-        } catch (final DexException exception) {
-            if (exception.getSubStatus() == ErrorSubStatus.FLOW_ALREADY_STARTED) {
-                return ResponseEntity.ok("username already started registry");
-            }
-            throw exception;
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            return ResponseEntity.ok("username already started registry");
         }
         return ResponseEntity.ok("success");
     }
