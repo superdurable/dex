@@ -93,7 +93,14 @@ public final class StepDecision {
     }
 
     /**
-     * Gracefully completes the Flow without an output value.
+     * Requests successful Flow completion after all execution branches stop, without an output.
+     *
+     * <p>This decision stops the current branch without scheduling another Step, but it does not
+     * interrupt Steps that are already running in parallel. Those branches may continue and
+     * schedule their next Steps. Dex changes the Flow status to {@link FlowStatus#COMPLETED} only
+     * after no active or queued Steps remain. Use {@link #forceComplete()} to stop every branch
+     * immediately, or {@link #deadEnd()} to stop only the current branch without requesting Flow
+     * completion.
      *
      * @return a graceful-completion decision
      */
@@ -102,9 +109,14 @@ public final class StepDecision {
     }
 
     /**
-     * Gracefully completes the Flow with an output value.
+     * Requests successful Flow completion after all execution branches stop and records an output.
      *
-     * @param output the serializable Flow output, or {@code null}
+     * <p>This decision has the branch-draining behavior described by {@link #gracefulComplete()}.
+     * The output is serialized as this branch's completion output. When the Flow completes,
+     * {@link Client#waitForFlow(String, Class)} returns the latest recorded Step output; an output
+     * recorded later by another parallel branch takes precedence.
+     *
+     * @param output the serializable output for this execution branch, or {@code null}
      * @return a graceful-completion decision
      */
     public static StepDecision gracefulComplete(final Object output) {
