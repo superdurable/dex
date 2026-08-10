@@ -12,6 +12,19 @@ package io.superdurable.dex;
 
 import java.time.Duration;
 
+/**
+ * Represents one timer or Channel condition used by a {@link Wait}.
+ *
+ * <p>Applications create conditions through fluent domain factories such as
+ * {@link Timer#byDuration} and {@link Channel#forOne}; a condition is immutable and is interpreted
+ * by Dex when a Step returns its wait definition.
+ *
+ * <pre>{@code
+ * Condition deadline = Timer.byDuration(Duration.ofMinutes(5), "deadline");
+ * Condition command = commands.forOne("command");
+ * return Wait.anyOf(deadline, command);
+ * }</pre>
+ */
 public final class Condition {
     enum Kind {
         TIMER,

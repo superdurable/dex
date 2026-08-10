@@ -25,6 +25,24 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Hosts synchronous Java Step and RPC implementations for registered Flows.
+ *
+ * <p>The worker exposes a gRPC listener to Dex and dispatches invocations on a bounded JVM executor.
+ * User methods are ordinary blocking Java methods; slow external I/O occupies a handler thread and
+ * should respect the configured Step or RPC timeout. Call {@link #start} on a dedicated application
+ * thread because it blocks until the worker stops. A worker can be started only once. The supplied
+ * {@link BlobCache} is borrowed and remains the caller's responsibility.
+ *
+ * <pre>{@code
+ * Worker worker = new Worker(registry, blobCache, WorkerOptions.newBuilder()
+ *         .bindAddress("0.0.0.0:8803")
+ *         .workerTarget(new WorkerTarget("orders-worker:8803", false))
+ *         .build());
+ * Runtime.getRuntime().addShutdownHook(new Thread(worker::stop));
+ * worker.start();
+ * }</pre>
+ */
 public final class Worker implements AutoCloseable {
     private enum State {
         CREATED,
@@ -43,10 +61,25 @@ public final class Worker implements AutoCloseable {
     private Server server;
     private State state = State.CREATED;
 
+    /**
+     * Creates a worker using local development defaults.
+     *
+     * @param registry the nonnull registry of Flow implementations
+     * @param blobCache the nonnull cache used to hydrate blob-backed invocation values
+     * @throws IllegalArgumentException if either argument is {@code null}
+     */
     public Worker(final Registry registry, final BlobCache blobCache) {
         this(registry, blobCache, WorkerOptions.newBuilder().build());
     }
 
+    /**
+     * Creates a worker with explicit listener, routing, connection, and serialization options.
+     *
+     * @param registry the nonnull registry of Flow implementations
+     * @param blobCache the nonnull cache used to hydrate blob-backed invocation values
+     * @param options the nonnull worker options
+     * @throws IllegalArgumentException if any argument is {@code null}
+     */
     public Worker(
             final Registry registry,
             final BlobCache blobCache,
@@ -77,10 +110,25 @@ public final class Worker implements AutoCloseable {
         return registry;
     }
 
+    /**
+     * Returns the address this worker advertises for Dex routing.
+     *
+     * <p>When options do not specify a target, the worker derives one from its bind address.
+     *
+     * @return the effective worker target
+     */
     public WorkerTarget getWorkerTarget() {
         return workerTarget;
     }
 
+    /**
+     * Starts the worker listener and blocks until termination.
+     *
+     * <p>Only a newly created worker may start. If the waiting thread is interrupted, the worker
+     * stops and restores the thread's interruption status before returning.
+     *
+     * @throws IllegalStateException if the worker was already started or its address cannot bind
+     */
     public void start() {
         final Server runningServer;
         synchronized (this) {
@@ -116,6 +164,12 @@ public final class Worker implements AutoCloseable {
         }
     }
 
+    /**
+     * Gracefully stops the listener, handler executor, and server channel.
+     *
+     * <p>The method is idempotent. It waits up to 30 seconds for in-flight handlers before forcing
+     * shutdown and preserves interruption status.
+     */
     public void stop() {
         final Server runningServer;
         synchronized (this) {
@@ -145,6 +199,11 @@ public final class Worker implements AutoCloseable {
         }
     }
 
+    /**
+     * Stops the worker and permanently closes its lifecycle.
+     *
+     * <p>The borrowed {@link BlobCache} is not closed.
+     */
     @Override
     public void close() {
         stop();

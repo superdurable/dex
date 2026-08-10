@@ -10,12 +10,35 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.FlowUncompletedException;
+
+/**
+ * Represents the lifecycle status of a Flow execution.
+ *
+ * <p>Use {@link FlowInfo#getStatus()} for a described Flow or
+ * {@link FlowUncompletedException#getStatus()} when {@link Client#waitForFlow(String)} observes a
+ * terminal status other than {@link #COMPLETED}. Terminal statuses remain available after the
+ * execution stops running.
+ */
 public enum FlowStatus {
+    /** The Flow execution can still make progress. */
     RUNNING,
+
+    /** The Flow completed successfully. */
     COMPLETED,
+
+    /** The Flow failed. */
     FAILED,
+
+    /** The Flow was canceled. */
     CANCELED,
+
+    /** The Flow was forcibly terminated. */
     TERMINATED,
+
+    /** The Flow exceeded its configured timeout. */
     TIMED_OUT,
+
+    /** The Flow continued as a new execution. */
     CONTINUED_AS_NEW
 }

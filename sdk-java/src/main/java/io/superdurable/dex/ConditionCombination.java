@@ -18,6 +18,18 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Groups conditions that must all be satisfied as one alternative in a combined wait.
+ *
+ * <p>Pass one or more combinations to {@link Wait#anyCombinationOf}. Dex resumes the Step when all
+ * conditions in any one combination are satisfied.
+ *
+ * <pre>{@code
+ * return Wait.anyCombinationOf(
+ *         ConditionCombination.of(approval.forOne(), Timer.byDuration(shortDelay)),
+ *         ConditionCombination.of(manualOverride.forOne()));
+ * }</pre>
+ */
 public final class ConditionCombination {
     private final List<Condition> conditions;
 
@@ -25,6 +37,12 @@ public final class ConditionCombination {
         this.conditions = Collections.unmodifiableList(conditions);
     }
 
+    /**
+     * Creates a combination whose conditions must all be satisfied.
+     *
+     * @param conditions the conditions in this alternative
+     * @return an immutable condition combination
+     */
     public static ConditionCombination of(final Condition... conditions) {
         return new ConditionCombination(Arrays.asList(conditions.clone()));
     }

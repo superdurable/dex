@@ -11,10 +11,28 @@
 package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
+import io.superdurable.dex.Client;
 
+/**
+ * Thrown when a Dex long-poll operation reaches its timeout before satisfying the requested wait.
+ *
+ * <p>This exception can be thrown by
+ * {@link Client#waitForFlow(String, Class, java.time.Duration)} and
+ * {@link Client#waitForStepCompletion(String, io.superdurable.dex.StepExecutionId,
+ * java.time.Duration)}. The timeout does not itself indicate a Flow failure. Callers may catch it
+ * and repeat the same wait when they want to continue polling.
+ */
 public final class LongPollTimeoutException extends DexServiceException {
     private final String flowId;
 
+    /**
+     * Creates a long-poll timeout with the target Flow identity.
+     *
+     * @param code the gRPC status code returned by Dex
+     * @param detail the server-provided timeout detail
+     * @param flowId the Flow ID that remains active
+     * @param cause the original transport failure
+     */
     public LongPollTimeoutException(
             final Status.Code code,
             final String detail,
@@ -24,6 +42,11 @@ public final class LongPollTimeoutException extends DexServiceException {
         this.flowId = flowId;
     }
 
+    /**
+     * Returns the Flow ID whose long poll timed out.
+     *
+     * @return the Flow ID
+     */
     public String getFlowId() {
         return flowId;
     }

@@ -20,6 +20,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Declares the Attributes and Channels that belong to a Flow.
+ *
+ * <p>Return one schema from {@link Flow#getPersistenceSchema}. Definitions are immutable after the
+ * schema is created. The varargs and single-list factories classify definitions automatically;
+ * the two-list factory additionally validates that its first list contains only Attributes and its
+ * second list contains only Channels.
+ *
+ * <pre>{@code
+ * public PersistenceSchema getPersistenceSchema() {
+ *     return PersistenceSchema.of(counter, orderStatus, commands);
+ * }
+ * }</pre>
+ */
 public final class PersistenceSchema {
     private final List<PersistenceDefinition> attributes;
     private final List<PersistenceDefinition> channels;
@@ -31,12 +45,29 @@ public final class PersistenceSchema {
         this.channels = immutableChannels(channels);
     }
 
+    /**
+     * Creates a schema from separate Attribute and Channel lists.
+     *
+     * @param attributes Attribute and Attribute-map definitions
+     * @param channels Channel and Channel-map definitions
+     * @return an immutable persistence schema
+     * @throws NullPointerException if either list or any definition is {@code null}
+     * @throws IllegalArgumentException if a definition appears in the wrong list
+     */
     public static PersistenceSchema of(
             final List<? extends PersistenceDefinition> attributes,
             final List<? extends PersistenceDefinition> channels) {
         return new PersistenceSchema(attributes, channels);
     }
 
+    /**
+     * Creates a schema by classifying a mixed list of definitions.
+     *
+     * @param definitions Attribute and Channel definitions in any order
+     * @return an immutable persistence schema
+     * @throws NullPointerException if the list or any definition is {@code null}
+     * @throws IllegalArgumentException if a definition is unsupported
+     */
     public static PersistenceSchema of(
             final List<? extends PersistenceDefinition> definitions) {
         Objects.requireNonNull(definitions, "definitions");
@@ -56,6 +87,14 @@ public final class PersistenceSchema {
         return new PersistenceSchema(attributes, channels);
     }
 
+    /**
+     * Creates a schema by classifying mixed definitions.
+     *
+     * @param definitions Attribute and Channel definitions in any order
+     * @return an immutable persistence schema
+     * @throws NullPointerException if the array or any definition is {@code null}
+     * @throws IllegalArgumentException if a definition is unsupported
+     */
     public static PersistenceSchema of(final PersistenceDefinition... definitions) {
         Objects.requireNonNull(definitions, "definitions");
         return of(Arrays.asList(definitions));

@@ -10,8 +10,19 @@
 
 package io.superdurable.dex;
 
+/**
+ * Selects how {@link Client#stopFlow} ends a running Flow.
+ *
+ * <p>Pass the value through {@link StopFlowOptions}. The selected mode determines the terminal
+ * status that clients observe when they later describe or wait for the Flow.
+ */
 public enum StopType {
+    /** Requests cooperative cancellation. */
     CANCEL,
+
+    /** Terminates the Flow immediately. */
     TERMINATE,
+
+    /** Ends the Flow as failed. */
     FAIL
 }

@@ -48,6 +48,26 @@ module map.
   should favor complete operational semantics.
 - Comments documenting function or method return values are exempt from the
   20-word limit and should describe complete return semantics.
+- Public SDK API documentation is exempt from the short-comment and
+  no-obvious-comment rules. Document every public or exported SDK type,
+  interface, class, method, function, constructor, field, constant, enum value,
+  struct member, annotation element, and equivalent language construct. Do not
+  document non-public or generated declarations.
+- Write SDK API documentation from the application developer's perspective.
+  Start with a one-sentence summary, then explain when and how to use the API.
+  Give a complete language-native example for each related API family;
+  overloads and simple accessors may refer to that shared example. Explain
+  defaults, units, lifecycle, blocking or concurrency behavior, nullability,
+  ownership, side effects, errors, and other user-visible traps when relevant.
+  Finish with language-native documentation for every type parameter, input,
+  output, and user-visible error. Do not impose a word limit; prefer a complete
+  paragraph over a terse fragment.
+- Use the exact nouns exposed by the API or protocol. Do not invent one umbrella
+  term for distinct identifiers; say Flow type, Step type, RPC name, Attribute
+  name, Channel name, or map instance as appropriate.
+- When a documented limitation has a practical workaround, explain it
+  immediately and include a language-native example when the solution is not
+  obvious.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 - Do not defensively `proto.Clone` / deep-copy messages "just in case". Passing a
