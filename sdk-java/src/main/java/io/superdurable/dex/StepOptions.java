@@ -194,6 +194,12 @@ public final class StepOptions {
          * <p>The recovery Step receives {@code null} input. Its input type should therefore accept
          * {@code null}, commonly {@link Void}.
          *
+         * <p>Prefer {@link StepDurability#SYNC} for the execute method that owns this policy. With
+         * {@link StepDurability#ASYNC}, an extreme failure after the recovery Step begins can lose an
+         * unpersisted result and cause Dex to execute the earlier Step again. If that replay is
+         * acceptable, select asynchronous durability explicitly in these Step options rather than
+         * relying on a Flow-wide default.
+         *
          * @param step the nonnull recovery Step
          * @param <I> the recovery Step input type
          * @return this builder
@@ -205,6 +211,11 @@ public final class StepOptions {
 
         /**
          * Continues to a recovery Step with per-execution options after execute retries fail.
+         *
+         * <p>The same durability guidance as
+         * {@link #onExecuteFailureProceedTo(Step)} applies. The {@code options} parameter configures
+         * the recovery Step execution; configure the failing Step's execute durability on the builder
+         * receiving this method call.
          *
          * @param step the nonnull recovery Step
          * @param options recovery execution options, or {@code null} for the Step defaults
@@ -222,7 +233,12 @@ public final class StepOptions {
         }
 
         /**
-         * Sets durability for the wait-for method result.
+         * Overrides durability for this Step's wait-for method result.
+         *
+         * <p>This method-level value takes precedence over {@link FlowConfig}'s default. Asynchronous
+         * durability reduces latency and improves server persistence batching, but an unpersisted
+         * successful result can be lost during an extreme failure and the wait-for method can run
+         * again. See {@link StepDurability} for the full tradeoff.
          *
          * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
          * @return this builder
@@ -233,7 +249,14 @@ public final class StepOptions {
         }
 
         /**
-         * Sets durability for the execute method result.
+         * Overrides durability for this Step's execute method result.
+         *
+         * <p>This method-level value takes precedence over {@link FlowConfig}'s default. Prefer
+         * {@link StepDurability#SYNC} when this builder also uses
+         * {@link #onExecuteFailureProceedTo(Step)}. Choose {@link StepDurability#ASYNC} explicitly
+         * only when the application accepts that an extreme failure after recovery begins may cause
+         * the earlier Step to execute again. See {@link StepDurability} for latency and throughput
+         * details.
          *
          * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
          * @return this builder

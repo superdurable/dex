@@ -117,7 +117,13 @@ public final class FlowConfig {
         }
 
         /**
-         * Sets the default durability for Step methods in this Flow.
+         * Sets the normal default durability for Step methods in this Flow.
+         *
+         * <p>The server default is {@link StepDurability#ASYNC}, which lowers latency and increases
+         * server throughput by allowing result persistence to be batched. A method-level setting in
+         * {@link StepOptions} takes precedence. When an execute failure policy proceeds to a recovery
+         * Step, make the durability decision explicitly in the relevant Step options instead of
+         * relying on this Flow-wide default; see {@link StepDurability} for the replay tradeoff.
          *
          * @param value the durability mode, or {@code null} for the server default
          * @return this builder
