@@ -13,11 +13,12 @@ package io.superdurable.dex;
 /**
  * Implements one durable unit of Flow logic.
  *
- * <p>Dex invokes {@link #waitFor} to declare durable conditions and invokes {@link #execute} after
- * those conditions are satisfied. Methods are synchronous Java calls executed by the worker's
- * bounded executor; do not return futures. A Step instance is shared across invocations, so keep
- * per-execution state in {@link Context}, Attributes, or method-local variables rather than mutable
- * instance fields.
+ * <p>{@link #waitFor} is optional. When a Step does not override it, Dex skips the waiting phase
+ * and invokes {@link #execute} immediately. When a Step implements {@code waitFor}, Dex invokes
+ * {@code execute} after the declared durable conditions are satisfied. Both methods are synchronous
+ * Java calls executed by the worker's bounded executor. A Step instance is shared across
+ * invocations, so keep per-execution state in {@link Context}, Attributes, or method-local
+ * variables rather than mutable instance fields.
  *
  * <pre>{@code
  * final class ChargeOrder implements Step<OrderInput> {
