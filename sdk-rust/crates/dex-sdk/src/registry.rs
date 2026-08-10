@@ -6,25 +6,251 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-use crate::Flow;
+use std::any::TypeId;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use crate::persistence::{PersistenceDefinition, PersistenceKind};
+use crate::rpc::RegisteredRpc;
+use crate::step::RegisteredStep;
+use crate::step_options::ErasedStepOptions;
+use crate::{Context, Flow, HandlerResult, SdkError, SdkResult, StepDecision, Wait};
+use dex_protocol::dex::Value as ProtoValue;
+
+#[derive(Clone, Default)]
+pub struct Registry {
+    inner: Arc<RegistryInner>,
+}
+
+#[derive(Clone, Default)]
+struct RegistryInner {
+    flows: HashMap<&'static str, RegisteredFlow>,
+}
 
 #[derive(Clone)]
-pub struct Registry {
-    _private: (),
+pub(crate) struct RegisteredFlow {
+    pub(crate) name: &'static str,
+    pub(crate) type_id: TypeId,
+    pub(crate) steps: HashMap<&'static str, RegisteredStep>,
+    pub(crate) start_step: Option<RegisteredStep>,
+    pub(crate) rpcs: HashMap<&'static str, RegisteredRpc>,
+    pub(crate) persistence: HashMap<String, PersistenceDefinition>,
+    pub(crate) handler: Arc<dyn ErasedFlow>,
 }
 
 impl Registry {
     pub fn new() -> Self {
-        Self { _private: () }
+        Self::default()
     }
 
-    pub fn register<SomeFlow: Flow>(self, _flow: SomeFlow) -> Self {
+    pub fn register<SomeFlow: Flow>(mut self, flow: SomeFlow) -> Self {
+        let flow = Arc::new(flow);
+        let name = require_static_name(flow.flow_type(), "Flow type");
+        let registered = assemble_flow(name, Arc::clone(&flow));
+        let inner = Arc::make_mut(&mut self.inner);
+        if inner.flows.insert(name, registered).is_some() {
+            panic!("duplicate Flow {name}");
+        }
         self
+    }
+
+    pub(crate) fn flow(&self, name: &str) -> SdkResult<&RegisteredFlow> {
+        self.inner
+            .flows
+            .get(name)
+            .ok_or_else(|| SdkError::FlowDefinition {
+                message: format!("Flow is not registered: {name}"),
+            })
+    }
+
+    pub(crate) fn rpc(&self, name: &str) -> SdkResult<&RegisteredRpc> {
+        let mut matched = None;
+        for flow in self.inner.flows.values() {
+            let Some(rpc) = flow.rpcs.get(name) else {
+                continue;
+            };
+            if matched.is_some() {
+                return Err(SdkError::FlowDefinition {
+                    message: format!("RPC name is ambiguous across registered Flows: {name}"),
+                });
+            }
+            matched = Some(rpc);
+        }
+        matched.ok_or_else(|| SdkError::FlowDefinition {
+            message: format!("RPC is not registered: {name}"),
+        })
     }
 }
 
-impl Default for Registry {
-    fn default() -> Self {
-        Self::new()
+fn assemble_flow<SomeFlow: Flow>(name: &'static str, flow: Arc<SomeFlow>) -> RegisteredFlow {
+    let mut steps = HashMap::new();
+    let mut start_step = None;
+    for step in flow.steps().into_definitions() {
+        require_static_name(step.name, "Step type");
+        if step.starting {
+            if start_step.is_some() {
+                panic!("Flow {name} must not have multiple start Steps");
+            }
+            start_step = Some(step.clone());
+        }
+        if steps.insert(step.name, step).is_some() {
+            panic!("Flow {name} has a duplicate Step");
+        }
     }
+
+    let persistence = assemble_persistence(name, flow.persistence().definitions());
+    let mut rpcs = HashMap::new();
+    for rpc in flow.rpcs().bind(Arc::clone(&flow)) {
+        require_static_name(rpc.name, "RPC name");
+        validate_rpc(name, &rpc, &persistence);
+        if rpcs.insert(rpc.name, rpc).is_some() {
+            panic!("Flow {name} has a duplicate RPC");
+        }
+    }
+    RegisteredFlow {
+        name,
+        type_id: TypeId::of::<SomeFlow>(),
+        steps,
+        start_step,
+        rpcs,
+        persistence,
+        handler: Arc::new(TypedFlow { flow }),
+    }
+}
+
+pub(crate) trait ErasedFlow: Send + Sync {
+    fn wait_for(
+        &self,
+        step_type: &str,
+        context: &mut Context,
+        input: &ProtoValue,
+    ) -> HandlerResult<Wait>;
+    fn execute(
+        &self,
+        step_type: &str,
+        context: &mut Context,
+        input: &ProtoValue,
+    ) -> HandlerResult<StepDecision>;
+    fn step_options(&self, step_type: &str) -> HandlerResult<ErasedStepOptions>;
+}
+
+struct TypedFlow<SomeFlow> {
+    flow: Arc<SomeFlow>,
+}
+
+impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
+    fn wait_for(
+        &self,
+        step_type: &str,
+        context: &mut Context,
+        input: &ProtoValue,
+    ) -> HandlerResult<Wait> {
+        self.flow
+            .steps()
+            .find(step_type)
+            .ok_or_else(|| {
+                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+            })?
+            .wait_for(context, input)
+    }
+
+    fn execute(
+        &self,
+        step_type: &str,
+        context: &mut Context,
+        input: &ProtoValue,
+    ) -> HandlerResult<StepDecision> {
+        self.flow
+            .steps()
+            .find(step_type)
+            .ok_or_else(|| {
+                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+            })?
+            .execute(context, input)
+    }
+
+    fn step_options(&self, step_type: &str) -> HandlerResult<ErasedStepOptions> {
+        Ok(self
+            .flow
+            .steps()
+            .find(step_type)
+            .ok_or_else(|| {
+                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+            })?
+            .options())
+    }
+}
+
+fn assemble_persistence(
+    flow_name: &str,
+    definitions: &[PersistenceDefinition],
+) -> HashMap<String, PersistenceDefinition> {
+    let mut persistence = HashMap::new();
+    for definition in definitions {
+        if definition.name.is_empty() {
+            panic!("Flow {flow_name} has an empty persistence definition name");
+        }
+        if persistence
+            .insert(definition.name.clone(), definition.clone())
+            .is_some()
+        {
+            panic!(
+                "Flow {flow_name} has duplicate persistence definition {}",
+                definition.name
+            );
+        }
+    }
+    persistence
+}
+
+fn validate_rpc(
+    flow_name: &str,
+    rpc: &RegisteredRpc,
+    persistence: &HashMap<String, PersistenceDefinition>,
+) {
+    if rpc.timeout.is_some_and(|timeout| timeout.is_zero()) {
+        panic!("Flow {flow_name} RPC {} timeout must be positive", rpc.name);
+    }
+    let mut locks = HashSet::new();
+    for lock in &rpc.locks {
+        let physical_name = lock.physical_name();
+        let logical_name = physical_name.split('/').next().unwrap_or(&physical_name);
+        let definition = persistence.get(logical_name).unwrap_or_else(|| {
+            panic!(
+                "Flow {flow_name} RPC {} locks an unregistered Attribute",
+                rpc.name
+            )
+        });
+        if !matches!(
+            definition.kind,
+            PersistenceKind::Attribute | PersistenceKind::AttributeMap
+        ) {
+            panic!("Flow {flow_name} RPC {} locks a non-Attribute", rpc.name);
+        }
+        if !locks.insert(physical_name) {
+            panic!("Flow {flow_name} RPC {} has a duplicate lock", rpc.name);
+        }
+    }
+}
+
+fn require_static_name(name: &'static str, kind: &str) -> &'static str {
+    if name.is_empty() {
+        panic!("{kind} is required");
+    }
+    name
+}
+
+pub(crate) fn physical_name(name: &str, instance: &str) -> String {
+    if instance.is_empty() {
+        panic!("persistence instance is required");
+    }
+    let mut encoded = String::new();
+    for byte in instance.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    format!("{name}/{encoded}")
 }

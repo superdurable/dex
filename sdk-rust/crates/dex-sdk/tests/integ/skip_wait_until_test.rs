@@ -1,0 +1,48 @@
+// Portions of this file are derived from indeedeng/iwf-java-sdk.
+// Those portions are licensed under the Apache License, Version 2.0.
+// See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+//
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications are licensed under the Super Durable Source License 1.0.
+// Third-Party Materials remain under the Apache License, Version 2.0.
+// See LICENSE and LEGACY_NOTICES.md.
+
+use std::time::Duration;
+
+use dex_sdk::{Client, FlowConfig, Registry, SdkResult, StartFlowOptions};
+
+use crate::skip_wait_until_mixed_wait_workflow::SkipWaitUntilMixedWaitWorkflow;
+use crate::skip_wait_until_workflow::SkipWaitUntilWorkflow;
+use crate::support::{DexDevTestEnvironment, flow_id};
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_skip_wait_until() {
+    let environment =
+        DexDevTestEnvironment::start(Registry::new().register(SkipWaitUntilWorkflow::new()));
+    let workflow = SkipWaitUntilWorkflow::new();
+    let flow_id = flow_id("skip-wait-until");
+    let options =
+        StartFlowOptions::new().config_override(FlowConfig::new().continue_as_new_threshold(1));
+    environment
+        .client
+        .start_flow_with_options(&workflow, &flow_id, 0, options)
+        .expect("start execute-only Flow");
+    assert_eq!(
+        2,
+        environment
+            .client
+            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .expect("complete execute-only Flow")
+    );
+}
+
+#[allow(dead_code)]
+fn compile_skip_wait_until_test(client: &Client) -> SdkResult<()> {
+    client.start_flow(&SkipWaitUntilWorkflow::new(), "execute-only", 0)?;
+    let _: i32 = client.wait_for_flow("execute-only")?;
+    client.start_flow(&SkipWaitUntilMixedWaitWorkflow::new(), "mixed-wait", 0)?;
+    let _: i32 = client.wait_for_flow("mixed-wait")?;
+    Ok(())
+}

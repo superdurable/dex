@@ -2,12 +2,12 @@
 
 [![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
 
-This workspace contains the shared DXBC BlobCache and generated Rust protocol
-foundation for the Rust SDK. Each language SDK owns its Worker runtime.
+This workspace contains the synchronous Rust SDK, the shared DXBC BlobCache,
+and the generated Rust protocol used by the native bindings.
 
 The crates are:
 
-- `dex-sdk`: strongly typed Rust Flow, Step, RPC, persistence, and client contracts.
+- `dex-sdk`: strongly typed synchronous Client, Worker, Flow, Step, RPC, and persistence APIs.
 - `dex-blob-cache`: transport-neutral, Go-compatible disk cache.
 - `dex-blob-cache-jni`: Java 8-compatible binding containing only cache APIs.
 - `dex-blob-cache-python`: PyO3 binding for the Python SDK.
@@ -30,6 +30,46 @@ Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
 domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
 `FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
 requiring callers to inspect transport metadata.
+
+## Rust SDK runtime
+
+Flows bind their start input and every Step binds its own input at compile time:
+
+```rust
+use dex_sdk::{Context, Flow, HandlerResult, Step, StepDecision, StepList};
+
+struct GreetingFlow {
+    greet: Greet,
+}
+
+impl Flow for GreetingFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.greet)
+    }
+}
+
+struct Greet;
+
+impl Step for Greet {
+    type Input = String;
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        name: String,
+    ) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(format!("Hello, {name}!")))
+    }
+}
+```
+
+`Client` calls block and return their final result. `Worker::start` serves until
+another thread calls `Worker::stop`. Synchronous user handlers run on Tokio's
+blocking executor, so they do not occupy gRPC I/O tasks. Long-running handlers
+can call `Context::wait_for_cancellation` or poll `Context::is_cancelled` to
+observe method deadlines and disconnected callers.
 
 ## Blob cache
 
@@ -79,6 +119,15 @@ make fmt
 make lint
 make test
 ```
+
+Run the SDK integration suite against a fresh local `dexcli dev` stack:
+
+```bash
+./run-integration-tests.sh
+```
+
+The script creates its own Temporal database, ports, BlobCache directory, and
+search attributes, then removes the temporary state.
 
 ## License
 

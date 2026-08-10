@@ -31,6 +31,14 @@ impl ClientOptions {
         self.worker_target = Some(value);
         self
     }
+
+    pub(crate) fn server_address_value(&self) -> &str {
+        &self.server_address
+    }
+
+    pub(crate) fn worker_target_value(&self) -> Option<&WorkerTarget> {
+        self.worker_target.as_ref()
+    }
 }
 
 impl Default for ClientOptions {

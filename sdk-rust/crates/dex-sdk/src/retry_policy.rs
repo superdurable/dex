@@ -10,11 +10,11 @@ use std::time::Duration;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RetryPolicy {
-    initial_interval: Option<Duration>,
-    backoff_coefficient: Option<f64>,
-    maximum_interval: Option<Duration>,
-    maximum_attempts: Option<u32>,
-    total_duration: Option<Duration>,
+    pub(crate) initial_interval: Option<Duration>,
+    pub(crate) backoff_coefficient: Option<f64>,
+    pub(crate) maximum_interval: Option<Duration>,
+    pub(crate) maximum_attempts: Option<u32>,
+    pub(crate) total_duration: Option<Duration>,
 }
 
 impl RetryPolicy {

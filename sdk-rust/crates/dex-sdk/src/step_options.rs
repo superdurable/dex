@@ -13,17 +13,48 @@ use crate::attribute::AttributeLock;
 use crate::{RetryPolicy, Step, Value};
 
 pub struct StepOptions<Input> {
-    wait_for_method_timeout: Option<Duration>,
-    execute_method_timeout: Option<Duration>,
-    wait_for_retry: Option<RetryPolicy>,
-    execute_retry: Option<RetryPolicy>,
-    wait_for_failure: WaitForFailurePolicy,
-    wait_for_durability: StepDurability,
-    execute_durability: StepDurability,
-    wait_for_locks: Vec<AttributeLock>,
-    execute_locks: Vec<AttributeLock>,
-    execute_failure_step: Option<&'static str>,
+    pub(crate) wait_for_method_timeout: Option<Duration>,
+    pub(crate) execute_method_timeout: Option<Duration>,
+    pub(crate) wait_for_retry: Option<RetryPolicy>,
+    pub(crate) execute_retry: Option<RetryPolicy>,
+    pub(crate) wait_for_failure: WaitForFailurePolicy,
+    pub(crate) wait_for_durability: StepDurability,
+    pub(crate) execute_durability: StepDurability,
+    pub(crate) wait_for_locks: Vec<AttributeLock>,
+    pub(crate) execute_locks: Vec<AttributeLock>,
+    pub(crate) execute_failure_step: Option<&'static str>,
     marker: PhantomData<fn(Input)>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ErasedStepOptions {
+    pub(crate) wait_for_method_timeout: Option<Duration>,
+    pub(crate) execute_method_timeout: Option<Duration>,
+    pub(crate) wait_for_retry: Option<RetryPolicy>,
+    pub(crate) execute_retry: Option<RetryPolicy>,
+    pub(crate) wait_for_failure: WaitForFailurePolicy,
+    pub(crate) wait_for_durability: StepDurability,
+    pub(crate) execute_durability: StepDurability,
+    pub(crate) wait_for_locks: Vec<AttributeLock>,
+    pub(crate) execute_locks: Vec<AttributeLock>,
+    pub(crate) execute_failure_step: Option<&'static str>,
+}
+
+impl<Input> From<StepOptions<Input>> for ErasedStepOptions {
+    fn from(options: StepOptions<Input>) -> Self {
+        Self {
+            wait_for_method_timeout: options.wait_for_method_timeout,
+            execute_method_timeout: options.execute_method_timeout,
+            wait_for_retry: options.wait_for_retry,
+            execute_retry: options.execute_retry,
+            wait_for_failure: options.wait_for_failure,
+            wait_for_durability: options.wait_for_durability,
+            execute_durability: options.execute_durability,
+            wait_for_locks: options.wait_for_locks,
+            execute_locks: options.execute_locks,
+            execute_failure_step: options.execute_failure_step,
+        }
+    }
 }
 
 impl<Input: Value> StepOptions<Input> {

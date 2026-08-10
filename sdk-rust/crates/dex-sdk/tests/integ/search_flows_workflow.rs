@@ -1,0 +1,58 @@
+// Portions of this file are derived from indeedeng/iwf-java-sdk.
+// Those portions are licensed under the Apache License, Version 2.0.
+// See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+//
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications are licensed under the Super Durable Source License 1.0.
+// Third-Party Materials remain under the Apache License, Version 2.0.
+// See LICENSE and LEGACY_NOTICES.md.
+
+use dex_sdk::{
+    Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
+    StepList,
+};
+
+pub(crate) struct SearchFlowsWorkflow {
+    keyword: Attribute<String>,
+    start: IndexStep,
+}
+
+impl SearchFlowsWorkflow {
+    pub(crate) const KEYWORD_KEY: &str = "CustomKeywordField";
+
+    pub(crate) fn new() -> Self {
+        let keyword = Attribute::new(Self::KEYWORD_KEY).indexed(AttributeIndex::keyword());
+        Self {
+            start: IndexStep {
+                keyword: keyword.clone(),
+            },
+            keyword,
+        }
+    }
+}
+
+impl Flow for SearchFlowsWorkflow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.start)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().attribute(&self.keyword)
+    }
+}
+
+struct IndexStep {
+    keyword: Attribute<String>,
+}
+
+impl Step for IndexStep {
+    type Input = String;
+
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        self.keyword.set(context, input.clone())?;
+        Ok(StepDecision::graceful_complete(input))
+    }
+}

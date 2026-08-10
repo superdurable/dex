@@ -5,10 +5,18 @@ on:
     branches: [main]
     paths:
       - "sdk-rust/**"
+      - "cli/**"
+      - "server/**"
+      - "protos/**"
+      - "web/**"
       - ".github/workflows/sdk-rust-ci.yml"
   pull_request:
     paths:
       - "sdk-rust/**"
+      - "cli/**"
+      - "server/**"
+      - "protos/**"
+      - "web/**"
       - ".github/workflows/sdk-rust-ci.yml"
   workflow_dispatch:
 
@@ -58,3 +66,38 @@ jobs:
         run: rustup toolchain install 1.88.0 --profile minimal
       - name: Run tests
         run: cargo test --workspace --locked
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: sdk-rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            server/go.sum
+            web/go.sum
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Run integration tests
+        run: ./run-integration-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-rust-integration-services
+          path: /tmp/test-rust-sdk-integration-services.log
+          if-no-files-found: ignore

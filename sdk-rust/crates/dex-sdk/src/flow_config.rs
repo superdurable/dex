@@ -10,11 +10,11 @@ use crate::{StepDurability, WorkerTarget};
 
 #[derive(Clone, Debug, Default)]
 pub struct FlowConfig {
-    active_step_search_mode: Option<ActiveStepSearchMode>,
-    continue_as_new_threshold: Option<u32>,
-    continue_as_new_page_size_bytes: Option<u32>,
-    step_durability: Option<StepDurability>,
-    worker_target: Option<WorkerTarget>,
+    pub(crate) active_step_search_mode: Option<ActiveStepSearchMode>,
+    pub(crate) continue_as_new_threshold: Option<u32>,
+    pub(crate) continue_as_new_page_size_bytes: Option<u32>,
+    pub(crate) step_durability: Option<StepDurability>,
+    pub(crate) worker_target: Option<WorkerTarget>,
 }
 
 impl FlowConfig {

@@ -8,6 +8,12 @@
 
 use std::time::Duration;
 
+use std::sync::Arc;
+
+use dex_protocol::dex::IndexConfig;
+
+use crate::registry::physical_name;
+use crate::step::{ErasedValue, TypedValue};
 use crate::{Attribute, AttributeMap, FlowConfig, RetryPolicy, Value};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,16 +25,24 @@ pub enum IdReusePolicy {
     TerminateIfRunning,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StartFlowOptions {
-    timeout: Option<Duration>,
-    start_delay: Option<Duration>,
-    id_reuse_policy: IdReusePolicy,
-    cron_schedule: Option<String>,
-    retry_policy: Option<RetryPolicy>,
-    config_override: Option<FlowConfig>,
-    ignore_already_started: bool,
-    request_id: Option<String>,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) start_delay: Option<Duration>,
+    pub(crate) id_reuse_policy: IdReusePolicy,
+    pub(crate) cron_schedule: Option<String>,
+    pub(crate) retry_policy: Option<RetryPolicy>,
+    pub(crate) config_override: Option<FlowConfig>,
+    pub(crate) ignore_already_started: bool,
+    pub(crate) request_id: Option<String>,
+    pub(crate) attributes: Vec<InitialAttribute>,
+}
+
+#[derive(Clone)]
+pub(crate) struct InitialAttribute {
+    pub(crate) key: String,
+    pub(crate) value: Arc<dyn ErasedValue>,
+    pub(crate) index_config: Option<IndexConfig>,
 }
 
 impl StartFlowOptions {
@@ -42,6 +56,7 @@ impl StartFlowOptions {
             config_override: None,
             ignore_already_started: false,
             request_id: None,
+            attributes: Vec::new(),
         }
     }
 
@@ -70,16 +85,26 @@ impl StartFlowOptions {
         self
     }
 
-    pub fn initial_attribute<T: Value>(self, _attribute: &Attribute<T>, _value: T) -> Self {
+    pub fn initial_attribute<T: Value>(mut self, attribute: &Attribute<T>, value: T) -> Self {
+        self.attributes.push(InitialAttribute {
+            key: attribute.name().to_string(),
+            value: Arc::new(TypedValue(value)),
+            index_config: attribute.index().map(|index| index.proto_config(false)),
+        });
         self
     }
 
     pub fn initial_attribute_map<T: Value>(
-        self,
-        _attribute: &AttributeMap<T>,
-        _instance: &str,
-        _value: T,
+        mut self,
+        attribute: &AttributeMap<T>,
+        instance: &str,
+        value: T,
     ) -> Self {
+        self.attributes.push(InitialAttribute {
+            key: physical_name(attribute.name(), instance),
+            value: Arc::new(TypedValue(value)),
+            index_config: attribute.index().map(|index| index.proto_config(true)),
+        });
         self
     }
 

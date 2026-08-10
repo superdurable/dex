@@ -10,8 +10,8 @@ use crate::Step;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StepExecutionId {
-    step_type: &'static str,
-    execution_number: u32,
+    pub(crate) step_type: &'static str,
+    pub(crate) execution_number: u32,
 }
 
 impl StepExecutionId {

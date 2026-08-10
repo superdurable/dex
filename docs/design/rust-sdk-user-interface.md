@@ -1,6 +1,6 @@
 # Rust SDK User Interface
 
-Status: proposed through compile contracts.
+Status: implemented and verified against `dexcli dev`.
 
 ## Principles
 
@@ -26,7 +26,7 @@ struct OrderFlow {
 impl Flow for OrderFlow {
     type StartInput = Order;
 
-    fn steps(&self) -> StepList<Self::StartInput> {
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.validate).and(&self.charge)
     }
 }
@@ -161,18 +161,20 @@ let client = Client::new(registry.clone(), cache.clone(), ClientOptions::new());
 let worker = Worker::new(registry, cache, WorkerOptions::new());
 ```
 
-## Current scope
+## Runtime
 
-The current crate defines and type-checks the public contracts. Client transport,
-error translation, Registry erasure, WorkerService dispatch, and value encoding
-deliberately return not-implemented errors until their runtime phases are
-implemented.
+The crate implements synchronous Client transport, error translation, Registry
+type erasure, WorkerService dispatch, value encoding, blob hydration, and cache
+reuse. User handlers run on the runtime's blocking executor; tonic stubs are
+cloned per call so long polls do not serialize unrelated Client operations.
+`Context` propagates invocation cancellation into blocking user handlers.
 
 ## Tests
 
-The `dex-sdk` IWF compatibility target ports the Java workflow definitions and
-client assertions as compile contracts. `cargo test --no-run` validates the user
-experience without claiming that the unfinished runtime passes E2E scenarios.
+The `dex-sdk` integration target mirrors every Java integration workflow and
+client assertion one-to-one. Go-only runtime contracts live in a separate
+cross-SDK target. The integration script runs both serially against a fresh
+`dexcli dev` stack.
 
 ## Documentation
 

@@ -67,6 +67,10 @@ impl<T> Channel<T> {
             instance: None,
         }
     }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl<T> Clone for Channel<T> {
@@ -145,6 +149,10 @@ impl<T> ChannelMap<T> {
             instance: Some(instance.to_string()),
         }
     }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl<T> Clone for ChannelMap<T> {
@@ -160,4 +168,13 @@ impl<T> Clone for ChannelMap<T> {
 pub struct ChannelGuard {
     name: String,
     instance: Option<String>,
+}
+
+impl ChannelGuard {
+    pub(crate) fn physical_name(&self) -> String {
+        match self.instance.as_deref() {
+            Some(instance) => crate::registry::physical_name(&self.name, instance),
+            None => self.name.clone(),
+        }
+    }
 }

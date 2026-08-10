@@ -9,12 +9,21 @@
 use std::time::Duration;
 
 pub struct Wait {
-    _private: (),
+    pub(crate) kind: WaitKind,
+}
+
+pub(crate) enum WaitKind {
+    SkipImmediately,
+    AllOf(Vec<Condition>),
+    AnyOf(Vec<Condition>),
+    AnyCombinationOf(Vec<ConditionCombination>),
 }
 
 impl Wait {
     pub fn skip_immediately() -> Self {
-        Self { _private: () }
+        Self {
+            kind: WaitKind::SkipImmediately,
+        }
     }
 
     pub fn until(condition: Condition) -> Self {
@@ -22,37 +31,32 @@ impl Wait {
     }
 
     pub fn all_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
-        for condition in conditions {
-            let _ = condition;
+        Self {
+            kind: WaitKind::AllOf(conditions.into_iter().collect()),
         }
-        Self { _private: () }
     }
 
     pub fn any_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
-        for condition in conditions {
-            let _ = condition;
+        Self {
+            kind: WaitKind::AnyOf(conditions.into_iter().collect()),
         }
-        Self { _private: () }
     }
 
     pub fn any_combination_of(
         combinations: impl IntoIterator<Item = ConditionCombination>,
     ) -> Self {
-        for combination in combinations {
-            let _ = combination;
+        Self {
+            kind: WaitKind::AnyCombinationOf(combinations.into_iter().collect()),
         }
-        Self { _private: () }
     }
 }
 
 pub struct Condition {
-    id: Option<String>,
-    #[allow(dead_code)]
-    kind: ConditionKind,
+    pub(crate) id: Option<String>,
+    pub(crate) kind: ConditionKind,
 }
 
-#[allow(dead_code)]
-enum ConditionKind {
+pub(crate) enum ConditionKind {
     Timer(Duration),
     Channel {
         name: String,
@@ -94,14 +98,13 @@ impl Condition {
 }
 
 pub struct ConditionCombination {
-    _private: (),
+    pub(crate) conditions: Vec<Condition>,
 }
 
 impl ConditionCombination {
     pub fn all_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
-        for condition in conditions {
-            let _ = condition;
+        Self {
+            conditions: conditions.into_iter().collect(),
         }
-        Self { _private: () }
     }
 }
