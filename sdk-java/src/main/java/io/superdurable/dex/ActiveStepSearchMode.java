@@ -11,28 +11,35 @@
 package io.superdurable.dex;
 
 /**
- * Controls which active Steps Dex searches when routing work.
+ * Controls which active Step types Dex records in the {@code ActiveStepTypes} search index.
  *
- * <p>Use this setting through {@link FlowConfig.Builder#activeStepSearchMode} when a Flow needs
- * an explicit search policy. Most applications should keep {@link #DEFAULT} so the server can
- * apply its configured policy.
+ * <p>Before renaming or removing a Step implementation, applications can search
+ * {@code ActiveStepTypes} to find running Flows that still use that Step type and preserve
+ * backward compatibility. Broader indexing provides more complete visibility but performs more
+ * search-index updates. Narrower indexing reduces those updates but may omit active Steps from
+ * search results.
  *
  * <pre>{@code
  * FlowConfig config = FlowConfig.newBuilder()
- *         .activeStepSearchMode(ActiveStepSearchMode.WITH_WAIT_FOR)
+ *         .activeStepSearchMode(ActiveStepSearchMode.ALL)
  *         .build();
+ * client.updateFlowConfig("order-123", config);
+ *
+ * SearchFlowsPage active = client.searchFlows(
+ *         "ActiveStepTypes = 'ChargeOrder'",
+ *         100);
  * }</pre>
  */
 public enum ActiveStepSearchMode {
-    /** Uses the Dex server's default active-Step search policy. */
+    /** Uses the server default, which indexes active Steps whose {@code waitFor} method is used. */
     DEFAULT,
 
-    /** Searches every active Step when routing work. */
+    /** Indexes every active Step type, including Steps that execute without {@code waitFor}. */
     ALL,
 
-    /** Searches only active Steps that define a {@link Step#waitFor(Context, Object)} method. */
+    /** Indexes an active Step type only when its {@link Step#waitFor(Context, Object)} method runs. */
     WITH_WAIT_FOR,
 
-    /** Disables active-Step searching. */
+    /** Does not index active Step types, so active-Step searches cannot find this Flow. */
     DISABLED
 }

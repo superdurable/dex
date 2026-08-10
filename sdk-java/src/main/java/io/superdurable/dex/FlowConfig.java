@@ -81,9 +81,12 @@ public final class FlowConfig {
         }
 
         /**
-         * Sets which active Steps are searched when routing work.
+         * Sets how precisely Dex indexes active Step types for later searches.
          *
-         * @param value the search mode, or {@code null} for the server default
+         * <p>The selected mode controls updates to the {@code ActiveStepTypes} search index. Use
+         * that index to find running Flows before renaming or removing a Step implementation.
+         *
+         * @param value the active-Step indexing mode, or {@code null} for the server default
          * @return this builder
          */
         public Builder activeStepSearchMode(final ActiveStepSearchMode value) {
