@@ -13,10 +13,13 @@ package io.superdurable.dex;
 import java.time.Duration;
 
 /**
- * Creates timer conditions for Step waits.
+ * Creates server-side durable timer conditions for Step waits.
  *
- * <p>Timers use {@link Duration} and do not block a Java thread. Dex durably tracks the deadline and
- * invokes the Step after the surrounding {@link Wait} is satisfied. Add a stable condition ID when
+ * <p>This is not a JVM timer and does not require the Worker process to remain running. Dex stores
+ * the timer as part of the durable Flow execution on the server, so the deadline remains scheduled
+ * across Worker disconnections, process restarts, and machine failures. No Java thread is blocked
+ * while the timer is pending. When the server-side timer fires and the surrounding {@link Wait} is
+ * satisfied, Dex invokes the Step through an available Worker. Add a stable condition ID when
  * application code needs to inspect or skip a specific timer later.
  *
  * <pre>{@code
@@ -30,7 +33,7 @@ public final class Timer {
     }
 
     /**
-     * Creates a timer condition without a condition ID.
+     * Creates a server-side durable timer condition without a condition ID.
      *
      * @param duration the nonnegative delay before the timer fires
      * @return the timer condition
@@ -41,7 +44,7 @@ public final class Timer {
     }
 
     /**
-     * Creates a timer condition with a stable condition ID.
+     * Creates a server-side durable timer condition with a stable condition ID.
      *
      * @param duration the nonnegative delay before the timer fires
      * @param conditionId the ID used to inspect or skip this timer
