@@ -16,8 +16,9 @@ import io.superdurable.dex.exceptions.FlowUncompletedException;
  * Represents the lifecycle status of a Flow execution.
  *
  * <p>Use {@link FlowInfo#getStatus()} for a described Flow or
- * {@link FlowUncompletedException#getStatus()} after a wait finishes abnormally. Terminal statuses
- * remain available after the execution stops running.
+ * {@link FlowUncompletedException#getStatus()} when {@link Client#waitForFlow(String)} observes a
+ * terminal status other than {@link #COMPLETED}. Terminal statuses remain available after the
+ * execution stops running.
  */
 public enum FlowStatus {
     /** The Flow execution can still make progress. */

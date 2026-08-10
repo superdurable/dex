@@ -13,11 +13,11 @@ package io.superdurable.dex;
 import io.superdurable.dex.exceptions.FlowUncompletedException;
 
 /**
- * Classifies why a Flow completed abnormally.
+ * Classifies why a Flow reached a terminal status other than {@link FlowStatus#COMPLETED}.
  *
  * <p>{@link FlowUncompletedException#getErrorType()} exposes this value after
- * {@link Client#waitForFlow(String)} observes a non-completed Flow. It describes the durable Flow
- * failure recorded by Dex rather than the Java exception type thrown by the client.
+ * {@link Client#waitForFlow(String)} observes that status. It describes the Flow failure recorded
+ * by Dex rather than the Java exception type thrown by the client.
  */
 public enum FlowErrorType {
     /** A Step returned a decision that failed the Flow. */

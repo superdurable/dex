@@ -82,8 +82,9 @@ import java.util.concurrent.TimeUnit;
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
- * by the client. Service failures use typed {@link DexServiceException} subclasses; blocking waits
- * can instead report {@link LongPollTimeoutException} or {@link FlowUncompletedException}.
+ * by the client. Service failures use typed {@link DexServiceException} subclasses;
+ * {@link #waitForFlow(String)} can instead throw {@link LongPollTimeoutException} or
+ * {@link FlowUncompletedException}.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
@@ -553,10 +554,11 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a Flow completes successfully without decoding an output.
+     * Blocks until a Flow reaches a terminal status and returns normally only for
+     * {@link FlowStatus#COMPLETED}.
      *
      * @param flowId the target Flow ID
-     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
@@ -565,13 +567,14 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a Flow completes and decodes its latest Step output.
+     * Blocks until a Flow reaches a terminal status and decodes output only for
+     * {@link FlowStatus#COMPLETED}.
      *
      * @param flowId the target Flow ID
      * @param outputType the concrete Java output class
      * @param <O> the expected output type
      * @return the latest completed Step output, or {@code null} when no output was recorded
-     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
@@ -580,15 +583,16 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks for a bounded duration until a Flow completes and decodes its latest output.
+     * Blocks for a bounded duration until a Flow reaches a terminal status and decodes output only
+     * for {@link FlowStatus#COMPLETED}.
      *
      * @param flowId the target Flow ID
      * @param outputType the concrete Java output class
      * @param timeout the nonnegative whole-second long-poll duration, or {@code null} for no bound
      * @param <O> the expected output type
      * @return the latest completed Step output, or {@code null} when no output was recorded
-     * @throws LongPollTimeoutException if the poll ends while the Flow remains running
-     * @throws FlowUncompletedException if the Flow reaches an abnormal terminal status
+     * @throws LongPollTimeoutException if {@code timeout} expires while the Flow remains running
+     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request

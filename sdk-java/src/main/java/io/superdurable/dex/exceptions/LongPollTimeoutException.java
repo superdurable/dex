@@ -14,10 +14,11 @@ import io.grpc.Status;
 import io.superdurable.dex.Client;
 
 /**
- * Reports that a blocking Flow wait ended while the Flow was still running.
+ * Thrown by {@link Client#waitForFlow(String, Class, java.time.Duration)} when the timeout expires
+ * before the Flow reaches a terminal status.
  *
- * <p>This timeout is not a Flow failure. Callers may catch the exception and issue another
- * {@link Client#waitForFlow} request for the same Flow ID.
+ * <p>This timeout does not indicate a Flow failure. The Flow is still running, so callers may catch
+ * the exception and call {@code waitForFlow} again with the same Flow ID.
  */
 public final class LongPollTimeoutException extends DexServiceException {
     private final String flowId;

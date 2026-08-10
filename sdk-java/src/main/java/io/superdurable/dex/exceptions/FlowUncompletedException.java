@@ -14,6 +14,7 @@
 
 package io.superdurable.dex.exceptions;
 
+import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.gen.StepCompletionOutput;
@@ -25,9 +26,11 @@ import java.util.List;
 import java.util.function.BiFunction;
 
 /**
- * Reports that a blocking Flow wait reached an abnormal terminal status.
+ * Thrown by {@link Client#waitForFlow(String)} when the Flow being waited for reaches a terminal
+ * status other than {@link FlowStatus#COMPLETED}.
  *
- * <p>The exception preserves the run identity, terminal status, durable error category, message,
+ * <p>All {@code waitForFlow} overloads throw this exception instead of returning normally for that
+ * status. The exception preserves the run identity, terminal status, Flow error category, message,
  * and any completed Step outputs returned by Dex. Use {@link #getResult} with a concrete class to
  * decode a selected result.
  */
@@ -39,11 +42,12 @@ public final class FlowUncompletedException extends RuntimeException {
     private final BiFunction<Value, Class<?>, Object> decoder;
 
     /**
-     * Creates an abnormal-completion exception with lazily decodable Step results.
+     * Creates an exception for a Flow that reached a terminal status other than
+     * {@link FlowStatus#COMPLETED}.
      *
      * @param runId the run ID that reached a terminal status
-     * @param status the abnormal terminal Flow status
-     * @param errorType the durable Flow error category, or {@code null} when unavailable
+     * @param status the terminal Flow status, which is not {@link FlowStatus#COMPLETED}
+     * @param errorType the Flow error category, or {@code null} when unavailable
      * @param message the server-provided completion detail
      * @param results completed Step outputs returned by Dex
      * @param decoder the SDK decoder used by {@link #getResult(int, Class)}
@@ -65,7 +69,7 @@ public final class FlowUncompletedException extends RuntimeException {
     }
 
     /**
-     * Returns the run ID that ended abnormally.
+     * Returns the run ID observed by {@code waitForFlow}.
      *
      * @return the run ID
      */
@@ -74,7 +78,7 @@ public final class FlowUncompletedException extends RuntimeException {
     }
 
     /**
-     * Returns the abnormal terminal status.
+     * Returns the terminal status that prevented {@code waitForFlow} from returning normally.
      *
      * @return the Flow status
      */
@@ -83,7 +87,7 @@ public final class FlowUncompletedException extends RuntimeException {
     }
 
     /**
-     * Returns the durable failure category.
+     * Returns the Flow failure category reported by Dex.
      *
      * @return the Flow error type, or {@code null} when Dex did not supply one
      */
