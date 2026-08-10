@@ -450,7 +450,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Publishes one message to a scalar Channel in a specific Flow run.
+     * Publishes one message to a Channel in a specific Flow run.
      *
      * @param flowId the target Flow ID
      * @param runId the target run ID
@@ -469,7 +469,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Publishes one or more messages to a scalar Channel in the current run.
+     * Publishes one or more messages to a Channel in the current run.
      *
      * @param flowId the target Flow ID
      * @param channel the typed Channel definition
@@ -511,7 +511,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Publishes a list of messages to a scalar Channel in the current run.
+     * Publishes a list of messages to a Channel in the current run.
      *
      * @param flowId the target Flow ID
      * @param channel the typed Channel definition

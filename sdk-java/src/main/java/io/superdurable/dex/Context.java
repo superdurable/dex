@@ -193,7 +193,7 @@ public interface Context {
     void deleteAttribute(AttributeMap<?> attribute, String instance);
 
     /**
-     * Publishes one message to a scalar Channel.
+     * Publishes one message to a Channel.
      *
      * @param channel the registered typed Channel
      * @param value the message value
@@ -212,7 +212,7 @@ public interface Context {
     <T> void publish(ChannelMap<T> channel, String instance, T value);
 
     /**
-     * Returns the visible message count for a scalar Channel.
+     * Returns the visible message count for a Channel.
      *
      * @param channel the registered Channel
      * @return the visible message count
@@ -229,7 +229,7 @@ public interface Context {
     int channelSize(ChannelMap<?> channel, String instance);
 
     /**
-     * Returns condition results for a scalar Channel.
+     * Returns condition results for a Channel.
      *
      * @param channel the registered typed Channel
      * @param <T> the Channel message type
