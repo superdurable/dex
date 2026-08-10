@@ -40,15 +40,14 @@ a `WorkerError` with the original worker code, type, and detail.
 
 ```rust
 match client.publish(flow_id, &orders.approved, order_id) {
-    Err(SdkError::FlowNotActive(service)) => {
+    Err(SdkError::FlowNotActive { service }) => {
         eprintln!("{} failed for {:?}", service.operation(), service.flow_id());
     }
     result => result?,
 }
 ```
 
-`Registry::try_register` reports invalid definitions as
-`SdkError::FlowDefinition`; `register` remains the fail-fast startup form.
+`Registry::register` reports invalid definitions as `SdkError::FlowDefinition`.
 Value conversion and invalid Step results use `ValueMapping` and
 `InvalidStepResult`.
 

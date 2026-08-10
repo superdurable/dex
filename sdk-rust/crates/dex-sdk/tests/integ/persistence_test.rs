@@ -26,7 +26,7 @@ fn test_persistence_reads() {
         environment
             .client
             .get_attribute(&flow_id("missing"), &workflow.data),
-        Err(SdkError::FlowNotFound(_))
+        Err(SdkError::FlowNotFound { .. })
     ));
     let flow_id = flow_id("persistence");
     let options = StartFlowOptions::new()
@@ -96,7 +96,7 @@ fn test_persistence_reads() {
         environment
             .client
             .set_attribute(&flow_id, &workflow.data, "closed".to_string()),
-        Err(SdkError::FlowNotActive(_))
+        Err(SdkError::FlowNotActive { .. })
     ));
 }
 

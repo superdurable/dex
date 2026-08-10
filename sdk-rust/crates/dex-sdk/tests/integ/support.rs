@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, Registry, Worker, WorkerOptions};
+use dex_sdk::{
+    BlobCache, BlobCacheConfig, Client, ClientOptions, Registry, SdkResult, Worker, WorkerOptions,
+};
 use tempfile::TempDir;
 
 pub(crate) struct DexDevTestEnvironment {
@@ -26,7 +28,8 @@ pub(crate) struct DexDevTestEnvironment {
 }
 
 impl DexDevTestEnvironment {
-    pub(crate) fn start(registry: Registry) -> Self {
+    pub(crate) fn start(registry: SdkResult<Registry>) -> Self {
+        let registry = registry.expect("register integration test Flow");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
         let worker_port = available_port();

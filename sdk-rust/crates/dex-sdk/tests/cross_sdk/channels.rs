@@ -328,7 +328,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
         .client
         .publish(&missing_flow_id, &workflow.first, 100)
         .expect_err("publishing to a missing Flow must fail");
-    assert!(matches!(missing, SdkError::FlowNotActive(_)));
+    assert!(matches!(missing, SdkError::FlowNotActive { .. }));
 }
 
 #[test]

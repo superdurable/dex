@@ -21,8 +21,8 @@ impl Flow for EmptyFlow {
 #[test]
 fn fallible_registration_returns_flow_definition_error() {
     let registry = Registry::new()
-        .try_register(EmptyFlow)
+        .register(EmptyFlow)
         .expect("register first Flow");
-    let duplicate = registry.try_register(EmptyFlow);
+    let duplicate = registry.register(EmptyFlow);
     assert!(matches!(duplicate, Err(SdkError::FlowDefinition { .. })));
 }

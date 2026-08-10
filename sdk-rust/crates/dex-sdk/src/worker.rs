@@ -190,5 +190,7 @@ fn endpoint_address(address: &str) -> String {
 }
 
 fn service_error(error: impl std::fmt::Display) -> SdkError {
-    SdkError::Service(crate::ServiceError::local("worker", error.to_string()))
+    SdkError::Service {
+        service: crate::ServiceError::local("worker", error.to_string()),
+    }
 }

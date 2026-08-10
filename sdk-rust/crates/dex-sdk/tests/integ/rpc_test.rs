@@ -49,7 +49,7 @@ fn test_locking_rpc() {
                     .invoke_rpc_without_input::<i32>(&flow_id, RpcNoStateWorkflow::INCREASE_COUNTER)
                 {
                     Ok(_) => succeeded += 1,
-                    Err(SdkError::RpcLockConflict(_)) => {}
+                    Err(SdkError::RpcLockConflict { .. }) => {}
                     Err(error) => panic!("increase counter RPC failed: {error:?}"),
                 }
             }

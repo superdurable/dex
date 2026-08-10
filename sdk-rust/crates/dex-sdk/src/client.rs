@@ -952,5 +952,7 @@ fn invalid(message: impl Into<String>) -> SdkError {
 }
 
 fn service_error(error: impl std::fmt::Display) -> SdkError {
-    SdkError::Service(ServiceError::local("client", error.to_string()))
+    SdkError::Service {
+        service: ServiceError::local("client", error.to_string()),
+    }
 }

@@ -106,16 +106,28 @@ impl WorkerError {
 
 #[derive(Debug)]
 pub enum SdkError {
-    Service(ServiceError),
-    FlowAlreadyStarted(ServiceError),
-    FlowNotFound(ServiceError),
-    FlowNotActive(ServiceError),
+    Service {
+        service: ServiceError,
+    },
+    FlowAlreadyStarted {
+        service: ServiceError,
+    },
+    FlowNotFound {
+        service: ServiceError,
+    },
+    FlowNotActive {
+        service: ServiceError,
+    },
     WorkerInvocation {
         service: ServiceError,
-        worker: WorkerError,
+        worker: Box<WorkerError>,
     },
-    RpcLockConflict(ServiceError),
-    LongPollTimeout(ServiceError),
+    RpcLockConflict {
+        service: ServiceError,
+    },
+    LongPollTimeout {
+        service: ServiceError,
+    },
     FlowUncompleted {
         run_id: String,
         status: FlowStatus,
@@ -142,12 +154,12 @@ pub enum SdkError {
 impl Display for SdkError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Service(error)
-            | Self::FlowAlreadyStarted(error)
-            | Self::FlowNotFound(error)
-            | Self::FlowNotActive(error)
-            | Self::RpcLockConflict(error)
-            | Self::LongPollTimeout(error) => Display::fmt(error, formatter),
+            Self::Service { service }
+            | Self::FlowAlreadyStarted { service }
+            | Self::FlowNotFound { service }
+            | Self::FlowNotActive { service }
+            | Self::RpcLockConflict { service }
+            | Self::LongPollTimeout { service } => Display::fmt(service, formatter),
             Self::WorkerInvocation { service, .. } => Display::fmt(service, formatter),
             Self::InvalidStepResult { detail, .. } => formatter.write_str(detail),
             Self::FlowUncompleted { message, .. } => {
@@ -170,12 +182,12 @@ impl Error for SdkError {
 impl SdkError {
     pub fn service_error(&self) -> Option<&ServiceError> {
         match self {
-            Self::Service(error)
-            | Self::FlowAlreadyStarted(error)
-            | Self::FlowNotFound(error)
-            | Self::FlowNotActive(error)
-            | Self::RpcLockConflict(error)
-            | Self::LongPollTimeout(error) => Some(error),
+            Self::Service { service }
+            | Self::FlowAlreadyStarted { service }
+            | Self::FlowNotFound { service }
+            | Self::FlowNotActive { service }
+            | Self::RpcLockConflict { service }
+            | Self::LongPollTimeout { service } => Some(service),
             Self::WorkerInvocation { service, .. } => Some(service),
             _ => None,
         }
@@ -214,32 +226,32 @@ impl SdkError {
             source: status,
         };
         if decoded.is_err() {
-            return Self::Service(service);
+            return Self::Service { service };
         }
         match sub_status {
-            ErrorSubStatus::FlowAlreadyStarted => Self::FlowAlreadyStarted(service),
+            ErrorSubStatus::FlowAlreadyStarted => Self::FlowAlreadyStarted { service },
             ErrorSubStatus::FlowNotExists => match requirement {
-                FlowTargetRequirement::Active => Self::FlowNotActive(service),
-                FlowTargetRequirement::Existing => Self::FlowNotFound(service),
-                FlowTargetRequirement::None => Self::Service(service),
+                FlowTargetRequirement::Active => Self::FlowNotActive { service },
+                FlowTargetRequirement::Existing => Self::FlowNotFound { service },
+                FlowTargetRequirement::None => Self::Service { service },
             },
             ErrorSubStatus::WorkerApiError if code == GrpcCode::Aborted => {
-                Self::RpcLockConflict(service)
+                Self::RpcLockConflict { service }
             }
             ErrorSubStatus::WorkerApiError => {
                 let details = details.expect("worker details were decoded");
                 Self::WorkerInvocation {
                     service,
-                    worker: WorkerError {
+                    worker: Box::new(WorkerError {
                         code: (details.original_worker_error_status != 0)
                             .then(|| GrpcCode::from_i32(details.original_worker_error_status)),
                         error_type: details.original_worker_error_type.clone(),
                         detail: details.original_worker_error_detail.clone(),
-                    },
+                    }),
                 }
             }
-            ErrorSubStatus::LongPollTimeout => Self::LongPollTimeout(service),
-            ErrorSubStatus::Uncategorized => Self::Service(service),
+            ErrorSubStatus::LongPollTimeout => Self::LongPollTimeout { service },
+            ErrorSubStatus::Uncategorized => Self::Service { service },
         }
     }
 }
@@ -300,7 +312,7 @@ mod tests {
             Some("flow-id"),
             FlowTargetRequirement::Existing,
         );
-        assert!(matches!(found, SdkError::FlowNotFound(_)));
+        assert!(matches!(found, SdkError::FlowNotFound { .. }));
 
         let active = SdkError::from_status(
             rich_status(GrpcCode::NotFound, ProtoErrorSubStatus::FlowNotExists),
@@ -308,7 +320,7 @@ mod tests {
             Some("flow-id"),
             FlowTargetRequirement::Active,
         );
-        assert!(matches!(active, SdkError::FlowNotActive(_)));
+        assert!(matches!(active, SdkError::FlowNotActive { .. }));
     }
 
     #[test]
@@ -335,7 +347,7 @@ mod tests {
             Some("flow-id"),
             FlowTargetRequirement::Active,
         );
-        assert!(matches!(conflict, SdkError::RpcLockConflict(_)));
+        assert!(matches!(conflict, SdkError::RpcLockConflict { .. }));
     }
 
     #[test]
@@ -346,7 +358,7 @@ mod tests {
             None,
             FlowTargetRequirement::None,
         );
-        assert!(matches!(missing, SdkError::Service(_)));
+        assert!(matches!(missing, SdkError::Service { .. }));
 
         let malformed = SdkError::from_status(
             Status::with_details(GrpcCode::Internal, "malformed", vec![255].into()),
@@ -354,7 +366,7 @@ mod tests {
             None,
             FlowTargetRequirement::None,
         );
-        assert!(matches!(malformed, SdkError::Service(_)));
+        assert!(matches!(malformed, SdkError::Service { .. }));
     }
 
     fn rich_status(code: GrpcCode, sub_status: ProtoErrorSubStatus) -> Status {

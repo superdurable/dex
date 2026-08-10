@@ -43,12 +43,7 @@ impl Registry {
         Self::default()
     }
 
-    pub fn register<SomeFlow: Flow>(self, flow: SomeFlow) -> Self {
-        self.try_register(flow)
-            .unwrap_or_else(|error| panic!("cannot register Flow: {error}"))
-    }
-
-    pub fn try_register<SomeFlow: Flow>(mut self, flow: SomeFlow) -> SdkResult<Self> {
+    pub fn register<SomeFlow: Flow>(mut self, flow: SomeFlow) -> SdkResult<Self> {
         let flow = Arc::new(flow);
         let name = require_static_name(flow.flow_type(), "Flow type")?;
         let registered = assemble_flow(name, Arc::clone(&flow))?;

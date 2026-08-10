@@ -137,7 +137,7 @@ sub-status metadata:
 ```rust
 match client.start_flow(&orders, "order-123", order) {
     Ok(run_id) => println!("started {run_id}"),
-    Err(SdkError::FlowAlreadyStarted(_)) => println!("already started"),
+    Err(SdkError::FlowAlreadyStarted { .. }) => println!("already started"),
     Err(error) => return Err(error),
 }
 ```
@@ -157,7 +157,7 @@ gRPC code, Dex sub-status, operation, Flow ID, and detail.
 Client and Worker share an `Arc<BlobCache>` and cloned Registry metadata:
 
 ```rust
-let registry = Registry::new().try_register(OrderFlow::new())?;
+let registry = Registry::new().register(OrderFlow::new())?;
 let cache = Arc::new(BlobCache::open(cache_config)?);
 let client = Client::new(registry.clone(), cache.clone(), ClientOptions::new());
 let worker = Worker::new(registry, cache, WorkerOptions::new());
