@@ -545,14 +545,15 @@ func (*datasetDealController) serveUIFile(
 }
 
 func (*datasetDealController) respondError(request *gin.Context, err error) {
-	var sdkError *sdk.Error
+	var missing *sdk.FlowNotFoundError
+	var inactive *sdk.FlowNotActiveError
 	switch {
 	case errors.Is(err, datasetdeal.ErrProcessExists):
 		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, datasetdeal.ErrProcessNotFound),
 		errors.Is(err, datasetdeal.ErrExecutionNotFound):
 		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-	case errors.As(err, &sdkError) && sdkError.SubStatus == sdk.ErrorFlowNotFound:
+	case errors.As(err, &missing), errors.As(err, &inactive):
 		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:
 		request.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

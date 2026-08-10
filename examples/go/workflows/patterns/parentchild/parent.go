@@ -138,8 +138,8 @@ func (step startChildWorkflowStep) Execute(
 		dex.StartFlowOptions{},
 	)
 	if err != nil {
-		var dexErr *dex.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == dex.ErrorFlowAlreadyStarted {
+		var duplicate *dex.FlowAlreadyStartedError
+		if errors.As(err, &duplicate) {
 			fmt.Println("ignore this error because it is already started")
 		} else {
 			return nil, err
@@ -181,8 +181,8 @@ func (step awaitChildWorkflowCompletionStep) Execute(
 		dex.WaitForFlowOptions{Timeout: time.Duration(waitSeconds) * time.Second},
 	)
 	if err != nil {
-		var dexErr *dex.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == dex.ErrorLongPollTimeout {
+		var timeout *dex.LongPollTimeoutError
+		if errors.As(err, &timeout) {
 			nextTimer := input.TimerSeconds * 2
 			if nextTimer > 10 {
 				nextTimer = 10

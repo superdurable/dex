@@ -66,8 +66,8 @@ func (controller *shortlistController) optIn(request *gin.Context) {
 		sdk.StartFlowOptions{Timeout: &timeout},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+		var duplicate *sdk.FlowAlreadyStartedError
+		if errors.As(err, &duplicate) {
 			request.String(
 				http.StatusOK,
 				fmt.Sprintf("Employer %s has already opted in", employerID),
@@ -98,8 +98,8 @@ func (controller *shortlistController) optOut(request *gin.Context) {
 		sdk.InvokeOptions{},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowNotFound {
+		var inactive *sdk.FlowNotActiveError
+		if errors.As(err, &inactive) {
 			request.String(
 				http.StatusOK,
 				fmt.Sprintf("Employer %s is not in the opt-in status", employerID),
@@ -161,8 +161,8 @@ func (controller *shortlistController) shortlist(request *gin.Context) {
 		sdk.StartFlowOptions{Timeout: &timeout},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+		var duplicate *sdk.FlowAlreadyStartedError
+		if errors.As(err, &duplicate) {
 			request.String(
 				http.StatusOK,
 				fmt.Sprintf("Already running workflowId: %s", flowID),
@@ -191,8 +191,8 @@ func (controller *shortlistController) revokeShortlist(request *gin.Context) {
 		nil,
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowNotFound {
+		var inactive *sdk.FlowNotActiveError
+		if errors.As(err, &inactive) {
 			request.String(
 				http.StatusOK,
 				fmt.Sprintf("No running workflow to revoke for %s", employerID+"-"+candidateID),
@@ -222,8 +222,8 @@ func (controller *shortlistController) emailSentTimestamp(request *gin.Context) 
 		sdk.InvokeOptions{},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowNotFound {
+		var inactive *sdk.FlowNotActiveError
+		if errors.As(err, &inactive) {
 			request.Status(http.StatusNotFound)
 			return
 		}

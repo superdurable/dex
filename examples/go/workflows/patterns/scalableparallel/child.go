@@ -95,8 +95,8 @@ func (step processingStep) Execute(
 				dex.InvokeOptions{},
 			)
 			if rpcErr != nil {
-				var dexErr *dex.Error
-				if errors.As(rpcErr, &dexErr) && dexErr.SubStatus == dex.ErrorFlowNotFound {
+				var inactive *dex.FlowNotActiveError
+				if errors.As(rpcErr, &inactive) {
 					fmt.Println(
 						"Parent workflow may have completed, might be duplicate " +
 							"completion request, ignore it.",

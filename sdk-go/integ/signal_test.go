@@ -144,6 +144,14 @@ func runChannelFlow(
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
+	err = integClient.WaitForStepCompletion(
+		ctx,
+		flowID,
+		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
+		dex.WaitOptions{Timeout: time.Second},
+	)
+	var timeout *dex.LongPollTimeoutError
+	require.ErrorAs(t, err, &timeout)
 	require.NoError(t, integClient.PublishToChannel(
 		ctx,
 		flowID,
@@ -185,5 +193,6 @@ func runChannelFlow(
 		first,
 		100,
 	)
-	requireDexError(t, err, dex.ErrorFlowNotFound)
+	var inactive *dex.FlowNotActiveError
+	require.ErrorAs(t, err, &inactive)
 }

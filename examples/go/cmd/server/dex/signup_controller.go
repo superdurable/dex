@@ -68,8 +68,8 @@ func (controller *signupController) submit(request *gin.Context) {
 		sdk.StartFlowOptions{Timeout: &timeout},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+		var duplicate *sdk.FlowAlreadyStartedError
+		if errors.As(err, &duplicate) {
 			request.JSON(http.StatusOK, "username already started registry")
 			return
 		}

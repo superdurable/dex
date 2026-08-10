@@ -15,6 +15,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"testing"
 	"time"
 
@@ -117,6 +118,18 @@ var _ dex.Step[stepInput] = executeOnly
 
 type contractFlow struct {
 	dex.FlowDefaults
+}
+
+type unregisteredContractFlow struct {
+	dex.FlowDefaults
+}
+
+func (unregisteredContractFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
+func (unregisteredContractFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
 }
 
 func (contractFlow) GetSteps() []dex.StepDef {
@@ -226,6 +239,30 @@ func TestPublicContractsCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = client.StartFlow(
+		context.Background(),
+		unregisteredContractFlow{},
+		"unregistered",
+		nil,
+		dex.StartFlowOptions{},
+	)
+	var definition *dex.FlowDefinitionError
+	if !errors.As(err, &definition) {
+		t.Fatalf("unregistered Flow error is not FlowDefinitionError: %v", err)
+	}
+	unregisteredAttribute := dex.DefineAttribute[string]("unregistered")
+	err = client.SetAttribute(
+		context.Background(),
+		"flow-id",
+		unregisteredAttribute,
+		"value",
+	)
+	if !errors.As(err, &definition) {
+		t.Fatalf("unregistered attribute error is not FlowDefinitionError: %v", err)
+	}
+	if definition.Definition != `attribute "unregistered"` {
+		t.Fatalf("unregistered attribute context is missing: %#v", definition)
+	}
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -234,18 +271,53 @@ func TestPublicContractsCompile(t *testing.T) {
 	}
 }
 
-func TestErrorSupportsErrorsAs(t *testing.T) {
-	sdkError := error(&dex.Error{
+func TestServiceErrorsSupportErrorsAs(t *testing.T) {
+	serviceError := &dex.ServiceError{
+		Op:        "WaitForFlow",
+		FlowID:    "flow-id",
 		Code:      codes.NotFound,
-		SubStatus: dex.ErrorFlowNotFound,
+		SubStatus: dex.ErrorSubStatusFlowNotFound,
 		Detail:    "flow is missing",
-	})
-	var target *dex.Error
-	if !errors.As(sdkError, &target) {
-		t.Fatal("SDK error does not support errors.As")
 	}
-	if target.Code != codes.NotFound {
-		t.Fatalf("unexpected code: %s", target.Code)
+	sdkError := error(&dex.FlowNotFoundError{ServiceError: serviceError})
+	var missing *dex.FlowNotFoundError
+	if !errors.As(sdkError, &missing) {
+		t.Fatal("specific SDK error does not support errors.As")
+	}
+	var target *dex.ServiceError
+	if !errors.As(sdkError, &target) {
+		t.Fatal("SDK error does not unwrap to ServiceError")
+	}
+	if target.Code != codes.NotFound || target.FlowID != "flow-id" {
+		t.Fatalf("unexpected service error: %#v", target)
+	}
+}
+
+func TestLocalErrorContracts(t *testing.T) {
+	_, err := dex.NewRegistry([]dex.Flow{nil})
+	var definition *dex.FlowDefinitionError
+	if !errors.As(err, &definition) {
+		t.Fatalf("registry error is not FlowDefinitionError: %v", err)
+	}
+
+	indexed := dex.DefineAttribute[float64](
+		"score",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble}),
+	)
+	_, err = dex.InitialAttribute(indexed, math.NaN())
+	var mapping *dex.ValueMappingError
+	if !errors.As(err, &mapping) {
+		t.Fatalf("mapping error is not ValueMappingError: %v", err)
+	}
+
+	uncompletedErr := error(&dex.FlowUncompletedError{
+		FlowID: "flow-id",
+		RunID:  "run-id",
+		Status: dex.FlowFailed,
+	})
+	var uncompleted *dex.FlowUncompletedError
+	if !errors.As(uncompletedErr, &uncompleted) {
+		t.Fatalf("Flow uncompleted error does not support errors.As: %v", uncompletedErr)
 	}
 }
 

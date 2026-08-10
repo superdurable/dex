@@ -167,7 +167,7 @@ Explicit IDs must be non-empty, unique, and outside the reserved prefix.
 
 The internal error mapper preserves the gRPC code, Dex substatus and detail,
 plus original worker code, type, and detail. A gRPC error without Dex details
-uses `ErrorUncategorized`; local non-gRPC errors remain unchanged.
+uses `ErrorSubStatusUncategorized`; local non-gRPC errors remain unchanged.
 
 The private hydration seam accepts blob arms and returns concrete values in the
 same order. It deduplicates repeated references and validates count and arm
@@ -830,7 +830,7 @@ and buffered attributes, events, and channel messages.
 
 Every Worker failure crosses gRPC as a status with one `WorkerErrorResponse`.
 The server can therefore preserve the original worker code, concrete error
-type, and detail in its public `dex.Error` conversion.
+type, and detail in the Client's public `WorkerInvocationError` conversion.
 
 | Failure | gRPC code |
 |---|---|
@@ -1136,7 +1136,7 @@ Every public method follows the same transport boundary:
 3. select or generate any required request ID once;
 4. assemble one generated request with an empty `run_id`;
 5. call the generated FlowService stub with the caller's context;
-6. convert a gRPC failure through `convertRPCError`;
+6. translate a gRPC failure using the endpoint's Flow requirement;
 7. hydrate all response blob arms in one ordered batch; and
 8. map and decode only after the complete response is valid.
 
@@ -1145,8 +1145,9 @@ wire `run_id` lets the server follow Continue-as-New. ResetFlow returns the new
 run ID, while StartFlow returns the created or matched run ID. The public Client
 does not add a run-specific variant in Phase 5.
 
-Local validation, encoding, and decoding errors remain ordinary Go errors.
-Only errors received from FlowService become `*dex.Error`.
+Local validation errors remain ordinary Go errors. Encoding and decoding errors
+use `*dex.ValueMappingError`. Only errors received from FlowService become
+`*dex.ServiceError` or a concrete service error wrapping it.
 
 The Client builds each protobuf request once. gRPC's pre-commit transparent
 retry therefore reuses the same request and request ID. Phase 5 does not add a
@@ -1322,8 +1323,10 @@ durations round up and negative durations fail locally.
 WaitForFlow leaves zero timeout as the server-configured maximum long poll. A
 successful response maps status and error metadata, then hydrates every
 requested completion output before returning. `NeedsResults=false` never
-requires result decoding. A long-poll timeout remains a `*dex.Error` with
-`DeadlineExceeded` and `ErrorLongPollTimeout`.
+requires result decoding. A long-poll timeout returns
+`*dex.LongPollTimeoutError` with `DeadlineExceeded` and the Flow ID. A closed
+Flow whose status is not completed returns `*dex.FlowUncompletedError` with its
+Flow ID, current run ID, status, error metadata, and requested completions.
 
 SkipTimer requires a non-empty step type and exactly one TimerID selector: a
 non-empty condition ID or a non-negative index. A nil execution number defaults
@@ -1372,7 +1375,7 @@ miss batching, response-kind validation, and admission behavior remain the
 Phase 4 contract.
 
 Hydration errors are classified at the boundary that owns the call. A remote
-LoadBlobs status becomes `*dex.Error` for a public Client call. A malformed,
+LoadBlobs status becomes `*dex.ServiceError` for a public Client call. A malformed,
 missing, wrong-kind, or still-blob response remains a local SDK response error.
 The Worker retains its WorkerError classification. The shared hydrator does not
 expose Worker-specific errors to Client applications.
@@ -1383,18 +1386,20 @@ network I/O.
 
 ### Error conversion and cancellation
 
-Every generated FlowService error passes through `convertRPCError` exactly
-once. It preserves gRPC code, Dex substatus, detail, and original Worker error.
-Unknown or absent Dex details map to `ErrorUncategorized`.
+Every generated FlowService error passes through the service error translator
+exactly once. It preserves operation, Flow ID, gRPC code, Dex substatus,
+detail, original Worker error, and the gRPC cause. Unknown, absent, or malformed
+Dex details map to `ServiceError` with `ErrorSubStatusUncategorized`.
 
 Caller cancellation and deadlines propagate through gRPC. If gRPC returns
-their status, the Client exposes `*dex.Error` with `Canceled` or
+their status, the Client exposes `*dex.ServiceError` with `Canceled` or
 `DeadlineExceeded`. A context already done before request assembly returns its
 context error locally and sends no RPC.
 
-The Client never converts codec, reflection, option, response-shape, or closed
-Client failures into fake gRPC statuses. `errors.As(err, *dex.Error)` therefore
-continues to distinguish remote service failures from local SDK misuse.
+The Client never converts definition, codec, reflection, option, response-shape,
+or closed Client failures into fake gRPC statuses. Matching
+`*dex.ServiceError` therefore distinguishes remote service failures from local
+SDK errors.
 
 ### Integration suite migration
 
@@ -2425,6 +2430,15 @@ type WaitForFlowResult struct {
 	ErrorMessage string
 }
 
+type FlowUncompletedError struct {
+	FlowID       string
+	RunID        string
+	Status       FlowStatus
+	ErrorType    FlowErrorType
+	ErrorMessage string
+	Completions  []StepCompletion
+}
+
 type SearchFlowEntry struct {
 	FlowID           string
 	RunID            string
@@ -2622,15 +2636,16 @@ type AttributeNotFoundError struct {
 `Instance` is populated for `AttributeMap` reads. The error supports
 `errors.As` and is never converted to a gRPC status.
 
-All FlowService failures are returned as an SDK error that preserves both gRPC
-status and Dex details:
+All FlowService failures preserve gRPC status, Dex details, operation, Flow ID,
+and the original gRPC cause:
 
 ```go
-type Error struct {
-	Code                codes.Code
-	SubStatus           ErrorSubStatus
-	Detail              string
-	OriginalWorkerError *WorkerError
+type ServiceError struct {
+	Op        string
+	FlowID    string
+	Code      codes.Code
+	SubStatus ErrorSubStatus
+	Detail    string
 }
 
 type WorkerError struct {
@@ -2642,17 +2657,35 @@ type WorkerError struct {
 type ErrorSubStatus uint8
 
 const (
-	ErrorUncategorized ErrorSubStatus = iota + 1
-	ErrorFlowAlreadyStarted
-	ErrorFlowNotFound
-	ErrorWorkerAPI
-	ErrorLongPollTimeout
+	ErrorSubStatusUncategorized ErrorSubStatus = iota + 1
+	ErrorSubStatusFlowAlreadyStarted
+	ErrorSubStatusFlowNotFound
+	ErrorSubStatusWorkerAPI
+	ErrorSubStatusLongPollTimeout
 )
 ```
 
-`Error` implements `error` and supports `errors.As`. Application-worker
-failures remain distinguishable from backend `Unavailable`; long-poll timeout
-retains `DeadlineExceeded` plus `LongPollTimeout`.
+Applications use `errors.As` with `FlowAlreadyStartedError`,
+`FlowNotFoundError`, `FlowNotActiveError`, `WorkerInvocationError`,
+`RPCLockConflictError`, or `LongPollTimeoutError`. Each unwraps through
+`ServiceError` to the original gRPC status. `ErrorSubStatus` remains diagnostic
+metadata.
+
+`FlowUncompletedError` is a local terminal-state error rather than a
+`ServiceError`. It exposes `FlowID`, `RunID`, `Status`, `ErrorType`,
+`ErrorMessage`, and `Completions` from the wait response.
+
+GetAttribute, GetAttributes, WaitForFlow, and ResetFlow require an existing
+Flow. Mutations, RPC, publish, stop, timer, config, and step or attribute wait
+operations require an active Flow. The shared server `FLOW_NOT_EXISTS`
+sub-status maps to the corresponding concrete error using that endpoint
+requirement.
+
+Registry and unregistered-definition failures return `FlowDefinitionError`.
+Invalid Wait, StepDecision, and RPCResult values return
+`InvalidStepResultError` from WorkerService. Value encoding and decoding
+failures return `ValueMappingError`; invalid call arguments remain ordinary Go
+errors.
 
 ### End-to-end authoring example
 

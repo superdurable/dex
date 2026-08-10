@@ -897,8 +897,8 @@ func ensureStorage(ctx context.Context, client *dex.Client) error {
 	if err == nil {
 		return nil
 	}
-	var dexErr *dex.Error
-	if errors.As(err, &dexErr) && dexErr.SubStatus == dex.ErrorFlowAlreadyStarted {
+	var duplicate *dex.FlowAlreadyStartedError
+	if errors.As(err, &duplicate) {
 		return nil
 	}
 	return err
@@ -1029,18 +1029,19 @@ func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) resul
 	if err != nil {
 		return fail(name, "", err)
 	}
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
+	_, err = client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
 		Timeout:      90 * time.Second,
 	})
-	if err != nil {
+	var uncompleted *dex.FlowUncompletedError
+	if !errors.As(err, &uncompleted) {
 		return fail(name, "", err)
 	}
-	if wait.Status != dex.FlowFailed {
-		return fail(name, fmt.Sprintf("expected FlowFailed got %v msg=%s", wait.Status, wait.ErrorMessage), nil)
+	if uncompleted.Status != dex.FlowFailed {
+		return fail(name, fmt.Sprintf("expected FlowFailed got %v msg=%s", uncompleted.Status, uncompleted.ErrorMessage), nil)
 	}
-	if !strings.Contains(wait.ErrorMessage, "Failed to process transaction") {
-		return fail(name, "msg="+wait.ErrorMessage, nil)
+	if !strings.Contains(uncompleted.ErrorMessage, "Failed to process transaction") {
+		return fail(name, "msg="+uncompleted.ErrorMessage, nil)
 	}
 	return pass(name, "payment fail → void → ForceFail as designed")
 }
@@ -1101,8 +1102,8 @@ func verifyParentChild(ctx context.Context, client *dex.Client, stamp string) re
 		Timeout:      3 * time.Second,
 	})
 	if err != nil {
-		var dexErr *dex.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == dex.ErrorLongPollTimeout {
+		var timeout *dex.LongPollTimeoutError
+		if errors.As(err, &timeout) {
 			return pass(name, "children completed; parent still running (by design)")
 		}
 		return fail(name, "parent status", err)
@@ -1225,18 +1226,19 @@ func verifyTimeoutFail(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, "", err)
 	}
 	// 1m ForceFail + worker backlog under reminder load needs headroom.
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
+	_, err = client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
 		Timeout:      3 * time.Minute,
 	})
-	if err != nil {
+	var uncompleted *dex.FlowUncompletedError
+	if !errors.As(err, &uncompleted) {
 		return fail(name, "", err)
 	}
-	if wait.Status != dex.FlowFailed {
-		return fail(name, fmt.Sprintf("expected failed got %v msg=%s", wait.Status, wait.ErrorMessage), nil)
+	if uncompleted.Status != dex.FlowFailed {
+		return fail(name, fmt.Sprintf("expected failed got %v msg=%s", uncompleted.Status, uncompleted.ErrorMessage), nil)
 	}
-	if !strings.Contains(wait.ErrorMessage, "did not finish the task in time") {
-		return fail(name, "msg="+wait.ErrorMessage, nil)
+	if !strings.Contains(uncompleted.ErrorMessage, "did not finish the task in time") {
+		return fail(name, "msg="+uncompleted.ErrorMessage, nil)
 	}
 	return pass(name, "1m timeout ForceFail as designed")
 }
@@ -1262,14 +1264,18 @@ func verifyCron(ctx context.Context, client *dex.Client) result {
 		NeedsResults: true,
 		Timeout:      60 * time.Second,
 	})
+	outcome := "completed"
 	if err != nil {
-		return fail(name, "WaitForFlow "+tickID, err)
-	}
-	if wait.Status != dex.FlowCompleted && wait.Status != dex.FlowContinuedAsNew {
+		var uncompleted *dex.FlowUncompletedError
+		if !errors.As(err, &uncompleted) || uncompleted.Status != dex.FlowContinuedAsNew {
+			return fail(name, "WaitForFlow "+tickID, err)
+		}
+		outcome = "continued as new"
+	} else if wait.Status != dex.FlowCompleted {
 		return fail(name, fmt.Sprintf("status=%v msg=%s", wait.Status, wait.ErrorMessage), nil)
 	}
 	_ = client.StopFlow(ctx, cronID, dex.StopOptions{})
-	return pass(name, fmt.Sprintf("schedule tick completed id=%s", tickID))
+	return pass(name, fmt.Sprintf("schedule tick %s id=%s", outcome, tickID))
 }
 
 func waitForCronTickID(cronID string, timeout time.Duration) (string, error) {

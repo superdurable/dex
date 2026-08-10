@@ -187,9 +187,8 @@ func (step loopForNextMessageStep) Execute(
 			},
 		)
 		if startErr != nil {
-			var dexErr *dex.Error
-			if errors.As(startErr, &dexErr) &&
-				dexErr.SubStatus == dex.ErrorFlowAlreadyStarted {
+			var duplicate *dex.FlowAlreadyStartedError
+			if errors.As(startErr, &duplicate) {
 				fmt.Println(
 					"already started by other state/workflow, ignore it " +
 						"-- not waiting for it",
