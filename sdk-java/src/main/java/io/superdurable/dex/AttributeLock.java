@@ -11,11 +11,13 @@
 package io.superdurable.dex;
 
 /**
- * Selects one Attribute value to lock while a Step method runs.
+ * Defines one Attribute lock for a Step's {@code waitFor} or {@code execute} method.
  *
  * <p>Add locks through {@link StepOptions.Builder#addWaitForLock} or
  * {@link StepOptions.Builder#addExecuteLock}. Scalar Attributes lock their single value; an
- * Attribute map lock targets only the supplied instance.
+ * Attribute map lock targets only the supplied instance. RPC methods support the same locking
+ * behavior through {@link RPC#lockAttributes} and {@link RPC#lockAttributeMaps}; Java annotations
+ * cannot accept {@code AttributeLock} objects, so RPC locks use annotation elements instead.
  *
  * <pre>{@code
  * return StepOptions.newBuilder()
