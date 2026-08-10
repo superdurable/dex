@@ -8,6 +8,8 @@
 
 use std::marker::PhantomData;
 
+use dex_protocol::dex::IndexConfig;
+
 use crate::{Context, HandlerError, HandlerResult, Value};
 
 pub struct Attribute<T> {
@@ -61,6 +63,14 @@ impl<T> Attribute<T> {
             attribute: self.name.clone(),
             instance: None,
         }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn index(&self) -> Option<&AttributeIndex> {
+        self.index.as_ref()
     }
 }
 
@@ -127,6 +137,14 @@ impl<T> AttributeMap<T> {
             instance: Some(instance.into()),
         }
     }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn index(&self) -> Option<&AttributeIndex> {
+        self.index.as_ref()
+    }
 }
 
 impl<T> Clone for AttributeMap<T> {
@@ -185,7 +203,7 @@ impl AttributeIndex {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AttributeIndexKind {
+pub(crate) enum AttributeIndexKind {
     Keyword,
     FullText,
     KeywordArray,
@@ -199,4 +217,43 @@ enum AttributeIndexKind {
 pub struct AttributeLock {
     attribute: String,
     instance: Option<String>,
+}
+
+impl AttributeIndex {
+    pub(crate) fn proto_config(&self, dynamic: bool) -> IndexConfig {
+        IndexConfig {
+            enable: true,
+            r#type: self.kind.proto_value(),
+            index_key: self
+                .key
+                .clone()
+                .or_else(|| dynamic.then(String::new))
+                .unwrap_or_default(),
+        }
+    }
+}
+
+impl AttributeIndexKind {
+    pub(crate) fn proto_value(self) -> i32 {
+        use dex_protocol::dex::IndexType;
+
+        match self {
+            Self::Keyword => IndexType::Keyword.into(),
+            Self::FullText => IndexType::Text.into(),
+            Self::KeywordArray => IndexType::KeywordArray.into(),
+            Self::Int => IndexType::Int.into(),
+            Self::Double => IndexType::Double.into(),
+            Self::Bool => IndexType::Bool.into(),
+            Self::DateTime => IndexType::Datetime.into(),
+        }
+    }
+}
+
+impl AttributeLock {
+    pub(crate) fn physical_name(&self) -> String {
+        match self.instance.as_deref() {
+            Some(instance) => crate::registry::physical_name(&self.attribute, instance),
+            None => self.attribute.clone(),
+        }
+    }
 }

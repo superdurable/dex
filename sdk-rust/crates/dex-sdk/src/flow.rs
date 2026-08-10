@@ -15,7 +15,7 @@ pub trait Flow: Send + Sync + 'static {
         short_type_name::<Self>()
     }
 
-    fn steps(&self) -> StepList<Self::StartInput> {
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::empty()
     }
 

@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StopType {
+pub(crate) enum StopType {
     Cancel,
     Terminate,
     Fail,
@@ -15,8 +15,8 @@ enum StopType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StopFlowOptions {
-    stop_type: StopType,
-    reason: Option<String>,
+    pub(crate) stop_type: StopType,
+    pub(crate) reason: Option<String>,
 }
 
 impl StopFlowOptions {

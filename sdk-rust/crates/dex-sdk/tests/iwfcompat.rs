@@ -8,6 +8,9 @@
 
 #![allow(dead_code)]
 
+#[path = "iwfcompat/support.rs"]
+mod support;
+
 #[path = "iwfcompat/basic.rs"]
 mod basic;
 #[path = "iwfcompat/channels.rs"]

@@ -1,4 +1,4 @@
-.PHONY: fmt lint test
+.PHONY: fmt integration-test lint test
 
 fmt:
 	cargo fmt --all --check
@@ -8,3 +8,6 @@ lint:
 
 test:
 	cargo test --workspace --locked
+
+integration-test:
+	./run-integration-tests.sh

@@ -11,7 +11,15 @@ use std::time::SystemTime;
 use crate::{Step, StepExecutionId};
 
 #[derive(Clone, Debug)]
-pub enum ResetFlowOptions {
+pub struct ResetFlowOptions {
+    pub(crate) point: ResetPoint,
+    pub(crate) reason: Option<String>,
+    pub(crate) skip_channel_messages_reapply: bool,
+    pub(crate) skip_locking_rpc_reapply: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ResetPoint {
     Beginning,
     HistoryEventId(i64),
     HistoryEventTime(SystemTime),
@@ -21,22 +29,46 @@ pub enum ResetFlowOptions {
 
 impl ResetFlowOptions {
     pub fn from_beginning() -> Self {
-        Self::Beginning
+        Self::new(ResetPoint::Beginning)
     }
 
     pub fn from_history_event_id(event_id: i64) -> Self {
-        Self::HistoryEventId(event_id)
+        Self::new(ResetPoint::HistoryEventId(event_id))
     }
 
     pub fn from_history_event_time(event_time: SystemTime) -> Self {
-        Self::HistoryEventTime(event_time)
+        Self::new(ResetPoint::HistoryEventTime(event_time))
     }
 
     pub fn from_step<SomeStep: Step>(step: &SomeStep) -> Self {
-        Self::StepType(step.step_type())
+        Self::new(ResetPoint::StepType(step.step_type()))
     }
 
     pub fn from_step_execution(step_execution: StepExecutionId) -> Self {
-        Self::StepExecution(step_execution)
+        Self::new(ResetPoint::StepExecution(step_execution))
+    }
+
+    pub fn reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    pub fn skip_channel_messages_reapply(mut self, skip: bool) -> Self {
+        self.skip_channel_messages_reapply = skip;
+        self
+    }
+
+    pub fn skip_locking_rpc_reapply(mut self, skip: bool) -> Self {
+        self.skip_locking_rpc_reapply = skip;
+        self
+    }
+
+    fn new(point: ResetPoint) -> Self {
+        Self {
+            point,
+            reason: None,
+            skip_channel_messages_reapply: false,
+            skip_locking_rpc_reapply: false,
+        }
     }
 }
