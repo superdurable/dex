@@ -345,7 +345,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Reads a scalar Attribute from a specific Flow run.
+     * Reads an Attribute from a specific Flow run.
      *
      * @param flowId the target Flow ID
      * @param runId the target run ID
@@ -363,7 +363,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Reads a scalar Attribute from the current Flow run.
+     * Reads an Attribute from the current Flow run.
      *
      * @param flowId the target Flow ID
      * @param attribute the typed Attribute definition
@@ -395,7 +395,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Writes a scalar Attribute in a specific Flow run.
+     * Writes an Attribute in a specific Flow run.
      *
      * @param flowId the target Flow ID
      * @param runId the target run ID
@@ -414,7 +414,7 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Writes a scalar Attribute in the current Flow run.
+     * Writes an Attribute in the current Flow run.
      *
      * @param flowId the target Flow ID
      * @param attribute the typed Attribute definition

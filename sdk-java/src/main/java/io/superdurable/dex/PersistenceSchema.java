@@ -48,8 +48,8 @@ public final class PersistenceSchema {
     /**
      * Creates a schema from separate Attribute and Channel lists.
      *
-     * @param attributes scalar and map Attribute definitions
-     * @param channels scalar and map Channel definitions
+     * @param attributes Attribute and Attribute-map definitions
+     * @param channels Channel and Channel-map definitions
      * @return an immutable persistence schema
      * @throws NullPointerException if either list or any definition is {@code null}
      * @throws IllegalArgumentException if a definition appears in the wrong list

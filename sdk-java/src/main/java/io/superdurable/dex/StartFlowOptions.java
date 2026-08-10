@@ -184,7 +184,7 @@ public final class StartFlowOptions {
         }
 
         /**
-         * Adds an initial scalar Attribute value atomically with Flow start.
+         * Adds an initial Attribute value atomically with Flow start.
          *
          * @param attribute the nonnull registered Attribute
          * @param value the typed initial value

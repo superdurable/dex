@@ -140,7 +140,7 @@ public interface Context {
     <T> void recordEvent(String name, T value, Class<T> valueType);
 
     /**
-     * Reads a scalar Attribute.
+     * Reads an Attribute.
      *
      * @param attribute the registered typed Attribute
      * @param <T> the Attribute value type
@@ -159,7 +159,7 @@ public interface Context {
     <T> T getAttribute(AttributeMap<T> attribute, String instance);
 
     /**
-     * Writes a scalar Attribute.
+     * Writes an Attribute.
      *
      * @param attribute the registered typed Attribute
      * @param value the value to persist
@@ -178,7 +178,7 @@ public interface Context {
     <T> void setAttribute(AttributeMap<T> attribute, String instance, T value);
 
     /**
-     * Deletes a scalar Attribute.
+     * Deletes an Attribute.
      *
      * @param attribute the registered Attribute
      */

@@ -56,7 +56,7 @@ public @interface RPC {
     int timeoutSeconds() default 0;
 
     /**
-     * Names scalar Attributes to lock for the RPC invocation.
+     * Names Attributes to lock for the RPC invocation.
      *
      * @return registered Attribute names; defaults to an empty array
      */
