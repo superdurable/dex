@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder>
       getFlowRunsOrBuilderList() {
     return flowRuns_;
   }
@@ -104,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       nextPageToken_ = s;
@@ -120,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getNextPageTokenBytes() {
     java.lang.Object ref = nextPageToken_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       nextPageToken_ = b;
@@ -431,7 +431,7 @@ private static final long serialVersionUID = 0L;
             flowRunsBuilder_ = null;
             flowRuns_ = other.flowRuns_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            flowRunsBuilder_ = 
+            flowRunsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetFlowRunsFieldBuilder() : null;
           } else {
@@ -700,7 +700,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder>
          getFlowRunsOrBuilderList() {
       if (flowRunsBuilder_ != null) {
         return flowRunsBuilder_.getMessageOrBuilderList();
@@ -726,12 +726,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.SearchFlowsResponseEntry.Builder> 
+    public java.util.List<io.superdurable.gen.SearchFlowsResponseEntry.Builder>
          getFlowRunsBuilderList() {
       return internalGetFlowRunsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.SearchFlowsResponseEntry, io.superdurable.gen.SearchFlowsResponseEntry.Builder, io.superdurable.gen.SearchFlowsResponseEntryOrBuilder> 
+        io.superdurable.gen.SearchFlowsResponseEntry, io.superdurable.gen.SearchFlowsResponseEntry.Builder, io.superdurable.gen.SearchFlowsResponseEntryOrBuilder>
         internalGetFlowRunsFieldBuilder() {
       if (flowRunsBuilder_ == null) {
         flowRunsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -770,7 +770,7 @@ private static final long serialVersionUID = 0L;
         getNextPageTokenBytes() {
       java.lang.Object ref = nextPageToken_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         nextPageToken_ = b;
@@ -867,4 +867,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

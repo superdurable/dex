@@ -131,4 +131,3 @@ public enum WaitForMethodFailurePolicy
 
   // @@protoc_insertion_point(enum_scope:dex.WaitForMethodFailurePolicy)
 }
-

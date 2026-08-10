@@ -149,4 +149,3 @@ public enum IdReusePolicy
 
   // @@protoc_insertion_point(enum_scope:dex.IdReusePolicy)
 }
-

@@ -20,16 +20,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// AsyncStepInputSnapshotPopulator enriches local activity events from external storage.
+// AsyncStepInputSnapshotPopulator enriches local activity events from blob storage.
 type AsyncStepInputSnapshotPopulator struct {
-	cfg    *config.ExternalStorageConfig
+	cfg    *config.BlobStoreConfig
 	client uclient.UnifiedClient
 	store  blobstore.BlobStore
 }
 
 // NewAsyncStepInputSnapshotPopulator creates a post-processor for semantic history.
 func NewAsyncStepInputSnapshotPopulator(
-	cfg *config.ExternalStorageConfig,
+	cfg *config.BlobStoreConfig,
 	client uclient.UnifiedClient,
 	store blobstore.BlobStore,
 ) *AsyncStepInputSnapshotPopulator {

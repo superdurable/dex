@@ -17,6 +17,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/workerclient"
@@ -37,21 +38,23 @@ type handler struct {
 
 func newHandler(
 	apiCfg *config.ApiConfig,
-	extStore *config.ExternalStorageConfig,
+	blobStoreCfg *config.BlobStoreConfig,
 	interpreterCfg *config.Interpreter,
 	client uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	workerPool *workerclient.WorkerClientPool,
 ) *handler {
 	svc, err := NewApiService(
 		apiCfg,
-		extStore,
+		blobStoreCfg,
 		interpreterCfg,
 		client,
 		service.TaskQueue,
 		logger,
 		store,
+		attributeStore,
 		workerPool,
 	)
 	if err != nil {

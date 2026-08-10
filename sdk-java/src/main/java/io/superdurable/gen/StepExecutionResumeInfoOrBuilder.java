@@ -70,7 +70,7 @@ public interface StepExecutionResumeInfoOrBuilder extends
   /**
    * <code>repeated .dex.KV step_exe_locals = 5;</code>
    */
-  java.util.List<io.superdurable.gen.KV> 
+  java.util.List<io.superdurable.gen.KV>
       getStepExeLocalsList();
   /**
    * <code>repeated .dex.KV step_exe_locals = 5;</code>
@@ -83,7 +83,7 @@ public interface StepExecutionResumeInfoOrBuilder extends
   /**
    * <code>repeated .dex.KV step_exe_locals = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getStepExeLocalsOrBuilderList();
   /**
    * <code>repeated .dex.KV step_exe_locals = 5;</code>

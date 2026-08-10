@@ -35,23 +35,23 @@ func (r *Runtime) createBlobStore(
 	return blobstore.NewBlobStore(
 		s3Client,
 		namespace,
-		r.cfg.ExternalStorage,
+		&r.cfg.BlobStore,
 		r.logger,
 		metrics,
-	), nil
+	)
 }
 
 func CreateS3Client(ctx context.Context, cfg *config.Config) (*s3.Client, error) {
 	if cfg == nil {
 		panic("S3 config must not be nil")
 	}
-	if !cfg.ExternalStorage.Enabled {
+	if !cfg.BlobStore.Enabled {
 		return nil, nil
 	}
 
-	var activeStorage *config.BlobStorageConfig
-	for index := range cfg.ExternalStorage.SupportedStorages {
-		storage := &cfg.ExternalStorage.SupportedStorages[index]
+	var activeStorage *config.BlobStoreConfigEntry
+	for index := range cfg.BlobStore.SupportedStorages {
+		storage := &cfg.BlobStore.SupportedStorages[index]
 		if storage.Status == config.StorageStatusActive {
 			activeStorage = storage
 			break
@@ -67,7 +67,7 @@ func CreateS3Client(ctx context.Context, cfg *config.Config) (*s3.Client, error)
 		return nil, nil
 	}
 	if activeStorage.StorageType != config.StorageTypeS3 {
-		return nil, fmt.Errorf("unsupported external storage type %q", activeStorage.StorageType)
+		return nil, fmt.Errorf("unsupported blob storage type %q", activeStorage.StorageType)
 	}
 
 	// Create custom resolver for MinIO endpoint

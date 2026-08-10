@@ -39,7 +39,7 @@ endif
 
 .PHONY: proto proto-server-go proto-sdk-go proto-java proto-python clean ensure-tools ensure-python-tools
 
-proto: proto-server-go
+proto: proto-server-go proto-sdk-go proto-java proto-python
 
 # Server-only codegen for the server rewrite. Does not touch SDK trees.
 proto-server-go: ensure-tools
@@ -77,6 +77,7 @@ proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
 		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
 		--grpc-java_out=$(SDK_JAVA_OUT) \
 		$(PROTO_FILE)
+	find $(SDK_JAVA_OUT)/io/superdurable/gen -name '*.java' -exec perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/\s+\z/\n/' {} +
 
 proto-python: ensure-python-tools
 	rm -rf $(SDK_PYTHON_OUT)

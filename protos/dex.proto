@@ -131,6 +131,13 @@ message AttributeWrite {
   Value value = 2;
   // Omit when indexing is inferred or attribute is not indexed.
   IndexConfig index_config = 3;
+  // Omit or disable to keep this write out of the configured Attribute Store.
+  AttributeSyncConfig sync_config = 4;
+}
+
+message AttributeSyncConfig {
+  // Enqueues this write for the Flow's current Attribute Store target.
+  bool enabled = 1;
 }
 
 message KV {
@@ -262,6 +269,8 @@ message FlowConfig {
   optional int32 continue_as_new_page_size_in_bytes = 3;
   optional StepDurability step_durability = 4;
   WorkerTarget worker_target = 5;
+  // Present empty disables future synchronization; non-empty selects a Server-configured store.
+  optional string attribute_sync_config_name = 6;
 }
 
 message WorkerTarget {
@@ -973,6 +982,7 @@ message ContinueAsNewDump {
   repeated StaleSkipTimer stale_skip_timers = 6;
   // Stored values only; index metadata remains in backend search attributes.
   repeated KV attributes = 7;
+  repeated AttributeSyncMutation pending_attribute_sync_mutations = 8;
 }
 
 // --- Internal serializable types (history / query / activity) ---
@@ -1004,8 +1014,7 @@ message InterpreterWorkflowInput {
   string start_step_type = 3;
   Value step_input = 6;
   StepOptions step_options = 7;
-  // IndexConfig is processed before workflow start.
-  repeated KV init_attributes = 8;
+  repeated AttributeWrite init_attributes = 8;
   FlowConfig config = 9;
   // When true, ignore start_step_type / step_input / step_options / init_attributes.
   bool is_resume_from_continue_as_new = 10;
@@ -1069,6 +1078,18 @@ message CleanupBlobStoreActivityOutput {
   int32 total_deleted = 1;
 }
 
+message AttributeSyncMutation {
+  string config_name = 1;
+  string key = 2;
+  Value value = 3;
+}
+
+message SyncAttributeBatchActivityInput {
+  string flow_id = 1;
+  string config_name = 2;
+  repeated AttributeSyncMutation mutations = 3;
+}
+
 message ExecuteRpcSignalRequest {
   Value rpc_input = 1;
   Value rpc_output = 2;
@@ -1084,8 +1105,9 @@ message SkipTimerSignalRequest {
   int32 timer_condition_index = 3;
 }
 
-message FailFlowSignalRequest {
-  string reason = 1;
+message StopFlowSignalRequest {
+  StopType stop_type = 1;
+  string reason = 2;
 }
 
 message GetAttributesQueryRequest {

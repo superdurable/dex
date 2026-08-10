@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.FailFlowSignalRequest}
+ * Protobuf type {@code dex.StopFlowSignalRequest}
  */
 @com.google.protobuf.Generated
-public final class FailFlowSignalRequest extends
+public final class StopFlowSignalRequest extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.FailFlowSignalRequest)
-    FailFlowSignalRequestOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.StopFlowSignalRequest)
+    StopFlowSignalRequestOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,39 +21,58 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "FailFlowSignalRequest");
+      "StopFlowSignalRequest");
   }
-  // Use FailFlowSignalRequest.newBuilder() to construct.
-  private FailFlowSignalRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use StopFlowSignalRequest.newBuilder() to construct.
+  private StopFlowSignalRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private FailFlowSignalRequest() {
+  private StopFlowSignalRequest() {
+    stopType_ = 0;
     reason_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.FailFlowSignalRequest.class, io.superdurable.gen.FailFlowSignalRequest.Builder.class);
+            io.superdurable.gen.StopFlowSignalRequest.class, io.superdurable.gen.StopFlowSignalRequest.Builder.class);
   }
 
-  public static final int REASON_FIELD_NUMBER = 1;
+  public static final int STOP_TYPE_FIELD_NUMBER = 1;
+  private int stopType_ = 0;
+  /**
+   * <code>.dex.StopType stop_type = 1;</code>
+   * @return The enum numeric value on the wire for stopType.
+   */
+  @java.lang.Override public int getStopTypeValue() {
+    return stopType_;
+  }
+  /**
+   * <code>.dex.StopType stop_type = 1;</code>
+   * @return The stopType.
+   */
+  @java.lang.Override public io.superdurable.gen.StopType getStopType() {
+    io.superdurable.gen.StopType result = io.superdurable.gen.StopType.forNumber(stopType_);
+    return result == null ? io.superdurable.gen.StopType.UNRECOGNIZED : result;
+  }
+
+  public static final int REASON_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
   private volatile java.lang.Object reason_ = "";
   /**
-   * <code>string reason = 1;</code>
+   * <code>string reason = 2;</code>
    * @return The reason.
    */
   @java.lang.Override
@@ -62,7 +81,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       reason_ = s;
@@ -70,7 +89,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string reason = 1;</code>
+   * <code>string reason = 2;</code>
    * @return The bytes for reason.
    */
   @java.lang.Override
@@ -78,7 +97,7 @@ private static final long serialVersionUID = 0L;
       getReasonBytes() {
     java.lang.Object ref = reason_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       reason_ = b;
@@ -102,15 +121,22 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
+    if (stopType_ != io.superdurable.gen.StopType.STOP_TYPE_UNSPECIFIED.getNumber()) {
+      output.writeEnum(1, stopType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(reason_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, reason_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, reason_);
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
+    if (stopType_ != io.superdurable.gen.StopType.STOP_TYPE_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(1, stopType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(reason_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, reason_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, reason_);
     }
     return size;
   }
@@ -131,11 +157,12 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.FailFlowSignalRequest)) {
+    if (!(obj instanceof io.superdurable.gen.StopFlowSignalRequest)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.FailFlowSignalRequest other = (io.superdurable.gen.FailFlowSignalRequest) obj;
+    io.superdurable.gen.StopFlowSignalRequest other = (io.superdurable.gen.StopFlowSignalRequest) obj;
 
+    if (stopType_ != other.stopType_) return false;
     if (!getReason()
         .equals(other.getReason())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -149,6 +176,8 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    hash = (37 * hash) + STOP_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + stopType_;
     hash = (37 * hash) + REASON_FIELD_NUMBER;
     hash = (53 * hash) + getReason().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
@@ -156,44 +185,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(byte[] data)
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -201,26 +230,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.FailFlowSignalRequest parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.StopFlowSignalRequest parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.FailFlowSignalRequest parseDelimitedFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.FailFlowSignalRequest parseFrom(
+  public static io.superdurable.gen.StopFlowSignalRequest parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -233,7 +262,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.FailFlowSignalRequest prototype) {
+  public static Builder newBuilder(io.superdurable.gen.StopFlowSignalRequest prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -249,26 +278,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.FailFlowSignalRequest}
+   * Protobuf type {@code dex.StopFlowSignalRequest}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.FailFlowSignalRequest)
-      io.superdurable.gen.FailFlowSignalRequestOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.StopFlowSignalRequest)
+      io.superdurable.gen.StopFlowSignalRequestOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.FailFlowSignalRequest.class, io.superdurable.gen.FailFlowSignalRequest.Builder.class);
+              io.superdurable.gen.StopFlowSignalRequest.class, io.superdurable.gen.StopFlowSignalRequest.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.FailFlowSignalRequest.newBuilder()
+    // Construct using io.superdurable.gen.StopFlowSignalRequest.newBuilder()
     private Builder() {
 
     }
@@ -282,6 +311,7 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
+      stopType_ = 0;
       reason_ = "";
       return this;
     }
@@ -289,17 +319,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_FailFlowSignalRequest_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_StopFlowSignalRequest_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FailFlowSignalRequest getDefaultInstanceForType() {
-      return io.superdurable.gen.FailFlowSignalRequest.getDefaultInstance();
+    public io.superdurable.gen.StopFlowSignalRequest getDefaultInstanceForType() {
+      return io.superdurable.gen.StopFlowSignalRequest.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FailFlowSignalRequest build() {
-      io.superdurable.gen.FailFlowSignalRequest result = buildPartial();
+    public io.superdurable.gen.StopFlowSignalRequest build() {
+      io.superdurable.gen.StopFlowSignalRequest result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -307,35 +337,41 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.FailFlowSignalRequest buildPartial() {
-      io.superdurable.gen.FailFlowSignalRequest result = new io.superdurable.gen.FailFlowSignalRequest(this);
+    public io.superdurable.gen.StopFlowSignalRequest buildPartial() {
+      io.superdurable.gen.StopFlowSignalRequest result = new io.superdurable.gen.StopFlowSignalRequest(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.FailFlowSignalRequest result) {
+    private void buildPartial0(io.superdurable.gen.StopFlowSignalRequest result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.stopType_ = stopType_;
+      }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.reason_ = reason_;
       }
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.FailFlowSignalRequest) {
-        return mergeFrom((io.superdurable.gen.FailFlowSignalRequest)other);
+      if (other instanceof io.superdurable.gen.StopFlowSignalRequest) {
+        return mergeFrom((io.superdurable.gen.StopFlowSignalRequest)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.FailFlowSignalRequest other) {
-      if (other == io.superdurable.gen.FailFlowSignalRequest.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.StopFlowSignalRequest other) {
+      if (other == io.superdurable.gen.StopFlowSignalRequest.getDefaultInstance()) return this;
+      if (other.stopType_ != 0) {
+        setStopTypeValue(other.getStopTypeValue());
+      }
       if (!other.getReason().isEmpty()) {
         reason_ = other.reason_;
-        bitField0_ |= 0x00000001;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -364,11 +400,16 @@ private static final long serialVersionUID = 0L;
             case 0:
               done = true;
               break;
-            case 10: {
-              reason_ = input.readStringRequireUtf8();
+            case 8: {
+              stopType_ = input.readEnum();
               bitField0_ |= 0x00000001;
               break;
-            } // case 10
+            } // case 8
+            case 18: {
+              reason_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -386,9 +427,61 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
+    private int stopType_ = 0;
+    /**
+     * <code>.dex.StopType stop_type = 1;</code>
+     * @return The enum numeric value on the wire for stopType.
+     */
+    @java.lang.Override public int getStopTypeValue() {
+      return stopType_;
+    }
+    /**
+     * <code>.dex.StopType stop_type = 1;</code>
+     * @param value The enum numeric value on the wire for stopType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStopTypeValue(int value) {
+      stopType_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.StopType stop_type = 1;</code>
+     * @return The stopType.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StopType getStopType() {
+      io.superdurable.gen.StopType result = io.superdurable.gen.StopType.forNumber(stopType_);
+      return result == null ? io.superdurable.gen.StopType.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.StopType stop_type = 1;</code>
+     * @param value The stopType to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setStopType(io.superdurable.gen.StopType value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000001;
+      stopType_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.StopType stop_type = 1;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStopType() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      stopType_ = 0;
+      onChanged();
+      return this;
+    }
+
     private java.lang.Object reason_ = "";
     /**
-     * <code>string reason = 1;</code>
+     * <code>string reason = 2;</code>
      * @return The reason.
      */
     public java.lang.String getReason() {
@@ -404,14 +497,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string reason = 1;</code>
+     * <code>string reason = 2;</code>
      * @return The bytes for reason.
      */
     public com.google.protobuf.ByteString
         getReasonBytes() {
       java.lang.Object ref = reason_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         reason_ = b;
@@ -421,7 +514,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string reason = 1;</code>
+     * <code>string reason = 2;</code>
      * @param value The reason to set.
      * @return This builder for chaining.
      */
@@ -429,22 +522,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       reason_ = value;
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>string reason = 1;</code>
+     * <code>string reason = 2;</code>
      * @return This builder for chaining.
      */
     public Builder clearReason() {
       reason_ = getDefaultInstance().getReason();
-      bitField0_ = (bitField0_ & ~0x00000001);
+      bitField0_ = (bitField0_ & ~0x00000002);
       onChanged();
       return this;
     }
     /**
-     * <code>string reason = 1;</code>
+     * <code>string reason = 2;</code>
      * @param value The bytes for reason to set.
      * @return This builder for chaining.
      */
@@ -453,28 +546,28 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       reason_ = value;
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.FailFlowSignalRequest)
+    // @@protoc_insertion_point(builder_scope:dex.StopFlowSignalRequest)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.FailFlowSignalRequest)
-  private static final io.superdurable.gen.FailFlowSignalRequest DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.StopFlowSignalRequest)
+  private static final io.superdurable.gen.StopFlowSignalRequest DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.FailFlowSignalRequest();
+    DEFAULT_INSTANCE = new io.superdurable.gen.StopFlowSignalRequest();
   }
 
-  public static io.superdurable.gen.FailFlowSignalRequest getDefaultInstance() {
+  public static io.superdurable.gen.StopFlowSignalRequest getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<FailFlowSignalRequest>
-      PARSER = new com.google.protobuf.AbstractParser<FailFlowSignalRequest>() {
+  private static final com.google.protobuf.Parser<StopFlowSignalRequest>
+      PARSER = new com.google.protobuf.AbstractParser<StopFlowSignalRequest>() {
     @java.lang.Override
-    public FailFlowSignalRequest parsePartialFrom(
+    public StopFlowSignalRequest parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -493,19 +586,18 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<FailFlowSignalRequest> parser() {
+  public static com.google.protobuf.Parser<StopFlowSignalRequest> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<FailFlowSignalRequest> getParserForType() {
+  public com.google.protobuf.Parser<StopFlowSignalRequest> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.FailFlowSignalRequest getDefaultInstanceForType() {
+  public io.superdurable.gen.StopFlowSignalRequest getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 
 }
-

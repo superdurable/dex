@@ -83,7 +83,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       cronSchedule_ = s;
@@ -99,7 +99,7 @@ private static final long serialVersionUID = 0L;
       getCronScheduleBytes() {
     java.lang.Object ref = cronSchedule_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       cronSchedule_ = b;
@@ -160,7 +160,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeWrite attributes = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -675,7 +675,7 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            attributesBuilder_ = 
+            attributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -858,7 +858,7 @@ private static final long serialVersionUID = 0L;
         getCronScheduleBytes() {
       java.lang.Object ref = cronSchedule_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         cronSchedule_ = b;
@@ -1045,7 +1045,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowRetryPolicy, io.superdurable.gen.FlowRetryPolicy.Builder, io.superdurable.gen.FlowRetryPolicyOrBuilder> 
+        io.superdurable.gen.FlowRetryPolicy, io.superdurable.gen.FlowRetryPolicy.Builder, io.superdurable.gen.FlowRetryPolicyOrBuilder>
         internalGetRetryPolicyFieldBuilder() {
       if (retryPolicyBuilder_ == null) {
         retryPolicyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1253,7 +1253,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite attributes = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1279,12 +1279,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite attributes = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder>
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1406,7 +1406,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig flow_config_override = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
         internalGetFlowConfigOverrideFieldBuilder() {
       if (flowConfigOverrideBuilder_ == null) {
         flowConfigOverrideBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1527,7 +1527,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowAlreadyStartedOptions, io.superdurable.gen.FlowAlreadyStartedOptions.Builder, io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder> 
+        io.superdurable.gen.FlowAlreadyStartedOptions, io.superdurable.gen.FlowAlreadyStartedOptions.Builder, io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder>
         internalGetFlowAlreadyStartedOptionsFieldBuilder() {
       if (flowAlreadyStartedOptionsBuilder_ == null) {
         flowAlreadyStartedOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1590,4 +1590,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

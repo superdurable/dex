@@ -34,6 +34,54 @@ jobs:
           GOWORK: "off"
         run: make unitTests
 
+  attribute-store-integ:
+    name: Attribute Store integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Start MySQL and Postgres
+        run: docker compose -f docker-compose/attribute-store-dependencies.yml up -d --wait
+      - name: Start Temporal and Cadence
+        run: docker compose -f docker-compose/ci-cadence-temporal-dependencies.yml up -d
+      - name: Attribute Store integration tests
+        env:
+          GOWORK: "off"
+        run: make attributeStoreIntegTests
+      - name: Dump docker logs
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
+  blob-store-integ:
+    name: Blob Store integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Start MinIO
+        run: docker compose -f docker-compose/ci-temporal-dependencies.yml up -d --wait minio
+      - name: Blob Store integration tests
+        env:
+          GOWORK: "off"
+        run: make blobStoreIntegTests
+      - name: Dump docker logs
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
   web-api-integ:
     name: Web API integration (${{ matrix.backend }})
     runs-on: ubuntu-latest

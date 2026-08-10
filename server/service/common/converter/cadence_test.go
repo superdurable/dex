@@ -44,7 +44,7 @@ func TestCadenceSingleProtoRoundTrip(t *testing.T) {
 
 func TestCadenceMultiFrameMixedKinds(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	protoMsg := &dexpb.FailFlowSignalRequest{Reason: "boom"}
+	protoMsg := &dexpb.StopFlowSignalRequest{StopType: dexpb.StopType_STOP_TYPE_FAIL, Reason: "boom"}
 	jsonVal := map[string]string{"k": "v"}
 	raw := []byte{9, 8, 7}
 
@@ -53,7 +53,7 @@ func TestCadenceMultiFrameMixedKinds(t *testing.T) {
 	frames := decodeCadenceEnvelope(t, data)
 	require.Equal(t, uint32(3), binary.BigEndian.Uint32(frames[6:10]))
 
-	var outProto *dexpb.FailFlowSignalRequest
+	var outProto *dexpb.StopFlowSignalRequest
 	var outJSON map[string]string
 	var outRaw []byte
 	require.NoError(t, dc.FromData(data, &outProto, &outJSON, &outRaw))
@@ -76,7 +76,7 @@ func TestCadenceSingleRawByteSlicePassthrough(t *testing.T) {
 
 func TestCadenceTypedNilProto(t *testing.T) {
 	dc := NewCadenceDataConverter()
-	var typedNil *dexpb.FailFlowSignalRequest
+	var typedNil *dexpb.StopFlowSignalRequest
 	data, err := dc.ToData(typedNil)
 	require.NoError(t, err)
 	frames := decodeCadenceEnvelope(t, data)
@@ -84,8 +84,8 @@ func TestCadenceTypedNilProto(t *testing.T) {
 	require.Equal(t, nilFlagTrue, frames[11])
 	require.Equal(t, uint32(0), binary.BigEndian.Uint32(frames[12:16]))
 
-	var out *dexpb.FailFlowSignalRequest
-	out = &dexpb.FailFlowSignalRequest{Reason: "stale"}
+	var out *dexpb.StopFlowSignalRequest
+	out = &dexpb.StopFlowSignalRequest{Reason: "stale"}
 	require.NoError(t, dc.FromData(data, &out))
 	require.Nil(t, out)
 }

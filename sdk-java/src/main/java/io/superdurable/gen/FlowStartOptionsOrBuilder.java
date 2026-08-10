@@ -57,7 +57,7 @@ public interface FlowStartOptionsOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite attributes = 5;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite> 
+  java.util.List<io.superdurable.gen.AttributeWrite>
       getAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite attributes = 5;</code>
@@ -70,7 +70,7 @@ public interface FlowStartOptionsOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite attributes = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite attributes = 5;</code>

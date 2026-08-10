@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private FlowConfig() {
     activeStepSearchMode_ = 0;
     stepDurability_ = 0;
+    attributeSyncConfigName_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -165,6 +166,65 @@ private static final long serialVersionUID = 0L;
     return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
 
+  public static final int ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER = 6;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object attributeSyncConfigName_ = "";
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return Whether the attributeSyncConfigName field is set.
+   */
+  @java.lang.Override
+  public boolean hasAttributeSyncConfigName() {
+    return ((bitField0_ & 0x00000020) != 0);
+  }
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return The attributeSyncConfigName.
+   */
+  @java.lang.Override
+  public java.lang.String getAttributeSyncConfigName() {
+    java.lang.Object ref = attributeSyncConfigName_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      attributeSyncConfigName_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return The bytes for attributeSyncConfigName.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAttributeSyncConfigNameBytes() {
+    java.lang.Object ref = attributeSyncConfigName_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      attributeSyncConfigName_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -194,6 +254,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000010) != 0)) {
       output.writeMessage(5, getWorkerTarget());
     }
+    if (((bitField0_ & 0x00000020) != 0)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, attributeSyncConfigName_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -217,6 +280,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000010) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(5, getWorkerTarget());
+    }
+    if (((bitField0_ & 0x00000020) != 0)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, attributeSyncConfigName_);
     }
     return size;
   }
@@ -265,6 +331,11 @@ private static final long serialVersionUID = 0L;
       if (!getWorkerTarget()
           .equals(other.getWorkerTarget())) return false;
     }
+    if (hasAttributeSyncConfigName() != other.hasAttributeSyncConfigName()) return false;
+    if (hasAttributeSyncConfigName()) {
+      if (!getAttributeSyncConfigName()
+          .equals(other.getAttributeSyncConfigName())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -295,6 +366,10 @@ private static final long serialVersionUID = 0L;
     if (hasWorkerTarget()) {
       hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
       hash = (53 * hash) + getWorkerTarget().hashCode();
+    }
+    if (hasAttributeSyncConfigName()) {
+      hash = (37 * hash) + ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER;
+      hash = (53 * hash) + getAttributeSyncConfigName().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -442,6 +517,7 @@ private static final long serialVersionUID = 0L;
         workerTargetBuilder_.dispose();
         workerTargetBuilder_ = null;
       }
+      attributeSyncConfigName_ = "";
       return this;
     }
 
@@ -498,6 +574,10 @@ private static final long serialVersionUID = 0L;
             : workerTargetBuilder_.build();
         to_bitField0_ |= 0x00000010;
       }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.attributeSyncConfigName_ = attributeSyncConfigName_;
+        to_bitField0_ |= 0x00000020;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -527,6 +607,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasWorkerTarget()) {
         mergeWorkerTarget(other.getWorkerTarget());
+      }
+      if (other.hasAttributeSyncConfigName()) {
+        attributeSyncConfigName_ = other.attributeSyncConfigName_;
+        bitField0_ |= 0x00000020;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -581,6 +666,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000010;
               break;
             } // case 42
+            case 50: {
+              attributeSyncConfigName_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -915,6 +1005,109 @@ private static final long serialVersionUID = 0L;
         workerTarget_ = null;
       }
       return workerTargetBuilder_;
+    }
+
+    private java.lang.Object attributeSyncConfigName_ = "";
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @return Whether the attributeSyncConfigName field is set.
+     */
+    public boolean hasAttributeSyncConfigName() {
+      return ((bitField0_ & 0x00000020) != 0);
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @return The attributeSyncConfigName.
+     */
+    public java.lang.String getAttributeSyncConfigName() {
+      java.lang.Object ref = attributeSyncConfigName_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        attributeSyncConfigName_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @return The bytes for attributeSyncConfigName.
+     */
+    public com.google.protobuf.ByteString
+        getAttributeSyncConfigNameBytes() {
+      java.lang.Object ref = attributeSyncConfigName_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        attributeSyncConfigName_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @param value The attributeSyncConfigName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAttributeSyncConfigName(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      attributeSyncConfigName_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAttributeSyncConfigName() {
+      attributeSyncConfigName_ = getDefaultInstance().getAttributeSyncConfigName();
+      bitField0_ = (bitField0_ & ~0x00000020);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * </pre>
+     *
+     * <code>optional string attribute_sync_config_name = 6;</code>
+     * @param value The bytes for attributeSyncConfigName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAttributeSyncConfigNameBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      attributeSyncConfigName_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowConfig)

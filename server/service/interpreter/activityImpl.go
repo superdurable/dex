@@ -22,6 +22,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/log"
@@ -38,6 +39,7 @@ type Activities struct {
 	internalClient   *workerclient.InternalServiceClient
 	unifiedClient    uclient.UnifiedClient
 	blobStore        blobstore.BlobStore
+	attributeStore   *attributestore.Manager
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
 }
@@ -48,11 +50,12 @@ func NewActivities(
 	internalClient *workerclient.InternalServiceClient,
 	unifiedClient uclient.UnifiedClient,
 	blobStore blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	eventHandler event.HandleEventFunc,
 	cfg *config.Config,
 ) *Activities {
 	if activityProvider == nil || workerPool == nil || internalClient == nil ||
-		unifiedClient == nil || eventHandler == nil {
+		unifiedClient == nil || attributeStore == nil || eventHandler == nil {
 		panic("Activities requires non-nil dependencies")
 	}
 	if cfg == nil {
@@ -64,9 +67,78 @@ func NewActivities(
 		internalClient:   internalClient,
 		unifiedClient:    unifiedClient,
 		blobStore:        blobStore,
+		attributeStore:   attributeStore,
 		eventHandler:     eventHandler,
 		cfg:              cfg,
 	}
+}
+
+func (a *Activities) SyncAttributeBatch(
+	ctx context.Context,
+	input *dexpb.SyncAttributeBatchActivityInput,
+) error {
+	activityInfo := a.activityProvider.GetActivityInfo(ctx)
+	phase := "local"
+	if !activityInfo.IsLocalActivity {
+		phase = "regular"
+		if activityInfo.Attempt == 1 {
+			a.recordActivityMetric(ctx, "attribute_sync_fallback", 1, input.GetConfigName(), phase)
+		}
+	}
+	a.recordActivityGauge(ctx, "attribute_sync_batch_size", float64(len(input.GetMutations())), input.GetConfigName(), phase)
+	for _, mutation := range input.GetMutations() {
+		if mutation == nil {
+			continue
+		}
+		if err := blobstore.HydrateValue(ctx, mutation.GetValue(), a.blobStore); err != nil {
+			return fmt.Errorf("hydrate Attribute Store mutation: %w", err)
+		}
+	}
+	filteredCount, err := a.attributeStore.WriteBatch(ctx, input)
+	if filteredCount > 0 {
+		a.recordActivityMetric(ctx, "attribute_sync_filtered_mutation", int64(filteredCount), input.GetConfigName(), phase)
+	}
+	if err != nil {
+		return err
+	}
+	metricName := "attribute_sync_local_success"
+	if !activityInfo.IsLocalActivity {
+		metricName = "attribute_sync_regular_success"
+	}
+	a.recordActivityMetric(ctx, metricName, 1, input.GetConfigName(), phase)
+	return nil
+}
+
+func (a *Activities) recordActivityMetric(
+	ctx context.Context,
+	name string,
+	value int64,
+	configName string,
+	phase string,
+) {
+	recorder, ok := a.activityProvider.(interface {
+		RecordCounter(context.Context, string, int64, map[string]string)
+	})
+	if !ok {
+		return
+	}
+	recorder.RecordCounter(ctx, name, value, map[string]string{"attribute_store": configName, "phase": phase})
+}
+
+func (a *Activities) recordActivityGauge(
+	ctx context.Context,
+	name string,
+	value float64,
+	configName string,
+	phase string,
+) {
+	recorder, ok := a.activityProvider.(interface {
+		RecordGauge(context.Context, string, float64, map[string]string)
+	})
+	if !ok {
+		return
+	}
+	recorder.RecordGauge(ctx, name, value, map[string]string{"attribute_store": configName, "phase": phase})
 }
 
 // InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.
@@ -84,7 +156,7 @@ func (a *Activities) InvokeWaitForMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
-	lazyLoading := a.cfg.ExternalStorage.EffectiveLazyLoading()
+	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
@@ -196,7 +268,7 @@ func (a *Activities) InvokeExecuteMethod(
 	req.Context.Attempt = activityInfo.Attempt
 	req.Context.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
 
-	lazyLoading := a.cfg.ExternalStorage.EffectiveLazyLoading()
+	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
@@ -296,7 +368,7 @@ func (a *Activities) persistStepEventInput(
 	method string,
 	input *dexpb.InternalAsyncStepInputSnapshot,
 ) error {
-	if !activityInfo.IsLocalActivity || !a.cfg.ExternalStorage.Enabled {
+	if !activityInfo.IsLocalActivity || !a.cfg.BlobStore.Enabled {
 		return nil
 	}
 	if stepExecutionID == "" {
@@ -368,7 +440,7 @@ func (a *Activities) InvokeWorkerRPC(
 		a.cfg.Api.EffectiveMaxWaitSeconds(),
 		a.blobStore,
 		input.GetRequest().GetRequestId(),
-		&a.cfg.ExternalStorage,
+		&a.cfg.BlobStore,
 	)
 	if err != nil {
 		return nil, composeActivityError(provider, err)
@@ -449,11 +521,11 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	flowId string,
 	invocationId string,
 ) error {
-	if !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
+	if !a.cfg.BlobStore.Enabled || a.blobStore == nil {
 		return nil
 	}
 	return blobstore.OffloadLargeAttributeWrites(
-		ctx, writes, flowId, invocationId, a.cfg.ExternalStorage.ThresholdInBytes, a.blobStore, true,
+		ctx, writes, flowId, invocationId, a.cfg.BlobStore.ThresholdInBytes, a.blobStore, true,
 	)
 }
 
@@ -465,19 +537,19 @@ func (a *Activities) offloadWorkerSideEffects(
 	flowId string,
 	invocationId string,
 ) error {
-	threshold := a.cfg.ExternalStorage.ThresholdInBytes
+	threshold := a.cfg.BlobStore.ThresholdInBytes
 	if err := blobstore.OffloadLargeKVs(
-		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
+		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
 	); err != nil {
 		return err
 	}
 	if err := blobstore.OffloadLargeKVs(
-		ctx, recordEvents, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
+		ctx, recordEvents, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
 	); err != nil {
 		return err
 	}
 	return blobstore.OffloadLargeChannelMessages(
-		ctx, channelMessages, flowId, invocationId, threshold, a.blobStore, a.cfg.ExternalStorage.Enabled,
+		ctx, channelMessages, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
 	)
 }
 
@@ -495,7 +567,7 @@ func (a *Activities) reuseOrOffloadDecisionInputs(
 	flowId string,
 	invocationId string,
 ) error {
-	if decision == nil || !a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
+	if decision == nil || !a.cfg.BlobStore.Enabled || a.blobStore == nil {
 		return nil
 	}
 	for _, step := range decision.GetNextSteps() {
@@ -544,7 +616,7 @@ func (a *Activities) reuseOrOffloadStepInput(
 	invocationId string,
 ) error {
 	if step == nil || step.GetStepInput() == nil ||
-		!a.cfg.ExternalStorage.Enabled || a.blobStore == nil {
+		!a.cfg.BlobStore.Enabled || a.blobStore == nil {
 		return nil
 	}
 	if stepInputBlobRef(step.GetStepInput()).id != "" {
@@ -568,7 +640,7 @@ func (a *Activities) offloadStepInput(
 		stepInput,
 		flowId,
 		invocationId,
-		a.cfg.ExternalStorage.ThresholdInBytes,
+		a.cfg.BlobStore.ThresholdInBytes,
 		a.blobStore,
 		true,
 	)

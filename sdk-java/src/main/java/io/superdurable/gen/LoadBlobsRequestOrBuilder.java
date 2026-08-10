@@ -19,7 +19,7 @@ public interface LoadBlobsRequestOrBuilder extends
    *
    * <code>repeated .dex.Value values = 1;</code>
    */
-  java.util.List<io.superdurable.gen.Value> 
+  java.util.List<io.superdurable.gen.Value>
       getValuesList();
   /**
    * <pre>
@@ -50,7 +50,7 @@ public interface LoadBlobsRequestOrBuilder extends
    *
    * <code>repeated .dex.Value values = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.ValueOrBuilder>
       getValuesOrBuilderList();
   /**
    * <pre>

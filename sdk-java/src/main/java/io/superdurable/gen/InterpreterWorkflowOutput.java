@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
       getStepCompletionOutputsOrBuilderList() {
     return stepCompletionOutputs_;
   }
@@ -377,7 +377,7 @@ private static final long serialVersionUID = 0L;
             stepCompletionOutputsBuilder_ = null;
             stepCompletionOutputs_ = other.stepCompletionOutputs_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            stepCompletionOutputsBuilder_ = 
+            stepCompletionOutputsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepCompletionOutputsFieldBuilder() : null;
           } else {
@@ -636,7 +636,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
          getStepCompletionOutputsOrBuilderList() {
       if (stepCompletionOutputsBuilder_ != null) {
         return stepCompletionOutputsBuilder_.getMessageOrBuilderList();
@@ -662,12 +662,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder> 
+    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder>
          getStepCompletionOutputsBuilderList() {
       return internalGetStepCompletionOutputsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder> 
+        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder>
         internalGetStepCompletionOutputsFieldBuilder() {
       if (stepCompletionOutputsBuilder_ == null) {
         stepCompletionOutputsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -731,4 +731,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

@@ -208,12 +208,12 @@ func (s *supervisor) startDexRuntime(
 			Encoding: "console",
 		},
 		Api: config.ApiConfig{Port: s.cfg.DexPort},
-		ExternalStorage: config.ExternalStorageConfig{
+		BlobStore: config.BlobStoreConfig{
 			Enabled:                true,
 			LazyLoading:            ptr.Any(true),
 			ThresholdInBytes:       1024,
 			HistoryRetentionInDays: 1,
-			SupportedStorages: []config.BlobStorageConfig{{
+			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,
 				StorageId:      "dexcli-local",
 				StorageType:    config.StorageTypeLocal,

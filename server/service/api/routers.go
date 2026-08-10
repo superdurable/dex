@@ -19,6 +19,7 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
@@ -42,11 +43,12 @@ type Server struct {
 
 func NewServer(
 	apiCfg *config.ApiConfig,
-	extStore *config.ExternalStorageConfig,
+	blobStoreCfg *config.BlobStoreConfig,
 	interpreterCfg *config.Interpreter,
 	client uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	readyCheck func(context.Context) error,
 	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
@@ -60,14 +62,17 @@ func NewServer(
 	if logger == nil {
 		panic("logger must not be nil")
 	}
-	if extStore == nil {
-		panic("extStore must not be nil")
+	if blobStoreCfg == nil {
+		panic("blobStoreCfg must not be nil")
 	}
-	if extStore.Enabled && store == nil {
-		panic("store must not be nil when external storage is enabled")
+	if blobStoreCfg.Enabled && store == nil {
+		panic("store must not be nil when blob storage is enabled")
 	}
 	if interpreterCfg == nil {
 		panic("interpreterCfg must not be nil")
+	}
+	if attributeStore == nil {
+		panic("attributeStore must not be nil")
 	}
 	if workerPool == nil {
 		panic("workerPool must not be nil")
@@ -76,7 +81,7 @@ func NewServer(
 		readyCheck = func(context.Context) error { return nil }
 	}
 
-	handler := newHandler(apiCfg, extStore, interpreterCfg, client, logger, store, workerPool)
+	handler := newHandler(apiCfg, blobStoreCfg, interpreterCfg, client, logger, store, attributeStore, workerPool)
 	maxMsg := apiCfg.EffectiveGrpcMaxMessageBytes()
 	healthSrv := health.NewServer()
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)

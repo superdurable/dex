@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.TimerInfo timers = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
       getTimersOrBuilderList() {
     return timers_;
   }
@@ -377,7 +377,7 @@ private static final long serialVersionUID = 0L;
             timersBuilder_ = null;
             timers_ = other.timers_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            timersBuilder_ = 
+            timersBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetTimersFieldBuilder() : null;
           } else {
@@ -636,7 +636,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo timers = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
          getTimersOrBuilderList() {
       if (timersBuilder_ != null) {
         return timersBuilder_.getMessageOrBuilderList();
@@ -662,12 +662,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo timers = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.TimerInfo.Builder> 
+    public java.util.List<io.superdurable.gen.TimerInfo.Builder>
          getTimersBuilderList() {
       return internalGetTimersFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder> 
+        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder>
         internalGetTimersFieldBuilder() {
       if (timersBuilder_ == null) {
         timersBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -731,4 +731,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

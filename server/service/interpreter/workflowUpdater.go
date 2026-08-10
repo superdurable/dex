@@ -41,6 +41,7 @@ type WorkflowUpdater struct {
 	stepExecutionCounter *StepExecutionCounter
 	flowConfiger         *interpreterconfig.FlowConfiger
 	basicInfo            service.BasicInfo
+	terminal             *TerminalCoordinator
 }
 
 func NewWorkflowUpdater(
@@ -57,12 +58,13 @@ func NewWorkflowUpdater(
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
+	terminal *TerminalCoordinator,
 ) error {
 	if apiCfg == nil || activities == nil || provider == nil ||
 		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil {
+		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil || terminal == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -79,6 +81,7 @@ func NewWorkflowUpdater(
 		stepExecutionCounter: stepExecutionCounter,
 		flowConfiger:         flowConfiger,
 		basicInfo:            basicInfo,
+		terminal:             terminal,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
@@ -196,7 +199,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	if !u.terminal.IsRequested() {
+		u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	}
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{
 		Response: &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
@@ -207,6 +212,9 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	_ interfaces.UnifiedContext,
 	input *dexpb.InvokeRPCRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if input == nil || input.GetRpcName() == "" {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -262,6 +270,9 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 	_ interfaces.UnifiedContext,
 	request *dexpb.WaitForStepCompletionRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if request == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -356,6 +367,9 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 	_ interfaces.UnifiedContext,
 	request *dexpb.WaitForAttributeRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if request == nil || request.GetCondition() == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -384,6 +398,16 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 		)
 	}
 	return nil
+}
+
+func (u *WorkflowUpdater) rejectTerminalUpdate() error {
+	if !u.terminal.IsRequested() {
+		return nil
+	}
+	return u.provider.NewUpdateError(
+		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
+		"flow terminal cleanup is in progress",
+	)
 }
 
 func (u *WorkflowUpdater) handleWaitForAttribute(

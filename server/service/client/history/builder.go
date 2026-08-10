@@ -83,7 +83,7 @@ func (b *Builder) RecordStart(
 				StartStepType:     input.GetStartStepType(),
 				StepInput:         input.GetStepInput(),
 				StepOptions:       input.GetStepOptions(),
-				InitialAttributes: input.GetInitAttributes(),
+				InitialAttributes: attributeWritesToKVs(input.GetInitAttributes()),
 			},
 		}
 	}
@@ -92,6 +92,17 @@ func (b *Builder) RecordStart(
 		eventTime,
 		&dexpb.FlowHistoryEvent_FlowStartedOrContinued{FlowStartedOrContinued: payload},
 	)
+}
+
+func attributeWritesToKVs(writes []*dexpb.AttributeWrite) []*dexpb.KV {
+	attributes := make([]*dexpb.KV, 0, len(writes))
+	for _, write := range writes {
+		if write == nil {
+			continue
+		}
+		attributes = append(attributes, &dexpb.KV{Key: write.GetKey(), Value: write.GetValue()})
+	}
+	return attributes
 }
 
 func (b *Builder) RecordWaitScheduled(

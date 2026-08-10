@@ -1,0 +1,34 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Super Durable Source License 1.0.
+# See LICENSE for details.
+
+services:
+  attribute-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: dex
+      POSTGRES_USER: dex
+      POSTGRES_PASSWORD: dex
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dex -d dex"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  attribute-mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: dex
+      MYSQL_USER: dex
+      MYSQL_PASSWORD: dex
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "53306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

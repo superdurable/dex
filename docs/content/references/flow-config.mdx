@@ -5,3 +5,8 @@ title: Flow config
 # Flow config
 
 Runtime Flow configuration can be updated for some knobs (see `UpdateFlowConfig`). Prefer documenting the specific fields your SDK exposes rather than inventing server internals.
+
+`attribute_sync_config_name` selects a Server-configured Custom Attribute Store.
+An explicit empty string disables sync for future enabled writes. Pending
+mutations retain the target selected at enqueue time. A non-empty unknown name
+is rejected by StartFlow and UpdateFlowConfig.

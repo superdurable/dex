@@ -31,10 +31,10 @@ func InvokeWorkerRpc(
 	apiMaxSeconds int64,
 	blobStore blobstore.BlobStore,
 	invocationId string,
-	externalStorageConfig *config.ExternalStorageConfig,
+	blobStoreCfg *config.BlobStoreConfig,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 
-	if !externalStorageConfig.EffectiveLazyLoading() {
+	if !blobStoreCfg.EffectiveLazyLoading() {
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
@@ -94,13 +94,13 @@ func InvokeWorkerRpc(
 
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx, resp.GetUpsertAttributes(), req.GetFlowId(), invocationId,
-		externalStorageConfig.ThresholdInBytes, blobStore, externalStorageConfig.Enabled,
+		blobStoreCfg.ThresholdInBytes, blobStore, blobStoreCfg.Enabled,
 	); err != nil {
 		return nil, err
 	}
 	if err := blobstore.OffloadLargeValue(
 		ctx, resp.GetOutput(), req.GetFlowId(), invocationId,
-		externalStorageConfig.ThresholdInBytes, blobStore, externalStorageConfig.Enabled,
+		blobStoreCfg.ThresholdInBytes, blobStore, blobStoreCfg.Enabled,
 	); err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func InvokeWorkerRpc(
 		req.GetFlowId(),
 		invocationId,
 		blobStore,
-		externalStorageConfig,
+		blobStoreCfg,
 	); err != nil {
 		return nil, err
 	}
@@ -124,10 +124,10 @@ func offloadRPCSideEffects(
 	flowID string,
 	invocationID string,
 	blobStore blobstore.BlobStore,
-	externalStorageConfig *config.ExternalStorageConfig,
+	blobStoreCfg *config.BlobStoreConfig,
 ) error {
-	threshold := externalStorageConfig.ThresholdInBytes
-	enabled := externalStorageConfig.Enabled
+	threshold := blobStoreCfg.ThresholdInBytes
+	enabled := blobStoreCfg.Enabled
 	if err := blobstore.OffloadLargeKVs(
 		ctx, response.GetRecordEvents(), flowID, invocationID, threshold, blobStore, enabled,
 	); err != nil {

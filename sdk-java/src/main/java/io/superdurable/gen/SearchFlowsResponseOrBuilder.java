@@ -13,7 +13,7 @@ public interface SearchFlowsResponseOrBuilder extends
   /**
    * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
    */
-  java.util.List<io.superdurable.gen.SearchFlowsResponseEntry> 
+  java.util.List<io.superdurable.gen.SearchFlowsResponseEntry>
       getFlowRunsList();
   /**
    * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
@@ -26,7 +26,7 @@ public interface SearchFlowsResponseOrBuilder extends
   /**
    * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.SearchFlowsResponseEntryOrBuilder>
       getFlowRunsOrBuilderList();
   /**
    * <code>repeated .dex.SearchFlowsResponseEntry flow_runs = 1;</code>

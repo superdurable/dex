@@ -26,7 +26,9 @@ type DexServiceTestConfig struct {
 	S3TestThreshold    int
 	LocalBlobDirectory string
 	LocalBlobThreshold int
-	// LazyLoading overrides ExternalStorage.LazyLoading when S3 is enabled.
+	AttributeStore     config.AttributeStoreConfig
+	BlobCacheDirectory string
+	// LazyLoading overrides BlobStore.LazyLoading when S3 is enabled.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
 }
@@ -48,6 +50,7 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 			VerboseDebug:          false,
 		},
 	}
+	cfg.AttributeStore = testCfg.AttributeStore
 	switch testCfg.BackendType {
 	case service.BackendTypeTemporal:
 		cfg.Interpreter.Temporal = &config.TemporalConfig{}
@@ -55,12 +58,15 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 		cfg.Interpreter.Cadence = &config.CadenceConfig{}
 	}
 	if testCfg.S3TestThreshold > 0 {
-		externalStorage := config.ExternalStorageConfig{
+		blobStoreCfg := config.BlobStoreConfig{
 			Enabled:                true,
 			LazyLoading:            testCfg.LazyLoading,
 			ThresholdInBytes:       testCfg.S3TestThreshold,
 			HistoryRetentionInDays: 3,
-			SupportedStorages: []config.BlobStorageConfig{
+			BlobCache: config.BlobCacheConfig{
+				Directory: testCfg.BlobCacheDirectory,
+			},
+			SupportedStorages: []config.BlobStoreConfigEntry{
 				{
 					Status:      config.StorageStatusActive,
 					StorageId:   "s3-store-id",
@@ -73,15 +79,15 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 				},
 			},
 		}
-		cfg.ExternalStorage = externalStorage
+		cfg.BlobStore = blobStoreCfg
 	}
 	if testCfg.LocalBlobDirectory != "" {
-		cfg.ExternalStorage = config.ExternalStorageConfig{
+		cfg.BlobStore = config.BlobStoreConfig{
 			Enabled:                true,
 			LazyLoading:            testCfg.LazyLoading,
 			ThresholdInBytes:       testCfg.LocalBlobThreshold,
 			HistoryRetentionInDays: 3,
-			SupportedStorages: []config.BlobStorageConfig{{
+			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,
 				StorageId:      "local-store-id",
 				StorageType:    config.StorageTypeLocal,

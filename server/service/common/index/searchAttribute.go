@@ -164,7 +164,7 @@ func resolveNonNilIndexValue(value *dexpb.Value, indexType dexpb.IndexType) inte
 		if !ok {
 			return nil
 		}
-		timestamp, err := timeparser.ParseRFC3339Nano(value.StringValue)
+		timestamp, err := timeparser.ParseTime(value.StringValue)
 		if err != nil {
 			return nil
 		}

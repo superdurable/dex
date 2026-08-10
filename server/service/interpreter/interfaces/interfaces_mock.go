@@ -685,6 +685,20 @@ func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, resp interface
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, resp)
 }
 
+// NewCanceledError mocks base method.
+func (m *MockWorkflowProvider) NewCanceledError(reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewCanceledError", reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewCanceledError indicates an expected call of NewCanceledError.
+func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewCanceledError), reason)
+}
+
 // Now mocks base method.
 func (m *MockWorkflowProvider) Now(ctx UnifiedContext) time.Time {
 	m.ctrl.T.Helper()

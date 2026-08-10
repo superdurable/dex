@@ -192,4 +192,3 @@ public enum IndexType
 
   // @@protoc_insertion_point(enum_scope:dex.IndexType)
 }
-

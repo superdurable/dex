@@ -1,0 +1,276 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
+//go:build attributestore_integration
+
+package integ
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/signal"
+	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
+)
+
+func TestAttributeSyncTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSync(t, service.BackendTypeTemporal)
+}
+
+func TestAttributeSyncCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSync(t, service.BackendTypeCadence)
+}
+
+func TestAttributeSyncRetryExhaustionTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncRetryExhaustion(t, service.BackendTypeTemporal)
+}
+
+func TestAttributeSyncRetryExhaustionCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncRetryExhaustion(t, service.BackendTypeCadence)
+}
+
+func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableName := "flow_attributes_" + strings.ReplaceAll(newRequestID(), "-", "")
+	_, err = database.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT, document JSONB)`,
+		tableName,
+	))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+		require.NoError(t, dropErr)
+	})
+
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:        backendType,
+		S3TestThreshold:    1,
+		BlobCacheDirectory: t.TempDir(),
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableName,
+				},
+			},
+			SyncBatchSize: 2,
+		},
+	})
+	workerTarget := startWorker(t, signal.NewHandler())
+	flowID := "attribute-sync-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync",
+		FlowTimeoutSeconds: 30,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", strings.Repeat("cache-backed-string", 8)),
+				syncedObjectAttribute("document", `{"source":"blob-cache"}`),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeSyncConfigName: ptr.Any("reporting"),
+				WorkerTarget:            workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+
+	var message string
+	var document string
+	err = database.QueryRowContext(
+		ctx,
+		"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
+		flowID,
+	).Scan(&message, &document)
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("cache-backed-string", 8), message)
+	require.JSONEq(t, `{"source":"blob-cache"}`, document)
+}
+
+func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.BackendType) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableSuffix := strings.ReplaceAll(newRequestID(), "-", "")
+	failingTable := "flow_attributes_failing_" + tableSuffix
+	healthyTable := "flow_attributes_healthy_" + tableSuffix
+	for _, tableName := range []string{failingTable, healthyTable} {
+		_, err = database.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+			tableName,
+		))
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		for _, tableName := range []string{failingTable, healthyTable} {
+			_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+			require.NoError(t, dropErr)
+		}
+	})
+
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: backendType,
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"failing": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + failingTable,
+				},
+				"healthy": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + healthyTable,
+				},
+			},
+			SyncBatchSize:      1,
+			SyncAttemptTimeout: time.Second,
+			SyncRetryPolicy: &config.AttributeStoreRetryPolicyConfig{
+				InitialIntervalSeconds: 1,
+				MaximumIntervalSeconds: 1,
+				BackoffCoefficient:     1,
+				TotalDurationSeconds:   1,
+			},
+		},
+	})
+	workerTarget := startWorker(t, signal.NewHandler())
+	_, err = database.ExecContext(ctx, "DROP TABLE public."+failingTable)
+	require.NoError(t, err)
+
+	flowID := "attribute-sync-retry-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync-retry",
+		FlowTimeoutSeconds: 25,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "skipped"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeSyncConfigName: ptr.Any("failing"),
+				WorkerTarget:            workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
+		FlowId: flowID,
+		FlowConfig: &dexpb.FlowConfig{
+			AttributeSyncConfigName: ptr.Any("healthy"),
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var dump dexpb.DebugDumpResponse
+		queryErr := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
+		return queryErr == nil && dump.GetConfig().GetAttributeSyncConfigName() == "healthy"
+	}, 20*time.Second, 50*time.Millisecond)
+
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		Attributes: []*dexpb.AttributeWrite{
+			syncedStringAttribute("message", "persisted"),
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var persisted string
+		queryErr := database.QueryRowContext(
+			ctx,
+			"SELECT message FROM public."+healthyTable+" WHERE flow_id = $1",
+			flowID,
+		).Scan(&persisted)
+		return queryErr == nil && persisted == "persisted"
+	}, 20*time.Second, 50*time.Millisecond)
+
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+
+	var message string
+	err = database.QueryRowContext(
+		ctx,
+		"SELECT message FROM public."+healthyTable+" WHERE flow_id = $1",
+		flowID,
+	).Scan(&message)
+	require.NoError(t, err)
+	require.Equal(t, "persisted", message)
+}
+
+func syncedStringAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:        key,
+		Value:      stringValue(value),
+		SyncConfig: &dexpb.AttributeSyncConfig{Enabled: true},
+	}
+}
+
+func syncedObjectAttribute(key, value string) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:        key,
+		Value:      objJSONValue(value),
+		SyncConfig: &dexpb.AttributeSyncConfig{Enabled: true},
+	}
+}

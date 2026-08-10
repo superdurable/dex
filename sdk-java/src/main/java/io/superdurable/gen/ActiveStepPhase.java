@@ -131,4 +131,3 @@ public enum ActiveStepPhase
 
   // @@protoc_insertion_point(enum_scope:dex.ActiveStepPhase)
 }
-

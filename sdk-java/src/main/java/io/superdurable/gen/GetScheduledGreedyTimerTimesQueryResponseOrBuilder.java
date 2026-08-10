@@ -13,7 +13,7 @@ public interface GetScheduledGreedyTimerTimesQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
    */
-  java.util.List<io.superdurable.gen.TimerInfo> 
+  java.util.List<io.superdurable.gen.TimerInfo>
       getPendingScheduledList();
   /**
    * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
@@ -26,7 +26,7 @@ public interface GetScheduledGreedyTimerTimesQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
       getPendingScheduledOrBuilderList();
   /**
    * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>

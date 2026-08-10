@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeWorkerRPCResponse response = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeWorkerRPCResponse, io.superdurable.gen.InvokeWorkerRPCResponse.Builder, io.superdurable.gen.InvokeWorkerRPCResponseOrBuilder> 
+        io.superdurable.gen.InvokeWorkerRPCResponse, io.superdurable.gen.InvokeWorkerRPCResponse.Builder, io.superdurable.gen.InvokeWorkerRPCResponseOrBuilder>
         internalGetResponseFieldBuilder() {
       if (responseBuilder_ == null) {
         responseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,4 +565,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

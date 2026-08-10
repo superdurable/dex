@@ -47,6 +47,13 @@ func (w *workflowProvider) NewFlowError(
 	return cadence.NewCustomError(errType.String(), resp)
 }
 
+func (w *workflowProvider) NewCanceledError(reason string) error {
+	if reason == "" {
+		return cadence.NewCanceledError()
+	}
+	return cadence.NewCanceledError(reason)
+}
+
 func (w *workflowProvider) NewUpdateError(
 	errType dexpb.UpdateErrorType,
 	detail string,
@@ -208,6 +215,19 @@ func (w *workflowProvider) Await(ctx interfaces.UnifiedContext, condition func()
 	return workflow.Await(wfCtx, condition)
 }
 
+func (w *workflowProvider) RecordCounter(
+	ctx interfaces.UnifiedContext,
+	name string,
+	value int64,
+	tags map[string]string,
+) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to cadence workflow context")
+	}
+	workflow.GetMetricsScope(wfCtx).Tagged(tags).Counter(name).Inc(value)
+}
+
 func (w *workflowProvider) WithActivityOptions(
 	ctx interfaces.UnifiedContext, options interfaces.ActivityOptions,
 ) interfaces.UnifiedContext {
@@ -236,9 +256,13 @@ func (w *workflowProvider) WithActivityOptions(
 	if options.LocalActivityScheduleToCloseTimeout > 0 {
 		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
 	}
+	localRetryPolicy := options.LocalActivityRetryPolicy
+	if localRetryPolicy == nil {
+		localRetryPolicy = options.RetryPolicy
+	}
 	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
 		ScheduleToCloseTimeout: localActivityTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
+		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(localRetryPolicy),
 	})
 	return interfaces.NewUnifiedContext(wfCtx3)
 }

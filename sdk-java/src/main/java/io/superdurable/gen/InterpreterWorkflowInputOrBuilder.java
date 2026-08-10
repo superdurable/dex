@@ -65,47 +65,27 @@ public interface InterpreterWorkflowInputOrBuilder extends
   io.superdurable.gen.StepOptionsOrBuilder getStepOptionsOrBuilder();
 
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.AttributeWrite>
       getInitAttributesList();
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  io.superdurable.gen.KV getInitAttributes(int index);
+  io.superdurable.gen.AttributeWrite getInitAttributes(int index);
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   int getInitAttributesCount();
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
       getInitAttributesOrBuilderList();
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  io.superdurable.gen.KVOrBuilder getInitAttributesOrBuilder(
+  io.superdurable.gen.AttributeWriteOrBuilder getInitAttributesOrBuilder(
       int index);
 
   /**

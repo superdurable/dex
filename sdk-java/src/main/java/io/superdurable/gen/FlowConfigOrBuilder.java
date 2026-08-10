@@ -78,4 +78,33 @@ public interface FlowConfigOrBuilder extends
    * <code>.dex.WorkerTarget worker_target = 5;</code>
    */
   io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder();
+
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return Whether the attributeSyncConfigName field is set.
+   */
+  boolean hasAttributeSyncConfigName();
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return The attributeSyncConfigName.
+   */
+  java.lang.String getAttributeSyncConfigName();
+  /**
+   * <pre>
+   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * </pre>
+   *
+   * <code>optional string attribute_sync_config_name = 6;</code>
+   * @return The bytes for attributeSyncConfigName.
+   */
+  com.google.protobuf.ByteString
+      getAttributeSyncConfigNameBytes();
 }

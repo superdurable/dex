@@ -12,6 +12,7 @@ package integ
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,8 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWorkflowCanceled(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
+		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeTemporal, nil)
 		smallWaitForFastTest()
@@ -55,6 +58,8 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 		doTestWorkflowCanceled(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 		doTestWorkflowCanceled(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
+		smallWaitForFastTest()
+		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeCadence, nil)
@@ -89,7 +94,6 @@ func doTestWorkflowCanceled(
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -113,6 +117,43 @@ func doTestWorkflowCanceled(
 	assertions.Empty(response.GetErrorMessage())
 }
 
+func doTestWorkflowCancelWaitsForProducer(t *testing.T, backendType service.BackendType) {
+	workerHandler := newCooperativeStopHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := "wf-cooperative-cancel-test-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           cooperativeStopFlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      cooperativeStopStepType,
+		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-workerHandler.executeStarted:
+	case <-ctx.Done():
+		require.FailNow(t, "producer did not start", ctx.Err())
+	}
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+	close(workerHandler.releaseExecute)
+
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+}
+
 func doTestWorkflowTerminated(
 	t *testing.T,
 	backendType service.BackendType,
@@ -133,7 +174,6 @@ func doTestWorkflowTerminated(
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -186,7 +226,6 @@ func doTestWorkflowFail(
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 10,
 
-		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -212,4 +251,51 @@ func doTestWorkflowFail(
 		response.GetErrorType(),
 	)
 	assertions.Equal("fail reason", response.GetErrorMessage())
+}
+
+const (
+	cooperativeStopFlowType = "cooperative-stop"
+	cooperativeStopStepType = "running-producer"
+)
+
+type cooperativeStopHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	executeStartedOnce sync.Once
+	executeStarted     chan struct{}
+	releaseExecute     chan struct{}
+}
+
+func newCooperativeStopHandler() *cooperativeStopHandler {
+	return &cooperativeStopHandler{
+		executeStarted: make(chan struct{}),
+		releaseExecute: make(chan struct{}),
+	}
+}
+
+func (h *cooperativeStopHandler) InvokeWaitForMethod(
+	context.Context,
+	*dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+		},
+	}, nil
+}
+
+func (h *cooperativeStopHandler) InvokeExecuteMethod(
+	ctx context.Context,
+	_ *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	h.executeStartedOnce.Do(func() { close(h.executeStarted) })
+	select {
+	case <-h.releaseExecute:
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{{StepType: "must-not-start"}},
+			},
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }

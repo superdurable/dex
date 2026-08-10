@@ -61,6 +61,7 @@ type ActivityOptions struct {
 	LocalActivityScheduleToCloseTimeout time.Duration
 	HeartbeatTimeout                    time.Duration
 	RetryPolicy                         *dexpb.RetryPolicy
+	LocalActivityRetryPolicy            *dexpb.RetryPolicy
 }
 
 type UnifiedContext interface {
@@ -95,6 +96,7 @@ type TimerProcessor interface {
 
 type WorkflowProvider interface {
 	NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error
+	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo

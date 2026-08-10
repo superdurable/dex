@@ -174,4 +174,3 @@ public enum FlowErrorType
 
   // @@protoc_insertion_point(enum_scope:dex.FlowErrorType)
 }
-

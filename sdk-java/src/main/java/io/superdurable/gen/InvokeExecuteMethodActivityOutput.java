@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeExecuteMethodResponse response = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeExecuteMethodResponse, io.superdurable.gen.InvokeExecuteMethodResponse.Builder, io.superdurable.gen.InvokeExecuteMethodResponseOrBuilder> 
+        io.superdurable.gen.InvokeExecuteMethodResponse, io.superdurable.gen.InvokeExecuteMethodResponse.Builder, io.superdurable.gen.InvokeExecuteMethodResponseOrBuilder>
         internalGetResponseFieldBuilder() {
       if (responseBuilder_ == null) {
         responseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,4 +565,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

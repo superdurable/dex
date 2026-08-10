@@ -135,4 +135,3 @@ public enum StepDurability
 
   // @@protoc_insertion_point(enum_scope:dex.StepDurability)
 }
-

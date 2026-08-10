@@ -16,11 +16,14 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/utils"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type PersistenceManager struct {
-	provider interfaces.WorkflowProvider
+	provider     interfaces.WorkflowProvider
+	synchronizer *AttributeSynchronizer
+	flowConfiger *interpreterconfig.FlowConfiger
 
 	attributes map[string]*dexpb.Value
 
@@ -30,9 +33,11 @@ type PersistenceManager struct {
 func NewPersistenceManager(
 	provider interfaces.WorkflowProvider,
 	initialAttributes []*dexpb.KV,
+	synchronizer *AttributeSynchronizer,
+	flowConfiger *interpreterconfig.FlowConfiger,
 ) *PersistenceManager {
-	if provider == nil {
-		panic("PersistenceManager requires a WorkflowProvider")
+	if provider == nil || synchronizer == nil || flowConfiger == nil {
+		panic("PersistenceManager requires non-nil dependencies")
 	}
 
 	attributes := make(map[string]*dexpb.Value, len(initialAttributes))
@@ -44,8 +49,10 @@ func NewPersistenceManager(
 	}
 
 	return &PersistenceManager{
-		provider:   provider,
-		attributes: attributes,
+		provider:     provider,
+		synchronizer: synchronizer,
+		flowConfiger: flowConfiger,
+		attributes:   attributes,
 		// locks will not be carried over during continueAsNew
 		lockedKeys: map[string]bool{},
 	}
@@ -124,6 +131,7 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 		}
 		am.attributes[write.GetKey()] = write.GetValue()
 	}
+	am.synchronizer.ApplyAttributeWrites(writes, am.flowConfiger.Get().GetAttributeSyncConfigName())
 
 	return nil
 }
@@ -168,4 +176,15 @@ func sortedUniqueStrings(values []string) []string {
 	}
 	sort.Strings(values)
 	return values
+}
+
+func attributeWritesToKVs(writes []*dexpb.AttributeWrite) []*dexpb.KV {
+	attributes := make([]*dexpb.KV, 0, len(writes))
+	for _, write := range writes {
+		if write == nil || utils.IsNullValue(write.GetValue()) {
+			continue
+		}
+		attributes = append(attributes, &dexpb.KV{Key: write.GetKey(), Value: write.GetValue()})
+	}
+	return attributes
 }

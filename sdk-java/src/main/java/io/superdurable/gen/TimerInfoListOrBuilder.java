@@ -13,7 +13,7 @@ public interface TimerInfoListOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo timers = 1;</code>
    */
-  java.util.List<io.superdurable.gen.TimerInfo> 
+  java.util.List<io.superdurable.gen.TimerInfo>
       getTimersList();
   /**
    * <code>repeated .dex.TimerInfo timers = 1;</code>
@@ -26,7 +26,7 @@ public interface TimerInfoListOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo timers = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
+  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
       getTimersOrBuilderList();
   /**
    * <code>repeated .dex.TimerInfo timers = 1;</code>

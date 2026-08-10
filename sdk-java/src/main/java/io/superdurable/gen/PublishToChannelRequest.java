@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -80,7 +80,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -103,7 +103,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -119,7 +119,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -143,7 +143,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ChannelMessage messages = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
       getMessagesOrBuilderList() {
     return messages_;
   }
@@ -495,7 +495,7 @@ private static final long serialVersionUID = 0L;
             messagesBuilder_ = null;
             messages_ = other.messages_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            messagesBuilder_ = 
+            messagesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetMessagesFieldBuilder() : null;
           } else {
@@ -594,7 +594,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -666,7 +666,7 @@ private static final long serialVersionUID = 0L;
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -908,7 +908,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage messages = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
          getMessagesOrBuilderList() {
       if (messagesBuilder_ != null) {
         return messagesBuilder_.getMessageOrBuilderList();
@@ -934,12 +934,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage messages = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelMessage.Builder> 
+    public java.util.List<io.superdurable.gen.ChannelMessage.Builder>
          getMessagesBuilderList() {
       return internalGetMessagesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> 
+        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>
         internalGetMessagesFieldBuilder() {
       if (messagesBuilder_ == null) {
         messagesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1003,4 +1003,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

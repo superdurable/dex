@@ -32,7 +32,7 @@ func TestTemporalProtoPayloadIsBinaryProtobuf(t *testing.T) {
 		Config: &dexpb.FlowConfig{
 			WorkerTarget: &dexpb.WorkerTarget{Address: "127.0.0.1:9000"},
 		},
-		InitAttributes: []*dexpb.KV{
+		InitAttributes: []*dexpb.AttributeWrite{
 			{Key: "k", Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 7}}},
 		},
 	}

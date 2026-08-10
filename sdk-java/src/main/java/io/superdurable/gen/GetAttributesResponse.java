@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV attributes = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -377,7 +377,7 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            attributesBuilder_ = 
+            attributesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -636,7 +636,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -662,12 +662,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder> 
+    public java.util.List<io.superdurable.gen.KV.Builder>
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -731,4 +731,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

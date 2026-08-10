@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.Value values = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.ValueOrBuilder>
       getValuesOrBuilderList() {
     return values_;
   }
@@ -377,7 +377,7 @@ private static final long serialVersionUID = 0L;
             valuesBuilder_ = null;
             values_ = other.values_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            valuesBuilder_ = 
+            valuesBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetValuesFieldBuilder() : null;
           } else {
@@ -636,7 +636,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.Value values = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.ValueOrBuilder>
          getValuesOrBuilderList() {
       if (valuesBuilder_ != null) {
         return valuesBuilder_.getMessageOrBuilderList();
@@ -662,12 +662,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.Value values = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.Value.Builder> 
+    public java.util.List<io.superdurable.gen.Value.Builder>
          getValuesBuilderList() {
       return internalGetValuesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
         internalGetValuesFieldBuilder() {
       if (valuesBuilder_ == null) {
         valuesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -731,4 +731,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

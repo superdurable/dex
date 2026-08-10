@@ -56,6 +56,21 @@ const (
 	DefaultMaxStickyRoutingEntries = 100000
 	// DefaultWorkerServiceRequestMaxAttempts includes the first headless WorkerService request.
 	DefaultWorkerServiceRequestMaxAttempts = 3
+	// DefaultBlobCacheMaxBytes caps the Server Attribute blob cache at one GiB.
+	DefaultBlobCacheMaxBytes int64 = 1 << 30
+	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
+	DefaultAttributeStoreSchemaSyncInterval = time.Minute
+	// DefaultAttributeStoreSyncBatchSize caps mutations in one Attribute Store upsert.
+	DefaultAttributeStoreSyncBatchSize = 100
+	// DefaultAttributeStoreSyncAttemptTimeout caps each regular Activity attempt at thirty seconds.
+	DefaultAttributeStoreSyncAttemptTimeout = 30 * time.Second
+	// DefaultAttributeStoreSyncTotalDurationSeconds caps regular Activity retries at one hour.
+	DefaultAttributeStoreSyncTotalDurationSeconds int32 = 3600
+)
+
+const (
+	AttributeStoreTypeMySQL    AttributeStoreType = "mysql"
+	AttributeStoreTypePostgres AttributeStoreType = "postgres"
 )
 
 var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
@@ -74,11 +89,13 @@ type (
 		Worker WorkerConfig `yaml:"worker"`
 		// Interpreter selects Temporal or Cadence and worker activity settings. Exactly one of Temporal/Cadence must be set.
 		Interpreter Interpreter `yaml:"interpreter"`
-		// ExternalStorage offloads large Attribute payloads (string/object) above ThresholdInBytes.
-		ExternalStorage ExternalStorageConfig `yaml:"externalStorage"`
+		// BlobStore offloads large Attribute payloads above ThresholdInBytes. Default disabled.
+		BlobStore BlobStoreConfig `yaml:"blobStore"`
+		// AttributeStore configures optional MySQL/Postgres Attribute synchronization. Default disabled when Stores is empty.
+		AttributeStore AttributeStoreConfig `yaml:"attributeStore"`
 	}
 
-	ExternalStorageConfig struct {
+	BlobStoreConfig struct {
 		// Enabled turns external blob offload on or off. Default false.
 		Enabled bool `yaml:"enabled"`
 		// LazyLoading turns lazy loading on or off.
@@ -90,9 +107,55 @@ type (
 		// ThresholdInBytes is the payload size that triggers writing a blob id onto Value instead of inline data. Default 0 (never offload when Enabled is false).
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
-		SupportedStorages []BlobStorageConfig `yaml:"supportedStorages"`
+		SupportedStorages []BlobStoreConfigEntry `yaml:"supportedStorages"`
 		// HistoryRetentionInDays must match the Temporal/Cadence history retention. Default 0; configure it explicitly.
 		HistoryRetentionInDays int `yaml:"historyRetentionInDays"`
+		// BlobCache configures the S3 Attribute disk cache. Default disabled because Directory is empty. Immutable after startup.
+		BlobCache BlobCacheConfig `yaml:"blobCache"`
+	}
+
+	BlobCacheConfig struct {
+		// Directory exclusively stores cached S3 Attribute blobs. Default empty disables caching. Immutable after startup.
+		Directory string `yaml:"directory"`
+		// MaxBytes caps cache-owned logical file bytes. Default 1073741824. Must be positive when Directory is configured.
+		MaxBytes int64 `yaml:"maxBytes"`
+	}
+
+	AttributeStoreType string
+
+	AttributeStoreConfig struct {
+		// Stores maps FlowConfig names to immutable SQL destinations. Default empty disables Attribute synchronization.
+		Stores map[string]AttributeStoreConfigEntry `yaml:"stores"`
+		// SchemaSyncInterval refreshes table schemas. Default 1m. Each interval receives uniform ±10% jitter.
+		SchemaSyncInterval time.Duration `yaml:"schemaSyncInterval"`
+		// SyncBatchSize caps contiguous mutations per SQL upsert. Default 100. Must be positive after defaults.
+		SyncBatchSize int `yaml:"syncBatchSize"`
+		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
+		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`
+		// SyncRetryPolicy controls regular Activity retries. Nil fields default to 1s/30s/2x/unlimited attempts/1h total.
+		SyncRetryPolicy *AttributeStoreRetryPolicyConfig `yaml:"syncRetryPolicy"`
+	}
+
+	AttributeStoreRetryPolicyConfig struct {
+		// InitialIntervalSeconds is the first retry delay. Default 1. Must be positive after defaults.
+		InitialIntervalSeconds int32 `yaml:"initialIntervalSeconds"`
+		// MaximumIntervalSeconds caps retry backoff. Default 30. Must be positive after defaults.
+		MaximumIntervalSeconds int32 `yaml:"maximumIntervalSeconds"`
+		// BackoffCoefficient multiplies retry delay. Default 2. Must be positive after defaults.
+		BackoffCoefficient float32 `yaml:"backoffCoefficient"`
+		// MaximumAttempts includes the first regular attempt. Default 0 means duration-limited retries.
+		MaximumAttempts int32 `yaml:"maximumAttempts"`
+		// TotalDurationSeconds caps regular retries. Default 3600. Must be positive after defaults.
+		TotalDurationSeconds int32 `yaml:"totalDurationSeconds"`
+	}
+
+	AttributeStoreConfigEntry struct {
+		// Type selects mysql or postgres. Default empty is invalid for a configured entry. Immutable after startup.
+		Type AttributeStoreType `yaml:"type"`
+		// DSN is the driver connection string. Default empty is invalid. It may contain credentials and is never logged.
+		DSN string `yaml:"dsn"`
+		// TableName selects table or schema.table/database.table. Default empty is invalid. Immutable after startup.
+		TableName string `yaml:"tableName"`
 	}
 
 	StorageStatus       string
@@ -106,7 +169,7 @@ type (
 		CleanupFrequencyInDays int `yaml:"cleanupFrequencyInDays"`
 	}
 
-	BlobStorageConfig struct {
+	BlobStoreConfigEntry struct {
 		// Status is "active" (writable) or "inactive" (read-only). Only one active store is allowed.
 		Status StorageStatus
 		// StorageId identifies this backend inside blob ids persisted on Value.
@@ -261,6 +324,7 @@ func NewConfig(configPath string) (*Config, error) {
 	defer file.Close()
 
 	d := yaml.NewDecoder(file)
+	d.KnownFields(true)
 
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
@@ -303,11 +367,110 @@ func (c ApiConfig) EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy() InvokeRPCC
 }
 
 // EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.
-func (c ExternalStorageConfig) EffectiveLazyLoading() bool {
+func (c BlobStoreConfig) EffectiveLazyLoading() bool {
 	if c.LazyLoading == nil {
 		return true
 	}
 	return *c.LazyLoading
+}
+
+// EffectiveMaxBytes returns the configured cache budget or its one-GiB default.
+func (c BlobCacheConfig) EffectiveMaxBytes() int64 {
+	if c.MaxBytes == 0 {
+		return DefaultBlobCacheMaxBytes
+	}
+	return c.MaxBytes
+}
+
+// Validate checks enabled blob cache settings.
+func (c BlobCacheConfig) Validate() error {
+	if c.Directory == "" {
+		return nil
+	}
+	if c.EffectiveMaxBytes() <= 0 {
+		return fmt.Errorf("blob cache maxBytes must be positive")
+	}
+	return nil
+}
+
+// EffectiveSchemaSyncInterval returns the configured schema refresh interval or one minute.
+func (c AttributeStoreConfig) EffectiveSchemaSyncInterval() time.Duration {
+	if c.SchemaSyncInterval == 0 {
+		return DefaultAttributeStoreSchemaSyncInterval
+	}
+	return c.SchemaSyncInterval
+}
+
+// EffectiveSyncBatchSize returns the configured batch limit or 100.
+func (c AttributeStoreConfig) EffectiveSyncBatchSize() int {
+	if c.SyncBatchSize == 0 {
+		return DefaultAttributeStoreSyncBatchSize
+	}
+	return c.SyncBatchSize
+}
+
+// EffectiveSyncAttemptTimeout returns the configured regular Activity timeout or thirty seconds.
+func (c AttributeStoreConfig) EffectiveSyncAttemptTimeout() time.Duration {
+	if c.SyncAttemptTimeout == 0 {
+		return DefaultAttributeStoreSyncAttemptTimeout
+	}
+	return c.SyncAttemptTimeout
+}
+
+// EffectiveSyncRetryPolicy returns a finite policy with Attribute Store defaults.
+func (c AttributeStoreConfig) EffectiveSyncRetryPolicy() *dexpb.RetryPolicy {
+	policy := &dexpb.RetryPolicy{}
+	if c.SyncRetryPolicy != nil {
+		policy.InitialIntervalSeconds = c.SyncRetryPolicy.InitialIntervalSeconds
+		policy.MaximumIntervalSeconds = c.SyncRetryPolicy.MaximumIntervalSeconds
+		policy.BackoffCoefficient = c.SyncRetryPolicy.BackoffCoefficient
+		policy.MaximumAttempts = c.SyncRetryPolicy.MaximumAttempts
+		policy.TotalDurationSeconds = c.SyncRetryPolicy.TotalDurationSeconds
+	}
+	if policy.InitialIntervalSeconds == 0 {
+		policy.InitialIntervalSeconds = 1
+	}
+	if policy.MaximumIntervalSeconds == 0 {
+		policy.MaximumIntervalSeconds = 30
+	}
+	if policy.BackoffCoefficient == 0 {
+		policy.BackoffCoefficient = 2
+	}
+	if policy.TotalDurationSeconds == 0 {
+		policy.TotalDurationSeconds = DefaultAttributeStoreSyncTotalDurationSeconds
+	}
+	return policy
+}
+
+// Validate checks Attribute Store names, destinations, timeouts, and retry bounds.
+func (c AttributeStoreConfig) Validate() error {
+	if c.EffectiveSchemaSyncInterval() <= 0 {
+		return fmt.Errorf("attribute store schemaSyncInterval must be positive")
+	}
+	if c.EffectiveSyncBatchSize() <= 0 {
+		return fmt.Errorf("attribute store syncBatchSize must be positive")
+	}
+	if c.EffectiveSyncAttemptTimeout() <= 0 {
+		return fmt.Errorf("attribute store syncAttemptTimeout must be positive")
+	}
+	policy := c.EffectiveSyncRetryPolicy()
+	if policy.GetInitialIntervalSeconds() <= 0 || policy.GetMaximumIntervalSeconds() <= 0 ||
+		policy.GetBackoffCoefficient() <= 0 || policy.GetMaximumAttempts() < 0 ||
+		policy.GetTotalDurationSeconds() <= 0 {
+		return fmt.Errorf("attribute store syncRetryPolicy values must be positive except maximumAttempts may be zero")
+	}
+	for name, store := range c.Stores {
+		if name == "" {
+			return fmt.Errorf("attribute store name must not be empty")
+		}
+		if store.Type != AttributeStoreTypeMySQL && store.Type != AttributeStoreTypePostgres {
+			return fmt.Errorf("attribute store %q has unsupported type %q", name, store.Type)
+		}
+		if store.DSN == "" || store.TableName == "" {
+			return fmt.Errorf("attribute store %q requires dsn and tableName", name)
+		}
+	}
+	return nil
 }
 
 func (c CleanupStrategy) CronSchedule() (string, error) {

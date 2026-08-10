@@ -22,6 +22,7 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service/api"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
@@ -49,15 +50,17 @@ type Options struct {
 }
 
 type Runtime struct {
-	cfg           *config.Config
-	options       *Options
-	apiServer     *api.Server
-	worker        interpreterWorker
-	workerPool    *workerclient.WorkerClientPool
-	logger        log.Logger
-	metricsCloser io.Closer
-	serveError    chan error
-	shutdownOnce  sync.Once
+	cfg            *config.Config
+	options        *Options
+	apiServer      *api.Server
+	worker         interpreterWorker
+	workerPool     *workerclient.WorkerClientPool
+	attributeStore *attributestore.Manager
+	blobStore      blobstore.BlobStore
+	logger         log.Logger
+	metricsCloser  io.Closer
+	serveError     chan error
+	shutdownOnce   sync.Once
 }
 
 type interpreterWorker interface {
@@ -99,6 +102,12 @@ func New(cfg *config.Config, options *Options) (*Runtime, error) {
 		logger:     logger,
 		serveError: make(chan error, 1),
 	}
+	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
+	if err != nil {
+		workerPool.Close()
+		return nil, fmt.Errorf("initialize Attribute Stores: %w", err)
+	}
+	runtime.attributeStore = attributeStore
 	if err := runtime.createServices(); err != nil {
 		runtime.shutdown()
 		return nil, err
@@ -120,14 +129,16 @@ func (r *Runtime) createServices() error {
 	if err != nil {
 		return err
 	}
+	r.blobStore = store
 	if r.options.Services.API {
 		r.apiServer = api.NewServer(
 			&r.cfg.Api,
-			&r.cfg.ExternalStorage,
+			&r.cfg.BlobStore,
 			&r.cfg.Interpreter,
 			client,
 			r.logger.WithTags(tag.Service("api")),
 			store,
+			r.attributeStore,
 			nil,
 			r.workerPool,
 		)
@@ -193,6 +204,16 @@ func (r *Runtime) shutdown() {
 		}
 		if r.apiServer != nil {
 			r.apiServer.Close()
+		}
+		if r.attributeStore != nil {
+			if err := r.attributeStore.Close(); err != nil {
+				r.logger.Error("close Attribute Stores", tag.Error(err))
+			}
+		}
+		if r.blobStore != nil {
+			if err := r.blobStore.Close(); err != nil {
+				r.logger.Error("close blob store", tag.Error(err))
+			}
 		}
 		r.workerPool.Close()
 		if r.metricsCloser != nil {

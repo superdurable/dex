@@ -84,7 +84,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
       getResultsOrBuilderList() {
     return results_;
   }
@@ -142,7 +142,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       errorMessage_ = s;
@@ -158,7 +158,7 @@ private static final long serialVersionUID = 0L;
       getErrorMessageBytes() {
     java.lang.Object ref = errorMessage_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       errorMessage_ = b;
@@ -500,7 +500,7 @@ private static final long serialVersionUID = 0L;
             resultsBuilder_ = null;
             results_ = other.results_;
             bitField0_ = (bitField0_ & ~0x00000002);
-            resultsBuilder_ = 
+            resultsBuilder_ =
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetResultsFieldBuilder() : null;
           } else {
@@ -834,7 +834,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
          getResultsOrBuilderList() {
       if (resultsBuilder_ != null) {
         return resultsBuilder_.getMessageOrBuilderList();
@@ -860,12 +860,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepCompletionOutput results = 2;</code>
      */
-    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder> 
+    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder>
          getResultsBuilderList() {
       return internalGetResultsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder> 
+        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder>
         internalGetResultsFieldBuilder() {
       if (resultsBuilder_ == null) {
         resultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -956,7 +956,7 @@ private static final long serialVersionUID = 0L;
         getErrorMessageBytes() {
       java.lang.Object ref = errorMessage_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         errorMessage_ = b;
@@ -1053,4 +1053,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

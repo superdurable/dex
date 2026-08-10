@@ -29,10 +29,14 @@ interpreter:
       timerType: histogram
   defaultWorkflowConfig:
     continueAsNewThreshold: 100
-externalStorage:
+blobStore:
   enabled: true
   thresholdInBytes: 100000 # 100 KB
   historyRetentionInDays: 3
+  # S3 Attribute cache. The directory must be exclusive to this Server process.
+  # blobCache:
+  #   directory: /var/lib/dex/attribute-cache
+  #   maxBytes: 1073741824
   supportedStorages:
     - status: active
       storageId: "local-dev-s3"
@@ -50,3 +54,23 @@ externalStorage:
     #   storageId: "local-dev"
     #   storageType: "local"
     #   localDirectory: "./dex-blobs"
+
+# attributeStore:
+#   stores:
+#     reporting:
+#       type: postgres
+#       dsn: postgres://user:password@localhost/reporting
+#       tableName: public.flow_attributes
+#     operational:
+#       type: mysql
+#       dsn: user:password@tcp(localhost:3306)/operational
+#       tableName: flow_attributes
+#   schemaSyncInterval: 1m
+#   syncBatchSize: 100
+#   syncAttemptTimeout: 30s
+#   syncRetryPolicy:
+#     initialIntervalSeconds: 1
+#     maximumIntervalSeconds: 30
+#     backoffCoefficient: 2
+#     maximumAttempts: 0
+#     totalDurationSeconds: 3600

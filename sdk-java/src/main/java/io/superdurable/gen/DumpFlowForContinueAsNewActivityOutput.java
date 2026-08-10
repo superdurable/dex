@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewDumpResponse response = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewDumpResponse, io.superdurable.gen.ContinueAsNewDumpResponse.Builder, io.superdurable.gen.ContinueAsNewDumpResponseOrBuilder> 
+        io.superdurable.gen.ContinueAsNewDumpResponse, io.superdurable.gen.ContinueAsNewDumpResponse.Builder, io.superdurable.gen.ContinueAsNewDumpResponseOrBuilder>
         internalGetResponseFieldBuilder() {
       if (responseBuilder_ == null) {
         responseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,4 +565,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-
