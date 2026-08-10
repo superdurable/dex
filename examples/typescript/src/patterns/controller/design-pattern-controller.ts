@@ -18,8 +18,8 @@ import type { Express, Router } from "express";
 import { Router as createRouter } from "express";
 
 import {
-  DexError,
-  ErrorSubStatus,
+  FlowAlreadyStartedError,
+  FlowNotActiveError,
   IdReusePolicy,
   StepExecutionId,
   type Client,
@@ -288,7 +288,7 @@ export function registerDesignPatternRoutes(
       );
       message = "Signaled the workflow";
     } catch (error) {
-      if (error instanceof DexError && error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS) {
+      if (error instanceof FlowNotActiveError) {
         const runId = await client.startFlow(
           flows.drainSignalChannelsFlow,
           workflowId,
@@ -357,8 +357,7 @@ async function invokeStorageRpc<T>(
     if (!attemptRestart) {
       throw error;
     }
-    const missing =
-      error instanceof DexError && error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS;
+    const missing = error instanceof FlowNotActiveError;
     const message = error instanceof Error ? error.message : String(error);
     const staleWorker =
       /RPC ".*?" is not registered in flow "StorageFlow"/.test(message) ||
@@ -377,12 +376,7 @@ async function invokeStorageRpc<T>(
     try {
       await client.startFlow(flows.storageFlow, flowId, undefined, startOptions());
     } catch (startError) {
-      if (
-        !(
-          startError instanceof DexError &&
-          startError.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
-        )
-      ) {
+      if (!(startError instanceof FlowAlreadyStartedError)) {
         throw startError;
       }
     }

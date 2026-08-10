@@ -11,14 +11,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { InitialAttribute, stringCodec } from "../../src/index.js";
+import {
+  FlowNotActiveError,
+  FlowNotFoundError,
+  InitialAttribute,
+  stringCodec,
+} from "../../src/index.js";
 import { BasicPersistenceFlow } from "./basic_persistence_flow.js";
-import { flowId, withEnvironment } from "./environment.js";
+import { expectError, flowId, withEnvironment } from "./environment.js";
 import { SetAttributesFlow } from "./set_attributes_flow.js";
 
 test("persistence reads initial values, Step writes, locals, and deletes", async () => {
   const flow = new BasicPersistenceFlow();
   await withEnvironment([flow], async ({ client }) => {
+    await expectError(client.getAttribute(flowId("missing"), flow.data), FlowNotFoundError);
     const id = flowId("persistence");
     await client.startFlow(flow, id, "input", {
       attributes: [
@@ -37,6 +43,7 @@ test("persistence reads initial values, Step writes, locals, and deletes", async
       "2023-04-17T21:17:49.000Z",
     );
     assert.equal((await client.getAttribute(id, flow.model))?.value, 0);
+    await expectError(client.setAttribute(id, flow.data, "closed"), FlowNotActiveError);
   });
 });
 

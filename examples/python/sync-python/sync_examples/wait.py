@@ -19,7 +19,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
-from dex import Attribute, Client, DexException, ErrorSubStatus, FlowStatus
+from dex import Attribute, Client, FlowNotFoundError, FlowStatus
 
 WAIT_TIMEOUT = timedelta(seconds=45)
 POLL_INTERVAL_SECONDS = 0.5
@@ -53,21 +53,15 @@ def wait_for_attribute(
     )
 
 
-def attribute_or_none(
-    client: Client, flow_id: str, attribute: Attribute[Any]
-) -> Any:
+def attribute_or_none(client: Client, flow_id: str, attribute: Attribute[Any]) -> Any:
     try:
         return client.get_attribute(flow_id, attribute)
-    except DexException as error:
-        if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-            return None
-        raise
+    except FlowNotFoundError:
+        return None
 
 
 def flow_status_or_none(client: Client, flow_id: str) -> FlowStatus | None:
     try:
         return client.describe_flow(flow_id).status
-    except DexException as error:
-        if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-            return None
-        raise
+    except FlowNotFoundError:
+        return None

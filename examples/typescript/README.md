@@ -7,6 +7,10 @@ controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
 `await` the shared `Client` directly (async await on the Worker). Disk
 BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 
+Controllers catch concrete SDK errors such as `FlowAlreadyStartedError`,
+`FlowNotFoundError`, and `FlowNotActiveError`; no example compares Dex
+sub-status metadata.
+
 ## Run locally
 
 ```bash

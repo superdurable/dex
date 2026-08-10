@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dex import DexException, ErrorSubStatus
+from dex import FlowAlreadyStartedError
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
@@ -37,9 +37,7 @@ def create_signup_blueprint(app_state: ExampleApp) -> Blueprint:
                 form,
                 start_options(),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
             return "username already started registry"
         return "success"
 

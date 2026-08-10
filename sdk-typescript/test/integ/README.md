@@ -33,3 +33,18 @@ Full integration verification:
 - Client methods return Promise because blocking the Node event loop is unsafe.
 - Step / waitFor / RPC handlers may be sync or async; several ported fixtures and
   `mixed_sync_async_flow.ts` exercise both styles on one Worker.
+
+## Error coverage
+
+| Scenario | Error |
+| --- | --- |
+| Duplicate start | `FlowAlreadyStartedError` |
+| Missing describe, attribute read, or Flow wait | `FlowNotFoundError` |
+| Missing or closed mutation/RPC | `FlowNotActiveError` |
+| Worker handler failure | `WorkerInvocationError` |
+| Locking RPC contention | `RpcLockConflictError` |
+| Long-poll expiry | `LongPollTimeoutError` |
+| Non-completed Flow result | `FlowUncompletedError` |
+
+Local contract tests also cover malformed rich details, registration failures,
+value mapping, and invalid Step results.

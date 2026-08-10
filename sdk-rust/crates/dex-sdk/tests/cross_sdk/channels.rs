@@ -9,9 +9,9 @@
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
-    Channel, ConditionCombination, Context, ErrorSubStatus, Flow, HandlerError, HandlerResult,
-    PersistenceSchema, Registry, SdkError, Step, StepDecision, StepExecutionId, StepList,
-    StepMovement, Timer, TimerId, Wait,
+    Channel, ConditionCombination, Context, Flow, HandlerError, HandlerResult, PersistenceSchema,
+    Registry, SdkError, Step, StepDecision, StepExecutionId, StepList, StepMovement, Timer,
+    TimerId, Wait,
 };
 
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -328,14 +328,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
         .client
         .publish(&missing_flow_id, &workflow.first, 100)
         .expect_err("publishing to a missing Flow must fail");
-    assert!(matches!(
-        missing,
-        SdkError::FlowNotFound { .. }
-            | SdkError::Service {
-                sub_status: ErrorSubStatus::FlowNotExists,
-                ..
-            }
-    ));
+    assert!(matches!(missing, SdkError::FlowNotActive(_)));
 }
 
 #[test]

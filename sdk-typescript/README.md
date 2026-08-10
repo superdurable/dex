@@ -93,6 +93,33 @@ Every TypeScript Flow and Step must return an explicit durable name from
 `getFlowType()` or `getStepType()`. Class names are never used as fallbacks
 because bundlers and minifiers may rename them.
 
+## Errors
+
+Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
+reads (`getAttribute`, `describeFlow`, `waitForFlow`, and `resetFlow`) use
+`FlowNotFoundError`; operations that require a running Flow use
+`FlowNotActiveError`. Start conflicts, worker failures, RPC lock contention,
+and long-poll timeouts use `FlowAlreadyStartedError`,
+`WorkerInvocationError`, `RpcLockConflictError`, and `LongPollTimeoutError`.
+
+```typescript
+try {
+  await client.publish(flowId, orders.approved, orderId);
+} catch (error) {
+  if (error instanceof FlowNotActiveError) {
+    // The Flow is missing or already closed.
+  } else {
+    throw error;
+  }
+}
+```
+
+Every service error retains `code`, `subStatus`, `detail`, `operation`,
+`flowId`, and the original gRPC error as `cause`. `WorkerInvocationError` also
+retains `workerCode`, `workerErrorType`, and `workerErrorDetail`. Registration,
+serialization, and invalid handler returns use `FlowDefinitionError`,
+`ValueMappingError`, and `InvalidStepResultError` instead of transport errors.
+
 ## Source layout
 
 Public contracts are grouped by domain under `src/`. The root `src/index.ts`

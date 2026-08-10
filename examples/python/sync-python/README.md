@@ -6,6 +6,9 @@ the primary async examples under `examples/python/`.
 Targets [`dex-python-sdk==0.1.1`](https://pypi.org/project/dex-python-sdk/0.1.1/).
 Requires Python 3.11+.
 
+The samples use concrete SDK errors for missing, inactive, and duplicate Flows
+instead of inspecting Dex sub-status metadata.
+
 Six Flows:
 
 | Demo | Route prefix | Notes |

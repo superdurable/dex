@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 
-from dex import DexException, ErrorSubStatus, StartFlowOptions
+from dex import FlowAlreadyStartedError, StartFlowOptions
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import DEFAULT_TIMEOUT, ExamplesConfig
@@ -53,10 +53,9 @@ async def start_cron_schedule(app_state: ExampleApp) -> None:
             None,
             StartFlowOptions(timeout=DEFAULT_TIMEOUT, cron_schedule=CRON_EXPRESSION),
         )
-    except DexException as error:
+    except FlowAlreadyStartedError:
         # ignore_already_started resolves the current run, which cron schedules lack.
-        if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-            raise
+        pass
 
 
 def parse_http_address(address: str) -> tuple[str, int]:

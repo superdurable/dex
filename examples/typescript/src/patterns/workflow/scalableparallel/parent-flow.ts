@@ -18,8 +18,7 @@ import {
   Attribute,
   Channel,
   ChannelMap,
-  DexError,
-  ErrorSubStatus,
+  FlowAlreadyStartedError,
   IdReusePolicy,
   InitialAttribute,
   StepList,
@@ -131,10 +130,7 @@ class LoopForNextMessage implements Step<void> {
         });
         newWaitList.push(childWorkflowId);
       } catch (error) {
-        if (
-          error instanceof DexError &&
-          error.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
-        ) {
+        if (error instanceof FlowAlreadyStartedError) {
           console.log(
             "already started by other state/workflow, ignore it -- not waiting for it",
           );

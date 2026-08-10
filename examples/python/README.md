@@ -7,6 +7,10 @@ The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` a
 Quart HTTP controller on `127.0.0.1:8080`. Controllers and nested parent/child Steps
 use `AsyncClient`. One Registry and disk BlobCache are shared by Worker and Client.
 
+Controllers catch concrete SDK errors such as `FlowAlreadyStartedError`,
+`FlowNotFoundError`, and `FlowNotActiveError`; no example compares Dex
+sub-status metadata.
+
 For the sync `Client` / `Worker` surface (Flask, six Flows), see
 [`sync-python/`](./sync-python/).
 

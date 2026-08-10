@@ -23,8 +23,7 @@ from dex import (
     AsyncClient,
     Attribute,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowNotActiveError,
     Flow,
     PersistenceSchema,
     RPCResult,
@@ -74,9 +73,7 @@ class Complete(Step[None]):
                     parent_flow_id,
                     context.flow_id,
                 )
-            except DexException as error:
-                if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                    raise
+            except FlowNotActiveError:
                 print(
                     "Parent flow may have completed, possibly a duplicate "
                     "completion request, ignoring it."

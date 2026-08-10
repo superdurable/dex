@@ -24,8 +24,7 @@ from dex import (
     Channel,
     Client,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowAlreadyStartedError,
     Flow,
     LongPollTimeoutError,
     PersistenceSchema,
@@ -83,9 +82,7 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
         del context
         return Wait.until(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
 
-    def execute(
-        self, context: Context, input: WaitForChildInput
-    ) -> StepDecision:
+    def execute(self, context: Context, input: WaitForChildInput) -> StepDecision:
         del context
         try:
             self.client_provider().wait_for_flow(
@@ -124,9 +121,8 @@ class StartChildWorkflow(Step[int]):
                 str(input),
                 start_options(),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
+            pass
         return go_to(
             self.await_child_workflow_completion,
             WaitForChildInput(child_workflow_id, 1),

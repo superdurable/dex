@@ -22,8 +22,7 @@ from dex import (
     AsyncClient,
     Attribute,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowNotActiveError,
     Flow,
     PersistenceSchema,
     Step,
@@ -69,9 +68,7 @@ class Processing(Step[str]):
                     parent_id,
                     context.flow_id,
                 )
-            except DexException as error:
-                if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                    raise
+            except FlowNotActiveError:
                 print(
                     "Parent workflow may have completed, might be duplicate "
                     "completion request, ignore it."

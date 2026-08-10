@@ -15,7 +15,7 @@ from typing import Any, cast
 import grpc
 import pytest
 
-from dex import DexException, ErrorSubStatus, StopFlowOptions, StopType
+from dex import RpcLockConflictError, StopFlowOptions, StopType, WorkerInvocationError
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .dead_end_flow import DeadEndFlow
@@ -94,10 +94,8 @@ async def _locking_rpc_serializes_successful_updates() -> None:
             try:
                 await environment.client.invoke_rpc(flow.increase_counter, flow_id)
                 return True
-            except DexException as conflict:
-                if conflict.code is grpc.StatusCode.ABORTED:
-                    return False
-                raise
+            except RpcLockConflictError:
+                return False
 
         results = await asyncio.gather(*(increase() for _ in range(100)))
         succeeded = sum(results)
@@ -200,11 +198,10 @@ async def _rpc_user_error_preserves_worker_details() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("rpc-error")
         await environment.client.start_flow(flow, flow_id, None)
-        with pytest.raises(DexException) as captured:
+        with pytest.raises(WorkerInvocationError) as captured:
             await environment.client.invoke_rpc(flow.fail, flow_id, "this is an error")
         failure = captured.value
         assert failure.code is grpc.StatusCode.FAILED_PRECONDITION
-        assert failure.sub_status is ErrorSubStatus.WORKER_API_ERROR
         assert "ValueError" in failure.worker_error_type
         assert "this is an error" in failure.worker_error_detail
         await environment.client.stop_flow(flow_id)

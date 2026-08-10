@@ -19,6 +19,7 @@ from google.protobuf import struct_pb2
 from dex.attribute import AttributeIndex, IndexType
 from dex.codec import Codec, CodecRegistry, Value, WireKind
 from dex.dexpb import dex_pb2 as pb
+from dex.runtime_errors import ValueMappingError
 
 _JSON_ENCODING = "json"
 _RAW_BYTES_ENCODING = "rawbytes"
@@ -32,6 +33,14 @@ class ValueMapper:
         return self._codecs.resolve(value_type)
 
     def encode(self, value: Any, codec: Codec[Any]) -> pb.Value:
+        try:
+            return self._encode(value, codec)
+        except ValueMappingError:
+            raise
+        except Exception as error:
+            raise ValueMappingError("encode", str(error)) from error
+
+    def _encode(self, value: Any, codec: Codec[Any]) -> pb.Value:
         if value is None:
             return pb.Value(
                 obj_value=pb.EncodedObject(
@@ -66,6 +75,14 @@ class ValueMapper:
         raise TypeError(f"unsupported wire kind {logical.kind}")
 
     def encode_dynamic(self, value: Any) -> pb.Value:
+        try:
+            return self._encode_dynamic(value)
+        except ValueMappingError:
+            raise
+        except Exception as error:
+            raise ValueMappingError("encode", str(error)) from error
+
+    def _encode_dynamic(self, value: Any) -> pb.Value:
         if value is None:
             return self.encode(value, self._codecs.resolve(type(None)))
         value_type = type(value)
@@ -83,6 +100,14 @@ class ValueMapper:
         return self.encode(value, codec)
 
     def decode(self, value: pb.Value, codec: Codec[Any]) -> Any:
+        try:
+            return self._decode(value, codec)
+        except ValueMappingError:
+            raise
+        except Exception as error:
+            raise ValueMappingError("decode", str(error)) from error
+
+    def _decode(self, value: pb.Value, codec: Codec[Any]) -> Any:
         kind = value.WhichOneof("kind")
         expected = codec.wire_kind
         if kind == "string_value" and expected is WireKind.STRING:
@@ -113,6 +138,14 @@ class ValueMapper:
         raise TypeError(f"cannot decode {kind or 'empty Value'} as {codec.type_name}")
 
     def to_value(self, value: pb.Value) -> Value:
+        try:
+            return self._to_value(value)
+        except ValueMappingError:
+            raise
+        except Exception as error:
+            raise ValueMappingError("decode", str(error)) from error
+
+    def _to_value(self, value: pb.Value) -> Value:
         kind = value.WhichOneof("kind")
         if kind == "string_value":
             return Value(WireKind.STRING, value.string_value)

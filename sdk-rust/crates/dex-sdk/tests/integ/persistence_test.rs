@@ -10,7 +10,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use dex_sdk::{Client, Registry, SdkResult, StartFlowOptions};
+use dex_sdk::{Client, Registry, SdkError, SdkResult, StartFlowOptions};
 
 use crate::persistence_set_attributes_workflow::PersistenceSetAttributesWorkflow;
 use crate::persistence_workflow::{PersistenceModel, PersistenceWorkflow};
@@ -22,6 +22,12 @@ fn test_persistence_reads() {
     let environment =
         DexDevTestEnvironment::start(Registry::new().register(PersistenceWorkflow::new()));
     let workflow = PersistenceWorkflow::new();
+    assert!(matches!(
+        environment
+            .client
+            .get_attribute(&flow_id("missing"), &workflow.data),
+        Err(SdkError::FlowNotFound(_))
+    ));
     let flow_id = flow_id("persistence");
     let options = StartFlowOptions::new()
         .initial_attribute(&workflow.initial, "initial".to_string())
@@ -86,6 +92,12 @@ fn test_persistence_reads() {
             .get_attribute(&flow_id, &workflow.model)
             .expect("get model Attribute")
     );
+    assert!(matches!(
+        environment
+            .client
+            .set_attribute(&flow_id, &workflow.data, "closed".to_string()),
+        Err(SdkError::FlowNotActive(_))
+    ));
 }
 
 #[test]

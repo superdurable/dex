@@ -15,6 +15,7 @@ use dex_protocol::dex::{EncodedObject, LoadBlobsRequest, Value, value};
 use prost::Message;
 use tonic::transport::Channel;
 
+use crate::sdk_error::FlowTargetRequirement;
 use crate::{SdkError, SdkResult};
 
 #[derive(Clone)]
@@ -66,7 +67,9 @@ impl ValueHydrator {
                 .clone()
                 .load_blobs(request)
                 .await
-                .map_err(SdkError::from_status)?
+                .map_err(|status| {
+                    SdkError::from_status(status, "load_blobs", None, FlowTargetRequirement::None)
+                })?
                 .into_inner();
             for key in misses {
                 let value = response.values.get(&key.id).cloned().ok_or_else(|| {

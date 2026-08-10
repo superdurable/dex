@@ -23,18 +23,18 @@ use dex_protocol::dex::{
     WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
 };
 use tokio::runtime::Runtime;
-use tonic::Code;
 use tonic::transport::Endpoint;
 use uuid::Uuid;
 
 use crate::reset_flow_options::ResetPoint;
+use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::stop_flow_options::StopType;
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
-    ErrorSubStatus, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowStatus, IdReusePolicy, Registry,
+    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowStatus, IdReusePolicy, Registry,
     ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
     StartFlowOptions, StepDurability, StepExecutionId, StopFlowOptions, TimerId, Value,
     WorkerTarget,
@@ -138,7 +138,14 @@ impl Client {
                 .start_flow(request)
                 .await
                 .map(|response| response.into_inner().run_id)
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "start_flow",
+                        Some(flow_id),
+                        FlowTargetRequirement::None,
+                    )
+                })
         })
     }
 
@@ -264,15 +271,18 @@ impl Client {
                 })
                 .await
                 .map(|response| response.into_inner())
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "describe_flow",
+                        Some(flow_id),
+                        FlowTargetRequirement::Existing,
+                    )
+                })
         })?;
         let execution = response
             .flow_execution_id
-            .ok_or_else(|| SdkError::Service {
-                code: Code::Internal,
-                sub_status: ErrorSubStatus::Uncategorized,
-                detail: "GetFlowSummary omitted FlowExecutionID".to_string(),
-            })?;
+            .ok_or_else(|| service_error("GetFlowSummary omitted FlowExecutionID"))?;
         Ok(FlowInfo {
             flow_id: execution.flow_id,
             run_id: execution.run_id,
@@ -307,7 +317,9 @@ impl Client {
                 })
                 .await
                 .map(|response| response.into_inner())
-                .map_err(SdkError::from_status)?;
+                .map_err(|status| {
+                    SdkError::from_status(status, "search_flows", None, FlowTargetRequirement::None)
+                })?;
             let values = response
                 .flow_runs
                 .iter()
@@ -352,16 +364,21 @@ impl Client {
             StopType::Terminate => ProtoStopType::Terminate,
             StopType::Fail => ProtoStopType::Fail,
         };
-        self.call_empty(|mut service| async move {
-            service
-                .stop_flow(StopFlowRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    reason: options.reason.unwrap_or_default(),
-                    stop_type: stop_type as i32,
-                })
-                .await
-        })
+        self.call_empty(
+            "stop_flow",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .stop_flow(StopFlowRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        reason: options.reason.unwrap_or_default(),
+                        stop_type: stop_type as i32,
+                    })
+                    .await
+            },
+        )
     }
 
     pub fn reset_flow(&self, flow_id: &str, options: ResetFlowOptions) -> SdkResult<String> {
@@ -404,7 +421,14 @@ impl Client {
                 .reset_flow(request)
                 .await
                 .map(|response| response.into_inner().run_id)
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "reset_flow",
+                        Some(flow_id),
+                        FlowTargetRequirement::Existing,
+                    )
+                })
         })
     }
 
@@ -421,20 +445,25 @@ impl Client {
                 Some(i32::try_from(index).map_err(|_| invalid("timer index exceeds int32"))?),
             ),
         };
-        self.call_empty(|mut service| async move {
-            service
-                .skip_timer(SkipTimerRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    step_execution_id: format!(
-                        "{}-{}",
-                        step_execution.step_type, step_execution.execution_number
-                    ),
-                    timer_condition_id,
-                    timer_condition_index,
-                })
-                .await
-        })
+        self.call_empty(
+            "skip_timer",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .skip_timer(SkipTimerRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        step_execution_id: format!(
+                            "{}-{}",
+                            step_execution.step_type, step_execution.execution_number
+                        ),
+                        timer_condition_id,
+                        timer_condition_index,
+                    })
+                    .await
+            },
+        )
     }
 
     pub fn wait_for_step_completion(
@@ -444,45 +473,65 @@ impl Client {
         timeout: Duration,
     ) -> SdkResult<()> {
         let wait_time_seconds = seconds32(timeout)?;
-        self.call_empty(|mut service| async move {
-            service
-                .wait_for_step_completion(WaitForStepCompletionRequest {
-                    flow_id: flow_id.to_string(),
-                    step_type: step_execution.step_type.to_string(),
-                    step_execution_number: step_execution.execution_number.to_string(),
-                    wait_time_seconds,
-                    request_id: Uuid::new_v4().to_string(),
-                })
-                .await
-        })
+        self.call_empty(
+            "wait_for_step_completion",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .wait_for_step_completion(WaitForStepCompletionRequest {
+                        flow_id: flow_id.to_string(),
+                        step_type: step_execution.step_type.to_string(),
+                        step_execution_number: step_execution.execution_number.to_string(),
+                        wait_time_seconds,
+                        request_id: Uuid::new_v4().to_string(),
+                    })
+                    .await
+            },
+        )
     }
 
     pub fn update_flow_config(&self, flow_id: &str, config: FlowConfig) -> SdkResult<()> {
         let flow_config = self.map_flow_config(Some(&config))?;
-        self.call_empty(|mut service| async move {
-            service
-                .update_flow_config(UpdateFlowConfigRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    flow_config: Some(flow_config),
-                })
-                .await
-        })
+        self.call_empty(
+            "update_flow_config",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .update_flow_config(UpdateFlowConfigRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        flow_config: Some(flow_config),
+                    })
+                    .await
+            },
+        )
     }
 
     pub fn trigger_continue_as_new(&self, flow_id: &str) -> SdkResult<()> {
-        self.call_empty(|mut service| async move {
-            service
-                .trigger_continue_as_new(TriggerContinueAsNewRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                })
-                .await
-        })
+        self.call_empty(
+            "trigger_continue_as_new",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .trigger_continue_as_new(TriggerContinueAsNewRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                    })
+                    .await
+            },
+        )
     }
 
     pub fn health_check(&self) -> SdkResult<()> {
-        self.call_empty(|mut service| async move { service.health_check(()).await })
+        self.call_empty(
+            "health_check",
+            None,
+            FlowTargetRequirement::None,
+            |mut service| async move { service.health_check(()).await },
+        )
     }
 
     fn do_invoke_rpc<Input: Value, Output: Value>(
@@ -507,7 +556,14 @@ impl Client {
                 .invoke_rpc(request)
                 .await
                 .map(|response| response.into_inner().output)
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "invoke_rpc",
+                        Some(flow_id),
+                        FlowTargetRequirement::Active,
+                    )
+                })
         })?;
         let output = output.ok_or_else(|| invalid("InvokeRPC omitted output"))?;
         let output = self.runtime.block_on(self.hydrator.hydrate(output))?;
@@ -526,7 +582,14 @@ impl Client {
                 })
                 .await
                 .map(|response| response.into_inner())
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "get_attribute",
+                        Some(flow_id),
+                        FlowTargetRequirement::Existing,
+                    )
+                })
         })?;
         let Some(entry) = response.attributes.into_iter().next() else {
             return Ok(None);
@@ -550,16 +613,21 @@ impl Client {
             value: Some(value_mapper::encode(value)?),
             index_config,
         };
-        self.call_empty(|mut service| async move {
-            service
-                .set_attributes(SetAttributesRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    attributes: vec![write],
-                    request_id: Uuid::new_v4().to_string(),
-                })
-                .await
-        })
+        self.call_empty(
+            "set_attribute",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .set_attributes(SetAttributesRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        attributes: vec![write],
+                        request_id: Uuid::new_v4().to_string(),
+                    })
+                    .await
+            },
+        )
     }
 
     fn publish_values<T: Value>(
@@ -577,15 +645,20 @@ impl Client {
                 })
             })
             .collect::<SdkResult<Vec<_>>>()?;
-        self.call_empty(|mut service| async move {
-            service
-                .publish_to_channel(PublishToChannelRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    messages,
-                })
-                .await
-        })
+        self.call_empty(
+            "publish",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .publish_to_channel(PublishToChannelRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        messages,
+                    })
+                    .await
+            },
+        )
     }
 
     fn wait_for_flow_response(
@@ -604,18 +677,16 @@ impl Client {
                 })
                 .await
                 .map(|response| response.into_inner())
-                .map_err(SdkError::from_status)
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "wait_for_flow",
+                        Some(flow_id),
+                        FlowTargetRequirement::Existing,
+                    )
+                })
         });
-        let response = match response {
-            Err(SdkError::LongPollTimeout { code, detail, .. }) => {
-                return Err(SdkError::LongPollTimeout {
-                    code,
-                    flow_id: flow_id.to_string(),
-                    detail,
-                });
-            }
-            result => result?,
-        };
+        let response = response?;
         let status = map_flow_status(response.flow_status)?;
         if status != FlowStatus::Completed {
             let flow = self.describe_flow(flow_id)?;
@@ -736,7 +807,13 @@ impl Client {
         })
     }
 
-    fn call_empty<Response, Future, Call>(&self, call: Call) -> SdkResult<()>
+    fn call_empty<Response, Future, Call>(
+        &self,
+        operation: &'static str,
+        flow_id: Option<&str>,
+        requirement: FlowTargetRequirement,
+        call: Call,
+    ) -> SdkResult<()>
     where
         Call: FnOnce(FlowServiceClient<tonic::transport::Channel>) -> Future,
         Future: std::future::Future<Output = Result<tonic::Response<Response>, tonic::Status>>,
@@ -745,7 +822,7 @@ impl Client {
         self.runtime
             .block_on(call(service))
             .map(|_| ())
-            .map_err(SdkError::from_status)
+            .map_err(|status| SdkError::from_status(status, operation, flow_id, requirement))
     }
 }
 
@@ -875,9 +952,5 @@ fn invalid(message: impl Into<String>) -> SdkError {
 }
 
 fn service_error(error: impl std::fmt::Display) -> SdkError {
-    SdkError::Service {
-        code: Code::Unknown,
-        sub_status: ErrorSubStatus::Uncategorized,
-        detail: error.to_string(),
-    }
+    SdkError::Service(ServiceError::local("client", error.to_string()))
 }

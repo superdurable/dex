@@ -10,7 +10,9 @@
 
 from datetime import datetime, timedelta, timezone
 
-from dex import StartFlowOptions
+import pytest
+
+from dex import FlowNotActiveError, FlowNotFoundError, StartFlowOptions
 
 from .basic_persistence_flow import BasicPersistenceFlow
 from .environment import DexDevTestEnvironment
@@ -29,6 +31,8 @@ def test_persistence_reads_and_step_execution_local() -> None:
         .with_attribute(flow.data_map, "one", "initial")
     )
     with DexDevTestEnvironment(flow) as environment:
+        with pytest.raises(FlowNotFoundError):
+            environment.client.get_attribute(unique_id("missing"), flow.data)
         flow_id = unique_id("persistence")
         environment.client.start_flow(flow, flow_id, "input", options)
         assert environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "input"
@@ -41,6 +45,8 @@ def test_persistence_reads_and_step_execution_local() -> None:
             2023, 4, 17, 21, 17, 49, tzinfo=timezone.utc
         )
         assert environment.client.get_attribute(flow_id, flow.model).value == 0
+        with pytest.raises(FlowNotActiveError):
+            environment.client.set_attribute(flow_id, flow.data, "closed")
 
 
 def test_set_search_attributes() -> None:

@@ -16,8 +16,7 @@
 
 import {
   Channel,
-  DexError,
-  ErrorSubStatus,
+  FlowAlreadyStartedError,
   LongPollTimeoutError,
   StepList,
   StepMovement,
@@ -110,10 +109,7 @@ class StartChildWorkflow implements Step<number> {
     try {
       await getClient().startFlow(this.child, childWorkflowId, String(uuid), startOptions());
     } catch (error) {
-      if (
-        error instanceof DexError &&
-        error.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
-      ) {
+      if (error instanceof FlowAlreadyStartedError) {
         console.log("ignore this error because it is already started");
       } else {
         throw error;

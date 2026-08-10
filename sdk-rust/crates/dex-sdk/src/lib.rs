@@ -50,7 +50,7 @@ pub use registry::Registry;
 pub use reset_flow_options::ResetFlowOptions;
 pub use retry_policy::RetryPolicy;
 pub use rpc::{Rpc, RpcList, RpcResult};
-pub use sdk_error::{ErrorSubStatus, SdkError, SdkResult};
+pub use sdk_error::{ErrorSubStatus, SdkError, SdkResult, ServiceError, WorkerError};
 pub use start_flow_options::{IdReusePolicy, StartFlowOptions};
 pub use step::{Step, StepDecision, StepList, StepMovement};
 pub use step_execution::StepExecutionId;

@@ -32,3 +32,18 @@ uv run --frozen pyright tests/integ
 - Attribute-map locks retain the instance through
   `items.lock("order-1")`.
 - Synchronous Client shapes match Java and Go while preserving Python naming.
+
+## Error coverage
+
+| Scenario | Error |
+| --- | --- |
+| Duplicate start | `FlowAlreadyStartedError` |
+| Missing describe, attribute read, or Flow wait | `FlowNotFoundError` |
+| Missing or closed mutation/RPC | `FlowNotActiveError` |
+| Worker handler failure | `WorkerInvocationError` |
+| Locking RPC contention | `RpcLockConflictError` |
+| Long-poll expiry | `LongPollTimeoutError` |
+| Non-completed Flow result | `FlowUncompletedError` |
+
+Local contract tests also cover malformed rich details, registration failures,
+value mapping, and invalid Step results.

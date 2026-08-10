@@ -49,8 +49,8 @@ fn test_basic_workflow() {
         .start_flow_with_options(&workflow, &flow_id, 0, options)
         .expect_err("duplicate Flow ID must fail")
     {
-        SdkError::FlowAlreadyStarted { code, .. } => {
-            assert_eq!(GrpcCode::AlreadyExists, code);
+        SdkError::FlowAlreadyStarted(error) => {
+            assert_eq!(GrpcCode::AlreadyExists, error.code());
         }
         error => panic!("expected FlowAlreadyStarted, got {error:?}"),
     }
@@ -117,7 +117,7 @@ fn test_empty_input_workflow() {
         .wait_for_flow_with_timeout::<()>(&missing_flow_id, Duration::from_secs(1))
         .expect_err("missing Flow must fail")
     {
-        SdkError::FlowNotFound { code, .. } => assert_eq!(GrpcCode::NotFound, code),
+        SdkError::FlowNotFound(error) => assert_eq!(GrpcCode::NotFound, error.code()),
         error => panic!("expected FlowNotFound, got {error:?}"),
     }
 }
@@ -212,7 +212,7 @@ fn test_get_workflow_status_when_no_existing_workflow() {
         .describe_flow(&flow_id("missing"))
         .expect_err("describing a missing Flow must fail")
     {
-        SdkError::FlowNotFound { code, .. } => assert_eq!(GrpcCode::NotFound, code),
+        SdkError::FlowNotFound(error) => assert_eq!(GrpcCode::NotFound, error.code()),
         error => panic!("expected FlowNotFound, got {error:?}"),
     }
 }

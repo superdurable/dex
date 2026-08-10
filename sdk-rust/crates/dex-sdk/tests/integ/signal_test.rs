@@ -57,8 +57,8 @@ fn test_basic_signal_workflow() {
         .publish(&flow_id, &workflow.first, 8)
         .expect_err("publishing to a closed Flow must fail")
     {
-        SdkError::FlowNotFound { code, .. } => assert_eq!(GrpcCode::NotFound, code),
-        error => panic!("expected FlowNotFound, got {error:?}"),
+        SdkError::FlowNotActive(error) => assert_eq!(GrpcCode::NotFound, error.code()),
+        error => panic!("expected FlowNotActive, got {error:?}"),
     }
 }
 

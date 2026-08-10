@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { DexError, ErrorSubStatus, type Client } from "@superdurable/dex";
+import { FlowAlreadyStartedError, type Client } from "@superdurable/dex";
 
 import { HOUR_MS } from "./env.js";
 import { cronScheduleFlow } from "../patterns/workflow/cron/cron-schedule-flow.js";
@@ -29,10 +29,7 @@ export async function startCronSchedule(client: Client): Promise<void> {
       cronSchedule: CRON_EXPRESSION,
     });
   } catch (error) {
-    if (
-      error instanceof DexError &&
-      error.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED
-    ) {
+    if (error instanceof FlowAlreadyStartedError) {
       return;
     }
     throw error;

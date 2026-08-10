@@ -37,3 +37,18 @@ not need a second type-erased test. Go's pointer/value Flow cases likewise map
 to one Rust ownership model and share one runtime scenario. Go-only behavioral
 contracts live separately under `tests/cross_sdk` so they cannot obscure the
 one-to-one Java suite.
+
+## Error coverage
+
+| Scenario | `SdkError` variant |
+| --- | --- |
+| Duplicate start | `FlowAlreadyStarted` |
+| Missing describe, attribute read, or Flow wait | `FlowNotFound` |
+| Missing or closed mutation/RPC | `FlowNotActive` |
+| Worker handler failure | `WorkerInvocation` |
+| Locking RPC contention | `RpcLockConflict` |
+| Long-poll expiry | `LongPollTimeout` |
+| Non-completed Flow result | `FlowUncompleted` |
+
+Local contract tests also cover malformed rich details, fallible registration,
+and invalid Step-result worker metadata.

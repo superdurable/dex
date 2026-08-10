@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import random
 
-from dex import DexException, ErrorSubStatus
+from dex import FlowNotActiveError
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
@@ -45,9 +45,7 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
                 flow_id,
                 request,
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             await app_state.client.start_flow(
                 app_state.controller,
                 flow_id,

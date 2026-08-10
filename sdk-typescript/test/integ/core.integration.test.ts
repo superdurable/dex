@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   FlowErrorType,
+  FlowNotActiveError,
   FlowUncompletedError,
   StepExecutionId,
   TimerId,
@@ -134,6 +135,7 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
       TimerId.byConditionId("test-timer-id"),
     );
     assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 6);
+    await expectError(client.publish(id, flow.first, 8), FlowNotActiveError);
   });
 });
 

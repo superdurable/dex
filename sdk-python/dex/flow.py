@@ -33,6 +33,7 @@ from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
 from dex.context import Context
+from dex.runtime_errors import FlowDefinitionError
 from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
 from dex.wait import Wait
 
@@ -157,13 +158,17 @@ class _RegisteredFlow:
         try:
             return self.steps[name]
         except KeyError as error:
-            raise ValueError(f"Step is not registered: {name}") from error
+            raise FlowDefinitionError(
+                f"Flow {self.name} Step is not registered: {name}"
+            ) from error
 
     def rpc(self, name: str) -> _RegisteredRPC:
         try:
             return self.rpcs[name]
         except KeyError as error:
-            raise ValueError(f"RPC is not registered: {name}") from error
+            raise FlowDefinitionError(
+                f"Flow {self.name} RPC is not registered: {name}"
+            ) from error
 
 
 @dataclass(frozen=True)
@@ -183,11 +188,16 @@ class Registry:
     ) -> None:
         immutable_flows = tuple(flows)
         resolved_codecs = codec_registry or CodecRegistry()
-        registered_flows = self._assemble(
-            immutable_flows,
-            resolved_codecs,
-            allow_async_handlers=allow_async_handlers,
-        )
+        try:
+            registered_flows = self._assemble(
+                immutable_flows,
+                resolved_codecs,
+                allow_async_handlers=allow_async_handlers,
+            )
+        except FlowDefinitionError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise FlowDefinitionError(str(error)) from error
         registered_steps = tuple(
             step
             for registered_flow in registered_flows.values()
@@ -217,18 +227,29 @@ class Registry:
     ) -> dict[str, _RegisteredFlow]:
         registered_flows: dict[str, _RegisteredFlow] = {}
         for flow in flows:
-            if not isinstance(flow, Flow):
-                raise TypeError("Flow definition is invalid")
-            flow_name = flow.get_flow_type()
-            require_name(flow_name)
-            if flow_name in registered_flows:
-                raise ValueError(f"duplicate Flow {flow_name}")
-            registered_flows[flow_name] = Registry._assemble_flow(
-                flow_name,
-                flow,
-                codec_registry,
-                allow_async_handlers=allow_async_handlers,
-            )
+            flow_name: str | None = None
+            try:
+                if not isinstance(flow, Flow):
+                    raise TypeError("Flow definition is invalid")
+                flow_name = flow.get_flow_type()
+                require_name(flow_name)
+                if flow_name in registered_flows:
+                    raise ValueError(f"duplicate Flow {flow_name}")
+                registered_flows[flow_name] = Registry._assemble_flow(
+                    flow_name,
+                    flow,
+                    codec_registry,
+                    allow_async_handlers=allow_async_handlers,
+                )
+            except FlowDefinitionError:
+                raise
+            except Exception as error:
+                context = (
+                    "Flow registration"
+                    if flow_name is None
+                    else f"Flow {flow_name} registration"
+                )
+                raise FlowDefinitionError(f"{context} failed: {error}") from error
         return registered_flows
 
     @staticmethod
@@ -460,12 +481,14 @@ class Registry:
         try:
             return self._registered_flows[flow_type]
         except KeyError as error:
-            raise ValueError(f"Flow is not registered: {flow_type}") from error
+            raise FlowDefinitionError(f"Flow is not registered: {flow_type}") from error
 
     def _flow_for_instance(self, flow: Flow[Any]) -> _RegisteredFlow:
         registered = self._flow_by_type(flow.get_flow_type())
         if registered.flow is not flow:
-            raise ValueError("Flow instance is not registered")
+            raise FlowDefinitionError(
+                f"Flow {flow.get_flow_type()} instance is not registered"
+            )
         return registered
 
     def _rpc_for_method(
@@ -485,4 +508,4 @@ class Registry:
                 )
                 if registered_function is function:
                     return flow, registered_rpc
-        raise ValueError("RPC method is not registered")
+        raise FlowDefinitionError("RPC method is not registered")

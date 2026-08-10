@@ -13,9 +13,9 @@ import test from "node:test";
 import { status } from "@grpc/grpc-js";
 
 import {
-  DexError,
-  ErrorSubStatus,
+  RpcLockConflictError,
   StopType,
+  WorkerInvocationError,
   doubleCodec,
   type Client,
 } from "../../src/index.js";
@@ -35,7 +35,7 @@ test("locking RPC serializes concurrent increments", async () => {
           await client.invokeRPC(flow.increaseCounter, id);
           return true;
         } catch (failure) {
-          if (failure instanceof DexError && failure.code === status.ABORTED) {
+          if (failure instanceof RpcLockConflictError) {
             return false;
           }
           throw failure;
@@ -121,10 +121,9 @@ test("RPC failure preserves structured worker details", async () => {
     await client.startFlow(flow, id, undefined);
     const failure = await expectError(
       client.invokeRPC(flow.fail, id, "this is an error"),
-      DexError,
+      WorkerInvocationError,
     );
     assert.equal(failure.code, status.FAILED_PRECONDITION);
-    assert.equal(failure.subStatus, ErrorSubStatus.WORKER_API_ERROR);
     assert.match(failure.workerErrorType, /Error/);
     assert.match(failure.workerErrorDetail, /this is an error/);
     await client.stopFlow(id);

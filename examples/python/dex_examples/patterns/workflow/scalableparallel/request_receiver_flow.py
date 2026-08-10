@@ -21,8 +21,7 @@ from typing import Callable
 from dex import (
     AsyncClient,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowNotActiveError,
     Flow,
     IdReusePolicy,
     PersistenceSchema,
@@ -71,9 +70,7 @@ class Request(Step[int]):
                 self.parent_flow.enqueue, parent_workflow_id, batch
             ):
                 raise EnqueueFailedError("Enqueue failed, retry in next attempt")
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             await client.start_flow(
                 self.parent_flow,
                 parent_workflow_id,
