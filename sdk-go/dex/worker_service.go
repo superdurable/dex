@@ -117,7 +117,12 @@ func (service *workerService) invokeWaitForMethod(
 	}
 	waiting, transient, err := mapRegisteredWait(flow, wait)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+			FlowType: flow.flowType,
+			StepType: step.stepType,
+			Method:   "WaitFor",
+			Err:      err,
+		})
 	}
 	return &dexpb.InvokeWaitForMethodResponse{
 		UpsertAttributes:      invocation.mappedAttributeWrites(),
@@ -200,7 +205,12 @@ func (service *workerService) invokeExecuteMethod(
 	}
 	mapped, err := mapRegisteredDecision(flow, decision)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+			FlowType: flow.flowType,
+			StepType: step.stepType,
+			Method:   "Execute",
+			Err:      err,
+		})
 	}
 	return &dexpb.InvokeExecuteMethodResponse{
 		StepDecision:     mapped,
@@ -276,7 +286,11 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	response, err := mapRegisteredRPCResult(flow, result)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+			FlowType: flow.flowType,
+			Method:   "RPC " + request.RpcName,
+			Err:      err,
+		})
 	}
 	response.UpsertAttributes = invocation.mappedAttributeWrites()
 	response.RecordEvents = invocation.recordedEvents

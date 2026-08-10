@@ -227,9 +227,42 @@ wait-update APIs. Only `StartFlowOptions.RequestID` is public because it may be
 a stable business identifier spanning separate calls.
 
 Client is safe for concurrent calls. `Close` is idempotent and closes only its
-owned gRPC connection. Calls after Close return a local error. Remote
-FlowService failures become `*dex.Error`; local validation and codec failures
-remain ordinary Go errors.
+owned gRPC connection. Calls after Close return a local error.
+
+Remote FlowService failures use concrete Go error types. Match expected
+conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
+
+```go
+var inactive *dex.FlowNotActiveError
+if errors.As(err, &inactive) {
+	// The Flow exists historically but cannot accept this mutation or RPC.
+}
+```
+
+`FlowNotFoundError` is returned by reads requiring an existing Flow, including
+GetAttribute, GetAttributes, WaitForFlow, and ResetFlow. Mutations, RPCs,
+publishes, timer operations, and step or attribute waits return
+`FlowNotActiveError` when no active Flow is available.
+
+Duplicate starts return `FlowAlreadyStartedError`. Server long polls return
+`LongPollTimeoutError`, including the operation and Flow ID. Worker handler
+failures return `WorkerInvocationError`; its `Worker` field preserves the
+original Worker code, type, and detail. Concurrent locking RPCs return
+`RPCLockConflictError` separately.
+
+`WaitForFlow` returns `FlowUncompletedError` when a Flow closes as failed,
+timed out, terminated, canceled, or continued-as-new. The error exposes
+`FlowID`, `RunID`, `Status`, `ErrorType`, `ErrorMessage`, and any requested
+`Completions`.
+
+Every specific service error unwraps to `*dex.ServiceError` and then to the
+original gRPC error. `ServiceError` exposes `Op`, `FlowID`, `Code`, `SubStatus`,
+and `Detail`; sub-status is diagnostic metadata, not application control flow.
+Unknown or malformed server details fall back to `ServiceError`.
+
+Registry failures use `FlowDefinitionError`, invalid Worker handler results use
+`InvalidStepResultError`, and codec failures use `ValueMappingError`. Ordinary
+argument and context errors remain ordinary Go errors.
 
 ## Value encoding
 

@@ -186,12 +186,22 @@ func waitForFlow(t *testing.T, flowID string, needsResults bool) dex.WaitForFlow
 	return result
 }
 
-func requireDexError(t *testing.T, err error, subStatus dex.ErrorSubStatus) *dex.Error {
+func waitForUncompletedFlow(
+	t *testing.T,
+	flowID string,
+	needsResults bool,
+) *dex.FlowUncompletedError {
 	t.Helper()
-	var sdkError *dex.Error
-	require.ErrorAs(t, err, &sdkError)
-	require.Equal(t, subStatus, sdkError.SubStatus)
-	return sdkError
+	_, err := integClient.WaitForFlow(
+		integrationContext(t),
+		flowID,
+		dex.WaitForFlowOptions{NeedsResults: needsResults, Timeout: 45 * time.Second},
+	)
+	var uncompleted *dex.FlowUncompletedError
+	require.ErrorAs(t, err, &uncompleted)
+	require.Equal(t, flowID, uncompleted.FlowID)
+	require.NotEmpty(t, uncompleted.RunID)
+	return uncompleted
 }
 
 func availablePort() (string, error) {

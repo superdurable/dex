@@ -114,7 +114,7 @@ func TestFlowTimeout(t *testing.T) {
 		dex.StartFlowOptions{Timeout: &timeout},
 	)
 	require.NoError(t, err)
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowTimedOut, result.Status)
 }
 
@@ -130,7 +130,7 @@ func TestFlowCancel(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowCanceled, result.Status)
 }
 
@@ -144,7 +144,7 @@ func TestForceFailFlow(t *testing.T) {
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowFailed, result.Status)
 	require.Equal(t, dex.FlowErrorStepDecision, result.ErrorType)
 	require.True(t, strings.Contains(result.ErrorMessage, "a failing message"))
@@ -160,7 +160,7 @@ func TestWaitForFailureFlow(t *testing.T) {
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowFailed, result.Status)
 	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
 	require.True(t, strings.Contains(result.ErrorMessage, "test WaitFor failing"))
@@ -176,7 +176,7 @@ func TestWaitForMethodTimeoutFlow(t *testing.T) {
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowFailed, result.Status)
 	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
 	require.NotEmpty(t, result.ErrorMessage)

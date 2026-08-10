@@ -54,7 +54,7 @@ func TestAbnormalExitFlow(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
-	result := waitForFlow(t, flowID, false)
+	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowFailed, result.Status)
 	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
 	require.True(t, strings.Contains(result.ErrorMessage, "abnormal exit step"))

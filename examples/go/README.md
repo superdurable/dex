@@ -38,6 +38,15 @@ The defaults connect to Dex at `localhost:8801`. These environment variables ove
 - `DEX_BLOB_CACHE_DIR`: shared Client/Worker blob-cache directory.
 - `DATASET_DEAL_POSTGRES_URL`: Dataset Deal PostgreSQL connection URL.
 
+## Error handling
+
+Examples match expected SDK failures with `errors.As`. Reads use
+`FlowNotFoundError`; RPC, publish, and mutation paths use `FlowNotActiveError`.
+Duplicate starts use `FlowAlreadyStartedError`, and server long-poll expiry uses
+`LongPollTimeoutError`. A Flow that closes without completing returns
+`FlowUncompletedError`. `ServiceError.SubStatus` is retained for diagnostics
+and is not used for control flow.
+
 When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 
 ## Verify every example

@@ -372,10 +372,11 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 	defer closeService()
 
 	tests := []struct {
-		name   string
-		call   func() error
-		code   codes.Code
-		detail string
+		name      string
+		call      func() error
+		code      codes.Code
+		detail    string
+		errorType string
 	}{
 		{
 			name: "unknown flow",
@@ -441,6 +442,10 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			},
 			code:   codes.InvalidArgument,
 			detail: "WaitFor returned nil",
+			errorType: fmt.Sprintf(
+				"%T",
+				&InvalidStepResultError{},
+			),
 		},
 		{
 			name: "nil decision",
@@ -453,6 +458,10 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			},
 			code:   codes.InvalidArgument,
 			detail: "Execute returned nil",
+			errorType: fmt.Sprintf(
+				"%T",
+				&InvalidStepResultError{},
+			),
 		},
 		{
 			name: "application error",
@@ -495,7 +504,11 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			if testCase.detail != "" {
 				require.Contains(t, rpcStatus.Message(), testCase.detail)
 			}
-			requireWorkerErrorDetail(t, rpcStatus)
+			details := requireWorkerErrorDetail(t, rpcStatus)
+			if testCase.errorType != "" {
+				require.Equal(t, testCase.errorType, details.ErrorType)
+				require.Contains(t, details.Detail, GetFinalFlowType(workerFlow))
+			}
 		})
 	}
 }
@@ -1063,10 +1076,14 @@ func mustEncodeWorkerTestValue(t *testing.T, value any) *dexpb.Value {
 	return encoded
 }
 
-func requireWorkerErrorDetail(t *testing.T, rpcStatus *status.Status) {
+func requireWorkerErrorDetail(
+	t *testing.T,
+	rpcStatus *status.Status,
+) *dexpb.WorkerErrorResponse {
 	require.Len(t, rpcStatus.Details(), 1)
-	_, ok := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+	details, ok := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
 	require.True(t, ok)
+	return details
 }
 
 func unusedWorkerAddress(t *testing.T) string {

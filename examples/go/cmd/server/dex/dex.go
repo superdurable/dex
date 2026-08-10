@@ -263,8 +263,8 @@ func startCronSchedule(client *sdk.Client) {
 		},
 	)
 	if err != nil {
-		var dexErr *sdk.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+		var duplicate *sdk.FlowAlreadyStartedError
+		if errors.As(err, &duplicate) {
 			return
 		}
 		// Temporal Schedule.Create returns no run ID; SDK surfaces that after register.

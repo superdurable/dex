@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
@@ -126,6 +127,22 @@ func TestRPCFlow(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	_, err = integClient.WaitForFlow(
+		ctx,
+		flowID,
+		dex.WaitForFlowOptions{Timeout: time.Second},
+	)
+	var timeout *dex.LongPollTimeoutError
+	require.ErrorAs(t, err, &timeout)
+	err = integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		rpcFlowStatus,
+		"never",
+		dex.WaitOptions{Timeout: time.Second},
+	)
+	require.ErrorAs(t, err, &timeout)
+
 	var failedOutput int
 	err = integClient.InvokeRPC(
 		ctx,
@@ -135,10 +152,11 @@ func TestRPCFlow(t *testing.T) {
 		&failedOutput,
 		dex.InvokeOptions{},
 	)
-	sdkError := requireDexError(t, err, dex.ErrorWorkerAPI)
-	require.NotNil(t, sdkError.OriginalWorkerError)
+	var workerError *dex.WorkerInvocationError
+	require.ErrorAs(t, err, &workerError)
+	require.NotNil(t, workerError.Worker)
 	require.True(t, strings.Contains(
-		sdkError.OriginalWorkerError.Detail,
+		workerError.Worker.Detail,
 		"planned RPC failure",
 	))
 
@@ -164,4 +182,25 @@ func TestRPCFlow(t *testing.T) {
 	var flowOutput int
 	require.NoError(t, result.Completions[0].Output.Decode(&flowOutput))
 	require.Equal(t, 3, flowOutput)
+
+	var status string
+	found, err := integClient.GetAttribute(ctx, flowID, rpcFlowStatus, &status)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "invoked", status)
+
+	err = integClient.SetAttribute(ctx, flowID, rpcFlowStatus, "closed")
+	var inactive *dex.FlowNotActiveError
+	require.ErrorAs(t, err, &inactive)
+	err = integClient.PublishToChannel(ctx, flowID, rpcFlowChannel, 4)
+	require.ErrorAs(t, err, &inactive)
+	err = integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.Increment,
+		1,
+		&output,
+		dex.InvokeOptions{},
+	)
+	require.ErrorAs(t, err, &inactive)
 }

@@ -36,7 +36,9 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -112,6 +114,7 @@ type clientTestFlowService struct {
 	waitAttributeRequest *dexpb.WaitForAttributeRequest
 	stopRequest          *dexpb.StopFlowRequest
 	waitFlowRequest      *dexpb.WaitForFlowRequest
+	flowSummaryRequest   *dexpb.GetFlowSummaryRequest
 	searchRequest        *dexpb.SearchFlowsRequest
 	resetRequest         *dexpb.ResetFlowRequest
 	skipTimerRequest     *dexpb.SkipTimerRequest
@@ -126,6 +129,14 @@ func (service *clientTestFlowService) StartFlow(
 	request *dexpb.StartFlowRequest,
 ) (*dexpb.StartFlowResponse, error) {
 	service.startRequest = request
+	if request.FlowId == "duplicate" {
+		return nil, clientTestServiceError(
+			codes.AlreadyExists,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
+			"Flow already started",
+			nil,
+		)
+	}
 	return &dexpb.StartFlowResponse{RunId: "run-1"}, nil
 }
 
@@ -134,6 +145,9 @@ func (service *clientTestFlowService) PublishToChannel(
 	request *dexpb.PublishToChannelRequest,
 ) (*emptypb.Empty, error) {
 	service.publishRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -142,6 +156,9 @@ func (service *clientTestFlowService) GetAttributes(
 	request *dexpb.GetAttributesRequest,
 ) (*dexpb.GetAttributesResponse, error) {
 	service.getAttributesRequest = request
+	if request.FlowId == "missing-read" {
+		return nil, clientTestMissingFlowError()
+	}
 	attributes := make([]*dexpb.KV, 0, len(request.Keys))
 	for _, key := range request.Keys {
 		var value *dexpb.Value
@@ -160,6 +177,9 @@ func (service *clientTestFlowService) SetAttributes(
 	request *dexpb.SetAttributesRequest,
 ) (*emptypb.Empty, error) {
 	service.setRequests = append(service.setRequests, request)
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -187,6 +207,29 @@ func (service *clientTestFlowService) InvokeRPC(
 	request *dexpb.InvokeRPCRequest,
 ) (*dexpb.InvokeRPCResponse, error) {
 	service.invokeRequest = request
+	if request.FlowId == "worker" {
+		return nil, clientTestServiceError(
+			codes.FailedPrecondition,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+			"Worker invocation failed",
+			&WorkerError{
+				Code:   codes.InvalidArgument,
+				Type:   "ValidationError",
+				Detail: "invalid input",
+			},
+		)
+	}
+	if request.FlowId == "lock" {
+		return nil, clientTestServiceError(
+			codes.Aborted,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+			"RPC lock conflict",
+			nil,
+		)
+	}
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	output, err := encodeValue(clientTestRPCOutput{Status: "updated"})
 	if err != nil {
 		return nil, err
@@ -199,6 +242,9 @@ func (service *clientTestFlowService) WaitForAttribute(
 	request *dexpb.WaitForAttributeRequest,
 ) (*emptypb.Empty, error) {
 	service.waitAttributeRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -207,6 +253,9 @@ func (service *clientTestFlowService) StopFlow(
 	request *dexpb.StopFlowRequest,
 ) (*emptypb.Empty, error) {
 	service.stopRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -215,6 +264,31 @@ func (service *clientTestFlowService) WaitForFlow(
 	request *dexpb.WaitForFlowRequest,
 ) (*dexpb.WaitForFlowResponse, error) {
 	service.waitFlowRequest = request
+	if request.FlowId == "timeout" {
+		return nil, clientTestServiceError(
+			codes.DeadlineExceeded,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+			"long poll timed out",
+			nil,
+		)
+	}
+	if request.FlowId == "missing-read" {
+		return nil, clientTestMissingFlowError()
+	}
+	if request.FlowId == "uncompleted" {
+		return &dexpb.WaitForFlowResponse{
+			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
+			ErrorType:    dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			ErrorMessage: "worker failed",
+			Results: []*dexpb.StepCompletionOutput{{
+				CompletedStepType:        "dex.clientTestStep",
+				CompletedStepExecutionId: "dex.clientTestStep-1",
+				CompletedStepOutput: &dexpb.Value{
+					Kind: &dexpb.Value_StringValue{StringValue: "partial"},
+				},
+			}},
+		}, nil
+	}
 	return &dexpb.WaitForFlowResponse{
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results: []*dexpb.StepCompletionOutput{{
@@ -226,6 +300,19 @@ func (service *clientTestFlowService) WaitForFlow(
 				},
 			},
 		}},
+	}, nil
+}
+
+func (service *clientTestFlowService) GetFlowSummary(
+	_ context.Context,
+	request *dexpb.GetFlowSummaryRequest,
+) (*dexpb.GetFlowSummaryResponse, error) {
+	service.flowSummaryRequest = request
+	return &dexpb.GetFlowSummaryResponse{
+		FlowExecutionId: &dexpb.FlowExecutionID{
+			FlowId: request.FlowId,
+			RunId:  "run-uncompleted",
+		},
 	}, nil
 }
 
@@ -257,6 +344,9 @@ func (service *clientTestFlowService) ResetFlow(
 	request *dexpb.ResetFlowRequest,
 ) (*dexpb.ResetFlowResponse, error) {
 	service.resetRequest = request
+	if request.FlowId == "missing-read" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &dexpb.ResetFlowResponse{RunId: "run-2"}, nil
 }
 
@@ -265,6 +355,9 @@ func (service *clientTestFlowService) SkipTimer(
 	request *dexpb.SkipTimerRequest,
 ) (*emptypb.Empty, error) {
 	service.skipTimerRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -273,6 +366,9 @@ func (service *clientTestFlowService) UpdateFlowConfig(
 	request *dexpb.UpdateFlowConfigRequest,
 ) (*emptypb.Empty, error) {
 	service.updateConfigRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -281,6 +377,9 @@ func (service *clientTestFlowService) WaitForStepCompletion(
 	request *dexpb.WaitForStepCompletionRequest,
 ) (*dexpb.WaitForStepCompletionResponse, error) {
 	service.waitStepRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &dexpb.WaitForStepCompletionResponse{}, nil
 }
 
@@ -289,6 +388,9 @@ func (service *clientTestFlowService) TriggerContinueAsNew(
 	request *dexpb.TriggerContinueAsNewRequest,
 ) (*emptypb.Empty, error) {
 	service.continueAsNewRequest = request
+	if request.FlowId == "inactive" {
+		return nil, clientTestMissingFlowError()
+	}
 	return &emptypb.Empty{}, nil
 }
 
@@ -297,6 +399,34 @@ func (service *clientTestFlowService) HealthCheck(
 	*emptypb.Empty,
 ) (*dexpb.HealthInfo, error) {
 	return &dexpb.HealthInfo{Condition: "SERVING", Hostname: "test", Duration: 1}, nil
+}
+
+func clientTestServiceError(
+	code codes.Code,
+	subStatus dexpb.ErrorSubStatus,
+	detail string,
+	worker *WorkerError,
+) error {
+	response := &dexpb.ErrorResponse{SubStatus: subStatus, Detail: detail}
+	if worker != nil {
+		response.OriginalWorkerErrorStatus = int32(worker.Code)
+		response.OriginalWorkerErrorType = worker.Type
+		response.OriginalWorkerErrorDetail = worker.Detail
+	}
+	withDetails, err := status.New(code, detail).WithDetails(response)
+	if err != nil {
+		panic(err)
+	}
+	return withDetails.Err()
+}
+
+func clientTestMissingFlowError() error {
+	return clientTestServiceError(
+		codes.NotFound,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
+		"Flow does not exist",
+		nil,
+	)
 }
 
 func TestClientFlowAndPersistenceTransport(t *testing.T) {
@@ -492,6 +622,142 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	cancel()
 	_, err = openClient.HealthCheck(canceledCtx)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestClientExplicitServiceErrors(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx := context.Background()
+
+	_, err := client.StartFlow(
+		ctx,
+		clientTestFlow{},
+		"duplicate",
+		clientTestInput{},
+		StartFlowOptions{},
+	)
+	var duplicate *FlowAlreadyStartedError
+	require.ErrorAs(t, err, &duplicate)
+	require.Equal(t, "duplicate", duplicate.FlowID)
+
+	var value string
+	_, err = client.GetAttribute(ctx, "missing-read", clientTestStatus, &value)
+	var missing *FlowNotFoundError
+	require.ErrorAs(t, err, &missing)
+	require.Equal(t, "GetAttribute", missing.Op)
+	_, err = client.WaitForFlow(ctx, "missing-read", WaitForFlowOptions{})
+	require.ErrorAs(t, err, &missing)
+	_, err = client.ResetFlow(ctx, "missing-read", ResetOptions{Type: ResetToBeginning})
+	require.ErrorAs(t, err, &missing)
+
+	activeCalls := []struct {
+		name string
+		call func() error
+	}{
+		{name: "publish", call: func() error {
+			return client.PublishToChannel(ctx, "inactive", clientTestCommands, "value")
+		}},
+		{name: "set attribute", call: func() error {
+			return client.SetAttribute(ctx, "inactive", clientTestStatus, "value")
+		}},
+		{name: "wait for attribute", call: func() error {
+			return client.WaitForAttributeEqual(
+				ctx,
+				"inactive",
+				clientTestStatus,
+				"value",
+				WaitOptions{},
+			)
+		}},
+		{name: "stop", call: func() error {
+			return client.StopFlow(ctx, "inactive", StopOptions{})
+		}},
+		{name: "skip timer", call: func() error {
+			return client.SkipTimer(
+				ctx,
+				"inactive",
+				StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+				TimerID{ConditionID: "timer"},
+			)
+		}},
+		{name: "update config", call: func() error {
+			return client.UpdateFlowConfig(ctx, "inactive", FlowConfig{})
+		}},
+		{name: "wait for step", call: func() error {
+			return client.WaitForStepCompletion(
+				ctx,
+				"inactive",
+				StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+				WaitOptions{},
+			)
+		}},
+		{name: "continue as new", call: func() error {
+			return client.TriggerContinueAsNew(ctx, "inactive")
+		}},
+	}
+	for _, testCase := range activeCalls {
+		t.Run(testCase.name, func(t *testing.T) {
+			var inactive *FlowNotActiveError
+			require.ErrorAs(t, testCase.call(), &inactive)
+			require.Equal(t, "inactive", inactive.FlowID)
+		})
+	}
+
+	var output clientTestRPCOutput
+	err = client.InvokeRPC(
+		ctx,
+		"worker",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{},
+		&output,
+		InvokeOptions{},
+	)
+	var worker *WorkerInvocationError
+	require.ErrorAs(t, err, &worker)
+	require.Equal(t, codes.InvalidArgument, worker.Worker.Code)
+	require.Equal(t, "ValidationError", worker.Worker.Type)
+	require.Equal(t, "invalid input", worker.Worker.Detail)
+
+	err = client.InvokeRPC(
+		ctx,
+		"lock",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{},
+		&output,
+		InvokeOptions{},
+	)
+	var conflict *RPCLockConflictError
+	require.ErrorAs(t, err, &conflict)
+
+	err = client.InvokeRPC(
+		ctx,
+		"inactive",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{},
+		&output,
+		InvokeOptions{},
+	)
+	var inactive *FlowNotActiveError
+	require.ErrorAs(t, err, &inactive)
+
+	_, err = client.WaitForFlow(ctx, "timeout", WaitForFlowOptions{})
+	var timeout *LongPollTimeoutError
+	require.ErrorAs(t, err, &timeout)
+	require.Equal(t, "timeout", timeout.FlowID)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(timeout))
+
+	_, err = client.WaitForFlow(ctx, "uncompleted", WaitForFlowOptions{NeedsResults: true})
+	var uncompleted *FlowUncompletedError
+	require.ErrorAs(t, err, &uncompleted)
+	require.Equal(t, "uncompleted", uncompleted.FlowID)
+	require.Equal(t, "run-uncompleted", uncompleted.RunID)
+	require.Equal(t, FlowFailed, uncompleted.Status)
+	require.Equal(t, FlowErrorWorkerMethod, uncompleted.ErrorType)
+	require.Equal(t, "worker failed", uncompleted.ErrorMessage)
+	require.Len(t, uncompleted.Completions, 1)
+	var partial string
+	require.NoError(t, uncompleted.Completions[0].Output.Decode(&partial))
+	require.Equal(t, "partial", partial)
+	require.Equal(t, "uncompleted", service.flowSummaryRequest.FlowId)
 }
 
 func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {

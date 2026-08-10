@@ -51,8 +51,8 @@ func IsOptedIn(
 		dex.InvokeOptions{},
 	)
 	if err != nil {
-		var dexErr *dex.Error
-		if errors.As(err, &dexErr) && dexErr.SubStatus == dex.ErrorFlowNotFound {
+		var inactive *dex.FlowNotActiveError
+		if errors.As(err, &inactive) {
 			return false, nil
 		}
 		return false, err

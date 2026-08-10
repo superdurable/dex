@@ -46,7 +46,10 @@ func (value Value) Decode(valuePtr any) error {
 	return decodeValue(value.value, valuePtr)
 }
 
-func encodeValue(value any) (*dexpb.Value, error) {
+func encodeValue(value any) (encoded *dexpb.Value, err error) {
+	defer func() {
+		err = wrapValueMappingError("encode", err)
+	}()
 	if value == nil {
 		return encodeJSONObject(value)
 	}
@@ -139,13 +142,16 @@ func encodeJSONObject(value any) (*dexpb.Value, error) {
 func encodeAttributeValue(
 	value any,
 	index *AttributeIndex,
-) (*dexpb.Value, *dexpb.IndexConfig, error) {
+) (encoded *dexpb.Value, config *dexpb.IndexConfig, err error) {
+	defer func() {
+		err = wrapValueMappingError("encode indexed", err)
+	}()
 	if index == nil {
-		encoded, err := encodeValue(value)
+		encoded, err = encodeValue(value)
 		return encoded, nil, err
 	}
 
-	encoded, err := encodeIndexedValue(value, index.Type)
+	encoded, err = encodeIndexedValue(value, index.Type)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -231,6 +237,17 @@ func decodeValue(value *dexpb.Value, valuePtr any) error {
 	if err != nil {
 		return err
 	}
+	return decodeValueInto(value, target, valuePtr)
+}
+
+func decodeValueInto(
+	value *dexpb.Value,
+	target reflect.Value,
+	valuePtr any,
+) (err error) {
+	defer func() {
+		err = wrapValueMappingError("decode", err)
+	}()
 	if value == nil || value.Kind == nil {
 		return fmt.Errorf("dex: value has no concrete kind")
 	}

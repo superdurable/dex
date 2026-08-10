@@ -171,9 +171,9 @@ func (client *Client) hydrateValues(
 	if err := client.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
 		var failure *workerFailure
 		if errors.As(err, &failure) {
-			return convertRPCError(failure.cause)
+			return translateRPCError(failure.cause, "LoadBlobs", "", flowTargetNone)
 		}
-		return convertRPCError(err)
+		return translateRPCError(err, "LoadBlobs", "", flowTargetNone)
 	}
 	return nil
 }
@@ -195,6 +195,28 @@ const (
 	FlowCanceled
 	FlowContinuedAsNew
 )
+
+// String returns the Flow status name.
+func (status FlowStatus) String() string {
+	switch status {
+	case FlowRunning:
+		return "running"
+	case FlowCompleted:
+		return "completed"
+	case FlowFailed:
+		return "failed"
+	case FlowTimedOut:
+		return "timed out"
+	case FlowTerminated:
+		return "terminated"
+	case FlowCanceled:
+		return "canceled"
+	case FlowContinuedAsNew:
+		return "continued as new"
+	default:
+		return fmt.Sprintf("unknown status %d", status)
+	}
+}
 
 type FlowErrorType uint8
 
@@ -281,7 +303,7 @@ func (client *Client) StartFlow(
 		RequestId:          requestID,
 	})
 	if err != nil {
-		return "", convertRPCError(err)
+		return "", translateRPCError(err, "StartFlow", flowID, flowTargetNone)
 	}
 	if response == nil || response.RunId == "" {
 		return "", fmt.Errorf("dex: StartFlow response has no run ID")
@@ -434,7 +456,7 @@ func (client *Client) StopFlow(
 		StopType: stopType,
 		Reason:   reason,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "StopFlow", flowID, flowTargetActive)
 }
 
 func (client *Client) WaitForFlow(
@@ -455,12 +477,49 @@ func (client *Client) WaitForFlow(
 		WaitTimeSeconds: timeout,
 	})
 	if err != nil {
-		return WaitForFlowResult{}, convertRPCError(err)
+		return WaitForFlowResult{}, translateRPCError(
+			err,
+			"WaitForFlow",
+			flowID,
+			flowTargetExisting,
+		)
 	}
 	if err := client.hydrateValues(ctx, waitForFlowValuePointers(response)); err != nil {
 		return WaitForFlowResult{}, err
 	}
-	return mapWaitForFlowResult(response)
+	result, err := mapWaitForFlowResult(response)
+	if err != nil {
+		return WaitForFlowResult{}, err
+	}
+	if result.Status == FlowCompleted {
+		return result, nil
+	}
+	runID, err := client.flowRunID(ctx, flowID)
+	if err != nil {
+		return WaitForFlowResult{}, err
+	}
+	return WaitForFlowResult{}, &FlowUncompletedError{
+		FlowID:       flowID,
+		RunID:        runID,
+		Status:       result.Status,
+		ErrorType:    result.ErrorType,
+		ErrorMessage: result.ErrorMessage,
+		Completions:  result.Completions,
+	}
+}
+
+func (client *Client) flowRunID(ctx context.Context, flowID string) (string, error) {
+	response, err := client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{
+		FlowId: flowID,
+	})
+	if err != nil {
+		return "", translateRPCError(err, "GetFlowSummary", flowID, flowTargetExisting)
+	}
+	if response == nil || response.FlowExecutionId == nil ||
+		response.FlowExecutionId.RunId == "" {
+		return "", fmt.Errorf("dex: GetFlowSummary response has no run ID")
+	}
+	return response.FlowExecutionId.RunId, nil
 }
 
 func waitForFlowValuePointers(response *dexpb.WaitForFlowResponse) []**dexpb.Value {
@@ -491,7 +550,7 @@ func (client *Client) SearchFlows(
 	}
 	response, err := client.service.SearchFlows(ctx, request)
 	if err != nil {
-		return SearchFlowsPage{}, convertRPCError(err)
+		return SearchFlowsPage{}, translateRPCError(err, "SearchFlows", "", flowTargetNone)
 	}
 	if err := client.hydrateValues(ctx, searchFlowValuePointers(response)); err != nil {
 		return SearchFlowsPage{}, err
@@ -532,7 +591,7 @@ func (client *Client) ResetFlow(
 	request.FlowId = flowID
 	response, err := client.service.ResetFlow(ctx, request)
 	if err != nil {
-		return "", convertRPCError(err)
+		return "", translateRPCError(err, "ResetFlow", flowID, flowTargetExisting)
 	}
 	if response == nil || response.RunId == "" {
 		return "", fmt.Errorf("dex: ResetFlow response has no run ID")
@@ -563,7 +622,7 @@ func (client *Client) SkipTimer(
 		TimerConditionId:    conditionID,
 		TimerConditionIndex: conditionIndex,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "SkipTimer", flowID, flowTargetActive)
 }
 
 func effectiveExecutionNumber(stepExecution StepExecutionID) (int32, error) {
@@ -607,7 +666,7 @@ func (client *Client) UpdateFlowConfig(
 		FlowId:     flowID,
 		FlowConfig: mapped,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
 func (client *Client) WaitForStepCompletion(
@@ -641,7 +700,7 @@ func (client *Client) WaitForStepCompletion(
 			RequestId:           requestID,
 		},
 	)
-	return convertRPCError(err)
+	return translateRPCError(err, "WaitForStepCompletion", flowID, flowTargetActive)
 }
 
 func (client *Client) TriggerContinueAsNew(
@@ -655,7 +714,7 @@ func (client *Client) TriggerContinueAsNew(
 		ctx,
 		&dexpb.TriggerContinueAsNewRequest{FlowId: flowID},
 	)
-	return convertRPCError(err)
+	return translateRPCError(err, "TriggerContinueAsNew", flowID, flowTargetActive)
 }
 
 func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
@@ -664,7 +723,7 @@ func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
 	}
 	response, err := client.service.HealthCheck(ctx, &emptypb.Empty{})
 	if err != nil {
-		return HealthInfo{}, convertRPCError(err)
+		return HealthInfo{}, translateRPCError(err, "HealthCheck", "", flowTargetNone)
 	}
 	return mapHealthInfo(response)
 }
@@ -725,7 +784,7 @@ func (client *Client) publishToChannel(
 		FlowId:   flowID,
 		Messages: messages,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "PublishToChannel", flowID, flowTargetActive)
 }
 
 func (client *Client) GetAttribute(
@@ -774,7 +833,7 @@ func (client *Client) getAttribute(
 		Keys:   []string{name},
 	})
 	if err != nil {
-		return false, convertRPCError(err)
+		return false, translateRPCError(err, "GetAttribute", flowID, flowTargetExisting)
 	}
 	value, found, err := client.singleAttributeValue(ctx, response, name)
 	if err != nil || !found {
@@ -887,7 +946,7 @@ func (client *Client) GetAttributes(
 		Keys:   keys,
 	})
 	if err != nil {
-		return nil, convertRPCError(err)
+		return nil, translateRPCError(err, "GetAttributes", flowID, flowTargetExisting)
 	}
 	if response == nil {
 		return nil, fmt.Errorf("dex: GetAttributes response is nil")
@@ -960,7 +1019,7 @@ func (client *Client) setAttributes(
 		Attributes: mapped,
 		RequestId:  requestID,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "SetAttributes", flowID, flowTargetActive)
 }
 
 func (client *Client) WaitForAttributeEqual(
@@ -1042,7 +1101,7 @@ func (client *Client) waitForAttributeEqual(
 		WaitTimeSeconds: timeout,
 		RequestId:       requestID,
 	})
-	return convertRPCError(err)
+	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
 }
 
 func (client *Client) InvokeRPC(
@@ -1102,7 +1161,7 @@ func (client *Client) InvokeRPC(
 		RequestId:         requestID,
 	})
 	if err != nil {
-		return convertRPCError(err)
+		return translateRPCError(err, "InvokeRPC", flowID, flowTargetActive)
 	}
 	if response == nil {
 		return fmt.Errorf("dex: InvokeRPC response is nil")

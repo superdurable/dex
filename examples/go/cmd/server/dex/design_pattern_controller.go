@@ -317,8 +317,8 @@ func (controller *designPatternController) ensureStorageFlow(ctx context.Context
 	if err == nil {
 		return nil
 	}
-	var dexErr *sdk.Error
-	if errors.As(err, &dexErr) && dexErr.SubStatus == sdk.ErrorFlowAlreadyStarted {
+	var duplicate *sdk.FlowAlreadyStartedError
+	if errors.As(err, &duplicate) {
 		return nil
 	}
 	return err
@@ -515,8 +515,8 @@ func (controller *designPatternController) startOrSignalDrain(request *gin.Conte
 		respondString(request, "Signaled the workflow", nil)
 		return
 	}
-	var dexErr *sdk.Error
-	if !errors.As(err, &dexErr) || dexErr.SubStatus != sdk.ErrorFlowNotFound {
+	var inactive *sdk.FlowNotActiveError
+	if !errors.As(err, &inactive) {
 		respondString(request, "", err)
 		return
 	}

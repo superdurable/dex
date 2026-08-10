@@ -140,7 +140,8 @@ func TestBasicFlow(t *testing.T) {
 	require.NotEmpty(t, runID)
 
 	_, err = integClient.StartFlow(ctx, basicFlow{}, flowID, 1, dex.StartFlowOptions{})
-	requireDexError(t, err, dex.ErrorFlowAlreadyStarted)
+	var duplicate *dex.FlowAlreadyStartedError
+	require.ErrorAs(t, err, &duplicate)
 
 	result := waitForFlow(t, flowID, true)
 	require.Equal(t, dex.FlowCompleted, result.Status)
@@ -150,7 +151,8 @@ func TestBasicFlow(t *testing.T) {
 	require.Equal(t, 3, output)
 
 	_, err = integClient.WaitForFlow(ctx, newFlowID(t, "missing"), dex.WaitForFlowOptions{})
-	requireDexError(t, err, dex.ErrorFlowNotFound)
+	var missing *dex.FlowNotFoundError
+	require.ErrorAs(t, err, &missing)
 }
 
 func TestProceedOnWaitForFailureFlow(t *testing.T) {

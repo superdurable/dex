@@ -16,11 +16,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func TestConvertRPCErrorPreservesDexDetails(t *testing.T) {
+func TestTranslateRPCErrorPreservesWorkerDetailsAndUnwraps(t *testing.T) {
 	rpcStatus, err := status.New(codes.FailedPrecondition, "fallback").WithDetails(
 		&dexpb.ErrorResponse{
 			Detail:                    "worker failed",
@@ -32,25 +34,58 @@ func TestConvertRPCErrorPreservesDexDetails(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	converted := convertRPCError(rpcStatus.Err())
-	var dexError *Error
-	require.ErrorAs(t, converted, &dexError)
-	require.Equal(t, codes.FailedPrecondition, dexError.Code)
-	require.Equal(t, ErrorWorkerAPI, dexError.SubStatus)
-	require.Equal(t, "worker failed", dexError.Detail)
-	require.Equal(t, codes.InvalidArgument, dexError.OriginalWorkerError.Code)
-	require.Equal(t, "ValidationError", dexError.OriginalWorkerError.Type)
-	require.Equal(t, "invalid input", dexError.OriginalWorkerError.Detail)
+	translated := translateRPCError(
+		rpcStatus.Err(),
+		"InvokeRPC",
+		"flow-1",
+		flowTargetActive,
+	)
+	var workerError *WorkerInvocationError
+	require.ErrorAs(t, translated, &workerError)
+	require.Equal(t, codes.InvalidArgument, workerError.Worker.Code)
+	require.Equal(t, "ValidationError", workerError.Worker.Type)
+	require.Equal(t, "invalid input", workerError.Worker.Detail)
+
+	var serviceError *ServiceError
+	require.ErrorAs(t, translated, &serviceError)
+	require.Equal(t, "InvokeRPC", serviceError.Op)
+	require.Equal(t, "flow-1", serviceError.FlowID)
+	require.Equal(t, codes.FailedPrecondition, serviceError.Code)
+	require.Equal(t, ErrorSubStatusWorkerAPI, serviceError.SubStatus)
+	require.Equal(t, "worker failed", serviceError.Detail)
+	require.Equal(t, codes.FailedPrecondition, status.Code(translated))
 }
 
-func TestConvertRPCErrorFallbackAndLocalError(t *testing.T) {
-	converted := convertRPCError(status.Error(codes.Unavailable, "backend unavailable"))
-	var dexError *Error
-	require.ErrorAs(t, converted, &dexError)
-	require.Equal(t, ErrorUncategorized, dexError.SubStatus)
-	require.Equal(t, "backend unavailable", dexError.Detail)
+func TestTranslateRPCErrorFallbackAndLocalError(t *testing.T) {
+	translated := translateRPCError(
+		status.Error(codes.Unavailable, "backend unavailable"),
+		"HealthCheck",
+		"",
+		flowTargetNone,
+	)
+	var serviceError *ServiceError
+	require.ErrorAs(t, translated, &serviceError)
+	require.Equal(t, ErrorSubStatusUncategorized, serviceError.SubStatus)
+	require.Equal(t, "backend unavailable", serviceError.Detail)
 
 	local := errors.New("local")
-	require.Same(t, local, convertRPCError(local))
-	require.NoError(t, convertRPCError(nil))
+	require.Same(t, local, translateRPCError(local, "", "", flowTargetNone))
+	require.NoError(t, translateRPCError(nil, "", "", flowTargetNone))
+}
+
+func TestTranslateRPCErrorMalformedDetailsFallback(t *testing.T) {
+	rpcError := status.ErrorProto(&statuspb.Status{
+		Code:    int32(codes.Internal),
+		Message: "broken details",
+		Details: []*anypb.Any{{
+			TypeUrl: "type.googleapis.com/dex.ErrorResponse",
+			Value:   []byte{0xff},
+		}},
+	})
+	translated := translateRPCError(rpcError, "WaitForFlow", "flow-1", flowTargetExisting)
+	var serviceError *ServiceError
+	require.ErrorAs(t, translated, &serviceError)
+	require.ErrorContains(t, translated, "malformed error details")
+	var missing *FlowNotFoundError
+	require.NotErrorAs(t, translated, &missing)
 }

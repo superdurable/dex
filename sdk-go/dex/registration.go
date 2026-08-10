@@ -61,16 +61,22 @@ func NewRegistry(flows []Flow) (*Registry, error) {
 	indexTypes := make(map[string]IndexType)
 	for index, flow := range flows {
 		if nilInterface(flow) {
-			return nil, fmt.Errorf("dex: flow at index %d is nil", index)
+			return nil, newFlowDefinitionError(
+				"",
+				"",
+				fmt.Errorf("flow at index %d is nil", index),
+			)
 		}
+		flowType := GetFinalFlowType(flow)
 		registered, err := assembled.registerFlow(flow, indexTypes)
 		if err != nil {
-			return nil, err
+			return nil, newFlowDefinitionError(flowType, "", err)
 		}
 		if _, found := assembled.flows[registered.flowType]; found {
-			return nil, fmt.Errorf(
-				"dex: duplicate flow type %q",
+			return nil, newFlowDefinitionError(
 				registered.flowType,
+				"",
+				fmt.Errorf("duplicate flow type %q", registered.flowType),
 			)
 		}
 		assembled.flows[registered.flowType] = registered
@@ -447,14 +453,21 @@ func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
 	}
 	registered, found := registry.lookupFlow(flowType)
 	if !found {
-		return nil, fmt.Errorf("dex: flow %q is not registered", flowType)
+		return nil, newFlowDefinitionError(
+			flowType,
+			"",
+			fmt.Errorf("flow is not registered"),
+		)
 	}
 	if reflect.TypeOf(reference) != reflect.TypeOf(registered.flow) {
-		return nil, fmt.Errorf(
-			"dex: flow %q type %s does not match registered type %s",
+		return nil, newFlowDefinitionError(
 			flowType,
-			reflect.TypeOf(reference),
-			reflect.TypeOf(registered.flow),
+			"",
+			fmt.Errorf(
+				"type %s does not match registered type %s",
+				reflect.TypeOf(reference),
+				reflect.TypeOf(registered.flow),
+			),
 		)
 	}
 	return registered, nil
@@ -501,11 +514,14 @@ func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registere
 			return flow, registered, nil
 		}
 	}
-	return nil, nil, fmt.Errorf(
-		"dex: RPC %q with input %s and output %s is not registered",
-		rpcName,
-		inputType,
-		outputType,
+	return nil, nil, newFlowDefinitionError(
+		"",
+		fmt.Sprintf("rpc %q", rpcName),
+		fmt.Errorf(
+			"input %s and output %s are not registered",
+			inputType,
+			outputType,
+		),
 	)
 }
 
@@ -533,7 +549,11 @@ func (registry *Registry) resolveAttribute(
 			return registered, nil
 		}
 	}
-	return registeredAttribute{}, fmt.Errorf("dex: attribute %q is not registered", name)
+	return registeredAttribute{}, newFlowDefinitionError(
+		"",
+		fmt.Sprintf("attribute %q", name),
+		fmt.Errorf("attribute is not registered"),
+	)
 }
 
 func (registry *Registry) resolveChannel(
@@ -559,7 +579,11 @@ func (registry *Registry) resolveChannel(
 			return registered, nil
 		}
 	}
-	return registeredChannel{}, fmt.Errorf("dex: channel %q is not registered", name)
+	return registeredChannel{}, newFlowDefinitionError(
+		"",
+		fmt.Sprintf("channel %q", name),
+		fmt.Errorf("channel is not registered"),
+	)
 }
 
 func (flow *registeredFlow) lookupStep(
