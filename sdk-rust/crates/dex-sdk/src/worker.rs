@@ -169,6 +169,7 @@ fn worker_status(error: HandlerError) -> Status {
     let detail = WorkerErrorResponse {
         detail: message.clone(),
         error_type: error.error_type().to_string(),
+        stack_trace: String::new(),
     };
     let status = GoogleRpcStatus {
         code: Code::Unknown as i32,

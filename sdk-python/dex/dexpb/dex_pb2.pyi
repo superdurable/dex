@@ -937,7 +937,7 @@ class WaitForHistoryEventResponse(_message.Message):
     def __init__(self, event_available: _Optional[bool] = ..., available_internal_event_id: _Optional[int] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ...) -> None: ...
 
 class ActiveStepExecutionState(_message.Message):
-    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "phase", "movement", "waiting_condition", "completed_conditions", "step_execution_locals", "timers")
+    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "phase", "movement", "waiting_condition", "completed_conditions", "step_execution_locals", "timers", "last_failure_info")
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -947,6 +947,7 @@ class ActiveStepExecutionState(_message.Message):
     COMPLETED_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTION_LOCALS_FIELD_NUMBER: _ClassVar[int]
     TIMERS_FIELD_NUMBER: _ClassVar[int]
+    LAST_FAILURE_INFO_FIELD_NUMBER: _ClassVar[int]
     step_execution_id: str
     from_step_execution_id: str
     step_type: str
@@ -956,7 +957,8 @@ class ActiveStepExecutionState(_message.Message):
     completed_conditions: StepExecutionCompletedConditions
     step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
     timers: _containers.RepeatedCompositeFieldContainer[TimerInfo]
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ...) -> None: ...
+    last_failure_info: StepMethodFailure
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
 
 class GetFlowStateRequest(_message.Message):
     __slots__ = ("flow_id", "run_id")
@@ -1132,26 +1134,30 @@ class HealthInfo(_message.Message):
     def __init__(self, condition: _Optional[str] = ..., hostname: _Optional[str] = ..., duration: _Optional[int] = ...) -> None: ...
 
 class ErrorResponse(_message.Message):
-    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status")
+    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     SUB_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_DETAIL_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
     detail: str
     sub_status: ErrorSubStatus
     original_worker_error_detail: str
     original_worker_error_type: str
     original_worker_error_status: int
-    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ...) -> None: ...
+    original_worker_error_stack_trace: str
+    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ...) -> None: ...
 
 class WorkerErrorResponse(_message.Message):
-    __slots__ = ("detail", "error_type")
+    __slots__ = ("detail", "error_type", "stack_trace")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
     detail: str
     error_type: str
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
+    stack_trace: str
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ...) -> None: ...
 
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)
