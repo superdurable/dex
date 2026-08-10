@@ -15,10 +15,11 @@ import java.util.Objects;
 /**
  * Defines a durable map of named, typed Attribute instances.
  *
- * <p>An {@code AttributeMap} is useful when instance keys are discovered at runtime. Register the
- * definition once in the Flow's {@link PersistenceSchema}, then supply an instance name for each
- * read, write, delete, or lock. Each physical value is serialized with the definition's concrete
- * {@link Class}.
+ * <p>An {@code AttributeMap} is useful when keys are dynamically determined at runtime. Register
+ * the definition once in the Flow's {@link PersistenceSchema}, then supply an instance name for
+ * each read, write, delete, or lock. Each key/value pair is stored as a separate blob, so updating
+ * one entry does not rewrite a large Attribute containing the entire logical map. Each value is
+ * serialized with the definition's concrete {@link Class}.
  *
  * <pre>{@code
  * private final AttributeMap<String> orderStatus =
