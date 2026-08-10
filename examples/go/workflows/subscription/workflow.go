@@ -79,12 +79,12 @@ func (*SubscriptionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*SubscriptionFlow) Describe(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[Subscription], error) {
+) (*dex.RPCResult[Subscription], error) {
 	customer, err := CustomerDetails.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[Subscription]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[Subscription]{Output: customer.Subscription}, nil
+	return &dex.RPCResult[Subscription]{Output: customer.Subscription}, nil
 }
 
 type initializeStep struct {

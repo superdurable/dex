@@ -61,11 +61,11 @@ func (*InterruptibleExecutionFlow) GetPersistenceSchema() dex.PersistenceSchema 
 func (*InterruptibleExecutionFlow) Interrupt(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if err := InterruptSignal.Set(ctx, "cancel"); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type initStep struct {

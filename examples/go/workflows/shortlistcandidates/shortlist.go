@@ -91,9 +91,12 @@ func (*ShortlistFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*ShortlistFlow) GetEmailSentTimestamp(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[int64], error) {
+) (*dex.RPCResult[int64], error) {
 	timestamp, err := ShortlistEmailSentTimestamp.Get(ctx)
-	return dex.RPCResult[int64]{Output: timestamp}, err
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int64]{Output: timestamp}, nil
 }
 
 type shortlistStep struct {

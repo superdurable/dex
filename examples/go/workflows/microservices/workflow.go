@@ -60,15 +60,15 @@ func (*OrchestrationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*OrchestrationFlow) Swap(
 	ctx dex.Context,
 	newData string,
-) (dex.RPCResult[string], error) {
+) (*dex.RPCResult[string], error) {
 	oldData, err := Data.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
 	if err := Data.Set(ctx, newData); err != nil {
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[string]{Output: oldData}, nil
+	return &dex.RPCResult[string]{Output: oldData}, nil
 }
 
 type callAPI1Step struct {

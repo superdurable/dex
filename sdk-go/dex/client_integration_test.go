@@ -93,8 +93,8 @@ func (clientTestFlow) GetPersistenceSchema() PersistenceSchema {
 func (clientTestFlow) Update(
 	Context,
 	clientTestRPCInput,
-) (RPCResult[clientTestRPCOutput], error) {
-	return RPCResult[clientTestRPCOutput]{Output: clientTestRPCOutput{}}, nil
+) (*RPCResult[clientTestRPCOutput], error) {
+	return &RPCResult[clientTestRPCOutput]{Output: clientTestRPCOutput{}}, nil
 }
 
 func (clientNoStartFlow) GetSteps() []StepDef {

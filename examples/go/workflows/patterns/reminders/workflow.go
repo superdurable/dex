@@ -74,23 +74,23 @@ func (*ReminderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*ReminderFlow) Accept(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	currentStatus, err := StatusAttribute.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
 	if currentStatus != string(StatusInitiated) {
-		return dex.RPCResult[dex.None]{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"can only accept in INITIATED status",
 		)
 	}
 	if err := StatusAttribute.Set(ctx, string(StatusAccepted)); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
 	if err := CompleteProcess.Publish(ctx, nil); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type initStep struct {

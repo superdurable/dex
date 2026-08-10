@@ -74,38 +74,44 @@ func (*JobPostFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*JobPostFlow) Get(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[JobInfo], error) {
+) (*dex.RPCResult[JobInfo], error) {
 	info, err := readJobInfo(ctx)
-	return dex.RPCResult[JobInfo]{Output: info}, err
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
 func (*JobPostFlow) GetWithStrongConsistency(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[JobInfo], error) {
+) (*dex.RPCResult[JobInfo], error) {
 	info, err := readJobInfo(ctx)
-	return dex.RPCResult[JobInfo]{Output: info}, err
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
 func (*JobPostFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if err := Title.Set(ctx, input.Title); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
 	if err := JobDescription.Set(ctx, input.Description); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
 	if err := LastUpdateTimeMillis.Set(ctx, time.Now().UnixMilli()); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
 	if input.Notes != "" {
 		if err := Notes.Set(ctx, input.Notes); err != nil {
-			return dex.RPCResult[dex.None]{}, err
+			return nil, err
 		}
 	}
-	return dex.RPCResult[dex.None]{
+	return &dex.RPCResult[dex.None]{
 		NextSteps: []dex.StepMovement{dex.MovementOf(externalUpdateStep{}, nil)},
 	}, nil
 }

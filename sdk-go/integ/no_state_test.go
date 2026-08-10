@@ -38,38 +38,41 @@ func (noStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (noStepFlow) Fail(
 	dex.Context,
 	int,
-) (dex.RPCResult[int], error) {
-	return dex.RPCResult[int]{}, fmt.Errorf("planned no-step RPC failure")
+) (*dex.RPCResult[int], error) {
+	return nil, fmt.Errorf("planned no-step RPC failure")
 }
 
 func (noStepFlow) IncreaseCounter(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[int], error) {
+) (*dex.RPCResult[int], error) {
 	current, err := noStepCounter.Get(ctx)
 	var missing *dex.AttributeNotFoundError
 	if errors.As(err, &missing) {
 		current = 0
 	} else if err != nil {
-		return dex.RPCResult[int]{}, err
+		return nil, err
 	}
 	next := current + 1
 	if err := noStepCounter.Set(ctx, next); err != nil {
-		return dex.RPCResult[int]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[int]{Output: next}, nil
+	return &dex.RPCResult[int]{Output: next}, nil
 }
 
 func (noStepFlow) GetCounter(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[int], error) {
+) (*dex.RPCResult[int], error) {
 	counter, err := noStepCounter.Get(ctx)
 	var missing *dex.AttributeNotFoundError
 	if errors.As(err, &missing) {
-		return dex.RPCResult[int]{Output: 0}, nil
+		return &dex.RPCResult[int]{Output: 0}, nil
 	}
-	return dex.RPCResult[int]{Output: counter}, err
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int]{Output: counter}, nil
 }
 
 func TestFlowWithoutSteps(t *testing.T) {

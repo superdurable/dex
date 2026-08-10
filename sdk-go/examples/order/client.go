@@ -30,8 +30,8 @@ type UpdateOrderOutput struct {
 func (OrderFlow) UpdateOrder(
 	ctx dex.Context,
 	input UpdateOrderInput,
-) (dex.RPCResult[UpdateOrderOutput], error) {
-	return dex.RPCResult[UpdateOrderOutput]{
+) (*dex.RPCResult[UpdateOrderOutput], error) {
+	return &dex.RPCResult[UpdateOrderOutput]{
 		Output: UpdateOrderOutput{Status: input.Status},
 	}, nil
 }

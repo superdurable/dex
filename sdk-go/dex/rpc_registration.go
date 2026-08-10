@@ -61,7 +61,7 @@ func discoverRPCs(flow Flow) (map[string]*registeredRPC, error) {
 	if len(invalid) > 0 {
 		sort.Strings(invalid)
 		return nil, fmt.Errorf(
-			"exported methods %v must be RPCs with signature (Context, IN) (RPCResult[OUT], error)",
+			"exported methods %v must be RPCs with signature (Context, IN) (*RPCResult[OUT], error)",
 			invalid,
 		)
 	}
@@ -107,7 +107,7 @@ func newRegisteredRPC(
 	if !rpcMethodType(methodType, true) {
 		return nil, false
 	}
-	result := reflect.Zero(methodType.Out(0)).Interface().(rpcResult)
+	result := reflect.Zero(methodType.Out(0).Elem()).Interface().(rpcResult)
 	return &registeredRPC{
 		method:      receiver.Method(method.Index),
 		durableName: method.Name,
@@ -132,6 +132,9 @@ func (rpc *registeredRPC) invoke(
 	results := rpc.method.Call([]reflect.Value{contextValue, inputValue})
 	if !results[1].IsNil() {
 		return nil, results[1].Interface().(error)
+	}
+	if results[0].IsNil() {
+		return nil, nil
 	}
 	return results[0].Interface().(rpcResult), nil
 }
@@ -174,11 +177,14 @@ func rpcMethodType(methodType reflect.Type, hasReceiver bool) bool {
 		inputOffset = 1
 		expectedInputs = 3
 	}
-	return methodType.NumIn() == expectedInputs &&
-		methodType.In(inputOffset) == contextType &&
-		methodType.NumOut() == 2 &&
-		methodType.Out(0).Kind() == reflect.Struct &&
-		methodType.Out(0).Implements(rpcResultType) &&
+	if methodType.NumIn() != expectedInputs || methodType.NumOut() != 2 {
+		return false
+	}
+	resultType := methodType.Out(0)
+	return methodType.In(inputOffset) == contextType &&
+		resultType.Kind() == reflect.Pointer &&
+		resultType.Elem().Kind() == reflect.Struct &&
+		resultType.Implements(rpcResultType) &&
 		methodType.Out(1) == errorType
 }
 

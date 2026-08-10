@@ -234,6 +234,9 @@ func mapRegisteredRPCResult(
 	flow *registeredFlow,
 	result rpcResult,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
+	if result == nil {
+		return nil, fmt.Errorf("RPC returned nil")
+	}
 	output, err := encodeValue(result.rpcOutput())
 	if err != nil {
 		return nil, err

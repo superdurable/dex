@@ -156,8 +156,8 @@ func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (contractFlow) Update(
 	ctx dex.Context,
 	input stepInput,
-) (dex.RPCResult[command], error) {
-	return dex.RPCResult[command]{
+) (*dex.RPCResult[command], error) {
+	return &dex.RPCResult[command]{
 		Output:    command{Name: "updated"},
 		NextSteps: []dex.StepMovement{dex.MovementOf(executeOnly, input)},
 	}, nil
@@ -166,8 +166,8 @@ func (contractFlow) Update(
 func (contractFlow) Describe(
 	dex.Context,
 	dex.None,
-) (dex.RPCResult[command], error) {
-	return dex.RPCResult[command]{Output: command{Name: "described"}}, nil
+) (*dex.RPCResult[command], error) {
+	return &dex.RPCResult[command]{Output: command{Name: "described"}}, nil
 }
 
 var flow = contractFlow{}

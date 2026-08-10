@@ -15,7 +15,7 @@ import "reflect"
 type RPC[IN, OUT any] func(
 	ctx Context,
 	input IN,
-) (RPCResult[OUT], error)
+) (*RPCResult[OUT], error)
 
 type RPCResult[OUT any] struct {
 	Output    OUT

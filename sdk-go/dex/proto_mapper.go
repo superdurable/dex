@@ -679,7 +679,10 @@ func mapUniqueChannels(channels []ChannelDef) ([]string, error) {
 	return mapped, nil
 }
 
-func mapRPCResult[OUT any](result RPCResult[OUT]) (*dexpb.InvokeWorkerRPCResponse, error) {
+func mapRPCResult[OUT any](result *RPCResult[OUT]) (*dexpb.InvokeWorkerRPCResponse, error) {
+	if result == nil {
+		return nil, fmt.Errorf("dex: RPC returned nil")
+	}
 	output, err := encodeValue(result.Output)
 	if err != nil {
 		return nil, err
