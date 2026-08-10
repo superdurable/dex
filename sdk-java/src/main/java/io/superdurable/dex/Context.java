@@ -19,7 +19,8 @@ import java.util.List;
  * <p>A context belongs to one worker invocation and must not be retained or used from another
  * thread after the method returns. Attribute and Channel helpers are also available directly on
  * their typed definitions; the context methods are useful for framework-style code. Values passed
- * with a {@link Class} must use concrete, non-parameterized types.
+ * with a {@link Class} must use concrete, non-parameterized types. Wrap a parameterized value in a
+ * concrete holder class, or use an array such as {@code String[]} instead of {@code List<String>}.
  *
  * <pre>{@code
  * public StepDecision execute(Context context, Order input) {

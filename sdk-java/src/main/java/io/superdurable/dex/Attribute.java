@@ -17,12 +17,22 @@ import java.util.Objects;
  *
  * <p>Declare Attributes once on the Flow, include them in its {@link PersistenceSchema}, and use
  * the same object from Step and RPC code. Values are serialized using the {@link Class} supplied at
- * definition time. Parameterized input types such as {@code List<String>} are not supported because
- * their generic information is erased from {@code Class}.
+ * definition time. A parameterized value type such as {@code List<String>} cannot be supplied
+ * directly because {@code List.class} does not retain its element type. Wrap the value in a
+ * concrete class whose field is a {@code List<String>}, or use {@code String[]} when an array fits
+ * the data model.
  *
  * <pre>{@code
  * private final Attribute<Integer> counter =
  *         Attribute.define("counter", Integer.class);
+ * private final Attribute<Tags> tags =
+ *         Attribute.define("tags", Tags.class);
+ * private final Attribute<String[]> tagArray =
+ *         Attribute.define("tag-array", String[].class);
+ *
+ * static final class Tags {
+ *     public List<String> values;
+ * }
  *
  * public StepDecision execute(Context context, Command input) {
  *     counter.set(context, counter.get(context) + 1);

@@ -44,8 +44,10 @@ public interface Step<I> {
     /**
      * Returns the concrete class used to decode this Step's input.
      *
-     * <p>The class must agree with {@code I}. Parameterized inputs are not supported because a raw
-     * {@link Class} does not retain generic arguments.
+     * <p>The class must agree with {@code I}. A parameterized input such as {@code List<Order>}
+     * cannot be returned because {@code List.class} does not retain its element type. Wrap the list
+     * in a concrete input class and return that wrapper's class, or use {@code Order[].class} when an
+     * array fits the input model.
      *
      * @return the concrete, nonnull Step input class
      */

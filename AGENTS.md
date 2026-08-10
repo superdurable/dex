@@ -142,6 +142,8 @@ Do not impose a word limit; prefer a complete paragraph over a terse fragment.
 Use the exact nouns exposed by the API or protocol. Do not invent one umbrella
 term for distinct identifiers; say Flow type, Step type, RPC name, Attribute
 name, Channel name, or map instance as appropriate.
+When a documented limitation has a practical workaround, explain it immediately
+and include a language-native example when the solution is not obvious.
 
 ### Preserve Comments During Refactoring
 
