@@ -614,10 +614,13 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Returns an identity and status snapshot for the current Flow run.
+     * Returns a {@link FlowInfo} summary of the current Flow run.
+     *
+     * <p>The summary contains the Flow ID, run ID, Flow type, current status, and start time. It
+     * reflects the execution when Dex handles this request; a running Flow may change afterward.
      *
      * @param flowId the target Flow ID
-     * @return the Flow snapshot
+     * @return the current Flow run summary
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot describe the Flow
      */
