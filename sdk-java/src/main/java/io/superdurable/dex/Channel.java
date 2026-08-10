@@ -47,7 +47,7 @@ public final class Channel<T> extends PersistenceDefinition {
     /**
      * Defines a typed Channel.
      *
-     * @param name the stable durable Channel name; must not be blank
+     * @param name the stable Channel name; must not be blank
      * @param valueType the concrete Java class used to serialize messages
      * @param <T> the Java message type
      * @return the typed Channel definition

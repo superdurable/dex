@@ -33,10 +33,10 @@ import java.util.Set;
  * Validates and indexes the Flow definitions shared by a client or worker.
  *
  * <p>Construct a registry once after assembling all application Flow instances. Construction fails
- * early for duplicate durable names, invalid start-Step typing, missing definitions, unsupported
- * RPC signatures, unregistered locks or transition targets, and final RPC classes or methods. RPC
- * classes must be non-final so the client can create strongly typed stubs; Kotlin users must mark
- * those classes and methods {@code open}.
+ * early for duplicate Flow types, Step types, RPC names, or persistence definition names; invalid
+ * start-Step typing; missing definitions; unsupported RPC signatures; unregistered locks or
+ * transition targets; and final RPC classes or methods. RPC classes must be non-final so the client
+ * can create strongly typed stubs; Kotlin users must mark those classes and methods {@code open}.
  *
  * <pre>{@code
  * Registry registry = new Registry(Arrays.<Flow<?>>asList(

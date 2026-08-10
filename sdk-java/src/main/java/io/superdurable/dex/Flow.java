@@ -21,7 +21,7 @@ package io.superdurable.dex;
  * {@link Registry}. The generic parameter is the input accepted by the start Step; the typed
  * {@link StepList#startStep} factory enforces that relationship at compile time. A Flow may omit a
  * start Step and begin only through an RPC. The default Flow type is the concrete class's simple
- * name, so explicit nested classes are preferable to anonymous classes for stable durable names.
+ * name, so explicit named classes make that type predictable and reviewable.
  *
  * <pre>{@code
  * final class OrderFlow implements Flow<OrderInput> {
@@ -39,12 +39,12 @@ package io.superdurable.dex;
  */
 public interface Flow<StartInput> {
     /**
-     * Returns the stable durable name used to register and start this Flow.
+     * Returns the Flow type used to register and start this Flow.
      *
      * <p>The default is {@code getClass().getSimpleName()}. Override it when refactoring the Java
-     * class name must not change the durable Flow type.
+     * class name must not change the Flow type stored by Dex.
      *
-     * @return the nonblank durable Flow type
+     * @return the nonblank Flow type
      */
     default String getFlowType() {
         return getClass().getSimpleName();

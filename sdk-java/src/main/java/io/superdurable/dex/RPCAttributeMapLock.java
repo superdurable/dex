@@ -21,8 +21,9 @@ import java.lang.annotation.Target;
 /**
  * Selects one Attribute-map instance to lock during an RPC invocation.
  *
- * <p>Use this nested annotation from {@link RPC#lockAttributeMaps}. Both values are durable names,
- * not Java field names.
+ * <p>Use this nested annotation from {@link RPC#lockAttributeMaps}. {@link #attribute} is the
+ * registered Attribute-map name, and {@link #instance} is the logical key within that map. Neither
+ * value is derived from a Java field name.
  *
  * <pre>{@code
  * @RPC(lockAttributeMaps = {
@@ -37,14 +38,14 @@ public @interface RPCAttributeMapLock {
     /**
      * Names the registered Attribute map.
      *
-     * @return the durable Attribute-map name
+     * @return the registered Attribute-map name
      */
     String attribute();
 
     /**
      * Names the map instance to lock.
      *
-     * @return the durable Attribute-map instance
+     * @return the logical Attribute-map instance key
      */
     String instance();
 }

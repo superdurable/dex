@@ -14,9 +14,10 @@ package io.superdurable.dex.exceptions;
  * Reports an invalid local Flow, Step, persistence, or RPC definition.
  *
  * <p>This exception is raised before or while mapping a request when the Java contract cannot be
- * represented safely, such as a duplicate durable name, an unsupported RPC signature, a final RPC
- * class, or a value whose runtime type does not match its registered definition. Fix application
- * definitions rather than retrying the operation unchanged.
+ * represented safely, such as a duplicate Flow type, Step type, RPC name, or persistence definition
+ * name; an unsupported RPC signature; a final RPC class; or a value whose runtime type does not
+ * match its registered definition. Fix application definitions rather than retrying the operation
+ * unchanged.
  */
 public class FlowDefinitionException extends RuntimeException {
     /**

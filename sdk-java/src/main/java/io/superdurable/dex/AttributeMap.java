@@ -44,7 +44,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute map without a search index.
      *
-     * @param name the stable durable map name; must not be blank
+     * @param name the stable Attribute-map name; must not be blank
      * @param valueType the concrete Java class used for every instance value
      * @param <T> the Java value type
      * @return the typed Attribute-map definition
@@ -58,7 +58,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute map with a search index.
      *
-     * @param name the stable durable map name; must not be blank
+     * @param name the stable Attribute-map name; must not be blank
      * @param valueType the concrete Java class used for every instance value
      * @param index the search-index definition, or {@code null} for no index
      * @param <T> the Java value type

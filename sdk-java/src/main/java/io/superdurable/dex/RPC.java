@@ -24,7 +24,7 @@ import java.lang.annotation.Target;
  *
  * <p>An RPC method may accept {@link Context} alone or {@code Context} followed by one concrete
  * input type. It may return {@code void} or a typed {@link RPCResult}. The registry derives the
- * durable RPC name from the Java method unless {@link #name} is set. Flow classes that expose RPCs
+ * RPC name from the Java method unless {@link #name} is set. Flow classes that expose RPCs
  * must be non-final, RPC methods must be non-final, and Kotlin users must declare both with
  * {@code open}; the client creates a ByteBuddy stub that intercepts direct method references
  * without running the Flow constructor.
@@ -42,7 +42,7 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface RPC {
     /**
-     * Overrides the durable RPC name.
+     * Overrides the RPC name.
      *
      * @return the explicit name, or an empty string to use the Java method name
      */

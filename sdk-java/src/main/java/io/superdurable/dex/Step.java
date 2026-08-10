@@ -75,12 +75,12 @@ public interface Step<I> {
     }
 
     /**
-     * Returns the stable durable name used to register this Step.
+     * Returns the Step type used to register this Step.
      *
      * <p>The default is {@code getClass().getSimpleName()}. Use an explicit named class or override
-     * this method so refactoring does not accidentally change persisted Step identities.
+     * this method so refactoring does not accidentally change the Step type stored by Dex.
      *
-     * @return the nonblank durable Step type
+     * @return the nonblank Step type
      */
     default String getStepType() {
         return getClass().getSimpleName();

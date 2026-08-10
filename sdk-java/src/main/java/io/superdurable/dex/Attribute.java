@@ -46,7 +46,7 @@ public final class Attribute<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute without a search index.
      *
-     * @param name the stable durable Attribute name; must not be blank
+     * @param name the stable Attribute name; must not be blank
      * @param valueType the concrete Java class used to serialize and deserialize values
      * @param <T> the Java value type
      * @return the typed Attribute definition
@@ -60,7 +60,7 @@ public final class Attribute<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute with a search index.
      *
-     * @param name the stable durable Attribute name; must not be blank
+     * @param name the stable Attribute name; must not be blank
      * @param valueType the concrete Java class used to serialize and deserialize values
      * @param index the search-index definition, or {@code null} for no index
      * @param <T> the Java value type
@@ -118,7 +118,7 @@ public final class Attribute<T> extends PersistenceDefinition {
 
     static String requireName(final String name) {
         if (name == null || name.trim().isEmpty()) {
-            throw new IllegalArgumentException("durable name is required");
+            throw new IllegalArgumentException("name is required");
         }
         return name;
     }

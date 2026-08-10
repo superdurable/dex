@@ -41,7 +41,7 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     /**
      * Defines a typed Channel map.
      *
-     * @param name the stable durable map name; must not be blank
+     * @param name the stable Channel-map name; must not be blank
      * @param valueType the concrete Java class used to serialize messages
      * @param <T> the Java message type
      * @return the typed Channel-map definition
