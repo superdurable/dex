@@ -64,42 +64,42 @@ func (*StorageFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*StorageFlow) AddItem(
 	ctx dex.Context,
 	request AddStorageItemRequest,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if request.Key == "" {
-		return dex.RPCResult[dex.None]{}, fmt.Errorf("key is null")
+		return nil, fmt.Errorf("key is null")
 	}
 	if request.Value == "" {
-		return dex.RPCResult[dex.None]{}, fmt.Errorf("value is null")
+		return nil, fmt.Errorf("value is null")
 	}
 	if err := Store.Set(ctx, request.Key, request.Value); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 func (*StorageFlow) GetItem(
 	ctx dex.Context,
 	itemKey string,
-) (dex.RPCResult[string], error) {
+) (*dex.RPCResult[string], error) {
 	value, err := Store.Get(ctx, itemKey)
 	if err != nil {
 		var notFound *dex.AttributeNotFoundError
 		if errors.As(err, &notFound) {
-			return dex.RPCResult[string]{}, nil
+			return &dex.RPCResult[string]{}, nil
 		}
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[string]{Output: value}, nil
+	return &dex.RPCResult[string]{Output: value}, nil
 }
 
 func (*StorageFlow) RemoveItem(
 	ctx dex.Context,
 	itemKey string,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if err := Store.Delete(ctx, itemKey); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 var (

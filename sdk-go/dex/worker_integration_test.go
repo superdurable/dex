@@ -209,25 +209,28 @@ func (workerTestFlow) GetPersistenceSchema() PersistenceSchema {
 func (workerTestFlow) Update(
 	ctx Context,
 	input workerTestInput,
-) (RPCResult[workerTestOutput], error) {
+) (*RPCResult[workerTestOutput], error) {
 	if input.Mode == "panic" {
 		panic("RPC panic")
 	}
+	if input.Mode == "nil-result" {
+		return nil, nil
+	}
 	if input.Mode == "status" {
-		return RPCResult[workerTestOutput]{}, status.Error(codes.PermissionDenied, "denied")
+		return nil, status.Error(codes.PermissionDenied, "denied")
 	}
 	before := workerTestCommands.Size(ctx)
 	if err := workerTestCommands.Publish(ctx, "local"); err != nil {
-		return RPCResult[workerTestOutput]{}, err
+		return nil, err
 	}
 	after := workerTestCommands.Size(ctx)
 	if err := workerTestItems.Set(ctx, input.OrderID, after); err != nil {
-		return RPCResult[workerTestOutput]{}, err
+		return nil, err
 	}
 	if err := ctx.RecordEvent("updated", input); err != nil {
-		return RPCResult[workerTestOutput]{}, err
+		return nil, err
 	}
-	return RPCResult[workerTestOutput]{
+	return &RPCResult[workerTestOutput]{
 		Output: workerTestOutput{Before: before, After: after},
 		NextSteps: []StepMovement{
 			MovementOf(workerTestFinish, input),
@@ -255,13 +258,13 @@ func (*workerBlockingFlow) GetPersistenceSchema() PersistenceSchema {
 func (flow *workerBlockingFlow) Block(
 	ctx Context,
 	_ struct{},
-) (RPCResult[bool], error) {
+) (*RPCResult[bool], error) {
 	flow.enteredOnce.Do(func() { close(flow.entered) })
 	select {
 	case <-flow.release:
-		return RPCResult[bool]{Output: true}, nil
+		return &RPCResult[bool]{Output: true}, nil
 	case <-ctx.Done():
-		return RPCResult[bool]{}, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -458,6 +461,21 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 			},
 			code:   codes.InvalidArgument,
 			detail: "Execute returned nil",
+			errorType: fmt.Sprintf(
+				"%T",
+				&InvalidStepResultError{},
+			),
+		},
+		{
+			name: "nil RPC result",
+			call: func() error {
+				_, err := client.InvokeWorkerRPC(context.Background(), workerRPCRequest(
+					t, workerTestInput{Mode: "nil-result"},
+				))
+				return err
+			},
+			code:   codes.InvalidArgument,
+			detail: "RPC returned nil",
 			errorType: fmt.Sprintf(
 				"%T",
 				&InvalidStepResultError{},

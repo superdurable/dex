@@ -40,8 +40,8 @@ package dex
 //	func (OrderFlow) GetSnapshot(
 //		ctx dex.Context,
 //		input GetSnapshotInput,
-//	) (dex.RPCResult[OrderSnapshot], error) {
-//		return dex.RPCResult[OrderSnapshot]{Output: OrderSnapshot{}}, nil
+//	) (*dex.RPCResult[OrderSnapshot], error) {
+//		return &dex.RPCResult[OrderSnapshot]{Output: OrderSnapshot{}}, nil
 //	}
 //
 //	var Orders = OrderFlow{}

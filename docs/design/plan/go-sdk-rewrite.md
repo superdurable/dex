@@ -343,13 +343,13 @@ A method is an RPC only when its signature is exactly:
 func(
 	ctx dex.Context,
 	input IN,
-) (dex.RPCResult[OUT], error)
+) (*dex.RPCResult[OUT], error)
 ```
 
 The receiver is supplied by reflection and is not part of the application
 signature. `Context` must be the SDK interface, the second result must be
-`error`, and the first result must be a concrete `RPCResult[OUT]`. Pointer
-results and defined lookalike result types are not accepted. Every exported
+`error`, and the first result must be a pointer to a concrete `RPCResult[OUT]`.
+Value results and defined lookalike result types are not accepted. Every exported
 method on the registered Flow value other than the `Flow` interface methods
 (`GetFlowType`, `GetSteps`, `GetPersistenceSchema`) must match this RPC
 signature; otherwise registration fails. Unexported methods are ignored.
@@ -367,10 +367,12 @@ implements the `Flow` interface but exported methods exist only on the pointer
 type, registration fails and names those methods so the application registers a
 pointer instead of discovering an incomplete method set.
 
-`RPCResult[OUT]` implements a private erasure contract so the reflected result
+`*RPCResult[OUT]` implements a private erasure contract so the reflected result
 can expose its output and next movements without exporting a non-generic
-wrapper. RPC invocation still receives and returns concrete Go values in Phase
-3 tests; protobuf conversion and invocation state belong to Phase 4.
+wrapper. Handlers return `nil, err` on failure; `nil, nil` is rejected as an
+invalid Worker result. RPC invocation still receives and returns concrete Go
+values in Phase 3 tests; protobuf conversion and invocation state belong to
+Phase 4.
 
 Package-level functions, closures, method expressions, and anonymous wrappers
 are not registrable RPCs. The later non-generic client accepts a direct bound
@@ -2198,7 +2200,7 @@ RPC output and its optional next-step movements are explicit:
 type RPC[IN, OUT any] func(
 	ctx Context,
 	input IN,
-) (RPCResult[OUT], error)
+) (*RPCResult[OUT], error)
 
 type RPCResult[OUT any] struct {
 	Output    OUT
@@ -2214,8 +2216,8 @@ type BillingFlow struct{}
 func (BillingFlow) Refund(
 	ctx dex.Context,
 	input RefundInput,
-) (dex.RPCResult[RefundOutput], error) {
-	return dex.RPCResult[RefundOutput]{Output: RefundOutput{}}, nil
+) (*dex.RPCResult[RefundOutput], error) {
+	return &dex.RPCResult[RefundOutput]{Output: RefundOutput{}}, nil
 }
 
 var Billing = BillingFlow{}

@@ -65,19 +65,19 @@ func (*EmployerOptInFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*EmployerOptInFlow) IsOptedIn(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[bool], error) {
+) (*dex.RPCResult[bool], error) {
 	optedIn, err := EmployerOptInStatus.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[bool]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[bool]{Output: optedIn}, nil
+	return &dex.RPCResult[bool]{Output: optedIn}, nil
 }
 
 func (*EmployerOptInFlow) OptOut(
 	_ dex.Context,
 	_ dex.None,
-) (dex.RPCResult[dex.None], error) {
-	return dex.RPCResult[dex.None]{
+) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{
 		NextSteps: []dex.StepMovement{dex.MovementOf(optOutStep{}, nil)},
 	}, nil
 }

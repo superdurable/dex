@@ -72,26 +72,26 @@ func (*ParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*ParentFlow) Enqueue(
 	ctx dex.Context,
 	request BatchEnqueueRequest,
-) (dex.RPCResult[bool], error) {
+) (*dex.RPCResult[bool], error) {
 	if TaskQueue.Size(ctx)+len(request.List) > MaxBufferedTasks {
-		return dex.RPCResult[bool]{Output: false}, nil
+		return &dex.RPCResult[bool]{Output: false}, nil
 	}
 	for _, uuid := range request.List {
 		if err := TaskQueue.Publish(ctx, uuid); err != nil {
-			return dex.RPCResult[bool]{}, err
+			return nil, err
 		}
 	}
-	return dex.RPCResult[bool]{Output: true}, nil
+	return &dex.RPCResult[bool]{Output: true}, nil
 }
 
 func (*ParentFlow) CompleteChildWorkflow(
 	ctx dex.Context,
 	childWorkflowID string,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if err := ChildComplete.Publish(ctx, childWorkflowID, nil); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type initStep struct {

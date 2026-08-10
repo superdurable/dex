@@ -66,21 +66,21 @@ func (*UserSignupFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*UserSignupFlow) Verify(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[string], error) {
+) (*dex.RPCResult[string], error) {
 	status, err := Status.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
 	if status == "verified" {
-		return dex.RPCResult[string]{Output: "already verified"}, nil
+		return &dex.RPCResult[string]{Output: "already verified"}, nil
 	}
 	if err := Status.Set(ctx, "verified"); err != nil {
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
 	if err := Verify.Publish(ctx, nil); err != nil {
-		return dex.RPCResult[string]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[string]{Output: "done"}, nil
+	return &dex.RPCResult[string]{Output: "done"}, nil
 }
 
 type submitStep struct {

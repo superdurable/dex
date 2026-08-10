@@ -500,7 +500,7 @@ func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registere
 		return nil, nil, err
 	}
 	referenceType := reflect.TypeOf(reference)
-	result := reflect.Zero(referenceType.Out(0)).Interface().(rpcResult)
+	result := reflect.Zero(referenceType.Out(0).Elem()).Interface().(rpcResult)
 	inputType := referenceType.In(1)
 	outputType := result.rpcOutputType()
 	identity, err := rpcMethodIdentity(reference)

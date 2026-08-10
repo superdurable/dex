@@ -51,23 +51,23 @@ type rpcIncrementOutput struct {
 func (rpcFlow) Increment(
 	ctx dex.Context,
 	input int,
-) (dex.RPCResult[rpcIncrementOutput], error) {
+) (*dex.RPCResult[rpcIncrementOutput], error) {
 	_, err := rpcFlowStatus.Get(ctx)
 	statusFound := true
 	var notFound *dex.AttributeNotFoundError
 	if errors.As(err, &notFound) {
 		statusFound = false
 	} else if err != nil {
-		return dex.RPCResult[rpcIncrementOutput]{}, err
+		return nil, err
 	}
 	before := rpcFlowChannel.Size(ctx)
 	if err := rpcFlowStatus.Set(ctx, "invoked"); err != nil {
-		return dex.RPCResult[rpcIncrementOutput]{}, err
+		return nil, err
 	}
 	if err := rpcFlowChannel.Publish(ctx, input+1); err != nil {
-		return dex.RPCResult[rpcIncrementOutput]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[rpcIncrementOutput]{Output: rpcIncrementOutput{
+	return &dex.RPCResult[rpcIncrementOutput]{Output: rpcIncrementOutput{
 		Value:       input + 1,
 		SizeBefore:  before,
 		SizeAfter:   rpcFlowChannel.Size(ctx),
@@ -78,8 +78,8 @@ func (rpcFlow) Increment(
 func (rpcFlow) Fail(
 	dex.Context,
 	int,
-) (dex.RPCResult[int], error) {
-	return dex.RPCResult[int]{}, fmt.Errorf("planned RPC failure")
+) (*dex.RPCResult[int], error) {
+	return nil, fmt.Errorf("planned RPC failure")
 }
 
 type rpcFlowStep struct {

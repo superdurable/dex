@@ -65,12 +65,12 @@ func (*WaitForStateCompletionFlow) GetPersistenceSchema() dex.PersistenceSchema 
 func (*WaitForStateCompletionFlow) GetJobSeekerData(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[JobSeekerData], error) {
+) (*dex.RPCResult[JobSeekerData], error) {
 	data, err := JobSeekerDataAttribute.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[JobSeekerData]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[JobSeekerData]{Output: data}, nil
+	return &dex.RPCResult[JobSeekerData]{Output: data}, nil
 }
 
 type persistDataStep struct {

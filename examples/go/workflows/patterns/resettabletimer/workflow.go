@@ -58,11 +58,11 @@ func (*ResettableTimerFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*ResettableTimerFlow) SendResetMessage(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[dex.None], error) {
 	if err := ResetTimerChannel.Publish(ctx, "reset"); err != nil {
-		return dex.RPCResult[dex.None]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[dex.None]{}, nil
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type resettableTimerStep struct {

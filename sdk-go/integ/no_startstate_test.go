@@ -28,8 +28,8 @@ func (noStartStepFlow) GetSteps() []dex.StepDef {
 func (noStartStepFlow) Start(
 	dex.Context,
 	int,
-) (dex.RPCResult[int], error) {
-	return dex.RPCResult[int]{
+) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{
 		Output:    2,
 		NextSteps: []dex.StepMovement{dex.MovementOf(noStartFinishStep{}, 2)},
 	}, nil

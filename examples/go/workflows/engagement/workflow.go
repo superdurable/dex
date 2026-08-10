@@ -80,29 +80,32 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 func (*EngagementFlow) Describe(
 	ctx dex.Context,
 	_ dex.None,
-) (dex.RPCResult[EngagementDescription], error) {
+) (*dex.RPCResult[EngagementDescription], error) {
 	description, err := describe(ctx)
-	return dex.RPCResult[EngagementDescription]{Output: description}, err
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[EngagementDescription]{Output: description}, nil
 }
 
 func (*EngagementFlow) Decline(
 	ctx dex.Context,
 	note string,
-) (dex.RPCResult[Status], error) {
+) (*dex.RPCResult[Status], error) {
 	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[Status]{}, err
+		return nil, err
 	}
 	if status != StatusInitiated {
-		return dex.RPCResult[Status]{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"can only decline an initiated engagement; current status is %q",
 			status,
 		)
 	}
 	if err := updateStatus(ctx, StatusDeclined, note); err != nil {
-		return dex.RPCResult[Status]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[Status]{
+	return &dex.RPCResult[Status]{
 		Output: StatusDeclined,
 		NextSteps: []dex.StepMovement{
 			dex.MovementOf(notifyExternalSystemStep{}, StatusDeclined),
@@ -113,24 +116,24 @@ func (*EngagementFlow) Decline(
 func (*EngagementFlow) Accept(
 	ctx dex.Context,
 	note string,
-) (dex.RPCResult[Status], error) {
+) (*dex.RPCResult[Status], error) {
 	status, err := EngagementStatus.Get(ctx)
 	if err != nil {
-		return dex.RPCResult[Status]{}, err
+		return nil, err
 	}
 	if status != StatusInitiated && status != StatusDeclined {
-		return dex.RPCResult[Status]{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"can only accept an initiated or declined engagement; current status is %q",
 			status,
 		)
 	}
 	if err := updateStatus(ctx, StatusAccepted, note); err != nil {
-		return dex.RPCResult[Status]{}, err
+		return nil, err
 	}
 	if err := CompleteProcess.Publish(ctx, nil); err != nil {
-		return dex.RPCResult[Status]{}, err
+		return nil, err
 	}
-	return dex.RPCResult[Status]{
+	return &dex.RPCResult[Status]{
 		Output: StatusAccepted,
 		NextSteps: []dex.StepMovement{
 			dex.MovementOf(notifyExternalSystemStep{}, StatusAccepted),

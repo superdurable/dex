@@ -128,7 +128,7 @@ Go method name:
 func (
 	ctx dex.Context,
 	input IN,
-) (dex.RPCResult[OUT], error)
+) (*dex.RPCResult[OUT], error)
 ```
 
 Exported methods with any other signature fail registration. Unexported methods
@@ -136,7 +136,8 @@ are ignored. Register a pointer Flow value when methods use pointer receivers; a
 value-typed Flow that only exposes those methods on `*T` fails registration
 instead of silently omitting them. Client calls must pass the direct bound
 method value, such as `Orders.Update`; package functions, method expressions,
-closures, and wrappers are rejected.
+closures, and wrappers are rejected. Return `nil, err` on failure; returning
+`nil, nil` is an invalid Worker result.
 
 Registered Flow and Step values are retained and may be invoked concurrently.
 They must be immutable or concurrency-safe and must keep

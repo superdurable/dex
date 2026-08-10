@@ -147,9 +147,9 @@ func (flow *registrationFlow) GetPersistenceSchema() PersistenceSchema {
 func (flow *registrationFlow) Update(
 	_ Context,
 	input registrationInput,
-) (RPCResult[registrationOutput], error) {
+) (*RPCResult[registrationOutput], error) {
 	flow.rpcCalls++
-	return RPCResult[registrationOutput]{Output: registrationOutput{Value: input.Value}}, nil
+	return &RPCResult[registrationOutput]{Output: registrationOutput{Value: input.Value}}, nil
 }
 
 type invalidRPCRegistrationFlow struct {
@@ -179,18 +179,18 @@ func (invalidRPCRegistrationFlow) WrongResult(
 	return registrationOutput{}, nil
 }
 
-func (invalidRPCRegistrationFlow) PointerResult(
+func (invalidRPCRegistrationFlow) ValueResult(
 	Context,
 	registrationInput,
-) (*RPCResult[registrationOutput], error) {
-	return nil, nil
+) (RPCResult[registrationOutput], error) {
+	return RPCResult[registrationOutput]{}, nil
 }
 
 func (invalidRPCRegistrationFlow) Update(
 	Context,
 	registrationInput,
-) (RPCResult[registrationOutput], error) {
-	return RPCResult[registrationOutput]{}, nil
+) (*RPCResult[registrationOutput], error) {
+	return &RPCResult[registrationOutput]{}, nil
 }
 
 type valueRegistrationFlow struct{}
@@ -210,8 +210,8 @@ func (valueRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
 func (valueRegistrationFlow) Query(
 	Context,
 	registrationInput,
-) (RPCResult[registrationOutput], error) {
-	return RPCResult[registrationOutput]{Output: registrationOutput{Value: "value"}}, nil
+) (*RPCResult[registrationOutput], error) {
+	return &RPCResult[registrationOutput]{Output: registrationOutput{Value: "value"}}, nil
 }
 
 type mixedReceiverRegistrationFlow struct{}
@@ -231,8 +231,8 @@ func (mixedReceiverRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
 func (*mixedReceiverRegistrationFlow) Update(
 	Context,
 	registrationInput,
-) (RPCResult[registrationOutput], error) {
-	return RPCResult[registrationOutput]{}, nil
+) (*RPCResult[registrationOutput], error) {
+	return &RPCResult[registrationOutput]{}, nil
 }
 
 type errorRegistrationFlow struct {
@@ -254,8 +254,8 @@ func (errorRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
 func (flow errorRegistrationFlow) Fail(
 	Context,
 	registrationInput,
-) (RPCResult[registrationOutput], error) {
-	return RPCResult[registrationOutput]{}, flow.rpcError
+) (*RPCResult[registrationOutput], error) {
+	return nil, flow.rpcError
 }
 
 type registrationContext struct {
@@ -368,7 +368,7 @@ func TestRegistryRejectsNonRPCExportedMethods(t *testing.T) {
 	require.Nil(t, assembled)
 	require.ErrorContains(t, err, "exported methods")
 	require.ErrorContains(t, err, "ExportedHelper")
-	require.ErrorContains(t, err, "PointerResult")
+	require.ErrorContains(t, err, "ValueResult")
 	require.ErrorContains(t, err, "WrongResult")
 	require.ErrorContains(t, err, "must be RPCs")
 }
@@ -863,7 +863,7 @@ func TestRPCDiscoveryInvocationAndIdentity(t *testing.T) {
 	wrapper := func(
 		ctx Context,
 		input registrationInput,
-	) (RPCResult[registrationOutput], error) {
+	) (*RPCResult[registrationOutput], error) {
 		return pointerFlow.Update(ctx, input)
 	}
 	_, err = rpcMethodName(wrapper)
@@ -890,6 +890,6 @@ func TestRPCInvocationReturnsApplicationError(t *testing.T) {
 func packageRegistrationRPC(
 	Context,
 	registrationInput,
-) (RPCResult[registrationOutput], error) {
-	return RPCResult[registrationOutput]{}, nil
+) (*RPCResult[registrationOutput], error) {
+	return &RPCResult[registrationOutput]{}, nil
 }
