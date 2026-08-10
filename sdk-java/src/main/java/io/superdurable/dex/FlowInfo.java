@@ -57,7 +57,7 @@ public final class FlowInfo {
     }
 
     /**
-     * Returns the registered durable Flow type.
+     * Returns the registered Flow type.
      *
      * @return the Flow type
      */

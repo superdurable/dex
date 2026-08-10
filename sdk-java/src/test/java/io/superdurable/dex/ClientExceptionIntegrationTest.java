@@ -37,6 +37,8 @@ import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.StopFlowRequest;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForFlowResponse;
+import io.superdurable.gen.WaitForStepCompletionRequest;
+import io.superdurable.gen.WaitForStepCompletionResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -107,12 +109,21 @@ final class ClientExceptionIntegrationTest {
     }
 
     @Test
-    void mapsLongPollTimeoutWithFlowContext() {
-        final LongPollTimeoutException timeout = assertThrows(
+    void mapsLongPollTimeoutAcrossWaitOperations() {
+        final LongPollTimeoutException flowTimeout = assertThrows(
                 LongPollTimeoutException.class,
                 () -> client.waitForFlow("timeout", Void.class, Duration.ofSeconds(1)));
-        assertEquals("timeout", timeout.getFlowId());
-        assertEquals(Status.Code.DEADLINE_EXCEEDED, timeout.getCode());
+        assertEquals("timeout", flowTimeout.getFlowId());
+        assertEquals(Status.Code.DEADLINE_EXCEEDED, flowTimeout.getCode());
+
+        final LongPollTimeoutException stepTimeout = assertThrows(
+                LongPollTimeoutException.class,
+                () -> client.waitForStepCompletion(
+                        "step-timeout",
+                        new StepExecutionId("WaitingStep", 1),
+                        Duration.ofSeconds(1)));
+        assertEquals("step-timeout", stepTimeout.getFlowId());
+        assertEquals(Status.Code.DEADLINE_EXCEEDED, stepTimeout.getCode());
     }
 
     @Test
@@ -230,6 +241,16 @@ final class ClientExceptionIntegrationTest {
         public void waitForFlow(
                 final WaitForFlowRequest request,
                 final StreamObserver<WaitForFlowResponse> observer) {
+            observer.onError(error(
+                    Status.Code.DEADLINE_EXCEEDED,
+                    io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+                    "long poll timed out"));
+        }
+
+        @Override
+        public void waitForStepCompletion(
+                final WaitForStepCompletionRequest request,
+                final StreamObserver<WaitForStepCompletionResponse> observer) {
             observer.onError(error(
                     Status.Code.DEADLINE_EXCEEDED,
                     io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,

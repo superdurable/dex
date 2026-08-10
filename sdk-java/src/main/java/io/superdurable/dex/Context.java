@@ -32,7 +32,7 @@ import java.util.List;
  */
 public interface Context {
     /**
-     * Returns the durable Flow ID for the current invocation.
+     * Returns the Flow ID for the current invocation.
      *
      * @return the Flow ID
      */

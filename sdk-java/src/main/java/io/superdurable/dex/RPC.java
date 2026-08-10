@@ -20,7 +20,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a public Flow method as a durable RPC endpoint.
+ * Marks a public Flow method as an RPC endpoint.
  *
  * <p>An RPC method may accept {@link Context} alone or {@code Context} followed by one concrete
  * input type. It may return {@code void} or a typed {@link RPCResult}. The registry derives the

@@ -82,9 +82,10 @@ import java.util.concurrent.TimeUnit;
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
- * by the client. Service failures use typed {@link DexServiceException} subclasses;
- * {@link #waitForFlow(String)} can instead throw {@link LongPollTimeoutException} or
- * {@link FlowUncompletedException}.
+ * by the client. Service failures use typed {@link DexServiceException} subclasses. Long-poll
+ * operations can throw {@link LongPollTimeoutException}, while {@link #waitForFlow(String)} can
+ * throw {@link FlowUncompletedException} after observing a terminal status other than
+ * {@link FlowStatus#COMPLETED}.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
@@ -765,6 +766,7 @@ public final class Client implements AutoCloseable {
      * @param stepExecutionId the Step execution to observe
      * @param timeout the nonnegative whole-second wait duration
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
+     * @throws LongPollTimeoutException if {@code timeout} expires before the Step completes
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */

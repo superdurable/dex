@@ -67,7 +67,7 @@ public final class SearchFlowEntry {
     }
 
     /**
-     * Returns the registered durable Flow type.
+     * Returns the registered Flow type.
      *
      * @return the Flow type
      */

@@ -15,7 +15,7 @@
 package io.superdurable.dex;
 
 /**
- * Defines the Steps, persistence, and RPC surface of one durable Flow type.
+ * Defines the Steps, persistence, and RPC surface of one Flow type.
  *
  * <p>Applications implement this interface on a concrete class and register an instance with
  * {@link Registry}. The generic parameter is the input accepted by the start Step; the typed
@@ -63,7 +63,7 @@ public interface Flow<StartInput> {
     }
 
     /**
-     * Returns the durable Attributes and Channels used by this Flow.
+     * Returns the persistent Attributes and Channels used by this Flow.
      *
      * <p>The default schema is empty. Every persistence definition used by Steps or RPC methods must
      * be registered here.

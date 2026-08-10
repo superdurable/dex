@@ -128,9 +128,9 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Selects a reset point by durable Step type.
+         * Selects a reset point by Step type.
          *
-         * @param value the durable Step type
+         * @param value the Step type
          * @return this builder
          */
         public Builder stepType(final String value) {

@@ -28,7 +28,7 @@ public final class StepExecutionId {
     /**
      * Selects the first execution of a Step type.
      *
-     * @param stepType the durable Step type; must not be blank
+     * @param stepType the Step type; must not be blank
      * @throws IllegalArgumentException if {@code stepType} is {@code null} or blank
      */
     public StepExecutionId(final String stepType) {
@@ -38,7 +38,7 @@ public final class StepExecutionId {
     /**
      * Selects an explicit execution number of a Step type.
      *
-     * @param stepType the durable Step type; must not be blank
+     * @param stepType the Step type; must not be blank
      * @param executionNumber the one-based execution number
      * @throws IllegalArgumentException if {@code stepType} is {@code null} or blank
      */
