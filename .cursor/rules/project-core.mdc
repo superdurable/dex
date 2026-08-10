@@ -65,9 +65,6 @@ module map.
 - Use the exact nouns exposed by the API or protocol. Do not invent one umbrella
   term for distinct identifiers; say Flow type, Step type, RPC name, Attribute
   name, Channel name, or map instance as appropriate.
-- When a documented limitation has a practical workaround, explain it
-  immediately and include a language-native example when the solution is not
-  obvious.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 - Do not defensively `proto.Clone` / deep-copy messages "just in case". Passing a
