@@ -104,4 +104,9 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-DEX_SERVER_ADDRESS="$dex_address" cargo test -p dex-sdk --test iwfcompat -- --ignored --test-threads=1
+DEX_SERVER_ADDRESS="$dex_address" cargo test -p dex-sdk \
+  --test integ \
+  --test cross_sdk \
+  -- \
+  --ignored \
+  --test-threads=1

@@ -171,9 +171,10 @@ cloned per call so long polls do not serialize unrelated Client operations.
 
 ## Tests
 
-The `dex-sdk` IWF compatibility target ports every Java integration workflow and
-client assertion, plus Go-only runtime scenarios. The integration script starts
-a fresh `dexcli dev` stack and executes those tests serially against the server.
+The `dex-sdk` integration target mirrors every Java integration workflow and
+client assertion one-to-one. Go-only runtime contracts live in a separate
+cross-SDK target. The integration script runs both serially against a fresh
+`dexcli dev` stack.
 
 ## Documentation
 

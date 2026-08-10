@@ -6,20 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-#![allow(dead_code)]
-
-#[path = "iwfcompat/support.rs"]
+#[path = "integ/support.rs"]
 mod support;
 
-#[path = "iwfcompat/basic.rs"]
-mod basic;
-#[path = "iwfcompat/channels.rs"]
+#[path = "cross_sdk/channels.rs"]
 mod channels;
-#[path = "iwfcompat/operations.rs"]
+#[path = "cross_sdk/handler_context.rs"]
+mod handler_context;
+#[path = "cross_sdk/operations.rs"]
 mod operations;
-#[path = "iwfcompat/persistence.rs"]
+#[path = "cross_sdk/persistence.rs"]
 mod persistence;
-#[path = "iwfcompat/rpc.rs"]
+#[path = "cross_sdk/rpc.rs"]
 mod rpc;
-#[path = "iwfcompat/state.rs"]
+#[path = "cross_sdk/state.rs"]
 mod state;
