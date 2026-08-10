@@ -101,6 +101,31 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
+### Errors
+
+Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
+(`get_attribute`, `describe_flow`, `wait_for_flow`, and `reset_flow`) raise
+`FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
+waits, config updates, and continue-as-new triggers raise
+`FlowNotActiveError` when no running Flow can accept the operation.
+
+```python
+try:
+    client.publish(flow_id, orders.approved, order_id)
+except dex.FlowNotActiveError:
+    # The Flow is missing or already closed.
+    pass
+```
+
+Duplicate starts, worker failures, RPC lock contention, and long-poll timeouts
+raise `FlowAlreadyStartedError`, `WorkerInvocationError`,
+`RpcLockConflictError`, and `LongPollTimeoutError`. All service errors retain
+`code`, `sub_status`, `detail`, `operation`, `flow_id`, and the original gRPC
+exception through Python exception chaining. Worker failures also expose
+`worker_code`, `worker_error_type`, and `worker_error_detail`. Registration,
+serialization, and invalid handler returns use `FlowDefinitionError`,
+`ValueMappingError`, and `InvalidStepResultError`.
+
 ### Sync vs asyncio
 
 - **Sync (default):** `Client` and `Worker` use blocking gRPC and a thread-pool

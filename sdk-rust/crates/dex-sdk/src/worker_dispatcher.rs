@@ -76,7 +76,9 @@ impl WorkerDispatcher {
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
-            let waiting_condition = map_wait(&flow, wait)?;
+            let waiting_condition = map_wait(&flow, wait).map_err(|error| {
+                HandlerError::invalid_step_result(flow.name, Some(step.name), "wait_for", error)
+            })?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeWaitForMethodResponse {
                 local_activity_input: None,
@@ -121,7 +123,9 @@ impl WorkerDispatcher {
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let decision = flow.handler.execute(step.name, &mut context, &input)?;
-            let decision = map_decision(&flow, decision)?;
+            let decision = map_decision(&flow, decision).map_err(|error| {
+                HandlerError::invalid_step_result(flow.name, Some(step.name), "execute", error)
+            })?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
                 local_activity_input: None,
@@ -170,7 +174,9 @@ impl WorkerDispatcher {
                 None
             } else {
                 Some(ProtoStepDecision {
-                    next_steps: map_movements(&flow, result.next_steps)?,
+                    next_steps: map_movements(&flow, result.next_steps).map_err(|error| {
+                        HandlerError::invalid_step_result(flow.name, None, "rpc", error)
+                    })?,
                     close_decision: None,
                 })
             };

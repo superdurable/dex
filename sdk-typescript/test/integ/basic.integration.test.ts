@@ -12,9 +12,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DexError,
-  ErrorSubStatus,
+  FlowAlreadyStartedError,
   FlowErrorType,
+  FlowNotFoundError,
   FlowUncompletedError,
   IdReusePolicy,
   StepExecutionId,
@@ -40,8 +40,7 @@ test("basic workflow completes and disallows duplicate IDs", async () => {
     const options = { idReusePolicy: IdReusePolicy.DISALLOW };
     await client.startFlow(flow, id, 0, options);
     assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 2);
-    const duplicate = await expectError(client.startFlow(flow, id, 0, options), DexError);
-    assert.equal(duplicate.subStatus, ErrorSubStatus.FLOW_ALREADY_STARTED);
+    await expectError(client.startFlow(flow, id, 0, options), FlowAlreadyStartedError);
   });
 });
 
@@ -69,11 +68,10 @@ test("empty input and output are preserved", async () => {
     const id = flowId("empty-input");
     await client.startFlow(flow, id, undefined);
     assert.equal(await client.waitForFlow(id, voidCodec, 30_000), undefined);
-    const missing = await expectError(
+    await expectError(
       client.waitForFlow(flowId("missing"), voidCodec, 1_000),
-      DexError,
+      FlowNotFoundError,
     );
-    assert.equal(missing.subStatus, ErrorSubStatus.FLOW_NOT_EXISTS);
   });
 });
 
@@ -118,8 +116,7 @@ test("Flow config override survives Continue-As-New", async () => {
 test("describing a missing Flow returns structured error", async () => {
   const flow = new BasicFlow();
   await withEnvironment([flow], async ({ client }) => {
-    const missing = await expectError(client.describeFlow(flowId("missing")), DexError);
-    assert.equal(missing.subStatus, ErrorSubStatus.FLOW_NOT_EXISTS);
+    await expectError(client.describeFlow(flowId("missing")), FlowNotFoundError);
   });
 });
 

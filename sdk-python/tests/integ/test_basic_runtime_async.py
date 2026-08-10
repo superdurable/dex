@@ -15,15 +15,17 @@ from typing import Any, cast
 import pytest
 
 from dex import (
-    DexException,
-    ErrorSubStatus,
+    FlowAlreadyStartedError,
     FlowConfig,
+    FlowDefinitionError,
     FlowErrorType,
     FlowStatus,
     FlowUncompletedError,
+    FlowNotFoundError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
+    ValueMappingError,
 )
 
 from .abnormal_exit_flow import AbnormalExitFlow
@@ -51,9 +53,8 @@ async def _basic_workflow() -> None:
         options = StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
         await environment.client.start_flow(flow, flow_id, 0, options)
         assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
-        with pytest.raises(DexException) as captured:
+        with pytest.raises(FlowAlreadyStartedError):
             await environment.client.start_flow(flow, flow_id, 0, options)
-        assert captured.value.sub_status is ErrorSubStatus.FLOW_ALREADY_STARTED
 
 
 def test_basic_workflow_abnormal_exit_reuse() -> None:
@@ -89,11 +90,10 @@ async def _empty_input_workflow() -> None:
         assert (
             await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) is None
         )
-        with pytest.raises(DexException) as captured:
+        with pytest.raises(FlowNotFoundError):
             await environment.client.wait_for_flow(
                 unique_id("missing"), int, timedelta(seconds=1)
             )
-        assert captured.value.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS
 
 
 def test_custom_flow_type() -> None:
@@ -112,7 +112,9 @@ async def _custom_flow_type() -> None:
             WAIT_TIMEOUT,
         )
         assert completed is None
-        with pytest.raises(ValueError, match="Flow instance is not registered"):
+        with pytest.raises(
+            FlowDefinitionError, match="Flow instance is not registered"
+        ):
             await environment.client.start_flow(
                 EmptyInputFlow(), unique_id("unregistered"), None
             )
@@ -128,7 +130,7 @@ async def _model_input_workflow() -> None:
         flow_id = unique_id("model-input")
         await environment.client.start_flow(flow, flow_id, ModelInput(value=10))
         assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 10
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueMappingError):
             await environment.client.start_flow(
                 flow,
                 unique_id("wrong-input"),
@@ -158,9 +160,8 @@ def test_describe_missing_flow() -> None:
 async def _describe_missing_flow() -> None:
     flow = BasicFlow()
     async with AsyncDexDevTestEnvironment(flow) as environment:
-        with pytest.raises(DexException) as captured:
+        with pytest.raises(FlowNotFoundError):
             await environment.client.describe_flow(unique_id("missing"))
-        assert captured.value.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS
 
 
 def test_describe_running_flow() -> None:

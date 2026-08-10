@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import grpc
 
@@ -36,27 +36,90 @@ class FlowErrorType(Enum):
     INTERNAL = "internal"
 
 
-class DexException(RuntimeError):
+class DexServiceError(RuntimeError):
     def __init__(
         self,
         code: grpc.StatusCode,
-        sub_status: ErrorSubStatus | None,
-        detail: str | None,
-        worker_error_type: str = "",
-        worker_error_detail: str = "",
+        sub_status: ErrorSubStatus,
+        detail: str,
+        operation: str,
+        flow_id: str | None,
     ) -> None:
         super().__init__(detail)
         self.code = code
         self.sub_status = sub_status
         self.detail = detail
+        self.operation = operation
+        self.flow_id = flow_id
+
+
+class FlowAlreadyStartedError(DexServiceError):
+    pass
+
+
+class FlowNotFoundError(DexServiceError):
+    pass
+
+
+class FlowNotActiveError(DexServiceError):
+    pass
+
+
+class WorkerInvocationError(DexServiceError):
+    def __init__(
+        self,
+        code: grpc.StatusCode,
+        sub_status: ErrorSubStatus,
+        detail: str,
+        operation: str,
+        flow_id: str | None,
+        worker_code: grpc.StatusCode | None,
+        worker_error_type: str,
+        worker_error_detail: str,
+    ) -> None:
+        super().__init__(code, sub_status, detail, operation, flow_id)
+        self.worker_code = worker_code
         self.worker_error_type = worker_error_type
         self.worker_error_detail = worker_error_detail
 
 
-class LongPollTimeoutError(RuntimeError):
-    def __init__(self, flow_id: str) -> None:
-        super().__init__(f"Flow is still running: {flow_id}")
-        self.flow_id = flow_id
+class RpcLockConflictError(DexServiceError):
+    pass
+
+
+class LongPollTimeoutError(DexServiceError):
+    pass
+
+
+class FlowDefinitionError(RuntimeError):
+    pass
+
+
+class InvalidStepResultError(FlowDefinitionError):
+    def __init__(
+        self,
+        flow_type: str,
+        step_type: str | None,
+        method: Literal["wait_for", "execute", "rpc"],
+        detail: str,
+    ) -> None:
+        target = (
+            f"Flow {flow_type} Step {step_type}"
+            if step_type is not None
+            else f"RPC in Flow {flow_type}"
+        )
+        super().__init__(f"{target} {method} returned an invalid result: {detail}")
+        self.flow_type = flow_type
+        self.step_type = step_type
+        self.method = method
+        self.detail = detail
+
+
+class ValueMappingError(RuntimeError):
+    def __init__(self, operation: str, detail: str) -> None:
+        super().__init__(f"Cannot {operation} Dex Value: {detail}")
+        self.operation = operation
+        self.detail = detail
 
 
 class FlowUncompletedError(RuntimeError):

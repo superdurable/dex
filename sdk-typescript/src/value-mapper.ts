@@ -8,6 +8,7 @@
 
 import type { BlobCache } from "./blob-cache.js";
 import type { Codec, Value as CodecValue } from "./codec.js";
+import { ValueMappingError } from "./errors.js";
 import { NullValue } from "./gen/google/protobuf/struct.js";
 import {
   Value as ProtoValue,
@@ -22,7 +23,12 @@ export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
   if (value === undefined || value === null) {
     return objectValue("json", textEncoder.encode("null"));
   }
-  const encoded = codec.encode(value);
+  let encoded: CodecValue;
+  try {
+    encoded = codec.encode(value);
+  } catch (failure) {
+    throw mappingError("encode", failure);
+  }
   switch (encoded.kind) {
     case "string":
       return ProtoValue.create({ kind: { $case: "stringValue", value: encoded.data } });
@@ -54,16 +60,21 @@ export function encodeUnknown(value: unknown): ProtoValue {
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new RangeError("non-finite numbers are unsupported");
+      throw new ValueMappingError("encode", "non-finite numbers are unsupported");
     }
     return ProtoValue.create({ kind: { $case: "doubleValue", value } });
   }
   if (value instanceof Uint8Array) {
     return objectValue("rawbytes", value);
   }
-  const json = JSON.stringify(value);
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch (failure) {
+    throw mappingError("encode", failure);
+  }
   if (json === undefined) {
-    throw new TypeError("value cannot be encoded as JSON");
+    throw new ValueMappingError("encode", "value cannot be encoded as JSON");
   }
   return objectValue("json", textEncoder.encode(json));
 }
@@ -76,13 +87,17 @@ export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
   ) {
     return undefined as T;
   }
-  return codec.decode(toCodecValue(value));
+  try {
+    return codec.decode(toCodecValue(value));
+  } catch (failure) {
+    throw mappingError("decode", failure);
+  }
 }
 
 export function decodeUnknown(value: ProtoValue): unknown {
   const kind = value.kind;
   if (kind === undefined) {
-    throw new TypeError("Value has no concrete kind");
+    throw new ValueMappingError("decode", "Value has no concrete kind");
   }
   switch (kind.$case) {
     case "stringValue":
@@ -99,13 +114,17 @@ export function decodeUnknown(value: ProtoValue): unknown {
         return object.payload;
       }
       if (object.encoding === "json") {
-        return JSON.parse(textDecoder.decode(object.payload));
+        try {
+          return JSON.parse(textDecoder.decode(object.payload));
+        } catch (failure) {
+          throw mappingError("decode", failure);
+        }
       }
-      throw new TypeError(`unsupported object encoding ${object.encoding}`);
+      throw new ValueMappingError("decode", `unsupported object encoding ${object.encoding}`);
     }
     case "internalBlobIdForStringValue":
     case "internalBlobIdForObjValue":
-      throw new TypeError("blob-backed Value was not hydrated");
+      throw new ValueMappingError("decode", "blob-backed Value was not hydrated");
     case "nullValue":
       return undefined;
   }
@@ -125,7 +144,7 @@ export class ValueHydrator {
 
   public async hydrate(value: ProtoValue | undefined): Promise<ProtoValue> {
     if (value?.kind === undefined) {
-      throw new TypeError("Value has no concrete kind");
+      throw new ValueMappingError("hydrate", "Value has no concrete kind");
     }
     const blobId = blobIdOf(value);
     if (blobId === undefined) {
@@ -140,7 +159,7 @@ export class ValueHydrator {
     );
     const hydrated = response.values[blobId];
     if (hydrated?.kind === undefined || blobIdOf(hydrated) !== undefined) {
-      throw new TypeError(`Dex did not hydrate blob ${blobId}`);
+      throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
     }
     this.blobCache.put(blobId, ProtoValue.encode(hydrated).finish());
     return hydrated;
@@ -152,7 +171,7 @@ export class ValueHydrator {
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index];
       if (value?.kind === undefined) {
-        throw new TypeError("Value has no concrete kind");
+        throw new ValueMappingError("hydrate", "Value has no concrete kind");
       }
       const blobId = blobIdOf(value);
       if (blobId === undefined) {
@@ -181,7 +200,7 @@ export class ValueHydrator {
       for (const [blobId, pending] of missing) {
         const value = response.values[blobId];
         if (value?.kind === undefined || blobIdOf(value) !== undefined) {
-          throw new TypeError(`Dex did not hydrate blob ${blobId}`);
+          throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
         }
         this.blobCache.put(blobId, ProtoValue.encode(value).finish());
         for (const index of pending.indexes) {
@@ -191,7 +210,7 @@ export class ValueHydrator {
     }
     return hydrated.map((value) => {
       if (value === undefined) {
-        throw new TypeError("Value hydration left an unresolved entry");
+        throw new ValueMappingError("hydrate", "Value hydration left an unresolved entry");
       }
       return value;
     });
@@ -207,7 +226,7 @@ function objectValue(encoding: string, payload: Uint8Array): ProtoValue {
 function toCodecValue(value: ProtoValue): CodecValue {
   const kind = value.kind;
   if (kind === undefined) {
-    throw new TypeError("Value has no concrete kind");
+    throw new ValueMappingError("decode", "Value has no concrete kind");
   }
   switch (kind.$case) {
     case "stringValue":
@@ -225,12 +244,12 @@ function toCodecValue(value: ProtoValue): CodecValue {
       if (kind.value.encoding === "json") {
         return { kind: "json", data: textDecoder.decode(kind.value.payload) };
       }
-      throw new TypeError(`unsupported object encoding ${kind.value.encoding}`);
+      throw new ValueMappingError("decode", `unsupported object encoding ${kind.value.encoding}`);
     case "internalBlobIdForStringValue":
     case "internalBlobIdForObjValue":
-      throw new TypeError("blob-backed Value was not hydrated");
+      throw new ValueMappingError("decode", "blob-backed Value was not hydrated");
     case "nullValue":
-      throw new TypeError("attribute deletion marker cannot be decoded");
+      throw new ValueMappingError("decode", "attribute deletion marker cannot be decoded");
   }
 }
 
@@ -256,4 +275,15 @@ function unary<Response>(
       resolve(response);
     });
   });
+}
+
+function mappingError(
+  operation: "encode" | "decode" | "hydrate",
+  failure: unknown,
+): ValueMappingError {
+  if (failure instanceof ValueMappingError) {
+    return failure;
+  }
+  const detail = failure instanceof Error ? failure.message : String(failure);
+  return new ValueMappingError(operation, detail, { cause: failure });
 }

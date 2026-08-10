@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import { DexError, ErrorSubStatus, type Client } from "@superdurable/dex";
+import { FlowAlreadyStartedError, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../config/env.js";
 import type { SignupForm } from "../workflow/signup/signup-form.js";
@@ -37,7 +37,7 @@ export function createSignupRouter(client: Client): Router {
     try {
       await client.startFlow(userSignupFlow, username, form, startOptions());
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED) {
+      if (failure instanceof FlowAlreadyStartedError) {
         response.send("username already started registry");
         return;
       }

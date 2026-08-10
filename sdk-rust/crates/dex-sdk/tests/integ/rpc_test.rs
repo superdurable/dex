@@ -195,15 +195,10 @@ fn test_rpc_error() {
         )
         .expect_err("RPC must return user error")
     {
-        SdkError::WorkerInvocation {
-            code,
-            worker_error_type,
-            worker_error_detail,
-            ..
-        } => {
-            assert_eq!(GrpcCode::FailedPrecondition, code);
-            assert!(worker_error_type.contains("HandlerError"));
-            assert!(worker_error_detail.contains("this is an error"));
+        SdkError::WorkerInvocation { service, worker } => {
+            assert_eq!(GrpcCode::FailedPrecondition, service.code());
+            assert!(worker.error_type().contains("HandlerError"));
+            assert!(worker.detail().contains("this is an error"));
         }
         error => panic!("expected WorkerInvocation, got {error:?}"),
     }

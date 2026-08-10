@@ -16,9 +16,12 @@ import {
   Attribute,
   Channel,
   Client,
+  FlowDefinitionError,
+  InvalidStepResultError,
   Registry,
   StepList,
   Timer,
+  ValueMappingError,
   Wait,
   gracefulComplete,
   int64Codec,
@@ -33,6 +36,12 @@ import {
   type Step,
   type StepDecision,
 } from "../src/index.js";
+import {
+  Context as ProtoContext,
+  InvokeExecuteMethodRequest,
+} from "../src/gen/dex.js";
+import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
+import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 
 interface OrderInput {
   readonly orderId: string;
@@ -142,7 +151,7 @@ test("typed definitions construct without runtime", () => {
 
 test("registry rejects missing durable-name methods at runtime", () => {
   const missingFlowName = { getSteps: () => [] } as unknown as Flow<unknown>;
-  assert.throws(() => new Registry([missingFlowName]), /must implement getFlowType/);
+  assert.throws(() => new Registry([missingFlowName]), FlowDefinitionError);
 
   const missingStepName = {
     inputCodec: stringCodec,
@@ -152,7 +161,7 @@ test("registry rejects missing durable-name methods at runtime", () => {
     getFlowType: () => "MissingStepName",
     getSteps: () => StepList.startStep(missingStepName),
   };
-  assert.throws(() => new Registry([flow]), /must implement getStepType/);
+  assert.throws(() => new Registry([flow]), FlowDefinitionError);
 });
 
 test("canonical codecs enforce wire kinds and int64 range", () => {
@@ -168,7 +177,68 @@ test("fluent wait factories validate channel bounds", () => {
 });
 
 test("registry rejects duplicate definitions", () => {
-  assert.throws(() => new Registry([orders, orders]), /duplicate Flow Orders/);
+  assert.throws(() => new Registry([orders, orders]), FlowDefinitionError);
+});
+
+test("value mapping failures have a stable error type", () => {
+  const invalid = {
+    get orderId(): string {
+      throw new TypeError("invalid order input");
+    },
+  };
+  assert.throws(
+    () => encodeValue(orderInput, invalid),
+    ValueMappingError,
+  );
+});
+
+test("invalid Step results include Flow and Step context", async () => {
+  class InvalidStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+
+    public getStepType(): string {
+      return "InvalidStep";
+    }
+
+    public execute(_context: Context, _input: string): StepDecision {
+      return undefined as unknown as StepDecision;
+    }
+  }
+
+  class InvalidFlow implements Flow<string> {
+    public readonly start = new InvalidStep();
+
+    public getFlowType(): string {
+      return "InvalidFlow";
+    }
+
+    public getSteps(): StepList<string> {
+      return StepList.startStep(this.start);
+    }
+  }
+
+  const flow = new InvalidFlow();
+  const hydrator = {
+    hydrateAll: async (values: readonly unknown[]) => values,
+  } as unknown as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const invocation = dispatcher.invokeExecute(
+    InvokeExecuteMethodRequest.create({
+      context: ProtoContext.create(),
+      flowType: flow.getFlowType(),
+      stepType: flow.start.getStepType(),
+      stepInput: encodeValue(stringCodec, "input"),
+      attributes: [],
+      stepExeLocals: [],
+    }),
+  );
+  await assert.rejects(invocation, (failure: unknown) => {
+    assert.ok(failure instanceof InvalidStepResultError);
+    assert.equal(failure.flowType, "InvalidFlow");
+    assert.equal(failure.stepType, "InvalidStep");
+    assert.equal(failure.method, "execute");
+    return true;
+  });
 });
 
 test("blob cache contract opens the native DXBC cache", () => {

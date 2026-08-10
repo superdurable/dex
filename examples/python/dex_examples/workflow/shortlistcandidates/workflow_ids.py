@@ -14,7 +14,7 @@
 
 from typing import Callable, Protocol
 
-from dex import AsyncClient, DexException, ErrorSubStatus
+from dex import AsyncClient, FlowNotActiveError
 
 from dex_examples.workflow.shortlistcandidates.employer_opt_in_flow import (
     EmployerOptInFlow,
@@ -51,7 +51,5 @@ class ClientOptInChecker:
                 self.opt_in_flow.is_opted_in,
                 employer_opt_in(employer_id),
             )
-        except DexException as error:
-            if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-                return False
-            raise
+        except FlowNotActiveError:
+            return False

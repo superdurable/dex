@@ -16,7 +16,11 @@
 
 import { Router } from "express";
 
-import { DexError, ErrorSubStatus, type Client } from "@superdurable/dex";
+import {
+  FlowAlreadyStartedError,
+  FlowNotActiveError,
+  type Client,
+} from "@superdurable/dex";
 
 import { startOptions } from "../config/env.js";
 import { employerOptInFlow } from "../workflow/shortlistcandidates/employer-opt-in-flow.js";
@@ -35,7 +39,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
     try {
       await client.startFlow(employerOptInFlow, workflowId, input, startOptions());
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED) {
+      if (failure instanceof FlowAlreadyStartedError) {
         response.send(`Employer ${employerId} has already opted in`);
         return;
       }
@@ -50,7 +54,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
     try {
       await client.invokeRPC(employerOptInFlow.optOut, workflowId);
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS) {
+      if (failure instanceof FlowNotActiveError) {
         response.send(`Employer ${employerId} is not in the opt-in status`);
         return;
       }
@@ -78,7 +82,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
     try {
       await client.startFlow(shortlistFlow, workflowId, input, startOptions());
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_ALREADY_STARTED) {
+      if (failure instanceof FlowAlreadyStartedError) {
         response.send(`Already running workflowId: ${workflowId}`);
         return;
       }
@@ -94,7 +98,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
     try {
       await client.publish(workflowId, shortlistFlow.revokeShortlist, undefined);
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS) {
+      if (failure instanceof FlowNotActiveError) {
         response.send(`No running workflow to revoke for ${employerId}-${candidateId}`);
         return;
       }
@@ -114,7 +118,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
       );
       response.json(Number(timestamp));
     } catch (failure) {
-      if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS) {
+      if (failure instanceof FlowNotActiveError) {
         response.sendStatus(404);
         return;
       }

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import { credentials, status as GrpcStatus, type ServiceError } from "@grpc/grpc-js";
+import { credentials, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import type { Codec } from "./codec.js";
@@ -39,14 +39,7 @@ import {
   type WaitForStepCompletionResponse,
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
-import {
-  DexError,
-  ErrorSubStatus,
-  FlowErrorType,
-  FlowUncompletedError,
-  LongPollTimeoutError,
-  type FlowErrorType as FlowErrorTypeValue,
-} from "./errors.js";
+import { FlowErrorType, FlowUncompletedError, type FlowErrorType as FlowErrorTypeValue } from "./errors.js";
 import {
   registeredFlow,
   registeredRPC,
@@ -138,7 +131,10 @@ export class Client {
         registered,
       );
     }
-    return (await unary<StartFlowResponse>((callback) => this.service.startFlow(request, callback)))
+    return (await unary<StartFlowResponse>(
+      { operation: "startFlow", flowId, requirement: "none" },
+      (callback) => this.service.startFlow(request, callback),
+    ))
       .runId;
   }
 
@@ -179,7 +175,9 @@ export class Client {
   ): Promise<unknown> {
     const rpc = registeredRPC(this.registry, rpcMethod);
     const hasInput = rpc.options.inputCodec !== undefined;
-    const response = await unary<InvokeRPCResponse>((callback) =>
+    const response = await unary<InvokeRPCResponse>(
+      { operation: "invokeRPC", flowId, requirement: "active" },
+      (callback) =>
       this.service.invokeRpc(
         {
           flowId: requireName(flowId),
@@ -223,7 +221,9 @@ export class Client {
     runId = "",
   ): Promise<unknown> {
     const isMap = attribute instanceof AttributeMap;
-    const response = await unary<GetAttributesResponse>((callback) =>
+    const response = await unary<GetAttributesResponse>(
+      { operation: "getAttribute", flowId, requirement: "existing" },
+      (callback) =>
       this.service.getAttributes(
         {
           flowId: requireName(flowId),
@@ -266,7 +266,9 @@ export class Client {
     const isMap = attribute instanceof AttributeMap;
     const instance = isMap ? String(instanceOrValue) : undefined;
     const value = isMap ? valueOrRunId : instanceOrValue;
-    await unary<Empty>((callback) =>
+    await unary<Empty>(
+      { operation: "setAttribute", flowId, requirement: "active" },
+      (callback) =>
       this.service.setAttributes(
         {
           flowId: requireName(flowId),
@@ -302,7 +304,9 @@ export class Client {
     const isMap = channel instanceof ChannelMap;
     const instance = isMap ? String(instanceAndValues[0]) : undefined;
     const values = isMap ? instanceAndValues.slice(1) : instanceAndValues;
-    await unary<Empty>((callback) =>
+    await unary<Empty>(
+      { operation: "publish", flowId, requirement: "active" },
+      (callback) =>
       this.service.publishToChannel(
         {
           flowId: requireName(flowId),
@@ -330,9 +334,9 @@ export class Client {
     outputCodec?: Codec<unknown>,
     timeoutMs?: number,
   ): Promise<unknown> {
-    let response: WaitForFlowResponse;
-    try {
-      response = await unary<WaitForFlowResponse>((callback) =>
+    const response = await unary<WaitForFlowResponse>(
+      { operation: "waitForFlow", flowId, requirement: "existing" },
+      (callback) =>
         this.service.waitForFlow(
           {
             flowId: requireName(flowId),
@@ -342,17 +346,7 @@ export class Client {
           },
           callback,
         ),
-      );
-    } catch (failure) {
-      if (
-        failure instanceof DexError &&
-        (failure.code === GrpcStatus.DEADLINE_EXCEEDED ||
-          failure.subStatus === ErrorSubStatus.LONG_POLL_TIMEOUT)
-      ) {
-        throw new LongPollTimeoutError(flowId, { cause: failure });
-      }
-      throw failure;
-    }
+    );
     if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
       const summary = await this.describeFlow(flowId);
       const results = await this.hydrator.hydrateAll(
@@ -379,7 +373,9 @@ export class Client {
   }
 
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
-    await unary<Empty>((callback) =>
+    await unary<Empty>(
+      { operation: "stopFlow", flowId, requirement: "active" },
+      (callback) =>
       this.service.stopFlow(
         {
           flowId: requireName(flowId),
@@ -393,8 +389,9 @@ export class Client {
   }
 
   public async describeFlow(flowId: string): Promise<FlowInfo> {
-    const response = await unary<GetFlowSummaryResponse>((callback) =>
-      this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
+    const response = await unary<GetFlowSummaryResponse>(
+      { operation: "describeFlow", flowId, requirement: "existing" },
+      (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
     );
     if (response.flowExecutionId === undefined || response.startTime === undefined) {
       throw new TypeError(`Dex returned an incomplete summary for Flow ${flowId}`);
@@ -416,8 +413,9 @@ export class Client {
     if (pageSize < 0) {
       throw new RangeError("search page size must not be negative");
     }
-    const response = await unary<SearchFlowsResponse>((callback) =>
-      this.service.searchFlows({ query, pageSize, nextPageToken }, callback),
+    const response = await unary<SearchFlowsResponse>(
+      { operation: "searchFlows", requirement: "none" },
+      (callback) => this.service.searchFlows({ query, pageSize, nextPageToken }, callback),
     );
     const flows = await Promise.all(
       response.flowRuns.map((entry) => this.mapSearchEntry(entry)),
@@ -445,7 +443,9 @@ export class Client {
   }
 
   public async resetFlow(flowId: string, options: ResetFlowOptions): Promise<string> {
-    const response = await unary<ResetFlowResponse>((callback) =>
+    const response = await unary<ResetFlowResponse>(
+      { operation: "resetFlow", flowId, requirement: "existing" },
+      (callback) =>
       this.service.resetFlow(
         {
           flowId: requireName(flowId),
@@ -470,7 +470,9 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timerId: TimerId,
   ): Promise<void> {
-    await unary<Empty>((callback) =>
+    await unary<Empty>(
+      { operation: "skipTimer", flowId, requirement: "active" },
+      (callback) =>
       this.service.skipTimer(
         {
           flowId: requireName(flowId),
@@ -489,7 +491,9 @@ export class Client {
     stepExecutionId: StepExecutionId,
     timeoutMs: number,
   ): Promise<void> {
-    await unary<WaitForStepCompletionResponse>((callback) =>
+    await unary<WaitForStepCompletionResponse>(
+      { operation: "waitForStepCompletion", flowId, requirement: "active" },
+      (callback) =>
       this.service.waitForStepCompletion(
         {
           flowId: requireName(flowId),
@@ -504,7 +508,9 @@ export class Client {
   }
 
   public async updateFlowConfig(flowId: string, config: FlowConfig): Promise<void> {
-    await unary<Empty>((callback) =>
+    await unary<Empty>(
+      { operation: "updateFlowConfig", flowId, requirement: "active" },
+      (callback) =>
       this.service.updateFlowConfig(
         {
           flowId: requireName(flowId),
@@ -761,12 +767,17 @@ function number64(value: bigint | undefined): number {
 }
 
 function unary<Response>(
+  target: {
+    readonly operation: string;
+    readonly flowId?: string;
+    readonly requirement: "none" | "existing" | "active";
+  },
   invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     invoke((error, response) => {
       if (error !== null) {
-        reject(translateServiceError(error));
+        reject(translateServiceError(error, target.operation, target.flowId, target.requirement));
         return;
       }
       resolve(response);

@@ -145,7 +145,9 @@ match client.start_flow(&orders, "order-123", order) {
 `FlowNotFound` is used by operations requiring an existing Flow;
 `FlowNotActive` is used by mutations and RPCs requiring a running Flow.
 `RpcLockConflict` and `LongPollTimeout` can be retried explicitly, while
-`WorkerInvocation` retains the original Worker error metadata.
+`WorkerInvocation` retains the original Worker error metadata. Remote variants
+own a `ServiceError` that preserves the `tonic::Status` source and exposes the
+gRPC code, Dex sub-status, operation, Flow ID, and detail.
 
 `HandlerError` remains separate because it crosses the user Step/RPC boundary;
 `SdkError` represents Client, registration, mapping, and service failures.
@@ -155,7 +157,7 @@ match client.start_flow(&orders, "order-123", order) {
 Client and Worker share an `Arc<BlobCache>` and cloned Registry metadata:
 
 ```rust
-let registry = Registry::new().register(OrderFlow::new());
+let registry = Registry::new().register(OrderFlow::new())?;
 let cache = Arc::new(BlobCache::open(cache_config)?);
 let client = Client::new(registry.clone(), cache.clone(), ClientOptions::new());
 let worker = Worker::new(registry, cache, WorkerOptions::new());

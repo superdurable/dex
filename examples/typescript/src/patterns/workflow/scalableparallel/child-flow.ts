@@ -16,8 +16,7 @@
 
 import {
   Attribute,
-  DexError,
-  ErrorSubStatus,
+  FlowNotActiveError,
   StepList,
   Timer,
   Wait,
@@ -60,10 +59,7 @@ class Processing implements Step<string> {
           context.flowId,
         );
       } catch (error) {
-        if (
-          error instanceof DexError &&
-          error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS
-        ) {
+        if (error instanceof FlowNotActiveError) {
           console.log(
             "Parent workflow may have completed, might be duplicate completion request, ignore it.",
           );

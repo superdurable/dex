@@ -14,13 +14,35 @@ pub type HandlerResult<T> = Result<T, HandlerError>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HandlerError {
     message: String,
+    error_type: String,
 }
 
 impl HandlerError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            error_type: std::any::type_name::<Self>().to_string(),
         }
+    }
+
+    pub(crate) fn invalid_step_result(
+        flow_type: &str,
+        step_type: Option<&str>,
+        method: &str,
+        detail: impl std::fmt::Display,
+    ) -> Self {
+        let target = step_type.map_or_else(
+            || format!("RPC in Flow {flow_type}"),
+            |step_type| format!("Flow {flow_type} Step {step_type}"),
+        );
+        Self {
+            message: format!("{target} {method} returned an invalid result: {detail}"),
+            error_type: "dex_sdk::SdkError::InvalidStepResult".to_string(),
+        }
+    }
+
+    pub(crate) fn error_type(&self) -> &str {
+        &self.error_type
     }
 }
 
@@ -31,3 +53,24 @@ impl Display for HandlerError {
 }
 
 impl Error for HandlerError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_step_result_has_stable_context_and_type() {
+        let error = HandlerError::invalid_step_result(
+            "OrderFlow",
+            Some("ApproveOrder"),
+            "execute",
+            "missing movement",
+        );
+        assert_eq!("dex_sdk::SdkError::InvalidStepResult", error.error_type());
+        assert!(
+            error
+                .to_string()
+                .contains("Flow OrderFlow Step ApproveOrder")
+        );
+    }
+}

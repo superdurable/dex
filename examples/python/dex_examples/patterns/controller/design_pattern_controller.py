@@ -21,8 +21,7 @@ from datetime import timedelta
 from typing import Any, Awaitable, Callable
 
 from dex import (
-    DexException,
-    ErrorSubStatus,
+    FlowNotActiveError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
@@ -260,9 +259,7 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.drain_signal.queue_signal_channel,
                 "signal from startorsignal endpoint",
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             run_id = await app_state.client.start_flow(
                 app_state.drain_signal,
                 flow_id,
@@ -313,9 +310,8 @@ async def invoke_storage_rpc(
     """Returns the RPC result, starting the singleton storage Flow on first use."""
     try:
         return await invoke()
-    except DexException as error:
-        if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-            raise
+    except FlowNotActiveError:
+        pass
     await app_state.client.start_flow(
         app_state.storage,
         STORAGE_FLOW_ID,

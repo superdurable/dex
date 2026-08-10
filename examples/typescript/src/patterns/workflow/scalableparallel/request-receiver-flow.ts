@@ -15,8 +15,7 @@
  */
 
 import {
-  DexError,
-  ErrorSubStatus,
+  FlowNotActiveError,
   StepList,
   doubleCodec,
   gracefulComplete,
@@ -61,10 +60,7 @@ class Request implements Step<number> {
         throw new EnqueueFailedException("Enqueue failed, retry in next attempt");
       }
     } catch (error) {
-      if (
-        error instanceof DexError &&
-        error.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS
-      ) {
+      if (error instanceof FlowNotActiveError) {
         await client.startFlow(this.parent, parentWorkflowId, batch, startOptions());
       } else {
         throw error;

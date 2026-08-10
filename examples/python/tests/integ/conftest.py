@@ -30,7 +30,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from dex import AsyncClient, Attribute, DexException, ErrorSubStatus, FlowStatus
+from dex import AsyncClient, Attribute, DexServiceError, FlowNotFoundError, FlowStatus
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
@@ -103,7 +103,7 @@ async def server_is_ready(client: AsyncClient) -> bool:
     while asyncio.get_running_loop().time() < deadline:
         try:
             return await client.health_check()
-        except DexException:
+        except DexServiceError:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     return False
 
@@ -143,19 +143,15 @@ async def attribute_or_none(
 ) -> Any:
     try:
         return await client.get_attribute(flow_id, attribute)
-    except DexException as error:
-        if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-            return None
-        raise
+    except FlowNotFoundError:
+        return None
 
 
 async def flow_status_or_none(client: AsyncClient, flow_id: str) -> FlowStatus | None:
     try:
         return (await client.describe_flow(flow_id)).status
-    except DexException as error:
-        if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-            return None
-        raise
+    except FlowNotFoundError:
+        return None
 
 
 async def wait_for_flow_status(

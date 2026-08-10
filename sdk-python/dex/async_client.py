@@ -17,7 +17,7 @@ from uuid import uuid4
 
 import grpc
 
-from dex._grpc_errors import translate_rpc_error
+from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._utils import require_name
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._value_mapper import ValueMapper
@@ -43,7 +43,6 @@ from dex.flow_options import (
 from dex.runtime_errors import (
     FlowErrorType,
     FlowUncompletedError,
-    LongPollTimeoutError,
 )
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
@@ -72,7 +71,7 @@ class AsyncClient:
         self._mappings = WorkerDispatcher(
             registry,
             self._values,
-            self._hydrator,
+            cast(Any, self._hydrator),
         )
         self._closed = False
 
@@ -117,7 +116,10 @@ class AsyncClient:
         if options.timeout is not None:
             request.flow_timeout_seconds = self._seconds32(options.timeout)
         response = cast(
-            pb.StartFlowResponse, await self._call(self._service.StartFlow, request)
+            pb.StartFlowResponse,
+            await self._call(
+                self._service.StartFlow, request, "start_flow", flow_id, "none"
+            ),
         )
         return response.run_id
 
@@ -191,6 +193,9 @@ class AsyncClient:
                     lock_attribute_keys=rpc.locks,
                     request_id=str(uuid4()),
                 ),
+                "invoke_rpc",
+                flow_id,
+                "active",
             ),
         )
         if rpc.output_codec is None:
@@ -237,6 +242,9 @@ class AsyncClient:
                     run_id=run_id,
                     keys=[key],
                 ),
+                "get_attribute",
+                flow_id,
+                "existing",
             ),
         )
         if not response.attributes:
@@ -297,6 +305,9 @@ class AsyncClient:
                 attributes=[write],
                 request_id=str(uuid4()),
             ),
+            "set_attribute",
+            flow_id,
+            "active",
         )
 
     @overload
@@ -353,6 +364,9 @@ class AsyncClient:
                     for value in values
                 ],
             ),
+            "publish",
+            flow_id,
+            "active",
         )
 
     @overload
@@ -400,6 +414,9 @@ class AsyncClient:
                     StopType.FAIL: pb.STOP_TYPE_FAIL,
                 }[options.type],
             ),
+            "stop_flow",
+            flow_id,
+            "active",
         )
 
     async def describe_flow(self, flow_id: str) -> FlowInfo:
@@ -408,6 +425,9 @@ class AsyncClient:
             await self._call(
                 self._service.GetFlowSummary,
                 pb.GetFlowSummaryRequest(flow_id=require_name(flow_id)),
+                "describe_flow",
+                flow_id,
+                "existing",
             ),
         )
         return FlowInfo(
@@ -435,12 +455,17 @@ class AsyncClient:
                     page_size=page_size,
                     next_page_token=next_page_token,
                 ),
+                "search_flows",
+                None,
+                "none",
             ),
         )
         flows = [await self._map_search_entry(entry) for entry in response.flow_runs]
         return SearchFlowsPage(flows, response.next_page_token)
 
-    async def _map_search_entry(self, entry: pb.SearchFlowsResponseEntry) -> SearchFlowEntry:
+    async def _map_search_entry(
+        self, entry: pb.SearchFlowsResponseEntry
+    ) -> SearchFlowEntry:
         attributes = {
             kv.key: self._values.to_value(await self._hydrator.hydrate(kv.value))
             for kv in entry.search_attributes
@@ -484,7 +509,13 @@ class AsyncClient:
             request.step_execution_id = options.step_execution_id
         response = cast(
             pb.ResetFlowResponse,
-            await self._call(self._service.ResetFlow, request),
+            await self._call(
+                self._service.ResetFlow,
+                request,
+                "reset_flow",
+                flow_id,
+                "existing",
+            ),
         )
         return response.run_id
 
@@ -504,7 +535,9 @@ class AsyncClient:
             request.timer_condition_id = timer_id.condition_id
         if timer_id.condition_index is not None:
             request.timer_condition_index = timer_id.condition_index
-        await self._call(self._service.SkipTimer, request)
+        await self._call(
+            self._service.SkipTimer, request, "skip_timer", flow_id, "active"
+        )
 
     async def wait_for_step_completion(
         self,
@@ -521,6 +554,9 @@ class AsyncClient:
                 wait_time_seconds=self._seconds32(timeout),
                 request_id=str(uuid4()),
             ),
+            "wait_for_step_completion",
+            flow_id,
+            "active",
         )
 
     async def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
@@ -530,18 +566,30 @@ class AsyncClient:
                 flow_id=require_name(flow_id),
                 flow_config=self._map_flow_config(config),
             ),
+            "update_flow_config",
+            flow_id,
+            "active",
         )
 
     async def trigger_continue_as_new(self, flow_id: str) -> None:
         await self._call(
             self._service.TriggerContinueAsNew,
             pb.TriggerContinueAsNewRequest(flow_id=require_name(flow_id)),
+            "trigger_continue_as_new",
+            flow_id,
+            "active",
         )
 
     async def health_check(self) -> bool:
         from google.protobuf import empty_pb2
 
-        await self._call(self._service.HealthCheck, empty_pb2.Empty())
+        await self._call(
+            self._service.HealthCheck,
+            empty_pb2.Empty(),
+            "health_check",
+            None,
+            "none",
+        )
         return True
 
     async def close(self) -> None:
@@ -561,12 +609,16 @@ class AsyncClient:
         )
         if timeout is not None:
             request.wait_time_seconds = self._seconds32(timeout)
-        try:
-            response = cast(pb.WaitForFlowResponse, await self._service.WaitForFlow(request))
-        except grpc.RpcError as error:
-            if error.code() is grpc.StatusCode.DEADLINE_EXCEEDED:
-                raise LongPollTimeoutError(flow_id) from error
-            raise translate_rpc_error(error) from error
+        response = cast(
+            pb.WaitForFlowResponse,
+            await self._call(
+                self._service.WaitForFlow,
+                request,
+                "wait_for_flow",
+                flow_id,
+                "existing",
+            ),
+        )
         if response.flow_status != pb.FLOW_STATUS_COMPLETED:
             info = await self.describe_flow(flow_id)
             results = await self._hydrator.step_outputs(list(response.results))
@@ -676,9 +728,13 @@ class AsyncClient:
             maximum_attempts=retry.maximum_attempts,
         )
         if retry.initial_interval is not None:
-            mapped.initial_interval_seconds = AsyncClient._seconds32(retry.initial_interval)
+            mapped.initial_interval_seconds = AsyncClient._seconds32(
+                retry.initial_interval
+            )
         if retry.maximum_interval is not None:
-            mapped.maximum_interval_seconds = AsyncClient._seconds32(retry.maximum_interval)
+            mapped.maximum_interval_seconds = AsyncClient._seconds32(
+                retry.maximum_interval
+            )
         return mapped
 
     @staticmethod
@@ -750,8 +806,14 @@ class AsyncClient:
         return error_types.get(error_type)
 
     @staticmethod
-    async def _call(method: Callable[[Any], Any], request: Any) -> Any:
+    async def _call(
+        method: Callable[[Any], Any],
+        request: Any,
+        operation: str,
+        flow_id: str | None,
+        requirement: FlowTargetRequirement,
+    ) -> Any:
         try:
             return await method(request)
         except grpc.RpcError as error:
-            raise translate_rpc_error(error) from error
+            raise translate_rpc_error(error, operation, flow_id, requirement) from error

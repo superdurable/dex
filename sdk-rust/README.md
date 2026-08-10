@@ -31,6 +31,26 @@ domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
 `FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
 requiring callers to inspect transport metadata.
 
+Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
+`reset_flow`) use `FlowNotFound`; operations requiring a running Flow use
+`FlowNotActive`. Each remote variant owns a `ServiceError`, available through
+`SdkError::service_error()`, with gRPC code, Dex sub-status, detail, operation,
+Flow ID, and the original `tonic::Status` source. `WorkerInvocation` also owns
+a `WorkerError` with the original worker code, type, and detail.
+
+```rust
+match client.publish(flow_id, &orders.approved, order_id) {
+    Err(SdkError::FlowNotActive { service }) => {
+        eprintln!("{} failed for {:?}", service.operation(), service.flow_id());
+    }
+    result => result?,
+}
+```
+
+`Registry::register` reports invalid definitions as `SdkError::FlowDefinition`.
+Value conversion and invalid Step results use `ValueMapping` and
+`InvalidStepResult`.
+
 ## Rust SDK runtime
 
 Flows bind their start input and every Step binds its own input at compile time:

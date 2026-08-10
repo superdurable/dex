@@ -16,7 +16,13 @@ from __future__ import annotations
 
 import traceback
 
-from dex import DexException, ErrorSubStatus
+from dex import (
+    DexServiceError,
+    FlowAlreadyStartedError,
+    FlowNotActiveError,
+    FlowNotFoundError,
+    LongPollTimeoutError,
+)
 from quart import Quart
 from werkzeug.exceptions import HTTPException
 
@@ -29,7 +35,9 @@ from dex_examples.app import ExampleApp
 from dex_examples.controller.basic_controller import create_basic_blueprint
 from dex_examples.controller.engagement_controller import create_engagement_blueprint
 from dex_examples.controller.job_post_controller import create_job_post_blueprint
-from dex_examples.controller.microservice_controller import create_microservice_blueprint
+from dex_examples.controller.microservice_controller import (
+    create_microservice_blueprint,
+)
 from dex_examples.controller.money_transfer_controller import (
     create_money_transfer_blueprint,
 )
@@ -39,15 +47,18 @@ from dex_examples.controller.resourcecontrol_controller import (
 )
 from dex_examples.controller.shortlist_controller import create_shortlist_blueprint
 from dex_examples.controller.signup_controller import create_signup_blueprint
-from dex_examples.controller.subscription_controller import create_subscription_blueprint
+from dex_examples.controller.subscription_controller import (
+    create_subscription_blueprint,
+)
 from dex_examples.patterns.controller.design_pattern_controller import (
     create_design_pattern_blueprint,
 )
 
-SUB_STATUS_HTTP_CODES = {
-    ErrorSubStatus.FLOW_ALREADY_STARTED: 409,
-    ErrorSubStatus.FLOW_NOT_EXISTS: 404,
-    ErrorSubStatus.LONG_POLL_TIMEOUT: 504,
+ERROR_HTTP_CODES = {
+    FlowAlreadyStartedError: 409,
+    FlowNotFoundError: 404,
+    FlowNotActiveError: 409,
+    LongPollTimeoutError: 504,
 }
 
 
@@ -73,7 +84,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_ai_agent_blueprint(app_state))
 
     quart_app.register_error_handler(HTTPException, handle_http_exception)
-    quart_app.register_error_handler(DexException, handle_dex_exception)
+    quart_app.register_error_handler(DexServiceError, handle_dex_exception)
     quart_app.register_error_handler(Exception, handle_unexpected_exception)
 
     @quart_app.get("/")
@@ -87,11 +98,16 @@ def handle_http_exception(error: HTTPException) -> tuple[str, int]:
     return error.description or error.name, error.code or 500
 
 
-def handle_dex_exception(error: DexException) -> tuple[str, int]:
-    status = 500
-    if error.sub_status is not None:
-        status = SUB_STATUS_HTTP_CODES.get(error.sub_status, 500)
-    return error.detail or str(error), status
+def handle_dex_exception(error: DexServiceError) -> tuple[str, int]:
+    status = next(
+        (
+            status
+            for error_type, status in ERROR_HTTP_CODES.items()
+            if isinstance(error, error_type)
+        ),
+        500,
+    )
+    return error.detail, status
 
 
 def handle_unexpected_exception(error: Exception) -> tuple[str, int]:

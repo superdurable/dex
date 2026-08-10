@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dex import DexException, ErrorSubStatus
+from dex import FlowAlreadyStartedError, FlowNotActiveError
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
@@ -40,10 +40,8 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.employer_opt_in.is_opted_in,
                 workflow_ids.employer_opt_in(employer_id),
             )
-        except DexException as error:
-            if error.sub_status is ErrorSubStatus.FLOW_NOT_EXISTS:
-                return False
-            raise
+        except FlowNotActiveError:
+            return False
 
     @blueprint.post("/opt_in")
     async def opt_in() -> str:
@@ -56,9 +54,7 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 EmployerOptInInput(employer_id),
                 start_options(),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
             return f"Employer {employer_id} has already opted in"
         return f"Started workflowId: {flow_id}"
 
@@ -70,9 +66,7 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.employer_opt_in.opt_out,
                 workflow_ids.employer_opt_in(employer_id),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             return f"Employer {employer_id} is not in the opt-in status"
         return f"Employer {employer_id} has opted out"
 
@@ -97,9 +91,7 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 ShortlistInput(employer_id, candidate_id),
                 start_options(),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
             return f"Already running workflowId: {flow_id}"
         return f"Started workflowId: {flow_id}"
 
@@ -113,9 +105,7 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.shortlist.revoke_shortlist,
                 None,
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             return f"No running workflow to revoke for {employer_id}-{candidate_id}"
         return f"Revoked shortlist for {employer_id}-{candidate_id}"
 
@@ -128,9 +118,7 @@ def create_shortlist_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.shortlist.get_email_sent_timestamp,
                 workflow_ids.shortlist(employer_id, candidate_id),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_NOT_EXISTS:
-                raise
+        except FlowNotActiveError:
             return jsonify({"error": "shortlist flow does not exist"}), 404
         return jsonify(timestamp)
 

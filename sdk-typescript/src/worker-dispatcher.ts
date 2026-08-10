@@ -32,6 +32,7 @@ import {
   type RetryPolicy as ProtoRetryPolicy,
   type Value,
 } from "./gen/dex.js";
+import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
   registeredRPCByName,
@@ -77,13 +78,17 @@ export class WorkerDispatcher {
       throw new TypeError(`Step ${step.name} does not implement waitFor`);
     }
     const wait = await step.step.waitFor(context, input);
-    return InvokeWaitForMethodResponse.create({
-      upsertAttributes: [...context.getAttributeWrites()],
-      waitingCondition: mapWait(flow, wait),
-      upsertStepExeLocals: [...context.getLocalWrites()],
-      recordEvents: [...context.getEvents()],
-      publishToChannel: [...context.getPublications()],
-    });
+    try {
+      return InvokeWaitForMethodResponse.create({
+        upsertAttributes: [...context.getAttributeWrites()],
+        waitingCondition: mapWait(flow, wait),
+        upsertStepExeLocals: [...context.getLocalWrites()],
+        recordEvents: [...context.getEvents()],
+        publishToChannel: [...context.getPublications()],
+      });
+    } catch (failure) {
+      throw invalidStepResult(flow.name, step.name, "waitFor", failure);
+    }
   }
 
   public async invokeExecute(
@@ -102,13 +107,17 @@ export class WorkerDispatcher {
     );
     const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
     const decision = await step.step.execute(context, input);
-    return InvokeExecuteMethodResponse.create({
-      stepDecision: mapDecision(flow, decision),
-      upsertAttributes: [...context.getAttributeWrites()],
-      recordEvents: [...context.getEvents()],
-      upsertStepExeLocals: [...context.getLocalWrites()],
-      publishToChannel: [...context.getPublications()],
-    });
+    try {
+      return InvokeExecuteMethodResponse.create({
+        stepDecision: mapDecision(flow, decision),
+        upsertAttributes: [...context.getAttributeWrites()],
+        recordEvents: [...context.getEvents()],
+        upsertStepExeLocals: [...context.getLocalWrites()],
+        publishToChannel: [...context.getPublications()],
+      });
+    } catch (failure) {
+      throw invalidStepResult(flow.name, step.name, "execute", failure);
+    }
   }
 
   public async invokeRPC(original: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCResponse> {
@@ -125,20 +134,24 @@ export class WorkerDispatcher {
       request.channelInfos,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
-    const result = rpcResult(rpc, returned);
-    return InvokeWorkerRPCResponse.create({
-      output:
-        rpc.options.outputCodec === undefined
-          ? encodeUnknown(undefined)
-          : encodeValue(rpc.options.outputCodec, result?.output),
-      stepDecision:
-        result?.nextSteps === undefined || result.nextSteps.length === 0
-          ? undefined
-          : ProtoStepDecision.create({ nextSteps: mapMovements(flow, result.nextSteps) }),
-      upsertAttributes: [...context.getAttributeWrites()],
-      recordEvents: [...context.getEvents()],
-      publishToChannel: [...context.getPublications()],
-    });
+    try {
+      const result = rpcResult(rpc, returned);
+      return InvokeWorkerRPCResponse.create({
+        output:
+          rpc.options.outputCodec === undefined
+            ? encodeUnknown(undefined)
+            : encodeValue(rpc.options.outputCodec, result?.output),
+        stepDecision:
+          result?.nextSteps === undefined || result.nextSteps.length === 0
+            ? undefined
+            : ProtoStepDecision.create({ nextSteps: mapMovements(flow, result.nextSteps) }),
+        upsertAttributes: [...context.getAttributeWrites()],
+        recordEvents: [...context.getEvents()],
+        publishToChannel: [...context.getPublications()],
+      });
+    } catch (failure) {
+      throw invalidStepResult(flow.name, undefined, "rpc", failure);
+    }
   }
 
   private async hydrateWaitFor(
@@ -519,4 +532,20 @@ function seconds(milliseconds: number | undefined): number {
     throw new RangeError("duration must be a non-negative whole number of seconds");
   }
   return milliseconds / 1_000;
+}
+
+function invalidStepResult(
+  flowType: string,
+  stepType: string | undefined,
+  method: "waitFor" | "execute" | "rpc",
+  failure: unknown,
+): Error {
+  if (failure instanceof ValueMappingError) {
+    return failure;
+  }
+  if (failure instanceof InvalidStepResultError) {
+    return failure;
+  }
+  const detail = failure instanceof Error ? failure.message : String(failure);
+  return new InvalidStepResultError(flowType, stepType, method, detail, { cause: failure });
 }

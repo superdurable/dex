@@ -23,8 +23,7 @@ from dex import (
     AsyncClient,
     Channel,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowAlreadyStartedError,
     Flow,
     LongPollTimeoutError,
     PersistenceSchema,
@@ -105,9 +104,7 @@ class StartChildWorkflow(Step[int]):
                 str(input),
                 start_options(),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
             print("ignore this error because it is already started")
         return go_to(
             self.await_child_workflow_completion,

@@ -11,7 +11,9 @@
 import asyncio
 from datetime import timedelta
 
-from dex import StepExecutionId, TimerId
+import pytest
+
+from dex import FlowNotActiveError, StepExecutionId, TimerId
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .basic_internal_channel_flow import BasicInternalChannelFlow
@@ -92,3 +94,5 @@ async def _signal_conditions_and_timer_skip() -> None:
             TimerId.by_condition_id("test-timer-id"),
         )
         assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 6
+        with pytest.raises(FlowNotActiveError):
+            await environment.client.publish(flow_id, flow.first, 8)

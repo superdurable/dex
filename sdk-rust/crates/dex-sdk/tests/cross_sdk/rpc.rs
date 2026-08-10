@@ -130,10 +130,9 @@ fn locked_write_and_publication_are_committed_atomically() {
         .invoke_rpc(&flow_id, RpcWorkflow::FAIL, 1)
         .expect_err("planned RPC failure must be returned")
     {
-        SdkError::WorkerInvocation {
-            worker_error_detail,
-            ..
-        } => assert!(worker_error_detail.contains("planned RPC failure")),
+        SdkError::WorkerInvocation { worker, .. } => {
+            assert!(worker.detail().contains("planned RPC failure"));
+        }
         error => panic!("expected WorkerInvocation, got {error:?}"),
     }
 

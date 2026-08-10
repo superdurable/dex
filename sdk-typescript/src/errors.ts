@@ -35,25 +35,74 @@ export const FlowErrorType = Object.freeze({
 
 export type FlowErrorType = (typeof FlowErrorType)[keyof typeof FlowErrorType];
 
-export class DexError extends Error {
+export class DexServiceError extends Error {
   public constructor(
     public readonly code: status,
-    public readonly subStatus: ErrorSubStatus | undefined,
+    public readonly subStatus: ErrorSubStatus,
     public readonly detail: string,
+    public readonly operation: string,
+    public readonly flowId: string | undefined,
+    options?: ErrorOptions,
+  ) {
+    super(detail, options);
+    this.name = new.target.name;
+  }
+}
+
+export class FlowAlreadyStartedError extends DexServiceError {}
+
+export class FlowNotFoundError extends DexServiceError {}
+
+export class FlowNotActiveError extends DexServiceError {}
+
+export class WorkerInvocationError extends DexServiceError {
+  public constructor(
+    code: status,
+    subStatus: ErrorSubStatus,
+    detail: string,
+    operation: string,
+    flowId: string | undefined,
+    public readonly workerCode: status | undefined,
     public readonly workerErrorType: string,
     public readonly workerErrorDetail: string,
     options?: ErrorOptions,
   ) {
-    super(detail, options);
+    super(code, subStatus, detail, operation, flowId, options);
   }
 }
 
-export class LongPollTimeoutError extends Error {
+export class RpcLockConflictError extends DexServiceError {}
+
+export class LongPollTimeoutError extends DexServiceError {}
+
+export class FlowDefinitionError extends Error {
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
+export class InvalidStepResultError extends FlowDefinitionError {
   public constructor(
-    public readonly flowId: string,
+    public readonly flowType: string,
+    public readonly stepType: string | undefined,
+    public readonly method: "waitFor" | "execute" | "rpc",
+    detail: string,
     options?: ErrorOptions,
   ) {
-    super(`Flow is still running: ${flowId}`, options);
+    const target = stepType === undefined ? `RPC in Flow ${flowType}` : `Flow ${flowType} Step ${stepType}`;
+    super(`${target} ${method} returned an invalid result: ${detail}`, options);
+  }
+}
+
+export class ValueMappingError extends Error {
+  public constructor(
+    public readonly operation: "encode" | "decode" | "hydrate",
+    detail: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Cannot ${operation} Dex Value: ${detail}`, options);
+    this.name = new.target.name;
   }
 }
 

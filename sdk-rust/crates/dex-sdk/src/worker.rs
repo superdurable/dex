@@ -168,7 +168,7 @@ fn worker_status(error: HandlerError) -> Status {
     let message = error.to_string();
     let detail = WorkerErrorResponse {
         detail: message.clone(),
-        error_type: std::any::type_name::<HandlerError>().to_string(),
+        error_type: error.error_type().to_string(),
     };
     let status = GoogleRpcStatus {
         code: Code::Unknown as i32,
@@ -191,8 +191,6 @@ fn endpoint_address(address: &str) -> String {
 
 fn service_error(error: impl std::fmt::Display) -> SdkError {
     SdkError::Service {
-        code: Code::Unknown,
-        sub_status: crate::ErrorSubStatus::Uncategorized,
-        detail: error.to_string(),
+        service: crate::ServiceError::local("worker", error.to_string()),
     }
 }

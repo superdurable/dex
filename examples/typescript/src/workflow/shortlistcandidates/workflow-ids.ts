@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { DexError, ErrorSubStatus, type Client } from "@superdurable/dex";
+import { FlowNotActiveError, type Client } from "@superdurable/dex";
 
 import type { EmployerOptInFlow } from "./employer-opt-in-flow.js";
 
@@ -36,7 +36,7 @@ export async function isOptedIn(
       await client.invokeRPC(employerOptInFlow.isOptedIn, employerOptIn(employerId)),
     );
   } catch (failure) {
-    if (failure instanceof DexError && failure.subStatus === ErrorSubStatus.FLOW_NOT_EXISTS) {
+    if (failure instanceof FlowNotActiveError) {
       return false;
     }
     throw failure;

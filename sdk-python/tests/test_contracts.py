@@ -26,6 +26,8 @@ from dex import (
     CodecRegistry,
     Context,
     Flow,
+    FlowDefinitionError,
+    InvalidStepResultError,
     JsonCodec,
     PersistenceSchema,
     Registry,
@@ -38,6 +40,7 @@ from dex import (
     Timer,
     Wait,
     WaitForFailurePolicy,
+    ValueMappingError,
     WireKind,
     graceful_complete,
     open_blob_cache,
@@ -45,6 +48,9 @@ from dex import (
 )
 from dex.client import Client as ClientModuleClient
 from dex.client_options import ClientOptions as ClientModuleOptions
+from dex._value_mapper import ValueMapper
+from dex._worker_dispatcher import WorkerDispatcher
+from dex.dexpb import dex_pb2 as pb
 
 
 @dataclass(frozen=True)
@@ -190,7 +196,7 @@ def test_registry_infers_handler_codecs_from_annotations() -> None:
 
 
 def test_registry_rejects_async_step_and_rpc_handlers() -> None:
-    with pytest.raises(TypeError, match="must be synchronous"):
+    with pytest.raises(FlowDefinitionError, match="must be synchronous"):
         Registry((AsyncOrderFlow(),))
 
 
@@ -200,8 +206,20 @@ def test_registry_allows_async_handlers_when_enabled() -> None:
 
 
 def test_registry_rejects_duplicate_interfaces() -> None:
-    with pytest.raises(ValueError, match="duplicate Flow Orders"):
+    with pytest.raises(FlowDefinitionError, match="duplicate Flow Orders"):
         Registry((ORDERS, ORDERS))
+
+
+def test_registry_wraps_user_definition_failures_with_flow_context() -> None:
+    class BrokenFlow(Flow[None]):
+        def get_steps(self) -> StepList[None]:
+            raise RuntimeError("cannot assemble steps")
+
+    with pytest.raises(
+        FlowDefinitionError,
+        match="Flow BrokenFlow registration failed: cannot assemble steps",
+    ):
+        Registry((BrokenFlow(),))
 
 
 def test_registry_rejects_invalid_handler_signatures() -> None:
@@ -216,7 +234,7 @@ def test_registry_rejects_invalid_handler_signatures() -> None:
         def get_steps(self) -> StepList[int]:
             return StepList.start_step(self.start)
 
-    with pytest.raises(TypeError, match="context must be Context"):
+    with pytest.raises(FlowDefinitionError, match="context must be Context"):
         Registry((WrongContextFlow(),))
 
 
@@ -236,7 +254,9 @@ def test_registry_rejects_mismatched_wait_for_input() -> None:
         def get_steps(self) -> StepList[int]:
             return StepList.start_step(self.start)
 
-    with pytest.raises(TypeError, match="handlers must use the same input type"):
+    with pytest.raises(
+        FlowDefinitionError, match="handlers must use the same input type"
+    ):
         Registry((MismatchedFlow(),))
 
 
@@ -251,8 +271,52 @@ def test_registry_rejects_duplicate_rpc_locks() -> None:
         def update(self, context: Context) -> None:
             del context
 
-    with pytest.raises(ValueError, match="duplicate attribute lock"):
+    with pytest.raises(FlowDefinitionError, match="duplicate attribute lock"):
         Registry((DuplicateLockFlow(),))
+
+
+def test_value_mapping_errors_are_stable() -> None:
+    client = ClientModuleClient(Registry((ORDERS,)), cast(BlobCache, object()))
+    with pytest.raises(ValueMappingError, match="Cannot encode Dex Value"):
+        client._values.encode(cast(OrderInput, object()), ORDER_INPUT)
+
+
+def test_invalid_step_result_has_flow_and_step_context() -> None:
+    class InvalidStep(Step[int]):
+        def execute(self, context: Context, input: int) -> StepDecision:
+            del context, input
+            return cast(StepDecision, None)
+
+    class InvalidFlow(Flow[int]):
+        start = InvalidStep()
+
+        def get_steps(self) -> StepList[int]:
+            return StepList.start_step(self.start)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((InvalidFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+    request = pb.InvokeExecuteMethodRequest(
+        flow_type="InvalidFlow",
+        step_type="InvalidStep",
+        step_input=values.encode(1, values.codec(int)),
+    )
+    with pytest.raises(InvalidStepResultError) as captured:
+        dispatcher.invoke_execute(request)
+    assert captured.value.flow_type == "InvalidFlow"
+    assert captured.value.step_type == "InvalidStep"
+    assert captured.value.method == "execute"
 
 
 def test_builtin_codecs_enforce_wire_types_and_ranges() -> None:

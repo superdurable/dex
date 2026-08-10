@@ -23,7 +23,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from dex import Client, DexException
+from dex import Client, DexServiceError
 
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import SyncExamplesConfig
@@ -82,6 +82,6 @@ def _server_is_ready(client: Client) -> bool:
     while time.monotonic() < deadline:
         try:
             return client.health_check()
-        except DexException:
+        except DexServiceError:
             time.sleep(POLL_INTERVAL_SECONDS)
     return False

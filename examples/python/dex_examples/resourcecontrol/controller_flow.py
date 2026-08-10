@@ -29,8 +29,7 @@ from dex import (
     Channel,
     ChannelMap,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowAlreadyStartedError,
     Flow,
     IdReusePolicy,
     PersistenceSchema,
@@ -146,9 +145,7 @@ class LoopForNextRequest(Step[None]):
                     self.instance_id.get(context) or "",
                 ),
             )
-        except DexException as error:
-            if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                raise
+        except FlowAlreadyStartedError:
             print("already started by another run, ignore it -- not waiting for it")
             return None
         return child_flow_id

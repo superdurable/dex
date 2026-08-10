@@ -37,10 +37,9 @@ fn test_flow_wait_timeout() {
         .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(1))
         .expect_err("waitForFlow must time out")
     {
-        SdkError::LongPollTimeout {
-            flow_id: failed_flow_id,
-            ..
-        } => assert_eq!(flow_id, failed_flow_id),
+        SdkError::LongPollTimeout { service } => {
+            assert_eq!(Some(flow_id.as_str()), service.flow_id())
+        }
         error => panic!("expected LongPollTimeout, got {error:?}"),
     }
 }

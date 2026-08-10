@@ -25,8 +25,7 @@ from dex import (
     Channel,
     ChannelMap,
     Context,
-    DexException,
-    ErrorSubStatus,
+    FlowAlreadyStartedError,
     Flow,
     IdReusePolicy,
     PersistenceSchema,
@@ -101,9 +100,7 @@ class LoopForNextMessage(Step[None]):
                     ).with_attribute(ChildFlow.parent_workflow_id, context.flow_id),
                 )
                 new_wait_list.append(child_workflow_id)
-            except DexException as error:
-                if error.sub_status is not ErrorSubStatus.FLOW_ALREADY_STARTED:
-                    raise
+            except FlowAlreadyStartedError:
                 print(
                     "already started by other state/workflow, ignore it "
                     "-- not waiting for it"
