@@ -22,6 +22,7 @@ import io.grpc.Status;
 public final class WorkerInvocationException extends DexServiceException {
     private final String workerErrorType;
     private final String workerErrorDetail;
+    private final String workerStackTrace;
     private final Status.Code workerCode;
 
     /**
@@ -31,6 +32,7 @@ public final class WorkerInvocationException extends DexServiceException {
      * @param detail the outer Dex service error detail
      * @param workerErrorType the original worker exception type, or an empty string
      * @param workerErrorDetail the original worker exception detail, or an empty string
+     * @param workerStackTrace the original worker stack trace, or an empty string
      * @param workerCode the original worker gRPC status code, or {@code null} when unavailable
      * @param cause the original client transport failure
      */
@@ -39,11 +41,13 @@ public final class WorkerInvocationException extends DexServiceException {
             final String detail,
             final String workerErrorType,
             final String workerErrorDetail,
+            final String workerStackTrace,
             final Status.Code workerCode,
             final Throwable cause) {
         super(code, ErrorSubStatus.WORKER_API_ERROR, detail, cause);
         this.workerErrorType = workerErrorType;
         this.workerErrorDetail = workerErrorDetail;
+        this.workerStackTrace = workerStackTrace;
         this.workerCode = workerCode;
     }
 
@@ -63,6 +67,19 @@ public final class WorkerInvocationException extends DexServiceException {
      */
     public String getWorkerErrorDetail() {
         return workerErrorDetail;
+    }
+
+    /**
+     * Returns the original worker-side stack trace.
+     *
+     * <p>Java Workers include the exception's causes and suppressed exceptions. The serialized
+     * value is limited to 16 KiB and ends with a truncation marker when the full trace is larger.
+     * Other Worker SDKs may return an empty string when they do not provide stack traces.
+     *
+     * @return the worker stack trace, or an empty string when unavailable
+     */
+    public String getWorkerStackTrace() {
+        return workerStackTrace;
     }
 
     /**

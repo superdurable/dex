@@ -27,6 +27,7 @@ import {
   executeFailurePolicyLabel,
   flowErrorTypeLabel,
   flowStatusLabel,
+  grpcStatusLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -417,13 +418,25 @@ function StepDecisionContent({ value }: { value: unknown }) {
   );
 }
 
-function FailureContent({ value }: { value: unknown }) {
+export function FailureContent({
+  value,
+  stackInitiallyExpanded = false,
+}: {
+  value: unknown;
+  stackInitiallyExpanded?: boolean;
+}) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
   const details = asData(failure.details);
   const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.errorType)
     : failure.errorType;
+  const workerStatus = isPresent(details.originalWorkerErrorStatus)
+    ? grpcStatusLabel(details.originalWorkerErrorStatus)
+    : undefined;
+  const stackTrace = isPresent(details.originalWorkerErrorStackTrace)
+    ? details.originalWorkerErrorStackTrace
+    : failure.stackTrace;
   return (
     <div className="semantic-alert">
       {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
@@ -436,9 +449,14 @@ function FailureContent({ value }: { value: unknown }) {
         ['Detail', details.detail],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', details.originalWorkerErrorDetail],
-        ['Worker gRPC status', details.originalWorkerErrorStatus],
+        ['Worker gRPC status', workerStatus],
       ]} />}
-      {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
+      {isPresent(stackTrace) && (
+        <details className="failure-stack" open={stackInitiallyExpanded}>
+          <summary>Stack trace</summary>
+          <pre>{String(stackTrace)}</pre>
+        </details>
+      )}
     </div>
   );
 }

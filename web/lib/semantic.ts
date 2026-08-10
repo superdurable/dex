@@ -135,3 +135,35 @@ export function executeFailurePolicyLabel(value: unknown): string {
     EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP: 'Proceed to configured step',
   });
 }
+
+export function grpcStatusLabel(value: unknown): string {
+  const names = [
+    'OK',
+    'CANCELLED',
+    'UNKNOWN',
+    'INVALID_ARGUMENT',
+    'DEADLINE_EXCEEDED',
+    'NOT_FOUND',
+    'ALREADY_EXISTS',
+    'PERMISSION_DENIED',
+    'RESOURCE_EXHAUSTED',
+    'FAILED_PRECONDITION',
+    'ABORTED',
+    'OUT_OF_RANGE',
+    'UNIMPLEMENTED',
+    'INTERNAL',
+    'UNAVAILABLE',
+    'DATA_LOSS',
+    'UNAUTHENTICATED',
+  ] as const;
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (Number.isInteger(numeric) && numeric >= 0 && numeric < names.length) {
+    return `${names[numeric]} (${numeric})`;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.replace(/^CODE_/, '').replace(/^STATUS_CODE_/, '');
+    const code = names.indexOf(normalized as (typeof names)[number]);
+    if (code >= 0) return `${normalized} (${code})`;
+  }
+  return `Unknown (${String(value)})`;
+}

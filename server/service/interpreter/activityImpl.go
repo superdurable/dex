@@ -966,6 +966,7 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		}
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
+		errorResponse.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
 	}
 	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
 }

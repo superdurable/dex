@@ -86,12 +86,13 @@ describe('selected step event details', () => {
         message: 'worker unavailable',
         errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
         retryState: 'RETRY_STATE_IN_PROGRESS',
-        stackTrace: 'worker stack',
+        stackTrace: 'backend stack',
         details: {
           detail: 'sync retry failure',
           originalWorkerErrorType: 'UnavailableWorker',
           originalWorkerErrorDetail: 'try again',
           originalWorkerErrorStatus: 14,
+          originalWorkerErrorStackTrace: 'java worker stack',
         },
       },
     };
@@ -103,8 +104,32 @@ describe('selected step event details', () => {
     expect(markup).toContain('sync retry failure');
     expect(markup).toContain('UnavailableWorker');
     expect(markup).toContain('try again');
-    expect(markup).toContain('worker stack');
+    expect(markup).toContain('UNAVAILABLE (14)');
+    expect(markup).toContain('java worker stack');
+    expect(markup).not.toContain('backend stack');
+    expect(markup).toContain('<details class="failure-stack">');
     expect(markup).not.toContain('Previous attempts');
+  });
+
+  it('falls back to the backend stack when the Worker does not provide one', () => {
+    const event = executeEvent(1);
+    event.payload.context = {
+      ...event.payload.context as Record<string, unknown>,
+      lastFailureInfo: {
+        attempt: 1,
+        message: 'worker method failed',
+        stackTrace: 'backend activity stack',
+        details: {
+          originalWorkerErrorType: 'WorkerWithoutStackSupport',
+          originalWorkerErrorStatus: 13,
+        },
+      },
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('backend activity stack');
+    expect(markup).toContain('INTERNAL (13)');
+    expect(markup).toContain('<details class="failure-stack">');
   });
 
   it('renders the terminal failure attempt with the same failure component', () => {

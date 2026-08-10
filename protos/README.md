@@ -65,8 +65,18 @@ unchanged and use a null second Activity argument.
 
 SYNC retries expose only the immediately preceding failure as
 `context.last_failure_info`. `StepMethodFailure.attempt` identifies that attempt
-or the terminal attempt in `output.failure`. ASYNC execution does not expose
-local or fallback retry failures.
+or the terminal attempt in `output.failure`. While a regular Step activity is
+retrying, `GetFlowState.active_step_executions.last_failure_info` exposes the
+backend pending-activity failure only when its deterministic activity ID still
+matches an active Step execution. ASYNC local-activity retries are not observable
+through backend describe; the failure becomes visible after execution falls
+back to a regular activity.
+
+`WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
+The server persists it as `ErrorResponse.original_worker_error_stack_trace`
+without replacing the backend `StepMethodFailure.stack_trace`. Consumers should
+prefer the original Worker stack and fall back to the backend stack. The Java
+Worker caps its UTF-8 value at 16 KiB; other Worker SDKs may omit the field.
 
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the

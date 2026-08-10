@@ -111,7 +111,7 @@ final class WorkerDispatcher {
                 .build();
     }
 
-    InvokeWorkerRPCResponse invokeRpc(final InvokeWorkerRPCRequest original) {
+    InvokeWorkerRPCResponse invokeRpc(final InvokeWorkerRPCRequest original) throws Throwable {
         final InvokeWorkerRPCRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredRpc rpc = flow.getRpc(request.getRpcName());
@@ -171,20 +171,13 @@ final class WorkerDispatcher {
     private static Object invoke(
             final Object target,
             final Method method,
-            final Object[] arguments) {
+            final Object[] arguments) throws Throwable {
         try {
             return method.invoke(target, arguments);
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException("cannot invoke RPC " + method.getName(), exception);
         } catch (InvocationTargetException exception) {
-            final Throwable cause = exception.getCause();
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
-            }
-            if (cause instanceof Error) {
-                throw (Error) cause;
-            }
-            throw new IllegalStateException("RPC failed: " + method.getName(), cause);
+            throw exception.getCause();
         }
     }
 

@@ -350,6 +350,32 @@ private static final long serialVersionUID = 0L;
     return timers_.get(index);
   }
 
+  public static final int LAST_FAILURE_INFO_FIELD_NUMBER = 10;
+  private io.superdurable.gen.StepMethodFailure lastFailureInfo_;
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * @return Whether the lastFailureInfo field is set.
+   */
+  @java.lang.Override
+  public boolean hasLastFailureInfo() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * @return The lastFailureInfo.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodFailure getLastFailureInfo() {
+    return lastFailureInfo_ == null ? io.superdurable.gen.StepMethodFailure.getDefaultInstance() : lastFailureInfo_;
+  }
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder() {
+    return lastFailureInfo_ == null ? io.superdurable.gen.StepMethodFailure.getDefaultInstance() : lastFailureInfo_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -390,6 +416,9 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < timers_.size(); i++) {
       output.writeMessage(9, timers_.get(i));
+    }
+    if (((bitField0_ & 0x00000008) != 0)) {
+      output.writeMessage(10, getLastFailureInfo());
     }
     getUnknownFields().writeTo(output);
   }
@@ -438,6 +467,10 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+    if (((bitField0_ & 0x00000008) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(10, getLastFailureInfo());
+    }
     return size;
   }
   @java.lang.Override
@@ -488,6 +521,11 @@ private static final long serialVersionUID = 0L;
         .equals(other.getStepExecutionLocalsList())) return false;
     if (!getTimersList()
         .equals(other.getTimersList())) return false;
+    if (hasLastFailureInfo() != other.hasLastFailureInfo()) return false;
+    if (hasLastFailureInfo()) {
+      if (!getLastFailureInfo()
+          .equals(other.getLastFailureInfo())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -526,6 +564,10 @@ private static final long serialVersionUID = 0L;
     if (getTimersCount() > 0) {
       hash = (37 * hash) + TIMERS_FIELD_NUMBER;
       hash = (53 * hash) + getTimersList().hashCode();
+    }
+    if (hasLastFailureInfo()) {
+      hash = (37 * hash) + LAST_FAILURE_INFO_FIELD_NUMBER;
+      hash = (53 * hash) + getLastFailureInfo().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -662,6 +704,7 @@ private static final long serialVersionUID = 0L;
         internalGetCompletedConditionsFieldBuilder();
         internalGetStepExecutionLocalsFieldBuilder();
         internalGetTimersFieldBuilder();
+        internalGetLastFailureInfoFieldBuilder();
       }
     }
     @java.lang.Override
@@ -701,6 +744,11 @@ private static final long serialVersionUID = 0L;
         timersBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000100);
+      lastFailureInfo_ = null;
+      if (lastFailureInfoBuilder_ != null) {
+        lastFailureInfoBuilder_.dispose();
+        lastFailureInfoBuilder_ = null;
+      }
       return this;
     }
 
@@ -786,6 +834,12 @@ private static final long serialVersionUID = 0L;
             ? completedConditions_
             : completedConditionsBuilder_.build();
         to_bitField0_ |= 0x00000004;
+      }
+      if (((from_bitField0_ & 0x00000200) != 0)) {
+        result.lastFailureInfo_ = lastFailureInfoBuilder_ == null
+            ? lastFailureInfo_
+            : lastFailureInfoBuilder_.build();
+        to_bitField0_ |= 0x00000008;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -881,6 +935,9 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (other.hasLastFailureInfo()) {
+        mergeLastFailureInfo(other.getLastFailureInfo());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -974,6 +1031,13 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 74
+            case 82: {
+              input.readMessage(
+                  internalGetLastFailureInfoFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000200;
+              break;
+            } // case 82
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2100,6 +2164,127 @@ private static final long serialVersionUID = 0L;
         timers_ = null;
       }
       return timersBuilder_;
+    }
+
+    private io.superdurable.gen.StepMethodFailure lastFailureInfo_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> lastFailureInfoBuilder_;
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * @return Whether the lastFailureInfo field is set.
+     */
+    public boolean hasLastFailureInfo() {
+      return ((bitField0_ & 0x00000200) != 0);
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * @return The lastFailureInfo.
+     */
+    public io.superdurable.gen.StepMethodFailure getLastFailureInfo() {
+      if (lastFailureInfoBuilder_ == null) {
+        return lastFailureInfo_ == null ? io.superdurable.gen.StepMethodFailure.getDefaultInstance() : lastFailureInfo_;
+      } else {
+        return lastFailureInfoBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public Builder setLastFailureInfo(io.superdurable.gen.StepMethodFailure value) {
+      if (lastFailureInfoBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        lastFailureInfo_ = value;
+      } else {
+        lastFailureInfoBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public Builder setLastFailureInfo(
+        io.superdurable.gen.StepMethodFailure.Builder builderForValue) {
+      if (lastFailureInfoBuilder_ == null) {
+        lastFailureInfo_ = builderForValue.build();
+      } else {
+        lastFailureInfoBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public Builder mergeLastFailureInfo(io.superdurable.gen.StepMethodFailure value) {
+      if (lastFailureInfoBuilder_ == null) {
+        if (((bitField0_ & 0x00000200) != 0) &&
+          lastFailureInfo_ != null &&
+          lastFailureInfo_ != io.superdurable.gen.StepMethodFailure.getDefaultInstance()) {
+          getLastFailureInfoBuilder().mergeFrom(value);
+        } else {
+          lastFailureInfo_ = value;
+        }
+      } else {
+        lastFailureInfoBuilder_.mergeFrom(value);
+      }
+      if (lastFailureInfo_ != null) {
+        bitField0_ |= 0x00000200;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public Builder clearLastFailureInfo() {
+      bitField0_ = (bitField0_ & ~0x00000200);
+      lastFailureInfo_ = null;
+      if (lastFailureInfoBuilder_ != null) {
+        lastFailureInfoBuilder_.dispose();
+        lastFailureInfoBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public io.superdurable.gen.StepMethodFailure.Builder getLastFailureInfoBuilder() {
+      bitField0_ |= 0x00000200;
+      onChanged();
+      return internalGetLastFailureInfoFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    public io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder() {
+      if (lastFailureInfoBuilder_ != null) {
+        return lastFailureInfoBuilder_.getMessageOrBuilder();
+      } else {
+        return lastFailureInfo_ == null ?
+            io.superdurable.gen.StepMethodFailure.getDefaultInstance() : lastFailureInfo_;
+      }
+    }
+    /**
+     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder>
+        internalGetLastFailureInfoFieldBuilder() {
+      if (lastFailureInfoBuilder_ == null) {
+        lastFailureInfoBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder>(
+                getLastFailureInfo(),
+                getParentForChildren(),
+                isClean());
+        lastFailureInfo_ = null;
+      }
+      return lastFailureInfoBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ActiveStepExecutionState)

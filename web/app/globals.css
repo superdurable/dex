@@ -1181,6 +1181,22 @@ pre {
   margin-bottom: 7px;
 }
 
+.failure-stack {
+  margin-top: 7px;
+}
+
+.failure-stack summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.failure-stack pre {
+  max-height: 280px;
+  margin-top: 6px;
+  overflow: auto;
+  white-space: pre;
+}
+
 .raw-event-json {
   max-height: 520px;
   margin: 10px 0 0;

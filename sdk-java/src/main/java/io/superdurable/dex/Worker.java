@@ -103,7 +103,10 @@ public final class Worker implements AutoCloseable {
                 registry,
                 values,
                 new ValueHydrator(flowService, blobCache));
-        this.workerService = new JavaWorkerService(dispatcher, handlers);
+        this.workerService = new JavaWorkerService(
+                dispatcher,
+                handlers,
+                options.getGrpcErrorStatusMapping());
     }
 
     Registry getRegistry() {

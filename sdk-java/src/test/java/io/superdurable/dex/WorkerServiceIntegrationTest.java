@@ -19,6 +19,7 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.Status;
+import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
@@ -29,6 +30,7 @@ import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodResponse;
+import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
 import io.superdurable.gen.Value;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -96,12 +99,91 @@ final class WorkerServiceIntegrationTest {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
                     () -> running.client.invokeExecuteMethod(executeRequest(concrete("fail"))));
-            assertEquals(Status.Code.UNKNOWN, failure.getStatus().getCode());
+            assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
             final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
             final WorkerErrorResponse details = status.getDetails(0)
                     .unpack(WorkerErrorResponse.class);
             assertEquals(BridgeFailureException.class.getName(), details.getErrorType());
             assertEquals("bridge failed", details.getDetail());
+            assertTrue(details.getStackTrace().contains(BridgeFailureException.class.getName()));
+            assertTrue(details.getStackTrace().contains("bridge failed"));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void mapsEveryUnconfiguredApplicationThrowableToInternal() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            assertWorkerFailure(running, "checked", CheckedBridgeException.class);
+            assertWorkerFailure(running, "error", AssertionError.class);
+            assertWorkerFailure(running, "status", StatusRuntimeException.class);
+            assertWorkerFailure(running, "checked-status", StatusException.class);
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void preservesTheCauseOfCheckedRpcExceptions() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWorkerRPC(InvokeWorkerRPCRequest.newBuilder()
+                            .setContext(context())
+                            .setFlowType("BridgeFlow")
+                            .setRpcName("checkedRpc")
+                            .setInput(concrete("unused"))
+                            .build()));
+            assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
+            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
+                    .getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertEquals(CheckedBridgeException.class.getName(), details.getErrorType());
+            assertEquals("checked RPC failure", details.getDetail());
+            assertTrue(details.getStackTrace().contains("checkedRpc"));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void usesTheClosestConfiguredExceptionSuperclass() throws Exception {
+        final GrpcErrorStatusMapping mapping = GrpcErrorStatusMapping.newBuilder()
+                .map(Throwable.class, Status.Code.ABORTED)
+                .map(RuntimeException.class, Status.Code.FAILED_PRECONDITION)
+                .build();
+        final RunningWorker running = startWorker(
+                new BridgeFlow(),
+                new TestBlobCache(),
+                null,
+                mapping);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("fail"))));
+            assertEquals(Status.Code.FAILED_PRECONDITION, failure.getStatus().getCode());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void truncatesPersistedStackTraceAtUtf8Boundary() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("large"))));
+            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
+                    .getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertTrue(details.getStackTrace().endsWith(
+                    "... stack trace truncated by Dex Java SDK ..."));
+            assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length <= 16 * 1024);
+            assertFalse(details.getStackTrace().contains("\ufffd"));
         } finally {
             running.close();
         }
@@ -117,6 +199,7 @@ final class WorkerServiceIntegrationTest {
             final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
             final WorkerErrorResponse details = status.getDetails(0)
                     .unpack(WorkerErrorResponse.class);
+            assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
             assertEquals(InvalidStepResultException.class.getName(), details.getErrorType());
             assertTrue(details.getDetail().contains("Flow BridgeFlow Step BridgeStep"));
         } finally {
@@ -181,11 +264,22 @@ final class WorkerServiceIntegrationTest {
             final BridgeFlow flow,
             final TestBlobCache cache,
             final String serverAddress) throws Exception {
+        return startWorker(flow, cache, serverAddress, null);
+    }
+
+    private static RunningWorker startWorker(
+            final BridgeFlow flow,
+            final TestBlobCache cache,
+            final String serverAddress,
+            final GrpcErrorStatusMapping mapping) throws Exception {
         final int port = availablePort();
         final WorkerOptions.Builder options = WorkerOptions.newBuilder()
                 .bindAddress("127.0.0.1:" + port);
         if (serverAddress != null) {
             options.serverAddress(serverAddress);
+        }
+        if (mapping != null) {
+            options.grpcErrorStatusMapping(mapping);
         }
         final Worker worker = new Worker(
                 new Registry(Collections.<Flow<?>>singletonList(flow)),
@@ -203,6 +297,7 @@ final class WorkerServiceIntegrationTest {
         final ManagedChannel channel = ManagedChannelBuilder
                 .forAddress("127.0.0.1", port)
                 .usePlaintext()
+                .maxInboundMetadataSize(64 * 1024)
                 .build();
         final WorkerServiceGrpc.WorkerServiceBlockingStub client =
                 WorkerServiceGrpc.newBlockingStub(channel)
@@ -244,6 +339,36 @@ final class WorkerServiceIntegrationTest {
         return Value.newBuilder().setStringValue(value).build();
     }
 
+    private static void assertWorkerFailure(
+            final RunningWorker running,
+            final String input,
+            final Class<? extends Throwable> expectedType) throws Exception {
+        final StatusRuntimeException failure = assertThrows(
+                StatusRuntimeException.class,
+                () -> running.client.invokeExecuteMethod(executeRequest(concrete(input))));
+        assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
+        final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
+                .getDetails(0)
+                .unpack(WorkerErrorResponse.class);
+        assertEquals(expectedType.getName(), details.getErrorType());
+        assertTrue(details.getStackTrace().contains(expectedType.getName()));
+    }
+
+    private static BridgeFailureException largeFailure() {
+        final BridgeFailureException failure = new BridgeFailureException("large bridge failure");
+        for (int index = 0; index < 256; index++) {
+            failure.addSuppressed(new IllegalStateException(
+                    "suppressed failure " + index + " \u20ac"));
+        }
+        return failure;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <Failure extends Throwable> void throwUnchecked(
+            final Throwable failure) throws Failure {
+        throw (Failure) failure;
+    }
+
     private static int availablePort() throws IOException {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
@@ -279,7 +404,7 @@ final class WorkerServiceIntegrationTest {
         }
     }
 
-    private static final class BridgeFlow implements Flow<String> {
+    private static class BridgeFlow implements Flow<String> {
         private final BridgeStep start = new BridgeStep();
 
         @Override
@@ -290,6 +415,12 @@ final class WorkerServiceIntegrationTest {
         @Override
         public String getFlowType() {
             return "BridgeFlow";
+        }
+
+        @RPC
+        public RPCResult<String> checkedRpc(final Context context)
+                throws CheckedBridgeException {
+            throw new CheckedBridgeException("checked RPC failure");
         }
     }
 
@@ -317,6 +448,23 @@ final class WorkerServiceIntegrationTest {
             if ("fail".equals(input)) {
                 throw new BridgeFailureException("bridge failed");
             }
+            if ("checked".equals(input)) {
+                WorkerServiceIntegrationTest.<RuntimeException>throwUnchecked(
+                        new CheckedBridgeException("checked bridge failure"));
+            }
+            if ("error".equals(input)) {
+                throw new AssertionError("bridge assertion failed");
+            }
+            if ("status".equals(input)) {
+                throw Status.NOT_FOUND.withDescription("do not bypass mapping").asRuntimeException();
+            }
+            if ("checked-status".equals(input)) {
+                WorkerServiceIntegrationTest.<RuntimeException>throwUnchecked(
+                        Status.NOT_FOUND.withDescription("do not bypass mapping").asException());
+            }
+            if ("large".equals(input)) {
+                throw largeFailure();
+            }
             if ("invalid".equals(input)) {
                 return StepDecision.goToMulti();
             }
@@ -326,6 +474,12 @@ final class WorkerServiceIntegrationTest {
 
     private static final class BridgeFailureException extends RuntimeException {
         private BridgeFailureException(final String message) {
+            super(message);
+        }
+    }
+
+    private static final class CheckedBridgeException extends Exception {
+        private CheckedBridgeException(final String message) {
             super(message);
         }
     }

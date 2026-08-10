@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
-import { EventDetails, eventTitle, SemanticEventDetails } from './EventDetails';
+import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
@@ -125,6 +125,12 @@ export function FlowOverview({
                         forceOpen={activeStepsExpand.expanded || undefined}
                         collapseNonce={activeStepsExpand.collapseNonce}
                       />
+                    )}
+                    {step.lastFailureInfo && Object.keys(step.lastFailureInfo).length > 0 && (
+                      <div className="semantic-subsection">
+                        <h5>Last failure</h5>
+                        <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded />
+                      </div>
                     )}
                   </div>
                 ))}

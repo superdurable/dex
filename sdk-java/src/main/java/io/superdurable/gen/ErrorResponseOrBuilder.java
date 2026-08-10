@@ -62,4 +62,16 @@ public interface ErrorResponseOrBuilder extends
    * @return The originalWorkerErrorStatus.
    */
   int getOriginalWorkerErrorStatus();
+
+  /**
+   * <code>string original_worker_error_stack_trace = 6;</code>
+   * @return The originalWorkerErrorStackTrace.
+   */
+  java.lang.String getOriginalWorkerErrorStackTrace();
+  /**
+   * <code>string original_worker_error_stack_trace = 6;</code>
+   * @return The bytes for originalWorkerErrorStackTrace.
+   */
+  com.google.protobuf.ByteString
+      getOriginalWorkerErrorStackTraceBytes();
 }

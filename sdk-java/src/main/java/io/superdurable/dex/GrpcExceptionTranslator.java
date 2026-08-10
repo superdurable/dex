@@ -130,9 +130,13 @@ final class GrpcExceptionTranslator {
         final String workerDetail = details == null
                 ? ""
                 : details.getOriginalWorkerErrorDetail();
+        final String workerStackTrace = details == null
+                ? ""
+                : details.getOriginalWorkerErrorStackTrace();
         final Status.Code workerCode = details == null
                 || (workerType.isEmpty()
                 && workerDetail.isEmpty()
+                && workerStackTrace.isEmpty()
                 && details.getOriginalWorkerErrorStatus() == 0)
                 ? null
                 : Status.fromCodeValue(details.getOriginalWorkerErrorStatus()).getCode();
@@ -141,6 +145,7 @@ final class GrpcExceptionTranslator {
                 detail,
                 workerType,
                 workerDetail,
+                workerStackTrace,
                 workerCode,
                 cause);
     }

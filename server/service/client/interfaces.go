@@ -104,6 +104,7 @@ type DescribeWorkflowExecutionResponse struct {
 	FlowStartedTimestamp int64
 	StartTime            time.Time
 	CloseTime            *time.Time
+	PendingStepFailures  map[string]*dexpb.StepMethodFailure
 }
 
 type GetWorkflowHistoryRequest struct {

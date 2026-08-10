@@ -24,6 +24,9 @@ import io.superdurable.gen.InvokeWorkerRPCResponse;
 import io.superdurable.gen.WorkerErrorResponse;
 import io.superdurable.gen.WorkerServiceGrpc;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
@@ -31,15 +34,22 @@ import java.util.logging.Logger;
 
 final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     private static final Logger LOGGER = Logger.getLogger(JavaWorkerService.class.getName());
+    private static final int MAX_STACK_TRACE_BYTES = 16 * 1024;
+    private static final byte[] STACK_TRACE_TRUNCATION_MARKER =
+            "\n... stack trace truncated by Dex Java SDK ..."
+                    .getBytes(StandardCharsets.UTF_8);
 
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
+    private final GrpcErrorStatusMapping grpcErrorStatusMapping;
 
     JavaWorkerService(
             final WorkerDispatcher dispatcher,
-            final ExecutorService handlers) {
+            final ExecutorService handlers,
+            final GrpcErrorStatusMapping grpcErrorStatusMapping) {
         this.dispatcher = dispatcher;
         this.handlers = handlers;
+        this.grpcErrorStatusMapping = grpcErrorStatusMapping;
     }
 
     @Override
@@ -77,7 +87,7 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
         }
     }
 
-    private static <Response> void invoke(
+    private <Response> void invoke(
             final StreamObserver<Response> observer,
             final Invocation<Response> invocation) {
         try {
@@ -89,26 +99,45 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
         }
     }
 
-    private static Throwable mapFailure(final Throwable failure) {
-        final Status grpcStatus = Status.fromThrowable(failure);
-        final String message = grpcStatus.getDescription() != null
-                ? grpcStatus.getDescription()
-                : failure.getMessage() == null
+    private Throwable mapFailure(final Throwable failure) {
+        final String message = failure.getMessage() == null
                 ? failure.toString()
                 : failure.getMessage();
         final WorkerErrorResponse details = WorkerErrorResponse.newBuilder()
                 .setDetail(message)
                 .setErrorType(failure.getClass().getName())
+                .setStackTrace(stackTrace(failure))
                 .build();
         final com.google.rpc.Status status = com.google.rpc.Status.newBuilder()
-                .setCode(grpcStatus.getCode().value())
+                .setCode(grpcErrorStatusMapping.statusFor(failure).value())
                 .setMessage(message)
                 .addDetails(Any.pack(details))
                 .build();
         return StatusProto.toStatusRuntimeException(status);
     }
 
+    private static String stackTrace(final Throwable failure) {
+        final StringWriter buffer = new StringWriter();
+        final PrintWriter writer = new PrintWriter(buffer);
+        failure.printStackTrace(writer);
+        writer.flush();
+        return truncateStackTrace(buffer.toString());
+    }
+
+    private static String truncateStackTrace(final String value) {
+        final byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
+        if (encoded.length <= MAX_STACK_TRACE_BYTES) {
+            return value;
+        }
+        int prefixLength = MAX_STACK_TRACE_BYTES - STACK_TRACE_TRUNCATION_MARKER.length;
+        while (prefixLength > 0 && (encoded[prefixLength] & 0xc0) == 0x80) {
+            prefixLength--;
+        }
+        return new String(encoded, 0, prefixLength, StandardCharsets.UTF_8)
+                + new String(STACK_TRACE_TRUNCATION_MARKER, StandardCharsets.UTF_8);
+    }
+
     private interface Invocation<Response> {
-        Response invoke();
+        Response invoke() throws Throwable;
     }
 }

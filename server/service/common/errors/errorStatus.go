@@ -37,15 +37,17 @@ func NewErrorAndStatus(code codes.Code, subStatus dexpb.ErrorSubStatus, details 
 func NewErrorAndStatusWithWorkerError(
 	code codes.Code, subStatus dexpb.ErrorSubStatus, details string,
 	originalWorkerDetails string, originalWorkerErrType string, originalWorkerStatus int32,
+	originalWorkerStackTrace string,
 ) *ErrorAndStatus {
 	return &ErrorAndStatus{
 		Code: code,
 		Error: &dexpb.ErrorResponse{
-			SubStatus:                 subStatus,
-			Detail:                    details,
-			OriginalWorkerErrorDetail: originalWorkerDetails,
-			OriginalWorkerErrorType:   originalWorkerErrType,
-			OriginalWorkerErrorStatus: originalWorkerStatus,
+			SubStatus:                     subStatus,
+			Detail:                        details,
+			OriginalWorkerErrorDetail:     originalWorkerDetails,
+			OriginalWorkerErrorType:       originalWorkerErrType,
+			OriginalWorkerErrorStatus:     originalWorkerStatus,
+			OriginalWorkerErrorStackTrace: originalWorkerStackTrace,
 		},
 	}
 }
@@ -86,7 +88,7 @@ func AbortedLockFailure(details string) *ErrorAndStatus {
 }
 
 // WorkerAPIFailure maps a WorkerService gRPC failure to FailedPrecondition.
-// OriginalWorker* preserves the worker's code, detail, and type.
+// OriginalWorker* preserves the worker's code, detail, type, and stack.
 func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
@@ -94,6 +96,7 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	}
 	workerDetail := ""
 	workerType := ""
+	workerStackTrace := ""
 	for _, detail := range grpcStatus.Details() {
 		workerError, ok := detail.(*dexpb.WorkerErrorResponse)
 		if !ok {
@@ -101,6 +104,7 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 		}
 		workerDetail = workerError.GetDetail()
 		workerType = workerError.GetErrorType()
+		workerStackTrace = workerError.GetStackTrace()
 	}
 	return NewErrorAndStatusWithWorkerError(
 		codes.FailedPrecondition,
@@ -109,6 +113,7 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 		workerDetail,
 		workerType,
 		int32(grpcStatus.Code()),
+		workerStackTrace,
 	), true
 }
 

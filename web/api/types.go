@@ -97,6 +97,7 @@ type activeStepExecution struct {
 	CompletedConditions map[string]interface{} `json:"completedConditions,omitempty"`
 	StepExecutionLocals []keyValue             `json:"stepExecutionLocals"`
 	Timers              []interface{}          `json:"timers"`
+	LastFailureInfo     map[string]interface{} `json:"lastFailureInfo,omitempty"`
 }
 
 type resetFlowRequest struct {

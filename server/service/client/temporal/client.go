@@ -32,6 +32,7 @@ import (
 	failurepb "go.temporal.io/api/failure/v1"
 	history "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -372,6 +373,10 @@ func (t *temporalClient) DescribeWorkflowExecution(
 	if info.GetCloseTime() != nil {
 		closeTime = ptr.Any(info.GetCloseTime().AsTime())
 	}
+	pendingStepFailures, err := t.pendingStepFailures(resp.GetPendingActivities())
+	if err != nil {
+		return nil, err
+	}
 
 	return &uclient.DescribeWorkflowExecutionResponse{
 		RunId:                info.GetExecution().GetRunId(),
@@ -382,7 +387,31 @@ func (t *temporalClient) DescribeWorkflowExecution(
 		FlowStartedTimestamp: utils.ToNanoSeconds(info.GetStartTime()),
 		StartTime:            startTime,
 		CloseTime:            closeTime,
+		PendingStepFailures:  pendingStepFailures,
 	}, nil
+}
+
+func (t *temporalClient) pendingStepFailures(
+	pendingActivities []*workflowpb.PendingActivityInfo,
+) (map[string]*dexpb.StepMethodFailure, error) {
+	failures := make(map[string]*dexpb.StepMethodFailure)
+	for _, pendingActivity := range pendingActivities {
+		stepExecutionID, ok := service.StepExecutionIDFromActivityID(pendingActivity.GetActivityId())
+		if !ok || pendingActivity.GetLastFailure() == nil {
+			continue
+		}
+		failure, err := t.temporalStepFailure(
+			pendingActivity.GetLastFailure(),
+			enums.RETRY_STATE_IN_PROGRESS.String(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Pending attempt is current; LastFailure belongs to its predecessor.
+		failure.Attempt = pendingActivity.GetAttempt() - 1
+		failures[stepExecutionID] = failure
+	}
+	return failures, nil
 }
 
 func (t *temporalClient) GetWorkflowHistory(

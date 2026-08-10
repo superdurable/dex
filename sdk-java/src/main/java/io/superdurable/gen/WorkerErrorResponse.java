@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private WorkerErrorResponse() {
     detail_ = "";
     errorType_ = "";
+    stackTrace_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -63,7 +64,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       detail_ = s;
@@ -79,7 +80,7 @@ private static final long serialVersionUID = 0L;
       getDetailBytes() {
     java.lang.Object ref = detail_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       detail_ = b;
@@ -102,7 +103,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       errorType_ = s;
@@ -118,10 +119,49 @@ private static final long serialVersionUID = 0L;
       getErrorTypeBytes() {
     java.lang.Object ref = errorType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       errorType_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int STACK_TRACE_FIELD_NUMBER = 3;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object stackTrace_ = "";
+  /**
+   * <code>string stack_trace = 3;</code>
+   * @return The stackTrace.
+   */
+  @java.lang.Override
+  public java.lang.String getStackTrace() {
+    java.lang.Object ref = stackTrace_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      stackTrace_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string stack_trace = 3;</code>
+   * @return The bytes for stackTrace.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStackTraceBytes() {
+    java.lang.Object ref = stackTrace_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      stackTrace_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -148,6 +188,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, errorType_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, stackTrace_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -157,6 +200,9 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(2, errorType_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, stackTrace_);
     }
     return size;
   }
@@ -186,6 +232,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getDetail())) return false;
     if (!getErrorType()
         .equals(other.getErrorType())) return false;
+    if (!getStackTrace()
+        .equals(other.getStackTrace())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -201,6 +249,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getDetail().hashCode();
     hash = (37 * hash) + ERROR_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getErrorType().hashCode();
+    hash = (37 * hash) + STACK_TRACE_FIELD_NUMBER;
+    hash = (53 * hash) + getStackTrace().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -334,6 +384,7 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       detail_ = "";
       errorType_ = "";
+      stackTrace_ = "";
       return this;
     }
 
@@ -373,6 +424,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000002) != 0)) {
         result.errorType_ = errorType_;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.stackTrace_ = stackTrace_;
+      }
     }
 
     @java.lang.Override
@@ -395,6 +449,11 @@ private static final long serialVersionUID = 0L;
       if (!other.getErrorType().isEmpty()) {
         errorType_ = other.errorType_;
         bitField0_ |= 0x00000002;
+        onChanged();
+      }
+      if (!other.getStackTrace().isEmpty()) {
+        stackTrace_ = other.stackTrace_;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -433,6 +492,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              stackTrace_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -475,7 +539,7 @@ private static final long serialVersionUID = 0L;
         getDetailBytes() {
       java.lang.Object ref = detail_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         detail_ = b;
@@ -547,7 +611,7 @@ private static final long serialVersionUID = 0L;
         getErrorTypeBytes() {
       java.lang.Object ref = errorType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         errorType_ = b;
@@ -590,6 +654,78 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       errorType_ = value;
       bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object stackTrace_ = "";
+    /**
+     * <code>string stack_trace = 3;</code>
+     * @return The stackTrace.
+     */
+    public java.lang.String getStackTrace() {
+      java.lang.Object ref = stackTrace_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        stackTrace_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string stack_trace = 3;</code>
+     * @return The bytes for stackTrace.
+     */
+    public com.google.protobuf.ByteString
+        getStackTraceBytes() {
+      java.lang.Object ref = stackTrace_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        stackTrace_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string stack_trace = 3;</code>
+     * @param value The stackTrace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStackTrace(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      stackTrace_ = value;
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string stack_trace = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStackTrace() {
+      stackTrace_ = getDefaultInstance().getStackTrace();
+      bitField0_ = (bitField0_ & ~0x00000004);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string stack_trace = 3;</code>
+     * @param value The bytes for stackTrace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStackTraceBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      stackTrace_ = value;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -644,4 +780,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-

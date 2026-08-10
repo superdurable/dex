@@ -33,4 +33,16 @@ public interface WorkerErrorResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getErrorTypeBytes();
+
+  /**
+   * <code>string stack_trace = 3;</code>
+   * @return The stackTrace.
+   */
+  java.lang.String getStackTrace();
+  /**
+   * <code>string stack_trace = 3;</code>
+   * @return The bytes for stackTrace.
+   */
+  com.google.protobuf.ByteString
+      getStackTraceBytes();
 }

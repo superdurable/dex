@@ -79,6 +79,9 @@ WorkerOptions options = WorkerOptions.newBuilder()
         .bindAddress(":8803")
         .serverAddress("localhost:8801")
         .objectMapper(objectMapper)
+        .grpcErrorStatusMapping(GrpcErrorStatusMapping.newBuilder()
+                .map(PaymentDeclinedException.class, Status.Code.FAILED_PRECONDITION)
+                .build())
         .build();
 ```
 
@@ -86,6 +89,20 @@ WorkerOptions options = WorkerOptions.newBuilder()
 to hydrate blob-backed values through Dex FlowService. `workerTarget` is the
 address advertised in Flow configuration; when omitted, Worker derives it from
 the bind address and exposes it through `worker.getWorkerTarget()`.
+
+Every `Throwable` escaping application Step `waitFor`, Step `execute`, or RPC
+code becomes a structured Worker error. The default gRPC status is `INTERNAL`,
+including when application code throws `StatusException` or
+`StatusRuntimeException`. Configure `GrpcErrorStatusMapping` only for exception
+classes with a stable meaning to the owner of the Worker application. The most
+specific mapped superclass wins; an unmapped class remains `INTERNAL`. These
+diagnostic statuses do not change Step retry or failure policies. Capacity and
+other Worker transport failures retain their own SDK-selected statuses.
+
+Java Worker errors include the original exception type, detail, and stack trace,
+including causes and suppressed exceptions. Dex persists at most 16 KiB of the
+UTF-8 stack and appends a truncation marker without splitting a character. The
+Worker log keeps the complete local stack.
 
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
@@ -129,8 +146,10 @@ configuration, and step-wait operations that require an open Flow.
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
 `WorkerInvocationException` preserves the original WorkerService error type,
-detail, and gRPC code. `DexServiceException` remains the generic service failure
-and exposes status metadata for diagnostics.
+detail, gRPC code, and Java stack trace. Read the persisted trace with
+`getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.
+`DexServiceException` remains the generic service failure and exposes status
+metadata for diagnostics.
 
 Local definition and value failures use `FlowDefinitionException`,
 `InvalidStepResultException`, and `ValueMappingException`.
@@ -167,7 +186,8 @@ Java owns Registry reflection, FlowService client transport, WorkerService gRPC
 transport, callback dispatch, and exception mapping. Worker requests never
 cross JNI. Synchronous Step and RPC handlers run on a bounded JVM executor so
 they do not block gRPC event-loop progress. Java failures are logged with their
-stack and returned with their Java type and message.
+complete stack and returned with their Java type, message, mapped status, and
+bounded persisted stack.
 
 Client and Worker accept the Java `BlobCache` interface. The default
 `BlobCache.open(...)` implementation is the shared Rust DXBC cache. Blob-backed
