@@ -36,7 +36,11 @@ interface AnyDetail {
 export function workerServiceError(failure: unknown): GrpcServiceError {
   const cause = failure instanceof Error ? failure : new Error(String(failure));
   const detail = cause.message || cause.name;
-  const worker = WorkerErrorResponse.encode({ detail, errorType: cause.name }).finish();
+  const worker = WorkerErrorResponse.encode({
+    detail,
+    errorType: cause.name,
+    stackTrace: cause.stack ?? "",
+  }).finish();
   const metadata = new Metadata();
   metadata.set(
     statusDetailsKey,
