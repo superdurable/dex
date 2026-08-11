@@ -32,6 +32,30 @@ func NewTerminalCoordinator(provider interfaces.WorkflowProvider) *TerminalCoord
 	return &TerminalCoordinator{provider: provider}
 }
 
+func (c *TerminalCoordinator) Finalize(
+	ctx interfaces.UnifiedContext,
+	continueAsNewer *ContinueAsNewer,
+	attributeSynchronizer *AttributeSynchronizer,
+	cause error,
+) error {
+	if !c.IsRequested() {
+		if cause == nil {
+			c.RequestCompletion()
+		} else {
+			c.RequestFailure(cause)
+		}
+	}
+	if err := c.provider.Await(ctx, func() bool {
+		return c.ProducersDrained(continueAsNewer.inflightUpdateOperations)
+	}); err != nil {
+		return err
+	}
+	if err := attributeSynchronizer.FlushAndClose(ctx); err != nil {
+		return err
+	}
+	return c.ResultError()
+}
+
 func (c *TerminalCoordinator) RequestClientStop(request *dexpb.StopFlowSignalRequest) {
 	if request == nil || c.requested {
 		return

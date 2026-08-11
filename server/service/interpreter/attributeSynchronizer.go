@@ -29,9 +29,8 @@ type AttributeSynchronizer struct {
 	continueAsNewCounter *cont.ContinueAsNewCounter
 	flowID               string
 	pending              []*dexpb.AttributeSyncItem
-	inFlightCount        int
-	flushAndClose        bool
-	stopped              bool
+	flushRequested       bool
+	actorStopped         bool
 }
 
 func NewAttributeSynchronizer(
@@ -63,15 +62,14 @@ func (s *AttributeSynchronizer) Start() {
 func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 	for {
 		if err := s.provider.Await(ctx, s.ready); err != nil {
-			s.stopped = true
+			s.actorStopped = true
 			return
 		}
 		if s.shouldStop() {
-			s.stopped = true
+			s.actorStopped = true
 			return
 		}
 		batch := s.nextBatch()
-		s.inFlightCount = len(batch)
 		s.recordCounter("attribute_sync_batch", 1, batch[0].GetConfigName())
 		s.recordCounter("attribute_sync_batch_mutation", int64(len(batch)), batch[0].GetConfigName())
 		activityCtx := s.provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
@@ -101,10 +99,9 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 				"error", err,
 			)
 		}
-		s.pending = s.pending[s.inFlightCount:]
-		s.inFlightCount = 0
+		s.pending = s.pending[len(batch):]
 		if s.shouldStop() {
-			s.stopped = true
+			s.actorStopped = true
 			return
 		}
 	}
@@ -155,12 +152,13 @@ func (s *AttributeSynchronizer) ApplyAttributeWrites(
 }
 
 func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) error {
-	s.flushAndClose = true
-	if s.stopped {
-		s.stopped = false
+	s.flushRequested = true
+	if s.actorStopped && len(s.pending) > 0 {
+		// A terminal signal can supersede Continue-as-New after the actor stops.
+		s.actorStopped = false
 		s.Start()
 	}
-	return s.provider.Await(ctx, func() bool { return s.stopped })
+	return s.provider.Await(ctx, func() bool { return s.actorStopped })
 }
 
 func (s *AttributeSynchronizer) Pending() []*dexpb.AttributeSyncItem {
@@ -186,10 +184,7 @@ func (s *AttributeSynchronizer) ready() bool {
 }
 
 func (s *AttributeSynchronizer) shouldStop() bool {
-	if s.inFlightCount > 0 {
-		return false
-	}
-	if s.flushAndClose {
+	if s.flushRequested {
 		return len(s.pending) == 0
 	}
 	return s.continueAsNewCounter.IsThresholdMet()

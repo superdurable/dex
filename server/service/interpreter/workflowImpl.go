@@ -226,30 +226,6 @@ func (i *Interpreter) StartEngineFlow(
 		)
 	}
 	attributeSynchronizer.Start()
-	continuingAsNew := false
-	defer func() {
-		if continuingAsNew {
-			return
-		}
-		if !terminal.IsRequested() {
-			if retErr == nil {
-				terminal.RequestCompletion()
-			} else {
-				terminal.RequestFailure(retErr)
-			}
-		}
-		if err := provider.Await(ctx, func() bool {
-			return terminal.ProducersDrained(continueAsNewer.inflightUpdateOperations)
-		}); err != nil {
-			retErr = err
-			return
-		}
-		if err := attributeSynchronizer.FlushAndClose(ctx); err != nil {
-			retErr = err
-			return
-		}
-		retErr = terminal.ResultError()
-	}()
 
 	updateErr := NewWorkflowUpdater(
 		&i.sharedConfig.Api,
@@ -268,7 +244,7 @@ func (i *Interpreter) StartEngineFlow(
 		terminal,
 	)
 	if updateErr != nil {
-		return nil, updateErr
+		return nil, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, updateErr)
 	}
 	// We intentionally set the query handler after the continueAsNew/dumpInternal activity.
 	// This is to ensure the correctness. If we set the query handler before that,
@@ -285,7 +261,7 @@ func (i *Interpreter) StartEngineFlow(
 		flowConfiger,
 		basicInfo,
 	); err != nil {
-		return nil, err
+		return nil, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, err)
 	}
 
 	var forceCompleteWf bool
@@ -324,9 +300,10 @@ func (i *Interpreter) StartEngineFlow(
 		}
 
 		if terminal.IsRequested() {
-			return &dexpb.InterpreterWorkflowOutput{
+			output := &dexpb.InterpreterWorkflowOutput{
 				StepCompletionOutputs: outputCollector.GetAll(),
-			}, terminal.ResultError()
+			}
+			return output, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, nil)
 		}
 
 		// gracefully complete flow when all steps are executed to dead ends
@@ -341,7 +318,7 @@ func (i *Interpreter) StartEngineFlow(
 				if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
 					stepsToExecute,
 				); err != nil {
-					return nil, err
+					return nil, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, err)
 				}
 			}
 
@@ -500,9 +477,10 @@ func (i *Interpreter) StartEngineFlow(
 			}
 
 			if terminal.IsRequested() || forceCompleteWf {
-				return &dexpb.InterpreterWorkflowOutput{
+				output := &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}, terminal.ResultError()
+				}
+				return output, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, nil)
 			}
 			if awaitError != nil {
 				// this could happen for cancellation
@@ -527,16 +505,18 @@ func (i *Interpreter) StartEngineFlow(
 			// after draining signals, there could be some changes like
 			// last fail flow signal, return the flow so that we don't carry over the fail request
 			if terminal.IsRequested() {
-				return &dexpb.InterpreterWorkflowOutput{
+				output := &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}, terminal.ResultError()
+				}
+				return output, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, nil)
 			}
 			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
 				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
 				// so that we don't carry over shouldGracefulComplete
-				return &dexpb.InterpreterWorkflowOutput{
+				output := &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}, nil
+				}
+				return output, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, nil)
 			}
 			// last update config, do it here because we use input to carry over config, not continueAsNewer query
 			input.Config = flowConfiger.Get()
@@ -549,16 +529,16 @@ func (i *Interpreter) StartEngineFlow(
 			input.StepInput = nil
 			input.StepOptions = nil
 			input.InitAttributes = nil
-			continuingAsNew = true
 			return nil, provider.NewInterpreterContinueAsNewError(ctx, input)
 		}
 
 	} // end main loop
 
 	// gracefully complete workflow when all states are executed to dead ends
-	return &dexpb.InterpreterWorkflowOutput{
+	output := &dexpb.InterpreterWorkflowOutput{
 		StepCompletionOutputs: outputCollector.GetAll(),
-	}, terminal.ResultError()
+	}
+	return output, terminal.Finalize(ctx, continueAsNewer, attributeSynchronizer, nil)
 }
 
 func normalizeStepFailureError(

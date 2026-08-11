@@ -81,12 +81,12 @@ func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
 			{ConfigName: "reporting", Key: "third"},
 			{ConfigName: "operational", Key: "fourth"},
 		},
-		flushAndClose: true,
+		flushRequested: true,
 	}
 
 	synchronizer.run(synchronizer.ctx)
 
-	require.True(t, synchronizer.stopped)
+	require.True(t, synchronizer.actorStopped)
 	require.Empty(t, synchronizer.pending)
 	require.Len(t, provider.inputs, 3)
 	require.Equal(t, []int{2, 1, 1}, []int{
