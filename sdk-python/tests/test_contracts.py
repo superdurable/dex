@@ -26,30 +26,32 @@ from dex import (
     CodecRegistry,
     Context,
     Flow,
+    FlowConfig,
     FlowDefinitionError,
     InvalidStepResultError,
     JsonCodec,
     PersistenceSchema,
     Registry,
     RPCResult,
+    StartFlowOptions,
     Step,
     StepDecision,
     StepDurability,
     StepList,
     StepOptions,
     Timer,
+    ValueMappingError,
     Wait,
     WaitForFailurePolicy,
-    ValueMappingError,
     WireKind,
     graceful_complete,
     open_blob_cache,
     rpc,
 )
-from dex.client import Client as ClientModuleClient
-from dex.client_options import ClientOptions as ClientModuleOptions
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
+from dex.client import Client as ClientModuleClient
+from dex.client_options import ClientOptions as ClientModuleOptions
 from dex.dexpb import dex_pb2 as pb
 
 
@@ -360,4 +362,34 @@ def test_client_has_single_public_definition() -> None:
 
 def test_client_transport_is_initialized_lazily() -> None:
     client = Client(Registry((ORDERS,)), cast(BlobCache, object()))
+    client.close()
+
+
+def test_attribute_store_sync_mapping_preserves_presence() -> None:
+    plain = Attribute("plain", str)
+    synced = Attribute("synced", str, sync_to_attribute_store=True)
+    synced_map = AttributeMap("mapped", str, sync_to_attribute_store=True)
+    assert not plain.sync_to_attribute_store
+    assert synced.sync_to_attribute_store
+    assert synced_map.sync_to_attribute_store
+
+    client = ClientModuleClient(Registry((ORDERS,)), cast(BlobCache, object()))
+    start = client._map_start_options(
+        StartFlowOptions()
+        .with_attribute(plain, "plain")
+        .with_attribute(synced, "synced")
+        .with_attribute(synced_map, "tenant-1", "mapped")
+    )
+    assert not start.attributes[0].HasField("sync_config")
+    assert start.attributes[1].sync_config.enabled
+    assert start.attributes[2].sync_config.enabled
+
+    absent = client._map_flow_config(FlowConfig())
+    assert not absent.HasField("attribute_sync_config_name")
+    selected = client._map_flow_config(FlowConfig(attribute_store_name="reporting"))
+    assert selected.attribute_sync_config_name == "reporting"
+    assert selected.HasField("attribute_sync_config_name")
+    disabled = client._map_flow_config(FlowConfig(attribute_store_name=""))
+    assert disabled.attribute_sync_config_name == ""
+    assert disabled.HasField("attribute_sync_config_name")
     client.close()

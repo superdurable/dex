@@ -51,6 +51,14 @@ export type IdReusePolicy = (typeof IdReusePolicy)[keyof typeof IdReusePolicy];
 export interface FlowConfig {
   /** Optional active-Step visibility indexing policy. */
   readonly activeStepSearchMode?: ActiveStepSearchMode;
+  /**
+   * Selects the server-configured Attribute Store receiving opted-in Attribute writes.
+   *
+   * Omit this property to preserve the existing Flow setting. An explicit empty string is sent with
+   * presence and disables later synchronization. Projection is asynchronous and never rolls back Flow
+   * Attribute writes when the external store update fails.
+   */
+  readonly attributeStoreName?: string;
   /** Positive history-event threshold requesting continue-as-new. */
   readonly continueAsNewThreshold?: number;
   /** Positive history page-size budget in bytes for continue-as-new. */

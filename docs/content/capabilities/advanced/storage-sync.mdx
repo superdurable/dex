@@ -16,12 +16,17 @@ the external row is a latest-state projection.
 
 Two settings opt in:
 
-1. The Flow's `attribute_sync_config_name` selects a named Server store.
-2. Each `AttributeWrite` sets `sync_config.enabled = true`.
+1. The Flow selects a named Server store with `AttributeStoreName` (Go),
+   `attributeStoreName` (Java and TypeScript), or `attribute_store_name`
+   (Python and Rust).
+2. The Attribute definition opts in with `SyncToAttributeStore` (Go),
+   `syncToAttributeStore` (Java and TypeScript), or `sync_to_attribute_store`
+   (Python and Rust).
 
-The current high-level SDKs do not expose these fields. This release supports
-IDL users and Server-side integrations while generated protobuf bindings remain
-available in every SDK module.
+AttributeMap definitions support the same opt-in. Their SQL column names match
+the physical Attribute names produced for individual map instances. SDKs omit
+`sync_config` for ordinary definitions and send `enabled = true` for opted-in
+definitions across initial, Client, Step, and RPC writes and deletions.
 
 Changing the Flow target affects only new writes. Already queued mutations keep
 the target selected when they were enqueued. Clearing the target disables later

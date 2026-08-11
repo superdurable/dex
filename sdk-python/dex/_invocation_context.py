@@ -13,7 +13,7 @@ from typing import Any, Sequence, TypeVar, cast
 
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
-from dex.attribute import Attribute, AttributeMap
+from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
@@ -161,6 +161,7 @@ class InvocationContext:
         )
         if index is not None:
             write.index_config.CopyFrom(index)
+        _apply_attribute_store_sync(write, definition)
         self.attribute_writes[key] = write
 
     def _delete_attribute(
@@ -177,6 +178,7 @@ class InvocationContext:
         )
         if index is not None:
             write.index_config.CopyFrom(index)
+        _apply_attribute_store_sync(write, definition)
         self.attribute_writes[key] = write
 
     def _publish_channel(

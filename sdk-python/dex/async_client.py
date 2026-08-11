@@ -22,7 +22,7 @@ from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
-from dex.attribute import Attribute, AttributeMap
+from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
 from dex.blob_cache import BlobCache
 from dex.channel import Channel, ChannelMap
 from dex.client_options import ClientOptions
@@ -409,6 +409,7 @@ class AsyncClient:
         )
         if index is not None:
             write.index_config.CopyFrom(index)
+        _apply_attribute_store_sync(write, attribute)
         await self._call(
             self._service.SetAttributes,
             pb.SetAttributesRequest(
@@ -858,7 +859,7 @@ class AsyncClient:
         if self._closed:
             return
         self._closed = True
-        await self._channel.close()
+        await self._channel.close(None)
 
     async def _wait_for_flow_response(
         self,
@@ -921,15 +922,15 @@ class AsyncClient:
         for initialization in options._attribute_initializations:
             definition = initialization.definition
             key = self._definition_name(definition, initialization.instance)
-            mapped.attributes.append(
-                pb.AttributeWrite(
-                    key=key,
-                    value=self._values.encode(
-                        initialization.value,
-                        self._values.codec(definition.value_type),
-                    ),
-                )
+            write = pb.AttributeWrite(
+                key=key,
+                value=self._values.encode(
+                    initialization.value,
+                    self._values.codec(definition.value_type),
+                ),
             )
+            _apply_attribute_store_sync(write, definition)
+            mapped.attributes.append(write)
         if (
             options.config_override is not None
             or self.options.worker_target is not None
@@ -969,6 +970,8 @@ class AsyncClient:
                     StepDurability.SYNC: pb.STEP_DURABILITY_SYNC,
                     StepDurability.ASYNC: pb.STEP_DURABILITY_ASYNC,
                 }[config.step_durability]
+            if config.attribute_store_name is not None:
+                mapped.attribute_sync_config_name = config.attribute_store_name
         target = (
             config.worker_target
             if config is not None and config.worker_target is not None

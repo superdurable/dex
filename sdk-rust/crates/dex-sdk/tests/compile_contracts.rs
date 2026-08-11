@@ -10,3 +10,12 @@
 fn flow_start_input_is_checked_at_compile_time() {
     trybuild::TestCases::new().compile_fail("tests/compile_fail/wrong_flow_input.rs");
 }
+
+#[test]
+fn attribute_store_sync_builders_compile() {
+    let _attribute = dex_sdk::Attribute::<String>::new("email").sync_to_attribute_store();
+    let _attribute_map =
+        dex_sdk::AttributeMap::<String>::new("email_by_tenant").sync_to_attribute_store();
+    let _config = dex_sdk::FlowConfig::new().attribute_store_name("profiles");
+    let _disabled = dex_sdk::FlowConfig::new().attribute_store_name("");
+}

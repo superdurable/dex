@@ -14,6 +14,7 @@ import test from "node:test";
 
 import {
   Attribute,
+  AttributeMap,
   Channel,
   Client,
   FlowDefinitionError,
@@ -32,10 +33,15 @@ import {
   type BlobCache,
   type Context,
   type Flow,
+  type FlowConfig,
   type RPCResult,
   type Step,
   type StepDecision,
 } from "../src/index.js";
+import {
+  mapAttributeStoreName,
+  mapAttributeStoreSync,
+} from "../src/attribute-store-sync.js";
 import {
   Context as ProtoContext,
   InvokeExecuteMethodRequest,
@@ -147,6 +153,22 @@ test("typed definitions construct without runtime", () => {
   assert.equal(definitions[0]?.isStartStep, true);
   assert.equal(definitions[1]?.step, orders.archive);
   assert.equal(definitions[1]?.isStartStep, false);
+});
+
+test("attribute store synchronization is opt-in and immutable", () => {
+  const plain = new Attribute("plain", stringCodec);
+  const synced = plain.syncToAttributeStore();
+  const syncedMap = new AttributeMap("map", stringCodec).syncToAttributeStore();
+  const absent: FlowConfig = {};
+  const named: FlowConfig = { attributeStoreName: "profiles" };
+  const disabled: FlowConfig = { attributeStoreName: "" };
+
+  assert.equal(mapAttributeStoreSync(plain), undefined);
+  assert.equal(mapAttributeStoreSync(synced)?.enabled, true);
+  assert.equal(mapAttributeStoreSync(syncedMap)?.enabled, true);
+  assert.equal(mapAttributeStoreName(absent), undefined);
+  assert.equal(mapAttributeStoreName(named), "profiles");
+  assert.equal(mapAttributeStoreName(disabled), "");
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {

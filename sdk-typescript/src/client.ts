@@ -9,6 +9,7 @@
 import { credentials, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
+import { mapAttributeStoreName, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import {
@@ -143,7 +144,7 @@ export class Client {
           key: physicalName(initial.attribute.name, initial.instance),
           value: encodeValue(initial.attribute.codec, initial.value),
           indexConfig: mapIndex(initial.attribute.index),
-          syncConfig: undefined,
+          syncConfig: mapAttributeStoreSync(initial.attribute),
         })),
         flowConfigOverride: mapFlowConfig(options.configOverride, this.options),
         flowAlreadyStartedOptions: {
@@ -408,7 +409,7 @@ export class Client {
               key: physicalName(attribute.name, instance),
               value: encodeValue(attribute.codec, value),
               indexConfig: mapIndex(attribute.index),
-              syncConfig: undefined,
+              syncConfig: mapAttributeStoreSync(attribute),
             },
           ],
           requestId: crypto.randomUUID(),
@@ -842,6 +843,7 @@ function mapFlowConfig(
         : config.activeStepSearchMode === ActiveStepSearchMode.ALL
           ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
           : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+    attributeSyncConfigName: mapAttributeStoreName(config),
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     stepDurability:

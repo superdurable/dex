@@ -45,7 +45,11 @@ import (
 )
 
 var (
-	clientTestStatus   = DefineAttribute[string]("status", Indexed(AttributeIndex{Type: IndexKeyword}))
+	clientTestStatus = DefineAttribute[string](
+		"status",
+		Indexed(AttributeIndex{Type: IndexKeyword}),
+		SyncToAttributeStore(),
+	)
 	clientTestItems    = DefineAttributeMap[int]("items")
 	clientTestCommands = DefineChannel[string]("commands")
 	clientTestByOrder  = DefineChannelMap[string]("commands-by-order")
@@ -451,6 +455,7 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Equal(t, "dex.clientTestFlow", service.startRequest.FlowType)
 	require.Equal(t, "dex.clientTestStep", service.startRequest.StartStepType)
 	require.Equal(t, "worker.test:8803", service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.Address)
+	require.True(t, service.startRequest.FlowStartOptions.Attributes[0].GetSyncConfig().GetEnabled())
 
 	require.NoError(t, client.PublishToChannel(ctx, "order-1", clientTestCommands, "approve", "ship"))
 	require.Len(t, service.publishRequest.Messages, 2)
@@ -471,6 +476,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.NoError(t, client.SetAttribute(ctx, "order-1", clientTestStatus, "done"))
 	require.NoError(t, client.SetAttributeMap(ctx, "order-1", clientTestItems, "sku-1", 4))
 	require.Len(t, service.setRequests, 2)
+	require.True(t, service.setRequests[0].Attributes[0].GetSyncConfig().GetEnabled())
+	require.Nil(t, service.setRequests[1].Attributes[0].SyncConfig)
 	require.NotEqual(t, service.setRequests[0].RequestId, service.setRequests[1].RequestId)
 	for _, request := range service.setRequests {
 		_, err := uuid.Parse(request.RequestId)
@@ -480,8 +487,13 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	values, err := client.GetAttributes(ctx, "order-1", clientTestStatus)
 	require.NoError(t, err)
 	require.Contains(t, values, "status")
-	require.NoError(t, client.SetAttributes(ctx, "order-1", AttributeWrite{Name: "status", Value: "batched"}))
+	require.NoError(t, client.SetAttributes(ctx, "order-1", AttributeWrite{
+		Name:                 "status",
+		Value:                "batched",
+		SyncToAttributeStore: true,
+	}))
 	require.Len(t, service.setRequests, 3)
+	require.True(t, service.setRequests[2].Attributes[0].GetSyncConfig().GetEnabled())
 
 	require.NoError(t, client.WaitForAttributeEqual(
 		ctx,
@@ -595,8 +607,10 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	require.NoError(t, client.UpdateFlowConfig(ctx, "order-1", FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
+		AttributeStoreName:     ptr.Any("reporting"),
 	}))
 	require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
+	require.Equal(t, "reporting", service.updateConfigRequest.FlowConfig.GetAttributeSyncConfigName())
 	require.NoError(t, client.WaitForStepCompletion(
 		ctx,
 		"order-1",

@@ -29,6 +29,7 @@ import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
+import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
 import io.superdurable.gen.FlowExecutionID;
@@ -921,6 +922,7 @@ public final class Client implements AutoCloseable {
         if (indexConfig != null) {
             write.setIndexConfig(indexConfig);
         }
+        applyAttributeSync(write, definition);
         call(
                 () -> service.setAttributes(SetAttributesRequest.newBuilder()
                         .setFlowId(flowId)
@@ -977,7 +979,7 @@ public final class Client implements AutoCloseable {
         return response;
     }
 
-    private FlowStartOptions mapStartOptions(final StartFlowOptions options) {
+    FlowStartOptions mapStartOptions(final StartFlowOptions options) {
         final FlowStartOptions.Builder mapped = FlowStartOptions.newBuilder()
                 .setIdReusePolicy(mapIdReuse(options.getIdReusePolicy()))
                 .setCronSchedule(options.getCronSchedule() == null ? "" : options.getCronSchedule())
@@ -994,9 +996,11 @@ public final class Client implements AutoCloseable {
             final String key = initialization.getInstance() == null
                     ? definition.getName()
                     : Registry.physicalName(definition.getName(), initialization.getInstance());
-            mapped.addAttributes(AttributeWrite.newBuilder()
+            final AttributeWrite.Builder write = AttributeWrite.newBuilder()
                     .setKey(key)
-                    .setValue(values.encode(initialization.getValue())));
+                    .setValue(values.encode(initialization.getValue()));
+            applyAttributeSync(write, definition);
+            mapped.addAttributes(write);
         }
         final FlowConfig config = options.getConfigOverride();
         if (config != null || this.options.getWorkerTarget() != null) {
@@ -1005,7 +1009,7 @@ public final class Client implements AutoCloseable {
         return mapped.build();
     }
 
-    private io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
+    io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
         final io.superdurable.gen.FlowConfig.Builder mapped =
                 io.superdurable.gen.FlowConfig.newBuilder();
         if (config != null) {
@@ -1022,6 +1026,9 @@ public final class Client implements AutoCloseable {
             if (config.getStepDurability() != null) {
                 mapped.setStepDurability(mapDurability(config.getStepDurability()));
             }
+            if (config.getAttributeStoreName() != null) {
+                mapped.setAttributeSyncConfigName(config.getAttributeStoreName());
+            }
         }
         final WorkerTarget target = config != null && config.getWorkerTarget() != null
                 ? config.getWorkerTarget()
@@ -1032,6 +1039,14 @@ public final class Client implements AutoCloseable {
                     .setIsHeadlessAddress(target.isHeadless()));
         }
         return mapped.build();
+    }
+
+    private static void applyAttributeSync(
+            final AttributeWrite.Builder write,
+            final PersistenceDefinition definition) {
+        if (definition.isSyncToAttributeStore()) {
+            write.setSyncConfig(AttributeSyncConfig.newBuilder().setEnabled(true));
+        }
     }
 
     private static io.superdurable.gen.FlowRetryPolicy mapFlowRetry(final RetryPolicy retry) {

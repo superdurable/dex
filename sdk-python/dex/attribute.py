@@ -16,6 +16,7 @@ from typing import Any, Generic, TypeVar, cast
 
 from dex._utils import require_name
 from dex.context import Context
+from dex.dexpb import dex_pb2 as pb
 
 ValueT = TypeVar("ValueT")
 
@@ -65,13 +66,19 @@ class Attribute(Generic[ValueT]):
     definition from Steps, RPCs, and Client calls. Values are read and written
     through a handler :class:`Context`; Client methods provide external access.
 
+    Set ``sync_to_attribute_store`` to project every write asynchronously through
+    the Flow's configured Attribute Store. Projection is latest-state only, deletion
+    projects SQL NULL, and failures do not roll back the Flow Attribute.
+
     Attributes:
         name: The non-empty logical Attribute name, unique within its Flow.
         value_type: The Python type used to encode and decode values.
         index: Optional search-index configuration; ``None`` disables indexing.
+        sync_to_attribute_store: Whether writes are projected to the selected
+            Attribute Store. Defaults to ``False``.
 
     Examples:
-        >>> status = Attribute("status", str, AttributeIndex(IndexType.KEYWORD))
+        >>> status = Attribute("status", str, sync_to_attribute_store=True)
         >>> status.set(context, "paid")
         >>> status.get(context)
         'paid'
@@ -80,6 +87,7 @@ class Attribute(Generic[ValueT]):
     name: str
     value_type: type[ValueT]
     index: AttributeIndex | None = None
+    sync_to_attribute_store: bool = False
 
     def __post_init__(self) -> None:
         require_name(self.name)
@@ -137,14 +145,19 @@ class AttributeMap(Generic[ValueT]):
 
     AttributeMap instances share one schema definition while keeping independent
     values and locks. Declare the map in ``PersistenceSchema`` before using it.
+    Synced instances use their physical Attribute names as target columns. Projection
+    is asynchronous and latest-state only, deletion projects SQL NULL, and failures
+    do not roll back Flow Attributes.
 
     Attributes:
         name: The non-empty logical Attribute name, unique within its Flow.
         value_type: The Python type used for every map instance.
         index: Optional shared search-index configuration.
+        sync_to_attribute_store: Whether every instance is projected to the selected
+            Attribute Store. Defaults to ``False``.
 
     Examples:
-        >>> balances = AttributeMap("balance", int)
+        >>> balances = AttributeMap("balance", int, sync_to_attribute_store=True)
         >>> balances.set(context, "merchant-7", 1200)
         >>> balances.get(context, "merchant-7")
         1200
@@ -153,6 +166,7 @@ class AttributeMap(Generic[ValueT]):
     name: str
     value_type: type[ValueT]
     index: AttributeIndex | None = None
+    sync_to_attribute_store: bool = False
 
     def __post_init__(self) -> None:
         require_name(self.name)
@@ -219,3 +233,11 @@ class AttributeLock:
 
     attribute: Attribute[Any] | AttributeMap[Any]
     instance: str | None = None
+
+
+def _apply_attribute_store_sync(
+    write: pb.AttributeWrite,
+    definition: Attribute[Any] | AttributeMap[Any],
+) -> None:
+    if definition.sync_to_attribute_store:
+        write.sync_config.enabled = True

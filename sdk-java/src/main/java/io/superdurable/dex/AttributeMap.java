@@ -35,11 +35,17 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     private final String name;
     private final Class<T> valueType;
     private final AttributeIndex index;
+    private final boolean syncToAttributeStore;
 
-    private AttributeMap(final String name, final Class<T> valueType, final AttributeIndex index) {
+    private AttributeMap(
+            final String name,
+            final Class<T> valueType,
+            final AttributeIndex index,
+            final boolean syncToAttributeStore) {
         this.name = Attribute.requireName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
+        this.syncToAttributeStore = syncToAttributeStore;
     }
 
     /**
@@ -53,7 +59,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> AttributeMap<T> define(final String name, final Class<T> valueType) {
-        return new AttributeMap<T>(name, valueType, null);
+        return new AttributeMap<T>(name, valueType, null, false);
     }
 
     /**
@@ -71,7 +77,20 @@ public final class AttributeMap<T> extends PersistenceDefinition {
             final String name,
             final Class<T> valueType,
             final AttributeIndex index) {
-        return new AttributeMap<T>(name, valueType, index);
+        return new AttributeMap<T>(name, valueType, index, false);
+    }
+
+    /**
+     * Returns a definition whose instance writes are projected through the Flow's Attribute Store.
+     *
+     * <p>The physical Attribute-map key must match a target column. Projection is asynchronous and
+     * does not roll back the Flow Attribute when external storage fails. Deletion projects SQL
+     * {@code NULL} when the target column permits it.
+     *
+     * @return a new immutable Attribute-map definition with Attribute Store synchronization enabled
+     */
+    public AttributeMap<T> syncToAttributeStore() {
+        return new AttributeMap<T>(name, valueType, index, true);
     }
 
     String getName() {
@@ -84,6 +103,11 @@ public final class AttributeMap<T> extends PersistenceDefinition {
 
     AttributeIndex getIndex() {
         return index;
+    }
+
+    @Override
+    boolean isSyncToAttributeStore() {
+        return syncToAttributeStore;
     }
 
     /**

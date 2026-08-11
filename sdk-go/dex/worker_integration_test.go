@@ -32,8 +32,8 @@ import (
 )
 
 var (
-	workerTestStatus   = DefineAttribute[string]("status")
-	workerTestItems    = DefineAttributeMap[int]("items")
+	workerTestStatus   = DefineAttribute[string]("status", SyncToAttributeStore())
+	workerTestItems    = DefineAttributeMap[int]("items", SyncToAttributeStore())
 	workerTestCommands = DefineChannel[string]("commands")
 	workerTestByOrder  = DefineChannelMap[string]("commands-by-order")
 )
@@ -285,6 +285,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, waitResponse.UpsertAttributes, 1)
 	require.Equal(t, "waiting", waitResponse.UpsertAttributes[0].Value.GetStringValue())
+	require.True(t, waitResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 	require.Len(t, waitResponse.UpsertStepExeLocals, 1)
 	require.Len(t, waitResponse.RecordEvents, 1)
 	require.Len(t, waitResponse.PublishToChannel, 1)
@@ -328,6 +329,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.Len(t, executeResponse.UpsertAttributes, 1)
 	_, deleted := executeResponse.UpsertAttributes[0].Value.Kind.(*dexpb.Value_NullValue)
 	require.True(t, deleted)
+	require.True(t, executeResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 
 	timerRequest := workerExecuteRequest(t, workerTestInput{
 		OrderID: "order-1",
@@ -366,6 +368,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.Len(t, rpcResponse.PublishToChannel, 1)
 	require.Len(t, rpcResponse.UpsertAttributes, 1)
 	require.Equal(t, "items/order-1", rpcResponse.UpsertAttributes[0].Key)
+	require.True(t, rpcResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 	require.Len(t, rpcResponse.RecordEvents, 1)
 	require.Len(t, rpcResponse.StepDecision.NextSteps, 1)
 }

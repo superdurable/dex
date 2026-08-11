@@ -25,4 +25,8 @@ public abstract class PersistenceDefinition {
     abstract String getName();
 
     abstract Class<?> getValueType();
+
+    boolean isSyncToAttributeStore() {
+        return false;
+    }
 }

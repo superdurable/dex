@@ -49,10 +49,11 @@ type registeredStep struct {
 }
 
 type registeredAttribute struct {
-	def   AttributeDef
-	name  string
-	index *AttributeIndex
-	isMap bool
+	def                  AttributeDef
+	name                 string
+	index                *AttributeIndex
+	isMap                bool
+	syncToAttributeStore bool
 }
 
 type registeredChannel struct {
@@ -200,10 +201,11 @@ func (flow *registeredFlow) registerAttribute(
 		indexTypes[indexKey] = index.Type
 	}
 	flow.attributes[name] = registeredAttribute{
-		def:   definition,
-		name:  name,
-		index: index,
-		isMap: isMap,
+		def:                  definition,
+		name:                 name,
+		index:                index,
+		isMap:                isMap,
+		syncToAttributeStore: definition.attributeSyncToAttributeStore(),
 	}
 	return nil
 }
@@ -573,7 +575,8 @@ func (registry *Registry) resolveAttribute(
 	for _, flow := range registry.flows {
 		registered, found := flow.attributes[name]
 		if found && registered.isMap == expectMap &&
-			reflect.DeepEqual(registered.index, reference.attributeIndex()) {
+			reflect.DeepEqual(registered.index, reference.attributeIndex()) &&
+			registered.syncToAttributeStore == reference.attributeSyncToAttributeStore() {
 			return registered, nil
 		}
 	}

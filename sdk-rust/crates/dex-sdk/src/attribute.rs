@@ -8,7 +8,7 @@
 
 use std::marker::PhantomData;
 
-use dex_protocol::dex::IndexConfig;
+use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::{Context, HandlerError, HandlerResult, Value};
 
@@ -29,6 +29,7 @@ use crate::{Context, HandlerError, HandlerResult, Value};
 pub struct Attribute<T> {
     name: String,
     index: Option<AttributeIndex>,
+    sync_to_attribute_store: bool,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -38,6 +39,7 @@ impl<T> Attribute<T> {
         Self {
             name: name.into(),
             index: None,
+            sync_to_attribute_store: false,
             marker: PhantomData,
         }
     }
@@ -45,6 +47,17 @@ impl<T> Attribute<T> {
     /// Enables Flow-search indexing with the selected index type.
     pub fn indexed(mut self, index: AttributeIndex) -> Self {
         self.index = Some(index);
+        self
+    }
+
+    /// Enables asynchronous latest-state projection to the Flow's selected Attribute Store.
+    ///
+    /// The Flow must select a server-configured store with
+    /// [`FlowConfig::attribute_store_name`](crate::FlowConfig::attribute_store_name). Deletions
+    /// project SQL `NULL`, and projection failures never roll back the Flow Attribute write.
+    #[must_use]
+    pub fn sync_to_attribute_store(mut self) -> Self {
+        self.sync_to_attribute_store = true;
         self
     }
 
@@ -109,6 +122,15 @@ impl<T> Attribute<T> {
     pub(crate) fn index(&self) -> Option<&AttributeIndex> {
         self.index.as_ref()
     }
+
+    pub(crate) fn sync_config(&self) -> Option<AttributeSyncConfig> {
+        self.sync_to_attribute_store
+            .then_some(AttributeSyncConfig { enabled: true })
+    }
+
+    pub(crate) fn is_sync_to_attribute_store(&self) -> bool {
+        self.sync_to_attribute_store
+    }
 }
 
 impl<T> Clone for Attribute<T> {
@@ -116,6 +138,7 @@ impl<T> Clone for Attribute<T> {
         Self {
             name: self.name.clone(),
             index: self.index.clone(),
+            sync_to_attribute_store: self.sync_to_attribute_store,
             marker: PhantomData,
         }
     }
@@ -128,6 +151,7 @@ impl<T> Clone for Attribute<T> {
 pub struct AttributeMap<T> {
     name: String,
     index: Option<AttributeIndex>,
+    sync_to_attribute_store: bool,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -137,6 +161,7 @@ impl<T> AttributeMap<T> {
         Self {
             name: name.into(),
             index: None,
+            sync_to_attribute_store: false,
             marker: PhantomData,
         }
     }
@@ -144,6 +169,17 @@ impl<T> AttributeMap<T> {
     /// Enables search indexing for every instance using the selected index type.
     pub fn indexed(mut self, index: AttributeIndex) -> Self {
         self.index = Some(index);
+        self
+    }
+
+    /// Enables asynchronous latest-state projection for every AttributeMap instance.
+    ///
+    /// Each instance maps by its physical Attribute name. The Flow must select a server-configured
+    /// store with [`FlowConfig::attribute_store_name`](crate::FlowConfig::attribute_store_name).
+    /// Deletions project SQL `NULL`, and projection failures never roll back Flow Attribute writes.
+    #[must_use]
+    pub fn sync_to_attribute_store(mut self) -> Self {
+        self.sync_to_attribute_store = true;
         self
     }
 
@@ -205,6 +241,15 @@ impl<T> AttributeMap<T> {
     pub(crate) fn index(&self) -> Option<&AttributeIndex> {
         self.index.as_ref()
     }
+
+    pub(crate) fn sync_config(&self) -> Option<AttributeSyncConfig> {
+        self.sync_to_attribute_store
+            .then_some(AttributeSyncConfig { enabled: true })
+    }
+
+    pub(crate) fn is_sync_to_attribute_store(&self) -> bool {
+        self.sync_to_attribute_store
+    }
 }
 
 impl<T> Clone for AttributeMap<T> {
@@ -212,6 +257,7 @@ impl<T> Clone for AttributeMap<T> {
         Self {
             name: self.name.clone(),
             index: self.index.clone(),
+            sync_to_attribute_store: self.sync_to_attribute_store,
             marker: PhantomData,
         }
     }
@@ -339,5 +385,30 @@ impl AttributeLock {
             Some(instance) => crate::registry::physical_name(&self.attribute, instance),
             None => self.attribute.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Attribute, AttributeMap};
+
+    #[test]
+    fn sync_configuration_is_opt_in_and_survives_clone() {
+        let plain = Attribute::<String>::new("plain");
+        let synced = Attribute::<String>::new("synced").sync_to_attribute_store();
+        let synced_map = AttributeMap::<String>::new("synced_map").sync_to_attribute_store();
+
+        assert!(plain.sync_config().is_none());
+        assert_eq!(
+            synced.sync_config().map(|config| config.enabled),
+            Some(true)
+        );
+        assert_eq!(
+            synced_map
+                .clone()
+                .sync_config()
+                .map(|config| config.enabled),
+            Some(true)
+        );
     }
 }

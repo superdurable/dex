@@ -265,6 +265,7 @@ impl Client {
             attribute.name(),
             &value,
             attribute.index().map(|index| index.proto_config(false)),
+            attribute.sync_config(),
         )
     }
 
@@ -285,6 +286,7 @@ impl Client {
             &crate::registry::physical_name(attribute.name(), instance),
             &value,
             attribute.index().map(|index| index.proto_config(true)),
+            attribute.sync_config(),
         )
     }
 
@@ -740,12 +742,13 @@ impl Client {
         key: &str,
         value: &T,
         index_config: Option<dex_protocol::dex::IndexConfig>,
+        sync_config: Option<dex_protocol::dex::AttributeSyncConfig>,
     ) -> SdkResult<()> {
         let write = AttributeWrite {
             key: key.to_string(),
             value: Some(value_mapper::encode(value)?),
             index_config,
-            sync_config: None,
+            sync_config,
         };
         self.call_empty(
             "set_attribute",
@@ -869,7 +872,7 @@ impl Client {
                     key: attribute.key.clone(),
                     value: Some(attribute.value.encode()?),
                     index_config: attribute.index_config.clone(),
-                    sync_config: None,
+                    sync_config: attribute.sync_config,
                 })
             })
             .collect::<SdkResult<Vec<_>>>()?;
@@ -906,41 +909,7 @@ impl Client {
     }
 
     fn map_flow_config(&self, config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {
-        let target = config
-            .and_then(|config| config.worker_target.as_ref())
-            .or_else(|| self.options.worker_target_value());
-        Ok(ProtoFlowConfig {
-            active_step_search_mode: config
-                .and_then(|config| config.active_step_search_mode)
-                .map(|mode| match mode {
-                    ActiveStepSearchMode::All => ProtoSearchMode::EnabledForAll as i32,
-                    ActiveStepSearchMode::WithWaitFor => {
-                        ProtoSearchMode::EnabledForStepsWithWaitFor as i32
-                    }
-                    ActiveStepSearchMode::Disabled => ProtoSearchMode::Disabled as i32,
-                }),
-            continue_as_new_threshold: config
-                .and_then(|config| config.continue_as_new_threshold)
-                .map(i32::try_from)
-                .transpose()
-                .map_err(|_| invalid("continue-as-new threshold exceeds int32"))?,
-            continue_as_new_page_size_in_bytes: config
-                .and_then(|config| config.continue_as_new_page_size_bytes)
-                .map(i32::try_from)
-                .transpose()
-                .map_err(|_| invalid("continue-as-new page size exceeds int32"))?,
-            step_durability: config
-                .and_then(|config| config.step_durability)
-                .map(|durability| {
-                    (match durability {
-                        StepDurability::Default => ProtoStepDurability::Unspecified,
-                        StepDurability::Sync => ProtoStepDurability::Sync,
-                        StepDurability::Async => ProtoStepDurability::Async,
-                    }) as i32
-                }),
-            worker_target: target.map(map_worker_target),
-            attribute_sync_config_name: None,
-        })
+        map_flow_config(config, self.options.worker_target_value())
     }
 
     fn call_empty<Response, Future, Call>(
@@ -960,6 +929,47 @@ impl Client {
             .map(|_| ())
             .map_err(|status| SdkError::from_status(status, operation, flow_id, requirement))
     }
+}
+
+fn map_flow_config(
+    config: Option<&FlowConfig>,
+    default_target: Option<&WorkerTarget>,
+) -> SdkResult<ProtoFlowConfig> {
+    let target = config
+        .and_then(|config| config.worker_target.as_ref())
+        .or(default_target);
+    Ok(ProtoFlowConfig {
+        active_step_search_mode: config
+            .and_then(|config| config.active_step_search_mode)
+            .map(|mode| match mode {
+                ActiveStepSearchMode::All => ProtoSearchMode::EnabledForAll as i32,
+                ActiveStepSearchMode::WithWaitFor => {
+                    ProtoSearchMode::EnabledForStepsWithWaitFor as i32
+                }
+                ActiveStepSearchMode::Disabled => ProtoSearchMode::Disabled as i32,
+            }),
+        continue_as_new_threshold: config
+            .and_then(|config| config.continue_as_new_threshold)
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| invalid("continue-as-new threshold exceeds int32"))?,
+        continue_as_new_page_size_in_bytes: config
+            .and_then(|config| config.continue_as_new_page_size_bytes)
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| invalid("continue-as-new page size exceeds int32"))?,
+        step_durability: config
+            .and_then(|config| config.step_durability)
+            .map(|durability| {
+                (match durability {
+                    StepDurability::Default => ProtoStepDurability::Unspecified,
+                    StepDurability::Sync => ProtoStepDurability::Sync,
+                    StepDurability::Async => ProtoStepDurability::Async,
+                }) as i32
+            }),
+        worker_target: target.map(map_worker_target),
+        attribute_sync_config_name: config.and_then(|config| config.attribute_store_name.clone()),
+    })
 }
 
 fn map_flow_retry(retry: RetryPolicy) -> SdkResult<FlowRetryPolicy> {
@@ -1090,5 +1100,30 @@ fn invalid(message: impl Into<String>) -> SdkError {
 fn service_error(error: impl std::fmt::Display) -> SdkError {
     SdkError::Service {
         service: ServiceError::local("client", error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_flow_config;
+    use crate::FlowConfig;
+
+    #[test]
+    fn attribute_store_name_preserves_protocol_presence() {
+        let absent = map_flow_config(Some(&FlowConfig::new()), None).expect("map absent config");
+        let named = map_flow_config(
+            Some(&FlowConfig::new().attribute_store_name("profiles")),
+            None,
+        )
+        .expect("map named config");
+        let disabled = map_flow_config(Some(&FlowConfig::new().attribute_store_name("")), None)
+            .expect("map disabled config");
+
+        assert_eq!(absent.attribute_sync_config_name, None);
+        assert_eq!(
+            named.attribute_sync_config_name.as_deref(),
+            Some("profiles")
+        );
+        assert_eq!(disabled.attribute_sync_config_name.as_deref(), Some(""));
     }
 }

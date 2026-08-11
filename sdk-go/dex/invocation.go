@@ -421,6 +421,7 @@ func (invocation *invocationContext) setAttributeValue(
 		Key:         physical,
 		Value:       encoded,
 		IndexConfig: indexConfig,
+		SyncConfig:  mapAttributeSyncConfig(attribute.syncToAttributeStore),
 	})
 	return nil
 }
@@ -441,7 +442,11 @@ func (invocation *invocationContext) deleteAttributeValue(
 	if err != nil {
 		return err
 	}
-	write, err := mapAttributeDelete(physical, attribute.index)
+	write, err := mapAttributeDelete(
+		physical,
+		attribute.index,
+		attribute.syncToAttributeStore,
+	)
 	if err != nil {
 		return err
 	}

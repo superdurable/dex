@@ -130,6 +130,9 @@ type FlowConfig struct {
 	StepDurability *StepDurability
 	// WorkerTarget routes future Step and RPC invocations.
 	WorkerTarget *WorkerTarget
+	// AttributeStoreName selects the Server-configured Attribute Store for opted-in writes.
+	// Nil preserves the current target; an empty string disables future asynchronous projections.
+	AttributeStoreName *string
 }
 
 // StartFlowOptions configures a new Flow execution.

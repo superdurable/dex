@@ -14,6 +14,7 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.ChannelMessage;
@@ -292,6 +293,7 @@ final class InvocationContext implements Context {
         if (indexConfig != null) {
             write.setIndexConfig(indexConfig);
         }
+        applyAttributeSync(write, definition);
         attributeWrites.put(key, write.build());
     }
 
@@ -309,7 +311,16 @@ final class InvocationContext implements Context {
         if (indexConfig != null) {
             write.setIndexConfig(indexConfig);
         }
+        applyAttributeSync(write, definition);
         attributeWrites.put(key, write.build());
+    }
+
+    private static void applyAttributeSync(
+            final AttributeWrite.Builder write,
+            final PersistenceDefinition definition) {
+        if (definition.isSyncToAttributeStore()) {
+            write.setSyncConfig(AttributeSyncConfig.newBuilder().setEnabled(true));
+        }
     }
 
     private void publishValue(
