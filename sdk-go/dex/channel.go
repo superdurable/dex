@@ -10,7 +10,7 @@
 
 package dex
 
-// Channel defines one durable FIFO stream of typed messages.
+// Channel defines one durable FIFO queue of typed messages.
 //
 // Add the Channel to PersistenceSchema. Clients and handlers may publish messages; Step WaitFor
 // methods create Conditions that wait on queue-size bounds and later decode consumed results.

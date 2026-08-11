@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 
 use crate::{Condition, Context, HandlerResult, Value};
 
-/// Defines one durable FIFO stream of typed messages.
+/// Defines one durable FIFO queue of typed messages.
 ///
 /// Add the Channel to [`crate::PersistenceSchema`]. Clients and handlers may publish messages;
 /// Steps create [`Condition`] values that wait for queue-size bounds and read the messages consumed
