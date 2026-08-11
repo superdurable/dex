@@ -223,7 +223,7 @@ limit and user agreement.
 
 ### Strongly Typed Log Tags
 
-Do not add new `tag.Value` call sites. Add a semantic, strongly typed constructor in `server/service/common/log/tag` instead. When modifying an existing `tag.Value`, migrate it rather than copying the pattern.
+Never use or reintroduce `tag.Value`. Add a semantic, strongly typed constructor in `server/service/common/log/tag` for each structured field.
 
 ### Config Field Comments
 

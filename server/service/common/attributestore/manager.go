@@ -148,7 +148,7 @@ func openStoreEntry(
 		name:   name,
 		cfg:    cfg,
 		db:     database,
-		logger: logger.WithTags(tag.Value(name)),
+		logger: logger.WithTags(tag.AttributeStore(name)),
 	}
 	if err := database.PingContext(ctx); err != nil {
 		if closeErr := database.Close(); closeErr != nil {
@@ -432,16 +432,16 @@ func (e *storeEntry) writeBatch(
 	for name, value := range latest {
 		column, found := snapshot.columns[name]
 		if !found {
-			e.logger.Error("skip Attribute Store item: column does not exist", tag.Value(name))
+			e.logger.Error("skip Attribute Store item: column does not exist", tag.AttributeName(name))
 			continue
 		}
 		if name == snapshot.primaryKey {
-			e.logger.Error("skip Attribute Store item: primary key is immutable", tag.Value(name))
+			e.logger.Error("skip Attribute Store item: primary key is immutable", tag.AttributeName(name))
 			continue
 		}
 		converted, err := column.convert(value, e.cfg.Type)
 		if err != nil {
-			e.logger.Error("skip incompatible Attribute Store item", tag.Value(name), tag.Error(err))
+			e.logger.Error("skip incompatible Attribute Store item", tag.AttributeName(name), tag.Error(err))
 			continue
 		}
 		filtered[name] = filteredValue{column: column, value: converted}
