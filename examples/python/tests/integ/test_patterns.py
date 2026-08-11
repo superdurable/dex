@@ -20,6 +20,7 @@ from typing import Callable
 import pytest
 from dex import (
     AsyncClient,
+    FlowConfig,
     FlowStatus,
     IdReusePolicy,
     StartFlowOptions,
@@ -28,14 +29,12 @@ from dex import (
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.patterns.workflow.entitystore.user_profile import UserProfile
+from dex_examples.patterns.workflow.entitystore.user_profile_flow import STORE_NAME
 from dex_examples.patterns.workflow.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.workflow.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
-from dex_examples.patterns.workflow.storage.add_storage_item_request import (
-    AddStorageItemRequest,
-)
-from dex_examples.patterns.workflow.storage.storage_flow import STORAGE_FLOW_ID
 from dex_examples.patterns.workflow.waitforstatecompletion.job_seeker_data import (
     JobSeekerData,
 )
@@ -76,7 +75,7 @@ async def test_drain_internal_channels(
         "documentId-0",
         start_options(),
     )
-    await client.wait_for_flow(flow_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
 
 
 async def test_drain_signal_channels(
@@ -111,12 +110,10 @@ async def test_interruptible_start_and_cancel(
         lambda: _status_is(client, flow_id, FlowStatus.RUNNING),
     )
     await client.invoke_rpc(app.interruptible.interrupt, flow_id)
-    await client.wait_for_flow(flow_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
 
 
-async def _status_is(
-    client: AsyncClient, flow_id: str, status: FlowStatus
-) -> bool:
+async def _status_is(client: AsyncClient, flow_id: str, status: FlowStatus) -> bool:
     return await flow_status_or_none(client, flow_id) is status
 
 
@@ -144,11 +141,11 @@ async def test_parallel_simple_and_with_await(
         JobSeeker("123", "jobseeker@example.com", "0987654321"),
         start_options(),
     )
-    await client.wait_for_flow(simple_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(simple_id, type(None), WAIT_TIMEOUT)
 
     await_id = new_flow_id("parallel-await")
     await client.start_flow(app.parallel_with_await, await_id, 5, start_options())
-    await client.wait_for_flow(await_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(await_id, type(None), WAIT_TIMEOUT)
 
 
 async def test_pattern_polling_simple_and_backoff(
@@ -158,11 +155,11 @@ async def test_pattern_polling_simple_and_backoff(
 ) -> None:
     simple_id = new_flow_id("pattern-poll-simple")
     await client.start_flow(app.simple_polling, simple_id, None, start_options())
-    await client.wait_for_flow(simple_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(simple_id, type(None), WAIT_TIMEOUT)
 
     backoff_id = new_flow_id("pattern-poll-backoff")
     await client.start_flow(app.backoff_polling, backoff_id, None, start_options())
-    await client.wait_for_flow(backoff_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(backoff_id, type(None), WAIT_TIMEOUT)
 
 
 async def test_failure_recovery(
@@ -180,7 +177,7 @@ async def test_failure_recovery(
         start_options(),
     )
     with pytest.raises(FlowUncompletedError) as captured:
-        await client.wait_for_flow(flow_id, timeout=WAIT_TIMEOUT)
+        await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
     assert captured.value.status is FlowStatus.FAILED
     assert "Failed to process transaction" in str(captured.value)
 
@@ -193,7 +190,7 @@ async def test_reminder_accept(
     flow_id = new_flow_id("reminder")
     await client.start_flow(app.reminder, flow_id, None, start_options())
     await client.invoke_rpc(app.reminder.accept, flow_id)
-    await client.wait_for_flow(flow_id, timeout=WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
 
 
 async def test_resettable_timer(
@@ -221,7 +218,7 @@ async def test_scalable_parallel(
             id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED,
         ),
     )
-    await client.wait_for_flow(flow_id, timeout=LONG_WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, type(None), LONG_WAIT_TIMEOUT)
 
 
 async def test_parent_child(
@@ -249,21 +246,31 @@ async def test_parent_child(
     )
 
 
-async def test_storage_add_get_remove(
+async def test_entity_store_profile_lifecycle(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id(STORAGE_FLOW_ID)
-    await client.start_flow(app.storage, flow_id, None, start_options())
-    key = "item-1"
-    await client.invoke_rpc(
-        app.storage.add_item,
-        flow_id,
-        AddStorageItemRequest(key, "value-1"),
+    flow_id = new_flow_id("entity-store")
+    profile = UserProfile("Ada Lovelace", "ada@example.com", True)
+    options = (
+        StartFlowOptions(
+            timeout=timedelta(hours=1),
+            config_override=FlowConfig(attribute_store_name=STORE_NAME),
+        )
+        .with_attribute(app.user_profile.display_name, profile.display_name)
+        .with_attribute(app.user_profile.email, profile.email)
+        .with_attribute(app.user_profile.marketing_opt_in, profile.marketing_opt_in)
     )
-    assert await client.invoke_rpc(app.storage.get_item, flow_id, key) == "value-1"
-    await client.invoke_rpc(app.storage.remove_item, flow_id, key)
+    await client.start_flow(app.user_profile, flow_id, None, options)
+    updated = UserProfile("Ada Byron", "ada@example.com", False)
+    await client.invoke_rpc(
+        app.user_profile.update_profile,
+        flow_id,
+        updated,
+    )
+    assert await client.invoke_rpc(app.user_profile.get_profile, flow_id) == updated
+    await client.invoke_rpc(app.user_profile.clear_profile, flow_id)
 
 
 async def test_wait_for_state_completion(
@@ -283,7 +290,9 @@ async def test_wait_for_state_completion(
         StepExecutionId("PersistData"),
         timedelta(minutes=1),
     )
-    data = await client.invoke_rpc(app.wait_for_state_completion.get_job_seeker_data, flow_id)
+    data = await client.invoke_rpc(
+        app.wait_for_state_completion.get_job_seeker_data, flow_id
+    )
     assert data.id == 1
 
 

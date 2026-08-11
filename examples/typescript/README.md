@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@0.1.3`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@0.1.5`](https://www.npmjs.com/package/@superdurable/dex).
 
 The sample process hosts one gRPC Worker (default `127.0.0.1:8803`) and an HTTP
 controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
@@ -62,6 +62,6 @@ HTTP under `/design-pattern/...`:
 - Reminders
 - Resettable timer
 - Scalable parallel
-- Storage singleton
+- [Entity Store user profiles](./src/patterns/workflow/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for state completion

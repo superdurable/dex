@@ -60,7 +60,7 @@ const sidebars: SidebarsConfig = {
         'design-patterns/reminders',
         'design-patterns/resettable-timer',
         'design-patterns/scalable-parallel',
-        'design-patterns/storage',
+        'design-patterns/entity-store',
         'design-patterns/timeout',
         'design-patterns/wait-for-step-completion',
       ],

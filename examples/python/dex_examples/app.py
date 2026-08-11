@@ -42,6 +42,7 @@ from dex_examples.patterns.workflow.drainchannels.internal.drain_internal_channe
 from dex_examples.patterns.workflow.drainchannels.signal.drain_signal_channels_flow import (
     DrainSignalChannelsFlow,
 )
+from dex_examples.patterns.workflow.entitystore.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.workflow.interruptible.interruptible_execution_flow import (
     InterruptibleExecutionFlow,
 )
@@ -67,7 +68,6 @@ from dex_examples.patterns.workflow.scalableparallel.parent_flow import ParentFl
 from dex_examples.patterns.workflow.scalableparallel.request_receiver_flow import (
     RequestReceiverFlow,
 )
-from dex_examples.patterns.workflow.storage.storage_flow import StorageFlow
 from dex_examples.patterns.workflow.timeout.flow_graceful_timeout import FlowGracefulTimeout
 from dex_examples.patterns.workflow.waitforstatecompletion.wait_for_state_completion_flow import (
     WaitForStateCompletionFlow,
@@ -121,7 +121,7 @@ class ExampleApp:
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.resettable_timer = ResettableTimerFlow()
-        self.storage = StorageFlow()
+        self.user_profile = UserProfileFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_state_completion = WaitForStateCompletionFlow(pattern_service)
 
@@ -158,7 +158,7 @@ class ExampleApp:
             self.failure_recovery,
             self.reminder,
             self.resettable_timer,
-            self.storage,
+            self.user_profile,
             self.timeout,
             self.wait_for_state_completion,
             self.child_flow,

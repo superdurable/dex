@@ -12,18 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-
-@dataclass
-class AddStorageItemRequest:
-    key: str
-    value: str
-
-    def __post_init__(self) -> None:
-        if self.key is None:
-            raise ValueError("key is null")
-        if self.value is None:
-            raise ValueError("value is null")
+services:
+  entity-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: entity_store
+      POSTGRES_USER: entity_store
+      POSTGRES_PASSWORD: entity_store
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U entity_store -d entity_store"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "55432:5432"
+    volumes:
+      - "./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"

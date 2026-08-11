@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/superdurable/dex/config"
 )
 
 const (
@@ -50,6 +52,8 @@ type Config struct {
 	TemporalDBFilename string
 	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent store.
 	BlobStoreDirectory string
+	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
+	AttributeStoreConfigPath string
 	// OpenBrowser defaults false and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
@@ -82,6 +86,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"blob-store-dir",
 		cfg.BlobStoreDirectory,
 		"Dex blob storage directory",
+	)
+	flags.StringVar(
+		&cfg.AttributeStoreConfigPath,
+		"attribute-store-config",
+		"",
+		"Dex YAML file supplying attributeStore settings",
 	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", false, "open Dex Web after startup")
 	flags.Usage = func() {
@@ -189,6 +199,23 @@ func (c *Config) temporalAddress() string {
 		return c.TemporalAddress
 	}
 	return net.JoinHostPort(c.BindAddress, strconv.Itoa(c.TemporalPort))
+}
+
+func (c *Config) loadAttributeStoreConfig() (config.AttributeStoreConfig, error) {
+	if c.AttributeStoreConfigPath == "" {
+		return config.AttributeStoreConfig{}, nil
+	}
+	serverConfig, err := config.NewConfig(c.AttributeStoreConfigPath)
+	if err != nil {
+		return config.AttributeStoreConfig{}, fmt.Errorf("load Attribute Store config: %w", err)
+	}
+	if err := serverConfig.AttributeStore.Validate(); err != nil {
+		return config.AttributeStoreConfig{}, fmt.Errorf("validate Attribute Store config: %w", err)
+	}
+	if len(serverConfig.AttributeStore.Stores) == 0 {
+		return config.AttributeStoreConfig{}, fmt.Errorf("Attribute Store config does not define any stores")
+	}
+	return serverConfig.AttributeStore, nil
 }
 
 func validateDistinctAddresses(addresses map[string]string) error {

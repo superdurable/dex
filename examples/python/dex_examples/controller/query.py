@@ -49,6 +49,14 @@ async def required_body_field(name: str) -> str:
     return value
 
 
+async def required_bool_body_field(name: str) -> bool:
+    body = await request.get_json(silent=True)
+    value = body.get(name) if isinstance(body, dict) else None
+    if not isinstance(value, bool):
+        abort(400, description=f"{name} must be a boolean in the request body")
+    return value
+
+
 def new_flow_id(prefix: str) -> str:
     return f"{prefix}-{time.time_ns()}"
 

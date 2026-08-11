@@ -46,6 +46,26 @@ dexcli dev --blob-store-dir ./dex-blobs
 `--blob-store-dir` takes precedence over the directory derived from
 `--temporal-db-filename`.
 
+Configure local Attribute Store projection with the same YAML section accepted
+by Dex Server:
+
+```bash
+dexcli dev --attribute-store-config ./attribute-store.yaml
+```
+
+```yaml
+attributeStore:
+  stores:
+    entityStore:
+      type: postgres
+      dsn: postgres://user:password@localhost:5432/database
+      tableName: public.user_profiles
+```
+
+Only `attributeStore` is read from this file. `dexcli` continues to own its local
+API, Temporal, Web, and blob-store settings. The destination database and table
+must exist and be reachable before startup.
+
 ## Application-facing flags
 
 ```text
@@ -54,6 +74,7 @@ dexcli dev --blob-store-dir ./dex-blobs
 --web-port int                 Dex Web port (default 8802)
 --temporal-db-filename string  local Temporal SQLite file
 --blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
+--attribute-store-config string  Dex YAML file supplying Attribute Store settings
 --open                         open Dex Web after readiness
 ```
 

@@ -18,32 +18,31 @@ import json
 import time
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any, Awaitable, Callable
 
 from dex import (
+    FlowConfig,
     FlowNotActiveError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
 )
-from quart import Blueprint
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.controller.query import (
     optional_query,
     required_body_field,
+    required_bool_body_field,
     required_int_query,
     required_query,
 )
+from dex_examples.patterns.workflow.entitystore.user_profile import UserProfileRequest
+from dex_examples.patterns.workflow.entitystore.user_profile_flow import STORE_NAME
 from dex_examples.patterns.workflow.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.workflow.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
-from dex_examples.patterns.workflow.storage.add_storage_item_request import (
-    AddStorageItemRequest,
-)
-from dex_examples.patterns.workflow.storage.storage_flow import STORAGE_FLOW_ID
 from dex_examples.patterns.workflow.waitforstatecompletion.job_seeker_data import (
     JobSeekerData,
 )
@@ -122,47 +121,64 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return "done"
 
-    @blueprint.post("/storage/add")
-    async def add_storage_item() -> str:
-        item = AddStorageItemRequest(
-            await required_body_field("key"),
-            await required_body_field("value"),
+    @blueprint.post("/entity-store/profile")
+    async def create_user_profile() -> str:
+        profile_request = UserProfileRequest(
+            await required_body_field("userId"),
+            await required_body_field("displayName"),
+            await required_body_field("email"),
+            await required_bool_body_field("marketingOptIn"),
         )
-        await invoke_storage_rpc(
-            app_state,
-            lambda: app_state.client.invoke_rpc(
-                app_state.storage.add_item,
-                STORAGE_FLOW_ID,
-                item,
-            ),
+        profile = profile_request.profile()
+        options = (
+            StartFlowOptions(
+                timeout=timedelta(hours=1),
+                config_override=FlowConfig(attribute_store_name=STORE_NAME),
+            )
+            .with_attribute(app_state.user_profile.display_name, profile.display_name)
+            .with_attribute(app_state.user_profile.email, profile.email)
+            .with_attribute(
+                app_state.user_profile.marketing_opt_in,
+                profile.marketing_opt_in,
+            )
         )
-        return "Added storage item"
+        return await app_state.client.start_flow(
+            app_state.user_profile,
+            profile_request.user_id,
+            None,
+            options,
+        )
 
-    @blueprint.get("/storage/get")
-    async def get_storage_item() -> str:
-        item_key = required_query("itemKey")
-        item_value = await invoke_storage_rpc(
-            app_state,
-            lambda: app_state.client.invoke_rpc(
-                app_state.storage.get_item,
-                STORAGE_FLOW_ID,
-                item_key,
-            ),
+    @blueprint.post("/entity-store/profile/update")
+    async def update_user_profile() -> str:
+        profile_request = UserProfileRequest(
+            await required_body_field("userId"),
+            await required_body_field("displayName"),
+            await required_body_field("email"),
+            await required_bool_body_field("marketingOptIn"),
         )
-        return f"Item: {item_value}"
+        await app_state.client.invoke_rpc(
+            app_state.user_profile.update_profile,
+            profile_request.user_id,
+            profile_request.profile(),
+        )
+        return "Updated user profile"
 
-    @blueprint.post("/storage/remove")
-    async def remove_storage_item() -> str:
-        item_key = required_query("itemKey")
-        await invoke_storage_rpc(
-            app_state,
-            lambda: app_state.client.invoke_rpc(
-                app_state.storage.remove_item,
-                STORAGE_FLOW_ID,
-                item_key,
-            ),
+    @blueprint.get("/entity-store/profile")
+    async def get_user_profile() -> Response:
+        profile = await app_state.client.invoke_rpc(
+            app_state.user_profile.get_profile,
+            required_query("userId"),
         )
-        return "Removed storage item"
+        return jsonify(asdict(profile))
+
+    @blueprint.post("/entity-store/profile/clear")
+    async def clear_user_profile() -> str:
+        await app_state.client.invoke_rpc(
+            app_state.user_profile.clear_profile,
+            required_query("userId"),
+        )
+        return "Cleared user profile"
 
     @blueprint.get("/intervention/start")
     async def start_intervention() -> str:
@@ -302,20 +318,3 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return f"success for workflow {flow_id}"
 
     return blueprint
-
-
-async def invoke_storage_rpc(
-    app_state: ExampleApp, invoke: Callable[[], Awaitable[Any]]
-) -> Any:
-    """Returns the RPC result, starting the singleton storage Flow on first use."""
-    try:
-        return await invoke()
-    except FlowNotActiveError:
-        pass
-    await app_state.client.start_flow(
-        app_state.storage,
-        STORAGE_FLOW_ID,
-        None,
-        start_options(),
-    )
-    return await invoke()

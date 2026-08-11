@@ -1,0 +1,117 @@
+---
+title: Entity Store
+---
+
+# Entity Store
+
+Keep durable entity state in one Flow per entity while projecting selected fields
+into an application-owned PostgreSQL table.
+
+## Problem and approach
+
+Applications often need both durable orchestration state and a conventional SQL
+read model. `UserProfileFlow` uses the user ID as its Flow ID, stores the profile
+as three Attributes, and opts those definitions into Attribute Store sync. The
+Flow selects the Server store named `entityStore`, whose destination table uses
+the Flow ID as its `user_id` primary key.
+
+Dex remains authoritative. SQL projection is asynchronous, latest-state only,
+and cannot roll back a successful Flow Attribute write.
+
+## Key components
+
+1. **`UserProfileFlow`**: One long-lived Flow per user.
+2. **Synced Attribute definitions**: `display_name`, `email`, and
+   `marketing_opt_in` project every initial value, RPC update, and deletion.
+3. **`FlowConfig`**: Selects the Server-configured `entityStore` target.
+4. **`user_profiles`**: Application-owned PostgreSQL table whose primary key is
+   populated from the Flow ID.
+
+## API endpoints
+
+- `POST /design-pattern/entity-store/profile` — create a profile Flow
+- `POST /design-pattern/entity-store/profile/update` — update its synced fields
+- `GET /design-pattern/entity-store/profile?userId=...` — read authoritative Flow state
+- `POST /design-pattern/entity-store/profile/clear?userId=...` — delete the synced values
+
+Clearing the profile leaves its SQL row in place and projects SQL `NULL` into the
+three nullable columns.
+
+## SDK definitions
+
+<SdkTabs>
+  <SdkSnippet lang="python">
+
+```python
+class UserProfileFlow(Flow[None]):
+    display_name = Attribute("display_name", str, sync_to_attribute_store=True)
+    email = Attribute("email", str, sync_to_attribute_store=True)
+    marketing_opt_in = Attribute(
+        "marketing_opt_in", bool, sync_to_attribute_store=True
+    )
+
+await client.start_flow(
+    flow,
+    user_id,
+    None,
+    StartFlowOptions(
+        attributes=[...],
+        config_override=FlowConfig(attribute_store_name="entityStore"),
+    ),
+)
+```
+
+  </SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var DisplayName = dex.DefineAttribute[string](
+    "display_name",
+    dex.SyncToAttributeStore(),
+)
+
+config := dex.FlowConfig{
+    AttributeStoreName: ptr.Any("entityStore"),
+}
+```
+
+  </SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+Attribute<String> displayName =
+    Attribute.define("display_name", String.class).syncToAttributeStore();
+
+FlowConfig config = FlowConfig.newBuilder()
+    .attributeStoreName("entityStore")
+    .build();
+```
+
+  </SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const displayName = new Attribute("display_name", stringCodec)
+  .syncToAttributeStore();
+
+const options = {
+  attributes: [InitialAttribute.of(displayName, "Ada Lovelace")],
+  configOverride: { attributeStoreName: "entityStore" },
+};
+```
+
+  </SdkSnippet>
+</SdkTabs>
+
+## Run with PostgreSQL
+
+The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store)
+starts PostgreSQL, creates `public.user_profiles`, and passes the `entityStore`
+configuration to `dexcli dev`. The language examples intentionally keep their
+normal test suites independent of PostgreSQL.
+
+## Related
+
+- [Storage sync](/capabilities/advanced/storage-sync)
+- [Custom Attribute Store operations](/production/attribute-store)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

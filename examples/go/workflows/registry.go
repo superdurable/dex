@@ -28,6 +28,7 @@ import (
 	"github.com/superdurable/dex/examples/go/workflows/patterns/cron"
 	draininternal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/draininternal"
 	drainsignal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/signal"
+	"github.com/superdurable/dex/examples/go/workflows/patterns/entitystore"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/parallel"
@@ -38,7 +39,6 @@ import (
 	"github.com/superdurable/dex/examples/go/workflows/patterns/resettabletimer"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/scalableparallel"
 	patternsservice "github.com/superdurable/dex/examples/go/workflows/patterns/service"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/storage"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/waitforstatecompletion"
 	"github.com/superdurable/dex/examples/go/workflows/polling"
@@ -71,7 +71,7 @@ var (
 	BackoffPolling         *patternspolling.BackoffPollingFlow
 	InterruptibleExecution *interruptible.InterruptibleExecutionFlow
 	Reminder               *reminders.ReminderFlow
-	Storage                *storage.StorageFlow
+	UserProfile            *entitystore.UserProfileFlow
 	ManualIntervention     *intervention.ManualInterventionFlow
 	ResettableTimer        *resettabletimer.ResettableTimerFlow
 	SimpleParallel         *parallel.SimpleParallelStatesFlow
@@ -118,7 +118,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	BackoffPolling = patternspolling.NewBackoffPollingFlow(patternService)
 	InterruptibleExecution = interruptible.NewInterruptibleExecutionFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
-	Storage = storage.NewStorageFlow()
+	UserProfile = entitystore.NewUserProfileFlow()
 	ManualIntervention = intervention.NewManualInterventionFlow(patternService)
 	ResettableTimer = resettabletimer.NewResettableTimerFlow()
 	SimpleParallel = parallel.NewSimpleParallelStatesFlow(patternService)
@@ -155,7 +155,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		BackoffPolling,
 		InterruptibleExecution,
 		Reminder,
-		Storage,
+		UserProfile,
 		ManualIntervention,
 		ResettableTimer,
 		SimpleParallel,

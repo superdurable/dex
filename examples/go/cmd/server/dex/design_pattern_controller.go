@@ -21,7 +21,6 @@
 package dex
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,12 +31,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/workflows"
 	drainsignal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/signal"
+	"github.com/superdurable/dex/examples/go/workflows/patterns/entitystore"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/parallel"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/reminders"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/storage"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/waitforstatecompletion"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 type designPatternController struct {
@@ -56,9 +56,10 @@ func (controller *designPatternController) registerRoutes(router *gin.Engine) {
 	router.GET("/design-pattern/workflow-with-reminder/start", controller.startReminder)
 	router.GET("/design-pattern/workflow-with-reminder/accept", controller.acceptReminder)
 	router.GET("/design-pattern/workflow-with-reminder/optout", controller.optOutReminder)
-	router.POST("/design-pattern/storage/add", controller.addStorageItem)
-	router.GET("/design-pattern/storage/get", controller.getStorageItem)
-	router.POST("/design-pattern/storage/remove", controller.removeStorageItem)
+	router.POST("/design-pattern/entity-store/profile", controller.createUserProfile)
+	router.POST("/design-pattern/entity-store/profile/update", controller.updateUserProfile)
+	router.GET("/design-pattern/entity-store/profile", controller.getUserProfile)
+	router.POST("/design-pattern/entity-store/profile/clear", controller.clearUserProfile)
 	router.GET("/design-pattern/intervention/start", controller.startIntervention)
 	router.GET("/design-pattern/resettabletimer/start", controller.startResettableTimer)
 	router.GET("/design-pattern/resettabletimer/reset", controller.resetResettableTimer)
@@ -191,137 +192,105 @@ func (controller *designPatternController) optOutReminder(request *gin.Context) 
 	respondString(request, "done", err)
 }
 
-func (controller *designPatternController) addStorageItem(request *gin.Context) {
-	itemRequest, ok := bindStorageItemRequest(request)
-	if !ok {
-		return
-	}
-	err := controller.invokeStorageRPC(
-		request.Request.Context(),
-		func() error {
-			var none sdk.None
-			return controller.client.InvokeRPC(
-				request.Request.Context(),
-				storage.StorageFlowID,
-				workflows.Storage.AddItem,
-				itemRequest,
-				&none,
-				sdk.InvokeOptions{},
-			)
-		},
-		true,
-	)
-	respondString(request, "Added storage item", err)
-}
-
-func (controller *designPatternController) getStorageItem(request *gin.Context) {
-	itemKey, found := requiredQuery(request, "itemKey")
+func (controller *designPatternController) createUserProfile(request *gin.Context) {
+	profileRequest, found := bindUserProfileRequest(request)
 	if !found {
 		return
 	}
-	var itemValue string
-	err := controller.invokeStorageRPCWithOutput(
+	options, err := entityStoreStartOptions(profileRequest.UserProfile)
+	if err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
-		func() error {
-			return controller.client.InvokeRPC(
-				request.Request.Context(),
-				storage.StorageFlowID,
-				workflows.Storage.GetItem,
-				itemKey,
-				&itemValue,
-				sdk.InvokeOptions{},
-			)
-		},
-		true,
+		workflows.UserProfile,
+		profileRequest.UserID,
+		nil,
+		options,
+	)
+	respondString(request, runID, err)
+}
+
+func (controller *designPatternController) updateUserProfile(request *gin.Context) {
+	profileRequest, found := bindUserProfileRequest(request)
+	if !found {
+		return
+	}
+	var none sdk.None
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		profileRequest.UserID,
+		workflows.UserProfile.UpdateProfile,
+		profileRequest.UserProfile,
+		&none,
+		sdk.InvokeOptions{},
+	)
+	respondString(request, "Updated user profile", err)
+}
+
+func (controller *designPatternController) getUserProfile(request *gin.Context) {
+	userID, found := requiredQuery(request, "userId")
+	if !found {
+		return
+	}
+	var profile entitystore.UserProfile
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		userID,
+		workflows.UserProfile.GetProfile,
+		nil,
+		&profile,
+		sdk.InvokeOptions{},
 	)
 	if err != nil {
 		respondString(request, "", err)
 		return
 	}
-	respondString(request, "Item: "+itemValue, nil)
+	request.JSON(http.StatusOK, profile)
 }
 
-func (controller *designPatternController) removeStorageItem(request *gin.Context) {
-	itemKey, found := requiredQuery(request, "itemKey")
+func (controller *designPatternController) clearUserProfile(request *gin.Context) {
+	userID, found := requiredQuery(request, "userId")
 	if !found {
 		return
 	}
-	err := controller.invokeStorageRPC(
+	var none sdk.None
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
-		func() error {
-			var none sdk.None
-			return controller.client.InvokeRPC(
-				request.Request.Context(),
-				storage.StorageFlowID,
-				workflows.Storage.RemoveItem,
-				itemKey,
-				&none,
-				sdk.InvokeOptions{},
-			)
-		},
-		true,
-	)
-	respondString(request, "Removed storage item", err)
-}
-
-func bindStorageItemRequest(request *gin.Context) (storage.AddStorageItemRequest, bool) {
-	var raw map[string]string
-	if err := request.ShouldBindJSON(&raw); err != nil {
-		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return storage.AddStorageItemRequest{}, false
-	}
-	key := raw["key"]
-	if key == "" {
-		key = raw["Key"]
-	}
-	value := raw["value"]
-	if value == "" {
-		value = raw["Value"]
-	}
-	if key == "" || value == "" {
-		request.JSON(http.StatusBadRequest, gin.H{"error": "key and value are required"})
-		return storage.AddStorageItemRequest{}, false
-	}
-	return storage.AddStorageItemRequest{Key: key, Value: value}, true
-}
-
-func (controller *designPatternController) invokeStorageRPC(
-	ctx context.Context,
-	invoke func() error,
-	attemptStart bool,
-) error {
-	if attemptStart {
-		if err := controller.ensureStorageFlow(ctx); err != nil {
-			return err
-		}
-	}
-	return invoke()
-}
-
-func (controller *designPatternController) invokeStorageRPCWithOutput(
-	ctx context.Context,
-	invoke func() error,
-	attemptStart bool,
-) error {
-	return controller.invokeStorageRPC(ctx, invoke, attemptStart)
-}
-
-func (controller *designPatternController) ensureStorageFlow(ctx context.Context) error {
-	_, err := controller.client.StartFlow(
-		ctx,
-		workflows.Storage,
-		storage.StorageFlowID,
+		userID,
+		workflows.UserProfile.ClearProfile,
 		nil,
-		patternStartOptions(),
+		&none,
+		sdk.InvokeOptions{},
 	)
-	if err == nil {
-		return nil
+	respondString(request, "Cleared user profile", err)
+}
+
+func bindUserProfileRequest(request *gin.Context) (entitystore.UserProfileRequest, bool) {
+	var profileRequest entitystore.UserProfileRequest
+	if err := request.ShouldBindJSON(&profileRequest); err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return entitystore.UserProfileRequest{}, false
 	}
-	var duplicate *sdk.FlowAlreadyStartedError
-	if errors.As(err, &duplicate) {
-		return nil
+	if profileRequest.UserID == "" {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "userId is required"})
+		return entitystore.UserProfileRequest{}, false
 	}
-	return err
+	return profileRequest, true
+}
+
+func entityStoreStartOptions(profile entitystore.UserProfile) (sdk.StartFlowOptions, error) {
+	attributes, err := entitystore.InitialAttributes(profile)
+	if err != nil {
+		return sdk.StartFlowOptions{}, err
+	}
+	options := patternStartOptions()
+	options.Attributes = attributes
+	options.ConfigOverride = &sdk.FlowConfig{
+		AttributeStoreName: ptr.Any(entitystore.StoreName),
+	}
+	return options, nil
 }
 
 func (controller *designPatternController) startIntervention(request *gin.Context) {

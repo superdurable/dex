@@ -1,6 +1,6 @@
 # Dex Python examples
 
-These examples target [`dex-python-sdk==0.1.1`](https://pypi.org/project/dex-python-sdk/0.1.1/)
+These examples target [`dex-python-sdk==0.1.3`](https://pypi.org/project/dex-python-sdk/0.1.3/)
 (`import dex`). Requires Python 3.11+.
 
 The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a
@@ -79,7 +79,7 @@ HTTP under `/design-pattern/...`:
 - Reminders
 - Resettable timer
 - Scalable parallel
-- Storage singleton
+- [Entity Store user profiles](./dex_examples/patterns/workflow/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for state completion
 
