@@ -46,7 +46,7 @@ class SignalCombinationStep(Step[int]):
             ConditionCombination.of(
                 self.first.for_one(condition_id="signal-1"),
                 self.third.for_one(condition_id="signal-3"),
-                self.signal_map.for_one("one"),
+                self.signal_map.for_one("one", condition_id="signal-map"),
                 Timer.by_duration(
                     timedelta(days=365),
                     condition_id="test-timer-id",

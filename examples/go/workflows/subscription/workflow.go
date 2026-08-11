@@ -98,6 +98,9 @@ func (initializeStep) Execute(
 	if err := CustomerDetails.Set(ctx, customer); err != nil {
 		return nil, err
 	}
+	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
+		return nil, err
+	}
 	return initializeSubscription(), nil
 }
 
@@ -121,9 +124,6 @@ func (trialStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	if err := BillingPeriodNumber.Set(ctx, 0); err != nil {
-		return nil, err
-	}
 	return executeTrial(), nil
 }
 

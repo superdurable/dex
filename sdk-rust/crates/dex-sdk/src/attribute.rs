@@ -226,6 +226,16 @@ impl<T> AttributeMap<T> {
         context.delete_attribute_map(self, instance)
     }
 
+    /// Returns the effective number of instances, including buffered writes.
+    pub fn map_size(&self, context: &Context) -> HandlerResult<usize> {
+        Ok(self.all_instance_keys(context)?.len())
+    }
+
+    /// Returns decoded effective instance keys in ascending string order.
+    pub fn all_instance_keys(&self, context: &Context) -> HandlerResult<Vec<String>> {
+        context.attribute_map_keys(self)
+    }
+
     /// Creates a lock request scoped to one map instance.
     pub fn lock(&self, instance: impl Into<String>) -> AttributeLock {
         AttributeLock {

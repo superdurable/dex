@@ -12,10 +12,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  Attribute,
   FlowNotActiveError,
   FlowNotFoundError,
   InitialAttribute,
+  LongPollTimeoutError,
+  bytesCodec,
   stringCodec,
+  voidCodec,
 } from "../../src/index.js";
 import { BasicPersistenceFlow } from "./basic_persistence_flow.js";
 import { expectError, flowId, withEnvironment } from "./environment.js";
@@ -79,8 +83,35 @@ test("Client sets scalar, mapped, and model data attributes", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("set-data-attributes");
     await client.startFlow(flow, id, "start");
+    await expectError(
+      client.waitForAttributeEqual(id, flow.data, "never", 1_000),
+      LongPollTimeoutError,
+    );
+    const waiting = client.waitForAttributeEqual(id, flow.data, "query-start", 30_000);
     await client.setAttribute(id, flow.data, "query-start");
+    await waiting;
+    const waitingMap = client.waitForAttributeMapEqual(
+      id,
+      flow.dataMap,
+      "special / key",
+      "mapped-value",
+      30_000,
+    );
     await client.setAttribute(id, flow.dataMap, "one", "mapped-value");
+    await client.setAttribute(id, flow.dataMap, "special / key", "mapped-value");
+    await waitingMap;
+    await assert.rejects(
+      client.waitForAttributeEqual(id, flow.model, { value: 8 }, 30_000),
+      /only scalar/,
+    );
+    await assert.rejects(
+      client.waitForAttributeEqual(id, new Attribute("bytes", bytesCodec), new Uint8Array([1]), 30_000),
+      /only scalar/,
+    );
+    await assert.rejects(
+      client.waitForAttributeEqual(id, new Attribute("null", voidCodec), undefined, 30_000),
+      /only scalar/,
+    );
     await client.setAttribute(id, flow.model, { value: 7 });
     await client.publish(id, flow.proceed, undefined);
 

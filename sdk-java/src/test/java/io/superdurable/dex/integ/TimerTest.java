@@ -42,7 +42,7 @@ public final class TimerTest {
             environment.client().startFlow(WORKFLOW, flowId, 5);
             environment.client().waitForStepCompletion(
                     flowId,
-                    new StepExecutionId("TimerStep"),
+                    StepExecutionId.of("TimerStep"),
                     Duration.ofSeconds(10));
             environment.client().waitForFlow(flowId);
             final long elapsedMillis = Duration.ofNanos(
@@ -57,7 +57,7 @@ public final class TimerTest {
         client.startFlow(WORKFLOW, "timer", 1);
         client.waitForStepCompletion(
                 "timer",
-                new StepExecutionId("TimerStep"),
+                StepExecutionId.of("TimerStep"),
                 Duration.ofSeconds(10));
         client.waitForFlow("timer");
     }

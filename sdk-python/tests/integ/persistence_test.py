@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dex import Client, StartFlowOptions
 
@@ -43,5 +43,11 @@ def compile_persistence_writes(client: Client) -> None:
     client.set_attribute("set-attributes", flow.integer, 1)
     client.set_attribute("set-attributes", flow.bool, True)
     client.set_attribute("set-attributes", flow.keywords, ("one", "two"))
+    client.wait_for_attribute_equal(
+        "set-attributes", flow.data, "value", timedelta(seconds=30)
+    )
+    client.wait_for_attribute_map_equal(
+        "set-attributes", flow.data_map, "one", "value", timedelta(seconds=30)
+    )
     output: str = client.wait_for_flow("set-attributes", str)
     del output

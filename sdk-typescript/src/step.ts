@@ -313,7 +313,7 @@ export const forceComplete = (output?: unknown): StepDecision => ({ kind: "force
  * @param channels - Registered Channel definitions to inspect.
  * @returns A conditional force-completion decision.
  */
-export const forceCompleteWhenChannelsEmpty = (
+export const forceCompleteIfChannelsEmpty = (
   output: unknown,
   fallback: StepMovement<unknown>,
   ...channels: readonly (Channel<unknown> | ChannelMap<unknown>)[]

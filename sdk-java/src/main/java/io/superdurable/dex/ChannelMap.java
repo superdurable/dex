@@ -83,6 +83,29 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
+     * Returns the number of non-empty instances visible to the current RPC.
+     *
+     * @param context the RPC invocation context
+     * @return the current number of non-empty instances
+     */
+    public int getMapSize(final Context context) {
+        return getAllInstanceKeys(context).size();
+    }
+
+    /**
+     * Returns non-empty instance keys in ascending order for the current RPC.
+     *
+     * @param context the RPC invocation context
+     * @return an immutable sorted list of decoded instance keys
+     */
+    public List<String> getAllInstanceKeys(final Context context) {
+        if (!(context instanceof InvocationContext)) {
+            throw new IllegalArgumentException("Dex invocation Context is required");
+        }
+        return ((InvocationContext) context).channelMapKeys(this);
+    }
+
+    /**
      * Returns messages consumed by a satisfied condition for one map instance.
      *
      * @param context the Step invocation context

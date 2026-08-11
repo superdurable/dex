@@ -86,7 +86,7 @@ public class DrainSignalChannelsFlow implements Flow<String> {
                 throw new RuntimeException(e);
             }
 
-            return StepDecision.forceCompleteWhenChannelsEmpty(
+            return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
                     StepMovement.of(processSignal, null),
                     queueSignalChannel);

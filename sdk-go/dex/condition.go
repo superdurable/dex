@@ -54,6 +54,7 @@ func AnyOf(conditions ...Condition) *Wait {
 }
 
 // AnyComboOf waits until every Condition in at least one combination is satisfied.
+// Every Condition requires a non-empty user-provided ID.
 func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
 }

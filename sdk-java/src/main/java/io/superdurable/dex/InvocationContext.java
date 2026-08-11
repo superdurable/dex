@@ -26,6 +26,8 @@ import io.superdurable.gen.TimerResult;
 import io.superdurable.gen.Value;
 
 import java.time.Instant;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -247,6 +249,58 @@ final class InvocationContext implements Context {
 
     List<AttributeWrite> getAttributeWrites() {
         return new ArrayList<AttributeWrite>(attributeWrites.values());
+    }
+
+    List<String> attributeMapKeys(final AttributeMap<?> attribute) {
+        requireRegistered(attribute);
+        final String prefix = attribute.getName() + "/";
+        final Set<String> physicalKeys = new HashSet<String>();
+        for (String key : attributes.keySet()) {
+            if (key.startsWith(prefix)) {
+                physicalKeys.add(key);
+            }
+        }
+        for (Map.Entry<String, AttributeWrite> entry : attributeWrites.entrySet()) {
+            if (!entry.getKey().startsWith(prefix)) {
+                continue;
+            }
+            if (entry.getValue().getValue().getKindCase() == Value.KindCase.NULL_VALUE) {
+                physicalKeys.remove(entry.getKey());
+            } else {
+                physicalKeys.add(entry.getKey());
+            }
+        }
+        return sortedInstanceKeys(prefix, physicalKeys);
+    }
+
+    List<String> channelMapKeys(final ChannelMap<?> channel) {
+        requireRegistered(channel);
+        if (method != Method.RPC) {
+            throw new IllegalStateException("ChannelMap introspection requires an RPC invocation");
+        }
+        final String prefix = channel.getName() + "/";
+        final Set<String> physicalKeys = new HashSet<String>();
+        for (Map.Entry<String, ChannelInfo> entry : channelInfos.entrySet()) {
+            if (entry.getValue().getSize() > 0 && entry.getKey().startsWith(prefix)) {
+                physicalKeys.add(entry.getKey());
+            }
+        }
+        return sortedInstanceKeys(prefix, physicalKeys);
+    }
+
+    private static List<String> sortedInstanceKeys(
+            final String prefix,
+            final Set<String> physicalKeys) {
+        final List<String> keys = new ArrayList<String>(physicalKeys.size());
+        for (String physical : physicalKeys) {
+            try {
+                keys.add(URLDecoder.decode(physical.substring(prefix.length()), "UTF-8"));
+            } catch (UnsupportedEncodingException impossible) {
+                throw new IllegalStateException(impossible);
+            }
+        }
+        Collections.sort(keys);
+        return Collections.unmodifiableList(keys);
     }
 
     List<KV> getLocalWrites() {

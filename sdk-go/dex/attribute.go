@@ -176,6 +176,20 @@ func (a AttributeMap[T]) Delete(ctx Context, instance string) error {
 	return invocation.deleteAttributeMap(a.name, instance, a.index)
 }
 
+// MapSize returns the number of existing instances, including writes buffered by this invocation.
+func (a AttributeMap[T]) MapSize(ctx Context) int {
+	return len(a.AllInstanceKeys(ctx))
+}
+
+// AllInstanceKeys returns existing instance keys in ascending order, including buffered writes.
+func (a AttributeMap[T]) AllInstanceKeys(ctx Context) []string {
+	invocation, ok := ctx.(attributeInvocation)
+	if !ok {
+		panic(errInvalidInvocationContext)
+	}
+	return invocation.attributeMapKeys(a.name)
+}
+
 // AttributeName returns the stable shared name of this Attribute map.
 func (a AttributeMap[T]) AttributeName() string {
 	return a.name
@@ -319,6 +333,7 @@ type attributeInvocation interface {
 	getAttributeMap(name string, instance string, valuePtr any) (bool, error)
 	setAttributeMap(name string, instance string, value any, index *AttributeIndex) error
 	deleteAttributeMap(name string, instance string, index *AttributeIndex) error
+	attributeMapKeys(name string) []string
 }
 
 type attributeConfig struct {

@@ -25,7 +25,7 @@ import {
   StepMovement,
   Wait,
   booleanCodec,
-  forceCompleteWhenChannelsEmpty,
+  forceCompleteIfChannelsEmpty,
   goTo,
   jsonCodec,
   rpc,
@@ -152,7 +152,7 @@ class LoopForNextMessage implements Step<void> {
     this.flow.currentWaitChildWfs.set(context, newWaitList);
 
     if (newWaitList.length === 0) {
-      return forceCompleteWhenChannelsEmpty(
+      return forceCompleteIfChannelsEmpty(
         null,
         StepMovement.of(this.flow.loopForNextMessageStep, undefined),
         this.flow.taskQueue,

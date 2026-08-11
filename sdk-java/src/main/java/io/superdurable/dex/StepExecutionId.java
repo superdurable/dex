@@ -17,7 +17,7 @@ package io.superdurable.dex;
  * {@link Client#waitForStepCompletion}. Execution numbers begin at one for each Step type.
  *
  * <pre>{@code
- * StepExecutionId execution = new StepExecutionId("ChargeCard", 2);
+ * StepExecutionId execution = StepExecutionId.of("ChargeCard", 2);
  * client.waitForStepCompletion("order-123", execution, Duration.ofSeconds(30));
  * }</pre>
  */
@@ -31,7 +31,7 @@ public final class StepExecutionId {
      * @param stepType the Step type; must not be blank
      * @throws IllegalArgumentException if {@code stepType} is {@code null} or blank
      */
-    public StepExecutionId(final String stepType) {
+    private StepExecutionId(final String stepType) {
         this(stepType, 1);
     }
 
@@ -42,9 +42,30 @@ public final class StepExecutionId {
      * @param executionNumber the one-based execution number
      * @throws IllegalArgumentException if {@code stepType} is {@code null} or blank
      */
-    public StepExecutionId(final String stepType, final int executionNumber) {
+    private StepExecutionId(final String stepType, final int executionNumber) {
         this.stepType = Attribute.requireName(stepType);
         this.executionNumber = executionNumber;
+    }
+
+    /**
+     * Selects the first execution of a Step type.
+     *
+     * @param stepType the Step type; must not be blank
+     * @return the first Step execution identifier
+     */
+    public static StepExecutionId of(final String stepType) {
+        return new StepExecutionId(stepType);
+    }
+
+    /**
+     * Selects an explicit execution number of a Step type.
+     *
+     * @param stepType the Step type; must not be blank
+     * @param executionNumber the one-based execution number
+     * @return the selected Step execution identifier
+     */
+    public static StepExecutionId of(final String stepType, final int executionNumber) {
+        return new StepExecutionId(stepType, executionNumber);
     }
 
     String getStepType() {

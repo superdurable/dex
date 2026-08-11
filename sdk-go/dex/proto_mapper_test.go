@@ -52,7 +52,7 @@ func TestDurationMappingRoundsUpAndRejectsInvalidValues(t *testing.T) {
 
 func TestWaitMappingAssignsStableConditionIDs(t *testing.T) {
 	channel := DefineChannel[string]("commands")
-	timer := Timer(time.Minute)
+	timer := Timer(time.Minute, WithConditionID("timer"))
 	command := channel.ForOne(WithConditionID("command"))
 	wait := AnyComboOf(
 		Combo(timer, command),
@@ -66,16 +66,16 @@ func TestWaitMappingAssignsStableConditionIDs(t *testing.T) {
 		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
 		mapped.WaitingConditionType,
 	)
-	require.Equal(t, internalIDPrefix+"0", mapped.TimerConditions[0].ConditionId)
+	require.Equal(t, "timer", mapped.TimerConditions[0].ConditionId)
 	require.Equal(t, "command", mapped.ChannelConditions[0].ConditionId)
 	require.Equal(
 		t,
-		[]string{internalIDPrefix + "0", "command"},
+		[]string{"timer", "command"},
 		mapped.ConditionCombinations[0].ConditionIds,
 	)
 	require.Equal(
 		t,
-		[]string{internalIDPrefix + "0"},
+		[]string{"timer"},
 		mapped.ConditionCombinations[1].ConditionIds,
 	)
 }
@@ -94,11 +94,20 @@ func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 	))
 	require.ErrorContains(t, err, "duplicate condition ID")
 
-	_, err = mapWait(AllOf(Timer(
+	mapped, err := mapWait(AllOf(Timer(
 		time.Second,
-		WithConditionID(internalIDPrefix+"1"),
+		WithConditionID("__dex_internal_condition_1"),
 	)))
-	require.ErrorContains(t, err, "reserved prefix")
+	require.NoError(t, err)
+	require.Equal(t, "__dex_internal_condition_1", mapped.TimerConditions[0].ConditionId)
+
+	_, err = mapWait(AnyComboOf(Combo(Timer(time.Second))))
+	require.ErrorContains(t, err, "every condition")
+
+	mapped, err = mapWait(AllOf(Timer(time.Second), channel.ForOne()))
+	require.NoError(t, err)
+	require.Empty(t, mapped.TimerConditions[0].ConditionId)
+	require.Empty(t, mapped.ChannelConditions[0].ConditionId)
 
 	_, err = mapWait(AllOf(channel.ForOne(WithConditionID(""))))
 	require.ErrorContains(t, err, "must not be empty")
@@ -150,7 +159,7 @@ func TestStepDecisionAndOptionsMapping(t *testing.T) {
 func TestCloseDecisionMapping(t *testing.T) {
 	channel := DefineChannel[string]("commands")
 	target := mapperStep{name: "fallback"}
-	decision := ForceCompleteOnChannelsEmpty(
+	decision := ForceCompleteIfChannelsEmpty(
 		"done",
 		[]ChannelDef{channel},
 		MovementOf(target, 1),
@@ -166,7 +175,7 @@ func TestCloseDecisionMapping(t *testing.T) {
 	require.Equal(t, []string{"commands"}, mapped.CloseDecision.ConditionalChannelNames)
 	require.Equal(t, "done", mapped.CloseDecision.CloseInput.GetStringValue())
 
-	_, err = mapStepDecision(ForceCompleteOnChannelsEmpty(
+	_, err = mapStepDecision(ForceCompleteIfChannelsEmpty(
 		nil,
 		[]ChannelDef{channel, channel},
 		MovementOf(target, 1),

@@ -8,11 +8,18 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from dex import FlowNotActiveError, FlowNotFoundError, StartFlowOptions
+from dex import (
+    Attribute,
+    FlowNotActiveError,
+    FlowNotFoundError,
+    LongPollTimeoutError,
+    StartFlowOptions,
+)
 
 from .basic_persistence_flow import BasicPersistenceFlow
 from .environment import DexDevTestEnvironment
@@ -90,8 +97,45 @@ def test_set_data_attributes() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("set-data-attributes")
         environment.client.start_flow(flow, flow_id, "start")
-        environment.client.set_attribute(flow_id, flow.data, "query-start")
-        environment.client.set_attribute(flow_id, flow.data_map, "one", "mapped-value")
+        with pytest.raises(LongPollTimeoutError):
+            environment.client.wait_for_attribute_equal(
+                flow_id, flow.data, "never", timedelta(seconds=1)
+            )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            waiting = executor.submit(
+                environment.client.wait_for_attribute_equal,
+                flow_id,
+                flow.data,
+                "query-start",
+                WAIT_TIMEOUT,
+            )
+            environment.client.set_attribute(flow_id, flow.data, "query-start")
+            waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            waiting = executor.submit(
+                environment.client.wait_for_attribute_map_equal,
+                flow_id,
+                flow.data_map,
+                "one",
+                "mapped-value",
+                WAIT_TIMEOUT,
+            )
+            environment.client.set_attribute(
+                flow_id, flow.data_map, "one", "mapped-value"
+            )
+            waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
+        with pytest.raises(ValueError, match="only scalar"):
+            environment.client.wait_for_attribute_equal(
+                flow_id, flow.model, ModelInput(value=8), WAIT_TIMEOUT
+            )
+        with pytest.raises(ValueError, match="only scalar"):
+            environment.client.wait_for_attribute_equal(
+                flow_id, Attribute("bytes", bytes), b"value", WAIT_TIMEOUT
+            )
+        with pytest.raises(ValueError, match="only scalar"):
+            environment.client.wait_for_attribute_equal(
+                flow_id, Attribute("null", type(None)), None, WAIT_TIMEOUT
+            )
         environment.client.set_attribute(flow_id, flow.model, ModelInput(value=7))
         environment.client.publish(flow_id, flow.proceed, None)
         assert (

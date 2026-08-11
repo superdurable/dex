@@ -369,7 +369,7 @@ public class DesignPatternController {
                 ExampleFlows.startOptions());
         client.waitForStepCompletion(
                 workflowId,
-                new StepExecutionId("PersistData"),
+                StepExecutionId.of("PersistData"),
                 Duration.ofMinutes(5));
         final WaitForStateCompletionFlow stub =
                 client.newRpcStub(WaitForStateCompletionFlow.class, workflowId);

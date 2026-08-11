@@ -121,7 +121,7 @@ final class ClientExceptionIntegrationTest {
                 LongPollTimeoutException.class,
                 () -> client.waitForStepCompletion(
                         "step-timeout",
-                        new StepExecutionId("WaitingStep", 1),
+                        StepExecutionId.of("WaitingStep", 1),
                         Duration.ofSeconds(1)));
         assertEquals("step-timeout", stepTimeout.getFlowId());
         assertEquals(Status.Code.DEADLINE_EXCEEDED, stepTimeout.getCode());

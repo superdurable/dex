@@ -1313,9 +1313,9 @@ appear in the public invocation response.
 
 WaitForAttributeEqual and WaitForAttributeMapEqual resolve the definition,
 encode the expected concrete value, and generate one request ID. The map form
-requires an instance. Index configuration is irrelevant to equality. A value
-that would require server-side blob comparison is still rejected by the server
-with `FailedPrecondition`; response hydration cannot change update semantics.
+requires an instance. Index configuration is irrelevant to equality. Only
+string, bool, integer, and double wire values are accepted; object, bytes, and
+null values fail locally before transport.
 
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
@@ -2064,10 +2064,10 @@ func WithConditionID(conditionID string) ConditionOption
 timer or channel condition, so an option cannot be passed directly to `AllOf`,
 `AnyOf`, or `Combo`.
 
-The SDK assigns internal IDs to unnamed conditions when serializing one `Wait`.
-`AnyComboOf` refers to the actual condition values supplied to `Combo`, so the
-application does not manually duplicate IDs. Explicit IDs remain useful for
-timer skipping.
+`AllOf` and `AnyOf` serialize unnamed conditions with an empty ID.
+`AnyComboOf` requires every Condition to have a non-empty user-provided ID.
+The same Condition value may be reused across combinations; distinct Conditions
+must not share an ID. Explicit IDs also remain useful for timer skipping.
 
 Channel values are read through the strongly typed channel handles.
 `Context.HasTimerFired` and `HasTimerFiredByIndex` expose timer completion
@@ -2110,7 +2110,7 @@ func ForceComplete(output any) *StepDecision
 func ForceFail(reason string) *StepDecision
 func DeadEnd() *StepDecision
 
-func ForceCompleteOnChannelsEmpty(
+func ForceCompleteIfChannelsEmpty(
 	output any,
 	channels []ChannelDef,
 	otherwise ...StepMovement,

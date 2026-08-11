@@ -16,7 +16,7 @@ import {
   Wait,
   booleanCodec,
   doubleCodec,
-  forceCompleteWhenChannelsEmpty,
+  forceCompleteIfChannelsEmpty,
   rpc,
   voidCodec,
   type Context,
@@ -47,7 +47,7 @@ class ConditionalStep implements Step<boolean> {
     const next = this.counter.get(context) + 1;
     this.counter.set(context, next);
     const selected = useSignal ? this.signal : this.internal;
-    return forceCompleteWhenChannelsEmpty(
+    return forceCompleteIfChannelsEmpty(
       next,
       StepMovement.of(this, useSignal),
       selected,

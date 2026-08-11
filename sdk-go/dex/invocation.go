@@ -13,7 +13,10 @@ package dex
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"reflect"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -144,24 +147,27 @@ func validateConditionResults(results *dexpb.ConditionResults) error {
 	conditionIDs := make(map[string]struct{},
 		len(results.TimerResults)+len(results.ChannelResults))
 	for index, result := range results.TimerResults {
-		if result == nil || result.ConditionId == "" ||
-			!validConditionStatus(result.ConditionStatus) {
+		if result == nil || !validConditionStatus(result.ConditionStatus) {
 			return fmt.Errorf("dex: invalid timer result at index %d", index)
 		}
-		if _, found := conditionIDs[result.ConditionId]; found {
-			return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+		if result.ConditionId != "" {
+			if _, found := conditionIDs[result.ConditionId]; found {
+				return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+			}
+			conditionIDs[result.ConditionId] = struct{}{}
 		}
-		conditionIDs[result.ConditionId] = struct{}{}
 	}
 	for index, result := range results.ChannelResults {
-		if result == nil || result.ConditionId == "" || result.ChannelName == "" ||
+		if result == nil || result.ChannelName == "" ||
 			!validConditionStatus(result.ConditionStatus) {
 			return fmt.Errorf("dex: invalid channel result at index %d", index)
 		}
-		if _, found := conditionIDs[result.ConditionId]; found {
-			return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+		if result.ConditionId != "" {
+			if _, found := conditionIDs[result.ConditionId]; found {
+				return fmt.Errorf("dex: duplicate condition result %q", result.ConditionId)
+			}
+			conditionIDs[result.ConditionId] = struct{}{}
 		}
-		conditionIDs[result.ConditionId] = struct{}{}
 		if result.ConditionStatus == dexpb.ConditionStatus_CONDITION_STATUS_WAITING &&
 			len(result.Values) != 0 {
 			return fmt.Errorf("dex: waiting channel result %q has values", result.ConditionId)
@@ -454,6 +460,37 @@ func (invocation *invocationContext) deleteAttributeValue(
 	return nil
 }
 
+func (invocation *invocationContext) attributeMapKeys(name string) []string {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
+		panic(err)
+	}
+	attribute, found := invocation.flow.attributes[name]
+	if !found || !attribute.isMap {
+		panic(fmt.Errorf("dex: attribute %q is not a declared AttributeMap", name))
+	}
+	physicalKeys := make(map[string]struct{})
+	for physical := range invocation.attributes {
+		if strings.HasPrefix(physical, name+"/") {
+			physicalKeys[physical] = struct{}{}
+		}
+	}
+	for physical, write := range invocation.attributeWrites {
+		if !strings.HasPrefix(physical, name+"/") {
+			continue
+		}
+		if _, deleted := write.Value.Kind.(*dexpb.Value_NullValue); deleted {
+			delete(physicalKeys, physical)
+		} else {
+			physicalKeys[physical] = struct{}{}
+		}
+	}
+	return sortedInstanceKeys(name, physicalKeys)
+}
+
 func (invocation *invocationContext) resolveAttribute(
 	name string,
 	instance string,
@@ -531,6 +568,40 @@ func (invocation *invocationContext) channelSize(name string) int {
 
 func (invocation *invocationContext) channelMapSize(name string, instance string) int {
 	return invocation.channelSizeValue(name, instance, true)
+}
+
+func (invocation *invocationContext) channelMapKeys(name string) []string {
+	if err := invocation.requireActive(invocationRPC); err != nil {
+		panic(err)
+	}
+	channel, found := invocation.flow.channels[name]
+	if !found || !channel.isMap {
+		panic(fmt.Errorf("dex: channel %q is not a declared ChannelMap", name))
+	}
+	physicalKeys := make(map[string]struct{})
+	for physical, size := range invocation.channelSizes {
+		if size > 0 && strings.HasPrefix(physical, name+"/") {
+			physicalKeys[physical] = struct{}{}
+		}
+	}
+	return sortedInstanceKeys(name, physicalKeys)
+}
+
+func sortedInstanceKeys(
+	name string,
+	physicalKeys map[string]struct{},
+) []string {
+	keys := make([]string, 0, len(physicalKeys))
+	prefix := name + "/"
+	for physical := range physicalKeys {
+		instance, err := url.PathUnescape(strings.TrimPrefix(physical, prefix))
+		if err != nil {
+			panic(fmt.Errorf("dex: invalid map instance key %q: %w", physical, err))
+		}
+		keys = append(keys, instance)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (invocation *invocationContext) channelSizeValue(

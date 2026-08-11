@@ -12,7 +12,11 @@ Complete short-lived Flows when external channel traffic is drained.
 
 The `DrainChannelChannelsFlow` demonstrates a pattern where a Flow remains active only as long as there are signals to process, and close immediately when all signals are processed, to keep the Flow as short-lived as possible. The Flow can be started again as a different Flow execution (with the same FlowID), when new signals are received.
 It's generally preferable to have multiple short-lived Flows rather than a single long-lived one, for reasons related to cost and code management, such as version control.
-DEX offers the `StepDecision.forceCompleteIfChannelChannelEmptyOrElse()` feature for signal (external) channels and the `StepDecision.forceCompleteIfInternalChannelEmptyOrElse()` feature for internal channels ([wiki](https://github.com/superdurable/dex/wiki/Conditionally-complete-Flow-with-atomic-checking-on-signal-or-internal-channel) for both). These features allow for an atomic check to determine if the channel is empty before closing the Flow. *NOTE:* For this feature to maintain atomicity, the channel used must be consumed by only one Flow Step. This example Flow waits for signals to be sent to the channel and then processes them until the channel is empty.
+Dex offers `forceCompleteIfChannelsEmpty` (with language-native casing) to
+atomically check whether the selected Channels are empty before closing the
+Flow. To maintain atomicity, each selected Channel must be consumed by only one
+Flow Step. This example waits for messages and processes them until the Channel
+is empty.
 
 ## Code examples
 

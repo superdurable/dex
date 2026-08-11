@@ -26,7 +26,7 @@ from dex import (
     StepList,
     StepMovement,
     Wait,
-    force_complete_when_channels_empty,
+    force_complete_if_channels_empty,
 )
 
 DRAIN_WINDOW_SECONDS = 20
@@ -59,7 +59,7 @@ class ProcessSignal(Step[str]):
         # Yield so AsyncWorker can serve other Flows during the drain window.
         await asyncio.sleep(DRAIN_WINDOW_SECONDS)
 
-        return force_complete_when_channels_empty(
+        return force_complete_if_channels_empty(
             None,
             StepMovement.of(self, None),
             self.queue_signal_channel,

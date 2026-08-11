@@ -787,6 +787,102 @@ class AsyncClient:
             "active",
         )
 
+    async def wait_for_attribute_equal(
+        self,
+        flow_id: str,
+        attribute: Attribute[ValueT],
+        expected: ValueT,
+        timeout: timedelta,
+    ) -> None:
+        """Await a scalar Attribute in the current run equaling ``expected``.
+
+        The Client generates a request ID. JSON, bytes, and null values raise
+        ``ValueError`` before transport. A remote expiry raises
+        ``LongPollTimeoutError``.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            attribute: The registered scalar Attribute to observe.
+            expected: The string, bool, int, or float value to await.
+            timeout: The non-negative server-side wait duration.
+
+        Raises:
+            ValueError: If an identifier, timeout, or expected value is invalid.
+            LongPollTimeoutError: If equality is not observed before ``timeout``.
+            FlowNotActiveError: If the Flow closes first.
+            DexServiceError: If FlowService cannot perform the wait.
+        """
+        await self._wait_for_attribute_equal(
+            flow_id, attribute, None, expected, timeout
+        )
+
+    async def wait_for_attribute_map_equal(
+        self,
+        flow_id: str,
+        attribute: AttributeMap[ValueT],
+        instance: str,
+        expected: ValueT,
+        timeout: timedelta,
+    ) -> None:
+        """Await one scalar AttributeMap instance in the current run.
+
+        Scalar restrictions, request-ID generation, timeout behavior, and
+        service errors match :meth:`wait_for_attribute_equal`.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            attribute: The registered AttributeMap to observe.
+            instance: The non-empty logical map key to observe.
+            expected: The string, bool, int, or float value to await.
+            timeout: The non-negative server-side wait duration.
+
+        Raises:
+            ValueError: If an identifier, timeout, or expected value is invalid.
+            LongPollTimeoutError: If equality is not observed before ``timeout``.
+            FlowNotActiveError: If the Flow closes first.
+            DexServiceError: If FlowService cannot perform the wait.
+        """
+        await self._wait_for_attribute_equal(
+            flow_id, attribute, instance, expected, timeout
+        )
+
+    async def _wait_for_attribute_equal(
+        self,
+        flow_id: str,
+        attribute: Attribute[Any] | AttributeMap[Any],
+        instance: str | None,
+        expected: object,
+        timeout: timedelta,
+    ) -> None:
+        encoded = self._values.encode(
+            expected,
+            self._values.codec(attribute.value_type),
+        )
+        if encoded.WhichOneof("kind") not in {
+            "string_value",
+            "bool_value",
+            "int_value",
+            "double_value",
+        }:
+            raise ValueError("wait_for_attribute_equal supports only scalar values")
+        await self._call(
+            self._service.WaitForAttribute,
+            pb.WaitForAttributeRequest(
+                flow_id=require_name(flow_id),
+                condition=pb.WaitForAttributeCondition(
+                    equal=pb.WaitForAttributeEqual(
+                        key=self._definition_name(attribute, instance),
+                        value=encoded,
+                    )
+                ),
+                wait_time_seconds=self._seconds32(timeout),
+                request_id=str(uuid4()),
+            ),
+            "wait_for_attribute_equal",
+            flow_id,
+            "active",
+        )
+
     async def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
         """Replace mutable configuration for an active Flow.
 

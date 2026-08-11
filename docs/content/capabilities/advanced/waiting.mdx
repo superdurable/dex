@@ -56,7 +56,13 @@ async waitFor(): Promise<Wait> {
 </SdkSnippet>
 </SdkTabs>
 
-`Wait.any_of` / `all_of` over Conditions; client APIs like WaitForStepCompletion / WaitForAttribute.
+`Wait.any_of` / `all_of` accept unnamed Conditions. Any-combination waits need
+a non-empty user ID on every Condition so combinations can reference them
+unambiguously; no internal ID is generated.
+
+Clients can wait for a registered Attribute or AttributeMap instance to equal a
+string, bool, integer, or double. These calls target the current run and reject
+JSON, bytes, and null before transport.
 
 ## How Dex implements it
 

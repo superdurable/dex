@@ -210,6 +210,20 @@ func (c ChannelMap[T]) Size(ctx Context, instance string) int {
 	return invocation.channelMapSize(c.name, instance)
 }
 
+// MapSize returns the number of non-empty Channel instances visible to the current RPC.
+func (c ChannelMap[T]) MapSize(ctx Context) int {
+	return len(c.AllInstanceKeys(ctx))
+}
+
+// AllInstanceKeys returns non-empty Channel instance keys in ascending order for the current RPC.
+func (c ChannelMap[T]) AllInstanceKeys(ctx Context) []string {
+	invocation, ok := ctx.(channelInvocation)
+	if !ok {
+		panic(errInvalidInvocationContext)
+	}
+	return invocation.channelMapKeys(c.name)
+}
+
 // GetConditionResults decodes messages consumed by instance's satisfied Condition.
 // It returns an error for an invalid context or an undecodable message.
 func (c ChannelMap[T]) GetConditionResults(
@@ -250,6 +264,7 @@ type channelInvocation interface {
 	publishChannelMap(name string, instance string, value any) error
 	channelSize(name string) int
 	channelMapSize(name string, instance string) int
+	channelMapKeys(name string) []string
 	getChannelResults(
 		name string,
 		instance string,

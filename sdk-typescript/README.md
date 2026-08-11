@@ -81,6 +81,20 @@ The Store is an asynchronous latest-state projection. Deletion writes SQL
 `attributeStoreName` preserves the current target; `attributeStoreName: ""`
 disables future synchronization while retaining protocol presence.
 
+### Waiting and map inspection
+
+`Wait.allOf` and `Wait.anyOf` may contain unnamed Conditions and send empty
+Condition IDs. Every Condition in `Wait.anyCombinationOf` needs a non-empty
+user ID; the same Condition object may be reused across combinations.
+
+`Client.waitForAttributeEqual` and `waitForAttributeMapEqual` target the current
+run and accept only string, boolean, integer, or double wire values. JSON,
+bytes, and null reject before transport. `AttributeMap.getMapSize` and
+`getAllInstanceKeys` include buffered sets and deletes. The matching
+`ChannelMap` methods are RPC-only, include buffered publishes, and omit empty
+instances. Keys are decoded and sorted. Use
+`forceCompleteIfChannelsEmpty(...)` for conditional completion.
+
 ### Async handlers
 
 `Step.execute`, `Step.waitFor`, and RPC methods may be `async` and return a

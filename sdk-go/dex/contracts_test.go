@@ -394,6 +394,10 @@ func compileContextOperations(ctx dex.Context) error {
 	_ = ctx.HasTimerFired()
 	_ = ctx.HasTimerFiredByIndex(0)
 	_ = ctx.WaitForMethodFailed()
+	_ = itemsAttribute.MapSize(ctx)
+	_ = itemsAttribute.AllInstanceKeys(ctx)
+	_ = commandByOrder.MapSize(ctx)
+	_ = commandByOrder.AllInstanceKeys(ctx)
 	return nil
 }
 
@@ -410,7 +414,7 @@ var _ = dex.ForceComplete("done")
 var _ = dex.GracefulComplete("done")
 var _ = dex.ForceFail("failed")
 var _ = dex.DeadEnd()
-var _ = dex.ForceCompleteOnChannelsEmpty(
+var _ = dex.ForceCompleteIfChannelsEmpty(
 	"done",
 	[]dex.ChannelDef{commandChannel},
 	dex.MovementOf(executeOnly, stepInput{}),
@@ -475,6 +479,25 @@ var _ func(
 	string,
 	any,
 ) error = (*dex.Client).SetAttributeMap
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	dex.AttributeDef,
+	any,
+	dex.WaitOptions,
+) error = (*dex.Client).WaitForAttributeEqual
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	dex.AttributeDef,
+	string,
+	any,
+	dex.WaitOptions,
+) error = (*dex.Client).WaitForAttributeMapEqual
 
 var _ func(
 	*dex.Client,

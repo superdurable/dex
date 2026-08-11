@@ -22,8 +22,10 @@ from dex import (
     BlobCache,
     BlobCacheConfig,
     Channel,
+    ChannelMap,
     Client,
     CodecRegistry,
+    ConditionCombination,
     Context,
     Flow,
     FlowConfig,
@@ -50,6 +52,7 @@ from dex import (
 )
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
+from dex._invocation_context import InvocationContext, InvocationMethod
 from dex.client import Client as ClientModuleClient
 from dex.client_options import ClientOptions as ClientModuleOptions
 from dex.dexpb import dex_pb2 as pb
@@ -336,6 +339,129 @@ def test_fluent_wait_factories_validate_channel_bounds() -> None:
     assert len(wait.conditions) == 1
     with pytest.raises(ValueError, match="requires a bound"):
         COMMANDS.for_range()
+
+
+def test_worker_maps_only_user_provided_condition_ids() -> None:
+    channel = Channel("condition-commands", str)
+
+    class ConditionStep(Step[str]):
+        def wait_for(self, context: Context, input: str) -> Wait:
+            del context
+            if input == "unnamed":
+                return Wait.any_of(
+                    Timer.by_duration(timedelta(seconds=1)), channel.for_one()
+                )
+            if input == "missing":
+                return Wait.any_combination_of(
+                    ConditionCombination.of(channel.for_one())
+                )
+            if input == "duplicate":
+                return Wait.any_combination_of(
+                    ConditionCombination.of(
+                        channel.for_one(condition_id="same"),
+                        Timer.by_duration(timedelta(seconds=1), condition_id="same"),
+                    )
+                )
+            reused = channel.for_one(condition_id="__dex_internal_condition_0")
+            return Wait.any_combination_of(
+                ConditionCombination.of(reused),
+                ConditionCombination.of(reused),
+            )
+
+        def execute(self, context: Context, input: str) -> StepDecision:
+            del context
+            return graceful_complete(input)
+
+    class ConditionFlow(Flow[str]):
+        start = ConditionStep()
+
+        def get_steps(self) -> StepList[str]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(channel)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def wait_for_request(
+            request: pb.InvokeWaitForMethodRequest,
+        ) -> pb.InvokeWaitForMethodRequest:
+            return request
+
+    registry = Registry((ConditionFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+
+    def invoke(input: str) -> pb.InvokeWaitForMethodResponse:
+        return dispatcher.invoke_wait_for(
+            pb.InvokeWaitForMethodRequest(
+                flow_type="ConditionFlow",
+                step_type="ConditionStep",
+                step_input=values.encode(input, values.codec(str)),
+            )
+        )
+
+    unnamed = invoke("unnamed").waiting_condition
+    assert unnamed.timer_conditions[0].condition_id == ""
+    assert unnamed.channel_conditions[0].condition_id == ""
+    reused = invoke("reused").waiting_condition
+    assert reused.channel_conditions[0].condition_id == "__dex_internal_condition_0"
+    assert [list(item.condition_ids) for item in reused.condition_combinations] == [
+        ["__dex_internal_condition_0"],
+        ["__dex_internal_condition_0"],
+    ]
+    with pytest.raises(InvalidStepResultError, match="requires every Condition"):
+        invoke("missing")
+    with pytest.raises(InvalidStepResultError, match="duplicate Condition ID"):
+        invoke("duplicate")
+    with pytest.raises(ValueError, match="must not be empty"):
+        channel.for_one(condition_id="")
+
+
+def test_map_introspection_tracks_buffered_changes() -> None:
+    attributes = AttributeMap("items", str)
+    channels = ChannelMap("messages", str)
+
+    class MapFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(attributes, channels)
+
+    registry = Registry((MapFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    special = "special / key"
+    context = InvocationContext(
+        InvocationMethod.RPC,
+        registry._flow_by_type("MapFlow"),
+        pb.Context(),
+        values,
+        (
+            pb.KV(
+                key=Registry.physical_name("items", special),
+                value=values.encode("initial", values.codec(str)),
+            ),
+            pb.KV(
+                key=Registry.physical_name("items", "z"),
+                value=values.encode("remove", values.codec(str)),
+            ),
+        ),
+        channel_infos={
+            Registry.physical_name("messages", special): pb.ChannelInfo(size=1),
+            Registry.physical_name("messages", "empty"): pb.ChannelInfo(size=0),
+        },
+    )
+    assert attributes.get_all_instance_keys(context) == (special, "z")
+    attributes.set(context, "a", "added")
+    attributes.delete(context, "z")
+    assert attributes.get_all_instance_keys(context) == ("a", special)
+    assert attributes.get_map_size(context) == 2
+    assert channels.get_all_instance_keys(context) == (special,)
+    channels.publish(context, "a", "published")
+    assert channels.get_all_instance_keys(context) == ("a", special)
+    assert channels.get_map_size(context) == 2
 
 
 def test_explicit_custom_codec_remains_available() -> None:

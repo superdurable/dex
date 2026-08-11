@@ -135,13 +135,13 @@ class AsyncWorker:
             )
         except grpc.RpcError as failure:
             self._state = "stopped"
-            await self._flow_channel.close()
+            await self._flow_channel.close(None)
             self._stopped.set()
             raise RuntimeError("cannot synchronize Attribute indexes") from failure
         self._bound_port = self._server.add_insecure_port(self.options.bind_address)
         if self._bound_port == 0:
             self._state = "stopped"
-            await self._flow_channel.close()
+            await self._flow_channel.close(None)
             self._stopped.set()
             raise RuntimeError(
                 f"cannot bind Python AsyncWorker to {self.options.bind_address}"
@@ -164,7 +164,7 @@ class AsyncWorker:
             return
         self._state = "stopping"
         await self._server.stop(grace=5)
-        await self._flow_channel.close()
+        await self._flow_channel.close(None)
         if self._state != "closed":
             self._state = "stopped"
         self._stopped.set()

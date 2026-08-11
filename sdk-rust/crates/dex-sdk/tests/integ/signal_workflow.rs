@@ -111,7 +111,7 @@ impl Step for CombinationStep {
         Ok(Wait::any_combination_of([ConditionCombination::all_of([
             self.first.for_one().with_id("signal-1"),
             self.third.for_one().with_id("signal-3"),
-            self.signal_map.for_one("one"),
+            self.signal_map.for_one("one").with_id("signal-map"),
             Timer::by_duration(Duration::from_secs(365 * 24 * 60 * 60)).with_id("test-timer-id"),
         ])]))
     }

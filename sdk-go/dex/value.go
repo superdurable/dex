@@ -27,7 +27,6 @@ const (
 	jsonEncoding     = "json"
 	rawBytesEncoding = "rawbytes"
 	dateTimeFormat   = time.RFC3339Nano
-	internalIDPrefix = "__dex_internal_condition_"
 )
 
 var (

@@ -57,8 +57,8 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 	require.NoError(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
-		subscription.CustomerDetails,
-		customer,
+		subscription.BillingPeriodNumber,
+		0,
 		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 

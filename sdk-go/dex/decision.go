@@ -93,9 +93,9 @@ func DeadEnd() *StepDecision {
 	}
 }
 
-// ForceCompleteOnChannelsEmpty completes when every guarded Channel is empty.
+// ForceCompleteIfChannelsEmpty completes when every guarded Channel is empty.
 // Otherwise Dex follows the movements in otherwise.
-func ForceCompleteOnChannelsEmpty(
+func ForceCompleteIfChannelsEmpty(
 	output any,
 	channels []ChannelDef,
 	otherwise ...StepMovement,

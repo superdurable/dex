@@ -336,3 +336,39 @@ pub(crate) fn physical_name(name: &str, instance: &str) -> String {
     }
     format!("{name}/{encoded}")
 }
+
+pub(crate) fn decode_instance(physical_name: &str, prefix: &str) -> Result<String, String> {
+    let encoded = physical_name
+        .strip_prefix(prefix)
+        .ok_or_else(|| format!("map key {physical_name} does not start with {prefix}"))?;
+    let bytes = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err(format!("invalid percent encoding in {physical_name}"));
+            }
+            let high = hex_value(bytes[index + 1])?;
+            let low = hex_value(bytes[index + 2])?;
+            decoded.push(high * 16 + low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|error| error.to_string())
+}
+
+fn hex_value(byte: u8) -> Result<u8, String> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(format!(
+            "invalid percent-encoding digit {}",
+            char::from(byte)
+        )),
+    }
+}

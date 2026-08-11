@@ -82,7 +82,7 @@ func (processSignalStep) Execute(
 		fmt.Printf("DrainSignalChannelsFlow process signal value: %s\n", values[0])
 	}
 	time.Sleep(20 * time.Second)
-	return dex.ForceCompleteOnChannelsEmpty(
+	return dex.ForceCompleteIfChannelsEmpty(
 		nil,
 		[]dex.ChannelDef{QueueSignalChannel},
 		dex.MovementOf(processSignalStep{}, ""),

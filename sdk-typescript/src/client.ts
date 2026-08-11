@@ -723,6 +723,84 @@ export class Client {
   }
 
   /**
+   * Waits until a scalar Attribute in the current run equals the expected value.
+   * Generates a request ID and rejects JSON, bytes, and null before transport.
+   * @typeParam T - Attribute value type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Registered scalar Attribute to observe.
+   * @param expected - String, boolean, integer, or number value to await.
+   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   */
+  public async waitForAttributeEqual<T>(
+    flowId: string,
+    attribute: Attribute<T>,
+    expected: T,
+    timeoutMs: number,
+  ): Promise<void> {
+    await this.waitForAttributeValue(flowId, attribute, undefined, expected, timeoutMs);
+  }
+
+  /**
+   * Waits until one scalar AttributeMap instance in the current run matches.
+   * Scalar restrictions and timeout errors match `waitForAttributeEqual`.
+   * @typeParam T - AttributeMap value type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Registered AttributeMap to observe.
+   * @param instance - Non-empty logical map key to observe.
+   * @param expected - String, boolean, integer, or number value to await.
+   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   */
+  public async waitForAttributeMapEqual<T>(
+    flowId: string,
+    attribute: AttributeMap<T>,
+    instance: string,
+    expected: T,
+    timeoutMs: number,
+  ): Promise<void> {
+    await this.waitForAttributeValue(flowId, attribute, instance, expected, timeoutMs);
+  }
+
+  private async waitForAttributeValue<T>(
+    flowId: string,
+    attribute: Attribute<T> | AttributeMap<T>,
+    instance: string | undefined,
+    expected: T,
+    timeoutMs: number,
+  ): Promise<void> {
+    const value = encodeValue(attribute.codec, expected);
+    if (
+      value.kind?.$case !== "stringValue" &&
+      value.kind?.$case !== "boolValue" &&
+      value.kind?.$case !== "intValue" &&
+      value.kind?.$case !== "doubleValue"
+    ) {
+      throw new TypeError("waitForAttributeEqual supports only scalar values");
+    }
+    await unary<Empty>(
+      { operation: "waitForAttributeEqual", flowId, requirement: "active" },
+      (callback) =>
+        this.service.waitForAttribute(
+          {
+            flowId: requireName(flowId),
+            runId: "",
+            condition: {
+              kind: {
+                $case: "equal",
+                value: {
+                  key: physicalName(attribute.name, instance),
+                  value,
+                },
+              },
+            },
+            waitTimeSeconds: seconds(timeoutMs),
+            requestId: crypto.randomUUID(),
+          },
+          callback,
+        ),
+     );
+   }
+
+  /**
    * Replaces mutable configuration for an active Flow.
    * The update affects later decisions and does not recall dispatched work.
    * @param flowId - Non-empty active Flow ID.

@@ -45,7 +45,7 @@ class SignalCombinationStep implements Step<number> {
       ConditionCombination.of(
         this.first.forOne("signal-1"),
         this.third.forOne("signal-3"),
-        this.signalMap.forOne("one"),
+        this.signalMap.forOne("one", "signal-map"),
         Timer.byDuration(365 * 24 * 60 * 60 * 1_000, "test-timer-id"),
       ),
     );

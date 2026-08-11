@@ -210,6 +210,28 @@ class ChannelMap(Generic[ValueT]):
         """
         return context._channel_size(cast(ChannelMap[object], self), instance)
 
+    def get_map_size(self, context: Context) -> int:
+        """Return the number of non-empty instances visible to the current RPC.
+
+        Args:
+            context: The current RPC Context.
+
+        Returns:
+            The number of keys after including publications buffered by this RPC.
+        """
+        return len(self.get_all_instance_keys(context))
+
+    def get_all_instance_keys(self, context: Context) -> tuple[str, ...]:
+        """Return decoded non-empty instance keys in ascending order.
+
+        Args:
+            context: The current RPC Context.
+
+        Returns:
+            An immutable tuple including publications buffered by this RPC.
+        """
+        return context._channel_map_keys(cast(ChannelMap[object], self))
+
     def results(self, context: Context, instance: str) -> Sequence[ValueT]:
         """Return values selected for one instance by the satisfied condition.
 

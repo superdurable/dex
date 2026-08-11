@@ -148,6 +148,27 @@ export class InvocationContext implements Context {
     });
   }
 
+  public attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[] {
+    this.requireRegistered(attribute);
+    const prefix = `${attribute.name}/`;
+    const physicalKeys = new Set(
+      [...this.attributes.keys()].filter((key) => key.startsWith(prefix)),
+    );
+    for (const [key, write] of this.attributeWrites) {
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      if (write.value?.kind?.$case === "nullValue") {
+        physicalKeys.delete(key);
+      } else {
+        physicalKeys.add(key);
+      }
+    }
+    return [...physicalKeys]
+      .map((key) => decodeURIComponent(key.slice(prefix.length)))
+      .sort();
+  }
+
   public publish<T>(channel: Channel<T> | ChannelMap<T>, value: T, instance?: string): void {
     this.requireRegistered(channel);
     const name = definitionName(channel, instance);
@@ -163,6 +184,18 @@ export class InvocationContext implements Context {
   ): number {
     this.requireRegistered(channel);
     return this.channelInfos.get(definitionName(channel, instance))?.size ?? 0;
+  }
+
+  public channelMapKeys(channel: ChannelMap<unknown>): readonly string[] {
+    this.requireRegistered(channel);
+    if (this.method !== "rpc") {
+      throw new TypeError("ChannelMap introspection requires an RPC invocation");
+    }
+    const prefix = `${channel.name}/`;
+    return [...this.channelInfos]
+      .filter(([key, info]) => key.startsWith(prefix) && info.size > 0)
+      .map(([key]) => decodeURIComponent(key.slice(prefix.length)))
+      .sort();
   }
 
   public channelResults<T>(

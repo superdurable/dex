@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 use dex_protocol::dex::{
@@ -32,8 +33,6 @@ use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
 use crate::{
     HandlerError, HandlerResult, Registry, RetryPolicy, StepDurability, WaitForFailurePolicy,
 };
-
-const INTERNAL_CONDITION_PREFIX: &str = "__dex_internal_condition_";
 
 #[derive(Clone)]
 pub(crate) struct WorkerDispatcher {
@@ -380,14 +379,14 @@ fn map_wait(flow: &RegisteredFlow, wait: Wait) -> HandlerResult<Option<WaitingCo
         WaitKind::AllOf(conditions) => {
             require_conditions(&conditions)?;
             for condition in conditions {
-                mapper.add(condition)?;
+                mapper.add(condition, false)?;
             }
             (WaitingConditionType::AllCompleted, Vec::new())
         }
         WaitKind::AnyOf(conditions) => {
             require_conditions(&conditions)?;
             for condition in conditions {
-                mapper.add(condition)?;
+                mapper.add(condition, false)?;
             }
             (WaitingConditionType::AnyCompleted, Vec::new())
         }
@@ -402,7 +401,7 @@ fn map_wait(flow: &RegisteredFlow, wait: Wait) -> HandlerResult<Option<WaitingCo
                 require_conditions(&combination.conditions)?;
                 let mut condition_ids = Vec::new();
                 for condition in combination.conditions {
-                    condition_ids.push(mapper.add(condition)?);
+                    condition_ids.push(mapper.add(condition, true)?);
                 }
                 mapped.push(ProtoCombination { condition_ids });
             }
@@ -451,7 +450,7 @@ fn map_decision(
                 close_input: None,
             }),
         }),
-        StepDecisionKind::ForceCompleteWhenChannelsEmpty {
+        StepDecisionKind::ForceCompleteIfChannelsEmpty {
             output,
             fallback,
             channels,
@@ -513,7 +512,7 @@ fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<
 struct ConditionMapper<'a> {
     flow: &'a RegisteredFlow,
     used_ids: HashSet<String>,
-    next_id: usize,
+    ids_by_condition: HashMap<usize, String>,
     timers: Vec<TimerCondition>,
     channels: Vec<ChannelCondition>,
 }
@@ -523,21 +522,34 @@ impl<'a> ConditionMapper<'a> {
         Self {
             flow,
             used_ids: HashSet::new(),
-            next_id: 0,
+            ids_by_condition: HashMap::new(),
             timers: Vec::new(),
             channels: Vec::new(),
         }
     }
 
-    fn add(&mut self, condition: Condition) -> HandlerResult<String> {
-        let id = condition.id.unwrap_or_else(|| {
-            let id = format!("{INTERNAL_CONDITION_PREFIX}{}", self.next_id);
-            self.next_id += 1;
-            id
-        });
-        if id.is_empty() || !self.used_ids.insert(id.clone()) {
-            return Err(HandlerError::new("duplicate or empty Condition ID"));
+    fn add(&mut self, condition: Condition, id_required: bool) -> HandlerResult<String> {
+        let identity = Arc::as_ptr(&condition.identity) as usize;
+        if let Some(id) = self.ids_by_condition.get(&identity) {
+            return Ok(id.clone());
         }
+        let id_was_provided = condition.id.is_some();
+        let id = condition.id.unwrap_or_default();
+        if id_required && id.is_empty() {
+            return Err(HandlerError::new(
+                "any_combination_of requires every Condition to have an ID",
+            ));
+        }
+        if id_was_provided && id.is_empty() {
+            return Err(HandlerError::new("empty Condition ID"));
+        }
+        if !id.is_empty() && self.used_ids.contains(&id) {
+            return Err(HandlerError::new("duplicate Condition ID"));
+        }
+        if !id.is_empty() {
+            self.used_ids.insert(id.clone());
+        }
+        self.ids_by_condition.insert(identity, id.clone());
         match condition.kind {
             ConditionKind::Timer(duration) => self.timers.push(TimerCondition {
                 condition_id: id.clone(),
@@ -675,4 +687,89 @@ fn _keep_output_types(
     _events: Vec<Kv>,
     _publications: Vec<ChannelMessage>,
 ) {
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_wait;
+    use crate::{Channel, ConditionCombination, Flow, PersistenceSchema, Registry, Timer, Wait};
+    use std::time::Duration;
+
+    struct ConditionFlow {
+        channel: Channel<()>,
+    }
+
+    impl Flow for ConditionFlow {
+        type StartInput = ();
+
+        fn persistence(&self) -> PersistenceSchema {
+            PersistenceSchema::new().channel(&self.channel)
+        }
+    }
+
+    #[test]
+    fn maps_only_user_provided_condition_ids() {
+        let registry = Registry::new()
+            .register(ConditionFlow {
+                channel: Channel::new("commands"),
+            })
+            .expect("register Condition Flow");
+        let flow = registry
+            .flow("ConditionFlow")
+            .expect("lookup Condition Flow");
+        let channel = Channel::<()>::new("commands");
+
+        let unnamed = map_wait(
+            flow,
+            Wait::any_of([
+                Timer::by_duration(Duration::from_secs(1)),
+                channel.for_one(),
+            ]),
+        )
+        .expect("map unnamed wait")
+        .expect("waiting condition");
+        assert_eq!("", unnamed.timer_conditions[0].condition_id);
+        assert_eq!("", unnamed.channel_conditions[0].condition_id);
+
+        let reused = channel.for_one().with_id("__dex_internal_condition_0");
+        let reused_wait = map_wait(
+            flow,
+            Wait::any_combination_of([
+                ConditionCombination::all_of([reused.clone()]),
+                ConditionCombination::all_of([reused]),
+            ]),
+        )
+        .expect("map reused wait")
+        .expect("waiting condition");
+        assert_eq!(1, reused_wait.channel_conditions.len());
+        assert_eq!(
+            "__dex_internal_condition_0",
+            reused_wait.channel_conditions[0].condition_id
+        );
+        assert_eq!(
+            reused_wait.condition_combinations[0].condition_ids,
+            reused_wait.condition_combinations[1].condition_ids
+        );
+
+        let missing = map_wait(
+            flow,
+            Wait::any_combination_of([ConditionCombination::all_of([channel.for_one()])]),
+        )
+        .expect_err("unnamed combination must fail");
+        assert!(missing.to_string().contains("requires every Condition"));
+
+        let duplicate = map_wait(
+            flow,
+            Wait::any_combination_of([ConditionCombination::all_of([
+                channel.for_one().with_id("same"),
+                Timer::by_duration(Duration::from_secs(1)).with_id("same"),
+            ])]),
+        )
+        .expect_err("duplicate IDs must fail");
+        assert!(duplicate.to_string().contains("duplicate Condition ID"));
+
+        let empty = map_wait(flow, Wait::all_of([channel.for_one().with_id("")]))
+            .expect_err("empty ID must fail");
+        assert!(empty.to_string().contains("empty Condition ID"));
+    }
 }

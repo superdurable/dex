@@ -19,7 +19,7 @@ import {
   StepList,
   StepMovement,
   Wait,
-  forceCompleteWhenChannelsEmpty,
+  forceCompleteIfChannelsEmpty,
   optionalCodec,
   stringCodec,
   type Context,
@@ -69,7 +69,7 @@ class ProcessSignal implements Step<string | undefined> {
       // busy wait mirrors Java Thread.sleep inside the workflow step
     }
 
-    return forceCompleteWhenChannelsEmpty(
+    return forceCompleteIfChannelsEmpty(
       null,
       StepMovement.of(this, undefined),
       this.flow.queueSignalChannel,

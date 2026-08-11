@@ -84,8 +84,14 @@ export interface Context {
    * Stages deletion of an Attribute value.
    * @param attribute - Registered singleton or map definition.
    * @param instance - Required AttributeMap instance; omitted for a singleton.
-   */
+  */
   deleteAttribute(attribute: Attribute<unknown> | AttributeMap<unknown>, instance?: string): void;
+  /**
+   * Returns effective decoded AttributeMap keys in ascending order.
+   * @param attribute - Registered AttributeMap definition.
+   * @returns Keys visible after decision-local writes and deletions.
+   */
+  attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[];
   /**
    * Stages one typed Channel publication.
    * @typeParam T - Channel element type.
@@ -109,4 +115,10 @@ export interface Context {
    * @returns Ordered values for this Step execution.
    */
   channelResults<T>(channel: Channel<T> | ChannelMap<T>, instance?: string): readonly T[];
+  /**
+   * Returns decoded non-empty ChannelMap keys in ascending order during an RPC.
+   * @param channel - Registered ChannelMap definition.
+   * @returns Keys including publications buffered by the current RPC.
+   */
+  channelMapKeys(channel: ChannelMap<unknown>): readonly string[];
 }

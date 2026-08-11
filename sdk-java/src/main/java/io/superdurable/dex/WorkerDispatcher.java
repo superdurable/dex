@@ -43,7 +43,6 @@ import java.util.Map;
 import java.util.Set;
 
 final class WorkerDispatcher {
-    private static final String INTERNAL_CONDITION_PREFIX = "__dex_internal_condition_";
 
     private final Registry registry;
     private final ValueMapper values;
@@ -209,7 +208,7 @@ final class WorkerDispatcher {
                     : wait.getCombinations()) {
                 final ConditionCombination.Builder mapped = ConditionCombination.newBuilder();
                 for (Condition condition : combination.getConditions()) {
-                    mapped.addConditionIds(mapper.add(condition));
+                    mapped.addConditionIds(mapper.add(condition, true));
                 }
                 waiting.addConditionCombinations(mapped);
             }
@@ -230,7 +229,7 @@ final class WorkerDispatcher {
                     source + " Wait requires at least one Condition");
         }
         for (Condition condition : conditions) {
-            mapper.add(condition);
+            mapper.add(condition, false);
         }
     }
 
@@ -452,13 +451,12 @@ final class WorkerDispatcher {
         private final Set<String> used = new HashSet<String>();
         private final List<TimerCondition> timers = new ArrayList<TimerCondition>();
         private final List<ChannelCondition> channels = new ArrayList<ChannelCondition>();
-        private int nextId;
 
         ConditionMapper(final Registry.RegisteredFlow flow) {
             this.flow = flow;
         }
 
-        String add(final Condition condition) {
+        String add(final Condition condition, final boolean idRequired) {
             if (condition == null) {
                 throw new InvalidStepResultException(
                         "Flow " + flow.getName() + " Wait Condition is required");
@@ -467,11 +465,20 @@ final class WorkerDispatcher {
                 return ids.get(condition);
             }
             final String id = condition.getConditionId() == null
-                    ? INTERNAL_CONDITION_PREFIX + nextId++
+                    ? ""
                     : condition.getConditionId();
-            if (id.isEmpty() || !used.add(id)) {
+            if (idRequired && id.isEmpty()) {
                 throw new InvalidStepResultException(
-                        "Flow " + flow.getName() + " has a duplicate or empty Condition ID");
+                        "Flow " + flow.getName()
+                                + " anyCombinationOf requires every Condition to have an ID");
+            }
+            if (condition.getConditionId() != null && id.isEmpty()) {
+                throw new InvalidStepResultException(
+                        "Flow " + flow.getName() + " has an empty Condition ID");
+            }
+            if (!id.isEmpty() && !used.add(id)) {
+                throw new InvalidStepResultException(
+                        "Flow " + flow.getName() + " has a duplicate Condition ID");
             }
             if (condition.getKind() == Condition.Kind.TIMER) {
                 timers.add(TimerCondition.newBuilder()

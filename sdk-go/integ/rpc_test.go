@@ -22,8 +22,12 @@ import (
 )
 
 var (
-	rpcFlowChannel = dex.DefineChannel[int]("rpc-values")
-	rpcFlowStatus  = dex.DefineAttribute[string]("rpc-status")
+	rpcFlowChannel    = dex.DefineChannel[int]("rpc-values")
+	rpcFlowStatus     = dex.DefineAttribute[string]("rpc-status")
+	rpcFlowWaitStatus = dex.DefineAttribute[string]("rpc-wait-status")
+	rpcFlowWaitMap    = dex.DefineAttributeMap[string]("rpc-wait-map")
+	rpcFlowBytes      = dex.DefineAttribute[[]byte]("rpc-bytes")
+	rpcFlowNull       = dex.DefineAttribute[dex.None]("rpc-null")
 )
 
 type rpcFlow struct {
@@ -36,8 +40,14 @@ func (rpcFlow) GetSteps() []dex.StepDef {
 
 func (rpcFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{rpcFlowStatus},
-		Channels:   []dex.ChannelDef{rpcFlowChannel},
+		Attributes: []dex.AttributeDef{
+			rpcFlowStatus,
+			rpcFlowWaitStatus,
+			rpcFlowWaitMap,
+			rpcFlowBytes,
+			rpcFlowNull,
+		},
+		Channels: []dex.ChannelDef{rpcFlowChannel},
 	}
 }
 
@@ -80,6 +90,19 @@ func (rpcFlow) Fail(
 	int,
 ) (*dex.RPCResult[int], error) {
 	return nil, fmt.Errorf("planned RPC failure")
+}
+
+func (rpcFlow) SetWaitTargets(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := rpcFlowWaitStatus.Set(ctx, "ready"); err != nil {
+		return nil, err
+	}
+	if err := rpcFlowWaitMap.Set(ctx, "special / key", "mapped"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type rpcFlowStep struct {
@@ -142,6 +165,58 @@ func TestRPCFlow(t *testing.T) {
 		dex.WaitOptions{Timeout: time.Second},
 	)
 	require.ErrorAs(t, err, &timeout)
+	waitErrors := make(chan error, 2)
+	go func() {
+		waitErrors <- integClient.WaitForAttributeEqual(
+			ctx,
+			flowID,
+			rpcFlowWaitStatus,
+			"ready",
+			dex.WaitOptions{Timeout: 30 * time.Second},
+		)
+	}()
+	go func() {
+		waitErrors <- integClient.WaitForAttributeMapEqual(
+			ctx,
+			flowID,
+			rpcFlowWaitMap,
+			"special / key",
+			"mapped",
+			dex.WaitOptions{Timeout: 30 * time.Second},
+		)
+	}()
+	var noOutput dex.None
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.SetWaitTargets,
+		nil,
+		&noOutput,
+		dex.InvokeOptions{},
+	))
+	require.NoError(t, <-waitErrors)
+	require.NoError(t, <-waitErrors)
+	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		rpcFlowBytes,
+		[]byte("value"),
+		dex.WaitOptions{Timeout: time.Second},
+	), "only scalar")
+	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		rpcFlowNull,
+		nil,
+		dex.WaitOptions{Timeout: time.Second},
+	), "only scalar")
+	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		persistenceData,
+		persistenceModel{},
+		dex.WaitOptions{Timeout: time.Second},
+	), "only scalar")
 
 	var failedOutput int
 	err = integClient.InvokeRPC(

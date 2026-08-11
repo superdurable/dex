@@ -383,7 +383,7 @@ def force_complete(output: object | None = None) -> StepDecision:
     return StepDecision(DecisionKind.FORCE_COMPLETE, output=output)
 
 
-def force_complete_when_channels_empty(
+def force_complete_if_channels_empty(
     output: object,
     fallback: StepMovement[Any],
     *channels: Channel[Any] | ChannelMap[Any],
