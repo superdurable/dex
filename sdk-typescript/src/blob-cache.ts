@@ -16,13 +16,13 @@ export interface BlobCacheConfig {
   readonly directory: string;
   /** Positive maximum on-disk payload size in bytes. */
   readonly maxBytes: number;
-  /** Admission-policy counter count; zero or omission selects the native default. */
+  /** Admission-policy counter count; zero or `undefined` uses the native default. */
   readonly frequencyCounters?: number;
 }
 
 /** Provides concurrent, bounded storage for content-addressed Dex blobs. */
 export interface BlobCache {
-  /** Immutable effective configuration. */
+  /** Effective configuration used by this cache. */
   readonly config: BlobCacheConfig;
   /**
    * Reads a cached payload without contacting Dex.

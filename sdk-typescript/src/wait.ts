@@ -43,7 +43,7 @@ export const ConditionCombination = Object.freeze({
   /**
    * Groups conditions that must all become ready together.
    * @param conditions - Conditions in stable evaluation order.
-   * @returns An immutable combination.
+   * @returns A group with the conditions.
    */
   of(...conditions: readonly Condition[]): ConditionCombination {
     return { conditions };
@@ -323,24 +323,24 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait for one condition.
-   * @param condition - Sole readiness condition.
-   * @returns An all-of Wait containing the condition.
+   * @param condition - The only readiness condition.
+   * @returns An all-of Wait with the condition.
    */
   until(condition: Condition): Wait {
     return Wait.allOf(condition);
   },
   /**
-   * Creates a Wait requiring every supplied condition.
+   * Creates a Wait requiring every condition.
    * @param conditions - Conditions evaluated as one all-of group.
-   * @returns An immutable all-of Wait.
+   * @returns An all-of Wait.
    */
   allOf(...conditions: readonly Condition[]): Wait {
     return { kind: "allOf", conditions, combinations: [] };
   },
   /**
-   * Creates a Wait proceeding when any supplied condition is ready.
+   * Creates a Wait that continues when any condition is ready.
    * @param conditions - Alternative readiness conditions.
-   * @returns An immutable any-of Wait.
+   * @returns An any-of Wait.
    */
   anyOf(...conditions: readonly Condition[]): Wait {
     return { kind: "anyOf", conditions, combinations: [] };
@@ -348,7 +348,7 @@ export const Wait = Object.freeze({
   /**
    * Creates a Wait accepting any complete condition combination.
    * @param combinations - Alternative all-of condition groups.
-   * @returns An immutable any-combination Wait.
+   * @returns An any-combination Wait.
    */
   anyCombinationOf(...combinations: readonly ConditionCombination[]): Wait {
     return { kind: "anyCombinationOf", conditions: [], combinations };

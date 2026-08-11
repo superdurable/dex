@@ -86,6 +86,6 @@ class ConditionCombination:
             *conditions: Conditions that must all become ready together.
 
         Returns:
-            An immutable combination preserving argument order.
+            A combination with Conditions in argument order.
         """
         return ConditionCombination(conditions)

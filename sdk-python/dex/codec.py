@@ -110,7 +110,7 @@ class Codec(Protocol[ValueT]):
             value: The validated Value to decode.
 
         Returns:
-            The reconstructed application value.
+            The decoded application value.
 
         Raises:
             TypeError: If the wire kind or payload is incompatible.

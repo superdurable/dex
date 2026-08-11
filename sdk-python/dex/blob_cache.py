@@ -47,7 +47,7 @@ class BlobCache(Protocol):
 
     @property
     def config(self) -> BlobCacheConfig:
-        """Return the immutable configuration used to open this cache.
+        """Return the configuration used to open this cache.
 
         Returns:
             The effective cache configuration.

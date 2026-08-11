@@ -28,7 +28,7 @@ pub(crate) enum InvocationMethod {
     Rpc,
 }
 
-/// Provides immutable invocation metadata and staged durable mutations to Step and RPC handlers.
+/// Provides invocation metadata and staged durable changes to Step and RPC handlers.
 ///
 /// A Context belongs to one handler attempt and must not outlive the call. Attribute writes,
 /// Channel publications, locals, and events become visible atomically only when the handler returns

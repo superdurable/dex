@@ -11,7 +11,7 @@ import type { Channel, ChannelMap } from "./wait.js";
 import type { Codec } from "./codec.js";
 
 /**
- * Exposes immutable execution metadata and decision-local persistence operations.
+ * Exposes execution metadata and decision-local persistence operations.
  * Dex supplies a Context to each Step or RPC handler; do not retain it afterward.
  */
 export interface Context {
@@ -31,7 +31,7 @@ export interface Context {
   readonly attempt: number;
   /**
    * Reports whether a Timer made the current Wait ready.
-   * @param index - Optional zero-based Timer index; omission checks any Timer.
+   * @param index - Optional zero-based Timer index; checks any Timer when omitted.
    * @returns Whether the selected Timer fired.
    */
   hasTimerFired(index?: number): boolean;
@@ -52,7 +52,7 @@ export interface Context {
    * Reads process-local data for this Step execution.
    * @typeParam T - Expected local value type.
    * @param key - Key used when storing the value.
-   * @param codec - Codec used to reconstruct the value.
+   * @param codec - Codec used to decode the value.
    * @returns The value, or `undefined` after absence or worker restart.
    */
   getStepExecutionLocal<T>(key: string, codec: Codec<T>): T | undefined;

@@ -52,9 +52,8 @@ class _AttributeInitialization:
 class StartFlowOptions:
     """Configure creation of a new Flow execution.
 
-    Durations are :class:`datetime.timedelta` values. ``None`` delegates to the
-    registered Flow or server default. Use :meth:`with_attribute` to build immutable
-    initial Attribute writes.
+    Durations are :class:`datetime.timedelta` values. ``None`` uses the registered
+    Flow or server default. Use :meth:`with_attribute` to add initial Attribute writes.
 
     Attributes:
         timeout: Optional maximum lifetime of the Flow.
@@ -163,7 +162,7 @@ class ResetType(Enum):
 class ResetFlowOptions:
     """Configure creation of a new run from existing Flow history.
 
-    Exactly the selector corresponding to ``type`` should be supplied. The Client
+    Exactly one selector matching ``type`` must be set. The Client
     validates combinations before sending the request.
 
     Attributes:
@@ -194,7 +193,7 @@ class StopType(Enum):
     Attributes:
         CANCEL: Request cooperative cancellation.
         TERMINATE: Force immediate termination.
-        FAIL: Close the Flow as failed with the supplied reason.
+        FAIL: Close the Flow as failed with the reason in :class:`StopFlowOptions`.
     """
 
     CANCEL = "cancel"

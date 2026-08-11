@@ -33,8 +33,8 @@ class ActiveStepSearchMode(Enum):
 class FlowConfig:
     """Override server behavior for one Flow execution.
 
-    Every ``None`` field delegates to the registered or server default. Config may
-    be supplied at start time or replaced on an active Flow through the Client.
+    Every ``None`` field uses the registered or server default. Config may be set
+    at start time or replaced on an active Flow through the Client.
 
     Attributes:
         active_step_search_mode: Optional active-Step visibility indexing policy.
@@ -43,7 +43,7 @@ class FlowConfig:
         continue_as_new_page_size_bytes: Optional positive history page-size budget
             in bytes used by continue-as-new decisions.
         step_durability: Optional default durability for Step handlers.
-        worker_target: Optional Worker endpoint for subsequent handler dispatch.
+        worker_target: Optional Worker endpoint for later handler calls.
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None

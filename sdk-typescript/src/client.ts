@@ -178,7 +178,7 @@ export class Client {
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns The decoded RPCResult output.
    */
   public invokeRPC<Input, Output>(
@@ -196,7 +196,7 @@ export class Client {
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns The decoded RPCResult output.
    */
   public invokeRPC<Output>(
@@ -211,7 +211,7 @@ export class Client {
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns A promise resolved after successful handler completion.
    */
   public invokeRPC<Input>(
@@ -225,7 +225,7 @@ export class Client {
    * Invokes an input-free, output-free RPC.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns A promise resolved after successful handler completion.
    */
   public invokeRPC(
@@ -239,7 +239,7 @@ export class Client {
    * @param rpcMethod - Bound registered RPC method.
    * @param flowId - Non-empty target Flow ID.
    * @param inputOrRunId - Typed input, or run ID for an input-free RPC.
-   * @param runId - Exact run for an input-bearing RPC; omission targets active.
+   * @param runId - Exact run for an input-bearing RPC; targets the active run when omitted.
    * @returns Decoded output, or `undefined` for an output-free RPC.
    * @throws {@link RpcLockConflictError} when locks cannot be acquired.
    * @throws {@link WorkerInvocationError} when the application handler fails.
@@ -283,7 +283,7 @@ export class Client {
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty existing Flow ID.
    * @param attribute - Typed singleton Attribute definition.
-   * @param runId - Optional exact run; omission targets the current run.
+   * @param runId - Optional exact run; targets the current run when omitted.
    * @returns The decoded value, or `undefined` when unset.
    */
   public getAttribute<T>(
@@ -298,7 +298,7 @@ export class Client {
    * @param flowId - Non-empty existing Flow ID.
    * @param attribute - Typed AttributeMap definition.
    * @param instance - Non-empty logical map key.
-   * @param runId - Optional exact run; omission targets the current run.
+   * @param runId - Optional exact run; targets the current run when omitted.
    * @returns The decoded value, or `undefined` when unset.
    */
   public getAttribute<T>(
@@ -349,7 +349,7 @@ export class Client {
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Typed singleton Attribute definition.
    * @param value - Value encoded by the Attribute codec.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns A promise resolved after Dex applies the write.
    */
   public setAttribute<T>(
@@ -366,7 +366,7 @@ export class Client {
    * @param attribute - Typed AttributeMap definition.
    * @param instance - Non-empty logical map key.
    * @param value - Value encoded by the Attribute codec.
-   * @param runId - Optional exact run; omission targets the active run.
+   * @param runId - Optional exact run; targets the active run when omitted.
    * @returns A promise resolved after Dex applies the write.
    */
   public setAttribute<T>(
@@ -723,7 +723,7 @@ export class Client {
 
   /**
    * Replaces mutable configuration for an active Flow.
-   * The update affects subsequent decisions and does not recall dispatched work.
+   * The update affects later decisions and does not recall dispatched work.
    * @param flowId - Non-empty active Flow ID.
    * @param config - New optional Flow configuration fields.
    */

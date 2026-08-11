@@ -148,7 +148,7 @@ func resolveClientOptions(options ClientOptions) (string, *WorkerTarget, error) 
 // Close closes the owned FlowService connection.
 //
 // Close is idempotent. Calls begun after Close return an error; calls already in
-// progress are governed by their contexts and the gRPC connection shutdown.
+// progress are controlled by their contexts and the gRPC connection shutdown.
 func (client *Client) Close() error {
 	client.lifecycleMu.Lock()
 	defer client.lifecycleMu.Unlock()
@@ -284,9 +284,9 @@ type WaitForFlowResult struct {
 	Status FlowStatus
 	// Completions contains hydrated outputs when NeedsResults was true.
 	Completions []StepCompletion
-	// ErrorType is the Flow failure category when supplied.
+	// ErrorType is the Flow failure category when available.
 	ErrorType FlowErrorType
-	// ErrorMessage is the server completion detail when supplied.
+	// ErrorMessage is the server completion detail when available.
 	ErrorMessage string
 }
 
@@ -675,7 +675,7 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Valu
 // ResetFlow creates a new run of an existing Flow and returns the new run ID.
 //
 // options selects the reset point, optional Step input, and reset reason. The server
-// keeps the Flow ID and starts a distinct run. ResetFlow returns validation or
+// keeps the Flow ID and starts a new run. ResetFlow returns validation or
 // serialization errors before the request, and context, transport, not-found, or
 // server errors after it is sent.
 func (client *Client) ResetFlow(
@@ -762,7 +762,7 @@ func resolveTimerID(timer TimerID) (string, *int32, error) {
 // UpdateFlowConfig replaces the mutable configuration of an active Flow.
 //
 // config is validated and serialized before the request. The update applies to
-// subsequent Flow decisions; work already dispatched is not recalled. The method
+// later Flow decisions; work already dispatched is not recalled. The method
 // returns validation, inactive-Flow, context, transport, or server errors.
 func (client *Client) UpdateFlowConfig(
 	ctx context.Context,

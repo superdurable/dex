@@ -39,7 +39,7 @@ var (
 // Value is an opaque Dex value. Decoded string values contain valid UTF-8.
 //
 // Values returned by bulk Client reads are already hydrated. Use Decode with the
-// same Go type used by the corresponding Attribute. Primitive
+// same Go type used by the matching Attribute. Primitive
 // values preserve their wire kind; structs, maps, and non-byte slices use JSON;
 // byte slices use the raw-bytes encoding.
 type Value struct {

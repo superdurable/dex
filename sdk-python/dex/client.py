@@ -60,7 +60,7 @@ class Client:
     shutdown. The Client owns its gRPC channel but not the Registry or BlobCache.
 
     Attributes:
-        registry: The immutable definitions used to validate typed calls.
+        registry: Flow definitions used to validate typed calls.
         blob_cache: The open cache used to hydrate large values.
         options: The effective ClientOptions.
 
@@ -140,7 +140,7 @@ class Client:
             flow: The registered Flow instance to start.
             flow_id: A non-empty application ID stable across runs.
             input: The starting Step input, or ``None`` when no starting Step exists.
-            options: Immutable start configuration.
+            options: Settings for the new Flow execution.
 
         Returns:
             The server-assigned run ID.
@@ -464,7 +464,7 @@ class Client:
             run_id: Optional exact run; ``""`` targets the active run.
 
         Raises:
-            ValueError: If no value is supplied or a required name is empty.
+            ValueError: If no value is passed or a required name is empty.
             TypeError: If map arguments or value types are invalid.
             ValueMappingError: If a value cannot be encoded.
             FlowNotActiveError: If the selected Flow run is closed.
@@ -788,7 +788,7 @@ class Client:
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
         """Replace mutable configuration for an active Flow.
 
-        The update affects subsequent decisions and does not recall work already
+        The update affects later decisions and does not recall work already
         dispatched.
 
         Args:

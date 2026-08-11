@@ -71,7 +71,7 @@ func ProceedToOnExecuteFailure[IN any](
 // StepOptions configures one Step's handler execution and persistence behavior.
 //
 // Zero values preserve server timeouts, retry behavior, and durability defaults. WaitFor failures
-// fail the Flow by default. Locks are held only for their respective handler invocation.
+// fail the Flow by default. Each lock is held only for the matching handler call.
 type StepOptions struct {
 	// WaitForMethodTimeout limits one WaitFor attempt; zero uses the server default.
 	WaitForMethodTimeout time.Duration
@@ -219,7 +219,7 @@ const (
 	CancelFlow StopType = iota + 1
 	// TerminateFlow ends the Flow immediately without cleanup.
 	TerminateFlow
-	// FailFlow marks the Flow failed with the supplied reason.
+	// FailFlow marks the Flow failed with Reason.
 	FailFlow
 )
 

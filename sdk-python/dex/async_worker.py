@@ -32,7 +32,7 @@ class AsyncWorker:
     handlers may overlap on the event loop and must avoid blocking operations.
 
     Attributes:
-        registry: The immutable Flow Registry served by this Worker.
+        registry: The Flow Registry served by this Worker.
         blob_cache: The shared cache used to hydrate large values.
         options: The effective WorkerOptions.
 
@@ -86,7 +86,7 @@ class AsyncWorker:
         """Return the effective endpoint advertised to Dex.
 
         Returns:
-            The immutable WorkerTarget, including the actual port after binding.
+            The WorkerTarget, including the actual port after binding.
         """
         return self._worker_target
 

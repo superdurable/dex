@@ -63,7 +63,7 @@ type registeredChannel struct {
 
 // NewRegistry validates and assembles Flow definitions atomically.
 //
-// flows may be empty, but every supplied Flow must be non-nil and have a unique,
+// flows may be empty, but every Flow must be non-nil and have a unique,
 // package-qualified Flow type. NewRegistry also validates starting Steps, Step
 // options, RPC signatures, persistence definitions, and cross-Flow Attribute index
 // compatibility. It returns FlowDefinitionError for an invalid Flow and publishes no

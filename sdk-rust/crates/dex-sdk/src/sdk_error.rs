@@ -22,7 +22,7 @@ pub type SdkResult<T> = Result<T, SdkError>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Provides Dex-specific detail beyond a gRPC status code.
 pub enum ErrorSubStatus {
-    /// Dex supplied no recognized specialized status.
+    /// Dex returned no specific status.
     Uncategorized,
     /// A start request targeted an already-existing Flow ID.
     FlowAlreadyStarted,
@@ -105,7 +105,7 @@ pub struct WorkerError {
 }
 
 impl WorkerError {
-    /// Returns the Worker gRPC status when supplied.
+    /// Returns the Worker gRPC status when available.
     pub fn code(&self) -> Option<GrpcCode> {
         self.code
     }
@@ -124,7 +124,7 @@ impl WorkerError {
 #[derive(Debug)]
 /// Reports service, definition, value, handler, and Flow-completion failures.
 ///
-/// Match specialized variants when recovery differs. [`Self::service_error`] extracts common gRPC
+/// Match specific variants when recovery differs. [`Self::service_error`] extracts common gRPC
 /// metadata from every service-backed variant.
 pub enum SdkError {
     /// A general Dex service or transport call failed.
@@ -170,9 +170,9 @@ pub enum SdkError {
         run_id: String,
         /// Terminal Flow status.
         status: FlowStatus,
-        /// Dex failure category, when supplied.
+        /// Dex failure category, when available.
         error_type: Option<FlowErrorType>,
-        /// Server completion detail, when supplied.
+        /// Server completion detail, when available.
         message: Option<String>,
         /// Number of completed Step outputs returned with the failure.
         result_count: usize,

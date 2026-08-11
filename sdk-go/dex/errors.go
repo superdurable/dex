@@ -147,7 +147,7 @@ type ServiceError struct {
 	FlowID string
 	// Code is the outer gRPC status code.
 	Code codes.Code
-	// SubStatus is Dex's specialized error classification.
+	// SubStatus is Dex's specific error classification.
 	SubStatus ErrorSubStatus
 	// Detail is the most specific server or transport message available.
 	Detail string
@@ -253,9 +253,9 @@ type FlowUncompletedError struct {
 	RunID string
 	// Status is the terminal non-completed status.
 	Status FlowStatus
-	// ErrorType is Dex's Flow failure category when supplied.
+	// ErrorType is Dex's Flow failure category when available.
 	ErrorType FlowErrorType
-	// ErrorMessage is the server completion detail when supplied.
+	// ErrorMessage is the server completion detail when available.
 	ErrorMessage string
 	// Completions contains completed Step outputs returned by Dex.
 	Completions []StepCompletion
@@ -287,7 +287,7 @@ type WorkerError struct {
 type ErrorSubStatus uint8
 
 const (
-	// ErrorSubStatusUncategorized means Dex supplied no recognized specialization.
+	// ErrorSubStatusUncategorized means Dex returned no specific status.
 	ErrorSubStatusUncategorized ErrorSubStatus = iota + 1
 	// ErrorSubStatusFlowAlreadyStarted identifies a Flow ID reuse conflict.
 	ErrorSubStatusFlowAlreadyStarted

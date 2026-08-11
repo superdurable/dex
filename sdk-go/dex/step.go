@@ -127,7 +127,7 @@ func newStepDef[IN any](step Step[IN], starting bool) StepDef {
 // StepDef is the representation of Step, without Go's generic
 // So that internal sdk can use it to workaround Go's generic limitations
 //
-// StepDef is sealed. Applications create values with DefineStep or
+// StepDef is internal to the SDK. Applications create values with DefineStep or
 // DefineStartStep and return them from Flow.GetSteps.
 type StepDef interface {
 	stepType() string

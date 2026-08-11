@@ -60,34 +60,34 @@ class Wait:
         """Create a Wait for one Condition.
 
         Args:
-            condition: The sole readiness condition.
+            condition: The only readiness condition.
 
         Returns:
-            An all-of Wait containing ``condition``.
+            An all-of Wait with ``condition``.
         """
         return Wait.all_of(condition)
 
     @staticmethod
     def all_of(*conditions: Condition) -> Wait:
-        """Create a Wait that requires every supplied Condition.
+        """Create a Wait that requires every Condition.
 
         Args:
             *conditions: Conditions evaluated as one all-of group.
 
         Returns:
-            An immutable all-of Wait preserving argument order.
+            An all-of Wait with Conditions in argument order.
         """
         return Wait(WaitKind.ALL_OF, conditions)
 
     @staticmethod
     def any_of(*conditions: Condition) -> Wait:
-        """Create a Wait that proceeds when any supplied Condition is ready.
+        """Create a Wait that continues when any Condition is ready.
 
         Args:
             *conditions: Alternative readiness Conditions.
 
         Returns:
-            An immutable any-of Wait preserving argument order.
+            An any-of Wait with Conditions in argument order.
         """
         return Wait(WaitKind.ANY_OF, conditions)
 
@@ -100,7 +100,7 @@ class Wait:
                 :meth:`ConditionCombination.of`.
 
         Returns:
-            An immutable Wait containing the alternative groups.
+            A Wait containing the alternative groups.
         """
         return Wait(
             WaitKind.ANY_COMBINATION_OF,

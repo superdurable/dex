@@ -60,7 +60,7 @@ class AsyncClient:
     use ``async with`` or await ``close`` during application shutdown.
 
     Attributes:
-        registry: The immutable definitions used to validate typed calls.
+        registry: Flow definitions used to validate typed calls.
         blob_cache: The open cache used to hydrate large values.
         options: The effective ClientOptions.
 
@@ -463,7 +463,7 @@ class AsyncClient:
             run_id: Optional exact run; ``""`` targets the active run.
 
         Raises:
-            ValueError: If no value is supplied or a name is empty.
+            ValueError: If no value is passed or a name is empty.
             TypeError: If map arguments or value types are invalid.
             ValueMappingError: If a value cannot be encoded.
             FlowNotActiveError: If the selected Flow run is closed.
@@ -791,7 +791,7 @@ class AsyncClient:
 
         Args:
             flow_id: The non-empty active Flow ID.
-            config: New optional fields applied to subsequent decisions.
+            config: New optional fields applied to later decisions.
 
         Raises:
             FlowNotActiveError: If the Flow is closed.

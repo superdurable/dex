@@ -55,9 +55,9 @@ export interface FlowConfig {
   readonly continueAsNewThreshold?: number;
   /** Positive history page-size budget in bytes for continue-as-new. */
   readonly continueAsNewPageSizeBytes?: number;
-  /** Default durability for subsequent Step handler results. */
+  /** Default durability for later Step handler results. */
   readonly stepDurability?: StepDurability;
-  /** Worker endpoint used for subsequent handler dispatch. */
+  /** Worker endpoint used for later handler calls. */
   readonly workerTarget?: WorkerTarget;
 }
 
@@ -81,7 +81,7 @@ export const InitialAttribute = Object.freeze({
    * @typeParam T - Attribute value type.
    * @param attribute - Registered singleton Attribute.
    * @param value - Typed initial value.
-   * @returns An immutable initialization descriptor.
+   * @returns The Attribute initialization value.
    */
   of<T>(attribute: Attribute<T>, value: T): InitialAttribute<T> {
     return { attribute, value };
@@ -92,7 +92,7 @@ export const InitialAttribute = Object.freeze({
    * @param attribute - Registered AttributeMap.
    * @param instance - Non-empty logical map key.
    * @param value - Typed initial value.
-   * @returns An immutable initialization descriptor.
+   * @returns The AttributeMap initialization value.
    */
   mapValue<T>(
     attribute: AttributeMap<T>,
@@ -119,11 +119,11 @@ export const InitialAttribute = Object.freeze({
  * ```
  */
 export interface StartFlowOptions {
-  /** Maximum Flow lifetime in milliseconds; omission uses registered defaults. */
+  /** Maximum Flow lifetime in milliseconds; uses registered defaults when omitted. */
   readonly timeoutMs?: number;
   /** Delay before the starting Step becomes eligible, in milliseconds. */
   readonly startDelayMs?: number;
-  /** Flow ID reuse policy; omission uses `DEFAULT`. */
+  /** Flow ID reuse policy; uses `DEFAULT` when omitted. */
   readonly idReusePolicy?: IdReusePolicy;
   /** Server-supported cron expression for recurring runs. */
   readonly cronSchedule?: string;
@@ -135,7 +135,7 @@ export interface StartFlowOptions {
   readonly configOverride?: FlowConfig;
   /** Returns the existing run instead of raising an already-started error. */
   readonly ignoreAlreadyStarted?: boolean;
-  /** Non-empty idempotency key; omission generates a UUID. */
+  /** Non-empty idempotency key; generates a UUID when omitted. */
   readonly requestId?: string;
 }
 
@@ -193,7 +193,7 @@ export interface SearchFlowsPage {
 export interface StepExecutionId {
   /** Registered Step type. */
   readonly stepType: string;
-  /** Positive execution number; omission means the first execution. */
+  /** Positive execution number; defaults to the first execution. */
   readonly number?: number;
 }
 
@@ -291,7 +291,7 @@ export type StopType = (typeof StopType)[keyof typeof StopType];
 
 /** Configures a `stopFlow` request. */
 export interface StopFlowOptions {
-  /** Stop behavior; omission requests cooperative cancellation. */
+  /** Stop behavior; defaults to cooperative cancellation. */
   readonly type?: StopType;
   /** Optional operator-readable reason recorded by Dex. */
   readonly reason?: string;
@@ -301,7 +301,7 @@ export interface StopFlowOptions {
 export interface WorkerOptions {
   /** Local plaintext WorkerService listener; defaults to `:8803`. */
   readonly bindAddress?: string;
-  /** Endpoint advertised to Dex; omission derives it from `bindAddress`. */
+  /** Endpoint advertised to Dex; derived from `bindAddress` when omitted. */
   readonly workerTarget?: WorkerTarget;
   /** Dex FlowService target; defaults to `localhost:8801`. */
   readonly serverAddress?: string;

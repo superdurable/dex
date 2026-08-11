@@ -59,9 +59,9 @@ export class Worker {
 
   /**
    * Constructs a Worker without starting its listener.
-   * @param registry - Immutable Flow definitions served by this Worker.
+   * @param registry - Flow definitions served by this Worker.
    * @param blobCache - Open cache used to hydrate large handler values.
-   * @param options - Networking and startup settings; omission uses local defaults.
+   * @param options - Networking and startup settings; uses local defaults when omitted.
    */
   public constructor(
     public readonly registry: Registry,

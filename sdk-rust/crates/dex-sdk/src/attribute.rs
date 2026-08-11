@@ -42,7 +42,7 @@ impl<T> Attribute<T> {
         }
     }
 
-    /// Enables Flow-search indexing with the supplied representation.
+    /// Enables Flow-search indexing with the selected index type.
     pub fn indexed(mut self, index: AttributeIndex) -> Self {
         self.index = Some(index);
         self
@@ -124,7 +124,7 @@ impl<T> Clone for Attribute<T> {
 /// Defines keyed durable values sharing one Attribute name.
 ///
 /// Each `instance` identifies an independent stored value and lock. Add the map definition once to
-/// [`crate::PersistenceSchema`]; instance names are supplied at access time.
+/// [`crate::PersistenceSchema`]; pass an instance name on each access.
 pub struct AttributeMap<T> {
     name: String,
     index: Option<AttributeIndex>,
@@ -141,7 +141,7 @@ impl<T> AttributeMap<T> {
         }
     }
 
-    /// Enables search indexing for every instance using the supplied representation.
+    /// Enables search indexing for every instance using the selected index type.
     pub fn indexed(mut self, index: AttributeIndex) -> Self {
         self.index = Some(index);
         self
@@ -221,7 +221,7 @@ impl<T> Clone for AttributeMap<T> {
 /// Describes how Dex projects an Attribute value into its Flow-search index.
 ///
 /// Without [`Self::with_key`], a single Attribute uses its name as the physical key. Attribute maps
-/// derive per-instance physical keys unless an explicit key is supplied.
+/// derive per-instance physical keys unless an explicit key is set.
 pub struct AttributeIndex {
     kind: AttributeIndexKind,
     key: Option<String>,

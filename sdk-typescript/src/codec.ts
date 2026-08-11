@@ -83,7 +83,7 @@ export interface Codec<T> {
   /**
    * Decodes one protocol value.
    * @param value - Value to validate and decode.
-   * @returns The reconstructed application value.
+   * @returns The decoded application value.
    */
   decode(value: Value): T;
 }

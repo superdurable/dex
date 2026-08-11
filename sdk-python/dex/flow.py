@@ -154,7 +154,7 @@ class PersistenceSchema:
             *definitions: Attribute, AttributeMap, Channel, or ChannelMap definitions.
 
         Returns:
-            An immutable schema preserving relative order within each category.
+            A schema with each category kept in argument order.
 
         Raises:
             TypeError: If a value is not a supported persistence definition.
@@ -190,7 +190,7 @@ class Flow(Generic[StartT], ABC):
         return type(self).__name__
 
     def get_steps(self) -> StepList[StartT]:
-        """Return the immutable Step definitions for this Flow.
+        """Return the Step definitions for this Flow.
 
         Returns:
             A StepList with zero or one starting Step and all reachable Steps.
@@ -253,7 +253,7 @@ class _RegisteredFlow:
 
 @dataclass(frozen=True)
 class Registry:
-    """Validate and store immutable Flow definitions shared by Client and Worker.
+    """Validate and store Flow definitions shared by Client and Worker.
 
     Registry construction inspects Step and RPC signatures, resolves codecs, checks
     names and locks, and assembles Attribute indexes atomically. The result is safe

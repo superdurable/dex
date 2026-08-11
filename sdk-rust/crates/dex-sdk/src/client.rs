@@ -44,7 +44,7 @@ use crate::{
 ///
 /// Client methods block the calling thread while an internal Tokio runtime performs gRPC and blob
 /// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
-/// Attribute, and Channel arguments are checked against the supplied [`Registry`].
+/// Attribute, and Channel arguments are checked against the [`Registry`].
 ///
 /// # Examples
 ///
@@ -214,7 +214,7 @@ impl Client {
 
     /// Invokes a registered no-input RPC and decodes its typed output.
     ///
-    /// Errors use the same specialized variants as [`Self::invoke_rpc`].
+    /// Returns the same errors as [`Self::invoke_rpc`].
     pub fn invoke_rpc_without_input<Output: Value>(
         &self,
         flow_id: &str,

@@ -20,7 +20,7 @@ export type WaitForFailurePolicy = "failFlow" | "proceed";
 export interface RetryPolicy {
   /** Delay before the first retry in milliseconds. */
   readonly initialIntervalMs?: number;
-  /** Retry-delay multiplier; omission uses the server default. */
+  /** Retry-delay multiplier; uses the server default when omitted. */
   readonly backoffCoefficient?: number;
   /** Upper bound for one retry delay in milliseconds. */
   readonly maximumIntervalMs?: number;
@@ -38,14 +38,14 @@ export interface ExecuteFailure {
   readonly options?: StepOptions;
 }
 
-/** Creates execute-failure routing descriptors. */
+/** Creates execute-failure routing settings. */
 export const ExecuteFailure = Object.freeze({
   /**
    * Routes exhausted execution retries to another Step.
    * @typeParam Input - Fallback Step input type.
    * @param step - Registered fallback Step.
    * @param options - Optional options for the fallback movement.
-   * @returns An immutable failure-routing descriptor.
+   * @returns The failure-routing settings.
    */
   proceedTo<Input>(step: Step<Input>, options?: StepOptions): ExecuteFailure {
     return {
@@ -91,7 +91,7 @@ export interface StepOptions {
  *   execute: (_context, input) => forceComplete(input),
  * };
  * ```
- * @typeParam Input - Value supplied by an incoming Step movement.
+ * @typeParam Input - Value passed by an incoming Step movement.
  */
 export interface Step<Input> {
   /** Codec used for every incoming input value. */
@@ -137,7 +137,7 @@ type StepDefinition = StartStepDefinition<unknown> | NonStartStepDefinition;
 declare const startInputType: unique symbol;
 
 /**
- * Builds immutable Step definitions for a Flow.
+ * Builds the ordered Step definitions for a Flow.
  * @typeParam StartInput - Input type of the optional starting Step.
  */
 export class StepList<StartInput> {
@@ -153,7 +153,7 @@ export class StepList<StartInput> {
   /**
    * Creates a StepList with no Steps.
    * @typeParam StartInput - Declared Flow start input type.
-   * @returns An empty immutable StepList.
+   * @returns An empty StepList.
    */
   public static empty<StartInput = void>(): StepList<StartInput> {
     return new StepList([]);
@@ -184,7 +184,7 @@ export class StepList<StartInput> {
   /**
    * Returns a copy with non-starting Steps appended.
    * @param steps - Registered Steps appended in argument order.
-   * @returns A new immutable StepList.
+   * @returns A new StepList.
    */
   public otherSteps(...steps: readonly Step<any>[]): StepList<StartInput> {
     return new StepList([
@@ -195,7 +195,7 @@ export class StepList<StartInput> {
 
   /**
    * Iterates Step definitions in registration order.
-   * @returns An iterator over immutable internal definitions.
+   * @returns An iterator over the registered Step definitions.
    */
   public [Symbol.iterator](): Iterator<StepDefinition> {
     return this.definitions[Symbol.iterator]();
@@ -223,7 +223,7 @@ export const StepMovement = Object.freeze({
    * @param step - Registered destination Step.
    * @param input - Typed destination input.
    * @param options - Optional per-movement options.
-   * @returns An immutable movement descriptor.
+   * @returns The new Step movement.
    */
   of<Input>(step: Step<Input>, input: Input, options?: StepOptions): StepMovement<Input> {
     return {

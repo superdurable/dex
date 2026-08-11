@@ -43,7 +43,7 @@ func MovementOf[IN any](
 	return movement
 }
 
-// GoToMulti moves to every supplied target, enabling concurrent active Steps.
+// GoToMulti moves to all targets, enabling concurrent active Steps.
 func GoToMulti(movements ...StepMovement) *StepDecision {
 	return &StepDecision{
 		kind:      decisionNext,
@@ -94,7 +94,7 @@ func DeadEnd() *StepDecision {
 }
 
 // ForceCompleteOnChannelsEmpty completes when every guarded Channel is empty.
-// Otherwise Dex follows the optional movements supplied through otherwise.
+// Otherwise Dex follows the movements in otherwise.
 func ForceCompleteOnChannelsEmpty(
 	output any,
 	channels []ChannelDef,
@@ -127,7 +127,7 @@ type CloseDecision struct {
 	channels []ChannelDef
 }
 
-// StepMoveOption configures one Step movement. The interface is sealed to SDK implementations.
+// StepMoveOption configures one Step movement. Use WithStepOptions to create an option.
 type StepMoveOption interface {
 	applyStepMovement(*StepMovement)
 }

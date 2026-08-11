@@ -36,7 +36,7 @@ class Worker:
     bounded thread pool and must synchronize shared application state.
 
     Attributes:
-        registry: The immutable Flow Registry served by this Worker.
+        registry: The Flow Registry served by this Worker.
         blob_cache: The shared cache used to hydrate large values.
         options: The effective WorkerOptions.
 
@@ -116,7 +116,7 @@ class Worker:
         binding, the property contains the actual selected port.
 
         Returns:
-            The immutable advertised WorkerTarget.
+            The advertised WorkerTarget.
         """
         return self._worker_target
 

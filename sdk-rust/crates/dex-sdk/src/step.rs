@@ -210,7 +210,7 @@ impl StepDecision {
         Self::go_to_many([StepMovement::to(step, input)])
     }
 
-    /// Moves to every supplied target, enabling concurrent active Steps.
+    /// Moves to all targets, enabling concurrent active Steps.
     pub fn go_to_many(movements: impl IntoIterator<Item = StepMovement>) -> Self {
         Self {
             kind: StepDecisionKind::Next(movements.into_iter().collect()),

@@ -49,14 +49,14 @@ impl Wait {
         Self::all_of([condition])
     }
 
-    /// Waits until every supplied condition is satisfied.
+    /// Waits until every condition is satisfied.
     pub fn all_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
         Self {
             kind: WaitKind::AllOf(conditions.into_iter().collect()),
         }
     }
 
-    /// Waits until at least one supplied condition is satisfied.
+    /// Waits until at least one condition is satisfied.
     pub fn any_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
         Self {
             kind: WaitKind::AnyOf(conditions.into_iter().collect()),

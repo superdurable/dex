@@ -30,7 +30,7 @@ func DefineChannel[T any](name string) Channel[T] {
 
 // ChannelDef is the interface of Channel, without Go's generic
 //
-// ChannelDef is sealed. Applications obtain values from DefineChannel or
+// ChannelDef is internal to the SDK. Applications create values with DefineChannel or
 // DefineChannelMap, then pass them to PersistenceSchema and Client methods.
 type ChannelDef interface {
 	channelName() string

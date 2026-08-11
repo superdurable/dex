@@ -64,7 +64,7 @@ func withTransientMovement(wait *Wait, movement StepMovement) *Wait {
 }
 
 // Condition represents one durable Timer or Channel predicate.
-// The interface is sealed; create values through Timer, Channel, or ChannelMap.
+// Create values through Timer, Channel, or ChannelMap; custom implementations are not supported.
 type Condition interface {
 	condition()
 }
@@ -80,7 +80,7 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 	return condition
 }
 
-// ConditionOption configures a Condition. The interface is sealed to SDK implementations.
+// ConditionOption configures a Condition. Use WithConditionID to create an option.
 type ConditionOption interface {
 	applyCondition(*conditionImpl)
 }

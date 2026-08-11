@@ -39,7 +39,7 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 // AttributeDef is the interface of Attribute, without Go's generic
 // So that internal sdk can use it to workaround Go's generic limitations
 //
-// AttributeDef is sealed. Applications obtain values from DefineAttribute or
+// AttributeDef is internal to the SDK. Applications create values with DefineAttribute or
 // DefineAttributeMap, then pass them to PersistenceSchema and Client methods.
 type AttributeDef interface {
 	attributeName() string
@@ -179,7 +179,7 @@ func (AttributeMap[T]) attributeIsMap() bool {
 }
 
 // AttributeOption configures an Attribute or AttributeMap definition.
-// Use Indexed to create values; the interface is sealed to SDK implementations.
+// Use Indexed to create values; custom implementations are not supported.
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)
 }

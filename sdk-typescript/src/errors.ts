@@ -18,7 +18,7 @@ export class PhaseNotImplementedError extends Error {}
 
 /** Provides stable Dex-specific classifications beyond gRPC status codes. */
 export const ErrorSubStatus = Object.freeze({
-  /** No more precise stable classification was supplied. */
+  /** Dex returned no more specific classification. */
   UNCATEGORIZED: "uncategorized",
   /** A start request conflicted with an existing Flow ID. */
   FLOW_ALREADY_STARTED: "flowAlreadyStarted",
@@ -174,10 +174,10 @@ export class ValueMappingError extends Error {
 /** Reports that `waitForFlow` observed a non-successful terminal status. */
 export class FlowUncompletedError extends Error {
   /**
-   * Creates an error retaining completed Step outputs for typed decoding.
+   * Creates an error that keeps completed Step outputs for typed decoding.
    * @param runId - Terminal server-assigned run ID.
    * @param status - Non-completed terminal status.
-   * @param errorType - Terminal failure category, when supplied.
+   * @param errorType - Terminal failure category, when available.
    * @param message - Human-readable terminal detail.
    * @param results - Hydrated Step outputs in server order.
    */

@@ -20,7 +20,7 @@ ValueT = TypeVar("ValueT")
 
 
 class Context(Protocol):
-    """Expose immutable execution metadata and decision-local Step operations.
+    """Expose execution metadata and decision-local Step operations.
 
     Dex supplies a Context to every ``wait_for`` and ``execute`` call. Do not retain
     it after the handler returns. Attribute and Channel definition methods provide

@@ -55,7 +55,7 @@ class WaitForFailurePolicy(Enum):
 class RetryPolicy:
     """Configure exponential retries for a Step handler or Flow.
 
-    A ``None`` duration or zero numeric value delegates to the server default.
+    A ``None`` duration or zero numeric value uses the server default.
     Attempts include the initial call. Retries stop at the first configured limit.
 
     Attributes:
@@ -77,7 +77,7 @@ class RetryPolicy:
 class StepOptions:
     """Configure timeouts, retries, durability, locks, and failure routing for a Step.
 
-    Fields set to ``None`` or ``DEFAULT`` delegate to Flow or server policy. Attribute
+    Fields set to ``None`` or ``DEFAULT`` use Flow or server policy. Attribute
     locks are acquired separately for ``wait_for`` and ``execute`` and must reference
     definitions in the containing Flow's ``PersistenceSchema``.
 
@@ -150,7 +150,7 @@ class Step(Generic[InputT], ABC):
 
         Args:
             context: Execution metadata and decision-local persistence operations.
-            input: The decoded value supplied by the incoming Step movement.
+            input: The decoded value passed by the incoming Step movement.
 
         Returns:
             A StepDecision describing movements or Flow completion.
@@ -204,7 +204,7 @@ class _StepDef:
 
 @dataclass(frozen=True)
 class StepList(Generic[StartT]):
-    """Build the immutable ordered Step definitions for a Flow.
+    """Build the ordered Step definitions for a Flow.
 
     A Flow may have zero or one starting Step. Other Steps are reachable only through
     decisions, RPC results, or failure routing.
@@ -217,7 +217,7 @@ class StepList(Generic[StartT]):
         """Create a StepList with no starting or other Steps.
 
         Returns:
-            An empty immutable StepList.
+            An empty StepList.
         """
         return cls(())
 
@@ -252,7 +252,7 @@ class StepList(Generic[StartT]):
             *steps: Steps to append in registration order.
 
         Returns:
-            A new immutable StepList.
+            A new StepList.
         """
         return StepList(
             self._definitions + tuple(_StepDef(step, False) for step in steps)
@@ -262,7 +262,7 @@ class StepList(Generic[StartT]):
         """Iterate internal definitions in stable registration order.
 
         Returns:
-            An iterator over immutable Step definitions.
+            An iterator over the registered Step definitions.
         """
         return iter(self._definitions)
 
@@ -296,7 +296,7 @@ class StepMovement(Generic[InputT]):
             options: Optional per-movement options.
 
         Returns:
-            An immutable StepMovement.
+            A StepMovement.
         """
         return StepMovement(step, input, options)
 
@@ -354,7 +354,7 @@ def go_to_multi(*movements: StepMovement[Any]) -> StepDecision:
         *movements: Typed destination movements applied in argument order.
 
     Returns:
-        A next decision containing every supplied movement.
+        A next decision with all movements.
     """
     return StepDecision(DecisionKind.NEXT, movements=movements)
 

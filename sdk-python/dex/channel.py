@@ -146,7 +146,7 @@ class Channel(Generic[ValueT]):
     ) -> Condition:
         """Create a bounded condition for queued Channel values.
 
-        At least one bound must be supplied. When both are present, ``at_least``
+        At least one bound is required. When both are present, ``at_least``
         cannot exceed ``at_most``. The condition is evaluated durably by Dex.
 
         Args:

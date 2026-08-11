@@ -15,8 +15,8 @@ use crate::{RetryPolicy, Step, Value};
 /// Configures one Step's handler execution and persistence behavior.
 ///
 /// New options preserve server timeout, retry, and durability defaults. `wait_for` failures fail the
-/// Flow by default. Attribute locks apply only to their respective handler invocation. The input
-/// type ensures an execute-failure recovery Step accepts the same value.
+/// Flow by default. Attribute locks apply only to the matching handler call. The type system checks
+/// that an execute-failure recovery Step accepts the same input type.
 ///
 /// # Examples
 ///

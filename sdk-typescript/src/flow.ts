@@ -31,13 +31,13 @@ export interface Flow<StartInput = void> {
   getSteps(): StepList<StartInput>;
   /**
    * Returns this Flow's persistence definitions.
-   * @returns Attributes and Channels owned by this Flow; omission means empty.
+   * @returns Attributes and Channels owned by this Flow. Flows without this method have none.
    */
   getPersistenceSchema?(): PersistenceSchema;
 }
 
 /**
- * Validates and stores immutable Flow definitions shared by Client and Worker.
+ * Validates and stores Flow definitions shared by Client and Worker.
  * Construction checks names, Step/RPC signatures, persistence definitions, locks,
  * and Attribute indexes atomically.
  *
@@ -52,7 +52,7 @@ export class Registry {
   public readonly flows: readonly Flow<any>[];
 
   /**
-   * Creates an immutable Registry.
+   * Creates a Registry.
    * @param flows - Flow instances with unique Flow types.
    * @throws {@link FlowDefinitionError} when any public definition is invalid.
    */

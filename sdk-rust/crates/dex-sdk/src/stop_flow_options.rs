@@ -41,7 +41,7 @@ impl StopFlowOptions {
         Self::new(StopType::Terminate)
     }
 
-    /// Marks the Flow failed with the supplied reason.
+    /// Marks the Flow failed with the reason set by [`Self::reason`].
     pub fn fail() -> Self {
         Self::new(StopType::Fail)
     }

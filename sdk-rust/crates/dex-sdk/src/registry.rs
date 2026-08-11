@@ -21,8 +21,8 @@ use dex_protocol::dex::Value as ProtoValue;
 /// Validates and stores all Flow definitions used by a Client or Worker.
 ///
 /// Registration checks unique Flow, Step, RPC, and persistence names; starting-Step constraints;
-/// Attribute index consistency; RPC locks; and handler options. Cloning is cheap because immutable
-/// registrations are shared.
+/// Attribute index consistency; RPC locks; and handler options. Cloning is cheap because it shares
+/// the registered data.
 ///
 /// # Examples
 ///

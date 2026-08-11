@@ -126,7 +126,7 @@ class Attribute(Generic[ValueT]):
         access the same value.
 
         Returns:
-            An immutable lock descriptor for this Attribute.
+            A lock for this Attribute.
         """
         return AttributeLock(self)
 
@@ -135,7 +135,7 @@ class Attribute(Generic[ValueT]):
 class AttributeMap(Generic[ValueT]):
     """Define a typed family of durable values keyed by map instance.
 
-    AttributeMap instances share one schema definition while retaining independent
+    AttributeMap instances share one schema definition while keeping independent
     values and locks. Declare the map in ``PersistenceSchema`` before using it.
 
     Attributes:
@@ -199,7 +199,7 @@ class AttributeMap(Generic[ValueT]):
             instance: The non-empty logical map key.
 
         Returns:
-            An immutable lock descriptor scoped to ``instance``.
+            A lock for ``instance``.
 
         Raises:
             ValueError: If ``instance`` is empty.

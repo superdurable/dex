@@ -40,7 +40,7 @@ export type RPC<Input, Output> = (
  * @typeParam Output - Handler output type.
  */
 export interface RPCOptions<Input = unknown, Output = unknown> {
-  /** Protocol RPC name; omission uses the decorated method name. */
+  /** Protocol RPC name; uses the decorated method name when omitted. */
   readonly name?: string;
   /** Required input codec for handlers that accept an input. */
   readonly inputCodec?: Codec<Input>;

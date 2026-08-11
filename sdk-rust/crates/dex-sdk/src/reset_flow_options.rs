@@ -48,7 +48,7 @@ impl ResetFlowOptions {
         Self::new(ResetPoint::HistoryEventTime(event_time))
     }
 
-    /// Resets before the first execution of the supplied Step type.
+    /// Resets before the first execution of the selected Step type.
     pub fn from_step<SomeStep: Step>(step: &SomeStep) -> Self {
         Self::new(ResetPoint::StepType(step.step_type()))
     }

@@ -12,8 +12,7 @@ use std::time::Duration;
 /// Overrides Dex retry timing for a Flow, `wait_for`, or `execute` operation.
 ///
 /// Unset fields use server defaults. Intervals and total duration use [`Duration`]; maximum
-/// attempts counts the initial attempt. A zero maximum attempts value delegates to server
-/// semantics.
+/// attempts counts the initial attempt. A zero maximum attempts value uses the server behavior.
 ///
 /// # Examples
 ///

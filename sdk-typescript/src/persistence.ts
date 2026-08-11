@@ -44,7 +44,7 @@ export interface AttributeIndex {
 export interface AttributeLock {
   /** Singleton Attribute or AttributeMap definition to lock. */
   readonly attribute: Attribute<unknown> | AttributeMap<unknown>;
-  /** AttributeMap instance, or omission for a singleton Attribute. */
+  /** AttributeMap instance; omitted for a singleton Attribute. */
   readonly instance?: string;
 }
 
@@ -103,7 +103,7 @@ export class Attribute<T> {
 
   /**
    * Creates a lock request for this Attribute.
-   * @returns An immutable lock descriptor for this singleton Attribute.
+   * @returns A lock for this singleton Attribute.
    */
   public lock(): AttributeLock {
     return { attribute: this as Attribute<unknown> };
@@ -161,7 +161,7 @@ export class AttributeMap<T> {
   /**
    * Creates a lock request scoped to one map instance.
    * @param instance - Non-empty logical map key.
-   * @returns An immutable instance lock descriptor.
+   * @returns A lock for the requested instance.
    */
   public lock(instance: string): AttributeLock {
     requireName(instance);

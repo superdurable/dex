@@ -24,7 +24,7 @@ class ErrorSubStatus(Enum):
     """Classify a FlowService error more precisely than its gRPC status.
 
     Attributes:
-        UNCATEGORIZED: No stable Dex-specific classification was supplied.
+        UNCATEGORIZED: Dex returned no specific classification.
         FLOW_ALREADY_STARTED: The requested Flow ID conflicts with an existing run.
         FLOW_NOT_EXISTS: No Flow with the requested ID exists.
         WORKER_API_ERROR: An application Worker rejected or failed an invocation.
@@ -143,7 +143,7 @@ class WorkerInvocationError(DexServiceError):
             detail: The outer service detail.
             operation: The Client operation name.
             flow_id: The targeted Flow ID, if any.
-            worker_code: The nested Worker gRPC status, if supplied.
+            worker_code: The nested Worker gRPC status, if available.
             worker_error_type: The nested application error type.
             worker_error_detail: The nested human-readable detail.
         """
@@ -237,7 +237,7 @@ class FlowUncompletedError(RuntimeError):
     Attributes:
         run_id: The terminal server-assigned run ID.
         status: The non-completed terminal Flow status.
-        error_type: The terminal failure category, if Dex supplied one.
+        error_type: The terminal failure category, if Dex returned one.
         results: The ordered, opaque Step completion outputs.
     """
 
@@ -255,7 +255,7 @@ class FlowUncompletedError(RuntimeError):
         Args:
             run_id: The terminal server-assigned run ID.
             status: The non-completed terminal status.
-            error_type: The failure category, if supplied.
+            error_type: The failure category, if available.
             message: Optional human-readable terminal message.
             results: Raw Step completion outputs in server order.
             values: The mapper used to decode outputs on demand.
