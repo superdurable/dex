@@ -34,10 +34,13 @@ accepted. `BlobStoreConfig` contains `BlobStoreConfigEntry` values.
 
 An optional `blobStore.blobCache` caches only S3-backed Attribute objects. A
 non-empty `directory` enables it, must be exclusive to one Server process, and
-defaults to a 1 GiB budget. Eligible new objects are always admitted by evicting
-the coldest entries; oversized objects bypass the cache. Cache initialization,
-recovery, checksum, and disk I/O errors are strict Server/system errors. Local
-blob storage and step-event input snapshots bypass this cache.
+defaults to a 1 GiB budget. Ristretto attempts SampledLFU eviction until an
+eligible object fits, while TinyLFU may reject a colder candidate to preserve
+hot entries. Oversized and rejected objects bypass the cache without failing
+the source Blob Store operation. A corrupt entry is invalidated and refilled
+from S3; initialization, recovery, and disk I/O errors remain strict
+Server/system errors. Local blob storage and step-event input snapshots bypass
+this cache.
 
 See [Custom Attribute Store](/production/attribute-store) for table and retry
 requirements.

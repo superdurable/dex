@@ -19,8 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 var (

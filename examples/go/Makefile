@@ -6,7 +6,7 @@ MAKEFLAGS += --no-builtin-rules
 default: help
 
 bins:
-	GOWORK=off go build -o dex-samples ./cmd/server
+	go build -o dex-samples ./cmd/server
 
 clean:
 	rm -f dex-samples
@@ -26,7 +26,7 @@ fmt:
 tests: unitTests
 
 unitTests:
-	GOWORK=off go test -v ./cmd/... ./workflows/...
+	go test -v ./cmd/... ./workflows/...
 
 help:
 	@printf "\033[36m%-20s\033[0m %s\n" 'help' 'Prints this help message'

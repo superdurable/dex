@@ -9,7 +9,6 @@ Here is the repository layout if you are interested to learn about it:
 * `gen/dexpb/` the generated protobuf/gRPC stubs from [`protos/dex.proto`](../protos/dex.proto)
 * IDL source lives in monorepo `protos/dex.proto` (see [`docs/design/idl-renames.md`](../docs/design/idl-renames.md))
 * `dex` the main directory
-  * `blobcache/` the independently tested disk blob cache
   * root `.go` files contain public contracts and private registration/runtime
   * `contracts_test.go` compiles the API from an external application package
   * package-internal tests cover registration, value, protobuf, errors, and
@@ -28,7 +27,7 @@ through the Makefile:
 make unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
 make clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
 make workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
-make blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
+make -C ../blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
 make e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 ```
@@ -43,12 +42,13 @@ coverage limited to `./dex/...`, writing reports under `coverage/`.
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
 2. Run `make idl-code-gen` (or `make -C ../protos proto`) to refresh stubs in server + SDKs
 
-## Blob cache tests
+## Blob cache dependency
 
-Run the disk-cache component and race suite through the Makefile:
+The SDK consumes the independently versioned `blob-cache-go` module. Run its
+disk, recovery, and race suite from `sdk-go` with:
 
 ```text
-make blobCacheTests
+make -C ../blob-cache-go blobCacheTests
 ```
 
 The suite uses temporary directories and constructor-injected filesystem fault

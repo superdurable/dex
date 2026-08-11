@@ -29,8 +29,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/service/common/blobcache"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
 	"go.temporal.io/sdk/client"
@@ -53,9 +53,7 @@ type blobStoreImpl struct {
 	blobCacheMissCounter        client.MetricsCounter
 	blobCacheWriteCounter       client.MetricsCounter
 	blobCacheReadFillCounter    client.MetricsCounter
-	blobCacheEvictionCounter    client.MetricsCounter
-	blobCacheOversizedCounter   client.MetricsCounter
-	blobCacheCorruptionCounter  client.MetricsCounter
+	blobCacheBypassCounter      client.MetricsCounter
 	blobCacheErrorCounter       client.MetricsCounter
 }
 
@@ -110,7 +108,10 @@ func NewBlobStore(
 	var attributeCache *blobcache.Cache
 	if storeConfig.BlobCache.Directory != "" && hasS3Storage {
 		var err error
-		attributeCache, err = blobcache.New(&storeConfig.BlobCache)
+		attributeCache, err = blobcache.New(&blobcache.Config{
+			Dir:      storeConfig.BlobCache.Directory,
+			MaxBytes: storeConfig.BlobCache.EffectiveMaxBytes(),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("initialize Attribute blob cache: %w", err)
 		}
@@ -131,9 +132,7 @@ func NewBlobStore(
 		blobCacheMissCounter:        metricsHandler.Counter("blob_cache_miss"),
 		blobCacheWriteCounter:       metricsHandler.Counter("blob_cache_write_through"),
 		blobCacheReadFillCounter:    metricsHandler.Counter("blob_cache_read_fill"),
-		blobCacheEvictionCounter:    metricsHandler.Counter("blob_cache_eviction"),
-		blobCacheOversizedCounter:   metricsHandler.Counter("blob_cache_oversized_bypass"),
-		blobCacheCorruptionCounter:  metricsHandler.Counter("blob_cache_corruption"),
+		blobCacheBypassCounter:      metricsHandler.Counter("blob_cache_bypass"),
 		blobCacheErrorCounter:       metricsHandler.Counter("blob_cache_error"),
 	}, nil
 }
@@ -362,7 +361,7 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 func (b *blobStoreImpl) readCachedAttributeObject(storeID, path string) ([]byte, bool, error) {
 	data, found, err := b.blobCache.Get(b.attributeCacheKey(storeID, path))
 	if err != nil {
-		b.recordBlobCacheError(err)
+		b.recordBlobCacheError()
 		return nil, false, err
 	}
 	if !found {
@@ -382,16 +381,13 @@ func (b *blobStoreImpl) cacheAttributeObject(
 	if b.blobCache == nil {
 		return nil
 	}
-	result, err := b.blobCache.Put(b.attributeCacheKey(storeID, path), data)
-	if result.Evicted > 0 {
-		b.blobCacheEvictionCounter.Inc(int64(result.Evicted))
-	}
+	cached, err := b.blobCache.Put(b.attributeCacheKey(storeID, path), data)
 	if err != nil {
-		b.recordBlobCacheError(err)
+		b.recordBlobCacheError()
 		return err
 	}
-	if !result.Cached {
-		b.blobCacheOversizedCounter.Inc(1)
+	if !cached {
+		b.blobCacheBypassCounter.Inc(1)
 		return nil
 	}
 	successCounter.Inc(1)
@@ -410,11 +406,8 @@ func (b *blobStoreImpl) attributeCacheKey(storeID, path string) string {
 	)
 }
 
-func (b *blobStoreImpl) recordBlobCacheError(err error) {
+func (b *blobStoreImpl) recordBlobCacheError() {
 	b.blobCacheErrorCounter.Inc(1)
-	if errors.Is(err, blobcache.ErrCorrupt) {
-		b.blobCacheCorruptionCounter.Inc(1)
-	}
 }
 
 func (b *blobStoreImpl) readObject(

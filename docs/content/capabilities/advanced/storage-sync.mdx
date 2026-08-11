@@ -51,7 +51,8 @@ mutations. Reset does not backfill or reconcile an external row.
 
 Blob-backed string and object values are hydrated inside the Activity before
 schema validation. With the Server Attribute blob cache enabled, a recent S3
-write normally hydrates from local disk without another S3 read.
+write normally hydrates from local disk without another S3 read. TinyLFU
+admission rejection and oversized values safely fall back to S3.
 
 ## Traditional workarounds
 

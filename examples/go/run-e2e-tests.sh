@@ -67,7 +67,6 @@ dexcli_pid=$!
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
-GOWORK=off \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
   go test -count=1 -race -v ./integ

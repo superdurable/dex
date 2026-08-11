@@ -1,12 +1,11 @@
-# Go SDK Disk Blob Cache Plan
+# Go Disk Blob Cache Plan
 
-Status: implemented as a standalone component; SDK hydration wiring remains a
-follow-up.
+Status: implemented as a standalone module consumed by the Go SDK and Server.
 
 ## Summary
 
 Add an independently implementable and testable disk blob cache under
-`sdk-go/dex/blobcache`.
+`blob-cache-go/blobcache`.
 
 The cache is an optimization for server-minted blob IDs returned in
 [`Value`](../../../protos/dex.proto). It is never a source of truth. A miss,
@@ -18,8 +17,7 @@ The component owns payload files and uses
 TinyLFU admission, SampledLFU eviction, and access-frequency tracking.
 Ristretto never stores blob payload bytes.
 
-This plan ends with a standalone component and its test gate. Wiring lazy
-hydration into Go SDK Client/Worker code is a separate follow-up.
+The module is independently released before SDK and Server consumers update.
 
 ## Goals
 
@@ -38,7 +36,7 @@ hydration into Go SDK Client/Worker code is a separate follow-up.
 
 ## Non-goals
 
-- No server, IDL, Java SDK, Python SDK, or sample changes.
+- No IDL, Java SDK, or Python SDK changes.
 - No `LoadBlobs` RPC calls inside the cache package.
 - No memory tier for payload bytes.
 - No persistence of TinyLFU counters or exact eviction order across restart.
@@ -68,7 +66,7 @@ The cache package does not depend on a gRPC client or generated service stub.
 ## Library decision
 
 Pin `github.com/dgraph-io/ristretto/v2` in
-[`sdk-go/go.mod`](../../../sdk-go/go.mod). The initial implementation uses
+[`blob-cache-go/go.mod`](../../../blob-cache-go/go.mod). The initial implementation uses
 v2.4.2.
 
 Ristretto provides the desired frequency policy, but its asynchronous API
@@ -119,13 +117,12 @@ policy memory while potentially reducing cache hit ratio; correctness and
 ## Package and files
 
 ```text
-sdk-go/dex/blobcache/
+blob-cache-go/blobcache/
   cache.go
   config.go
   entry.go
   file_store.go
   format.go
-  policy.go
   cache_test.go
   recovery_test.go
   concurrency_test.go
@@ -604,13 +601,13 @@ Add:
 
 ```make
 blobCacheTests:
-	go test -race ./dex/blobcache
+	go test -race ./blobcache
 ```
 
 Run through the Makefile:
 
 ```text
-make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-blob-cache.log
+make -C blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-blob-cache.log
 make copyright-check          2>&1 | tee /tmp/test-go-sdk-blob-cache-copyright.log
 ```
 
@@ -693,15 +690,14 @@ hydration plan must add integration coverage for blob-id arms, batched
 
 ## Documentation
 
-- Add [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
+- Add [`blob-cache-go/blobcache/README.md`](../../../blob-cache-go/blobcache/README.md)
   with ownership, configuration, disk accounting, restart, `DeleteAll`, and
   exclusivity semantics.
-- Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with
-  `blobCacheTests`, the race requirement, and fault-injection guidance.
-- Do not update the user-facing [`sdk-go/README.md`](../../../sdk-go/README.md)
-  until Client/Worker options actually expose the cache.
-- A later hydration document must explain `LoadBlobs` batching and cache-error
-  fallback.
+- Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
+  standalone module test command.
+- Update [`sdk-go/README.md`](../../../sdk-go/README.md) when Client and Worker
+  consume the released module.
+- Hydration documentation explains `LoadBlobs` batching and cache-error fallback.
 
 ## UI/UX
 

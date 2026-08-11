@@ -33,11 +33,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
 	"github.com/superdurable/dex/examples/go/workflows/service"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 const defaultDatasetDealPostgresURL = "postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable"

@@ -31,27 +31,28 @@ jobs:
           cache-dependency-path: |
             examples/go/go.sum
             sdk-go/go.sum
-      - name: Verify released SDK dependency
+      - name: Verify released module dependencies
         env:
           GOWORK: "off"
         run: |
           set -euo pipefail
-          module=github.com/superdurable/dex/sdk-go
-          required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
-          resolved_version="$(go list -m -f '{{.Version}}' "$module")"
-          replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"
-          if [[ -z "$required_version" ]]; then
-            echo "::error::$module must be a direct dependency"
-            exit 1
-          fi
-          if [[ -n "$replacement" ]]; then
-            echo "::error::$module must use a released version, not $replacement"
-            exit 1
-          fi
-          if [[ "$resolved_version" != "$required_version" ]]; then
-            echo "::error::$module resolves to $resolved_version, expected $required_version"
-            exit 1
-          fi
+          for module in github.com/superdurable/dex/sdk-go github.com/superdurable/dex/blob-cache-go; do
+            required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
+            resolved_version="$(go list -m -f '{{.Version}}' "$module")"
+            replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"
+            if [[ -z "$required_version" ]]; then
+              echo "::error::$module must be a direct dependency"
+              exit 1
+            fi
+            if [[ -n "$replacement" ]]; then
+              echo "::error::$module must use a released version, not $replacement"
+              exit 1
+            fi
+            if [[ "$resolved_version" != "$required_version" ]]; then
+              echo "::error::$module resolves to $resolved_version, expected $required_version"
+              exit 1
+            fi
+          done
       - name: Use checkout SDK
         run: go mod edit -replace github.com/superdurable/dex/sdk-go=../../sdk-go
       - name: Build

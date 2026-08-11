@@ -35,6 +35,7 @@ blobStore:
   thresholdInBytes: 1024 # 1 KiB
   historyRetentionInDays: 3
   # S3 Attribute cache. The directory must be exclusive to this Server process.
+  # TinyLFU may bypass writes when existing entries are hotter.
   # blobCache:
   #   directory: /var/lib/dex/attribute-cache
   #   maxBytes: 1073741824
