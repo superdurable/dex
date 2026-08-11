@@ -12,6 +12,25 @@ use std::time::Duration;
 use crate::attribute::AttributeLock;
 use crate::{RetryPolicy, Step, Value};
 
+/// Configures one Step's handler execution and persistence behavior.
+///
+/// New options preserve server timeout, retry, and durability defaults. `wait_for` failures fail the
+/// Flow by default. Attribute locks apply only to the matching handler call. The type system checks
+/// that an execute-failure recovery Step accepts the same input type.
+///
+/// # Examples
+///
+/// ```
+/// use dex_sdk::{Attribute, RetryPolicy, StepOptions, WaitForFailurePolicy};
+/// use std::time::Duration;
+///
+/// let balance = Attribute::<i64>::new("balance");
+/// let options = StepOptions::<String>::new()
+///     .execute_method_timeout(Duration::from_secs(30))
+///     .execute_retry(RetryPolicy::new().maximum_attempts(3))
+///     .wait_for_failure(WaitForFailurePolicy::Proceed)
+///     .execute_lock(balance.lock());
+/// ```
 pub struct StepOptions<Input> {
     pub(crate) wait_for_method_timeout: Option<Duration>,
     pub(crate) execute_method_timeout: Option<Duration>,
@@ -58,6 +77,7 @@ impl<Input> From<StepOptions<Input>> for ErasedStepOptions {
 }
 
 impl<Input: Value> StepOptions<Input> {
+    /// Creates options that preserve server defaults and fail on exhausted `wait_for` retries.
     pub fn new() -> Self {
         Self {
             wait_for_method_timeout: None,
@@ -74,31 +94,37 @@ impl<Input: Value> StepOptions<Input> {
         }
     }
 
+    /// Sets the maximum duration of one `wait_for` handler attempt.
     pub fn wait_for_method_timeout(mut self, value: Duration) -> Self {
         self.wait_for_method_timeout = Some(value);
         self
     }
 
+    /// Sets the maximum duration of one `execute` handler attempt.
     pub fn execute_method_timeout(mut self, value: Duration) -> Self {
         self.execute_method_timeout = Some(value);
         self
     }
 
+    /// Sets the retry policy for failed `wait_for` attempts.
     pub fn wait_for_retry(mut self, value: RetryPolicy) -> Self {
         self.wait_for_retry = Some(value);
         self
     }
 
+    /// Sets the retry policy for failed `execute` attempts.
     pub fn execute_retry(mut self, value: RetryPolicy) -> Self {
         self.execute_retry = Some(value);
         self
     }
 
+    /// Selects whether exhausted `wait_for` retries fail or advance the Flow.
     pub fn wait_for_failure(mut self, value: WaitForFailurePolicy) -> Self {
         self.wait_for_failure = value;
         self
     }
 
+    /// Routes exhausted `execute` failures to a recovery Step with the same input type.
     pub fn on_execute_failure_proceed_to<RecoveryStep>(mut self, step: &RecoveryStep) -> Self
     where
         RecoveryStep: Step<Input = Input>,
@@ -107,21 +133,25 @@ impl<Input: Value> StepOptions<Input> {
         self
     }
 
+    /// Overrides persistence durability for writes staged by `wait_for`.
     pub fn wait_for_durability(mut self, value: StepDurability) -> Self {
         self.wait_for_durability = value;
         self
     }
 
+    /// Overrides persistence durability for writes staged by `execute`.
     pub fn execute_durability(mut self, value: StepDurability) -> Self {
         self.execute_durability = value;
         self
     }
 
+    /// Adds an Attribute lock held for the `wait_for` invocation.
     pub fn wait_for_lock(mut self, value: AttributeLock) -> Self {
         self.wait_for_locks.push(value);
         self
     }
 
+    /// Adds an Attribute lock held for the `execute` invocation.
     pub fn execute_lock(mut self, value: AttributeLock) -> Self {
         self.execute_locks.push(value);
         self
@@ -135,14 +165,21 @@ impl<Input: Value> Default for StepOptions<Input> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Selects the terminal behavior after `wait_for` exhausts its retry policy.
 pub enum WaitForFailurePolicy {
+    /// Fails the Flow.
     FailFlow,
+    /// Skips the failed wait and invokes `execute` with failure visible in [`crate::Context`].
     Proceed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls when staged Step persistence must be durably acknowledged.
 pub enum StepDurability {
+    /// Uses the Flow or server default.
     Default,
+    /// Waits for durable persistence before completing the handler request.
     Sync,
+    /// Allows asynchronous persistence after accepting the handler result.
     Async,
 }

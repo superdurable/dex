@@ -17,12 +17,41 @@ use crate::step::{ErasedValue, TypedValue};
 use crate::value_mapper;
 use crate::{Context, HandlerResult, SdkResult, StepMovement, Value};
 
+/// Names one typed RPC exposed by a Flow.
+///
+/// Use the same value when binding the handler in [`RpcList`] and invoking it through
+/// [`crate::Client`]. Input and output types must implement [`Value`]. The stable name becomes part
+/// of the protocol and must remain compatible with running Flows.
+///
+/// # Examples
+///
+/// ```
+/// use dex_sdk::{Context, Flow, HandlerResult, Rpc, RpcList, RpcResult};
+///
+/// const STATUS: Rpc<(), String> = Rpc::new("status");
+/// struct OrderFlow;
+///
+/// impl OrderFlow {
+///     fn status(&self, _context: &mut Context) -> HandlerResult<RpcResult<String>> {
+///         Ok(RpcResult::new("ready".to_owned()))
+///     }
+/// }
+///
+/// impl Flow for OrderFlow {
+///     type StartInput = ();
+///
+///     fn rpcs(&self) -> RpcList<Self> {
+///         RpcList::new().function_without_input(STATUS, Self::status)
+///     }
+/// }
+/// ```
 pub struct Rpc<Input, Output> {
     name: &'static str,
     marker: PhantomData<fn(Input) -> Output>,
 }
 
 impl<Input, Output> Rpc<Input, Output> {
+    /// Defines an RPC with a stable protocol `name` and no option overrides.
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -30,10 +59,12 @@ impl<Input, Output> Rpc<Input, Output> {
         }
     }
 
+    /// Converts this RPC into a definition with a handler execution timeout.
     pub fn timeout(self, timeout: Duration) -> RpcDefinition<Input, Output> {
         RpcDefinition::from(self).timeout(timeout)
     }
 
+    /// Converts this RPC into a definition holding one Attribute lock during invocation.
     pub fn lock(self, lock: AttributeLock) -> RpcDefinition<Input, Output> {
         RpcDefinition::from(self).lock(lock)
     }
@@ -51,6 +82,10 @@ impl<Input, Output> Clone for Rpc<Input, Output> {
 
 impl<Input, Output> Copy for Rpc<Input, Output> {}
 
+/// Adds execution options to a typed [`Rpc`] before handler binding.
+///
+/// Definitions are created implicitly from `Rpc` or explicitly through [`Rpc::timeout`] and
+/// [`Rpc::lock`]. Multiple locks are acquired together for the invocation.
 pub struct RpcDefinition<Input, Output> {
     rpc: Rpc<Input, Output>,
     timeout: Option<Duration>,
@@ -58,11 +93,13 @@ pub struct RpcDefinition<Input, Output> {
 }
 
 impl<Input, Output> RpcDefinition<Input, Output> {
+    /// Sets the maximum duration of one RPC handler attempt.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// Adds an Attribute or Attribute-map instance lock.
     pub fn lock(mut self, lock: AttributeLock) -> Self {
         self.locks.push(lock);
         self
@@ -79,6 +116,10 @@ impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
     }
 }
 
+/// Binds typed RPC definitions to methods on one Flow type.
+///
+/// Return the completed list from [`crate::Flow::rpcs`]. Handler signatures encode whether input or
+/// output is present, preventing invalid calls at compile time.
 pub struct RpcList<FlowType> {
     definitions: Vec<Box<dyn RpcBinder<FlowType>>>,
 }
@@ -87,12 +128,16 @@ impl<FlowType> RpcList<FlowType>
 where
     FlowType: Send + Sync + 'static,
 {
+    /// Creates an empty RPC list.
     pub fn new() -> Self {
         Self {
             definitions: Vec::new(),
         }
     }
 
+    /// Binds an RPC that accepts typed input and returns typed output plus optional Step movements.
+    ///
+    /// Handler errors are returned to Dex and follow RPC failure semantics.
     pub fn function<Input, Output>(
         mut self,
         definition: impl Into<RpcDefinition<Input, Output>>,
@@ -109,6 +154,7 @@ where
         self
     }
 
+    /// Binds an RPC without input that returns typed output and optional Step movements.
     pub fn function_without_input<Output>(
         mut self,
         definition: impl Into<RpcDefinition<(), Output>>,
@@ -124,6 +170,7 @@ where
         self
     }
 
+    /// Binds an RPC that accepts typed input and returns no output.
     pub fn procedure<Input>(
         mut self,
         definition: impl Into<RpcDefinition<Input, ()>>,
@@ -139,6 +186,7 @@ where
         self
     }
 
+    /// Binds an RPC with neither input nor output.
     pub fn procedure_without_input(
         mut self,
         definition: impl Into<RpcDefinition<(), ()>>,
@@ -168,12 +216,16 @@ where
     }
 }
 
+/// Carries a typed RPC output and optional Step movements.
+///
+/// [`Self::then`] may be called repeatedly to schedule multiple active Steps after the RPC commits.
 pub struct RpcResult<Output> {
     output: Output,
     next_steps: Vec<StepMovement>,
 }
 
 impl<Output: Value> RpcResult<Output> {
+    /// Creates a result with `output` and no Step movements.
     pub fn new(output: Output) -> Self {
         Self {
             output,
@@ -181,15 +233,18 @@ impl<Output: Value> RpcResult<Output> {
         }
     }
 
+    /// Appends one Step movement executed after the RPC succeeds.
     pub fn then(mut self, movement: StepMovement) -> Self {
         self.next_steps.push(movement);
         self
     }
 
+    /// Returns the typed output by reference.
     pub fn output(&self) -> &Output {
         &self.output
     }
 
+    /// Returns the scheduled Step movements in insertion order.
     pub fn next_steps(&self) -> &[StepMovement] {
         &self.next_steps
     }

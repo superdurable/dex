@@ -14,6 +14,10 @@ pub(crate) enum StopType {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Selects how [`crate::Client::stop_flow`] ends an active Flow.
+///
+/// Construct a value with [`Self::cancel`], [`Self::terminate`], or [`Self::fail`], then optionally
+/// attach an operator-facing reason.
 pub struct StopFlowOptions {
     pub(crate) stop_type: StopType,
     pub(crate) reason: Option<String>,
@@ -27,18 +31,22 @@ impl StopFlowOptions {
         }
     }
 
+    /// Requests cooperative cancellation so application cleanup can run.
     pub fn cancel() -> Self {
         Self::new(StopType::Cancel)
     }
 
+    /// Terminates the Flow immediately without cooperative cleanup.
     pub fn terminate() -> Self {
         Self::new(StopType::Terminate)
     }
 
+    /// Marks the Flow failed with the reason set by [`Self::reason`].
     pub fn fail() -> Self {
         Self::new(StopType::Fail)
     }
 
+    /// Attaches a reason recorded with the stop operation.
     pub fn reason(mut self, value: impl Into<String>) -> Self {
         self.reason = Some(value.into());
         self

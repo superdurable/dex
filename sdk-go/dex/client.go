@@ -40,6 +40,18 @@ type ClientOptions struct {
 }
 
 // Client calls FlowService with registered typed definitions.
+//
+// A Client is safe for concurrent use. Calls use their context for cancellation and
+// return an error after Close. The Client owns its gRPC connection; callers should
+// close it when the application shuts down.
+//
+//	client, err := dex.NewClient(registry, cache, dex.ClientOptions{})
+//	if err != nil {
+//		return err
+//	}
+//	defer client.Close()
+//	runID, err := client.StartFlow(ctx, orderFlow, "order-42", orderInput,
+//		dex.StartFlowOptions{})
 type Client struct {
 	registry     *Registry
 	cache        *blobcache.Cache
@@ -54,6 +66,12 @@ type Client struct {
 }
 
 // NewClient constructs a Client from shared dependencies.
+//
+// registry supplies the validated definitions and cache hydrates large values. The
+// Client connects lazily to ClientOptions.FlowServiceAddress, which defaults to
+// localhost:8801. It panics when registry or cache is nil. It returns an error when
+// an address or worker target is invalid, or the gRPC client cannot be created.
+// The caller owns the returned Client and must call Close.
 func NewClient(
 	registry *Registry,
 	cache *blobcache.Cache,
@@ -128,6 +146,9 @@ func resolveClientOptions(options ClientOptions) (string, *WorkerTarget, error) 
 }
 
 // Close closes the owned FlowService connection.
+//
+// Close is idempotent. Calls begun after Close return an error; calls already in
+// progress are controlled by their contexts and the gRPC connection shutdown.
 func (client *Client) Close() error {
 	client.lifecycleMu.Lock()
 	defer client.lifecycleMu.Unlock()
@@ -178,21 +199,34 @@ func (client *Client) hydrateValues(
 	return nil
 }
 
+// AttributeWrite describes one value for Client.SetAttributes.
+// A nil Value is encoded as JSON null; use the single-value APIs when compile-time typing matters.
 type AttributeWrite struct {
-	Name  string
+	// Name is an Attribute name or the physical name of an Attribute-map instance.
+	Name string
+	// Value is the application value to encode.
 	Value any
+	// Index optionally supplies search-index metadata for the write.
 	Index *AttributeIndex
 }
 
+// FlowStatus describes the current or terminal state of a Flow run.
 type FlowStatus uint8
 
 const (
+	// FlowRunning means the Flow can still execute Steps or receive messages and RPCs.
 	FlowRunning FlowStatus = iota + 1
+	// FlowCompleted means the Flow completed successfully.
 	FlowCompleted
+	// FlowFailed means an unrecovered Step, RPC, or user-code error ended the Flow.
 	FlowFailed
+	// FlowTimedOut means the Flow exceeded its configured timeout.
 	FlowTimedOut
+	// FlowTerminated means an operator ended the Flow immediately.
 	FlowTerminated
+	// FlowCanceled means the Flow completed cooperative cancellation.
 	FlowCanceled
+	// FlowContinuedAsNew means history rolled into a successor run.
 	FlowContinuedAsNew
 )
 
@@ -218,51 +252,91 @@ func (status FlowStatus) String() string {
 	}
 }
 
+// FlowErrorType categorizes the failure recorded for an uncompleted Flow.
 type FlowErrorType uint8
 
 const (
+	// FlowErrorStepDecision identifies an invalid or failing Step decision.
 	FlowErrorStepDecision FlowErrorType = iota + 1
+	// FlowErrorClientAPI identifies a client API operation that failed the Flow.
 	FlowErrorClientAPI
+	// FlowErrorWorkerMethod identifies a failed Worker Step or RPC handler.
 	FlowErrorWorkerMethod
+	// FlowErrorInvalidUserCode identifies an invalid Flow or Step definition.
 	FlowErrorInvalidUserCode
+	// FlowErrorInternal identifies an internal Dex failure.
 	FlowErrorInternal
 )
 
+// StepCompletion contains one completed Step output returned by WaitForFlow.
 type StepCompletion struct {
-	StepType        string
+	// StepType is the registered Step type.
+	StepType string
+	// StepExecutionID is the completed execution's server identity.
 	StepExecutionID string
-	Output          Value
+	// Output is an opaque hydrated value decoded with Value.Decode.
+	Output Value
 }
 
+// WaitForFlowResult contains the terminal status and optional completed Step outputs.
 type WaitForFlowResult struct {
-	Status       FlowStatus
-	Completions  []StepCompletion
-	ErrorType    FlowErrorType
+	// Status is the terminal Flow status.
+	Status FlowStatus
+	// Completions contains hydrated outputs when NeedsResults was true.
+	Completions []StepCompletion
+	// ErrorType is the Flow failure category when available.
+	ErrorType FlowErrorType
+	// ErrorMessage is the server completion detail when available.
 	ErrorMessage string
 }
 
+// SearchFlowEntry contains one Flow row returned by SearchFlows.
 type SearchFlowEntry struct {
-	FlowID    string
-	RunID     string
-	FlowType  string
-	Status    FlowStatus
+	// FlowID is the application-assigned Flow ID.
+	FlowID string
+	// RunID is the server-assigned run ID.
+	RunID string
+	// FlowType is the registered Flow type.
+	FlowType string
+	// Status is the indexed Flow status.
+	Status FlowStatus
+	// StartedAt is the indexed start time.
 	StartedAt time.Time
-	ClosedAt  time.Time
+	// ClosedAt is zero while open or when the close time is unavailable.
+	ClosedAt time.Time
 	// IndexedAttributes contains values keyed by their physical index names.
 	IndexedAttributes map[string]Value
 }
 
+// SearchFlowsPage contains one page of Flow search results.
 type SearchFlowsPage struct {
-	Flows         []SearchFlowEntry
+	// Flows are returned in server-defined query order.
+	Flows []SearchFlowEntry
+	// NextPageToken is opaque and empty on the last page.
 	NextPageToken string
 }
 
+// HealthInfo describes one Dex health-check condition.
 type HealthInfo struct {
+	// Condition is the service-reported health state.
 	Condition string
-	Hostname  string
-	Duration  int32
+	// Hostname identifies the responding Dex server.
+	Hostname string
+	// Duration is the response duration in milliseconds.
+	Duration int32
 }
 
+// StartFlow starts a new Flow execution and returns its server-assigned run ID.
+//
+// flow must be registered with the Client's Registry, flowID must be non-empty,
+// and input must match the Flow's starting Step input type. options controls the
+// request ID, timeout, worker target, initial attributes, and Flow configuration;
+// omitted values use the registered Flow defaults. The method returns after the
+// server accepts the Flow, not after the Flow completes.
+//
+// StartFlow returns FlowAlreadyStartedError when flowID identifies an existing
+// Flow. It also returns validation, serialization, context, transport, or server
+// errors without transferring ownership of input.
 func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
@@ -440,6 +514,12 @@ func resolveStartRequestID(override *string) (string, error) {
 	return *override, nil
 }
 
+// StopFlow requests cancellation or termination of the active Flow identified by flowID.
+//
+// options selects the stop mode and optional reason. The method returns after the
+// server accepts the request; it does not wait for the Flow to close. It returns
+// FlowNotActiveError when no active execution exists, plus validation, context,
+// transport, or server errors.
 func (client *Client) StopFlow(
 	ctx context.Context,
 	flowID string,
@@ -460,6 +540,14 @@ func (client *Client) StopFlow(
 	return translateRPCError(err, "StopFlow", flowID, flowTargetActive)
 }
 
+// WaitForFlow blocks until a Flow closes or the configured long-poll wait expires.
+//
+// options controls the server wait duration and whether Step completion results are
+// included. A completed Flow returns WaitForFlowResult. Any other closed status
+// returns FlowUncompletedError containing the run ID, status, failure details, and
+// available completions. LongPollTimeoutError means the Flow remained open; callers
+// may call WaitForFlow again. Context cancellation and hydration failures are also
+// returned.
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
@@ -536,6 +624,13 @@ func waitForFlowValuePointers(response *dexpb.WaitForFlowResponse) []**dexpb.Val
 	return pointers
 }
 
+// SearchFlows returns one server-ordered page of Flow executions matching query.
+//
+// query uses the Dex visibility query language. pageSize must satisfy the server's
+// accepted range, and nextPageToken must be empty for the first page or copied
+// unchanged from a previous SearchFlowsPage. Indexed attributes are hydrated before
+// return. An empty NextPageToken marks the final page. Validation, context,
+// hydration, transport, and server failures are returned as errors.
 func (client *Client) SearchFlows(
 	ctx context.Context,
 	query string,
@@ -577,6 +672,12 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Valu
 	return pointers
 }
 
+// ResetFlow creates a new run of an existing Flow and returns the new run ID.
+//
+// options selects the reset point, optional Step input, and reset reason. The server
+// keeps the Flow ID and starts a new run. ResetFlow returns validation or
+// serialization errors before the request, and context, transport, not-found, or
+// server errors after it is sent.
 func (client *Client) ResetFlow(
 	ctx context.Context,
 	flowID string,
@@ -600,6 +701,13 @@ func (client *Client) ResetFlow(
 	return response.RunId, nil
 }
 
+// SkipTimer makes one waiting Timer condition immediately ready.
+//
+// stepExecution identifies the Step type and execution number; a nil execution
+// number means the first execution. timer must specify exactly one condition ID or
+// zero-based condition index. The call affects only an active Flow and returns after
+// the server accepts the skip. Invalid identifiers, inactive Flows, context,
+// transport, and server failures are returned as errors.
 func (client *Client) SkipTimer(
 	ctx context.Context,
 	flowID string,
@@ -651,6 +759,11 @@ func resolveTimerID(timer TimerID) (string, *int32, error) {
 	return timer.ConditionID, timer.Index, nil
 }
 
+// UpdateFlowConfig replaces the mutable configuration of an active Flow.
+//
+// config is validated and serialized before the request. The update applies to
+// later Flow decisions; work already dispatched is not recalled. The method
+// returns validation, inactive-Flow, context, transport, or server errors.
 func (client *Client) UpdateFlowConfig(
 	ctx context.Context,
 	flowID string,
@@ -670,6 +783,13 @@ func (client *Client) UpdateFlowConfig(
 	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
+// WaitForStepCompletion blocks until a Step execution completes or the wait expires.
+//
+// stepExecution identifies the Step type and execution number; nil means execution
+// one. options controls the server-side long-poll duration. A nil error means the
+// requested execution completed, but this method does not return its output.
+// LongPollTimeoutError is retryable by calling the method again. Invalid identifiers,
+// inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
@@ -704,6 +824,11 @@ func (client *Client) WaitForStepCompletion(
 	return translateRPCError(err, "WaitForStepCompletion", flowID, flowTargetActive)
 }
 
+// TriggerContinueAsNew asks an active Flow to roll its history into a new run.
+//
+// The request returns after the server accepts it and does not wait for the rollover.
+// The Flow ID is preserved while the run ID changes. Empty identifiers, inactive
+// Flows, context cancellation, transport failures, and server failures return errors.
 func (client *Client) TriggerContinueAsNew(
 	ctx context.Context,
 	flowID string,
@@ -718,6 +843,11 @@ func (client *Client) TriggerContinueAsNew(
 	return translateRPCError(err, "TriggerContinueAsNew", flowID, flowTargetActive)
 }
 
+// HealthCheck returns the responding Dex server's current health condition.
+//
+// The result includes the server hostname and reported duration in milliseconds.
+// HealthCheck performs network I/O and honors ctx. It returns context, transport, or
+// server errors when no valid response is available.
 func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
 	if err := client.validateCall(ctx); err != nil {
 		return HealthInfo{}, err
@@ -729,6 +859,11 @@ func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
 	return mapHealthInfo(response)
 }
 
+// PublishToChannel appends values to a registered singleton Channel.
+//
+// Every value must match the Channel's element type and is published in argument
+// order. Supplying no values is a successful no-op. The method returns serialization,
+// registration, inactive-Flow, context, transport, or server errors.
 func (client *Client) PublishToChannel(
 	ctx context.Context,
 	flowID string,
@@ -738,6 +873,12 @@ func (client *Client) PublishToChannel(
 	return client.publishToChannel(ctx, flowID, channel, "", false, values)
 }
 
+// PublishToChannelMap appends values to one instance of a registered ChannelMap.
+//
+// instance is the logical map key and must be non-empty. Every value must match the
+// ChannelMap's element type and is published in argument order. Supplying no values
+// is a successful no-op. The method returns validation, serialization, registration,
+// inactive-Flow, context, transport, or server errors.
 func (client *Client) PublishToChannelMap(
 	ctx context.Context,
 	flowID string,
@@ -788,6 +929,12 @@ func (client *Client) publishToChannel(
 	return translateRPCError(err, "PublishToChannel", flowID, flowTargetActive)
 }
 
+// GetAttribute decodes a singleton Attribute from an existing Flow into valuePtr.
+//
+// valuePtr must be a non-nil pointer matching the registered Attribute value type.
+// The result is false with a nil error when the Attribute has not been set; valuePtr
+// is then unchanged. The method returns validation, decoding, registration,
+// hydration, not-found Flow, context, transport, or server errors.
 func (client *Client) GetAttribute(
 	ctx context.Context,
 	flowID string,
@@ -797,6 +944,12 @@ func (client *Client) GetAttribute(
 	return client.getAttribute(ctx, flowID, attribute, "", false, valuePtr)
 }
 
+// GetAttributeMap decodes one AttributeMap instance into valuePtr.
+//
+// instance must be non-empty and valuePtr must be a non-nil pointer matching the
+// registered value type. The result is false with a nil error when that instance has
+// not been set; valuePtr is then unchanged. Validation, decoding, registration,
+// hydration, not-found Flow, context, transport, and server failures return errors.
 func (client *Client) GetAttributeMap(
 	ctx context.Context,
 	flowID string,
@@ -873,6 +1026,11 @@ func (client *Client) singleAttributeValue(
 	return value, true, err
 }
 
+// SetAttribute writes a singleton Attribute on an active Flow.
+//
+// value must match the registered Attribute type. The server applies the write
+// atomically for this Attribute. The method returns type, serialization, registration,
+// inactive-Flow, context, transport, or server errors.
 func (client *Client) SetAttribute(
 	ctx context.Context,
 	flowID string,
@@ -882,6 +1040,11 @@ func (client *Client) SetAttribute(
 	return client.setAttribute(ctx, flowID, attribute, "", false, value)
 }
 
+// SetAttributeMap writes one AttributeMap instance on an active Flow.
+//
+// instance must be non-empty and value must match the registered value type. The
+// server applies the write atomically for this instance. Validation, serialization,
+// registration, inactive-Flow, context, transport, and server failures return errors.
 func (client *Client) SetAttributeMap(
 	ctx context.Context,
 	flowID string,
@@ -918,6 +1081,13 @@ func (client *Client) setAttribute(
 	}})
 }
 
+// GetAttributes returns raw values for several singleton Attributes in one request.
+//
+// Each Attribute must be registered, singleton, and unique. Missing Attributes are
+// absent from the returned map, whose keys are logical Attribute names. Call
+// Value.Decode with a correctly typed pointer to decode a value. Supplying no
+// Attributes returns an empty map without network I/O. Validation, hydration,
+// not-found Flow, context, transport, and server failures return errors.
 func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
@@ -979,6 +1149,12 @@ func keyValuePointers(values []*dexpb.KV) []**dexpb.Value {
 	return pointers
 }
 
+// SetAttributes atomically writes several physical Attribute names on an active Flow.
+//
+// Each AttributeWrite supplies its name, value, and optional search index. Names must
+// be unique. Supplying no writes is a successful no-op without network I/O. The method
+// returns validation, serialization, inactive-Flow, context, transport, or server
+// errors; a failed request does not partially apply the batch.
 func (client *Client) SetAttributes(
 	ctx context.Context,
 	flowID string,
@@ -1023,6 +1199,13 @@ func (client *Client) setAttributes(
 	return translateRPCError(err, "SetAttributes", flowID, flowTargetActive)
 }
 
+// WaitForAttributeEqual blocks until a singleton Attribute equals value.
+//
+// value must match the registered Attribute type. options controls the server-side
+// long-poll duration. A nil error means equality was observed. LongPollTimeoutError
+// means the condition was not observed and the call may be repeated. Validation,
+// serialization, inactive-Flow, context, transport, and server failures also return
+// errors.
 func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
@@ -1041,6 +1224,12 @@ func (client *Client) WaitForAttributeEqual(
 	)
 }
 
+// WaitForAttributeMapEqual blocks until one AttributeMap instance equals value.
+//
+// instance must be non-empty and value must match the registered type. options
+// controls the server-side long-poll duration. A nil error means equality was
+// observed. LongPollTimeoutError is retryable. Validation, serialization,
+// inactive-Flow, context, transport, and server failures also return errors.
 func (client *Client) WaitForAttributeMapEqual(
 	ctx context.Context,
 	flowID string,
@@ -1105,6 +1294,18 @@ func (client *Client) waitForAttributeEqual(
 	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
 }
 
+// InvokeRPC synchronously invokes a registered RPC on an active Flow.
+//
+// rpc identifies an RPC definition belonging to the Flow type, input must match its
+// input type, and outputPtr must be a non-nil pointer to its output type. options
+// controls timeout and Attribute locks. InvokeRPC blocks until the handler returns,
+// the timeout expires, or ctx is canceled, then decodes the result into outputPtr.
+// It may return validation, serialization, lock-conflict, worker, inactive-Flow,
+// context, hydration, transport, or server errors. outputPtr is not owned by Dex.
+//
+//	var result Quote
+//	err := client.InvokeRPC(ctx, "order-42", quoteRPC, request, &result,
+//		dex.InvokeOptions{})
 func (client *Client) InvokeRPC(
 	ctx context.Context,
 	flowID string,

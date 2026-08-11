@@ -9,6 +9,20 @@
 use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Declares the Attributes and Channels a Flow persists.
+///
+/// Return a schema from [`crate::Flow::persistence`]. Definitions must have unique names,
+/// and all values accessed by Step or RPC code must appear in the schema.
+///
+/// # Examples
+///
+/// ```
+/// use dex_sdk::{Attribute, Channel, PersistenceSchema};
+///
+/// let status = Attribute::<String>::new("status");
+/// let commands = Channel::<String>::new("commands");
+/// let schema = PersistenceSchema::new().attribute(&status).channel(&commands);
+/// ```
 pub struct PersistenceSchema {
     definitions: Vec<PersistenceDefinition>,
 }
@@ -29,10 +43,12 @@ pub(crate) enum PersistenceKind {
 }
 
 impl PersistenceSchema {
+    /// Creates an empty schema.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds one single-value Attribute definition.
     pub fn attribute<T>(mut self, attribute: &Attribute<T>) -> Self {
         self.add(
             attribute.name(),
@@ -42,6 +58,7 @@ impl PersistenceSchema {
         self
     }
 
+    /// Adds one keyed Attribute-map definition.
     pub fn attribute_map<T>(mut self, attribute: &AttributeMap<T>) -> Self {
         self.add(
             attribute.name(),
@@ -51,11 +68,13 @@ impl PersistenceSchema {
         self
     }
 
+    /// Adds one Channel definition.
     pub fn channel<T>(mut self, channel: &Channel<T>) -> Self {
         self.add(channel.name(), PersistenceKind::Channel, None);
         self
     }
 
+    /// Adds one keyed Channel-map definition.
     pub fn channel_map<T>(mut self, channel: &ChannelMap<T>) -> Self {
         self.add(channel.name(), PersistenceKind::ChannelMap, None);
         self

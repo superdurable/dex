@@ -31,6 +31,17 @@ ValueT = TypeVar("ValueT")
 
 
 class WireKind(Enum):
+    """Identify the protocol representation carried by an encoded Value.
+
+    Attributes:
+        STRING: A UTF-8 string scalar.
+        BOOL: A Boolean scalar.
+        INT64: A signed 64-bit integer scalar.
+        DOUBLE: A finite IEEE-754 double scalar.
+        BYTES: An uninterpreted byte sequence.
+        JSON: A canonical JSON document stored as text.
+    """
+
     STRING = "string"
     BOOL = "bool"
     INT64 = "int64"
@@ -41,20 +52,71 @@ class WireKind(Enum):
 
 @dataclass(frozen=True)
 class Value:
+    """Contain one validated SDK value before protocol mapping.
+
+    Attributes:
+        kind: The wire representation used for ``data``.
+        data: The scalar, bytes, or JSON text payload compatible with ``kind``.
+    """
+
     kind: WireKind
     data: str | bool | int | float | bytes
 
 
 class Codec(Protocol[ValueT]):
-    @property
-    def type_name(self) -> str: ...
+    """Define bidirectional conversion between a Python type and Dex Values.
+
+    Custom codecs must be deterministic: equivalent inputs should produce the same
+    Value so durable replays observe identical data.
+    """
 
     @property
-    def wire_kind(self) -> WireKind: ...
+    def type_name(self) -> str:
+        """Return the application-facing type name used in error messages.
 
-    def encode(self, value: ValueT) -> Value: ...
+        Returns:
+            A stable, non-empty type name.
+        """
+        ...
 
-    def decode(self, value: Value) -> ValueT: ...
+    @property
+    def wire_kind(self) -> WireKind:
+        """Return the single wire kind emitted and accepted by this codec.
+
+        Returns:
+            The codec's protocol representation.
+        """
+        ...
+
+    def encode(self, value: ValueT) -> Value:
+        """Encode one typed Python value.
+
+        Args:
+            value: The application value to encode.
+
+        Returns:
+            A Value whose kind equals ``wire_kind``.
+
+        Raises:
+            TypeError: If ``value`` is incompatible with the codec.
+            ValueError: If the value is not representable by Dex.
+        """
+        ...
+
+    def decode(self, value: Value) -> ValueT:
+        """Decode one protocol Value into the application type.
+
+        Args:
+            value: The validated Value to decode.
+
+        Returns:
+            The decoded application value.
+
+        Raises:
+            TypeError: If the wire kind or payload is incompatible.
+            ValueError: If the payload is malformed.
+        """
+        ...
 
 
 @dataclass(frozen=True)
@@ -98,10 +160,15 @@ def _validate_double(value: float) -> None:
         raise ValueError("non-finite floating-point values are unsupported")
 
 
+#: The built-in UTF-8 ``str`` codec.
 STRING: Codec[str] = _ScalarCodec("str", WireKind.STRING, str)
+#: The built-in strict ``bool`` codec; integers are not accepted as Booleans.
 BOOL: Codec[bool] = _ScalarCodec("bool", WireKind.BOOL, bool)
+#: The built-in signed 64-bit ``int`` codec; larger values raise OverflowError.
 INT64: Codec[int] = _ScalarCodec("int", WireKind.INT64, int, _validate_int64)
+#: The built-in finite ``float`` codec; NaN and infinities are rejected.
 DOUBLE: Codec[float] = _ScalarCodec("float", WireKind.DOUBLE, float, _validate_double)
+#: The built-in raw ``bytes`` codec.
 BYTES: Codec[bytes] = _ScalarCodec("bytes", WireKind.BYTES, bytes)
 
 
@@ -143,6 +210,25 @@ _DATETIME: Codec[datetime] = _DateTimeCodec()
 
 @dataclass(frozen=True)
 class JsonCodec(Generic[ValueT]):
+    """Encode an application type as deterministic JSON text.
+
+    ``encoder`` first converts the typed value to JSON-compatible data; ``decoder``
+    performs the reverse conversion. JSON is emitted with sorted keys, compact
+    separators, and no NaN or infinity values.
+
+    Attributes:
+        type_name: The stable type name used in diagnostics.
+        decoder: A callable from parsed JSON-compatible data to ``ValueT``.
+        encoder: A callable from ``ValueT`` to JSON-compatible data.
+        expected_type: Optional runtime type hint validated before encoding.
+        wire_kind: Always :attr:`WireKind.JSON`.
+
+    Examples:
+        >>> codec = JsonCodec("Point", lambda data: Point(**data), vars, Point)
+        >>> codec.decode(codec.encode(Point(x=1, y=2)))
+        Point(x=1, y=2)
+    """
+
     type_name: str
     decoder: Callable[[Any], ValueT]
     encoder: Callable[[ValueT], Any] = field(default=lambda value: value)
@@ -150,6 +236,18 @@ class JsonCodec(Generic[ValueT]):
     wire_kind: WireKind = field(default=WireKind.JSON, init=False)
 
     def encode(self, value: ValueT) -> Value:
+        """Encode a typed value as canonical JSON.
+
+        Args:
+            value: The application value accepted by ``encoder``.
+
+        Returns:
+            A JSON-kind Value containing compact, sorted JSON text.
+
+        Raises:
+            TypeError: If ``expected_type`` does not match.
+            ValueError: If the encoded data contains unsupported JSON values.
+        """
         if self.expected_type is not None and not _matches_type(
             value, self.expected_type
         ):
@@ -166,16 +264,57 @@ class JsonCodec(Generic[ValueT]):
         return Value(WireKind.JSON, payload)
 
     def decode(self, value: Value) -> ValueT:
+        """Decode JSON text with this codec's decoder.
+
+        Args:
+            value: A JSON-kind Value containing valid JSON text.
+
+        Returns:
+            The application value returned by ``decoder``.
+
+        Raises:
+            TypeError: If ``value`` is not a JSON Value.
+            ValueError: If its JSON text is malformed.
+        """
         if value.kind is not WireKind.JSON or not isinstance(value.data, str):
             raise TypeError(f"{self.type_name} requires a JSON value")
         return self.decoder(json.loads(value.data))
 
 
 class CodecRegistry:
+    """Resolve codecs for type hints used by registered SDK definitions.
+
+    Explicit registrations take precedence over built-ins. The default registry
+    supports scalar types, ``None``, ``datetime``, dataclasses, enums, and typed
+    list, tuple, mapping, and sequence containers.
+
+    Examples:
+        >>> registry = CodecRegistry({Money: money_codec})
+        >>> registry.resolve(Money) is money_codec
+        True
+    """
+
     def __init__(self, codecs: Mapping[object, Codec[Any]] | None = None) -> None:
+        """Create a registry with optional custom type-hint mappings.
+
+        Args:
+            codecs: Custom codecs keyed by the exact type hint used in definitions.
+                The mapping is copied and may be mutated after construction.
+        """
         self._codecs = dict(codecs or {})
 
     def resolve(self, type_hint: object) -> Codec[Any]:
+        """Return the codec for an exact type hint.
+
+        Args:
+            type_hint: A runtime type or supported parameterized type hint.
+
+        Returns:
+            The registered, built-in, or automatically derived codec.
+
+        Raises:
+            TypeError: If no codec can represent ``type_hint``.
+        """
         custom = self._codecs.get(type_hint)
         if custom is not None:
             return custom

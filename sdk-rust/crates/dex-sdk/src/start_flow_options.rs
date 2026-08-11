@@ -17,15 +17,39 @@ use crate::step::{ErasedValue, TypedValue};
 use crate::{Attribute, AttributeMap, FlowConfig, RetryPolicy, Value};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls whether [`crate::Client::start_flow_with_options`] may reuse a Flow ID.
 pub enum IdReusePolicy {
+    /// Uses the Dex server's configured reuse policy.
     Default,
+    /// Allows reuse only when the previous run failed.
     AllowIfPreviousFailed,
+    /// Allows reuse when no run with the ID is currently active.
     AllowIfNotRunning,
+    /// Rejects reuse regardless of the previous run status.
     Disallow,
+    /// Terminates an active run before starting the replacement.
     TerminateIfRunning,
 }
 
 #[derive(Clone)]
+/// Configures a new Flow execution.
+///
+/// All optional fields are absent by default. Initial Attribute values are encoded when the start
+/// request is sent. Use a stable request ID to make retries of the same logical request idempotent.
+///
+/// # Examples
+///
+/// ```
+/// use dex_sdk::{Attribute, IdReusePolicy, StartFlowOptions};
+/// use std::time::Duration;
+///
+/// let customer = Attribute::<String>::new("customer");
+/// let options = StartFlowOptions::new()
+///     .timeout(Duration::from_secs(3_600))
+///     .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
+///     .initial_attribute(&customer, "customer-42".to_owned())
+///     .request_id("create-order-42");
+/// ```
 pub struct StartFlowOptions {
     pub(crate) timeout: Option<Duration>,
     pub(crate) start_delay: Option<Duration>,
@@ -46,6 +70,7 @@ pub(crate) struct InitialAttribute {
 }
 
 impl StartFlowOptions {
+    /// Creates start options that preserve all server defaults.
     pub fn new() -> Self {
         Self {
             timeout: None,
@@ -60,31 +85,37 @@ impl StartFlowOptions {
         }
     }
 
+    /// Sets the maximum total Flow execution duration.
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
         self
     }
 
+    /// Delays the first Step after the server accepts the Flow.
     pub fn start_delay(mut self, value: Duration) -> Self {
         self.start_delay = Some(value);
         self
     }
 
+    /// Sets how the server handles an existing Flow with the same ID.
     pub fn id_reuse_policy(mut self, value: IdReusePolicy) -> Self {
         self.id_reuse_policy = value;
         self
     }
 
+    /// Sets the server cron expression used to schedule recurring runs.
     pub fn cron_schedule(mut self, value: impl Into<String>) -> Self {
         self.cron_schedule = Some(value.into());
         self
     }
 
+    /// Sets the whole-Flow retry policy after a terminal failure.
     pub fn retry_policy(mut self, value: RetryPolicy) -> Self {
         self.retry_policy = Some(value);
         self
     }
 
+    /// Adds an initial value for a declared Attribute.
     pub fn initial_attribute<T: Value>(mut self, attribute: &Attribute<T>, value: T) -> Self {
         self.attributes.push(InitialAttribute {
             key: attribute.name().to_string(),
@@ -94,6 +125,7 @@ impl StartFlowOptions {
         self
     }
 
+    /// Adds an initial value for one Attribute-map instance.
     pub fn initial_attribute_map<T: Value>(
         mut self,
         attribute: &AttributeMap<T>,
@@ -108,16 +140,19 @@ impl StartFlowOptions {
         self
     }
 
+    /// Overrides the registered Flow configuration for this execution.
     pub fn config_override(mut self, value: FlowConfig) -> Self {
         self.config_override = Some(value);
         self
     }
 
+    /// Returns the existing run ID instead of an error when the Flow already exists.
     pub fn ignore_already_started(mut self, value: bool) -> Self {
         self.ignore_already_started = value;
         self
     }
 
+    /// Sets the idempotency key for this start request.
     pub fn request_id(mut self, value: impl Into<String>) -> Self {
         self.request_id = Some(value.into());
         self

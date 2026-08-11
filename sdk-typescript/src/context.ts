@@ -10,23 +10,103 @@ import type { Attribute, AttributeMap } from "./persistence.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import type { Codec } from "./codec.js";
 
+/**
+ * Exposes execution metadata and decision-local persistence operations.
+ * Dex supplies a Context to each Step or RPC handler; do not retain it afterward.
+ */
 export interface Context {
+  /** Stable application Flow ID shared across runs. */
   readonly flowId: string;
+  /** Current server-assigned run ID. */
   readonly runId: string;
+  /** UTC timestamp at which the current Flow run started. */
   readonly flowStartedAt: Date;
+  /** Current Step type and execution number encoded by Dex. */
   readonly stepExecutionId: string;
+  /** Predecessor Step execution ID, or an empty string at Flow start. */
   readonly fromStepExecutionId: string;
+  /** UTC timestamp of the first handler attempt. */
   readonly firstAttemptAt: Date;
+  /** One-based handler retry attempt number. */
   readonly attempt: number;
+  /**
+   * Reports whether a Timer made the current Wait ready.
+   * @param index - Optional zero-based Timer index; checks any Timer when omitted.
+   * @returns Whether the selected Timer fired.
+   */
   hasTimerFired(index?: number): boolean;
+  /**
+   * Reports whether `waitFor` failed before the current `execute` call.
+   * @returns Whether failure policy proceeded to execution.
+   */
   waitForMethodFailed(): boolean;
+  /**
+   * Stores process-local data for this Step execution; it is not durable.
+   * @typeParam T - Local value type.
+   * @param key - Non-empty execution-scoped key.
+   * @param value - Value retained in worker memory.
+   * @param codec - Codec used to serialize the local value when required.
+   */
   setStepExecutionLocal<T>(key: string, value: T, codec: Codec<T>): void;
+  /**
+   * Reads process-local data for this Step execution.
+   * @typeParam T - Expected local value type.
+   * @param key - Key used when storing the value.
+   * @param codec - Codec used to decode the value.
+   * @returns The value, or `undefined` after absence or worker restart.
+   */
   getStepExecutionLocal<T>(key: string, codec: Codec<T>): T | undefined;
+  /**
+   * Stages an application event in the current handler result.
+   * @typeParam T - Event payload type.
+   * @param name - Non-empty diagnostic event name.
+   * @param value - Event payload.
+   * @param codec - Payload codec.
+   */
   recordEvent<T>(name: string, value: T, codec: Codec<T>): void;
+  /**
+   * Reads a typed Attribute from decision state.
+   * @typeParam T - Attribute value type.
+   * @param attribute - Registered singleton or map definition.
+   * @param instance - Required AttributeMap instance; omitted for a singleton.
+   * @returns The decoded current value.
+   */
   getAttribute<T>(attribute: Attribute<T> | AttributeMap<T>, instance?: string): T;
+  /**
+   * Stages an Attribute write in the current decision.
+   * @typeParam T - Attribute value type.
+   * @param attribute - Registered singleton or map definition.
+   * @param value - Typed value to persist.
+   * @param instance - Required AttributeMap instance; omitted for a singleton.
+   */
   setAttribute<T>(attribute: Attribute<T> | AttributeMap<T>, value: T, instance?: string): void;
+  /**
+   * Stages deletion of an Attribute value.
+   * @param attribute - Registered singleton or map definition.
+   * @param instance - Required AttributeMap instance; omitted for a singleton.
+   */
   deleteAttribute(attribute: Attribute<unknown> | AttributeMap<unknown>, instance?: string): void;
+  /**
+   * Stages one typed Channel publication.
+   * @typeParam T - Channel element type.
+   * @param channel - Registered singleton or map definition.
+   * @param value - Value to append.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   */
   publish<T>(channel: Channel<T> | ChannelMap<T>, value: T, instance?: string): void;
+  /**
+   * Returns a Channel's current queued value count.
+   * @param channel - Registered singleton or map definition.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   * @returns Non-negative queued value count.
+   */
   channelSize(channel: Channel<unknown> | ChannelMap<unknown>, instance?: string): number;
+  /**
+   * Returns values selected by the satisfied Channel condition.
+   * @typeParam T - Channel element type.
+   * @param channel - Registered singleton or map definition.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   * @returns Ordered values for this Step execution.
+   */
   channelResults<T>(channel: Channel<T> | ChannelMap<T>, instance?: string): readonly T[];
 }

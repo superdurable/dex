@@ -11,16 +11,27 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 #[derive(Debug)]
+/// Reports configuration, lifecycle, storage, or policy failures from [`crate::BlobCache`].
 pub enum BlobCacheError {
+    /// The operation requires an open cache, but [`crate::BlobCache::close`] already completed.
     Closed,
+    /// Cache construction received an invalid directory, byte limit, or frequency counter count.
     InvalidConfig(String),
+    /// A blob ID is empty, too large, or otherwise invalid.
     InvalidBlob(String),
+    /// Existing content for a blob ID differs from the new immutable payload.
     ContentMismatch(String),
+    /// A committed cache entry is malformed or fails integrity validation.
     Corrupt(String),
+    /// On-disk state and the in-memory eviction policy could not be reconciled.
     Reconciliation(String),
+    /// The admission or eviction policy failed.
     Policy(String),
+    /// A filesystem operation failed.
     Io {
+        /// Describes the filesystem operation that failed.
         operation: String,
+        /// Preserves the underlying I/O error.
         source: io::Error,
     },
 }

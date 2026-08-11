@@ -16,18 +16,26 @@ use tonic::Status;
 
 use crate::{FlowErrorType, FlowStatus, GrpcCode};
 
+/// Result returned by fallible Dex SDK operations.
 pub type SdkResult<T> = Result<T, SdkError>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Provides Dex-specific detail beyond a gRPC status code.
 pub enum ErrorSubStatus {
+    /// Dex returned no specific status.
     Uncategorized,
+    /// A start request targeted an already-existing Flow ID.
     FlowAlreadyStarted,
+    /// The requested Flow does not exist or is no longer active.
     FlowNotExists,
+    /// A Worker Step or RPC invocation failed.
     WorkerApiError,
+    /// A long-poll deadline elapsed while the Flow remained active.
     LongPollTimeout,
 }
 
 #[derive(Debug)]
+/// Preserves one failed Dex service operation and its transport source.
 pub struct ServiceError {
     code: GrpcCode,
     sub_status: ErrorSubStatus,
@@ -38,22 +46,27 @@ pub struct ServiceError {
 }
 
 impl ServiceError {
+    /// Returns the outer gRPC status code.
     pub fn code(&self) -> GrpcCode {
         self.code
     }
 
+    /// Returns the decoded Dex-specific status.
     pub fn sub_status(&self) -> ErrorSubStatus {
         self.sub_status
     }
 
+    /// Returns the most specific server or transport detail available.
     pub fn detail(&self) -> &str {
         &self.detail
     }
 
+    /// Returns the SDK operation name that failed.
     pub fn operation(&self) -> &str {
         self.operation
     }
 
+    /// Returns the targeted Flow ID when the operation had one.
     pub fn flow_id(&self) -> Option<&str> {
         self.flow_id.as_deref()
     }
@@ -84,6 +97,7 @@ impl Error for ServiceError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Preserves the original Worker-side error carried by a service failure.
 pub struct WorkerError {
     code: Option<GrpcCode>,
     error_type: String,
@@ -91,62 +105,100 @@ pub struct WorkerError {
 }
 
 impl WorkerError {
+    /// Returns the Worker gRPC status when available.
     pub fn code(&self) -> Option<GrpcCode> {
         self.code
     }
 
+    /// Returns the Worker exception or error type name.
     pub fn error_type(&self) -> &str {
         &self.error_type
     }
 
+    /// Returns the Worker-provided failure detail.
     pub fn detail(&self) -> &str {
         &self.detail
     }
 }
 
 #[derive(Debug)]
+/// Reports service, definition, value, handler, and Flow-completion failures.
+///
+/// Match specific variants when recovery differs. [`Self::service_error`] extracts common gRPC
+/// metadata from every service-backed variant.
 pub enum SdkError {
+    /// A general Dex service or transport call failed.
     Service {
+        /// Structured service failure.
         service: ServiceError,
     },
+    /// Starting a Flow conflicted with an existing Flow ID.
     FlowAlreadyStarted {
+        /// Structured start-operation failure.
         service: ServiceError,
     },
+    /// An operation requiring an existing Flow targeted an unknown ID.
     FlowNotFound {
+        /// Structured lookup failure.
         service: ServiceError,
     },
+    /// An operation requiring an active Flow targeted a terminal or unknown ID.
     FlowNotActive {
+        /// Structured active-Flow failure.
         service: ServiceError,
     },
+    /// A Worker Step or RPC handler failed.
     WorkerInvocation {
+        /// Outer Dex service failure.
         service: ServiceError,
+        /// Original Worker-side failure metadata.
         worker: Box<WorkerError>,
     },
+    /// A locking RPC could not acquire all requested Attribute locks.
     RpcLockConflict {
+        /// Structured aborted-operation failure.
         service: ServiceError,
     },
+    /// A long-poll timeout elapsed without indicating a Flow failure.
     LongPollTimeout {
+        /// Structured timeout failure.
         service: ServiceError,
     },
+    /// A waited Flow reached a terminal status other than Completed.
     FlowUncompleted {
+        /// Run ID that reached the terminal status.
         run_id: String,
+        /// Terminal Flow status.
         status: FlowStatus,
+        /// Dex failure category, when available.
         error_type: Option<FlowErrorType>,
+        /// Server completion detail, when available.
         message: Option<String>,
+        /// Number of completed Step outputs returned with the failure.
         result_count: usize,
     },
+    /// A registered Flow, Step, RPC, or persistence definition is invalid.
     FlowDefinition {
+        /// Developer-actionable contract violation.
         message: String,
     },
+    /// An SDK method received an invalid argument.
     InvalidArgument {
+        /// Developer-actionable argument violation.
         message: String,
     },
+    /// An application value could not be serialized or decoded.
     ValueMapping {
+        /// Developer-actionable mapping failure.
         message: String,
     },
+    /// A Step returned a value that violates its handler contract.
     InvalidStepResult {
+        /// Flow type containing the Step.
         flow_type: String,
+        /// Step type that returned the invalid value.
         step_type: String,
+        /// Developer-actionable result violation.
         detail: String,
     },
 }
@@ -180,6 +232,10 @@ impl Error for SdkError {
 }
 
 impl SdkError {
+    /// Returns shared service metadata for service-backed variants.
+    ///
+    /// Local definition, argument, mapping, invalid-result, and uncompleted-Flow errors return
+    /// `None`.
     pub fn service_error(&self) -> Option<&ServiceError> {
         match self {
             Self::Service { service }

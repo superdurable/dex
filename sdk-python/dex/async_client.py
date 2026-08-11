@@ -53,12 +53,36 @@ ValueT = TypeVar("ValueT")
 
 
 class AsyncClient:
+    """Call Dex FlowService asynchronously through registered Flow definitions.
+
+    Methods perform non-blocking gRPC I/O and are safe to await from concurrent
+    tasks. The Client owns its asynchronous channel but not its Registry or BlobCache;
+    use ``async with`` or await ``close`` during application shutdown.
+
+    Attributes:
+        registry: Flow definitions used to validate typed calls.
+        blob_cache: The open cache used to hydrate large values.
+        options: The effective ClientOptions.
+
+    Examples:
+        >>> async with AsyncClient(registry, cache) as client:
+        ...     run_id = await client.start_flow(orders, "order-42", input)
+        ...     result = await client.wait_for_flow("order-42", OrderResult)
+    """
+
     def __init__(
         self,
         registry: Registry,
         blob_cache: BlobCache,
         options: ClientOptions | None = None,
     ) -> None:
+        """Construct an AsyncClient and its lazy plaintext gRPC channel.
+
+        Args:
+            registry: The Flow Registry used for validation and codecs.
+            blob_cache: An open cache used for asynchronous hydration.
+            options: Service address and default Worker target; ``None`` uses defaults.
+        """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or ClientOptions()
@@ -76,6 +100,11 @@ class AsyncClient:
         self._closed = False
 
     async def __aenter__(self) -> AsyncClient:
+        """Return this Client for asynchronous context-manager use.
+
+        Returns:
+            This AsyncClient instance.
+        """
         return self
 
     async def __aexit__(
@@ -84,6 +113,13 @@ class AsyncClient:
         exception: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the Client when leaving an asynchronous context block.
+
+        Args:
+            exception_type: The active exception type, if any.
+            exception: The active exception value, if any.
+            traceback: The active traceback, if any.
+        """
         await self.close()
 
     async def start_flow(
@@ -93,6 +129,27 @@ class AsyncClient:
         input: InputT,
         options: StartFlowOptions = StartFlowOptions(),
     ) -> str:
+        """Start a Flow and return its server-assigned run ID.
+
+        The await completes after Dex accepts the Flow, not after completion. ``flow``
+        must be the exact registered instance and ``input`` must match its starting
+        Step annotation.
+
+        Args:
+            flow: The registered Flow instance to start.
+            flow_id: A non-empty application ID stable across runs.
+            input: The starting Step input, or ``None`` without a starting Step.
+            options: Timeout, reuse, retry, idempotency, and initial-state options.
+
+        Returns:
+            The server-assigned run ID.
+
+        Raises:
+            FlowAlreadyStartedError: If reuse policy rejects an existing Flow ID.
+            FlowDefinitionError: If ``flow`` is not registered.
+            ValueMappingError: If an input or initial Attribute cannot be encoded.
+            DexServiceError: If FlowService rejects or cannot perform the request.
+        """
         registered = self.registry._flow_for_instance(flow)
         request = pb.StartFlowRequest(
             flow_id=require_name(flow_id),
@@ -169,6 +226,27 @@ class AsyncClient:
         *,
         run_id: str = "",
     ) -> Any:
+        """Invoke a registered RPC and await its typed result.
+
+        Pass the bound method from the registered Flow instance. RPC timeout and
+        Attribute locks come from ``@rpc`` configuration.
+
+        Args:
+            rpc_method: A bound method decorated with ``@rpc``.
+            flow_id: The non-empty target Flow ID.
+            input: The annotated input, or ``None`` for an input-free RPC.
+            run_id: Optional exact run; ``""`` targets the active run.
+
+        Returns:
+            The decoded ``RPCResult.output``, or ``None`` for a no-output RPC.
+
+        Raises:
+            FlowDefinitionError: If the method is not registered.
+            RpcLockConflictError: If Attribute locks cannot be acquired.
+            WorkerInvocationError: If the application handler fails.
+            ValueMappingError: If input or output mapping fails.
+            DexServiceError: If the Flow is inactive or the service call fails.
+        """
         _, rpc = self.registry._rpc_for_method(rpc_method)
         encoded_input = (
             self._values.encode(input, rpc.input_codec)
@@ -232,6 +310,23 @@ class AsyncClient:
         *,
         run_id: str = "",
     ) -> Any:
+        """Await one decoded Attribute or AttributeMap instance.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            attribute: A typed singleton Attribute or AttributeMap definition.
+            instance: The non-empty map key; omit for a singleton Attribute.
+            run_id: Optional exact run; ``""`` targets the current run.
+
+        Returns:
+            The decoded value, or ``None`` when unset.
+
+        Raises:
+            TypeError: If singleton/map arguments do not match the definition.
+            ValueMappingError: If the stored value cannot be decoded.
+            FlowNotFoundError: If ``flow_id`` does not exist.
+            DexServiceError: If FlowService cannot perform the request.
+        """
         key = self._definition_name(attribute, instance)
         response = cast(
             pb.GetAttributesResponse,
@@ -283,6 +378,23 @@ class AsyncClient:
         *args: object,
         run_id: str = "",
     ) -> None:
+        """Write one Attribute or AttributeMap instance on an active Flow.
+
+        Singleton form is ``set_attribute(flow_id, attribute, value)``; map form is
+        ``set_attribute(flow_id, attribute_map, instance, value)``.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            attribute: A typed singleton Attribute or AttributeMap definition.
+            *args: The value, or a map instance followed by its value.
+            run_id: Optional exact run; ``""`` targets the active run.
+
+        Raises:
+            TypeError: If arguments or value type are invalid.
+            ValueMappingError: If the value cannot be encoded.
+            FlowNotActiveError: If the selected Flow run is closed.
+            DexServiceError: If FlowService cannot apply the write.
+        """
         instance, value = self._definition_value(attribute, args)
         write = pb.AttributeWrite(
             key=self._definition_name(attribute, instance),
@@ -339,6 +451,24 @@ class AsyncClient:
         *args: object,
         run_id: str = "",
     ) -> None:
+        """Append one or more typed values to a Channel.
+
+        Singleton form supplies values directly; ChannelMap form supplies an instance
+        followed by values. Dex preserves argument order within the request.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            channel: A typed singleton Channel or ChannelMap definition.
+            *args: Values, or a map instance followed by one or more values.
+            run_id: Optional exact run; ``""`` targets the active run.
+
+        Raises:
+            ValueError: If no value is passed or a name is empty.
+            TypeError: If map arguments or value types are invalid.
+            ValueMappingError: If a value cannot be encoded.
+            FlowNotActiveError: If the selected Flow run is closed.
+            DexServiceError: If FlowService cannot publish the batch.
+        """
         if isinstance(channel, ChannelMap):
             if len(args) < 2 or not isinstance(args[0], str):
                 raise TypeError("ChannelMap publish requires instance and values")
@@ -386,6 +516,26 @@ class AsyncClient:
         output_type: type[Any] | None = None,
         timeout: timedelta | None = None,
     ) -> Any:
+        """Await Flow closure and optionally decode its latest Step output.
+
+        ``timeout`` is a server-side long-poll duration, not a local task deadline.
+        A LongPollTimeoutError is retryable by awaiting this method again.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            output_type: Optional Python type for the latest completed Step output.
+            timeout: Optional non-negative server-side wait duration.
+
+        Returns:
+            The decoded latest output, or ``None`` when no output type/value exists.
+
+        Raises:
+            LongPollTimeoutError: If the Flow remains open when the wait expires.
+            FlowUncompletedError: If the Flow closes without successful completion.
+            FlowNotFoundError: If ``flow_id`` does not exist.
+            ValueMappingError: If a requested output cannot be decoded.
+            DexServiceError: If FlowService cannot perform the wait.
+        """
         response = await self._wait_for_flow_response(flow_id, timeout)
         if output_type is None:
             return None
@@ -403,6 +553,18 @@ class AsyncClient:
         flow_id: str,
         options: StopFlowOptions = StopFlowOptions(),
     ) -> None:
+        """Request cancellation, termination, or failure of an active Flow.
+
+        The await completes after Dex accepts the request, not after terminal status.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            options: Stop mode and optional recorded reason.
+
+        Raises:
+            FlowNotActiveError: If no active run exists.
+            DexServiceError: If FlowService rejects or cannot perform the request.
+        """
         await self._call(
             self._service.StopFlow,
             pb.StopFlowRequest(
@@ -420,6 +582,18 @@ class AsyncClient:
         )
 
     async def describe_flow(self, flow_id: str) -> FlowInfo:
+        """Return summary metadata for the current or latest Flow run.
+
+        Args:
+            flow_id: The non-empty Flow ID to describe.
+
+        Returns:
+            Flow ID, run ID, Flow type, status, and UTC start time.
+
+        Raises:
+            FlowNotFoundError: If ``flow_id`` does not exist.
+            DexServiceError: If FlowService cannot return the summary.
+        """
         response = cast(
             pb.GetFlowSummaryResponse,
             await self._call(
@@ -444,6 +618,21 @@ class AsyncClient:
         page_size: int,
         next_page_token: str = "",
     ) -> SearchFlowsPage:
+        """Return one page of Flow runs matching a visibility query.
+
+        Args:
+            query: A Dex visibility query; an empty string uses server defaults.
+            page_size: The non-negative maximum result count requested.
+            next_page_token: Opaque token from the preceding page, or ``""`` first.
+
+        Returns:
+            Server-ordered entries with hydrated indexed Attributes and a next token.
+
+        Raises:
+            ValueError: If ``page_size`` is negative.
+            ValueMappingError: If an indexed Attribute cannot be hydrated.
+            DexServiceError: If FlowService cannot execute the query.
+        """
         if page_size < 0:
             raise ValueError("search page size must not be negative")
         response = cast(
@@ -486,6 +675,20 @@ class AsyncClient:
         )
 
     async def reset_flow(self, flow_id: str, options: ResetFlowOptions) -> str:
+        """Create a new run from a selected point in existing Flow history.
+
+        Args:
+            flow_id: The non-empty Flow ID whose history is reset.
+            options: Reset selector, reason, and replay controls.
+
+        Returns:
+            The new server-assigned run ID; the Flow ID is unchanged.
+
+        Raises:
+            FlowNotFoundError: If ``flow_id`` does not exist.
+            ValueError: If reset selector fields are invalid.
+            DexServiceError: If FlowService cannot reset the Flow.
+        """
         request = pb.ResetFlowRequest(
             flow_id=require_name(flow_id),
             reset_type={
@@ -525,6 +728,18 @@ class AsyncClient:
         step_execution_id: StepExecutionId,
         timer_id: TimerId,
     ) -> None:
+        """Make one waiting Timer condition immediately ready.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            step_execution_id: The Step type and positive execution number.
+            timer_id: Exactly one Timer condition ID or zero-based index.
+
+        Raises:
+            FlowNotActiveError: If the Flow is closed.
+            ValueError: If an identifier is invalid.
+            DexServiceError: If FlowService cannot skip the Timer.
+        """
         request = pb.SkipTimerRequest(
             flow_id=require_name(flow_id),
             step_execution_id=(
@@ -545,6 +760,18 @@ class AsyncClient:
         step_execution_id: StepExecutionId,
         timeout: timedelta,
     ) -> None:
+        """Await one Step execution's completion or a long-poll timeout.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            step_execution_id: The Step type and positive execution number.
+            timeout: The non-negative server-side wait duration.
+
+        Raises:
+            LongPollTimeoutError: If completion is not observed before ``timeout``.
+            FlowNotActiveError: If the Flow closes first.
+            DexServiceError: If FlowService cannot perform the wait.
+        """
         await self._call(
             self._service.WaitForStepCompletion,
             pb.WaitForStepCompletionRequest(
@@ -560,6 +787,17 @@ class AsyncClient:
         )
 
     async def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
+        """Replace mutable configuration for an active Flow.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            config: New optional fields applied to later decisions.
+
+        Raises:
+            FlowNotActiveError: If the Flow is closed.
+            ValueError: If a configuration value is invalid.
+            DexServiceError: If FlowService cannot apply the update.
+        """
         await self._call(
             self._service.UpdateFlowConfig,
             pb.UpdateFlowConfigRequest(
@@ -572,6 +810,17 @@ class AsyncClient:
         )
 
     async def trigger_continue_as_new(self, flow_id: str) -> None:
+        """Ask an active Flow to roll history into a new run.
+
+        The Flow ID remains stable and the run ID changes when rollover occurs.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+
+        Raises:
+            FlowNotActiveError: If the Flow is closed.
+            DexServiceError: If FlowService cannot accept the request.
+        """
         await self._call(
             self._service.TriggerContinueAsNew,
             pb.TriggerContinueAsNewRequest(flow_id=require_name(flow_id)),
@@ -581,6 +830,14 @@ class AsyncClient:
         )
 
     async def health_check(self) -> bool:
+        """Await the FlowService health endpoint.
+
+        Returns:
+            ``True`` when the service returns successfully.
+
+        Raises:
+            DexServiceError: If the service is unhealthy or unreachable.
+        """
         from google.protobuf import empty_pb2
 
         await self._call(
@@ -593,6 +850,11 @@ class AsyncClient:
         return True
 
     async def close(self) -> None:
+        """Close the owned asynchronous gRPC channel.
+
+        ``close`` is idempotent. Other methods must not be awaited afterward. The
+        Registry and BlobCache remain owned by the caller.
+        """
         if self._closed:
             return
         self._closed = True

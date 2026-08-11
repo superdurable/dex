@@ -9,15 +9,21 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+/// Result returned by application Step and RPC handlers.
 pub type HandlerResult<T> = Result<T, HandlerError>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Reports an application-defined Step or RPC failure to Dex.
+///
+/// Return this error from [`crate::Step::wait_for`], [`crate::Step::execute`], or an RPC handler.
+/// Dex records the message and applies the configured retry or failure policy.
 pub struct HandlerError {
     message: String,
     error_type: String,
 }
 
 impl HandlerError {
+    /// Creates a handler error with a developer-facing message.
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),

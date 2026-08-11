@@ -6,23 +6,89 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+/** Identifies the protocol representation carried by an encoded {@link Value}. */
 export type WireKind = "string" | "bool" | "int64" | "double" | "bytes" | "json";
 
+/** Contains one validated SDK value before protocol mapping. */
 export type Value =
-  | Readonly<{ kind: "string"; data: string }>
-  | Readonly<{ kind: "bool"; data: boolean }>
-  | Readonly<{ kind: "int64"; data: bigint }>
-  | Readonly<{ kind: "double"; data: number }>
-  | Readonly<{ kind: "bytes"; data: Uint8Array }>
-  | Readonly<{ kind: "json"; data: string }>;
+  | Readonly<{
+      /** String wire discriminator. */
+      kind: "string";
+      /** Valid UTF-8 application text. */
+      data: string;
+    }>
+  | Readonly<{
+      /** Boolean wire discriminator. */
+      kind: "bool";
+      /** Boolean scalar payload. */
+      data: boolean;
+    }>
+  | Readonly<{
+      /** Signed-integer wire discriminator. */
+      kind: "int64";
+      /** Signed 64-bit integer payload. */
+      data: bigint;
+    }>
+  | Readonly<{
+      /** Floating-point wire discriminator. */
+      kind: "double";
+      /** Finite IEEE-754 number payload. */
+      data: number;
+    }>
+  | Readonly<{
+      /** Raw-bytes wire discriminator. */
+      kind: "bytes";
+      /** Uninterpreted byte payload. */
+      data: Uint8Array;
+    }>
+  | Readonly<{
+      /** JSON wire discriminator. */
+      kind: "json";
+      /** Valid JSON document text. */
+      data: string;
+    }>;
 
+/**
+ * Converts between an application type and one Dex wire representation.
+ * Implementations should be deterministic so durable replay sees identical values.
+ *
+ * @example
+ * ```ts
+ * type Order = { id: string };
+ * const orderCodec = jsonCodec<Order>({
+ *   typeName: "Order",
+ *   decode(value) {
+ *     if (typeof value !== "object" || value === null ||
+ *         !("id" in value) || typeof value.id !== "string") {
+ *       throw new TypeError("invalid Order");
+ *     }
+ *     return { id: value.id };
+ *   },
+ * });
+ * const encoded = orderCodec.encode({ id: "order-42" });
+ * ```
+ * @typeParam T - Application value type encoded by this codec.
+ */
 export interface Codec<T> {
+  /** Stable application-facing name used in mapping errors. */
   readonly typeName: string;
+  /** Wire kind normally emitted and accepted by the codec. */
   readonly wireKind: WireKind;
+  /**
+   * Encodes one application value.
+   * @param value - Typed value to encode.
+   * @returns A validated Dex Value.
+   */
   encode(value: T): Value;
+  /**
+   * Decodes one protocol value.
+   * @param value - Value to validate and decode.
+   * @returns The decoded application value.
+   */
   decode(value: Value): T;
 }
 
+/** Built-in UTF-8 string codec. */
 export const stringCodec: Codec<string> = {
   typeName: "string",
   wireKind: "string",
@@ -30,6 +96,7 @@ export const stringCodec: Codec<string> = {
   decode: (value) => requireKind(value, "string").data,
 };
 
+/** Built-in strict Boolean codec. */
 export const booleanCodec: Codec<boolean> = {
   typeName: "boolean",
   wireKind: "bool",
@@ -37,6 +104,7 @@ export const booleanCodec: Codec<boolean> = {
   decode: (value) => requireKind(value, "bool").data,
 };
 
+/** Built-in signed 64-bit bigint codec. */
 export const int64Codec: Codec<bigint> = {
   typeName: "bigint",
   wireKind: "int64",
@@ -49,6 +117,7 @@ export const int64Codec: Codec<bigint> = {
   decode: (value) => requireKind(value, "int64").data,
 };
 
+/** Built-in finite IEEE-754 number codec. */
 export const doubleCodec: Codec<number> = {
   typeName: "number",
   wireKind: "double",
@@ -61,6 +130,7 @@ export const doubleCodec: Codec<number> = {
   decode: (value) => requireKind(value, "double").data,
 };
 
+/** Built-in byte-array codec that copies values in both directions. */
 export const bytesCodec: Codec<Uint8Array> = {
   typeName: "Uint8Array",
   wireKind: "bytes",
@@ -68,6 +138,7 @@ export const bytesCodec: Codec<Uint8Array> = {
   decode: (value) => requireKind(value, "bytes").data.slice(),
 };
 
+/** Built-in void codec represented as JSON `null`. */
 export const voidCodec: Codec<void> = {
   typeName: "void",
   wireKind: "json",
@@ -79,6 +150,12 @@ export const voidCodec: Codec<void> = {
   },
 };
 
+/**
+ * Wraps a codec so JSON `null` represents `undefined`.
+ * @typeParam T - Defined application value type.
+ * @param codec - Codec used for defined values.
+ * @returns A codec accepting the original type or `undefined`.
+ */
 export function optionalCodec<T>(codec: Codec<T>): Codec<T | undefined> {
   return {
     typeName: `${codec.typeName} | undefined`,
@@ -88,9 +165,23 @@ export function optionalCodec<T>(codec: Codec<T>): Codec<T | undefined> {
   };
 }
 
+/**
+ * Creates a deterministic JSON codec with application conversion hooks.
+ *
+ * JSON.stringify semantics apply; `undefined`, cycles, and unsupported bigint values
+ * fail during encoding. The decoder receives parsed, untrusted JSON data.
+ *
+ * @typeParam T - Application value type.
+ * @param options - Stable name plus JSON conversion hooks.
+ * @returns A JSON-wire codec for `T`.
+ * @throws {@link TypeError} when encoding produces `undefined`.
+ */
 export function jsonCodec<T>(options: {
+  /** Stable type name used in mapping errors. */
   readonly typeName: string;
+  /** Validates and converts parsed JSON-compatible data. */
   readonly decode: (value: unknown) => T;
+  /** Converts an application value to JSON-compatible data; identity by default. */
   readonly encode?: (value: T) => unknown;
 }): Codec<T> {
   return {

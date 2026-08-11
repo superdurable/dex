@@ -18,6 +18,23 @@ use crate::{Context, Flow, HandlerResult, SdkError, SdkResult, StepDecision, Wai
 use dex_protocol::dex::Value as ProtoValue;
 
 #[derive(Clone, Default)]
+/// Validates and stores all Flow definitions used by a Client or Worker.
+///
+/// Registration checks unique Flow, Step, RPC, and persistence names; starting-Step constraints;
+/// Attribute index consistency; RPC locks; and handler options. Cloning is cheap because it shares
+/// the registered data.
+///
+/// # Examples
+///
+/// ```
+/// use dex_sdk::{Flow, Registry};
+///
+/// struct OrderFlow;
+/// impl Flow for OrderFlow { type StartInput = String; }
+///
+/// let registry = Registry::new().register(OrderFlow)?;
+/// # Ok::<(), dex_sdk::SdkError>(())
+/// ```
 pub struct Registry {
     inner: Arc<RegistryInner>,
 }
@@ -40,10 +57,17 @@ pub(crate) struct RegisteredFlow {
 }
 
 impl Registry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Validates and adds one owned Flow definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowDefinition`] for invalid or conflicting names, schemas, indexes,
+    /// Steps, RPCs, locks, or options.
     pub fn register<SomeFlow: Flow>(mut self, flow: SomeFlow) -> SdkResult<Self> {
         let flow = Arc::new(flow);
         let name = require_static_name(flow.flow_type(), "Flow type")?;

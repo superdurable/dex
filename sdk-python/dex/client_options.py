@@ -15,5 +15,14 @@ from dex.worker_options import WorkerTarget
 
 @dataclass(frozen=True)
 class ClientOptions:
+    """Configure FlowService connectivity and default Flow routing.
+
+    Attributes:
+        server_address: The plaintext gRPC target for Dex. Defaults to
+            ``"localhost:8801"`` and must not include an HTTP scheme.
+        worker_target: The Worker target advertised by ``start_flow`` when the Flow
+            does not override it, or ``None`` to omit a Client-level default.
+    """
+
     server_address: str = "localhost:8801"
     worker_target: WorkerTarget | None = None

@@ -126,6 +126,9 @@ func newStepDef[IN any](step Step[IN], starting bool) StepDef {
 
 // StepDef is the representation of Step, without Go's generic
 // So that internal sdk can use it to workaround Go's generic limitations
+//
+// StepDef is internal to the SDK. Applications create values with DefineStep or
+// DefineStartStep and return them from Flow.GetSteps.
 type StepDef interface {
 	stepType() string
 	stepInputType() reflect.Type
@@ -160,6 +163,7 @@ type DefaultStepType struct{}
 //		dex.DefaultStepOptions
 //	}
 type DefaultStepOptions struct {
+	// DefaultStepType supplies GetStepType using the package-qualified Go type.
 	DefaultStepType
 }
 
@@ -171,6 +175,7 @@ type DefaultStepOptions struct {
 //		dex.StepDefaults
 //	}
 type StepDefaults struct {
+	// DefaultStepOptions supplies default type naming and nil options.
 	DefaultStepOptions
 }
 
@@ -182,20 +187,25 @@ type StepDefaults struct {
 //		dex.StepDefaultsNoWaitFor[ShipOrderInput]
 //	}
 type StepDefaultsNoWaitFor[IN any] struct {
+	// StepDefaults supplies default type naming and nil options.
 	StepDefaults
+	// NoWaitFor marks the Step execute-only.
 	NoWaitFor[IN]
 }
 
+// WaitFor panics because registration must skip this method for execute-only Steps.
 func (NoWaitFor[IN]) WaitFor(Context, IN) (*Wait, error) {
 	panic("NoWaitFor: framework must skip WaitFor")
 }
 
 func (NoWaitFor[IN]) noWaitFor() {}
 
+// GetStepOptions returns nil so Dex uses server Step defaults.
 func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
 
+// GetStepType returns empty so Registry derives the package-qualified Go type name.
 func (DefaultStepType) GetStepType() string {
 	return ""
 }

@@ -10,18 +10,41 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** Configures the local persistent cache for large Dex values. */
 export interface BlobCacheConfig {
+  /** Writable directory used for cache payloads and metadata. */
   readonly directory: string;
+  /** Positive maximum on-disk payload size in bytes. */
   readonly maxBytes: number;
+  /** Admission-policy counter count; zero or `undefined` uses the native default. */
   readonly frequencyCounters?: number;
 }
 
+/** Provides concurrent, bounded storage for content-addressed Dex blobs. */
 export interface BlobCache {
+  /** Effective configuration used by this cache. */
   readonly config: BlobCacheConfig;
+  /**
+   * Reads a cached payload without contacting Dex.
+   * @param blobId - Opaque server-assigned blob identifier.
+   * @returns A copied payload, or `undefined` when absent.
+   */
   get(blobId: string): Uint8Array | undefined;
+  /**
+   * Offers a payload to the bounded cache.
+   * @param blobId - Opaque server-assigned blob identifier.
+   * @param payload - Bytes copied into native storage.
+   * @returns `true` when admitted or `false` when rejected by policy.
+   */
   put(blobId: string, payload: Uint8Array): boolean;
+  /**
+   * Deletes one cached payload when present.
+   * @param blobId - Opaque identifier to remove.
+   */
   delete(blobId: string): void;
+  /** Deletes every payload while keeping the cache open. */
   deleteAll(): void;
+  /** Flushes metadata and releases native resources; repeated calls are safe. */
   close(): void;
 }
 
@@ -48,6 +71,19 @@ interface NativeModule {
 const require = createRequire(import.meta.url);
 let nativeModule: NativeModule | undefined;
 
+/**
+ * Opens or creates a native BlobCache owned by the caller.
+ *
+ * @example
+ * ```ts
+ * const cache = openBlobCache({ directory: ".dex-cache", maxBytes: 64 * 1024 ** 2 });
+ * try { cache.put("blob-1", new Uint8Array([1, 2])); } finally { cache.close(); }
+ * ```
+ * @param config - Directory, positive byte capacity, and optional counter count.
+ * @returns An open cache that must be closed at application shutdown.
+ * @throws {@link TypeError} when the directory is empty.
+ * @throws {@link RangeError} when a numeric setting is invalid.
+ */
 export function openBlobCache(config: BlobCacheConfig): BlobCache {
   if (config.directory.length === 0) {
     throw new TypeError("blob cache directory is required");

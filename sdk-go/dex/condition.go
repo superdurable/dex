@@ -15,6 +15,17 @@ import (
 	"time"
 )
 
+// Wait describes when Dex may invoke a Step's Execute method.
+//
+// Build waits from durable Timer and Channel Conditions. Condition order determines timer indexes
+// used by TimerID and HasTimerFiredByIndex.
+//
+// Example:
+//
+//	return dex.AnyOf(
+//		approvals.ForOne(dex.WithConditionID("approved")),
+//		dex.Timer(5*time.Minute, dex.WithConditionID("timeout")),
+//	), nil
 type Wait struct {
 	kind         waitKind
 	conditions   []Condition
@@ -22,22 +33,27 @@ type Wait struct {
 	transient    *StepMovement
 }
 
+// SkipWaitImmediately asks Dex to invoke Execute without evaluating WaitFor conditions.
 func SkipWaitImmediately() *Wait {
 	return &Wait{kind: skipWaitImmediately}
 }
 
+// Until waits until one condition is satisfied.
 func Until(condition Condition) *Wait {
 	return AllOf(condition)
 }
 
+// AllOf waits until every condition is satisfied.
 func AllOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAllOf, conditions: conditions}
 }
 
+// AnyOf waits until at least one condition is satisfied.
 func AnyOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAnyOf, conditions: conditions}
 }
 
+// AnyComboOf waits until every Condition in at least one combination is satisfied.
 func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
 }
@@ -47,10 +63,14 @@ func withTransientMovement(wait *Wait, movement StepMovement) *Wait {
 	return wait
 }
 
+// Condition represents one durable Timer or Channel predicate.
+// Create values through Timer, Channel, or ChannelMap; custom implementations are not supported.
 type Condition interface {
 	condition()
 }
 
+// Timer returns a Condition satisfied after duration of durable workflow time.
+// The timer survives Worker restarts.
 func Timer(duration time.Duration, options ...ConditionOption) Condition {
 	condition := &conditionImpl{
 		kind:     conditionTimer,
@@ -60,18 +80,22 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 	return condition
 }
 
+// ConditionOption configures a Condition. Use WithConditionID to create an option.
 type ConditionOption interface {
 	applyCondition(*conditionImpl)
 }
 
+// WithConditionID assigns a stable timer or Channel Condition ID for later targeting.
 func WithConditionID(conditionID string) ConditionOption {
 	return conditionIDOption{conditionID: conditionID}
 }
 
+// ConditionCombination groups Conditions that must all succeed as one AnyComboOf branch.
 type ConditionCombination struct {
 	conditions []Condition
 }
 
+// Combo creates one branch satisfied only when all conditions are satisfied.
 func Combo(conditions ...Condition) ConditionCombination {
 	return ConditionCombination{conditions: conditions}
 }

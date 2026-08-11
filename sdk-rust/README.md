@@ -138,7 +138,14 @@ Format and test the workspace:
 make fmt
 make lint
 make test
+make docs-check
 ```
+
+`docs-check` denies missing rustdoc and rustdoc warnings for the hand-written
+`dex-sdk` and `dex-blob-cache` public APIs, then compiles every documentation
+example as a doctest. Generated protocol and language-binding crates are not
+part of that public SDK surface. Generated HTML starts at
+`target/doc/dex_sdk/index.html` and `target/doc/dex_blob_cache/index.html`.
 
 Run the SDK integration suite against a fresh local `dexcli dev` stack:
 

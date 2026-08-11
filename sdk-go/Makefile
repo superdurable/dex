@@ -116,7 +116,7 @@ define remake
 endef
 
 
-.PHONY: release clean
+.PHONY: release clean docsCheck
 
 idl-code-gen: # regenerate Go SDK protobuf stubs from protos/dex.proto
 	$(MAKE) -C ../protos proto-sdk-go
@@ -157,6 +157,9 @@ clientIntegTests:
 unitTests:
 	$Q go test -v ./dex ./examples/...
 
+docsCheck:
+	$Q go run ./scripts/check-public-docs.go dex logging ../blob-cache-go/blobcache
+
 tests: unitTests clientIntegTests workerIntegTests
 
 ci-tests:
@@ -164,7 +167,7 @@ ci-tests:
 
 fmt:
 	$Q gofmt -s -w ./dex ./examples ./integ
-  
+
 help:
 	@# print help first, so it's visible
 	@printf "\033[36m%-20s\033[0m %s\n" 'help' 'Prints a help message showing any specially-commented targets'

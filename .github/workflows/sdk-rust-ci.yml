@@ -46,6 +46,8 @@ jobs:
         run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
       - name: Check formatting
         run: cargo fmt --all --check
+      - name: Validate public API documentation
+        run: make docs-check
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 

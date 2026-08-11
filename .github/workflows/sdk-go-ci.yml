@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "sdk-go/**"
+      - "blob-cache-go/**"
       - "protos/**"
       - "server/**"
       - "cli/**"
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - "sdk-go/**"
+      - "blob-cache-go/**"
       - "protos/**"
       - "server/**"
       - "cli/**"
@@ -48,6 +50,8 @@ jobs:
           cache-dependency-path: |
             sdk-go/go.sum
             go.work.sum
+      - name: Validate public API documentation
+        run: make docsCheck
       - name: Unit tests
         run: make unitTests
 

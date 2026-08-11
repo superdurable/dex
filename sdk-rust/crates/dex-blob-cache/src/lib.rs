@@ -6,6 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+//! Persistent, bounded local cache for Dex blob payloads.
+//!
+//! [`BlobCache`] stores immutable payloads by blob ID and uses an admission and eviction policy to
+//! keep committed files within the configured byte budget.
+
+#![deny(missing_docs)]
+
 mod config;
 mod entry;
 mod error;
@@ -24,6 +31,24 @@ use format::{FileMetadata, calculate_metadata};
 use policy::{DiskPolicyCallback, PolicyCache, new_policy};
 use store::LocalFileStore;
 
+/// Stores immutable Dex blob payloads in a bounded local directory.
+///
+/// A cache is thread-safe. Reads and writes may run concurrently, while deletion and close
+/// coordinate with in-flight operations. Payloads survive process restarts; [`BlobCache::open`]
+/// recovers valid committed entries and removes interrupted writes.
+///
+/// # Examples
+///
+/// ```no_run
+/// use dex_blob_cache::{BlobCache, BlobCacheConfig};
+///
+/// let config = BlobCacheConfig::new("/tmp/dex-blobs", 64 * 1024 * 1024, 0)?;
+/// let cache = BlobCache::open(config)?;
+/// assert!(cache.put("orders/123", b"payload")?);
+/// assert_eq!(cache.get("orders/123")?, Some(b"payload".to_vec()));
+/// cache.close()?;
+/// # Ok::<(), dex_blob_cache::BlobCacheError>(())
+/// ```
 pub struct BlobCache {
     config: BlobCacheConfig,
     store: LocalFileStore,
@@ -40,6 +65,15 @@ enum ExistingEntry {
 }
 
 impl BlobCache {
+    /// Opens a cache and recovers its committed entries.
+    ///
+    /// `config` supplies the owned directory, byte budget, and admission-policy sizing. The call
+    /// creates the directory when needed and returns only after recovery completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError`] when the directory cannot be prepared, recovery finds an
+    /// unrecoverable storage failure, or the admission policy cannot be initialized.
     pub fn open(config: BlobCacheConfig) -> Result<Self, BlobCacheError> {
         let store = LocalFileStore::new(config.directory())?;
         store.prepare()?;
@@ -61,6 +95,15 @@ impl BlobCache {
         Ok(cache)
     }
 
+    /// Reads one payload and records an admission-policy access.
+    ///
+    /// Returns `Ok(Some(payload))` for a valid entry and `Ok(None)` when the ID is absent or its
+    /// file disappeared or became corrupt. Corrupt entries are invalidated before returning.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError::InvalidBlob`] for an invalid ID, [`BlobCacheError::Closed`] after
+    /// close, or a storage/policy error that cannot be treated as a cache miss.
     pub fn get(&self, blob_id: &str) -> Result<Option<Vec<u8>>, BlobCacheError> {
         validate_blob_id(blob_id)?;
         let _lifecycle = self
@@ -95,6 +138,16 @@ impl BlobCache {
         }
     }
 
+    /// Attempts to admit an immutable payload under `blob_id`.
+    ///
+    /// Returns `Ok(true)` when the payload is committed or the identical payload already exists.
+    /// Returns `Ok(false)` when the payload exceeds the byte budget or the policy rejects it.
+    /// Reusing an ID for different bytes is an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError`] for invalid IDs, content mismatches, closed lifecycle, or failed
+    /// filesystem and policy operations.
     pub fn put(&self, blob_id: &str, payload: &[u8]) -> Result<bool, BlobCacheError> {
         validate_blob_id(blob_id)?;
         let _lifecycle = self
@@ -153,6 +206,14 @@ impl BlobCache {
         Ok(true)
     }
 
+    /// Deletes one blob if present.
+    ///
+    /// Missing IDs succeed, making deletion idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError`] for an invalid ID, a closed cache, or a failed storage/policy
+    /// operation.
     pub fn delete(&self, blob_id: &str) -> Result<(), BlobCacheError> {
         validate_blob_id(blob_id)?;
         let _lifecycle = self
@@ -187,6 +248,14 @@ impl BlobCache {
         self.wait_for_policy()
     }
 
+    /// Removes every cache entry while keeping the cache open.
+    ///
+    /// The call excludes concurrent cache operations until both policy and disk state are cleared.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError::Closed`] after close or a reconciliation/storage failure when the
+    /// cache cannot fully purge its state.
     pub fn delete_all(&self) -> Result<(), BlobCacheError> {
         let _lifecycle = self
             .lifecycle
@@ -219,6 +288,13 @@ impl BlobCache {
         Ok(())
     }
 
+    /// Releases policy resources and rejects future operations.
+    ///
+    /// Close is idempotent and preserves committed files for the next [`BlobCache::open`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a cleanup error after closing when a previously deferred file removal still fails.
     pub fn close(&self) -> Result<(), BlobCacheError> {
         let _lifecycle = self
             .lifecycle

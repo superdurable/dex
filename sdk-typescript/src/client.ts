@@ -74,10 +74,31 @@ import { ChannelMap, type Channel } from "./wait.js";
 
 const defaultServerAddress = "localhost:8801";
 
+/**
+ * Calls Dex FlowService through registered, typed Flow definitions.
+ *
+ * Methods perform asynchronous gRPC I/O. A Client owns its service connection but
+ * not its Registry or BlobCache; call `close` during application shutdown.
+ *
+ * @example
+ * ```ts
+ * const client = new Client(registry, cache);
+ * try {
+ *   const runId = await client.startFlow(orders, "order-42", input);
+ *   const result = await client.waitForFlow("order-42", orderResultCodec);
+ * } finally { await client.close(); }
+ * ```
+ */
 export class Client {
   private readonly service: FlowServiceClientType;
   private readonly hydrator: ValueHydrator;
 
+  /**
+   * Constructs a Client and lazy plaintext gRPC connection.
+   * @param registry - Flow definitions used for validation and routing.
+   * @param blobCache - Open cache used to hydrate large response values.
+   * @param options - Service address and default Worker target.
+   */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
@@ -90,6 +111,17 @@ export class Client {
     this.hydrator = new ValueHydrator(this.service, blobCache);
   }
 
+  /**
+   * Starts a Flow and returns after Dex accepts it.
+   * @typeParam StartInput - Starting Step input type.
+   * @param flow - Exact Flow instance registered with this Client.
+   * @param flowId - Non-empty application ID stable across runs.
+   * @param input - Starting Step input, or `undefined` when no start Step exists.
+   * @param options - Timeout, reuse, retry, configuration, and initial state.
+   * @returns The server-assigned run ID.
+   * @throws {@link FlowAlreadyStartedError} when reuse policy rejects the Flow ID.
+   * @throws {@link FlowDefinitionError} when `flow` is not registered.
+   */
   public async startFlow<StartInput>(
     flow: Flow<StartInput>,
     flowId: string,
@@ -139,6 +171,16 @@ export class Client {
       .runId;
   }
 
+  /**
+   * Invokes an RPC with typed input and output.
+   * @typeParam Input - RPC input type.
+   * @typeParam Output - RPC output type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param input - Typed handler input.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns The decoded RPCResult output.
+   */
   public invokeRPC<Input, Output>(
     rpcMethod: (
       context: Context,
@@ -149,12 +191,29 @@ export class Client {
     runId?: string,
   ): Promise<Output>;
 
+  /**
+   * Invokes an input-free RPC with typed output.
+   * @typeParam Output - RPC output type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns The decoded RPCResult output.
+   */
   public invokeRPC<Output>(
     rpcMethod: (context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>,
     flowId: string,
     runId?: string,
   ): Promise<Output>;
 
+  /**
+   * Invokes a typed-input RPC that returns no output.
+   * @typeParam Input - RPC input type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param input - Typed handler input.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns A promise resolved after successful handler completion.
+   */
   public invokeRPC<Input>(
     rpcMethod: (context: Context, input: Input) => void | Promise<void>,
     flowId: string,
@@ -162,12 +221,29 @@ export class Client {
     runId?: string,
   ): Promise<void>;
 
+  /**
+   * Invokes an input-free, output-free RPC.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns A promise resolved after successful handler completion.
+   */
   public invokeRPC(
     rpcMethod: (context: Context) => void | Promise<void>,
     flowId: string,
     runId?: string,
   ): Promise<void>;
 
+  /**
+   * Dispatches a registered RPC using its decorator codecs and locks.
+   * @param rpcMethod - Bound registered RPC method.
+   * @param flowId - Non-empty target Flow ID.
+   * @param inputOrRunId - Typed input, or run ID for an input-free RPC.
+   * @param runId - Exact run for an input-bearing RPC; targets the active run when omitted.
+   * @returns Decoded output, or `undefined` for an output-free RPC.
+   * @throws {@link RpcLockConflictError} when locks cannot be acquired.
+   * @throws {@link WorkerInvocationError} when the application handler fails.
+   */
   public async invokeRPC(
     rpcMethod: Function,
     flowId: string,
@@ -202,12 +278,29 @@ export class Client {
     return decodeValue(rpc.options.outputCodec, await this.hydrator.hydrate(response.output));
   }
 
+  /**
+   * Reads a singleton Attribute.
+   * @typeParam T - Attribute value type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param attribute - Typed singleton Attribute definition.
+   * @param runId - Optional exact run; targets the current run when omitted.
+   * @returns The decoded value, or `undefined` when unset.
+   */
   public getAttribute<T>(
     flowId: string,
     attribute: Attribute<T>,
     runId?: string,
   ): Promise<T | undefined>;
 
+  /**
+   * Reads one AttributeMap instance.
+   * @typeParam T - Attribute value type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param attribute - Typed AttributeMap definition.
+   * @param instance - Non-empty logical map key.
+   * @param runId - Optional exact run; targets the current run when omitted.
+   * @returns The decoded value, or `undefined` when unset.
+   */
   public getAttribute<T>(
     flowId: string,
     attribute: AttributeMap<T>,
@@ -215,6 +308,14 @@ export class Client {
     runId?: string,
   ): Promise<T | undefined>;
 
+  /**
+   * Reads and decodes a singleton or map Attribute.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param attribute - Typed Attribute definition.
+   * @param instanceOrRunId - Map instance, or singleton run ID.
+   * @param runId - Exact run for a map read.
+   * @returns The decoded value, or `undefined` when unset.
+   */
   public async getAttribute(
     flowId: string,
     attribute: Attribute<unknown> | AttributeMap<unknown>,
@@ -242,6 +343,15 @@ export class Client {
     return decodeValue(attribute.codec, await this.hydrator.hydrate(value));
   }
 
+  /**
+   * Writes a singleton Attribute on an active Flow.
+   * @typeParam T - Attribute value type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Typed singleton Attribute definition.
+   * @param value - Value encoded by the Attribute codec.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns A promise resolved after Dex applies the write.
+   */
   public setAttribute<T>(
     flowId: string,
     attribute: Attribute<T>,
@@ -249,6 +359,16 @@ export class Client {
     runId?: string,
   ): Promise<void>;
 
+  /**
+   * Writes one AttributeMap instance on an active Flow.
+   * @typeParam T - Attribute value type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Typed AttributeMap definition.
+   * @param instance - Non-empty logical map key.
+   * @param value - Value encoded by the Attribute codec.
+   * @param runId - Optional exact run; targets the active run when omitted.
+   * @returns A promise resolved after Dex applies the write.
+   */
   public setAttribute<T>(
     flowId: string,
     attribute: AttributeMap<T>,
@@ -257,6 +377,15 @@ export class Client {
     runId?: string,
   ): Promise<void>;
 
+  /**
+   * Encodes and writes a singleton or map Attribute.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Typed Attribute definition.
+   * @param instanceOrValue - Map instance or singleton value.
+   * @param valueOrRunId - Map value or singleton run ID.
+   * @param runId - Exact run for a map write.
+   * @returns A promise resolved after Dex applies the write.
+   */
   public async setAttribute(
     flowId: string,
     attribute: Attribute<unknown> | AttributeMap<unknown>,
@@ -289,8 +418,25 @@ export class Client {
     );
   }
 
+  /**
+   * Publishes one or more values to a singleton Channel.
+   * @typeParam T - Channel element type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Typed singleton Channel definition.
+   * @param values - Values appended in argument order.
+   * @returns A promise resolved after Dex accepts the batch.
+   */
   public publish<T>(flowId: string, channel: Channel<T>, ...values: readonly T[]): Promise<void>;
 
+  /**
+   * Publishes one or more values to a ChannelMap instance.
+   * @typeParam T - Channel element type.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Typed ChannelMap definition.
+   * @param instance - Non-empty logical map key.
+   * @param values - Values appended in argument order.
+   * @returns A promise resolved after Dex accepts the batch.
+   */
   public publish<T>(
     flowId: string,
     channel: ChannelMap<T>,
@@ -298,6 +444,13 @@ export class Client {
     ...values: readonly T[]
   ): Promise<void>;
 
+  /**
+   * Encodes and publishes a singleton or map Channel batch.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Typed Channel definition.
+   * @param instanceAndValues - Optional map instance followed by values.
+   * @returns A promise resolved after Dex accepts the batch.
+   */
   public async publish(
     flowId: string,
     channel: Channel<unknown> | ChannelMap<unknown>,
@@ -323,14 +476,36 @@ export class Client {
     );
   }
 
+  /**
+   * Waits for successful Flow completion without decoding output.
+   * @param flowId - Non-empty existing Flow ID.
+   * @returns A promise resolved on successful completion.
+   */
   public waitForFlow(flowId: string): Promise<void>;
 
+  /**
+   * Waits for successful Flow completion and decodes the latest Step output.
+   * @typeParam Output - Expected completion output type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param outputCodec - Codec for the expected output.
+   * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @returns The decoded latest completed Step output.
+   */
   public waitForFlow<Output>(
     flowId: string,
     outputCodec: Codec<Output>,
     timeoutMs?: number,
   ): Promise<Output>;
 
+  /**
+   * Long-polls until a Flow closes and optionally decodes output.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param outputCodec - Optional codec for the latest output.
+   * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @returns Decoded output, or `undefined` when no codec was requested.
+   * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
+   * @throws {@link FlowUncompletedError} for a non-successful terminal status.
+   */
   public async waitForFlow(
     flowId: string,
     outputCodec?: Codec<unknown>,
@@ -374,6 +549,12 @@ export class Client {
     throw new TypeError(`Flow ${flowId} completed without an output`);
   }
 
+  /**
+   * Requests cancellation, termination, or failure of an active Flow.
+   * The promise resolves after acceptance and does not await terminal status.
+   * @param flowId - Non-empty active Flow ID.
+   * @param options - Stop mode and optional recorded reason.
+   */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
     await unary<Empty>(
       { operation: "stopFlow", flowId, requirement: "active" },
@@ -390,6 +571,11 @@ export class Client {
     );
   }
 
+  /**
+   * Returns summary metadata for the current or latest Flow run.
+   * @param flowId - Non-empty existing Flow ID.
+   * @returns Flow ID, run ID, type, status, and UTC start time.
+   */
   public async describeFlow(flowId: string): Promise<FlowInfo> {
     const response = await unary<GetFlowSummaryResponse>(
       { operation: "describeFlow", flowId, requirement: "existing" },
@@ -407,6 +593,13 @@ export class Client {
     };
   }
 
+  /**
+   * Returns one page of Flow runs matching a visibility query.
+   * @param query - Dex visibility query; empty uses server defaults.
+   * @param pageSize - Non-negative requested maximum result count.
+   * @param nextPageToken - Opaque token from the preceding page, or empty first.
+   * @returns Server-ordered entries and the next-page token.
+   */
   public async searchFlows(
     query: string,
     pageSize: number,
@@ -444,6 +637,12 @@ export class Client {
     };
   }
 
+  /**
+   * Creates a new run from a selected point in existing Flow history.
+   * @param flowId - Non-empty Flow ID whose history is reset.
+   * @param options - Reset selector, reason, and replay controls.
+   * @returns The new server-assigned run ID; the Flow ID remains unchanged.
+   */
   public async resetFlow(flowId: string, options: ResetFlowOptions): Promise<string> {
     const response = await unary<ResetFlowResponse>(
       { operation: "resetFlow", flowId, requirement: "existing" },
@@ -467,6 +666,12 @@ export class Client {
     return response.runId;
   }
 
+  /**
+   * Makes one waiting Timer condition immediately ready.
+   * @param flowId - Non-empty active Flow ID.
+   * @param stepExecutionId - Step type and positive execution number.
+   * @param timerId - Exactly one Timer condition ID or zero-based index.
+   */
   public async skipTimer(
     flowId: string,
     stepExecutionId: StepExecutionId,
@@ -488,6 +693,13 @@ export class Client {
     );
   }
 
+  /**
+   * Long-polls until one Step execution completes.
+   * @param flowId - Non-empty active Flow ID.
+   * @param stepExecutionId - Step type and positive execution number.
+   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   * @throws {@link LongPollTimeoutError} when completion is not observed in time.
+   */
   public async waitForStepCompletion(
     flowId: string,
     stepExecutionId: StepExecutionId,
@@ -509,6 +721,12 @@ export class Client {
     );
   }
 
+  /**
+   * Replaces mutable configuration for an active Flow.
+   * The update affects later decisions and does not recall dispatched work.
+   * @param flowId - Non-empty active Flow ID.
+   * @param config - New optional Flow configuration fields.
+   */
   public async updateFlowConfig(flowId: string, config: FlowConfig): Promise<void> {
     await unary<Empty>(
       { operation: "updateFlowConfig", flowId, requirement: "active" },
@@ -524,6 +742,10 @@ export class Client {
     );
   }
 
+  /**
+   * Closes the owned FlowService connection.
+   * Registry and BlobCache ownership remains with the caller.
+   */
   public async close(): Promise<void> {
     this.service.close();
   }

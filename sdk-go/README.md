@@ -330,8 +330,16 @@ make unitTests
 make clientIntegTests
 make workerIntegTests
 make e2eTests
+make docsCheck
 make copyright-check
 ```
+
+`docsCheck` parses the hand-written `dex`, `logging`, and shared `blobcache`
+packages and requires a Go doc comment on every exported type, function,
+method, field, interface method, constant, and variable. Comments must begin
+with the declared name. Generated protobufs and tests are excluded. Use
+`go doc dex.<Name>` (or an IDE hover) to inspect the same application-facing
+API documentation locally.
 
 `e2eTests` uses the current checkout's `dexcli dev` environment. It
 runs the migrated iWF Go SDK scenarios through the public Dex SDK.
