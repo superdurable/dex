@@ -100,6 +100,8 @@ describe('selected step event details', () => {
 
     expect(markup).toContain('Last failure');
     expect(markup).toContain('Attempt');
+    expect(markup).toContain('Error type');
+    expect(markup).not.toContain('Backend error');
     expect(markup).toContain('Worker method failed');
     expect(markup).not.toContain('Retry state');
     expect(markup).not.toContain('Retry scheduled');
@@ -110,7 +112,7 @@ describe('selected step event details', () => {
     expect(markup).toContain('java worker stack');
     expect(markup).toContain('<details class="failure-stack">');
     expect(markup).toContain('semantic-fields-stacked');
-    expect(markup).toMatch(/semantic-fields-stacked[^>]*>.*Worker error type/s);
+    expect(markup).toMatch(/semantic-fields-stacked[^>]*>.*Attempt.*Error type.*Worker error type/s);
     expect(markup).not.toContain('legacy message');
     expect(markup).not.toContain('legacy error type');
     expect(markup).not.toContain('legacy retry state');
@@ -151,7 +153,8 @@ describe('selected step event details', () => {
     const markup = renderDetails(event);
 
     expect(markup).toContain('Failure');
-    expect(markup).toContain('Backend error');
+    expect(markup).toContain('Error type');
+    expect(markup).not.toContain('Backend error');
     expect(markup).toContain('StartToClose');
     expect(markup).toContain('2');
     expect(markup).not.toContain('Detail');

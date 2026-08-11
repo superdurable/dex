@@ -453,17 +453,15 @@ export function FailureContent({
     : undefined;
   const serverDetail = workerDetail === undefined ? details.detail : undefined;
   return (
-    <div className="semantic-alert">
-      <Fields compact values={[
+    <div className="semantic-alert failure-alert">
+      <Fields compact stacked values={[
         ['Attempt', failure.attempt],
-        ['Backend error', backendError],
-      ]} />
-      {hasData(details) && <Fields compact stacked values={[
+        ['Error type', backendError],
         ['Detail', serverDetail],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', workerDetail],
         ['Worker gRPC status', workerStatus],
-      ]} />}
+      ]} />
       {isPresent(details.originalWorkerErrorStackTrace) && (
         <details className="failure-stack" open={stackInitiallyExpanded}>
           <summary>Stack trace</summary>

@@ -660,7 +660,7 @@ Selected event：
 - `Output`：WaitFor condition 或 Execute decision，以及 side effects；失败时显示 terminal failure；
 - `Context`：execution ID、from、durability、final attempt、started、duration、step options，
   以及可选的 SYNC last failure；
-- failure 统一显示 backend error、attempt 和可选的结构化 Dex/worker details；
+- failure 将 `backend_error` 显示为独占一行的 “Error type”，并显示 attempt 和可选的结构化 Dex/worker details；
 - UI 不显示 previous attempts 或 transient-step 字段；
 - SYNC 和 ASYNC 使用完全相同的 renderer；
 - Raw JSON tab 使用 hydrated public event，不泄露 internal snapshot 或 blob location。
