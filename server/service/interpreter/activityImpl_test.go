@@ -572,7 +572,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 		})
 
 	require.ErrorIs(t, composeActivityError(provider, grpcStatus.Err()), activityError)
-	require.Equal(t, "worker failure", errorResponse.GetDetail())
+	require.Empty(t, errorResponse.GetDetail())
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,

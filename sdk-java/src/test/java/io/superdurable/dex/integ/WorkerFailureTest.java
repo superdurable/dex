@@ -139,7 +139,7 @@ public final class WorkerFailureTest {
             final String expectedDetail) {
         assertNotNull(failure);
         assertEquals(1, failure.getAttempt());
-        assertEquals(expectedDetail, failure.getDetails().getDetail());
+        assertEquals("", failure.getDetails().getDetail());
         assertEquals(
                 IllegalStateException.class.getName(),
                 failure.getDetails().getOriginalWorkerErrorType());

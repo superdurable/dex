@@ -288,7 +288,7 @@ func testWebSyncLastFailure(
 		expectedRetryState = "InProgress"
 	}
 	require.Equal(t, expectedRetryState, activeFailure.GetRetryState())
-	require.Equal(t, method+" failure 1", activeFailure.GetDetails().GetDetail())
+	require.Empty(t, activeFailure.GetDetails().GetDetail())
 	require.Equal(t, "WorkerRetryError", activeFailure.GetDetails().GetOriginalWorkerErrorType())
 	require.Equal(
 		t,
@@ -332,7 +332,7 @@ func testWebSyncLastFailure(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
 		lastFailure.GetErrorType(),
 	)
-	require.Equal(t, method+" failure 1", lastFailure.GetDetails().GetDetail())
+	require.Empty(t, lastFailure.GetDetails().GetDetail())
 	require.Equal(t, "WorkerRetryError", lastFailure.GetDetails().GetOriginalWorkerErrorType())
 	require.Equal(t, "retryable worker failure", lastFailure.GetDetails().GetOriginalWorkerErrorDetail())
 	require.Equal(t, int32(codes.Unavailable), lastFailure.GetDetails().GetOriginalWorkerErrorStatus())
@@ -340,7 +340,12 @@ func testWebSyncLastFailure(
 	if terminal {
 		require.NotNil(t, terminalFailure)
 		require.Equal(t, int32(2), terminalFailure.GetAttempt())
-		require.Equal(t, method+" failure 2", terminalFailure.GetDetails().GetDetail())
+		require.Empty(t, terminalFailure.GetDetails().GetDetail())
+		require.Equal(
+			t,
+			"retryable worker failure",
+			terminalFailure.GetDetails().GetOriginalWorkerErrorDetail(),
+		)
 	} else {
 		require.Nil(t, terminalFailure)
 	}

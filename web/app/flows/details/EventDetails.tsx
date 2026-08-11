@@ -447,6 +447,10 @@ export function FailureContent({
   const workerStatus = isPresent(details.originalWorkerErrorStatus)
     ? grpcStatusLabel(details.originalWorkerErrorStatus)
     : undefined;
+  const workerDetail = isPresent(details.originalWorkerErrorDetail)
+    ? details.originalWorkerErrorDetail
+    : undefined;
+  const serverDetail = workerDetail === undefined ? details.detail : undefined;
   const stackTrace = isPresent(details.originalWorkerErrorStackTrace)
     ? details.originalWorkerErrorStackTrace
     : failure.stackTrace;
@@ -458,9 +462,9 @@ export function FailureContent({
       ]} />
       <Fields compact stacked values={[
         ['Error type', errorType],
-        ['Detail', details.detail],
+        ['Detail', serverDetail],
         ['Worker error type', details.originalWorkerErrorType],
-        ['Worker error detail', details.originalWorkerErrorDetail],
+        ['Worker error detail', workerDetail],
         ['Worker gRPC status', workerStatus],
       ]} />
       {isPresent(stackTrace) && (

@@ -88,7 +88,6 @@ describe('selected step event details', () => {
         retryState: 'RETRY_STATE_IN_PROGRESS',
         stackTrace: 'backend stack',
         details: {
-          detail: 'sync retry failure',
           originalWorkerErrorType: 'UnavailableWorker',
           originalWorkerErrorDetail: 'try again',
           originalWorkerErrorStatus: 14,
@@ -103,7 +102,7 @@ describe('selected step event details', () => {
     expect(markup).toContain('Worker method failed');
     expect(markup).not.toContain('Retry state');
     expect(markup).not.toContain('Retry scheduled');
-    expect(markup).toContain('sync retry failure');
+    expect(markup).not.toContain('sync retry failure');
     expect(markup).toContain('UnavailableWorker');
     expect(markup).toContain('try again');
     expect(markup).toContain('UNAVAILABLE (14)');

@@ -78,6 +78,10 @@ without replacing the backend `StepMethodFailure.stack_trace`. Consumers should
 prefer the original Worker stack and fall back to the backend stack. The Java
 Worker caps its UTF-8 value at 16 KiB; other Worker SDKs may omit the field.
 
+`ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
+Worker responses use the original field; transport failures without a
+`WorkerErrorResponse` use `detail`.
+
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the
 run-scoped request and method-options record; neither internal type is returned

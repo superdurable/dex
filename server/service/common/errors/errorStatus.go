@@ -39,6 +39,9 @@ func NewErrorAndStatusWithWorkerError(
 	originalWorkerDetails string, originalWorkerErrType string, originalWorkerStatus int32,
 	originalWorkerStackTrace string,
 ) *ErrorAndStatus {
+	if originalWorkerDetails != "" {
+		details = ""
+	}
 	return &ErrorAndStatus{
 		Code: code,
 		Error: &dexpb.ErrorResponse{
@@ -57,7 +60,11 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 	if e == nil {
 		return nil
 	}
-	st := status.New(e.Code, e.Error.GetDetail())
+	detail := e.Error.GetOriginalWorkerErrorDetail()
+	if detail == "" {
+		detail = e.Error.GetDetail()
+	}
+	st := status.New(e.Code, detail)
 	if e.Error != nil {
 		withDetails, err := st.WithDetails(e.Error)
 		if err == nil {
@@ -94,6 +101,10 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	if !ok {
 		return nil, false
 	}
+	serverDetail := grpcStatus.Message()
+	if serverDetail == "" {
+		serverDetail = err.Error()
+	}
 	workerDetail := ""
 	workerType := ""
 	workerStackTrace := ""
@@ -103,13 +114,17 @@ func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 			continue
 		}
 		workerDetail = workerError.GetDetail()
+		if workerDetail == "" {
+			workerDetail = serverDetail
+		}
+		serverDetail = ""
 		workerType = workerError.GetErrorType()
 		workerStackTrace = workerError.GetStackTrace()
 	}
 	return NewErrorAndStatusWithWorkerError(
 		codes.FailedPrecondition,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		grpcStatus.Message(),
+		serverDetail,
 		workerDetail,
 		workerType,
 		int32(grpcStatus.Code()),
