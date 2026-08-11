@@ -40,6 +40,10 @@ func (p *fakeWorkflowProvider) IsApplicationError(error) bool {
 	return false
 }
 
+func (p *fakeWorkflowProvider) IsContinueAsNewError(error) bool {
+	return false
+}
+
 func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interfaces.WorkflowInfo {
 	return interfaces.WorkflowInfo{}
 }

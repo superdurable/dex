@@ -66,6 +66,11 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
+func (w *workflowProvider) IsContinueAsNewError(err error) bool {
+	var continueAsNewError *workflow.ContinueAsNewError
+	return errors.As(err, &continueAsNewError)
+}
+
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
 	ctx interfaces.UnifiedContext, input *dexpb.InterpreterWorkflowInput,
 ) error {

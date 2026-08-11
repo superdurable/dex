@@ -27,37 +27,48 @@ const (
 
 type TerminalCoordinator struct {
 	provider            interfaces.WorkflowProvider
+	ctx                 interfaces.UnifiedContext
+	continueAsNewer     *ContinueAsNewer
+	attributeSyncer     *AttributeSynchronizer
 	kind                terminalKind
 	resultErr           error
 	activeStepProducers int
 }
 
-func NewTerminalCoordinator(provider interfaces.WorkflowProvider) *TerminalCoordinator {
-	if provider == nil {
-		panic("TerminalCoordinator requires a WorkflowProvider")
-	}
-	return &TerminalCoordinator{provider: provider}
-}
-
-func (c *TerminalCoordinator) Finalize(
+func NewTerminalCoordinator(
+	provider interfaces.WorkflowProvider,
 	ctx interfaces.UnifiedContext,
 	continueAsNewer *ContinueAsNewer,
-	attributeSynchronizer *AttributeSynchronizer,
-	cause error,
-) error {
+	attributeSyncer *AttributeSynchronizer,
+) *TerminalCoordinator {
+	if provider == nil || ctx == nil || continueAsNewer == nil || attributeSyncer == nil {
+		panic("TerminalCoordinator requires non-nil dependencies")
+	}
+	return &TerminalCoordinator{
+		provider:        provider,
+		ctx:             ctx,
+		continueAsNewer: continueAsNewer,
+		attributeSyncer: attributeSyncer,
+	}
+}
+
+func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
+	if c.provider.IsContinueAsNewError(retErr) {
+		return retErr
+	}
 	if !c.IsRequested() {
-		if cause == nil {
+		if retErr == nil {
 			c.RequestCompletion()
 		} else {
-			c.RequestFailure(cause)
+			c.RequestFailure(retErr)
 		}
 	}
-	if err := c.provider.Await(ctx, func() bool {
-		return c.ProducersDrained(continueAsNewer.inflightUpdateOperations)
+	if err := c.provider.Await(c.ctx, func() bool {
+		return c.ProducersDrained(c.continueAsNewer.inflightUpdateOperations)
 	}); err != nil {
 		return err
 	}
-	if err := attributeSynchronizer.FlushAndClose(ctx); err != nil {
+	if err := c.attributeSyncer.FlushAndClose(c.ctx); err != nil {
 		return err
 	}
 	return c.ResultError()
