@@ -146,7 +146,7 @@ func (i *Interpreter) StartEngineFlow(
 			attributeSynchronizer,
 			flowConfiger,
 		)
-		attributeSynchronizer.ApplyAttributeWrites(
+		attributeSynchronizer.AppendingToPendings(
 			input.GetInitAttributes(),
 			flowConfiger.Get().GetAttributeSyncConfigName(),
 		)

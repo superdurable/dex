@@ -131,7 +131,7 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 		}
 		am.attributes[write.GetKey()] = write.GetValue()
 	}
-	am.synchronizer.ApplyAttributeWrites(writes, am.flowConfiger.Get().GetAttributeSyncConfigName())
+	am.synchronizer.AppendingToPendings(writes, am.flowConfiger.Get().GetAttributeSyncConfigName())
 
 	return nil
 }

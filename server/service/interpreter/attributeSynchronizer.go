@@ -104,7 +104,7 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 	}
 }
 
-func (s *AttributeSynchronizer) ApplyAttributeWrites(
+func (s *AttributeSynchronizer) AppendingToPendings(
 	writes []*dexpb.AttributeWrite,
 	configName string,
 ) {
