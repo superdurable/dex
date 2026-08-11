@@ -480,10 +480,7 @@ func (t *temporalClient) pendingStepFailures(
 		if !ok || pendingActivity.GetLastFailure() == nil {
 			continue
 		}
-		failure, err := t.temporalStepFailure(
-			pendingActivity.GetLastFailure(),
-			enums.RETRY_STATE_IN_PROGRESS.String(),
-		)
+		failure, err := t.temporalStepFailure(pendingActivity.GetLastFailure())
 		if err != nil {
 			return nil, err
 		}
@@ -662,10 +659,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		var lastFailure *dexpb.StepMethodFailure
 		if attributes.GetLastFailure() != nil {
 			var err error
-			lastFailure, err = t.temporalStepFailure(
-				attributes.GetLastFailure(),
-				enums.RETRY_STATE_IN_PROGRESS.String(),
-			)
+			lastFailure, err = t.temporalStepFailure(attributes.GetLastFailure())
 			if err != nil {
 				return err
 			}
@@ -683,10 +677,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
 			return nil
 		}
-		failure, err := t.temporalStepFailure(
-			attributes.GetFailure(),
-			attributes.GetRetryState().String(),
-		)
+		failure, err := t.temporalStepFailure(attributes.GetFailure())
 		if err != nil {
 			return err
 		}
@@ -701,14 +692,15 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		if !isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
 			return nil
 		}
+		failure, err := t.temporalStepFailure(attributes.GetFailure())
+		if err != nil {
+			return err
+		}
 		return builder.RecordActivityFailed(
 			event.GetEventId(),
 			eventTime,
 			attributes.GetScheduledEventId(),
-			&dexpb.StepMethodFailure{
-				Message:    "step method activity timed out",
-				RetryState: attributes.GetRetryState().String(),
-			},
+			failure,
 		)
 	case enums.EVENT_TYPE_MARKER_RECORDED:
 		return t.recordTemporalLocalActivity(
@@ -938,21 +930,20 @@ func (t *temporalClient) recordTemporalLocalActivity(
 
 func (t *temporalClient) temporalStepFailure(
 	failure *failurepb.Failure,
-	retryState string,
 ) (*dexpb.StepMethodFailure, error) {
 	if failure == nil {
-		return &dexpb.StepMethodFailure{RetryState: retryState}, nil
+		return &dexpb.StepMethodFailure{}, nil
 	}
-	errorType := ""
+	backendError := failure.GetMessage()
 	applicationFailure := failure.GetApplicationFailureInfo()
-	if applicationFailure != nil {
-		errorType = applicationFailure.GetType()
+	if applicationFailure != nil && applicationFailure.GetType() != "" {
+		backendError = applicationFailure.GetType()
+	}
+	if timeoutFailure := failure.GetTimeoutFailureInfo(); timeoutFailure != nil {
+		backendError = timeoutFailure.GetTimeoutType().String()
 	}
 	stepFailure := &dexpb.StepMethodFailure{
-		Message:    failure.GetMessage(),
-		ErrorType:  errorType,
-		StackTrace: failure.GetStackTrace(),
-		RetryState: retryState,
+		BackendError: backendError,
 	}
 	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
 		return stepFailure, nil

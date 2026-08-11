@@ -522,10 +522,10 @@ message FlowClosedHistoryEvent {
 }
 
 message StepMethodFailure {
-  string message = 1;
-  string error_type = 2;
-  string stack_trace = 3;
-  string retry_state = 4;
+  reserved 2, 3, 4;
+  reserved "message", "error_type", "stack_trace", "retry_state";
+
+  string backend_error = 1;
   ErrorResponse details = 5;
   int32 attempt = 6;
 }

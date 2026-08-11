@@ -31,6 +31,7 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -93,6 +94,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 		})
 		t.Run("sync-terminal-failure-"+method, func(t *testing.T) {
 			testWebSyncLastFailure(t, backendType, method, true)
+		})
+		t.Run("sync-timeout-"+method, func(t *testing.T) {
+			testWebSyncTimeoutFailure(t, backendType, method)
 		})
 	}
 	for _, durability := range []dexpb.StepDurability{
@@ -283,11 +287,11 @@ func testWebSyncLastFailure(
 		return activeFailure != nil
 	}, 2*time.Second, 50*time.Millisecond)
 	require.Equal(t, int32(1), activeFailure.GetAttempt())
-	expectedRetryState := "RETRY_STATE_IN_PROGRESS"
-	if backendType == service.BackendTypeTemporal {
-		expectedRetryState = "InProgress"
-	}
-	require.Equal(t, expectedRetryState, activeFailure.GetRetryState())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		activeFailure.GetBackendError(),
+	)
 	require.Empty(t, activeFailure.GetDetails().GetDetail())
 	require.Equal(t, "WorkerRetryError", activeFailure.GetDetails().GetOriginalWorkerErrorType())
 	require.Equal(
@@ -301,6 +305,7 @@ func testWebSyncLastFailure(
 		activeFailure.GetDetails().GetOriginalWorkerErrorStatus(),
 	)
 	require.Equal(t, "java worker stack", activeFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
+	requireStepMethodFailureJSON(t, activeFailure)
 	flowResult, err := runtime.FlowClient.WaitForFlow(
 		ctx,
 		&dexpb.WaitForFlowRequest{FlowId: flowID},
@@ -330,13 +335,14 @@ func testWebSyncLastFailure(
 	require.Equal(
 		t,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
-		lastFailure.GetErrorType(),
+		lastFailure.GetBackendError(),
 	)
 	require.Empty(t, lastFailure.GetDetails().GetDetail())
 	require.Equal(t, "WorkerRetryError", lastFailure.GetDetails().GetOriginalWorkerErrorType())
 	require.Equal(t, "retryable worker failure", lastFailure.GetDetails().GetOriginalWorkerErrorDetail())
 	require.Equal(t, int32(codes.Unavailable), lastFailure.GetDetails().GetOriginalWorkerErrorStatus())
 	require.Equal(t, "java worker stack", lastFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
+	requireStepMethodFailureJSON(t, lastFailure)
 	if terminal {
 		require.NotNil(t, terminalFailure)
 		require.Equal(t, int32(2), terminalFailure.GetAttempt())
@@ -346,8 +352,79 @@ func testWebSyncLastFailure(
 			"retryable worker failure",
 			terminalFailure.GetDetails().GetOriginalWorkerErrorDetail(),
 		)
+		requireStepMethodFailureJSON(t, terminalFailure)
 	} else {
 		require.Nil(t, terminalFailure)
+	}
+}
+
+func testWebSyncTimeoutFailure(
+	t *testing.T,
+	backendType service.BackendType,
+	method string,
+) {
+	release := make(chan struct{})
+	defer close(release)
+	handler := &webSyncTimeoutHandler{
+		flowType: "web-sync-timeout-" + method,
+		method:   method,
+		release:  release,
+	}
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := handler.flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           handler.flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "timeout-step",
+		StepOptions:        webSyncTimeoutStepOptions(method),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	flowResult, err := runtime.FlowClient.WaitForFlow(
+		ctx,
+		&dexpb.WaitForFlowRequest{FlowId: flowID},
+	)
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, flowResult.GetFlowStatus())
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	eventContext, terminalFailure := syncRetryStepEvent(events, method, true)
+	require.NotNil(t, eventContext)
+	require.Equal(t, int32(1), eventContext.GetFinalAttempt())
+	require.Nil(t, eventContext.GetLastFailureInfo())
+	require.NotNil(t, terminalFailure)
+	require.Equal(t, int32(1), terminalFailure.GetAttempt())
+	expectedBackendError := "START_TO_CLOSE"
+	if backendType == service.BackendTypeTemporal {
+		expectedBackendError = "StartToClose"
+	}
+	require.Equal(t, expectedBackendError, terminalFailure.GetBackendError())
+	require.Nil(t, terminalFailure.GetDetails())
+	requireStepMethodFailureJSON(t, terminalFailure)
+}
+
+func requireStepMethodFailureJSON(t *testing.T, failure *dexpb.StepMethodFailure) {
+	t.Helper()
+	encoded, err := protojson.Marshal(failure)
+	require.NoError(t, err)
+	jsonValue := string(encoded)
+	require.Contains(t, jsonValue, `"backendError"`)
+	for _, removedField := range []string{"message", "errorType", "stackTrace", "retryState"} {
+		require.NotContains(t, jsonValue, `"`+removedField+`"`)
 	}
 }
 
@@ -367,6 +444,21 @@ func webSyncRetryStepOptions(method string) *dexpb.StepOptions {
 	}
 	return &dexpb.StepOptions{
 		WaitForTimeoutSeconds: 5,
+		WaitForRetryPolicy:    retryPolicy,
+	}
+}
+
+func webSyncTimeoutStepOptions(method string) *dexpb.StepOptions {
+	retryPolicy := &dexpb.RetryPolicy{MaximumAttempts: 1}
+	if method == "execute" {
+		return &dexpb.StepOptions{
+			SkipWaitFor:           true,
+			ExecuteTimeoutSeconds: 1,
+			ExecuteRetryPolicy:    retryPolicy,
+		}
+	}
+	return &dexpb.StepOptions{
+		WaitForTimeoutSeconds: 1,
 		WaitForRetryPolicy:    retryPolicy,
 	}
 }
@@ -454,6 +546,39 @@ func webSyncRetryError(method string, attempt int32) error {
 		return err
 	}
 	return workerStatus.Err()
+}
+
+type webSyncTimeoutHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType string
+	method   string
+	release  <-chan struct{}
+}
+
+func (h *webSyncTimeoutHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if h.method == "wait-for" {
+		<-h.release
+	}
+	return &dexpb.InvokeWaitForMethodResponse{}, nil
+}
+
+func (h *webSyncTimeoutHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if h.method == "execute" {
+		<-h.release
+	}
+	return &dexpb.InvokeExecuteMethodResponse{}, nil
 }
 
 func testWebStepInputWithoutStorage(

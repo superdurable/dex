@@ -782,20 +782,14 @@ class FlowClosedHistoryEvent(_message.Message):
     def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ..., continued_to_run_id: _Optional[str] = ...) -> None: ...
 
 class StepMethodFailure(_message.Message):
-    __slots__ = ("message", "error_type", "stack_trace", "retry_state", "details", "attempt")
-    MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
-    STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
-    RETRY_STATE_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("backend_error", "details", "attempt")
+    BACKEND_ERROR_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
-    message: str
-    error_type: str
-    stack_trace: str
-    retry_state: str
+    backend_error: str
     details: ErrorResponse
     attempt: int
-    def __init__(self, message: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_state: _Optional[str] = ..., details: _Optional[_Union[ErrorResponse, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
+    def __init__(self, backend_error: _Optional[str] = ..., details: _Optional[_Union[ErrorResponse, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
 
 class StepMethodOptions(_message.Message):
     __slots__ = ("timeout_seconds", "retry_policy")

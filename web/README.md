@@ -75,11 +75,10 @@ Timeline and Step graph share structured event details for flow, step method, RP
 and channel events. A Raw JSON tab preserves the complete server payload.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
-including worker error details, named and numeric gRPC status, and an optional
-stack trace. Live Flow State shows the latest pending failure on its matching
-active Step and expands the stack by default. Selected event Context uses the
-same failure view but starts with the stack collapsed. A Worker-language stack
-is preferred; the backend stack is used when the Worker did not provide one.
+including its backend-native error, worker details, named and numeric gRPC
+status, and an optional Worker-provided stack. Live Flow State shows the latest
+pending failure on its matching active Step and expands that stack by default.
+Selected event Context uses the same failure view with the stack collapsed.
 ## License
 
 [Super Durable Source License 1.0](LICENSE), with legacy portions under their
