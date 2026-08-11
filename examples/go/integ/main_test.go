@@ -50,13 +50,14 @@ var (
 )
 
 type integrationEnvironment struct {
-	cache        *blobcache.Cache
-	cacheDir     string
-	client       *dex.Client
-	database     *pgxpool.Pool
-	apiServer    *httptest.Server
-	worker       *dex.Worker
-	workerResult chan error
+	cache         *blobcache.Cache
+	cacheDir      string
+	client        *dex.Client
+	database      *pgxpool.Pool
+	apiServer     *httptest.Server
+	worker        *dex.Worker
+	workerAddress string
+	workerResult  chan error
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
@@ -117,13 +118,14 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	}
 	apiServer := httptest.NewServer(exampleserver.NewRouter(client, dealFlow, dealRepository))
 	environment := &integrationEnvironment{
-		cache:        cache,
-		cacheDir:     cacheDir,
-		client:       client,
-		database:     database,
-		apiServer:    apiServer,
-		worker:       worker,
-		workerResult: workerResult,
+		cache:         cache,
+		cacheDir:      cacheDir,
+		client:        client,
+		database:      database,
+		apiServer:     apiServer,
+		worker:        worker,
+		workerAddress: net.JoinHostPort("127.0.0.1", workerPort),
+		workerResult:  workerResult,
 	}
 	integClient = client
 	if err := environment.waitUntilReady(); err != nil {
@@ -161,13 +163,17 @@ func (environment *integrationEnvironment) waitUntilReady() error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if _, err := environment.client.HealthCheck(ctx); err == nil {
+		connection, err := net.DialTimeout("tcp", environment.workerAddress, 100*time.Millisecond)
+		if err == nil {
+			if closeErr := connection.Close(); closeErr != nil {
+				return fmt.Errorf("close Worker readiness connection: %w", closeErr)
+			}
 			return nil
 		}
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return fmt.Errorf("wait for Dex health: %w", ctx.Err())
+			return fmt.Errorf("wait for Worker readiness: %w", ctx.Err())
 		}
 	}
 }
