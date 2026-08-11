@@ -35,26 +35,26 @@ public interface SyncAttributeBatchActivityInputOrBuilder extends
       getConfigNameBytes();
 
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   java.util.List<io.superdurable.gen.AttributeSyncItem> 
-      getMutationsList();
+      getItemsList();
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
-  io.superdurable.gen.AttributeSyncItem getMutations(int index);
+  io.superdurable.gen.AttributeSyncItem getItems(int index);
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
-  int getMutationsCount();
+  int getItemsCount();
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
-      getMutationsOrBuilderList();
+      getItemsOrBuilderList();
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
-  io.superdurable.gen.AttributeSyncItemOrBuilder getMutationsOrBuilder(
+  io.superdurable.gen.AttributeSyncItemOrBuilder getItemsOrBuilder(
       int index);
 }

@@ -33,7 +33,7 @@ private static final long serialVersionUID = 0L;
     stepOutputs_ = java.util.Collections.emptyList();
     staleSkipTimers_ = java.util.Collections.emptyList();
     attributes_ = java.util.Collections.emptyList();
-    pendingAttributeSyncMutations_ = java.util.Collections.emptyList();
+    pendingAttributeSyncItems_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -397,45 +397,45 @@ io.superdurable.gen.ChannelValues defaultValue) {
     return attributes_.get(index);
   }
 
-  public static final int PENDING_ATTRIBUTE_SYNC_MUTATIONS_FIELD_NUMBER = 8;
+  public static final int PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER = 8;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncMutations_;
+  private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncItems_;
   /**
-   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncMutationsList() {
-    return pendingAttributeSyncMutations_;
+  public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncItemsList() {
+    return pendingAttributeSyncItems_;
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
-      getPendingAttributeSyncMutationsOrBuilderList() {
-    return pendingAttributeSyncMutations_;
+      getPendingAttributeSyncItemsOrBuilderList() {
+    return pendingAttributeSyncItems_;
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
    */
   @java.lang.Override
-  public int getPendingAttributeSyncMutationsCount() {
-    return pendingAttributeSyncMutations_.size();
+  public int getPendingAttributeSyncItemsCount() {
+    return pendingAttributeSyncItems_.size();
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncMutations(int index) {
-    return pendingAttributeSyncMutations_.get(index);
+  public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncItems(int index) {
+    return pendingAttributeSyncItems_.get(index);
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncMutationsOrBuilder(
+  public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncItemsOrBuilder(
       int index) {
-    return pendingAttributeSyncMutations_.get(index);
+    return pendingAttributeSyncItems_.get(index);
   }
 
   private byte memoizedIsInitialized = -1;
@@ -476,8 +476,8 @@ io.superdurable.gen.ChannelValues defaultValue) {
     for (int i = 0; i < attributes_.size(); i++) {
       output.writeMessage(7, attributes_.get(i));
     }
-    for (int i = 0; i < pendingAttributeSyncMutations_.size(); i++) {
-      output.writeMessage(8, pendingAttributeSyncMutations_.get(i));
+    for (int i = 0; i < pendingAttributeSyncItems_.size(); i++) {
+      output.writeMessage(8, pendingAttributeSyncItems_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -544,10 +544,10 @@ io.superdurable.gen.ChannelValues defaultValue) {
         }
 
         {
-          final int count = pendingAttributeSyncMutations_.size();
+          final int count = pendingAttributeSyncItems_.size();
           for (int i = 0; i < count; i++) {
             size += com.google.protobuf.CodedOutputStream
-              .computeMessageSizeNoTag(pendingAttributeSyncMutations_.get(i));
+              .computeMessageSizeNoTag(pendingAttributeSyncItems_.get(i));
           }
           size += 1 * count;
         }
@@ -592,8 +592,8 @@ io.superdurable.gen.ChannelValues defaultValue) {
         .equals(other.getStaleSkipTimersList())) return false;
     if (!getAttributesList()
         .equals(other.getAttributesList())) return false;
-    if (!getPendingAttributeSyncMutationsList()
-        .equals(other.getPendingAttributeSyncMutationsList())) return false;
+    if (!getPendingAttributeSyncItemsList()
+        .equals(other.getPendingAttributeSyncItemsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -633,9 +633,9 @@ io.superdurable.gen.ChannelValues defaultValue) {
       hash = (37 * hash) + ATTRIBUTES_FIELD_NUMBER;
       hash = (53 * hash) + getAttributesList().hashCode();
     }
-    if (getPendingAttributeSyncMutationsCount() > 0) {
-      hash = (37 * hash) + PENDING_ATTRIBUTE_SYNC_MUTATIONS_FIELD_NUMBER;
-      hash = (53 * hash) + getPendingAttributeSyncMutationsList().hashCode();
+    if (getPendingAttributeSyncItemsCount() > 0) {
+      hash = (37 * hash) + PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER;
+      hash = (53 * hash) + getPendingAttributeSyncItemsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -795,7 +795,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
         internalGetStepOutputsFieldBuilder();
         internalGetStaleSkipTimersFieldBuilder();
         internalGetAttributesFieldBuilder();
-        internalGetPendingAttributeSyncMutationsFieldBuilder();
+        internalGetPendingAttributeSyncItemsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -843,11 +843,11 @@ io.superdurable.gen.ChannelValues defaultValue) {
         attributesBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000040);
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        pendingAttributeSyncMutations_ = java.util.Collections.emptyList();
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItems_ = java.util.Collections.emptyList();
       } else {
-        pendingAttributeSyncMutations_ = null;
-        pendingAttributeSyncMutationsBuilder_.clear();
+        pendingAttributeSyncItems_ = null;
+        pendingAttributeSyncItemsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000080);
       return this;
@@ -928,14 +928,14 @@ io.superdurable.gen.ChannelValues defaultValue) {
       } else {
         result.attributes_ = attributesBuilder_.build();
       }
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
         if (((bitField0_ & 0x00000080) != 0)) {
-          pendingAttributeSyncMutations_ = java.util.Collections.unmodifiableList(pendingAttributeSyncMutations_);
+          pendingAttributeSyncItems_ = java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
           bitField0_ = (bitField0_ & ~0x00000080);
         }
-        result.pendingAttributeSyncMutations_ = pendingAttributeSyncMutations_;
+        result.pendingAttributeSyncItems_ = pendingAttributeSyncItems_;
       } else {
-        result.pendingAttributeSyncMutations_ = pendingAttributeSyncMutationsBuilder_.build();
+        result.pendingAttributeSyncItems_ = pendingAttributeSyncItemsBuilder_.build();
       }
     }
 
@@ -1102,29 +1102,29 @@ io.superdurable.gen.ChannelValues defaultValue) {
           }
         }
       }
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        if (!other.pendingAttributeSyncMutations_.isEmpty()) {
-          if (pendingAttributeSyncMutations_.isEmpty()) {
-            pendingAttributeSyncMutations_ = other.pendingAttributeSyncMutations_;
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (!other.pendingAttributeSyncItems_.isEmpty()) {
+          if (pendingAttributeSyncItems_.isEmpty()) {
+            pendingAttributeSyncItems_ = other.pendingAttributeSyncItems_;
             bitField0_ = (bitField0_ & ~0x00000080);
           } else {
-            ensurePendingAttributeSyncMutationsIsMutable();
-            pendingAttributeSyncMutations_.addAll(other.pendingAttributeSyncMutations_);
+            ensurePendingAttributeSyncItemsIsMutable();
+            pendingAttributeSyncItems_.addAll(other.pendingAttributeSyncItems_);
           }
           onChanged();
         }
       } else {
-        if (!other.pendingAttributeSyncMutations_.isEmpty()) {
-          if (pendingAttributeSyncMutationsBuilder_.isEmpty()) {
-            pendingAttributeSyncMutationsBuilder_.dispose();
-            pendingAttributeSyncMutationsBuilder_ = null;
-            pendingAttributeSyncMutations_ = other.pendingAttributeSyncMutations_;
+        if (!other.pendingAttributeSyncItems_.isEmpty()) {
+          if (pendingAttributeSyncItemsBuilder_.isEmpty()) {
+            pendingAttributeSyncItemsBuilder_.dispose();
+            pendingAttributeSyncItemsBuilder_ = null;
+            pendingAttributeSyncItems_ = other.pendingAttributeSyncItems_;
             bitField0_ = (bitField0_ & ~0x00000080);
-            pendingAttributeSyncMutationsBuilder_ = 
+            pendingAttributeSyncItemsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
-                 internalGetPendingAttributeSyncMutationsFieldBuilder() : null;
+                 internalGetPendingAttributeSyncItemsFieldBuilder() : null;
           } else {
-            pendingAttributeSyncMutationsBuilder_.addAllMessages(other.pendingAttributeSyncMutations_);
+            pendingAttributeSyncItemsBuilder_.addAllMessages(other.pendingAttributeSyncItems_);
           }
         }
       }
@@ -1240,11 +1240,11 @@ io.superdurable.gen.ChannelValues defaultValue) {
                   input.readMessage(
                       io.superdurable.gen.AttributeSyncItem.parser(),
                       extensionRegistry);
-              if (pendingAttributeSyncMutationsBuilder_ == null) {
-                ensurePendingAttributeSyncMutationsIsMutable();
-                pendingAttributeSyncMutations_.add(m);
+              if (pendingAttributeSyncItemsBuilder_ == null) {
+                ensurePendingAttributeSyncItemsIsMutable();
+                pendingAttributeSyncItems_.add(m);
               } else {
-                pendingAttributeSyncMutationsBuilder_.addMessage(m);
+                pendingAttributeSyncItemsBuilder_.addMessage(m);
               }
               break;
             } // case 66
@@ -2813,244 +2813,244 @@ io.superdurable.gen.ChannelValues defaultValue) {
       return attributesBuilder_;
     }
 
-    private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncMutations_ =
+    private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncItems_ =
       java.util.Collections.emptyList();
-    private void ensurePendingAttributeSyncMutationsIsMutable() {
+    private void ensurePendingAttributeSyncItemsIsMutable() {
       if (!((bitField0_ & 0x00000080) != 0)) {
-        pendingAttributeSyncMutations_ = new java.util.ArrayList<io.superdurable.gen.AttributeSyncItem>(pendingAttributeSyncMutations_);
+        pendingAttributeSyncItems_ = new java.util.ArrayList<io.superdurable.gen.AttributeSyncItem>(pendingAttributeSyncItems_);
         bitField0_ |= 0x00000080;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> pendingAttributeSyncMutationsBuilder_;
+        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> pendingAttributeSyncItemsBuilder_;
 
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncMutationsList() {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        return java.util.Collections.unmodifiableList(pendingAttributeSyncMutations_);
+    public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncItemsList() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
       } else {
-        return pendingAttributeSyncMutationsBuilder_.getMessageList();
+        return pendingAttributeSyncItemsBuilder_.getMessageList();
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public int getPendingAttributeSyncMutationsCount() {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        return pendingAttributeSyncMutations_.size();
+    public int getPendingAttributeSyncItemsCount() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.size();
       } else {
-        return pendingAttributeSyncMutationsBuilder_.getCount();
+        return pendingAttributeSyncItemsBuilder_.getCount();
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncMutations(int index) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        return pendingAttributeSyncMutations_.get(index);
+    public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncItems(int index) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.get(index);
       } else {
-        return pendingAttributeSyncMutationsBuilder_.getMessage(index);
+        return pendingAttributeSyncItemsBuilder_.getMessage(index);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder setPendingAttributeSyncMutations(
+    public Builder setPendingAttributeSyncItems(
         int index, io.superdurable.gen.AttributeSyncItem value) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.set(index, value);
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.set(index, value);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.setMessage(index, value);
+        pendingAttributeSyncItemsBuilder_.setMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder setPendingAttributeSyncMutations(
+    public Builder setPendingAttributeSyncItems(
         int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.set(index, builderForValue.build());
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.set(index, builderForValue.build());
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.setMessage(index, builderForValue.build());
+        pendingAttributeSyncItemsBuilder_.setMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder addPendingAttributeSyncMutations(io.superdurable.gen.AttributeSyncItem value) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
+    public Builder addPendingAttributeSyncItems(io.superdurable.gen.AttributeSyncItem value) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.add(value);
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(value);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.addMessage(value);
+        pendingAttributeSyncItemsBuilder_.addMessage(value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder addPendingAttributeSyncMutations(
+    public Builder addPendingAttributeSyncItems(
         int index, io.superdurable.gen.AttributeSyncItem value) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.add(index, value);
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(index, value);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.addMessage(index, value);
+        pendingAttributeSyncItemsBuilder_.addMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder addPendingAttributeSyncMutations(
+    public Builder addPendingAttributeSyncItems(
         io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.add(builderForValue.build());
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(builderForValue.build());
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.addMessage(builderForValue.build());
+        pendingAttributeSyncItemsBuilder_.addMessage(builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder addPendingAttributeSyncMutations(
+    public Builder addPendingAttributeSyncItems(
         int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.add(index, builderForValue.build());
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(index, builderForValue.build());
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.addMessage(index, builderForValue.build());
+        pendingAttributeSyncItemsBuilder_.addMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder addAllPendingAttributeSyncMutations(
+    public Builder addAllPendingAttributeSyncItems(
         java.lang.Iterable<? extends io.superdurable.gen.AttributeSyncItem> values) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        ensurePendingAttributeSyncMutationsIsMutable();
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
-            values, pendingAttributeSyncMutations_);
+            values, pendingAttributeSyncItems_);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.addAllMessages(values);
+        pendingAttributeSyncItemsBuilder_.addAllMessages(values);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder clearPendingAttributeSyncMutations() {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        pendingAttributeSyncMutations_ = java.util.Collections.emptyList();
+    public Builder clearPendingAttributeSyncItems() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItems_ = java.util.Collections.emptyList();
         bitField0_ = (bitField0_ & ~0x00000080);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.clear();
+        pendingAttributeSyncItemsBuilder_.clear();
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public Builder removePendingAttributeSyncMutations(int index) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        ensurePendingAttributeSyncMutationsIsMutable();
-        pendingAttributeSyncMutations_.remove(index);
+    public Builder removePendingAttributeSyncItems(int index) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.remove(index);
         onChanged();
       } else {
-        pendingAttributeSyncMutationsBuilder_.remove(index);
+        pendingAttributeSyncItemsBuilder_.remove(index);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder getPendingAttributeSyncMutationsBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder getPendingAttributeSyncItemsBuilder(
         int index) {
-      return internalGetPendingAttributeSyncMutationsFieldBuilder().getBuilder(index);
+      return internalGetPendingAttributeSyncItemsFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncMutationsOrBuilder(
+    public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncItemsOrBuilder(
         int index) {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        return pendingAttributeSyncMutations_.get(index);  } else {
-        return pendingAttributeSyncMutationsBuilder_.getMessageOrBuilder(index);
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.get(index);  } else {
+        return pendingAttributeSyncItemsBuilder_.getMessageOrBuilder(index);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
     public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
-         getPendingAttributeSyncMutationsOrBuilderList() {
-      if (pendingAttributeSyncMutationsBuilder_ != null) {
-        return pendingAttributeSyncMutationsBuilder_.getMessageOrBuilderList();
+         getPendingAttributeSyncItemsOrBuilderList() {
+      if (pendingAttributeSyncItemsBuilder_ != null) {
+        return pendingAttributeSyncItemsBuilder_.getMessageOrBuilderList();
       } else {
-        return java.util.Collections.unmodifiableList(pendingAttributeSyncMutations_);
+        return java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncMutationsBuilder() {
-      return internalGetPendingAttributeSyncMutationsFieldBuilder().addBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncItemsBuilder() {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().addBuilder(
           io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncMutationsBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncItemsBuilder(
         int index) {
-      return internalGetPendingAttributeSyncMutationsFieldBuilder().addBuilder(
+      return internalGetPendingAttributeSyncItemsFieldBuilder().addBuilder(
           index, io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeSyncItem.Builder> 
-         getPendingAttributeSyncMutationsBuilderList() {
-      return internalGetPendingAttributeSyncMutationsFieldBuilder().getBuilderList();
+         getPendingAttributeSyncItemsBuilderList() {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
         io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> 
-        internalGetPendingAttributeSyncMutationsFieldBuilder() {
-      if (pendingAttributeSyncMutationsBuilder_ == null) {
-        pendingAttributeSyncMutationsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+        internalGetPendingAttributeSyncItemsFieldBuilder() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItemsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder>(
-                pendingAttributeSyncMutations_,
+                pendingAttributeSyncItems_,
                 ((bitField0_ & 0x00000080) != 0),
                 getParentForChildren(),
                 isClean());
-        pendingAttributeSyncMutations_ = null;
+        pendingAttributeSyncItems_ = null;
       }
-      return pendingAttributeSyncMutationsBuilder_;
+      return pendingAttributeSyncItemsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ContinueAsNewDump)

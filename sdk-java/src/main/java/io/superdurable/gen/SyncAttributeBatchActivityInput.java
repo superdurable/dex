@@ -30,7 +30,7 @@ private static final long serialVersionUID = 0L;
   private SyncAttributeBatchActivityInput() {
     flowId_ = "";
     configName_ = "";
-    mutations_ = java.util.Collections.emptyList();
+    items_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -129,45 +129,45 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int MUTATIONS_FIELD_NUMBER = 3;
+  public static final int ITEMS_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.AttributeSyncItem> mutations_;
+  private java.util.List<io.superdurable.gen.AttributeSyncItem> items_;
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.AttributeSyncItem> getMutationsList() {
-    return mutations_;
+  public java.util.List<io.superdurable.gen.AttributeSyncItem> getItemsList() {
+    return items_;
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
-      getMutationsOrBuilderList() {
-    return mutations_;
+      getItemsOrBuilderList() {
+    return items_;
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   @java.lang.Override
-  public int getMutationsCount() {
-    return mutations_.size();
+  public int getItemsCount() {
+    return items_.size();
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.AttributeSyncItem getMutations(int index) {
-    return mutations_.get(index);
+  public io.superdurable.gen.AttributeSyncItem getItems(int index) {
+    return items_.get(index);
   }
   /**
-   * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+   * <code>repeated .dex.AttributeSyncItem items = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.AttributeSyncItemOrBuilder getMutationsOrBuilder(
+  public io.superdurable.gen.AttributeSyncItemOrBuilder getItemsOrBuilder(
       int index) {
-    return mutations_.get(index);
+    return items_.get(index);
   }
 
   private byte memoizedIsInitialized = -1;
@@ -190,8 +190,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(configName_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, configName_);
     }
-    for (int i = 0; i < mutations_.size(); i++) {
-      output.writeMessage(3, mutations_.get(i));
+    for (int i = 0; i < items_.size(); i++) {
+      output.writeMessage(3, items_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -205,10 +205,10 @@ private static final long serialVersionUID = 0L;
     }
 
         {
-          final int count = mutations_.size();
+          final int count = items_.size();
           for (int i = 0; i < count; i++) {
             size += com.google.protobuf.CodedOutputStream
-              .computeMessageSizeNoTag(mutations_.get(i));
+              .computeMessageSizeNoTag(items_.get(i));
           }
           size += 1 * count;
         }
@@ -240,8 +240,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowId())) return false;
     if (!getConfigName()
         .equals(other.getConfigName())) return false;
-    if (!getMutationsList()
-        .equals(other.getMutationsList())) return false;
+    if (!getItemsList()
+        .equals(other.getItemsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -257,9 +257,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowId().hashCode();
     hash = (37 * hash) + CONFIG_NAME_FIELD_NUMBER;
     hash = (53 * hash) + getConfigName().hashCode();
-    if (getMutationsCount() > 0) {
-      hash = (37 * hash) + MUTATIONS_FIELD_NUMBER;
-      hash = (53 * hash) + getMutationsList().hashCode();
+    if (getItemsCount() > 0) {
+      hash = (37 * hash) + ITEMS_FIELD_NUMBER;
+      hash = (53 * hash) + getItemsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -394,11 +394,11 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       flowId_ = "";
       configName_ = "";
-      if (mutationsBuilder_ == null) {
-        mutations_ = java.util.Collections.emptyList();
+      if (itemsBuilder_ == null) {
+        items_ = java.util.Collections.emptyList();
       } else {
-        mutations_ = null;
-        mutationsBuilder_.clear();
+        items_ = null;
+        itemsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000004);
       return this;
@@ -434,14 +434,14 @@ private static final long serialVersionUID = 0L;
     }
 
     private void buildPartialRepeatedFields(io.superdurable.gen.SyncAttributeBatchActivityInput result) {
-      if (mutationsBuilder_ == null) {
+      if (itemsBuilder_ == null) {
         if (((bitField0_ & 0x00000004) != 0)) {
-          mutations_ = java.util.Collections.unmodifiableList(mutations_);
+          items_ = java.util.Collections.unmodifiableList(items_);
           bitField0_ = (bitField0_ & ~0x00000004);
         }
-        result.mutations_ = mutations_;
+        result.items_ = items_;
       } else {
-        result.mutations_ = mutationsBuilder_.build();
+        result.items_ = itemsBuilder_.build();
       }
     }
 
@@ -477,29 +477,29 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000002;
         onChanged();
       }
-      if (mutationsBuilder_ == null) {
-        if (!other.mutations_.isEmpty()) {
-          if (mutations_.isEmpty()) {
-            mutations_ = other.mutations_;
+      if (itemsBuilder_ == null) {
+        if (!other.items_.isEmpty()) {
+          if (items_.isEmpty()) {
+            items_ = other.items_;
             bitField0_ = (bitField0_ & ~0x00000004);
           } else {
-            ensureMutationsIsMutable();
-            mutations_.addAll(other.mutations_);
+            ensureItemsIsMutable();
+            items_.addAll(other.items_);
           }
           onChanged();
         }
       } else {
-        if (!other.mutations_.isEmpty()) {
-          if (mutationsBuilder_.isEmpty()) {
-            mutationsBuilder_.dispose();
-            mutationsBuilder_ = null;
-            mutations_ = other.mutations_;
+        if (!other.items_.isEmpty()) {
+          if (itemsBuilder_.isEmpty()) {
+            itemsBuilder_.dispose();
+            itemsBuilder_ = null;
+            items_ = other.items_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            mutationsBuilder_ = 
+            itemsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
-                 internalGetMutationsFieldBuilder() : null;
+                 internalGetItemsFieldBuilder() : null;
           } else {
-            mutationsBuilder_.addAllMessages(other.mutations_);
+            itemsBuilder_.addAllMessages(other.items_);
           }
         }
       }
@@ -544,11 +544,11 @@ private static final long serialVersionUID = 0L;
                   input.readMessage(
                       io.superdurable.gen.AttributeSyncItem.parser(),
                       extensionRegistry);
-              if (mutationsBuilder_ == null) {
-                ensureMutationsIsMutable();
-                mutations_.add(m);
+              if (itemsBuilder_ == null) {
+                ensureItemsIsMutable();
+                items_.add(m);
               } else {
-                mutationsBuilder_.addMessage(m);
+                itemsBuilder_.addMessage(m);
               }
               break;
             } // case 26
@@ -713,244 +713,244 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.util.List<io.superdurable.gen.AttributeSyncItem> mutations_ =
+    private java.util.List<io.superdurable.gen.AttributeSyncItem> items_ =
       java.util.Collections.emptyList();
-    private void ensureMutationsIsMutable() {
+    private void ensureItemsIsMutable() {
       if (!((bitField0_ & 0x00000004) != 0)) {
-        mutations_ = new java.util.ArrayList<io.superdurable.gen.AttributeSyncItem>(mutations_);
+        items_ = new java.util.ArrayList<io.superdurable.gen.AttributeSyncItem>(items_);
         bitField0_ |= 0x00000004;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> mutationsBuilder_;
+        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> itemsBuilder_;
 
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeSyncItem> getMutationsList() {
-      if (mutationsBuilder_ == null) {
-        return java.util.Collections.unmodifiableList(mutations_);
+    public java.util.List<io.superdurable.gen.AttributeSyncItem> getItemsList() {
+      if (itemsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(items_);
       } else {
-        return mutationsBuilder_.getMessageList();
+        return itemsBuilder_.getMessageList();
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public int getMutationsCount() {
-      if (mutationsBuilder_ == null) {
-        return mutations_.size();
+    public int getItemsCount() {
+      if (itemsBuilder_ == null) {
+        return items_.size();
       } else {
-        return mutationsBuilder_.getCount();
+        return itemsBuilder_.getCount();
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem getMutations(int index) {
-      if (mutationsBuilder_ == null) {
-        return mutations_.get(index);
+    public io.superdurable.gen.AttributeSyncItem getItems(int index) {
+      if (itemsBuilder_ == null) {
+        return items_.get(index);
       } else {
-        return mutationsBuilder_.getMessage(index);
+        return itemsBuilder_.getMessage(index);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder setMutations(
+    public Builder setItems(
         int index, io.superdurable.gen.AttributeSyncItem value) {
-      if (mutationsBuilder_ == null) {
+      if (itemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureMutationsIsMutable();
-        mutations_.set(index, value);
+        ensureItemsIsMutable();
+        items_.set(index, value);
         onChanged();
       } else {
-        mutationsBuilder_.setMessage(index, value);
+        itemsBuilder_.setMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder setMutations(
+    public Builder setItems(
         int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (mutationsBuilder_ == null) {
-        ensureMutationsIsMutable();
-        mutations_.set(index, builderForValue.build());
+      if (itemsBuilder_ == null) {
+        ensureItemsIsMutable();
+        items_.set(index, builderForValue.build());
         onChanged();
       } else {
-        mutationsBuilder_.setMessage(index, builderForValue.build());
+        itemsBuilder_.setMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder addMutations(io.superdurable.gen.AttributeSyncItem value) {
-      if (mutationsBuilder_ == null) {
+    public Builder addItems(io.superdurable.gen.AttributeSyncItem value) {
+      if (itemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureMutationsIsMutable();
-        mutations_.add(value);
+        ensureItemsIsMutable();
+        items_.add(value);
         onChanged();
       } else {
-        mutationsBuilder_.addMessage(value);
+        itemsBuilder_.addMessage(value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder addMutations(
+    public Builder addItems(
         int index, io.superdurable.gen.AttributeSyncItem value) {
-      if (mutationsBuilder_ == null) {
+      if (itemsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureMutationsIsMutable();
-        mutations_.add(index, value);
+        ensureItemsIsMutable();
+        items_.add(index, value);
         onChanged();
       } else {
-        mutationsBuilder_.addMessage(index, value);
+        itemsBuilder_.addMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder addMutations(
+    public Builder addItems(
         io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (mutationsBuilder_ == null) {
-        ensureMutationsIsMutable();
-        mutations_.add(builderForValue.build());
+      if (itemsBuilder_ == null) {
+        ensureItemsIsMutable();
+        items_.add(builderForValue.build());
         onChanged();
       } else {
-        mutationsBuilder_.addMessage(builderForValue.build());
+        itemsBuilder_.addMessage(builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder addMutations(
+    public Builder addItems(
         int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
-      if (mutationsBuilder_ == null) {
-        ensureMutationsIsMutable();
-        mutations_.add(index, builderForValue.build());
+      if (itemsBuilder_ == null) {
+        ensureItemsIsMutable();
+        items_.add(index, builderForValue.build());
         onChanged();
       } else {
-        mutationsBuilder_.addMessage(index, builderForValue.build());
+        itemsBuilder_.addMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder addAllMutations(
+    public Builder addAllItems(
         java.lang.Iterable<? extends io.superdurable.gen.AttributeSyncItem> values) {
-      if (mutationsBuilder_ == null) {
-        ensureMutationsIsMutable();
+      if (itemsBuilder_ == null) {
+        ensureItemsIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
-            values, mutations_);
+            values, items_);
         onChanged();
       } else {
-        mutationsBuilder_.addAllMessages(values);
+        itemsBuilder_.addAllMessages(values);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder clearMutations() {
-      if (mutationsBuilder_ == null) {
-        mutations_ = java.util.Collections.emptyList();
+    public Builder clearItems() {
+      if (itemsBuilder_ == null) {
+        items_ = java.util.Collections.emptyList();
         bitField0_ = (bitField0_ & ~0x00000004);
         onChanged();
       } else {
-        mutationsBuilder_.clear();
+        itemsBuilder_.clear();
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public Builder removeMutations(int index) {
-      if (mutationsBuilder_ == null) {
-        ensureMutationsIsMutable();
-        mutations_.remove(index);
+    public Builder removeItems(int index) {
+      if (itemsBuilder_ == null) {
+        ensureItemsIsMutable();
+        items_.remove(index);
         onChanged();
       } else {
-        mutationsBuilder_.remove(index);
+        itemsBuilder_.remove(index);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder getMutationsBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder getItemsBuilder(
         int index) {
-      return internalGetMutationsFieldBuilder().getBuilder(index);
+      return internalGetItemsFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public io.superdurable.gen.AttributeSyncItemOrBuilder getMutationsOrBuilder(
+    public io.superdurable.gen.AttributeSyncItemOrBuilder getItemsOrBuilder(
         int index) {
-      if (mutationsBuilder_ == null) {
-        return mutations_.get(index);  } else {
-        return mutationsBuilder_.getMessageOrBuilder(index);
+      if (itemsBuilder_ == null) {
+        return items_.get(index);  } else {
+        return itemsBuilder_.getMessageOrBuilder(index);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
     public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
-         getMutationsOrBuilderList() {
-      if (mutationsBuilder_ != null) {
-        return mutationsBuilder_.getMessageOrBuilderList();
+         getItemsOrBuilderList() {
+      if (itemsBuilder_ != null) {
+        return itemsBuilder_.getMessageOrBuilderList();
       } else {
-        return java.util.Collections.unmodifiableList(mutations_);
+        return java.util.Collections.unmodifiableList(items_);
       }
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder addMutationsBuilder() {
-      return internalGetMutationsFieldBuilder().addBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder addItemsBuilder() {
+      return internalGetItemsFieldBuilder().addBuilder(
           io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
-    public io.superdurable.gen.AttributeSyncItem.Builder addMutationsBuilder(
+    public io.superdurable.gen.AttributeSyncItem.Builder addItemsBuilder(
         int index) {
-      return internalGetMutationsFieldBuilder().addBuilder(
+      return internalGetItemsFieldBuilder().addBuilder(
           index, io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
+     * <code>repeated .dex.AttributeSyncItem items = 3;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeSyncItem.Builder> 
-         getMutationsBuilderList() {
-      return internalGetMutationsFieldBuilder().getBuilderList();
+         getItemsBuilderList() {
+      return internalGetItemsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
         io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> 
-        internalGetMutationsFieldBuilder() {
-      if (mutationsBuilder_ == null) {
-        mutationsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+        internalGetItemsFieldBuilder() {
+      if (itemsBuilder_ == null) {
+        itemsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder>(
-                mutations_,
+                items_,
                 ((bitField0_ & 0x00000004) != 0),
                 getParentForChildren(),
                 isClean());
-        mutations_ = null;
+        items_ = null;
       }
-      return mutationsBuilder_;
+      return itemsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SyncAttributeBatchActivityInput)

@@ -95,7 +95,7 @@ func (i *Interpreter) StartEngineFlow(
 			provider,
 			ctx,
 			continueAsNewCounter,
-			previous.GetPendingAttributeSyncMutations(),
+			previous.GetPendingAttributeSyncItems(),
 		)
 		persistenceManager = NewPersistenceManager(
 			provider,

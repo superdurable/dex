@@ -171,7 +171,7 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 		StaleSkipTimers: c.timerProcessor.Dump(
 			c.stepExecutionCounter.IsStepExecutionActive,
 		),
-		PendingAttributeSyncMutations: c.attributeSynchronizer.Pending(),
+		PendingAttributeSyncItems: c.attributeSynchronizer.PendingItems(),
 	}
 }
 

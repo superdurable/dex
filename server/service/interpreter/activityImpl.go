@@ -77,12 +77,12 @@ func (a *Activities) SyncAttributeBatch(
 	ctx context.Context,
 	input *dexpb.SyncAttributeBatchActivityInput,
 ) error {
-	for _, mutation := range input.GetMutations() {
-		if mutation == nil {
+	for _, item := range input.GetItems() {
+		if item == nil {
 			continue
 		}
-		if err := blobstore.HydrateValue(ctx, mutation.GetValue(), a.blobStore); err != nil {
-			return fmt.Errorf("hydrate Attribute Store mutation: %w", err)
+		if err := blobstore.HydrateValue(ctx, item.GetValue(), a.blobStore); err != nil {
+			return fmt.Errorf("hydrate Attribute Store item: %w", err)
 		}
 	}
 	return a.attributeStore.WriteBatch(ctx, input)

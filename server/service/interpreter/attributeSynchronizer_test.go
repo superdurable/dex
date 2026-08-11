@@ -90,9 +90,9 @@ func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
 	require.Empty(t, synchronizer.pending)
 	require.Len(t, provider.inputs, 3)
 	require.Equal(t, []int{2, 1, 1}, []int{
-		len(provider.inputs[0].GetMutations()),
-		len(provider.inputs[1].GetMutations()),
-		len(provider.inputs[2].GetMutations()),
+		len(provider.inputs[0].GetItems()),
+		len(provider.inputs[1].GetItems()),
+		len(provider.inputs[2].GetItems()),
 	})
 	require.Equal(t, "reporting", provider.inputs[0].GetConfigName())
 	require.Equal(t, "operational", provider.inputs[2].GetConfigName())

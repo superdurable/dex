@@ -982,7 +982,7 @@ message ContinueAsNewDump {
   repeated StaleSkipTimer stale_skip_timers = 6;
   // Stored values only; index metadata remains in backend search attributes.
   repeated KV attributes = 7;
-  repeated AttributeSyncItem pending_attribute_sync_mutations = 8;
+  repeated AttributeSyncItem pending_attribute_sync_items = 8;
 }
 
 // --- Internal serializable types (history / query / activity) ---
@@ -1087,7 +1087,7 @@ message AttributeSyncItem {
 message SyncAttributeBatchActivityInput {
   string flow_id = 1;
   string config_name = 2;
-  repeated AttributeSyncItem mutations = 3;
+  repeated AttributeSyncItem items = 3;
 }
 
 message ExecuteRpcSignalRequest {

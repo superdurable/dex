@@ -84,7 +84,7 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			&dexpb.SyncAttributeBatchActivityInput{
 				FlowId:     s.flowID,
 				ConfigName: batch[0].GetConfigName(),
-				Mutations:  batch,
+				Items:      batch,
 			},
 			nil,
 		)
@@ -148,7 +148,7 @@ func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) err
 	return s.provider.Await(ctx, func() bool { return s.actorStopped })
 }
 
-func (s *AttributeSynchronizer) Pending() []*dexpb.AttributeSyncItem {
+func (s *AttributeSynchronizer) PendingItems() []*dexpb.AttributeSyncItem {
 	return s.pending
 }
 

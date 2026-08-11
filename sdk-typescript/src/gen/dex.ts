@@ -984,7 +984,7 @@ export interface ContinueAsNewDump {
   staleSkipTimers: StaleSkipTimer[];
   /** Stored values only; index metadata remains in backend search attributes. */
   attributes: KV[];
-  pendingAttributeSyncMutations: AttributeSyncItem[];
+  pendingAttributeSyncItems: AttributeSyncItem[];
 }
 
 export interface ContinueAsNewDump_ChannelReceivedEntry {
@@ -1078,7 +1078,7 @@ export interface AttributeSyncItem {
 export interface SyncAttributeBatchActivityInput {
   flowId: string;
   configName: string;
-  mutations: AttributeSyncItem[];
+  items: AttributeSyncItem[];
 }
 
 export interface ExecuteRpcSignalRequest {
@@ -10582,7 +10582,7 @@ function createBaseContinueAsNewDump(): ContinueAsNewDump {
     stepOutputs: [],
     staleSkipTimers: [],
     attributes: [],
-    pendingAttributeSyncMutations: [],
+    pendingAttributeSyncItems: [],
   };
 }
 
@@ -10609,7 +10609,7 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
     for (const v of message.attributes) {
       KV.encode(v!, writer.uint32(58).fork()).join();
     }
-    for (const v of message.pendingAttributeSyncMutations) {
+    for (const v of message.pendingAttributeSyncItems) {
       AttributeSyncItem.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
@@ -10686,7 +10686,7 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
             break;
           }
 
-          message.pendingAttributeSyncMutations.push(AttributeSyncItem.decode(reader, reader.uint32()));
+          message.pendingAttributeSyncItems.push(AttributeSyncItem.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -10719,8 +10719,8 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
     message.stepOutputs = object.stepOutputs?.map((e) => StepCompletionOutput.fromPartial(e)) || [];
     message.staleSkipTimers = object.staleSkipTimers?.map((e) => StaleSkipTimer.fromPartial(e)) || [];
     message.attributes = object.attributes?.map((e) => KV.fromPartial(e)) || [];
-    message.pendingAttributeSyncMutations =
-      object.pendingAttributeSyncMutations?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
+    message.pendingAttributeSyncItems =
+      object.pendingAttributeSyncItems?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
     return message;
   },
 };
@@ -11755,7 +11755,7 @@ export const AttributeSyncItem: MessageFns<AttributeSyncItem> = {
 };
 
 function createBaseSyncAttributeBatchActivityInput(): SyncAttributeBatchActivityInput {
-  return { flowId: "", configName: "", mutations: [] };
+  return { flowId: "", configName: "", items: [] };
 }
 
 export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActivityInput> = {
@@ -11766,7 +11766,7 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
     if (message.configName !== "") {
       writer.uint32(18).string(message.configName);
     }
-    for (const v of message.mutations) {
+    for (const v of message.items) {
       AttributeSyncItem.encode(v!, writer.uint32(26).fork()).join();
     }
     return writer;
@@ -11800,7 +11800,7 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
             break;
           }
 
-          message.mutations.push(AttributeSyncItem.decode(reader, reader.uint32()));
+          message.items.push(AttributeSyncItem.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -11821,7 +11821,7 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
     const message = createBaseSyncAttributeBatchActivityInput();
     message.flowId = object.flowId ?? "";
     message.configName = object.configName ?? "";
-    message.mutations = object.mutations?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
+    message.items = object.items?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
     return message;
   },
 };

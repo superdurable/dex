@@ -66,7 +66,7 @@ const (
 	DefaultBlobStoreThresholdInBytes = 1 << 10
 	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
 	DefaultAttributeStoreSchemaSyncInterval = time.Minute
-	// DefaultAttributeStoreSyncBatchSize caps mutations in one Attribute Store upsert.
+	// DefaultAttributeStoreSyncBatchSize caps items in one Attribute Store upsert.
 	DefaultAttributeStoreSyncBatchSize = 100
 	// DefaultAttributeStoreSyncAttemptTimeout caps each regular Activity attempt at thirty seconds.
 	DefaultAttributeStoreSyncAttemptTimeout = 30 * time.Second
@@ -134,7 +134,7 @@ type (
 		Stores map[string]AttributeStoreConfigEntry `yaml:"stores"`
 		// SchemaSyncInterval refreshes table schemas. Default 1m. Each interval receives uniform ±10% jitter.
 		SchemaSyncInterval time.Duration `yaml:"schemaSyncInterval"`
-		// SyncBatchSize caps contiguous mutations per SQL upsert. Default 100. Must be positive after defaults.
+		// SyncBatchSize caps contiguous items per SQL upsert. Default 100. Must be positive after defaults.
 		SyncBatchSize int `yaml:"syncBatchSize"`
 		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
 		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`

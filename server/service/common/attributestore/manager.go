@@ -409,39 +409,39 @@ func (m *Manager) WriteBatch(ctx context.Context, input *dexpb.SyncAttributeBatc
 	if !found {
 		return fmt.Errorf("Attribute Store %q is unavailable", input.GetConfigName())
 	}
-	return entry.writeBatch(ctx, input.GetFlowId(), input.GetMutations())
+	return entry.writeBatch(ctx, input.GetFlowId(), input.GetItems())
 }
 
 func (e *storeEntry) writeBatch(
 	ctx context.Context,
 	flowID string,
-	mutations []*dexpb.AttributeSyncItem,
+	items []*dexpb.AttributeSyncItem,
 ) error {
 	snapshot := e.schema.Load()
 	if snapshot == nil {
 		return fmt.Errorf("Attribute Store schema is unavailable")
 	}
-	latest := make(map[string]*dexpb.Value, len(mutations))
-	for _, mutation := range mutations {
-		if mutation == nil {
+	latest := make(map[string]*dexpb.Value, len(items))
+	for _, item := range items {
+		if item == nil {
 			continue
 		}
-		latest[mutation.GetKey()] = mutation.GetValue()
+		latest[item.GetKey()] = item.GetValue()
 	}
 	filtered := make(map[string]filteredValue, len(latest))
 	for name, value := range latest {
 		column, found := snapshot.columns[name]
 		if !found {
-			e.logger.Error("skip Attribute Store mutation: column does not exist", tag.Value(name))
+			e.logger.Error("skip Attribute Store item: column does not exist", tag.Value(name))
 			continue
 		}
 		if name == snapshot.primaryKey {
-			e.logger.Error("skip Attribute Store mutation: primary key is immutable", tag.Value(name))
+			e.logger.Error("skip Attribute Store item: primary key is immutable", tag.Value(name))
 			continue
 		}
 		converted, err := column.convert(value, e.cfg.Type)
 		if err != nil {
-			e.logger.Error("skip incompatible Attribute Store mutation", tag.Value(name), tag.Error(err))
+			e.logger.Error("skip incompatible Attribute Store item", tag.Value(name), tag.Error(err))
 			continue
 		}
 		filtered[name] = filteredValue{column: column, value: converted}
