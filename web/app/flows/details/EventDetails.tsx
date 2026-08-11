@@ -28,7 +28,6 @@ import {
   flowErrorTypeLabel,
   flowStatusLabel,
   grpcStatusLabel,
-  retryStateLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -456,15 +455,14 @@ export function FailureContent({
       {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
       <Fields compact values={[
         ['Attempt', failure.attempt],
-        ['Error type', errorType],
-        ['Retry state', retryStateLabel(failure.retryState)],
       ]} />
-      {hasData(details) && <Fields compact stacked values={[
+      <Fields compact stacked values={[
+        ['Error type', errorType],
         ['Detail', details.detail],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', details.originalWorkerErrorDetail],
         ['Worker gRPC status', workerStatus],
-      ]} />}
+      ]} />
       {isPresent(stackTrace) && (
         <details className="failure-stack" open={stackInitiallyExpanded}>
           <summary>Stack trace</summary>

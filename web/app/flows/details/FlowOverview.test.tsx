@@ -61,7 +61,8 @@ describe('live Flow state failures', () => {
     );
 
     expect(markup).toContain('Last failure');
-    expect(markup).toContain('Retry scheduled');
+    expect(markup).not.toContain('Retry state');
+    expect(markup).not.toContain('Retry scheduled');
     expect(markup).toContain('INTERNAL (13)');
     expect(markup).toContain('java stack trace');
     expect(markup).toContain('<details class="active-step-card" open="">');
