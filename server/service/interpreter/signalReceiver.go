@@ -20,12 +20,13 @@ import (
 
 type SignalReceiver struct {
 	provider           interfaces.WorkflowProvider
-	terminal           *TerminalCoordinator
 	timerProcessor     interfaces.TimerProcessor
 	flowConfiger       *config.FlowConfiger
 	channelStore       *ChannelStore
 	stepRequestQueue   *StepRequestQueue
 	persistenceManager *PersistenceManager
+	stopFlowRequested  bool
+	stopFlowErr        error
 }
 
 func NewSignalReceiver(
@@ -37,14 +38,9 @@ func NewSignalReceiver(
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *config.FlowConfiger,
-	terminal *TerminalCoordinator,
 ) *SignalReceiver {
-	if terminal == nil {
-		panic("SignalReceiver requires a TerminalCoordinator")
-	}
 	sr := &SignalReceiver{
 		provider:           provider,
-		terminal:           terminal,
 		timerProcessor:     timerProcessor,
 		flowConfiger:       flowConfiger,
 		channelStore:       channelStore,
@@ -71,7 +67,7 @@ func NewSignalReceiver(
 			}
 			if received {
 				continueAsNewCounter.IncSignalsReceived()
-				sr.terminal.requestClientStop(&val)
+				sr.requestStopFlow(&val)
 				return
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
@@ -91,13 +87,13 @@ func NewSignalReceiver(
 			received := false
 			err := provider.Await(ctx, func() bool {
 				received = ch.ReceiveAsync(&val)
-				return received || continueAsNewCounter.IsThresholdMet() || sr.terminal.IsRequested()
+				return received || continueAsNewCounter.IsThresholdMet() || sr.stopFlowRequested
 			})
 			if err != nil {
 				// break the loop to prevent goroutine leakage
 				break
 			}
-			if received && !sr.terminal.IsRequested() {
+			if received && !sr.stopFlowRequested {
 				continueAsNewCounter.IncSignalsReceived()
 				timerProcessor.SkipTimer(
 					val.GetStepExecutionId(),
@@ -122,13 +118,13 @@ func NewSignalReceiver(
 			received := false
 			err := provider.Await(ctx, func() bool {
 				received = ch.ReceiveAsync(&val)
-				return received || continueAsNewCounter.IsThresholdMet() || sr.terminal.IsRequested()
+				return received || continueAsNewCounter.IsThresholdMet() || sr.stopFlowRequested
 			})
 			if err != nil {
 				// break the loop to prevent goroutine leakage
 				break
 			}
-			if received && !sr.terminal.IsRequested() {
+			if received && !sr.stopFlowRequested {
 				continueAsNewCounter.IncSignalsReceived()
 				if err := flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
 					sr.failInvalidFlowConfig(err)
@@ -151,12 +147,12 @@ func NewSignalReceiver(
 		received := false
 		err := provider.Await(ctx, func() bool {
 			received = ch.ReceiveAsync(nil)
-			return received || continueAsNewCounter.IsThresholdMet() || sr.terminal.IsRequested()
+			return received || continueAsNewCounter.IsThresholdMet() || sr.stopFlowRequested
 		})
 		if err != nil {
 			return
 		}
-		if received && !sr.terminal.IsRequested() {
+		if received && !sr.stopFlowRequested {
 			continueAsNewCounter.TriggerByAPI()
 			return
 		}
@@ -175,13 +171,13 @@ func NewSignalReceiver(
 			received := false
 			err := provider.Await(ctx, func() bool {
 				received = ch.ReceiveAsync(&val)
-				return received || continueAsNewCounter.IsThresholdMet() || sr.terminal.IsRequested()
+				return received || continueAsNewCounter.IsThresholdMet() || sr.stopFlowRequested
 			})
 			if err != nil {
 				// break the loop to prevent goroutine leakage
 				break
 			}
-			if received && !sr.terminal.IsRequested() {
+			if received && !sr.stopFlowRequested {
 				continueAsNewCounter.IncSignalsReceived()
 				if err := sr.persistenceManager.ApplyAttributeWrites(
 					ctx,
@@ -220,7 +216,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.StopFlowSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			sr.terminal.requestClientStop(&val)
+			sr.requestStopFlow(&val)
 		} else {
 			break
 		}
@@ -230,7 +226,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.SkipTimerSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			if sr.terminal.IsRequested() {
+			if sr.stopFlowRequested {
 				continue
 			}
 			sr.timerProcessor.SkipTimer(
@@ -247,7 +243,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.UpdateFlowConfigRequest{}
 		if ch.ReceiveAsync(&val) {
-			if sr.terminal.IsRequested() {
+			if sr.stopFlowRequested {
 				continue
 			}
 			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
@@ -262,7 +258,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.ExecuteRpcSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			if sr.terminal.IsRequested() {
+			if sr.stopFlowRequested {
 				continue
 			}
 			if err := sr.persistenceManager.ApplyAttributeWrites(
@@ -285,12 +281,42 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 }
 
 func (sr *SignalReceiver) failInvalidFlowConfig(err error) {
-	sr.terminal.requestFailure(sr.provider.NewFlowError(
+	sr.requestStopFlowWithError(sr.provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 		&dexpb.ErrorResponse{Detail: err.Error()},
 	))
 }
 
-func (sr *SignalReceiver) isStopFlowRequested() bool {
-	return sr.terminal.IsRequested()
+func (sr *SignalReceiver) requestStopFlow(request *dexpb.StopFlowSignalRequest) {
+	if request == nil || sr.stopFlowRequested {
+		return
+	}
+	switch request.GetStopType() {
+	case dexpb.StopType_STOP_TYPE_CANCEL:
+		sr.requestStopFlowWithError(sr.provider.NewCanceledError(request.GetReason()))
+	case dexpb.StopType_STOP_TYPE_FAIL:
+		reason := request.GetReason()
+		if reason == "" {
+			reason = "fail by client"
+		}
+		sr.requestStopFlowWithError(sr.provider.NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+			&dexpb.ErrorResponse{Detail: reason},
+		))
+	}
+}
+
+func (sr *SignalReceiver) requestStopFlowWithError(stopErr error) {
+	if sr.stopFlowRequested {
+		return
+	}
+	if stopErr == nil {
+		panic("stop Flow error is nil")
+	}
+	sr.stopFlowRequested = true
+	sr.stopFlowErr = stopErr
+}
+
+func (sr *SignalReceiver) GetIfStopFlowRequested() (bool, error) {
+	return sr.stopFlowRequested, sr.stopFlowErr
 }

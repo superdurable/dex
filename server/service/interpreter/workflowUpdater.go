@@ -41,7 +41,6 @@ type WorkflowUpdater struct {
 	stepExecutionCounter *StepExecutionCounter
 	flowConfiger         *interpreterconfig.FlowConfiger
 	basicInfo            service.BasicInfo
-	terminal             *TerminalCoordinator
 }
 
 func NewWorkflowUpdater(
@@ -58,13 +57,12 @@ func NewWorkflowUpdater(
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
-	terminal *TerminalCoordinator,
 ) error {
 	if apiCfg == nil || activities == nil || provider == nil ||
 		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil || terminal == nil {
+		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -81,7 +79,6 @@ func NewWorkflowUpdater(
 		stepExecutionCounter: stepExecutionCounter,
 		flowConfiger:         flowConfiger,
 		basicInfo:            basicInfo,
-		terminal:             terminal,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
@@ -199,7 +196,8 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	if !u.terminal.IsRequested() {
+	stopBySignal, _ := u.signalReceiver.GetIfStopFlowRequested()
+	if !stopBySignal {
 		u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	}
 	u.continueAsNewCounter.IncSyncUpdateReceived()
@@ -401,7 +399,8 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 }
 
 func (u *WorkflowUpdater) rejectTerminalUpdate() error {
-	if !u.terminal.IsRequested() {
+	stopBySignal, _ := u.signalReceiver.GetIfStopFlowRequested()
+	if !stopBySignal {
 		return nil
 	}
 	return u.provider.NewUpdateError(

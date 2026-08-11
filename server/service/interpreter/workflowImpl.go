@@ -51,7 +51,6 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	var persistenceManager *PersistenceManager
-	var terminalCoordinator *TerminalCoordinator
 
 	globalVersioner := NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
@@ -175,12 +174,6 @@ func (i *Interpreter) StartEngineFlow(
 			attributeSynchronizer,
 		)
 	}
-	terminalCoordinator = NewTerminalCoordinator(
-		provider,
-		ctx,
-		continueAsNewer,
-		attributeSynchronizer,
-	)
 	signalReceiver = NewSignalReceiver(
 		ctx,
 		provider,
@@ -190,7 +183,6 @@ func (i *Interpreter) StartEngineFlow(
 		timerProcessor,
 		continueAsNewCounter,
 		flowConfiger,
-		terminalCoordinator,
 	)
 	attributeSynchronizer.Start()
 
@@ -208,7 +200,6 @@ func (i *Interpreter) StartEngineFlow(
 		stepExecutionCounter,
 		flowConfiger,
 		basicInfo,
-		terminalCoordinator,
 	)
 	if updateErr != nil {
 		return nil, updateErr
@@ -216,10 +207,14 @@ func (i *Interpreter) StartEngineFlow(
 	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
 	var forceCompleteWf bool
 	var shouldGracefulComplete bool
+	terminalCoordinator := NewTerminalCoordinator(
+		provider,
+		ctx,
+		continueAsNewer,
+		attributeSynchronizer,
+		&forceCompleteWf,
+	)
 	defer func() {
-		if retErr == nil && forceCompleteWf {
-			terminalCoordinator.requestForceCompletion()
-		}
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
 		if provider.IsReplaying(ctx) {
 			return
@@ -293,16 +288,16 @@ func (i *Interpreter) StartEngineFlow(
 
 	for {
 		if err := provider.Await(ctx, func() bool {
-			return !stepRequestQueue.IsEmpty() || signalReceiver.isStopFlowRequested() || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
+			stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
+			return !stepRequestQueue.IsEmpty() || stopBySignal || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
 
-		if signalReceiver.isStopFlowRequested() {
-			output := &dexpb.InterpreterWorkflowOutput{
+		if stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested(); stopBySignal {
+			return &dexpb.InterpreterWorkflowOutput{
 				StepCompletionOutputs: outputCollector.GetAll(),
-			}
-			return output, nil
+			}, stopErr
 		}
 
 		// gracefully complete flow when all steps are executed to dead ends
@@ -322,9 +317,6 @@ func (i *Interpreter) StartEngineFlow(
 			}
 
 			for _, stepReqForLoopingOnly := range stepsToExecute {
-				if signalReceiver.isStopFlowRequested() {
-					break
-				}
 				// execute in another thread for parallelism
 				// step must be passed via parameter https://stackoverflow.com/questions/67263092
 				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
@@ -457,8 +449,12 @@ func (i *Interpreter) StartEngineFlow(
 			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
 			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
+				stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested()
+				if stopBySignal {
+					errToFailWf = stopErr
+					return true
+				}
 				return !stepRequestQueue.IsEmpty() ||
-					signalReceiver.isStopFlowRequested() ||
 					errToFailWf != nil ||
 					forceCompleteWf ||
 					stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 ||
@@ -471,12 +467,6 @@ func (i *Interpreter) StartEngineFlow(
 				}
 			}
 
-			if signalReceiver.isStopFlowRequested() {
-				output := &dexpb.InterpreterWorkflowOutput{
-					StepCompletionOutputs: outputCollector.GetAll(),
-				}
-				return output, nil
-			}
 			if errToFailWf != nil || forceCompleteWf {
 				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
@@ -504,19 +494,17 @@ func (i *Interpreter) StartEngineFlow(
 
 			// after draining signals, there could be some changes like
 			// last fail flow signal, return the flow so that we don't carry over the fail request
-			if signalReceiver.isStopFlowRequested() {
-				output := &dexpb.InterpreterWorkflowOutput{
+			if stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested(); stopBySignal {
+				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}
-				return output, nil
+				}, stopErr
 			}
 			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
 				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
 				// so that we don't carry over shouldGracefulComplete
-				output := &dexpb.InterpreterWorkflowOutput{
+				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}
-				return output, nil
+				}, nil
 			}
 			// last update config, do it here because we use input to carry over config, not continueAsNewer query
 			input.Config = flowConfiger.Get()
@@ -861,14 +849,15 @@ func (i *Interpreter) processStepExecution(
 	var matchPlan *channel.MatchPlan
 	var conditionMet bool
 
-	// Wait for condition met, terminal request, or continue-as-new threshold
+	// Wait for condition met, stop signal, or continue-as-new threshold
 	_ = provider.Await(ctx, func() bool {
 		matchPlan, conditionMet = channel.Plan(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
 		)
-		return conditionMet || signalReceiver.isStopFlowRequested() || continueAsNewCounter.IsThresholdMet()
+		stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
+		return conditionMet || stopBySignal || continueAsNewCounter.IsThresholdMet()
 	})
 
 	waitingConditionDoneOrCanceled = true
@@ -882,8 +871,9 @@ func (i *Interpreter) processStepExecution(
 		return true
 	})
 
-	if signalReceiver.isStopFlowRequested() || !conditionMet {
-		// this means terminal was requested or continueAsNewCounter.IsThresholdMet == true
+	stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
+	if stopBySignal || !conditionMet {
+		// this means stop was requested or continueAsNewCounter.IsThresholdMet == true
 		// not using only continueAsNewCounter.IsThresholdMet because matchPlan has higher priority without a terminal request
 		// it won't continueAsNew in those cases
 		// 1. waitFor method fail with proceed policy
