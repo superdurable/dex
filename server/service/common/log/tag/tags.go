@@ -18,13 +18,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Super Durable Source License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 package tag
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // LoggingCallAtKey is reserved tag
@@ -42,6 +49,91 @@ const LoggingCallAtKey = "logging-call-at"
 // Error returns tag for Error
 func Error(err error) Tag {
 	return newErrorTag("error", err)
+}
+
+// Interval returns the polling interval tag.
+func Interval(interval time.Duration) Tag {
+	return newDurationTag("interval", interval)
+}
+
+// Elapsed returns the elapsed duration tag.
+func Elapsed(elapsed time.Duration) Tag {
+	return newDurationTag("elapsed", elapsed)
+}
+
+// IndexCount returns the attribute index count tag.
+func IndexCount(count int) Tag {
+	return newInt("index-count", count)
+}
+
+// Requested returns requested attribute indexes.
+func Requested(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("requested", indexes)
+}
+
+// Missing returns missing attribute indexes.
+func Missing(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("missing", indexes)
+}
+
+// Indexes returns attribute indexes.
+func Indexes(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("indexes", indexes)
+}
+
+// Panic returns the recovered panic tag.
+func Panic(recovered string) Tag {
+	return newStringTag("panic", recovered)
+}
+
+// RequestID returns the service request ID tag.
+func RequestID(requestID string) Tag {
+	return newStringTag("request-id", requestID)
+}
+
+// HostID returns the service host ID tag.
+func HostID(hostID string) Tag {
+	return newStringTag("host-id", hostID)
+}
+
+// Bucket returns the object storage bucket tag.
+func Bucket(bucket string) Tag {
+	return newStringTag("bucket", bucket)
+}
+
+// Path returns the object storage path tag.
+func Path(path string) Tag {
+	return newStringTag("path", path)
+}
+
+// StoreID returns the blob store ID tag.
+func StoreID(storeID string) Tag {
+	return newStringTag("store-id", storeID)
+}
+
+// WorkflowPath returns the workflow object prefix tag.
+func WorkflowPath(workflowPath string) Tag {
+	return newStringTag("workflow-path", workflowPath)
+}
+
+// ResultMetadata returns storage response metadata.
+func ResultMetadata(metadata string) Tag {
+	return newStringTag("result-metadata", metadata)
+}
+
+// TotalDeleted returns the deleted object count tag.
+func TotalDeleted(total int) Tag {
+	return newInt("total-deleted", total)
+}
+
+// AttributeStore returns the Attribute Store name tag.
+func AttributeStore(name string) Tag {
+	return newStringTag("attribute-store", name)
+}
+
+// AttributeName returns the Attribute name tag.
+func AttributeName(name string) Tag {
+	return newStringTag("attribute-name", name)
 }
 
 // Timestamp returns tag for Timestamp
@@ -145,19 +237,9 @@ func Env(env string) Tag {
 	return newStringTag("env", env)
 }
 
-// Key returns tag for Key
-func Key(k string) Tag {
-	return newStringTag("key", k)
-}
-
 // Name returns tag for Name
 func Name(k string) Tag {
 	return newStringTag("name", k)
-}
-
-// Value returns tag for Value
-func Value(v interface{}) Tag {
-	return newObjectTag("value", v)
 }
 
 // ValueType returns tag for ValueType

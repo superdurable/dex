@@ -221,6 +221,10 @@ limit and user agreement.
 
 ## Go-Specific Rules
 
+### Strongly Typed Log Tags
+
+Never use or reintroduce `tag.Value`. Add a semantic, strongly typed constructor in `server/service/common/log/tag` for each structured field.
+
 ### Config Field Comments
 
 Every config struct field must have a Go doc comment:

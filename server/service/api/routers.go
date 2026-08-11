@@ -127,7 +127,7 @@ func (s *Server) Run() error {
 
 // Serve hosts the gRPC services on listener.
 func (s *Server) Serve(listener net.Listener) error {
-	s.logger.Info("FlowService gRPC listening", tag.Value(listener.Addr().String()))
+	s.logger.Info("FlowService gRPC listening", tag.Address(listener.Addr().String()))
 
 	if err := s.readyCheck(context.Background()); err != nil {
 		s.logger.Error("initial readiness check failed", tag.Error(err))
@@ -183,8 +183,8 @@ func unaryRecover(logger log.Logger) grpc.UnaryServerInterceptor {
 			if recovered := recover(); recovered != nil {
 				logger.Error(
 					"gRPC handler panic",
-					tag.Value(fmt.Sprintf("%v", recovered)),
-					tag.Value(info.FullMethod),
+					tag.Panic(fmt.Sprintf("%v", recovered)),
+					tag.OperationName(info.FullMethod),
 				)
 				err = status.Error(codes.Internal, "internal panic")
 			}
@@ -204,8 +204,8 @@ func unaryLog(logger log.Logger) grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 		logger.Debug(
 			"gRPC call",
-			tag.Value(info.FullMethod),
-			tag.Value(time.Since(start).String()),
+			tag.OperationName(info.FullMethod),
+			tag.Elapsed(time.Since(start)),
 			tag.Error(err),
 		)
 		return resp, err

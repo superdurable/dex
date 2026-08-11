@@ -159,17 +159,17 @@ func (b *blobStoreImpl) WriteObject(
 		var re s3.ResponseError
 		if errors.As(err, &re) {
 			b.logger.Error("PutObject S3 API error",
-				tag.Key("requestId"), tag.Value(re.ServiceRequestID()),
-				tag.Key("hostId"), tag.Value(re.ServiceHostID()),
-				tag.Key("bucket"), tag.Value(b.activeStorage.S3Bucket),
-				tag.Key("workflowId"), tag.Value(workflowId),
+				tag.RequestID(re.ServiceRequestID()),
+				tag.HostID(re.ServiceHostID()),
+				tag.Bucket(b.activeStorage.S3Bucket),
+				tag.WorkflowID(workflowId),
 				tag.Error(err))
 			err = fmt.Errorf("failed to write object (requestId=%s, hostId=%s): %w",
 				re.ServiceRequestID(), re.ServiceHostID(), err)
 		} else {
 			b.logger.Error("PutObject error",
-				tag.Key("bucket"), tag.Value(b.activeStorage.S3Bucket),
-				tag.Key("workflowId"), tag.Value(workflowId),
+				tag.Bucket(b.activeStorage.S3Bucket),
+				tag.WorkflowID(workflowId),
 				tag.Error(err))
 			err = fmt.Errorf("failed to write object: %w", err)
 		}
@@ -179,8 +179,8 @@ func (b *blobStoreImpl) WriteObject(
 		if err = b.cacheAttributeObject(storeId, path, data, b.blobCacheWriteCounter); err != nil {
 			b.writeObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache write failed",
-				tag.Key("path"), tag.Value(path),
-				tag.Key("storeId"), tag.Value(storeId),
+				tag.Path(path),
+				tag.StoreID(storeId),
 				tag.Error(err))
 			err = fmt.Errorf("failed to cache written object: %w", err)
 			return
@@ -312,8 +312,8 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		if err != nil {
 			b.readObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache read failed",
-				tag.Key("path"), tag.Value(path),
-				tag.Key("storeId"), tag.Value(storeId),
+				tag.Path(path),
+				tag.StoreID(storeId),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to read cached object: %w", err)
 		}
@@ -328,19 +328,19 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		var re s3.ResponseError
 		if errors.As(err, &re) {
 			b.logger.Error("GetObject S3 API error",
-				tag.Key("requestId"), tag.Value(re.ServiceRequestID()),
-				tag.Key("hostId"), tag.Value(re.ServiceHostID()),
-				tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-				tag.Key("path"), tag.Value(path),
-				tag.Key("storeId"), tag.Value(storeId),
+				tag.RequestID(re.ServiceRequestID()),
+				tag.HostID(re.ServiceHostID()),
+				tag.Bucket(storeConfig.S3Bucket),
+				tag.Path(path),
+				tag.StoreID(storeId),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to read object (requestId=%s, hostId=%s): %w",
 				re.ServiceRequestID(), re.ServiceHostID(), err)
 		}
 		b.logger.Error("GetObject error",
-			tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-			tag.Key("path"), tag.Value(path),
-			tag.Key("storeId"), tag.Value(storeId),
+			tag.Bucket(storeConfig.S3Bucket),
+			tag.Path(path),
+			tag.StoreID(storeId),
 			tag.Error(err))
 		return nil, fmt.Errorf("failed to read object: %w", err)
 	}
@@ -348,8 +348,8 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		if err := b.cacheAttributeObject(storeId, path, data, b.blobCacheReadFillCounter); err != nil {
 			b.readObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache fill failed",
-				tag.Key("path"), tag.Value(path),
-				tag.Key("storeId"), tag.Value(storeId),
+				tag.Path(path),
+				tag.StoreID(storeId),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to fill object cache: %w", err)
 		}
@@ -535,10 +535,10 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 			var re s3.ResponseError
 			if errors.As(err, &re) {
 				b.logger.Error("ListObjectsV2 S3 API error",
-					tag.Key("requestId"), tag.Value(re.ServiceRequestID()),
-					tag.Key("hostId"), tag.Value(re.ServiceHostID()),
-					tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-					tag.Key("workflowPath"), tag.Value(workflowPath),
+					tag.RequestID(re.ServiceRequestID()),
+					tag.HostID(re.ServiceHostID()),
+					tag.Bucket(storeConfig.S3Bucket),
+					tag.WorkflowPath(workflowPath),
 					tag.Error(err))
 				return fmt.Errorf("failed to list objects for deletion (requestId=%s, hostId=%s): %w",
 					re.ServiceRequestID(), re.ServiceHostID(), err)
@@ -575,10 +575,10 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 				var re s3.ResponseError
 				if errors.As(err, &re) {
 					b.logger.Error("DeleteObjects S3 API error",
-						tag.Key("requestId"), tag.Value(re.ServiceRequestID()),
-						tag.Key("hostId"), tag.Value(re.ServiceHostID()),
-						tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-						tag.Key("workflowPath"), tag.Value(workflowPath),
+						tag.RequestID(re.ServiceRequestID()),
+						tag.HostID(re.ServiceHostID()),
+						tag.Bucket(storeConfig.S3Bucket),
+						tag.WorkflowPath(workflowPath),
 						tag.Error(err))
 					return fmt.Errorf("failed to delete objects (requestId=%s, hostId=%s): %w",
 						re.ServiceRequestID(), re.ServiceHostID(), err)
@@ -597,9 +597,9 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 				}
 				resultMetadata := fmt.Sprintf("%+v", deleteResult.ResultMetadata)
 				b.logger.Error("DeleteObjects failed",
-					tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-					tag.Key("workflowPath"), tag.Value(workflowPath),
-					tag.Key("resultMetadata"), tag.Value(resultMetadata))
+					tag.Bucket(storeConfig.S3Bucket),
+					tag.WorkflowPath(workflowPath),
+					tag.ResultMetadata(resultMetadata))
 				return fmt.Errorf("some objects failed to delete (resultMetadata=%s): %s", resultMetadata, strings.Join(errorMsgs, "; "))
 			}
 
@@ -614,9 +614,9 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 	}
 
 	b.logger.Info("DeleteWorkflowObjects completed",
-		tag.Key("bucket"), tag.Value(storeConfig.S3Bucket),
-		tag.Key("workflowPath"), tag.Value(workflowPath),
-		tag.Key("totalDeleted"), tag.Value(totalDeleted))
+		tag.Bucket(storeConfig.S3Bucket),
+		tag.WorkflowPath(workflowPath),
+		tag.TotalDeleted(totalDeleted))
 
 	return nil
 }

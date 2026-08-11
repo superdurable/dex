@@ -18,6 +18,8 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
+	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/log/tag"
 	"go.uber.org/yarpc/yarpcerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,17 +41,21 @@ type Client interface {
 type Synchronizer struct {
 	cfg    *config.Interpreter
 	client Client
+	logger log.Logger
 }
 
 // New creates an attribute index synchronizer.
-func New(interpreterCfg *config.Interpreter, client Client) *Synchronizer {
+func New(interpreterCfg *config.Interpreter, client Client, logger log.Logger) *Synchronizer {
 	if interpreterCfg == nil {
 		panic("interpreter config must not be nil")
 	}
 	if client == nil {
 		panic("attribute index client must not be nil")
 	}
-	return &Synchronizer{cfg: interpreterCfg, client: client}
+	if logger == nil {
+		panic("attribute index logger must not be nil")
+	}
+	return &Synchronizer{cfg: interpreterCfg, client: client, logger: logger}
 }
 
 // Sync creates missing indexes and waits until the backend reports them.
@@ -73,7 +79,7 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 		return err
 	}
 
-	if addErr := s.client.AddAttributeIndexes(syncCtx, missing); addErr != nil {
+	if addErr := s.addAttributeIndexes(syncCtx, missing); addErr != nil {
 		existing, listErr := s.client.ListAttributeIndexes(syncCtx)
 		if listErr == nil {
 			remaining, compareErr := s.missingIndexes(requested, existing)
@@ -95,11 +101,13 @@ func (s *Synchronizer) listUntilAvailable(ctx context.Context) (map[string]dexpb
 	for {
 		existing, err := s.client.ListAttributeIndexes(ctx)
 		if err == nil {
+			s.logger.Info("Attribute index list poll succeeded", tag.IndexCount(len(existing)))
 			return existing, nil
 		}
 		if !isRetryable(err) {
 			return nil, backendError(err)
 		}
+		s.logger.Info("Attribute index list poll will retry", tag.Error(err), tag.Interval(interval))
 		if err := waitForPoll(ctx, interval); err != nil {
 			return nil, syncDeadlineError(err)
 		}
@@ -121,14 +129,27 @@ func (s *Synchronizer) retryRegistration(
 			if !isRetryable(err) {
 				return backendError(err)
 			}
+			s.logger.Info(
+				"Attribute index registration poll will retry",
+				tag.Error(err),
+				tag.Interval(nextPollInterval(interval)),
+			)
 			interval = nextPollInterval(interval)
 			continue
 		}
 		missing, err := s.missingIndexes(requested, existing)
 		if err != nil || len(missing) == 0 {
+			if err == nil {
+				s.logger.Info("Attribute indexes became visible during registration retry", tag.Requested(requested))
+			}
 			return err
 		}
-		addErr := s.client.AddAttributeIndexes(ctx, missing)
+		s.logger.Info(
+			"Attribute indexes remain unregistered",
+			tag.Missing(missing),
+			tag.Interval(nextPollInterval(interval)),
+		)
+		addErr := s.addAttributeIndexes(ctx, missing)
 		if addErr == nil {
 			return s.waitUntilVisible(ctx, requested)
 		}
@@ -152,13 +173,43 @@ func (s *Synchronizer) waitUntilVisible(
 		if err == nil {
 			missing, compareErr := s.missingIndexes(requested, existing)
 			if compareErr != nil || len(missing) == 0 {
+				if compareErr == nil {
+					s.logger.Info("Attribute indexes are visible", tag.Requested(requested))
+				}
 				return compareErr
 			}
+			s.logger.Info(
+				"Attribute indexes are not visible yet",
+				tag.Missing(missing),
+				tag.Interval(nextPollInterval(interval)),
+			)
 		} else if !isRetryable(err) {
 			return backendError(err)
+		} else {
+			s.logger.Info(
+				"Attribute index visibility poll will retry",
+				tag.Error(err),
+				tag.Interval(nextPollInterval(interval)),
+			)
 		}
 		interval = nextPollInterval(interval)
 	}
+}
+
+func (s *Synchronizer) addAttributeIndexes(
+	ctx context.Context,
+	indexes map[string]dexpb.IndexType,
+) error {
+	startedAt := time.Now()
+	s.logger.Info("Adding attribute indexes", tag.Indexes(indexes))
+	err := s.client.AddAttributeIndexes(ctx, indexes)
+	elapsed := time.Since(startedAt)
+	if err != nil {
+		s.logger.Info("Add attribute indexes failed", tag.Error(err), tag.Elapsed(elapsed), tag.Indexes(indexes))
+		return err
+	}
+	s.logger.Info("Add attribute indexes succeeded", tag.Elapsed(elapsed), tag.Indexes(indexes))
+	return nil
 }
 
 func (s *Synchronizer) missingIndexes(

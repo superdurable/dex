@@ -90,7 +90,7 @@ func NewApiService(
 		workerPool:         workerPool,
 		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(blobStoreCfg, client, store),
 		attributeStore:     attributeStore,
-		indexSynchronizer:  indexsync.New(interpreterCfg, client),
+		indexSynchronizer:  indexsync.New(interpreterCfg, client, logger),
 	}, nil
 }
 
