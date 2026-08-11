@@ -35,8 +35,10 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWorkflowCanceled(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
+		// Cancel must wait for an in-flight Execute producer before closing.
 		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
+		// Cancel and Fail must wake a step suspended on a channel.
 		doTestWorkflowStopWhileSuspended(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
 
@@ -61,8 +63,10 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWorkflowCanceled(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
+		// Cancel must wait for an in-flight Execute producer before closing.
 		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
+		// Cancel and Fail must wake a step suspended on a channel.
 		doTestWorkflowStopWhileSuspended(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
 

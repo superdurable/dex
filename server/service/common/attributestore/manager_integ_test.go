@@ -79,7 +79,7 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	filteredCount, err := manager.WriteBatch(ctx, &dexpb.SyncAttributeBatchActivityInput{
 		FlowId:     "postgres-flow",
 		ConfigName: "reporting",
-		Mutations: []*dexpb.AttributeSyncMutation{{
+		Mutations: []*dexpb.AttributeSyncItem{{
 			ConfigName: "reporting",
 			Key:        "late_column",
 			Value:      stringValue("available"),
@@ -166,7 +166,7 @@ func writeIntegrationBatch(t *testing.T, manager *Manager, configName, flowID st
 	filteredCount, err := manager.WriteBatch(context.Background(), &dexpb.SyncAttributeBatchActivityInput{
 		FlowId:     flowID,
 		ConfigName: configName,
-		Mutations: []*dexpb.AttributeSyncMutation{
+		Mutations: []*dexpb.AttributeSyncItem{
 			{ConfigName: configName, Key: "name", Value: stringValue("old")},
 			{ConfigName: configName, Key: "count_value", Value: intValue(42)},
 			{ConfigName: configName, Key: "ratio", Value: doubleValue(2.5)},

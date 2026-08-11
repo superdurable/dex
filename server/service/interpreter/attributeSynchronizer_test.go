@@ -75,7 +75,7 @@ func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
 		provider:   provider,
 		ctx:        interfaces.NewUnifiedContext(nil),
 		flowID:     "flow-id",
-		pending: []*dexpb.AttributeSyncMutation{
+		pending: []*dexpb.AttributeSyncItem{
 			{ConfigName: "reporting", Key: "first"},
 			{ConfigName: "reporting", Key: "second"},
 			{ConfigName: "reporting", Key: "third"},

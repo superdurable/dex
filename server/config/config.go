@@ -11,6 +11,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -22,6 +24,8 @@ import (
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -132,21 +136,8 @@ type (
 		SyncBatchSize int `yaml:"syncBatchSize"`
 		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
 		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`
-		// SyncRetryPolicy controls regular Activity retries. Nil fields default to 1s/30s/2x/unlimited attempts/1h total.
-		SyncRetryPolicy *AttributeStoreRetryPolicyConfig `yaml:"syncRetryPolicy"`
-	}
-
-	AttributeStoreRetryPolicyConfig struct {
-		// InitialIntervalSeconds is the first retry delay. Default 1. Must be positive after defaults.
-		InitialIntervalSeconds int32 `yaml:"initialIntervalSeconds"`
-		// MaximumIntervalSeconds caps retry backoff. Default 30. Must be positive after defaults.
-		MaximumIntervalSeconds int32 `yaml:"maximumIntervalSeconds"`
-		// BackoffCoefficient multiplies retry delay. Default 2. Must be positive after defaults.
-		BackoffCoefficient float32 `yaml:"backoffCoefficient"`
-		// MaximumAttempts includes the first regular attempt. Default 0 means duration-limited retries.
-		MaximumAttempts int32 `yaml:"maximumAttempts"`
-		// TotalDurationSeconds caps regular retries. Default 3600. Must be positive after defaults.
-		TotalDurationSeconds int32 `yaml:"totalDurationSeconds"`
+		// SyncRetryPolicy controls regular Activity retries. Nil or zero fields default to 1s/30s/2x/unlimited attempts/1h total.
+		SyncRetryPolicy *dexpb.RetryPolicy `yaml:"syncRetryPolicy"`
 	}
 
 	AttributeStoreConfigEntry struct {
@@ -393,6 +384,55 @@ func (c BlobCacheConfig) Validate() error {
 	return nil
 }
 
+// UnmarshalYAML decodes camelCase RetryPolicy fields into the shared protobuf type.
+func (c *AttributeStoreConfig) UnmarshalYAML(node *yaml.Node) error {
+	type plainAttributeStoreConfig AttributeStoreConfig
+	filteredNode := *node
+	filteredNode.Content = make([]*yaml.Node, 0, len(node.Content))
+	var retryPolicyNode *yaml.Node
+	for index := 0; index < len(node.Content); index += 2 {
+		keyNode := node.Content[index]
+		valueNode := node.Content[index+1]
+		if keyNode.Value == "syncRetryPolicy" {
+			retryPolicyNode = valueNode
+			continue
+		}
+		filteredNode.Content = append(filteredNode.Content, keyNode, valueNode)
+	}
+
+	filteredYAML, err := yaml.Marshal(&filteredNode)
+	if err != nil {
+		return fmt.Errorf("encode attribute store config: %w", err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(filteredYAML))
+	decoder.KnownFields(true)
+	if err := decoder.Decode((*plainAttributeStoreConfig)(c)); err != nil {
+		return err
+	}
+	if retryPolicyNode == nil || retryPolicyNode.Tag == "!!null" {
+		return nil
+	}
+
+	policy := &dexpb.RetryPolicy{}
+	if err := decodeProtoYAML(retryPolicyNode, policy); err != nil {
+		return fmt.Errorf("decode attribute store syncRetryPolicy: %w", err)
+	}
+	c.SyncRetryPolicy = policy
+	return nil
+}
+
+func decodeProtoYAML(node *yaml.Node, message proto.Message) error {
+	var value any
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return protojson.Unmarshal(encoded, message)
+}
+
 // EffectiveSchemaSyncInterval returns the configured schema refresh interval or one minute.
 func (c AttributeStoreConfig) EffectiveSchemaSyncInterval() time.Duration {
 	if c.SchemaSyncInterval == 0 {
@@ -419,13 +459,12 @@ func (c AttributeStoreConfig) EffectiveSyncAttemptTimeout() time.Duration {
 
 // EffectiveSyncRetryPolicy returns a finite policy with Attribute Store defaults.
 func (c AttributeStoreConfig) EffectiveSyncRetryPolicy() *dexpb.RetryPolicy {
-	policy := &dexpb.RetryPolicy{}
-	if c.SyncRetryPolicy != nil {
-		policy.InitialIntervalSeconds = c.SyncRetryPolicy.InitialIntervalSeconds
-		policy.MaximumIntervalSeconds = c.SyncRetryPolicy.MaximumIntervalSeconds
-		policy.BackoffCoefficient = c.SyncRetryPolicy.BackoffCoefficient
-		policy.MaximumAttempts = c.SyncRetryPolicy.MaximumAttempts
-		policy.TotalDurationSeconds = c.SyncRetryPolicy.TotalDurationSeconds
+	policy := &dexpb.RetryPolicy{
+		InitialIntervalSeconds: c.SyncRetryPolicy.GetInitialIntervalSeconds(),
+		MaximumIntervalSeconds: c.SyncRetryPolicy.GetMaximumIntervalSeconds(),
+		BackoffCoefficient:     c.SyncRetryPolicy.GetBackoffCoefficient(),
+		MaximumAttempts:        c.SyncRetryPolicy.GetMaximumAttempts(),
+		TotalDurationSeconds:   c.SyncRetryPolicy.GetTotalDurationSeconds(),
 	}
 	if policy.InitialIntervalSeconds == 0 {
 		policy.InitialIntervalSeconds = 1

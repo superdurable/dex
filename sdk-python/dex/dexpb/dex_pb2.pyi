@@ -1502,8 +1502,8 @@ class ContinueAsNewDump(_message.Message):
     step_outputs: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
     stale_skip_timers: _containers.RepeatedCompositeFieldContainer[StaleSkipTimer]
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    pending_attribute_sync_mutations: _containers.RepeatedCompositeFieldContainer[AttributeSyncMutation]
-    def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., pending_attribute_sync_mutations: _Optional[_Iterable[_Union[AttributeSyncMutation, _Mapping]]] = ...) -> None: ...
+    pending_attribute_sync_mutations: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
+    def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., pending_attribute_sync_mutations: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class ContinueAsNewInput(_message.Message):
     __slots__ = ("previous_internal_run_id",)
@@ -1617,7 +1617,7 @@ class CleanupBlobStoreActivityOutput(_message.Message):
     total_deleted: int
     def __init__(self, total_deleted: _Optional[int] = ...) -> None: ...
 
-class AttributeSyncMutation(_message.Message):
+class AttributeSyncItem(_message.Message):
     __slots__ = ("config_name", "key", "value")
     CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
     KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1634,8 +1634,8 @@ class SyncAttributeBatchActivityInput(_message.Message):
     MUTATIONS_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     config_name: str
-    mutations: _containers.RepeatedCompositeFieldContainer[AttributeSyncMutation]
-    def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., mutations: _Optional[_Iterable[_Union[AttributeSyncMutation, _Mapping]]] = ...) -> None: ...
+    mutations: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
+    def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., mutations: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
     __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel")

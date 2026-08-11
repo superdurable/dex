@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface AttributeSyncMutationOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.AttributeSyncMutation)
+public interface AttributeSyncItemOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.AttributeSyncItem)
     com.google.protobuf.MessageOrBuilder {
 
   /**

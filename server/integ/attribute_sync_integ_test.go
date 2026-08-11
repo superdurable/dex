@@ -179,7 +179,7 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 			},
 			SyncBatchSize:      1,
 			SyncAttemptTimeout: time.Second,
-			SyncRetryPolicy: &config.AttributeStoreRetryPolicyConfig{
+			SyncRetryPolicy: &dexpb.RetryPolicy{
 				InitialIntervalSeconds: 1,
 				MaximumIntervalSeconds: 1,
 				BackoffCoefficient:     1,

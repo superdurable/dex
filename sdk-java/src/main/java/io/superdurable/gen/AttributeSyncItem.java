@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.AttributeSyncMutation}
+ * Protobuf type {@code dex.AttributeSyncItem}
  */
 @com.google.protobuf.Generated
-public final class AttributeSyncMutation extends
+public final class AttributeSyncItem extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.AttributeSyncMutation)
-    AttributeSyncMutationOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.AttributeSyncItem)
+    AttributeSyncItemOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,33 +21,33 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "AttributeSyncMutation");
+      "AttributeSyncItem");
   }
-  // Use AttributeSyncMutation.newBuilder() to construct.
-  private AttributeSyncMutation(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use AttributeSyncItem.newBuilder() to construct.
+  private AttributeSyncItem(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private AttributeSyncMutation() {
+  private AttributeSyncItem() {
     configName_ = "";
     key_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.AttributeSyncMutation.class, io.superdurable.gen.AttributeSyncMutation.Builder.class);
+            io.superdurable.gen.AttributeSyncItem.class, io.superdurable.gen.AttributeSyncItem.Builder.class);
   }
 
   private int bitField0_;
@@ -211,10 +211,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.AttributeSyncMutation)) {
+    if (!(obj instanceof io.superdurable.gen.AttributeSyncItem)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.AttributeSyncMutation other = (io.superdurable.gen.AttributeSyncMutation) obj;
+    io.superdurable.gen.AttributeSyncItem other = (io.superdurable.gen.AttributeSyncItem) obj;
 
     if (!getConfigName()
         .equals(other.getConfigName())) return false;
@@ -249,44 +249,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(byte[] data)
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -294,26 +294,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.AttributeSyncMutation parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.AttributeSyncItem parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.AttributeSyncMutation parseDelimitedFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.AttributeSyncMutation parseFrom(
+  public static io.superdurable.gen.AttributeSyncItem parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -326,7 +326,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.AttributeSyncMutation prototype) {
+  public static Builder newBuilder(io.superdurable.gen.AttributeSyncItem prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -342,26 +342,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.AttributeSyncMutation}
+   * Protobuf type {@code dex.AttributeSyncItem}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.AttributeSyncMutation)
-      io.superdurable.gen.AttributeSyncMutationOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.AttributeSyncItem)
+      io.superdurable.gen.AttributeSyncItemOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.AttributeSyncMutation.class, io.superdurable.gen.AttributeSyncMutation.Builder.class);
+              io.superdurable.gen.AttributeSyncItem.class, io.superdurable.gen.AttributeSyncItem.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.AttributeSyncMutation.newBuilder()
+    // Construct using io.superdurable.gen.AttributeSyncItem.newBuilder()
     private Builder() {
       maybeForceBuilderInitialization();
     }
@@ -394,17 +394,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncMutation_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeSyncItem_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.AttributeSyncMutation getDefaultInstanceForType() {
-      return io.superdurable.gen.AttributeSyncMutation.getDefaultInstance();
+    public io.superdurable.gen.AttributeSyncItem getDefaultInstanceForType() {
+      return io.superdurable.gen.AttributeSyncItem.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.AttributeSyncMutation build() {
-      io.superdurable.gen.AttributeSyncMutation result = buildPartial();
+    public io.superdurable.gen.AttributeSyncItem build() {
+      io.superdurable.gen.AttributeSyncItem result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -412,14 +412,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.AttributeSyncMutation buildPartial() {
-      io.superdurable.gen.AttributeSyncMutation result = new io.superdurable.gen.AttributeSyncMutation(this);
+    public io.superdurable.gen.AttributeSyncItem buildPartial() {
+      io.superdurable.gen.AttributeSyncItem result = new io.superdurable.gen.AttributeSyncItem(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.AttributeSyncMutation result) {
+    private void buildPartial0(io.superdurable.gen.AttributeSyncItem result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.configName_ = configName_;
@@ -439,16 +439,16 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.AttributeSyncMutation) {
-        return mergeFrom((io.superdurable.gen.AttributeSyncMutation)other);
+      if (other instanceof io.superdurable.gen.AttributeSyncItem) {
+        return mergeFrom((io.superdurable.gen.AttributeSyncItem)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.AttributeSyncMutation other) {
-      if (other == io.superdurable.gen.AttributeSyncMutation.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.AttributeSyncItem other) {
+      if (other == io.superdurable.gen.AttributeSyncItem.getDefaultInstance()) return this;
       if (!other.getConfigName().isEmpty()) {
         configName_ = other.configName_;
         bitField0_ |= 0x00000001;
@@ -787,23 +787,23 @@ private static final long serialVersionUID = 0L;
       return valueBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.AttributeSyncMutation)
+    // @@protoc_insertion_point(builder_scope:dex.AttributeSyncItem)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.AttributeSyncMutation)
-  private static final io.superdurable.gen.AttributeSyncMutation DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.AttributeSyncItem)
+  private static final io.superdurable.gen.AttributeSyncItem DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.AttributeSyncMutation();
+    DEFAULT_INSTANCE = new io.superdurable.gen.AttributeSyncItem();
   }
 
-  public static io.superdurable.gen.AttributeSyncMutation getDefaultInstance() {
+  public static io.superdurable.gen.AttributeSyncItem getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<AttributeSyncMutation>
-      PARSER = new com.google.protobuf.AbstractParser<AttributeSyncMutation>() {
+  private static final com.google.protobuf.Parser<AttributeSyncItem>
+      PARSER = new com.google.protobuf.AbstractParser<AttributeSyncItem>() {
     @java.lang.Override
-    public AttributeSyncMutation parsePartialFrom(
+    public AttributeSyncItem parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -822,17 +822,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<AttributeSyncMutation> parser() {
+  public static com.google.protobuf.Parser<AttributeSyncItem> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<AttributeSyncMutation> getParserForType() {
+  public com.google.protobuf.Parser<AttributeSyncItem> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.AttributeSyncMutation getDefaultInstanceForType() {
+  public io.superdurable.gen.AttributeSyncItem getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

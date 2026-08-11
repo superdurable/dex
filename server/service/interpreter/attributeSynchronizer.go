@@ -28,7 +28,7 @@ type AttributeSynchronizer struct {
 	ctx                  interfaces.UnifiedContext
 	continueAsNewCounter *cont.ContinueAsNewCounter
 	flowID               string
-	pending              []*dexpb.AttributeSyncMutation
+	pending              []*dexpb.AttributeSyncItem
 	inFlightCount        int
 	flushAndClose        bool
 	stopped              bool
@@ -40,7 +40,7 @@ func NewAttributeSynchronizer(
 	provider interfaces.WorkflowProvider,
 	ctx interfaces.UnifiedContext,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
-	pending []*dexpb.AttributeSyncMutation,
+	pending []*dexpb.AttributeSyncItem,
 ) *AttributeSynchronizer {
 	if cfg == nil || activities == nil || provider == nil || continueAsNewCounter == nil {
 		panic("AttributeSynchronizer requires non-nil dependencies")
@@ -146,7 +146,7 @@ func (s *AttributeSynchronizer) ApplyAttributeWrites(
 			)
 			continue
 		}
-		s.pending = append(s.pending, &dexpb.AttributeSyncMutation{
+		s.pending = append(s.pending, &dexpb.AttributeSyncItem{
 			ConfigName: configName,
 			Key:        write.GetKey(),
 			Value:      write.GetValue(),
@@ -163,11 +163,11 @@ func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) err
 	return s.provider.Await(ctx, func() bool { return s.stopped })
 }
 
-func (s *AttributeSynchronizer) Pending() []*dexpb.AttributeSyncMutation {
+func (s *AttributeSynchronizer) Pending() []*dexpb.AttributeSyncItem {
 	return s.pending
 }
 
-func (s *AttributeSynchronizer) nextBatch() []*dexpb.AttributeSyncMutation {
+func (s *AttributeSynchronizer) nextBatch() []*dexpb.AttributeSyncItem {
 	limit := s.cfg.EffectiveSyncBatchSize()
 	if limit > len(s.pending) {
 		limit = len(s.pending)

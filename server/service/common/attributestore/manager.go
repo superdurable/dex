@@ -415,7 +415,7 @@ func (m *Manager) WriteBatch(ctx context.Context, input *dexpb.SyncAttributeBatc
 func (e *storeEntry) writeBatch(
 	ctx context.Context,
 	flowID string,
-	mutations []*dexpb.AttributeSyncMutation,
+	mutations []*dexpb.AttributeSyncItem,
 ) (int, error) {
 	snapshot := e.schema.Load()
 	if snapshot == nil {

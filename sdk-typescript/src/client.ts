@@ -111,6 +111,7 @@ export class Client {
           key: physicalName(initial.attribute.name, initial.instance),
           value: encodeValue(initial.attribute.codec, initial.value),
           indexConfig: mapIndex(initial.attribute.index),
+          syncConfig: undefined,
         })),
         flowConfigOverride: mapFlowConfig(options.configOverride, this.options),
         flowAlreadyStartedOptions: {
@@ -278,6 +279,7 @@ export class Client {
               key: physicalName(attribute.name, instance),
               value: encodeValue(attribute.codec, value),
               indexConfig: mapIndex(attribute.index),
+              syncConfig: undefined,
             },
           ],
           requestId: crypto.randomUUID(),

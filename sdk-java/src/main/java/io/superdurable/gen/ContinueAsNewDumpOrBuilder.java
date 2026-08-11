@@ -200,26 +200,26 @@ io.superdurable.gen.ChannelValues defaultValue);
       int index);
 
   /**
-   * <code>repeated .dex.AttributeSyncMutation pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeSyncMutation>
+  java.util.List<io.superdurable.gen.AttributeSyncItem>
       getPendingAttributeSyncMutationsList();
   /**
-   * <code>repeated .dex.AttributeSyncMutation pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  io.superdurable.gen.AttributeSyncMutation getPendingAttributeSyncMutations(int index);
+  io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncMutations(int index);
   /**
-   * <code>repeated .dex.AttributeSyncMutation pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
   int getPendingAttributeSyncMutationsCount();
   /**
-   * <code>repeated .dex.AttributeSyncMutation pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeSyncMutationOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder>
       getPendingAttributeSyncMutationsOrBuilderList();
   /**
-   * <code>repeated .dex.AttributeSyncMutation pending_attribute_sync_mutations = 8;</code>
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  io.superdurable.gen.AttributeSyncMutationOrBuilder getPendingAttributeSyncMutationsOrBuilder(
+  io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncMutationsOrBuilder(
       int index);
 }

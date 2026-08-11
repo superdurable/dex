@@ -39,7 +39,7 @@ endif
 
 .PHONY: proto proto-server-go proto-sdk-go proto-java proto-python clean ensure-tools ensure-python-tools
 
-proto: proto-server-go proto-sdk-go proto-java proto-python
+proto: proto-server-go
 
 # Server-only codegen for the server rewrite. Does not touch SDK trees.
 proto-server-go: ensure-tools
