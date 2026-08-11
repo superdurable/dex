@@ -131,6 +131,10 @@ Skip generated trees (`**/gen/**`, `*.pb.go`, `*_pb.go`, `*.gen.*`). Prefer
 `legacy-only` file to `mixed` without replacing its legacy notice. CI runs
 `make copyright-check` via [`.github/workflows/copyright-ci.yml`](.github/workflows/copyright-ci.yml).
 
+Files absent from the cutoff manifest use the new header. File-level renames
+and copies with at least 20% similarity retain source lineage; non-new copies
+use the mixed header. Preserve applicable notices when copying smaller excerpts.
+
 ## Contributor License Agreement
 
 All contributors must sign an [individual or corporate CLA](CLA.md). Email the

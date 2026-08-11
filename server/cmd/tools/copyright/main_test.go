@@ -54,6 +54,12 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 			},
 		},
 	})
+	writeTestFile(t, repositoryRoot, "server/legacy_copy.go", legacyContent)
+	newFragmentSource := "package server\n\nfunc Legacy() int { return 1 }\n\n" +
+		strings.Repeat("func New() int { return 2 }\n", 20)
+	writeTestFile(t, repositoryRoot, "server/new_with_legacy_fragment.go", newFragmentSource)
+	runTestGit(t, repositoryRoot, "add", "server/legacy_copy.go", "server/new_with_legacy_fragment.go")
+	runTestGit(t, repositoryRoot, "commit", "-q", "-m", "add post-cutoff files")
 	writeTestFile(t, repositoryRoot, "server/legacy.go", strings.Replace(legacyContent, "return 1", "return 2", 1))
 	writeTestFile(t, repositoryRoot, "sdk-rust/src/lib.rs", "pub fn sdk() {}\n")
 	writeTestFile(t, repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py", "class BasicFlow:\n    pass\n")
@@ -69,6 +75,14 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(mixedContent), "Copyright (c) 2020 Legacy Holder")
 	require.Contains(t, string(mixedContent), "Modifications Copyright (c) 2026 Super Durable, Inc.")
+	copiedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/legacy_copy.go"))
+	require.NoError(t, err)
+	require.Contains(t, string(copiedContent), "Copyright (c) 2020 Legacy Holder")
+	require.Contains(t, string(copiedContent), "Modifications Copyright (c) 2026 Super Durable, Inc.")
+	fragmentContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/new_with_legacy_fragment.go"))
+	require.NoError(t, err)
+	require.Contains(t, string(fragmentContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
+	require.NotContains(t, string(fragmentContent), "Modifications after the Legacy Cutoff")
 	newContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-rust/src/lib.rs"))
 	require.NoError(t, err)
 	require.Contains(t, string(newContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")

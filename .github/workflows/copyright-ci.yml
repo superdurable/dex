@@ -61,6 +61,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
       - name: Verify license headers
         run: make copyright-check
