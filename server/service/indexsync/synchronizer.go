@@ -101,7 +101,7 @@ func (s *Synchronizer) listUntilAvailable(ctx context.Context) (map[string]dexpb
 	for {
 		existing, err := s.client.ListAttributeIndexes(ctx)
 		if err == nil {
-			s.logger.Debug("Attribute index list poll succeeded", tag.Value(map[string]interface{}{
+			s.logger.Info("Attribute index list poll succeeded", tag.Value(map[string]interface{}{
 				"indexCount": len(existing),
 			}))
 			return existing, nil
@@ -109,7 +109,7 @@ func (s *Synchronizer) listUntilAvailable(ctx context.Context) (map[string]dexpb
 		if !isRetryable(err) {
 			return nil, backendError(err)
 		}
-		s.logger.Debug("Attribute index list poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
+		s.logger.Info("Attribute index list poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
 			"nextPollInterval": interval,
 		}))
 		if err := waitForPoll(ctx, interval); err != nil {
@@ -133,7 +133,7 @@ func (s *Synchronizer) retryRegistration(
 			if !isRetryable(err) {
 				return backendError(err)
 			}
-			s.logger.Debug("Attribute index registration poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
+			s.logger.Info("Attribute index registration poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
 				"nextPollInterval": nextPollInterval(interval),
 			}))
 			interval = nextPollInterval(interval)
@@ -142,13 +142,13 @@ func (s *Synchronizer) retryRegistration(
 		missing, err := s.missingIndexes(requested, existing)
 		if err != nil || len(missing) == 0 {
 			if err == nil {
-				s.logger.Debug("Attribute indexes became visible during registration retry", tag.Value(map[string]interface{}{
+				s.logger.Info("Attribute indexes became visible during registration retry", tag.Value(map[string]interface{}{
 					"requested": requested,
 				}))
 			}
 			return err
 		}
-		s.logger.Debug("Attribute indexes remain unregistered", tag.Value(map[string]interface{}{
+		s.logger.Info("Attribute indexes remain unregistered", tag.Value(map[string]interface{}{
 			"missing":          missing,
 			"nextPollInterval": nextPollInterval(interval),
 		}))
@@ -177,20 +177,20 @@ func (s *Synchronizer) waitUntilVisible(
 			missing, compareErr := s.missingIndexes(requested, existing)
 			if compareErr != nil || len(missing) == 0 {
 				if compareErr == nil {
-					s.logger.Debug("Attribute indexes are visible", tag.Value(map[string]interface{}{
+					s.logger.Info("Attribute indexes are visible", tag.Value(map[string]interface{}{
 						"requested": requested,
 					}))
 				}
 				return compareErr
 			}
-			s.logger.Debug("Attribute indexes are not visible yet", tag.Value(map[string]interface{}{
+			s.logger.Info("Attribute indexes are not visible yet", tag.Value(map[string]interface{}{
 				"missing":          missing,
 				"nextPollInterval": nextPollInterval(interval),
 			}))
 		} else if !isRetryable(err) {
 			return backendError(err)
 		} else {
-			s.logger.Debug("Attribute index visibility poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
+			s.logger.Info("Attribute index visibility poll will retry", tag.Error(err), tag.Value(map[string]interface{}{
 				"nextPollInterval": nextPollInterval(interval),
 			}))
 		}
@@ -203,11 +203,11 @@ func (s *Synchronizer) addAttributeIndexes(
 	indexes map[string]dexpb.IndexType,
 ) error {
 	startedAt := time.Now()
-	s.logger.Debug("Adding attribute indexes", tag.Value(map[string]interface{}{
+	s.logger.Info("Adding attribute indexes", tag.Value(map[string]interface{}{
 		"indexes": indexes,
 	}))
 	err := s.client.AddAttributeIndexes(ctx, indexes)
-	s.logger.Debug("Add attribute indexes returned", tag.Error(err), tag.Value(map[string]interface{}{
+	s.logger.Info("Add attribute indexes returned", tag.Error(err), tag.Value(map[string]interface{}{
 		"elapsed": time.Since(startedAt),
 		"indexes": indexes,
 	}))
