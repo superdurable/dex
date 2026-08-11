@@ -31,6 +31,7 @@ import (
 	"go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
 	history "go.temporal.io/api/history/v1"
+	"go.temporal.io/api/operatorservice/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
@@ -67,6 +68,85 @@ func NewTemporalClient(
 
 func (t *temporalClient) Close() {
 	t.tClient.Close()
+}
+
+func (t *temporalClient) ListAttributeIndexes(ctx context.Context) (map[string]dexpb.IndexType, error) {
+	response, err := t.tClient.OperatorService().ListSearchAttributes(
+		ctx,
+		&operatorservice.ListSearchAttributesRequest{Namespace: t.namespace},
+	)
+	if err != nil {
+		return nil, err
+	}
+	indexes := make(map[string]dexpb.IndexType, len(response.GetCustomAttributes())+len(response.GetSystemAttributes()))
+	for name, indexType := range response.GetSystemAttributes() {
+		indexes[name] = mapTemporalIndexedValueType(indexType)
+	}
+	for name, indexType := range response.GetCustomAttributes() {
+		indexes[name] = mapTemporalIndexedValueType(indexType)
+	}
+	return indexes, nil
+}
+
+func (t *temporalClient) AddAttributeIndexes(ctx context.Context, indexes map[string]dexpb.IndexType) error {
+	searchAttributes := make(map[string]enums.IndexedValueType, len(indexes))
+	for name, indexType := range indexes {
+		searchAttributes[name] = mapToTemporalIndexedValueType(indexType)
+	}
+	_, err := t.tClient.OperatorService().AddSearchAttributes(
+		ctx,
+		&operatorservice.AddSearchAttributesRequest{
+			Namespace:        t.namespace,
+			SearchAttributes: searchAttributes,
+		},
+	)
+	return err
+}
+
+func (t *temporalClient) NormalizeAttributeIndexType(indexType dexpb.IndexType) dexpb.IndexType {
+	return indexType
+}
+
+func mapTemporalIndexedValueType(indexType enums.IndexedValueType) dexpb.IndexType {
+	switch indexType {
+	case enums.INDEXED_VALUE_TYPE_TEXT:
+		return dexpb.IndexType_INDEX_TYPE_TEXT
+	case enums.INDEXED_VALUE_TYPE_KEYWORD:
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD
+	case enums.INDEXED_VALUE_TYPE_KEYWORD_LIST:
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY
+	case enums.INDEXED_VALUE_TYPE_INT:
+		return dexpb.IndexType_INDEX_TYPE_INT
+	case enums.INDEXED_VALUE_TYPE_DOUBLE:
+		return dexpb.IndexType_INDEX_TYPE_DOUBLE
+	case enums.INDEXED_VALUE_TYPE_BOOL:
+		return dexpb.IndexType_INDEX_TYPE_BOOL
+	case enums.INDEXED_VALUE_TYPE_DATETIME:
+		return dexpb.IndexType_INDEX_TYPE_DATETIME
+	default:
+		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED
+	}
+}
+
+func mapToTemporalIndexedValueType(indexType dexpb.IndexType) enums.IndexedValueType {
+	switch indexType {
+	case dexpb.IndexType_INDEX_TYPE_TEXT:
+		return enums.INDEXED_VALUE_TYPE_TEXT
+	case dexpb.IndexType_INDEX_TYPE_KEYWORD:
+		return enums.INDEXED_VALUE_TYPE_KEYWORD
+	case dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY:
+		return enums.INDEXED_VALUE_TYPE_KEYWORD_LIST
+	case dexpb.IndexType_INDEX_TYPE_INT:
+		return enums.INDEXED_VALUE_TYPE_INT
+	case dexpb.IndexType_INDEX_TYPE_DOUBLE:
+		return enums.INDEXED_VALUE_TYPE_DOUBLE
+	case dexpb.IndexType_INDEX_TYPE_BOOL:
+		return enums.INDEXED_VALUE_TYPE_BOOL
+	case dexpb.IndexType_INDEX_TYPE_DATETIME:
+		return enums.INDEXED_VALUE_TYPE_DATETIME
+	default:
+		return enums.INDEXED_VALUE_TYPE_UNSPECIFIED
+	}
 }
 
 func (t *temporalClient) IsWorkflowAlreadyStartedError(err error) bool {
@@ -304,13 +384,13 @@ func (t *temporalClient) ListWorkflow(
 			return nil, err
 		}
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
-			FlowId:           exe.Execution.WorkflowId,
-			RunId:            exe.Execution.RunId,
-			SearchAttributes: searchAttributes,
-			FlowType:         stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
-			FlowStatus:       status,
-			StartTime:        exe.GetStartTime(),
-			CloseTime:        exe.GetCloseTime(),
+			FlowId:            exe.Execution.WorkflowId,
+			RunId:             exe.Execution.RunId,
+			IndexedAttributes: searchAttributes,
+			FlowType:          stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
+			FlowStatus:        status,
+			StartTime:         exe.GetStartTime(),
+			CloseTime:         exe.GetCloseTime(),
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{

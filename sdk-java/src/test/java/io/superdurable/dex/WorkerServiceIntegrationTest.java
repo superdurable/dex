@@ -33,13 +33,17 @@ import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
+import io.superdurable.gen.SyncAttributeIndexRequest;
+import io.superdurable.gen.SyncAttributeIndexResponse;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WorkerServiceGrpc;
 import io.superdurable.gen.WorkerErrorResponse;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
@@ -87,6 +91,10 @@ final class WorkerServiceIntegrationTest {
                     "hello",
                     execute.getStepDecision().getCloseDecision().getCloseInput().getStringValue());
             assertTrue(flow.start.handlerThread.get().startsWith("dex-java-handler-"));
+            assertEquals(
+                    io.superdurable.gen.IndexType.INDEX_TYPE_KEYWORD,
+                    running.syncRequest.get().getAttributeIndexesOrThrow("JavaWorkerStatus"));
+            assertFalse(running.listeningDuringSync.get());
         } finally {
             running.close();
         }
@@ -214,6 +222,14 @@ final class WorkerServiceIntegrationTest {
         final Server flowServer = ServerBuilder.forPort(flowPort)
                 .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                     @Override
+                    public void syncAttributeIndexes(
+                            final SyncAttributeIndexRequest request,
+                            final StreamObserver<SyncAttributeIndexResponse> observer) {
+                        observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                        observer.onCompleted();
+                    }
+
+                    @Override
                     public void loadBlobs(
                             final LoadBlobsRequest request,
                             final StreamObserver<LoadBlobsResponse> observer) {
@@ -273,11 +289,41 @@ final class WorkerServiceIntegrationTest {
             final String serverAddress,
             final GrpcErrorStatusMapping mapping) throws Exception {
         final int port = availablePort();
-        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
-                .bindAddress("127.0.0.1:" + port);
-        if (serverAddress != null) {
-            options.serverAddress(serverAddress);
+        final AtomicReference<SyncAttributeIndexRequest> syncRequest =
+                new AtomicReference<SyncAttributeIndexRequest>();
+        final AtomicReference<Boolean> listeningDuringSync =
+                new AtomicReference<Boolean>();
+        final Server ownedFlowServer;
+        final String effectiveServerAddress;
+        if (serverAddress == null) {
+            final int flowPort = availablePort();
+            ownedFlowServer = ServerBuilder.forPort(flowPort)
+                    .addService(new FlowServiceGrpc.FlowServiceImplBase() {
+                        @Override
+                        public void syncAttributeIndexes(
+                                final SyncAttributeIndexRequest request,
+                                final StreamObserver<SyncAttributeIndexResponse> observer) {
+                            syncRequest.set(request);
+                            try (Socket socket = new Socket()) {
+                                socket.connect(new InetSocketAddress("127.0.0.1", port), 100);
+                                listeningDuringSync.set(Boolean.TRUE);
+                            } catch (IOException expected) {
+                                listeningDuringSync.set(Boolean.FALSE);
+                            }
+                            observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                            observer.onCompleted();
+                        }
+                    })
+                    .build()
+                    .start();
+            effectiveServerAddress = "127.0.0.1:" + flowPort;
+        } else {
+            ownedFlowServer = null;
+            effectiveServerAddress = serverAddress;
         }
+        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
+                .bindAddress("127.0.0.1:" + port)
+                .serverAddress(effectiveServerAddress);
         if (mapping != null) {
             options.grpcErrorStatusMapping(mapping);
         }
@@ -303,7 +349,15 @@ final class WorkerServiceIntegrationTest {
                 WorkerServiceGrpc.newBlockingStub(channel)
                         .withWaitForReady()
                         .withDeadlineAfter(10, TimeUnit.SECONDS);
-        return new RunningWorker(worker, workerThread, workerFailure, channel, client);
+        return new RunningWorker(
+                worker,
+                workerThread,
+                workerFailure,
+                channel,
+                client,
+                ownedFlowServer,
+                syncRequest,
+                listeningDuringSync);
     }
 
     private static InvokeWaitForMethodRequest waitRequest(final Value input) {
@@ -381,18 +435,27 @@ final class WorkerServiceIntegrationTest {
         private final AtomicReference<Throwable> workerFailure;
         private final ManagedChannel channel;
         private final WorkerServiceGrpc.WorkerServiceBlockingStub client;
+        private final Server ownedFlowServer;
+        private final AtomicReference<SyncAttributeIndexRequest> syncRequest;
+        private final AtomicReference<Boolean> listeningDuringSync;
 
         private RunningWorker(
                 final Worker worker,
                 final Thread workerThread,
                 final AtomicReference<Throwable> workerFailure,
                 final ManagedChannel channel,
-                final WorkerServiceGrpc.WorkerServiceBlockingStub client) {
+                final WorkerServiceGrpc.WorkerServiceBlockingStub client,
+                final Server ownedFlowServer,
+                final AtomicReference<SyncAttributeIndexRequest> syncRequest,
+                final AtomicReference<Boolean> listeningDuringSync) {
             this.worker = worker;
             this.workerThread = workerThread;
             this.workerFailure = workerFailure;
             this.channel = channel;
             this.client = client;
+            this.ownedFlowServer = ownedFlowServer;
+            this.syncRequest = syncRequest;
+            this.listeningDuringSync = listeningDuringSync;
         }
 
         @Override
@@ -401,11 +464,18 @@ final class WorkerServiceIntegrationTest {
             worker.close();
             workerThread.join(5_000L);
             assertNull(workerFailure.get());
+            if (ownedFlowServer != null) {
+                ownedFlowServer.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+            }
         }
     }
 
     private static class BridgeFlow implements Flow<String> {
         private final BridgeStep start = new BridgeStep();
+        private final Attribute<String> status = Attribute.define(
+                "status",
+                String.class,
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "JavaWorkerStatus"));
 
         @Override
         public StepList<String> getSteps() {
@@ -421,6 +491,11 @@ final class WorkerServiceIntegrationTest {
         public RPCResult<String> checkedRpc(final Context context)
                 throws CheckedBridgeException {
             throw new CheckedBridgeException("checked RPC failure");
+        }
+
+        @Override
+        public PersistenceSchema getPersistenceSchema() {
+            return PersistenceSchema.of(status);
         }
     }
 

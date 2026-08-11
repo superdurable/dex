@@ -323,23 +323,23 @@ impl Client {
             let values = response
                 .flow_runs
                 .iter()
-                .flat_map(|entry| entry.search_attributes.iter())
+                .flat_map(|entry| entry.indexed_attributes.iter())
                 .map(|attribute| {
                     attribute
                         .value
                         .clone()
-                        .ok_or_else(|| invalid("search Attribute has no Value"))
+                        .ok_or_else(|| invalid("Indexed Attribute has no Value"))
                 })
                 .collect::<SdkResult<Vec<_>>>()?;
             let mut values = self.hydrator.hydrate_all(values).await?.into_iter();
             let mut flows = Vec::with_capacity(response.flow_runs.len());
             for entry in response.flow_runs {
-                let mut search_attributes = BTreeMap::new();
-                for attribute in entry.search_attributes {
+                let mut indexed_attributes = BTreeMap::new();
+                for attribute in entry.indexed_attributes {
                     let value = values
                         .next()
-                        .ok_or_else(|| invalid("search Attribute hydration count mismatch"))?;
-                    search_attributes.insert(attribute.key, value_mapper::decode_untyped(&value)?);
+                        .ok_or_else(|| invalid("Indexed Attribute hydration count mismatch"))?;
+                    indexed_attributes.insert(attribute.key, value_mapper::decode_untyped(&value)?);
                 }
                 flows.push(SearchFlowEntry {
                     flow_id: entry.flow_id,
@@ -348,7 +348,7 @@ impl Client {
                     status: map_flow_status(entry.flow_status)?,
                     started_at: entry.start_time.map(timestamp),
                     closed_at: entry.close_time.map(timestamp),
-                    search_attributes,
+                    indexed_attributes,
                 });
             }
             Ok(SearchFlowsPage {

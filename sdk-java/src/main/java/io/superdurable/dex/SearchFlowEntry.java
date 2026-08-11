@@ -18,8 +18,8 @@ import java.util.Map;
 /**
  * Represents one Flow execution returned by a search query.
  *
- * <p>The entry is an immutable snapshot. Search Attribute values are decoded to their natural Java
- * representations by the SDK and exposed through an unmodifiable map keyed by search field name.
+ * <p>The entry is an immutable snapshot. Indexed Attribute values are decoded to their natural
+ * Java representations and exposed through an unmodifiable map keyed by index name.
  */
 public final class SearchFlowEntry {
     private final String flowId;
@@ -28,7 +28,7 @@ public final class SearchFlowEntry {
     private final FlowStatus status;
     private final Instant startedAt;
     private final Instant closedAt;
-    private final Map<String, Object> searchAttributes;
+    private final Map<String, Object> indexedAttributes;
 
     SearchFlowEntry(
             final String flowId,
@@ -37,15 +37,15 @@ public final class SearchFlowEntry {
             final FlowStatus status,
             final Instant startedAt,
             final Instant closedAt,
-            final Map<String, Object> searchAttributes) {
+            final Map<String, Object> indexedAttributes) {
         this.flowId = flowId;
         this.runId = runId;
         this.flowType = flowType;
         this.status = status;
         this.startedAt = startedAt;
         this.closedAt = closedAt;
-        this.searchAttributes = Collections.unmodifiableMap(
-                new LinkedHashMap<String, Object>(searchAttributes));
+        this.indexedAttributes = Collections.unmodifiableMap(
+                new LinkedHashMap<String, Object>(indexedAttributes));
     }
 
     /**
@@ -103,11 +103,11 @@ public final class SearchFlowEntry {
     }
 
     /**
-     * Returns decoded search Attribute values for this execution.
+     * Returns decoded Indexed Attribute values for this execution.
      *
-     * @return an unmodifiable map of search field names to values
+     * @return an unmodifiable map of index names to values
      */
-    public Map<String, Object> getSearchAttributes() {
-        return searchAttributes;
+    public Map<String, Object> getIndexedAttributes() {
+        return indexedAttributes;
     }
 }

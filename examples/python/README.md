@@ -18,18 +18,12 @@ For the sync `Client` / `Worker` surface (Flask, six Flows), see
 
 ```bash
 dexcli dev --temporal-db-filename /tmp/dex-examples-python.db
-
-# Required once per Temporal namespace:
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name ActiveStepTypes --type KeywordList
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomKeywordField --type Keyword
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomTextField --type Text
-
 uv sync --locked
 uv run --frozen python main.py
 ```
+
+The Worker synchronizes all registered Indexed Attributes with Dex before it
+opens its listener; no backend CLI registration is required.
 
 Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,

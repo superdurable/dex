@@ -56,7 +56,8 @@ The application exposes the following REST endpoints:
 
 ## Known limitations of Parallel Running States
 Temporal recommends that the number of activities running should be less than 500.
-This design pattern is better to use a number between 10<90. Because this is the number of parallel states that will be started immediately right after start, using a too large number will be hard for Temporal WebUI. 
+Keep the initial parallelism between 10 and 90 so the execution remains easy
+to inspect in Dex Web.
 
 ## Cost considerations
 Dex has "Local Activity Optimization" for Temporal cost. It is recommended that you enable this when using a lot of Parallel Running States. 

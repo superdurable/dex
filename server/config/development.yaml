@@ -21,6 +21,7 @@ api:
     initialIntervalSeconds: 1
     maximumAttempts: 5
 interpreter:
+  attributeIndexSyncTimeout: 2m
   temporal:
     hostPort: localhost:7233
     namespace: default

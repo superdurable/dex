@@ -78,11 +78,11 @@ public final class PersistenceTest {
     }
 
     @Test
-    void testSetSearchAttributes() throws Exception {
+    void testSetIndexedAttributes() throws Exception {
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory,
                 SET_ATTRIBUTES_WORKFLOW)) {
-            final String flowId = "set-search-attributes-" + UUID.randomUUID();
+            final String flowId = "set-indexed-attributes-" + UUID.randomUUID();
             final String[] keywords = {"keyword-1", "keyword-2"};
             final Instant datetime = Instant.parse("2024-11-13T00:00:01.731455544Z");
             environment.client().startFlow(SET_ATTRIBUTES_WORKFLOW, flowId, "start");

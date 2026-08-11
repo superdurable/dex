@@ -50,7 +50,7 @@ test("persistence reads initial values, Step writes, locals, and deletes", async
 test("Client sets every indexed attribute kind", async () => {
   const flow = new SetAttributesFlow();
   await withEnvironment([flow], async ({ client }) => {
-    const id = flowId("set-search-attributes");
+    const id = flowId("set-indexed-attributes");
     const keywords = ["keyword-1", "keyword-2"] as const;
     const datetime = new Date("2024-11-13T00:00:01.731Z");
     await client.startFlow(flow, id, "start");

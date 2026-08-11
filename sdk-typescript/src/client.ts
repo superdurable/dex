@@ -429,9 +429,9 @@ export class Client {
     if (entry.startTime === undefined) {
       throw new TypeError(`Dex returned a search entry without a start time for Flow ${entry.flowId}`);
     }
-    const searchAttributes = new Map<string, unknown>();
-    for (const attribute of entry.searchAttributes) {
-      searchAttributes.set(attribute.key, decodeUnknown(await this.hydrator.hydrate(attribute.value)));
+    const indexedAttributes = new Map<string, unknown>();
+    for (const attribute of entry.indexedAttributes) {
+      indexedAttributes.set(attribute.key, decodeUnknown(await this.hydrator.hydrate(attribute.value)));
     }
     return {
       flowId: entry.flowId,
@@ -440,7 +440,7 @@ export class Client {
       status: mapFlowStatus(entry.flowStatus),
       startedAt: entry.startTime,
       closedAt: entry.closeTime,
-      searchAttributes,
+      indexedAttributes,
     };
   }
 

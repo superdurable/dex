@@ -25,6 +25,7 @@ pub struct Registry {
 #[derive(Clone, Default)]
 struct RegistryInner {
     flows: HashMap<&'static str, RegisteredFlow>,
+    attribute_indexes: HashMap<String, i32>,
 }
 
 #[derive(Clone)]
@@ -48,9 +49,36 @@ impl Registry {
         let name = require_static_name(flow.flow_type(), "Flow type")?;
         let registered = assemble_flow(name, Arc::clone(&flow))?;
         let inner = Arc::make_mut(&mut self.inner);
+        let mut additions = Vec::new();
+        for definition in registered.persistence.values() {
+            let Some(index) = &definition.index else {
+                continue;
+            };
+            if definition.kind == PersistenceKind::AttributeMap
+                && index.key().is_none_or(str::is_empty)
+            {
+                return Err(definition_error(format!(
+                    "Flow {name} indexed AttributeMap {} requires an index key",
+                    definition.name
+                )));
+            }
+            let key = index.key().unwrap_or(&definition.name).to_string();
+            let index_type = index.proto_value();
+            if inner
+                .attribute_indexes
+                .get(&key)
+                .is_some_and(|existing| *existing != index_type)
+            {
+                return Err(definition_error(format!(
+                    "Attribute index {key} has conflicting types"
+                )));
+            }
+            additions.push((key, index_type));
+        }
         if inner.flows.insert(name, registered).is_some() {
             return Err(definition_error(format!("duplicate Flow {name}")));
         }
+        inner.attribute_indexes.extend(additions);
         Ok(self)
     }
 
@@ -79,6 +107,10 @@ impl Registry {
         matched.ok_or_else(|| SdkError::FlowDefinition {
             message: format!("RPC is not registered: {name}"),
         })
+    }
+
+    pub(crate) fn attribute_indexes(&self) -> &HashMap<String, i32> {
+        &self.inner.attribute_indexes
     }
 }
 

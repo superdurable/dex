@@ -22,6 +22,7 @@ import (
 	"github.com/superdurable/dex/service/common/blobstore"
 	dexconverter "github.com/superdurable/dex/service/common/converter"
 	"github.com/superdurable/dex/service/interpreter/cadence"
+	adminv1 "github.com/uber/cadence-idl/go/proto/admin/v1"
 	apiv1 "github.com/uber/cadence-idl/go/proto/api/v1"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -52,7 +53,7 @@ func (r *Runtime) createCadenceServices() (
 	if domain == "" {
 		domain = DefaultCadenceDomain
 	}
-	serviceClient, closeServiceClient, err := BuildCadenceServiceClient(hostPort)
+	serviceClient, adminClient, closeServiceClient, err := BuildCadenceServiceClient(hostPort)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("connect to Cadence: %w", err)
 	}
@@ -70,6 +71,8 @@ func (r *Runtime) createCadenceServices() (
 		domain,
 		cadenceClient,
 		serviceClient,
+		adminClient,
+		r.cfg.Interpreter.Cadence.AdminSecurityToken,
 		dataConverter,
 		closeClient,
 		&r.cfg.Api.QueryWorkflowFailedRetryPolicy,
@@ -114,7 +117,9 @@ func BuildCadenceClient(
 	), nil
 }
 
-func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface, func(), error) {
+func BuildCadenceServiceClient(
+	hostPort string,
+) (workflowserviceclient.Interface, adminv1.AdminAPIYARPCClient, func(), error) {
 	dispatcher := yarpc.NewDispatcher(yarpc.Config{
 		Name: cadenceClientName,
 		Outbounds: yarpc.Outbounds{
@@ -122,7 +127,7 @@ func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface
 		},
 	})
 	if err := dispatcher.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start Cadence transport: %w", err)
+		return nil, nil, nil, fmt.Errorf("start Cadence transport: %w", err)
 	}
 	clientConfig := dispatcher.ClientConfig(cadenceFrontendService)
 	return compatibility.NewThrift2ProtoAdapter(
@@ -130,7 +135,7 @@ func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface
 			apiv1.NewWorkflowAPIYARPCClient(clientConfig),
 			apiv1.NewWorkerAPIYARPCClient(clientConfig),
 			apiv1.NewVisibilityAPIYARPCClient(clientConfig),
-		), func() {
+		), adminv1.NewAdminAPIYARPCClient(clientConfig), func() {
 			if err := dispatcher.Stop(); err != nil {
 				log.Printf("stop Cadence transport: %v", err)
 			}

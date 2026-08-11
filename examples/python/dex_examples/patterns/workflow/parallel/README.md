@@ -29,7 +29,7 @@ branch has finished, or when you need their results.
 
 Temporal recommends fewer than 500 in-flight activities. For this pattern, stay
 between 10 and 90 parallel steps: they all start immediately after the fan-out,
-and large numbers are hard to read in the Temporal Web UI.
+and large numbers are hard to inspect in Dex Web.
 
 ## Cost considerations
 

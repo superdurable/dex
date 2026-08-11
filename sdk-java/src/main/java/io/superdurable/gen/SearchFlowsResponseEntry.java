@@ -30,7 +30,7 @@ private static final long serialVersionUID = 0L;
   private SearchFlowsResponseEntry() {
     flowId_ = "";
     runId_ = "";
-    searchAttributes_ = java.util.Collections.emptyList();
+    indexedAttributes_ = java.util.Collections.emptyList();
     flowType_ = "";
     flowStatus_ = 0;
   }
@@ -132,45 +132,45 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int SEARCH_ATTRIBUTES_FIELD_NUMBER = 3;
+  public static final int INDEXED_ATTRIBUTES_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.KV> searchAttributes_;
+  private java.util.List<io.superdurable.gen.KV> indexedAttributes_;
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.KV> getSearchAttributesList() {
-    return searchAttributes_;
+  public java.util.List<io.superdurable.gen.KV> getIndexedAttributesList() {
+    return indexedAttributes_;
   }
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
-      getSearchAttributesOrBuilderList() {
-    return searchAttributes_;
+      getIndexedAttributesOrBuilderList() {
+    return indexedAttributes_;
   }
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   @java.lang.Override
-  public int getSearchAttributesCount() {
-    return searchAttributes_.size();
+  public int getIndexedAttributesCount() {
+    return indexedAttributes_.size();
   }
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.KV getSearchAttributes(int index) {
-    return searchAttributes_.get(index);
+  public io.superdurable.gen.KV getIndexedAttributes(int index) {
+    return indexedAttributes_.get(index);
   }
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+  public io.superdurable.gen.KVOrBuilder getIndexedAttributesOrBuilder(
       int index) {
-    return searchAttributes_.get(index);
+    return indexedAttributes_.get(index);
   }
 
   public static final int FLOW_TYPE_FIELD_NUMBER = 4;
@@ -302,8 +302,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, runId_);
     }
-    for (int i = 0; i < searchAttributes_.size(); i++) {
-      output.writeMessage(3, searchAttributes_.get(i));
+    for (int i = 0; i < indexedAttributes_.size(); i++) {
+      output.writeMessage(3, indexedAttributes_.get(i));
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, flowType_);
@@ -329,10 +329,10 @@ private static final long serialVersionUID = 0L;
     }
 
         {
-          final int count = searchAttributes_.size();
+          final int count = indexedAttributes_.size();
           for (int i = 0; i < count; i++) {
             size += com.google.protobuf.CodedOutputStream
-              .computeMessageSizeNoTag(searchAttributes_.get(i));
+              .computeMessageSizeNoTag(indexedAttributes_.get(i));
           }
           size += 1 * count;
         }
@@ -379,8 +379,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowId())) return false;
     if (!getRunId()
         .equals(other.getRunId())) return false;
-    if (!getSearchAttributesList()
-        .equals(other.getSearchAttributesList())) return false;
+    if (!getIndexedAttributesList()
+        .equals(other.getIndexedAttributesList())) return false;
     if (!getFlowType()
         .equals(other.getFlowType())) return false;
     if (flowStatus_ != other.flowStatus_) return false;
@@ -409,9 +409,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowId().hashCode();
     hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRunId().hashCode();
-    if (getSearchAttributesCount() > 0) {
-      hash = (37 * hash) + SEARCH_ATTRIBUTES_FIELD_NUMBER;
-      hash = (53 * hash) + getSearchAttributesList().hashCode();
+    if (getIndexedAttributesCount() > 0) {
+      hash = (37 * hash) + INDEXED_ATTRIBUTES_FIELD_NUMBER;
+      hash = (53 * hash) + getIndexedAttributesList().hashCode();
     }
     hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getFlowType().hashCode();
@@ -555,7 +555,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetSearchAttributesFieldBuilder();
+        internalGetIndexedAttributesFieldBuilder();
         internalGetStartTimeFieldBuilder();
         internalGetCloseTimeFieldBuilder();
       }
@@ -566,11 +566,11 @@ private static final long serialVersionUID = 0L;
       bitField0_ = 0;
       flowId_ = "";
       runId_ = "";
-      if (searchAttributesBuilder_ == null) {
-        searchAttributes_ = java.util.Collections.emptyList();
+      if (indexedAttributesBuilder_ == null) {
+        indexedAttributes_ = java.util.Collections.emptyList();
       } else {
-        searchAttributes_ = null;
-        searchAttributesBuilder_.clear();
+        indexedAttributes_ = null;
+        indexedAttributesBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000004);
       flowType_ = "";
@@ -618,14 +618,14 @@ private static final long serialVersionUID = 0L;
     }
 
     private void buildPartialRepeatedFields(io.superdurable.gen.SearchFlowsResponseEntry result) {
-      if (searchAttributesBuilder_ == null) {
+      if (indexedAttributesBuilder_ == null) {
         if (((bitField0_ & 0x00000004) != 0)) {
-          searchAttributes_ = java.util.Collections.unmodifiableList(searchAttributes_);
+          indexedAttributes_ = java.util.Collections.unmodifiableList(indexedAttributes_);
           bitField0_ = (bitField0_ & ~0x00000004);
         }
-        result.searchAttributes_ = searchAttributes_;
+        result.indexedAttributes_ = indexedAttributes_;
       } else {
-        result.searchAttributes_ = searchAttributesBuilder_.build();
+        result.indexedAttributes_ = indexedAttributesBuilder_.build();
       }
     }
 
@@ -681,29 +681,29 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000002;
         onChanged();
       }
-      if (searchAttributesBuilder_ == null) {
-        if (!other.searchAttributes_.isEmpty()) {
-          if (searchAttributes_.isEmpty()) {
-            searchAttributes_ = other.searchAttributes_;
+      if (indexedAttributesBuilder_ == null) {
+        if (!other.indexedAttributes_.isEmpty()) {
+          if (indexedAttributes_.isEmpty()) {
+            indexedAttributes_ = other.indexedAttributes_;
             bitField0_ = (bitField0_ & ~0x00000004);
           } else {
-            ensureSearchAttributesIsMutable();
-            searchAttributes_.addAll(other.searchAttributes_);
+            ensureIndexedAttributesIsMutable();
+            indexedAttributes_.addAll(other.indexedAttributes_);
           }
           onChanged();
         }
       } else {
-        if (!other.searchAttributes_.isEmpty()) {
-          if (searchAttributesBuilder_.isEmpty()) {
-            searchAttributesBuilder_.dispose();
-            searchAttributesBuilder_ = null;
-            searchAttributes_ = other.searchAttributes_;
+        if (!other.indexedAttributes_.isEmpty()) {
+          if (indexedAttributesBuilder_.isEmpty()) {
+            indexedAttributesBuilder_.dispose();
+            indexedAttributesBuilder_ = null;
+            indexedAttributes_ = other.indexedAttributes_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            searchAttributesBuilder_ = 
+            indexedAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
-                 internalGetSearchAttributesFieldBuilder() : null;
+                 internalGetIndexedAttributesFieldBuilder() : null;
           } else {
-            searchAttributesBuilder_.addAllMessages(other.searchAttributes_);
+            indexedAttributesBuilder_.addAllMessages(other.indexedAttributes_);
           }
         }
       }
@@ -762,11 +762,11 @@ private static final long serialVersionUID = 0L;
                   input.readMessage(
                       io.superdurable.gen.KV.parser(),
                       extensionRegistry);
-              if (searchAttributesBuilder_ == null) {
-                ensureSearchAttributesIsMutable();
-                searchAttributes_.add(m);
+              if (indexedAttributesBuilder_ == null) {
+                ensureIndexedAttributesIsMutable();
+                indexedAttributes_.add(m);
               } else {
-                searchAttributesBuilder_.addMessage(m);
+                indexedAttributesBuilder_.addMessage(m);
               }
               break;
             } // case 26
@@ -955,244 +955,244 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.util.List<io.superdurable.gen.KV> searchAttributes_ =
+    private java.util.List<io.superdurable.gen.KV> indexedAttributes_ =
       java.util.Collections.emptyList();
-    private void ensureSearchAttributesIsMutable() {
+    private void ensureIndexedAttributesIsMutable() {
       if (!((bitField0_ & 0x00000004) != 0)) {
-        searchAttributes_ = new java.util.ArrayList<io.superdurable.gen.KV>(searchAttributes_);
+        indexedAttributes_ = new java.util.ArrayList<io.superdurable.gen.KV>(indexedAttributes_);
         bitField0_ |= 0x00000004;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> searchAttributesBuilder_;
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> indexedAttributesBuilder_;
 
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.KV> getSearchAttributesList() {
-      if (searchAttributesBuilder_ == null) {
-        return java.util.Collections.unmodifiableList(searchAttributes_);
+    public java.util.List<io.superdurable.gen.KV> getIndexedAttributesList() {
+      if (indexedAttributesBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(indexedAttributes_);
       } else {
-        return searchAttributesBuilder_.getMessageList();
+        return indexedAttributesBuilder_.getMessageList();
       }
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public int getSearchAttributesCount() {
-      if (searchAttributesBuilder_ == null) {
-        return searchAttributes_.size();
+    public int getIndexedAttributesCount() {
+      if (indexedAttributesBuilder_ == null) {
+        return indexedAttributes_.size();
       } else {
-        return searchAttributesBuilder_.getCount();
+        return indexedAttributesBuilder_.getCount();
       }
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public io.superdurable.gen.KV getSearchAttributes(int index) {
-      if (searchAttributesBuilder_ == null) {
-        return searchAttributes_.get(index);
+    public io.superdurable.gen.KV getIndexedAttributes(int index) {
+      if (indexedAttributesBuilder_ == null) {
+        return indexedAttributes_.get(index);
       } else {
-        return searchAttributesBuilder_.getMessage(index);
+        return indexedAttributesBuilder_.getMessage(index);
       }
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder setSearchAttributes(
+    public Builder setIndexedAttributes(
         int index, io.superdurable.gen.KV value) {
-      if (searchAttributesBuilder_ == null) {
+      if (indexedAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.set(index, value);
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.set(index, value);
         onChanged();
       } else {
-        searchAttributesBuilder_.setMessage(index, value);
+        indexedAttributesBuilder_.setMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder setSearchAttributes(
+    public Builder setIndexedAttributes(
         int index, io.superdurable.gen.KV.Builder builderForValue) {
-      if (searchAttributesBuilder_ == null) {
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.set(index, builderForValue.build());
+      if (indexedAttributesBuilder_ == null) {
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.set(index, builderForValue.build());
         onChanged();
       } else {
-        searchAttributesBuilder_.setMessage(index, builderForValue.build());
+        indexedAttributesBuilder_.setMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder addSearchAttributes(io.superdurable.gen.KV value) {
-      if (searchAttributesBuilder_ == null) {
+    public Builder addIndexedAttributes(io.superdurable.gen.KV value) {
+      if (indexedAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.add(value);
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.add(value);
         onChanged();
       } else {
-        searchAttributesBuilder_.addMessage(value);
+        indexedAttributesBuilder_.addMessage(value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder addSearchAttributes(
+    public Builder addIndexedAttributes(
         int index, io.superdurable.gen.KV value) {
-      if (searchAttributesBuilder_ == null) {
+      if (indexedAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.add(index, value);
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.add(index, value);
         onChanged();
       } else {
-        searchAttributesBuilder_.addMessage(index, value);
+        indexedAttributesBuilder_.addMessage(index, value);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder addSearchAttributes(
+    public Builder addIndexedAttributes(
         io.superdurable.gen.KV.Builder builderForValue) {
-      if (searchAttributesBuilder_ == null) {
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.add(builderForValue.build());
+      if (indexedAttributesBuilder_ == null) {
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.add(builderForValue.build());
         onChanged();
       } else {
-        searchAttributesBuilder_.addMessage(builderForValue.build());
+        indexedAttributesBuilder_.addMessage(builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder addSearchAttributes(
+    public Builder addIndexedAttributes(
         int index, io.superdurable.gen.KV.Builder builderForValue) {
-      if (searchAttributesBuilder_ == null) {
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.add(index, builderForValue.build());
+      if (indexedAttributesBuilder_ == null) {
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.add(index, builderForValue.build());
         onChanged();
       } else {
-        searchAttributesBuilder_.addMessage(index, builderForValue.build());
+        indexedAttributesBuilder_.addMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder addAllSearchAttributes(
+    public Builder addAllIndexedAttributes(
         java.lang.Iterable<? extends io.superdurable.gen.KV> values) {
-      if (searchAttributesBuilder_ == null) {
-        ensureSearchAttributesIsMutable();
+      if (indexedAttributesBuilder_ == null) {
+        ensureIndexedAttributesIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
-            values, searchAttributes_);
+            values, indexedAttributes_);
         onChanged();
       } else {
-        searchAttributesBuilder_.addAllMessages(values);
+        indexedAttributesBuilder_.addAllMessages(values);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder clearSearchAttributes() {
-      if (searchAttributesBuilder_ == null) {
-        searchAttributes_ = java.util.Collections.emptyList();
+    public Builder clearIndexedAttributes() {
+      if (indexedAttributesBuilder_ == null) {
+        indexedAttributes_ = java.util.Collections.emptyList();
         bitField0_ = (bitField0_ & ~0x00000004);
         onChanged();
       } else {
-        searchAttributesBuilder_.clear();
+        indexedAttributesBuilder_.clear();
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public Builder removeSearchAttributes(int index) {
-      if (searchAttributesBuilder_ == null) {
-        ensureSearchAttributesIsMutable();
-        searchAttributes_.remove(index);
+    public Builder removeIndexedAttributes(int index) {
+      if (indexedAttributesBuilder_ == null) {
+        ensureIndexedAttributesIsMutable();
+        indexedAttributes_.remove(index);
         onChanged();
       } else {
-        searchAttributesBuilder_.remove(index);
+        indexedAttributesBuilder_.remove(index);
       }
       return this;
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public io.superdurable.gen.KV.Builder getSearchAttributesBuilder(
+    public io.superdurable.gen.KV.Builder getIndexedAttributesBuilder(
         int index) {
-      return internalGetSearchAttributesFieldBuilder().getBuilder(index);
+      return internalGetIndexedAttributesFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+    public io.superdurable.gen.KVOrBuilder getIndexedAttributesOrBuilder(
         int index) {
-      if (searchAttributesBuilder_ == null) {
-        return searchAttributes_.get(index);  } else {
-        return searchAttributesBuilder_.getMessageOrBuilder(index);
+      if (indexedAttributesBuilder_ == null) {
+        return indexedAttributes_.get(index);  } else {
+        return indexedAttributesBuilder_.getMessageOrBuilder(index);
       }
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
     public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
-         getSearchAttributesOrBuilderList() {
-      if (searchAttributesBuilder_ != null) {
-        return searchAttributesBuilder_.getMessageOrBuilderList();
+         getIndexedAttributesOrBuilderList() {
+      if (indexedAttributesBuilder_ != null) {
+        return indexedAttributesBuilder_.getMessageOrBuilderList();
       } else {
-        return java.util.Collections.unmodifiableList(searchAttributes_);
+        return java.util.Collections.unmodifiableList(indexedAttributes_);
       }
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public io.superdurable.gen.KV.Builder addSearchAttributesBuilder() {
-      return internalGetSearchAttributesFieldBuilder().addBuilder(
+    public io.superdurable.gen.KV.Builder addIndexedAttributesBuilder() {
+      return internalGetIndexedAttributesFieldBuilder().addBuilder(
           io.superdurable.gen.KV.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
-    public io.superdurable.gen.KV.Builder addSearchAttributesBuilder(
+    public io.superdurable.gen.KV.Builder addIndexedAttributesBuilder(
         int index) {
-      return internalGetSearchAttributesFieldBuilder().addBuilder(
+      return internalGetIndexedAttributesFieldBuilder().addBuilder(
           index, io.superdurable.gen.KV.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.KV search_attributes = 3;</code>
+     * <code>repeated .dex.KV indexed_attributes = 3;</code>
      */
     public java.util.List<io.superdurable.gen.KV.Builder> 
-         getSearchAttributesBuilderList() {
-      return internalGetSearchAttributesFieldBuilder().getBuilderList();
+         getIndexedAttributesBuilderList() {
+      return internalGetIndexedAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
         io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
-        internalGetSearchAttributesFieldBuilder() {
-      if (searchAttributesBuilder_ == null) {
-        searchAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+        internalGetIndexedAttributesFieldBuilder() {
+      if (indexedAttributesBuilder_ == null) {
+        indexedAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
-                searchAttributes_,
+                indexedAttributes_,
                 ((bitField0_ & 0x00000004) != 0),
                 getParentForChildren(),
                 isClean());
-        searchAttributes_ = null;
+        indexedAttributes_ = null;
       }
-      return searchAttributesBuilder_;
+      return indexedAttributesBuilder_;
     }
 
     private java.lang.Object flowType_ = "";

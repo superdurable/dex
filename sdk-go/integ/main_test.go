@@ -105,13 +105,21 @@ func (environment *integrationEnvironment) waitUntilReady() error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if _, err := environment.client.HealthCheck(ctx); err == nil {
-			return nil
+		connection, err := net.DialTimeout(
+			"tcp",
+			environment.worker.WorkerTarget().Address,
+			100*time.Millisecond,
+		)
+		if err == nil {
+			return connection.Close()
 		}
 		select {
+		case workerErr := <-environment.workerResult:
+			environment.workerResult <- workerErr
+			return fmt.Errorf("start integration Worker: %w", workerErr)
 		case <-ticker.C:
 		case <-ctx.Done():
-			return fmt.Errorf("wait for Dex health: %w", ctx.Err())
+			return fmt.Errorf("wait for integration Worker: %w", ctx.Err())
 		}
 	}
 }

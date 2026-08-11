@@ -46,7 +46,8 @@ pub struct SearchFlowEntry {
     pub status: FlowStatus,
     pub started_at: Option<SystemTime>,
     pub closed_at: Option<SystemTime>,
-    pub search_attributes: BTreeMap<String, serde_json::Value>,
+    /// Values keyed by their physical Indexed Attribute names.
+    pub indexed_attributes: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

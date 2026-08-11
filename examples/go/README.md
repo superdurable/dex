@@ -13,21 +13,12 @@ Start PostgreSQL and Dex, then build and run the examples:
 ```bash
 docker compose -f dataset-deal/docker-compose.yml up -d --wait
 dexcli dev --temporal-db-filename /tmp/dex-examples.db
-./dataset-deal/register-search-attributes.sh localhost:7233
 make bins
 ./dex-samples
 ```
 
-When Temporal search attributes are not pre-created:
-
-```bash
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name ActiveStepTypes --type KeywordList
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomKeywordField --type Keyword
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomTextField --type Text
-```
+The Worker synchronizes all registered Indexed Attributes with Dex before it
+opens its listener; no backend CLI registration is required.
 
 The defaults connect to Dex at `localhost:8801`. These environment variables override the local addresses:
 

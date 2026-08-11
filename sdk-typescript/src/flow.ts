@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import type { Attribute, AttributeMap, PersistenceSchema } from "./persistence.js";
+import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from "./persistence.js";
+import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import { StepList, type Step } from "./step.js";
@@ -27,13 +28,14 @@ export class Registry {
     const flowsByName = new Map<string, RegisteredFlow>();
     const rpcsByMethod = new Map<Function, RegisteredRPC>();
     const flowNames = new Set<string>();
+    const attributeIndexes = new Map<string, ProtoIndexType>();
     for (const flow of flows) {
       const name = flowType(flow);
       if (flowNames.has(name)) {
         throw new FlowDefinitionError(`duplicate Flow ${name}`);
       }
       flowNames.add(name);
-      const registered = registerFlow(flow, name);
+      const registered = registerFlow(flow, name, attributeIndexes);
       flowsByInstance.set(flow, registered);
       flowsByName.set(name, registered);
       for (const rpc of registered.rpcs) {
@@ -44,7 +46,7 @@ export class Registry {
       }
     }
     this.flows = Object.freeze([...flows]);
-    registryMetadata.set(this, { flowsByInstance, flowsByName, rpcsByMethod });
+    registryMetadata.set(this, { flowsByInstance, flowsByName, rpcsByMethod, attributeIndexes });
   }
 }
 
@@ -70,6 +72,7 @@ interface RegistryMetadata {
   readonly flowsByInstance: ReadonlyMap<Flow<any>, RegisteredFlow>;
   readonly flowsByName: ReadonlyMap<string, RegisteredFlow>;
   readonly rpcsByMethod: ReadonlyMap<Function, RegisteredRPC>;
+  readonly attributeIndexes: ReadonlyMap<string, ProtoIndexType>;
 }
 
 const registryMetadata = new WeakMap<Registry, RegistryMetadata>();
@@ -114,6 +117,12 @@ export function registeredRPCByName(flow: RegisteredFlow, name: string): Registe
   return registered;
 }
 
+export function registeredAttributeIndexes(
+  registry: Registry,
+): ReadonlyMap<string, ProtoIndexType> {
+  return metadata(registry).attributeIndexes;
+}
+
 function metadata(registry: Registry): RegistryMetadata {
   const value = registryMetadata.get(registry);
   if (value === undefined) {
@@ -144,15 +153,23 @@ function stepType(flowName: string, step: Step<unknown>): string {
   return name;
 }
 
-function registerFlow(flow: Flow<any>, name: string): RegisteredFlow {
+function registerFlow(
+  flow: Flow<any>,
+  name: string,
+  attributeIndexes: Map<string, ProtoIndexType>,
+): RegisteredFlow {
   try {
-    return doRegisterFlow(flow, name);
+    return doRegisterFlow(flow, name, attributeIndexes);
   } catch (failure) {
     throw definitionError(`Flow ${name} registration failed`, failure);
   }
 }
 
-function doRegisterFlow(flow: Flow<any>, name: string): RegisteredFlow {
+function doRegisterFlow(
+  flow: Flow<any>,
+  name: string,
+  attributeIndexes: Map<string, ProtoIndexType>,
+): RegisteredFlow {
   const stepDefinitions = flow.getSteps();
   if (!(stepDefinitions instanceof StepList)) {
     throw new FlowDefinitionError(`Flow ${name} steps must be a StepList`);
@@ -189,6 +206,19 @@ function doRegisterFlow(flow: Flow<any>, name: string): RegisteredFlow {
       throw new FlowDefinitionError(`Flow ${name} has duplicate persistence definition ${definition.name}`);
     }
     persistence.set(definition.name, definition);
+    if ("index" in definition && definition.index !== undefined) {
+      const isMap = definition instanceof AttributeMap;
+      if (isMap && (definition.index.indexKey === undefined || definition.index.indexKey.length === 0)) {
+        throw new FlowDefinitionError(`Flow ${name} indexed AttributeMap ${definition.name} requires an index key`);
+      }
+      const key = definition.index.indexKey ?? definition.name;
+      const type = protoIndexType(definition.index.type);
+      const existing = attributeIndexes.get(key);
+      if (existing !== undefined && existing !== type) {
+        throw new FlowDefinitionError(`Attribute index ${key} has conflicting types ${existing} and ${type}`);
+      }
+      attributeIndexes.set(key, type);
+    }
   }
   const rpcNames = new Set<string>();
   const attributes = new Set(schema.attributes ?? []);
@@ -212,6 +242,18 @@ function doRegisterFlow(flow: Flow<any>, name: string): RegisteredFlow {
     rpcs,
     persistence,
   });
+}
+
+function protoIndexType(indexType: IndexType): ProtoIndexType {
+  return {
+    [IndexType.KEYWORD]: ProtoIndexType.INDEX_TYPE_KEYWORD,
+    [IndexType.FULL_TEXT]: ProtoIndexType.INDEX_TYPE_TEXT,
+    [IndexType.KEYWORD_ARRAY]: ProtoIndexType.INDEX_TYPE_KEYWORD_ARRAY,
+    [IndexType.INT]: ProtoIndexType.INDEX_TYPE_INT,
+    [IndexType.DOUBLE]: ProtoIndexType.INDEX_TYPE_DOUBLE,
+    [IndexType.BOOL]: ProtoIndexType.INDEX_TYPE_BOOL,
+    [IndexType.DATETIME]: ProtoIndexType.INDEX_TYPE_DATETIME,
+  }[indexType];
 }
 
 function definitionError(context: string, failure: unknown): FlowDefinitionError {

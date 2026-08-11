@@ -14,11 +14,9 @@ brew install dexcli
 dexcli dev
 ```
 
-`dexcli dev` 默认启动并管理：
+`dexcli dev` 默认启动并管理 Dex Server、Dex Web 和内部 workflow backend。就绪输出只展示：
 
 ```text
-Temporal Server  127.0.0.1:7233
-Temporal Web     http://127.0.0.1:8233
 Dex Server       127.0.0.1:8801
 Dex Web          http://127.0.0.1:8802
 ```
@@ -73,7 +71,7 @@ External Temporal :7233
           └── Go Web server :8802
 ```
 
-`dexcli` 只检查 external Temporal readiness 和必要的 Dex search attributes，不管理其生命周期。
+`dexcli` 只检查 external Temporal readiness，不管理其生命周期。Dex Server 启动时自动同步系统 Indexed Attributes。
 
 ### 3.3 Web 请求路径
 
@@ -302,8 +300,7 @@ temporal server start-dev \
   --ip 127.0.0.1 \
   --port 7233 \
   --ui-ip 127.0.0.1 \
-  --ui-port 8233 \
-  --search-attribute FlowType=Keyword
+  --ui-port 8233
 ```
 
 默认 namespace 已由 Temporal Dev Server 创建。只有用户传入非 `default` namespace 时才增加 namespace 参数。
@@ -311,13 +308,13 @@ temporal server start-dev \
 Process manager 必须：
 
 - 启动前验证 Temporal、Temporal UI、Dex 和 Dex Web owned ports；
-- 分别把 stdout/stderr 标记为 `[temporal]`；
+- 丢弃 backend 子进程 stdout/stderr，避免向普通启动输出泄露内部 endpoint；
 - 通过 Temporal API readiness 检查，不根据日志文本判断 ready；
-- local mode 确认 `FlowType=Keyword` 已注册；
+- Dex Server 启动时注册并验证系统 Indexed Attributes；
 - child process 非预期退出时取消整个 dev stack；
 - shutdown 时先发送 `SIGTERM`，超时后才 kill；
 - external mode 不查找、不启动、不 signal Temporal binary；
-- external mode 验证 `FlowType`，缺失时返回可操作错误，不自动注册。
+- external mode 仍由 Dex Server 自动同步 Indexed Attributes；权限不足时 Dex 启动失败。
 
 第一版接受 external-mode 用户也会通过 Homebrew 安装 Temporal CLI 的体积成本。拆分 Formula 或私有 runtime packaging 不在本计划范围。
 
@@ -336,7 +333,7 @@ Process manager 必须：
 6. 等待 Dex gRPC health SERVING
 7. 启动 embedded Dex Web
 8. 等待 /healthz
-9. 打印 URL；可选打开浏览器
+9. 只打印 Dex URL；可选打开 Dex Web
 ```
 
 停止顺序：
@@ -366,18 +363,15 @@ Dex development environment is ready
 
 Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
-Temporal Web:  http://127.0.0.1:8233
-Temporal:      127.0.0.1:7233
 
 Press Ctrl+C to stop.
 ```
 
-External Temporal mode 不伪造 Temporal Web URL：
+External Temporal mode 使用相同输出，不展示 backend 类型或 endpoint：
 
 ```text
 Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
-Temporal:      localhost:7233 (external)
 ```
 
 错误必须指出 component 和修复方法，例如：

@@ -15,31 +15,5 @@ How to test the APIs in browser:
     * etc
 * soft delete API: http://localhost:8803/jobpost/delete?workflowId=<TODO>
 
-### Search attribute requirement
-
-If using Temporal:
-
-* New CLI(temporal)
-
-```bash
-temporal search-attribute create -name Title -type Text -y
-temporal search-attribute create -name JobDescription -type Text -y
-temporal search-attribute create -name LastUpdateTimeMillis -type Int -y
-```
-
-* Old CLI(tctl)
-
-``` bash
-tctl adm cl asa -n Title -t Text
-tctl adm cl asa -n JobDescription -t Text
-tctl adm cl asa -n LastUpdateTimeMillis -t Int
-
-```
-
-If using Cadence
-
-```bash
-cadence adm cl asa --search_attr_key Title --search_attr_type 0
-cadence adm cl asa --search_attr_key JobDescription --search_attr_type 0
-cadence adm cl asa --search_attr_key LastUpdateTimeMillis --search_attr_type 2
-```
+The Worker synchronizes the job-post Indexed Attributes automatically before
+opening its listener.

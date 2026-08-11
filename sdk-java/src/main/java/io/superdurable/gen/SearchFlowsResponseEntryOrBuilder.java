@@ -35,27 +35,27 @@ public interface SearchFlowsResponseEntryOrBuilder extends
       getRunIdBytes();
 
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   java.util.List<io.superdurable.gen.KV> 
-      getSearchAttributesList();
+      getIndexedAttributesList();
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
-  io.superdurable.gen.KV getSearchAttributes(int index);
+  io.superdurable.gen.KV getIndexedAttributes(int index);
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
-  int getSearchAttributesCount();
+  int getIndexedAttributesCount();
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
   java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
-      getSearchAttributesOrBuilderList();
+      getIndexedAttributesOrBuilderList();
   /**
-   * <code>repeated .dex.KV search_attributes = 3;</code>
+   * <code>repeated .dex.KV indexed_attributes = 3;</code>
    */
-  io.superdurable.gen.KVOrBuilder getSearchAttributesOrBuilder(
+  io.superdurable.gen.KVOrBuilder getIndexedAttributesOrBuilder(
       int index);
 
   /**

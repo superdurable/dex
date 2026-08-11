@@ -328,7 +328,7 @@ func (service *clientTestFlowService) SearchFlows(
 			FlowType:   "dex.clientTestFlow",
 			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			StartTime:  timestamppb.New(time.Unix(100, 0)),
-			SearchAttributes: []*dexpb.KV{{
+			IndexedAttributes: []*dexpb.KV{{
 				Key: "status",
 				Value: &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 					InternalBlobIdForStringValue: "search-blob",
@@ -577,7 +577,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.Equal(t, time.Unix(100, 0).UTC(), page.Flows[0].StartedAt)
 	require.True(t, page.Flows[0].ClosedAt.IsZero())
 	var searchStatus string
-	require.NoError(t, page.Flows[0].SearchAttributes["status"].Decode(&searchStatus))
+	require.NoError(t, page.Flows[0].IndexedAttributes["status"].Decode(&searchStatus))
 	require.Equal(t, "hydrated", searchStatus)
 
 	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{}))

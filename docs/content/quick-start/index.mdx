@@ -23,13 +23,12 @@ brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev --open
 ```
 
-`dexcli` starts Temporal, Dex Server, and Dex Web. Defaults:
+`dexcli` starts Dex Server, Dex Web, and the internal workflow backend. Defaults:
 
 | Service | Address |
 | --- | --- |
 | Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | `127.0.0.1:8801` |
-| Temporal Web | `http://127.0.0.1:8233` |
 
 See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md) for flags and persistence options.
 

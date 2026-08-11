@@ -29,7 +29,7 @@ From `examples/python` (shared `uv` project):
 
 ```bash
 dexcli dev --temporal-db-filename /tmp/dex-examples-python.db
-# search attributes — same as the async README
+# Indexed Attributes — same as the async README
 
 uv sync --locked
 uv run --frozen python sync-python/main.py

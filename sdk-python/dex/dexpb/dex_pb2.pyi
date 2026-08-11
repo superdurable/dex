@@ -582,22 +582,39 @@ class SearchFlowsResponse(_message.Message):
     def __init__(self, flow_runs: _Optional[_Iterable[_Union[SearchFlowsResponseEntry, _Mapping]]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
 
 class SearchFlowsResponseEntry(_message.Message):
-    __slots__ = ("flow_id", "run_id", "search_attributes", "flow_type", "flow_status", "start_time", "close_time")
+    __slots__ = ("flow_id", "run_id", "indexed_attributes", "flow_type", "flow_status", "start_time", "close_time")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    SEARCH_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    INDEXED_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     FLOW_STATUS_FIELD_NUMBER: _ClassVar[int]
     START_TIME_FIELD_NUMBER: _ClassVar[int]
     CLOSE_TIME_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
-    search_attributes: _containers.RepeatedCompositeFieldContainer[KV]
+    indexed_attributes: _containers.RepeatedCompositeFieldContainer[KV]
     flow_type: str
     flow_status: FlowStatus
     start_time: _timestamp_pb2.Timestamp
     close_time: _timestamp_pb2.Timestamp
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., search_attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., flow_type: _Optional[str] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ..., start_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., close_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., indexed_attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., flow_type: _Optional[str] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ..., start_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., close_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class SyncAttributeIndexRequest(_message.Message):
+    __slots__ = ("attribute_indexes",)
+    class AttributeIndexesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: IndexType
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[IndexType, str]] = ...) -> None: ...
+    ATTRIBUTE_INDEXES_FIELD_NUMBER: _ClassVar[int]
+    attribute_indexes: _containers.ScalarMap[str, IndexType]
+    def __init__(self, attribute_indexes: _Optional[_Mapping[str, IndexType]] = ...) -> None: ...
+
+class SyncAttributeIndexResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
 
 class FlowExecutionID(_message.Message):
     __slots__ = ("flow_id", "run_id")

@@ -30,7 +30,6 @@ api_port="${DATASET_DEAL_API_PORT:-20804}"
 temporal_port="${DATASET_DEAL_TEMPORAL_PORT:-20233}"
 temporal_ui_port="${DATASET_DEAL_TEMPORAL_UI_PORT:-20333}"
 dex_address="127.0.0.1:${dex_port}"
-temporal_address="127.0.0.1:${temporal_port}"
 api_address="127.0.0.1:${api_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-demo-$$"
@@ -82,27 +81,6 @@ make bins
   -temporal-db-filename "$test_dir/temporal.db" \
   >>"$dex_log" 2>&1 &
 dexcli_pid=$!
-
-temporal_ready=false
-for _ in {1..240}; do
-  if temporal --address "$temporal_address" operator search-attribute list >/dev/null 2>&1; then
-    temporal_ready=true
-    break
-  fi
-  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    cat "$dex_log" >&2
-    echo "dexcli exited before Temporal became ready" >&2
-    exit 1
-  fi
-  sleep 0.25
-done
-if ! $temporal_ready; then
-  cat "$dex_log" >&2
-  echo "Temporal did not become ready" >&2
-  exit 1
-fi
-
-./dataset-deal/register-search-attributes.sh "$temporal_address"
 
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \

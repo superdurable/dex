@@ -231,6 +231,14 @@ impl AttributeIndex {
                 .unwrap_or_default(),
         }
     }
+
+    pub(crate) fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    pub(crate) fn proto_value(&self) -> i32 {
+        self.kind.proto_value()
+    }
 }
 
 impl AttributeIndexKind {

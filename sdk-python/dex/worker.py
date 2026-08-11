@@ -22,6 +22,7 @@ from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
 from dex._worker_service import WorkerService
 from dex.blob_cache import BlobCache
+from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.worker_options import WorkerOptions, WorkerTarget
@@ -40,14 +41,14 @@ class Worker:
         self._lock = threading.Lock()
         self._state = "created"
         self._flow_channel = grpc.insecure_channel(self.options.server_address)
-        flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
+        self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
         )
         values = ValueMapper(registry.codec_registry)
         dispatcher = WorkerDispatcher(
             registry,
             values,
-            ValueHydrator(flow_service, blob_cache),
+            ValueHydrator(self._flow_service, blob_cache),
         )
         concurrency = max(2, min(32, os.cpu_count() or 2))
         self._executor = ThreadPoolExecutor(
@@ -62,13 +63,9 @@ class Worker:
             WorkerService(dispatcher),
             self._server,
         )
-        self._bound_port = self._server.add_insecure_port(self.options.bind_address)
-        if self._bound_port == 0:
-            raise ValueError(
-                f"cannot bind Python Worker to {self.options.bind_address}"
-            )
+        self._bound_port = 0
         self._worker_target = self.options.worker_target or WorkerTarget(
-            self._target_address(self.options.bind_address, self._bound_port)
+            self._target_address(self.options.bind_address, 0)
         )
 
     def __enter__(self) -> Worker:
@@ -90,6 +87,30 @@ class Worker:
         with self._lock:
             if self._state != "created":
                 raise RuntimeError(f"Worker cannot start from state {self._state}")
+            try:
+                self._flow_service.SyncAttributeIndexes(
+                    pb.SyncAttributeIndexRequest(
+                        attribute_indexes=dict(self.registry._attribute_indexes)
+                    ),
+                    timeout=self.options.attribute_index_sync_timeout.total_seconds(),
+                )
+            except grpc.RpcError as failure:
+                self._state = "stopped"
+                self._flow_channel.close()
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                raise RuntimeError("cannot synchronize Attribute indexes") from failure
+            self._bound_port = self._server.add_insecure_port(self.options.bind_address)
+            if self._bound_port == 0:
+                self._state = "stopped"
+                self._flow_channel.close()
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                raise RuntimeError(
+                    f"cannot bind Python Worker to {self.options.bind_address}"
+                )
+            if self.options.worker_target is None:
+                self._worker_target = WorkerTarget(
+                    self._target_address(self.options.bind_address, self._bound_port)
+                )
             self._state = "running"
             self._server.start()
         self._server.wait_for_termination()
@@ -116,6 +137,8 @@ class Worker:
         host, separator, port = bind_address.rpartition(":")
         if not separator or not port:
             raise ValueError("Worker bind address requires a port")
+        if bound_port == 0:
+            bound_port = int(port)
         if host in ("", "0.0.0.0", "::", "[::]"):
             host = "localhost"
         return f"{host}:{bound_port}"

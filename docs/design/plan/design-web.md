@@ -124,7 +124,7 @@ message GetFlowSummaryResponse {
 message SearchFlowsResponseEntry {
   string flow_id = 1;
   string run_id = 2;
-  repeated KV search_attributes = 3;
+  repeated KV indexed_attributes = 3;
 }
 ```
 
@@ -136,7 +136,7 @@ message SearchFlowsResponseEntry {
 message SearchFlowsResponseEntry {
   string flow_id = 1;
   string run_id = 2;
-  repeated KV search_attributes = 3;
+  repeated KV indexed_attributes = 3;
   string flow_type = 4;
   FlowStatus flow_status = 5;
   google.protobuf.Timestamp start_time = 6;
@@ -146,7 +146,7 @@ message SearchFlowsResponseEntry {
 
 不增加 task queue、memo、pending activity、state transition count 或 backend configuration。
 
-`flow_type` 虽然也存在于 search attributes，仍作为稳定的 Dex system field 返回。Custom search attributes 继续保留在 `search_attributes`。
+`flow_type` 虽然也存在于 Indexed Attributes，仍作为稳定的 Dex system field 返回。Custom Indexed Attributes 继续保留在 `indexed_attributes`。
 
 ## 6. GetHistoryEvents
 
@@ -608,7 +608,7 @@ Sections：
 - recent/named searches；
 - custom columns、顺序和显示偏好；
 - status、flow/run ID、flow type、start/close/duration；
-- custom search attributes；
+- custom Indexed Attributes；
 - token pagination、timezone、shareable URL。
 
 ### 9.2 Run Details
@@ -666,7 +666,7 @@ Selected event：
 Phase 2 使用 `server/integ/`：
 
 - Temporal/Cadence summary：canonical run、request ID、flow type 和 execution timestamps。
-- Search：保留 custom search attributes，并返回 flow type/status/start/close。
+- Search：保留 custom Indexed Attributes，并返回 flow type/status/start/close。
 - Temporal/Cadence × SYNC/ASYNC：相同逻辑 flow 产生相同 Dex semantic events。
 - Activity retries 聚合为一个 completed/failed event，只返回 final attempt 或 terminal failure。
 - ASYNC local failure 与 regular fallback 跨 raw page 聚合。

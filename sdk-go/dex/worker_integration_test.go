@@ -588,6 +588,72 @@ func TestWorkerLifecycleAndTargetDefaults(t *testing.T) {
 	require.ErrorContains(t, err, "plaintext")
 	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{BindAddress: ":0"})
 	require.ErrorContains(t, err, "1-65535")
+	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{AttributeIndexSyncTimeout: -time.Second})
+	require.ErrorContains(t, err, "sync timeout must be positive")
+}
+
+func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
+	indexedStatus := DefineAttribute[string](
+		"status",
+		Indexed(AttributeIndex{Type: IndexKeyword, IndexKey: "WorkerTestStatus"}),
+	)
+	flow := &registrationFlow{
+		flowType: "worker-index-sync",
+		schema: PersistenceSchema{Attributes: []AttributeDef{
+			indexedStatus,
+		}},
+	}
+	address := unusedWorkerAddress(t)
+	flowService := &workerSyncFlowService{
+		probeAddress: address,
+		received:     make(chan *dexpb.SyncAttributeIndexRequest, 1),
+		wasListening: make(chan bool, 1),
+	}
+	flowServiceAddress := startWorkerFlowService(t, flowService)
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
+		BindAddress:        address,
+		FlowServiceAddress: flowServiceAddress,
+	})
+	require.NoError(t, err)
+	startResult := make(chan error, 1)
+	go func() { startResult <- worker.Start() }()
+
+	request := <-flowService.received
+	require.Equal(t, map[string]dexpb.IndexType{
+		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	}, request.AttributeIndexes)
+	require.False(t, <-flowService.wasListening)
+	require.Eventually(t, func() bool {
+		connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
+		if dialErr != nil {
+			return false
+		}
+		require.NoError(t, connection.Close())
+		return true
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, worker.Stop(context.Background()))
+	require.NoError(t, <-startResult)
+}
+
+func TestWorkerAttributeIndexSyncFailureKeepsPortClosed(t *testing.T) {
+	address := unusedWorkerAddress(t)
+	flowServiceAddress := startWorkerFlowService(t, &workerSyncFlowService{
+		failure: status.Error(codes.PermissionDenied, "denied"),
+	})
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
+		BindAddress:        address,
+		FlowServiceAddress: flowServiceAddress,
+	})
+	require.NoError(t, err)
+	err = worker.Start()
+	require.ErrorContains(t, err, "sync attribute indexes")
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
+	if dialErr == nil {
+		require.NoError(t, connection.Close())
+	}
+	require.Error(t, dialErr)
 }
 
 func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
@@ -691,6 +757,37 @@ type workerBlobFlowService struct {
 	calls   int
 	values  map[string]*dexpb.Value
 	omitted map[string]struct{}
+}
+
+type workerSyncFlowService struct {
+	dexpb.UnimplementedFlowServiceServer
+	probeAddress string
+	received     chan *dexpb.SyncAttributeIndexRequest
+	wasListening chan bool
+	failure      error
+}
+
+func (service *workerSyncFlowService) SyncAttributeIndexes(
+	_ context.Context,
+	request *dexpb.SyncAttributeIndexRequest,
+) (*dexpb.SyncAttributeIndexResponse, error) {
+	if service.probeAddress != "" {
+		connection, dialErr := net.DialTimeout("tcp", service.probeAddress, 50*time.Millisecond)
+		listening := dialErr == nil
+		if connection != nil {
+			if err := connection.Close(); err != nil {
+				return nil, err
+			}
+		}
+		service.wasListening <- listening
+	}
+	if service.received != nil {
+		service.received <- request
+	}
+	if service.failure != nil {
+		return nil, service.failure
+	}
+	return &dexpb.SyncAttributeIndexResponse{}, nil
 }
 
 func (service *workerBlobFlowService) LoadBlobs(
@@ -893,6 +990,9 @@ func newWorkerForTest(
 	options WorkerOptions,
 ) (*Worker, error) {
 	t.Helper()
+	if options.FlowServiceAddress == "" {
+		options.FlowServiceAddress = startWorkerFlowService(t, &workerSyncFlowService{})
+	}
 	registry, err := NewRegistry(flows)
 	if err != nil {
 		return nil, err
@@ -908,6 +1008,29 @@ func newWorkerForTest(
 		require.NoError(t, cache.Close())
 	})
 	return NewWorker(registry, cache, options)
+}
+
+func startWorkerFlowService(
+	t *testing.T,
+	service dexpb.FlowServiceServer,
+) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	grpcServer := grpc.NewServer()
+	dexpb.RegisterFlowServiceServer(grpcServer, service)
+	serveResult := make(chan error, 1)
+	go func() {
+		serveResult <- grpcServer.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			require.NoError(t, err)
+		}
+		requireServeStopped(t, <-serveResult)
+	})
+	return listener.Addr().String()
 }
 
 func startBlockingWorker(

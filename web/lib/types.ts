@@ -32,7 +32,7 @@ export interface FlowExecution {
   flowStatusCode: number;
   startTime: string | null;
   closeTime: string | null;
-  searchAttributes: KeyValue[];
+  indexedAttributes: KeyValue[];
 }
 
 export interface SearchFlowsResult {

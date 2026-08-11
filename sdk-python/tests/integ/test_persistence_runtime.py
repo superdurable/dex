@@ -17,8 +17,7 @@ from dex import FlowNotActiveError, FlowNotFoundError, StartFlowOptions
 from .basic_persistence_flow import BasicPersistenceFlow
 from .environment import DexDevTestEnvironment
 from .set_attributes_flow import SetAttributesFlow
-from .shared import ModelInput
-from .shared import unique_id
+from .shared import ModelInput, unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 
@@ -49,7 +48,7 @@ def test_persistence_reads_and_step_execution_local() -> None:
             environment.client.set_attribute(flow_id, flow.data, "closed")
 
 
-def test_set_search_attributes() -> None:
+def test_set_indexed_attributes() -> None:
     flow = SetAttributesFlow()
     keywords = ("keyword-1", "keyword-2")
     timestamp = datetime(
@@ -63,7 +62,7 @@ def test_set_search_attributes() -> None:
         tzinfo=timezone.utc,
     )
     with DexDevTestEnvironment(flow) as environment:
-        flow_id = unique_id("set-search-attributes")
+        flow_id = unique_id("set-indexed-attributes")
         environment.client.start_flow(flow, flow_id, "start")
         environment.client.set_attribute(flow_id, flow.keyword, "keyword-1")
         environment.client.set_attribute(flow_id, flow.text, "text-1")

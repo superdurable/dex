@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/api"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/attributestore"
@@ -28,6 +30,7 @@ import (
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/log/tag"
 	"github.com/superdurable/dex/service/common/workerclient"
+	"github.com/superdurable/dex/service/indexsync"
 	"google.golang.org/grpc"
 )
 
@@ -50,17 +53,18 @@ type Options struct {
 }
 
 type Runtime struct {
-	cfg            *config.Config
-	options        *Options
-	apiServer      *api.Server
-	worker         interpreterWorker
-	workerPool     *workerclient.WorkerClientPool
-	attributeStore *attributestore.Manager
-	blobStore      blobstore.BlobStore
-	logger         log.Logger
-	metricsCloser  io.Closer
-	serveError     chan error
-	shutdownOnce   sync.Once
+	cfg               *config.Config
+	options           *Options
+	apiServer         *api.Server
+	worker            interpreterWorker
+	workerPool        *workerclient.WorkerClientPool
+	attributeStore    *attributestore.Manager
+	blobStore         blobstore.BlobStore
+	logger            log.Logger
+	metricsCloser     io.Closer
+	serveError        chan error
+	indexSynchronizer *indexsync.Synchronizer
+	shutdownOnce      sync.Once
 }
 
 type interpreterWorker interface {
@@ -130,6 +134,7 @@ func (r *Runtime) createServices() error {
 		return err
 	}
 	r.blobStore = store
+	r.indexSynchronizer = indexsync.New(&r.cfg.Interpreter, client)
 	if r.options.Services.API {
 		r.apiServer = api.NewServer(
 			&r.cfg.Api,
@@ -147,6 +152,13 @@ func (r *Runtime) createServices() error {
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
+	if err := r.indexSynchronizer.Sync(ctx, map[string]dexpb.IndexType{
+		service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		service.SearchAttributeActiveStepTypes: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+	}); err != nil {
+		r.shutdown()
+		return fmt.Errorf("sync Dex attribute indexes: %w", err)
+	}
 	if r.worker != nil {
 		if err := r.worker.Start(); err != nil {
 			r.shutdown()

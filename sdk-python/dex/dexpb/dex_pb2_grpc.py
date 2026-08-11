@@ -124,6 +124,11 @@ class FlowServiceStub:
                 request_serializer=dex__pb2.SearchFlowsRequest.SerializeToString,
                 response_deserializer=dex__pb2.SearchFlowsResponse.FromString,
                 _registered_method=True)
+        self.SyncAttributeIndexes = channel.unary_unary(
+                '/dex.FlowService/SyncAttributeIndexes',
+                request_serializer=dex__pb2.SyncAttributeIndexRequest.SerializeToString,
+                response_deserializer=dex__pb2.SyncAttributeIndexResponse.FromString,
+                _registered_method=True)
         self.GetFlowSummary = channel.unary_unary(
                 '/dex.FlowService/GetFlowSummary',
                 request_serializer=dex__pb2.GetFlowSummaryRequest.SerializeToString,
@@ -286,6 +291,12 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SyncAttributeIndexes(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetFlowSummary(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -400,6 +411,11 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     servicer.SearchFlows,
                     request_deserializer=dex__pb2.SearchFlowsRequest.FromString,
                     response_serializer=dex__pb2.SearchFlowsResponse.SerializeToString,
+            ),
+            'SyncAttributeIndexes': grpc.unary_unary_rpc_method_handler(
+                    servicer.SyncAttributeIndexes,
+                    request_deserializer=dex__pb2.SyncAttributeIndexRequest.FromString,
+                    response_serializer=dex__pb2.SyncAttributeIndexResponse.SerializeToString,
             ),
             'GetFlowSummary': grpc.unary_unary_rpc_method_handler(
                     servicer.GetFlowSummary,
@@ -727,6 +743,33 @@ class FlowService:
             '/dex.FlowService/SearchFlows',
             dex__pb2.SearchFlowsRequest.SerializeToString,
             dex__pb2.SearchFlowsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SyncAttributeIndexes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/SyncAttributeIndexes',
+            dex__pb2.SyncAttributeIndexRequest.SerializeToString,
+            dex__pb2.SyncAttributeIndexResponse.FromString,
             options,
             channel_credentials,
             insecure,

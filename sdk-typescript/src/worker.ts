@@ -9,6 +9,7 @@
 import {
   Server,
   ServerCredentials,
+  Metadata,
   credentials,
   type sendUnaryData,
 } from "@grpc/grpc-js";
@@ -26,7 +27,7 @@ import {
   type WorkerServiceServer,
 } from "./gen/dex.js";
 import { workerServiceError } from "./grpc-status.js";
-import type { Registry } from "./flow.js";
+import { registeredAttributeIndexes, type Registry } from "./flow.js";
 import type { WorkerOptions, WorkerTarget } from "./options.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
@@ -69,13 +70,18 @@ export class Worker {
     }
     const bindAddress = this.options.bindAddress ?? "127.0.0.1:8803";
     try {
+      const timeoutMs = this.options.attributeIndexSyncTimeoutMs ?? 120_000;
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        throw new RangeError("attributeIndexSyncTimeoutMs must be positive");
+      }
+      await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       await bind(this.server, bindAddress);
       this.state = "running";
     } catch (failure) {
       this.state = "stopped";
       this.flowService.close();
       this.resolveStopped();
-      throw new Error(`cannot bind TypeScript Worker to ${bindAddress}`, { cause: failure });
+      throw new Error(`cannot start TypeScript Worker on ${bindAddress}`, { cause: failure });
     }
   }
 
@@ -105,6 +111,27 @@ export class Worker {
     }
     this.state = "closed";
   }
+}
+
+function syncAttributeIndexes(
+  service: InstanceType<typeof FlowServiceClient>,
+  registry: Registry,
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    service.syncAttributeIndexes(
+      { attributeIndexes: Object.fromEntries(registeredAttributeIndexes(registry)) },
+      new Metadata(),
+      { deadline: Date.now() + timeoutMs },
+      (error) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        resolve();
+      },
+    );
+  });
 }
 
 function workerService(dispatcher: WorkerDispatcher): WorkerServiceServer {

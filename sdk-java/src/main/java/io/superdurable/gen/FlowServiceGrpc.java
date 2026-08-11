@@ -266,6 +266,37 @@ public final class FlowServiceGrpc {
     return getSearchFlowsMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.SyncAttributeIndexRequest,
+      io.superdurable.gen.SyncAttributeIndexResponse> getSyncAttributeIndexesMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "SyncAttributeIndexes",
+      requestType = io.superdurable.gen.SyncAttributeIndexRequest.class,
+      responseType = io.superdurable.gen.SyncAttributeIndexResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.SyncAttributeIndexRequest,
+      io.superdurable.gen.SyncAttributeIndexResponse> getSyncAttributeIndexesMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.SyncAttributeIndexRequest, io.superdurable.gen.SyncAttributeIndexResponse> getSyncAttributeIndexesMethod;
+    if ((getSyncAttributeIndexesMethod = FlowServiceGrpc.getSyncAttributeIndexesMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getSyncAttributeIndexesMethod = FlowServiceGrpc.getSyncAttributeIndexesMethod) == null) {
+          FlowServiceGrpc.getSyncAttributeIndexesMethod = getSyncAttributeIndexesMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.SyncAttributeIndexRequest, io.superdurable.gen.SyncAttributeIndexResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "SyncAttributeIndexes"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.SyncAttributeIndexRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.SyncAttributeIndexResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("SyncAttributeIndexes"))
+              .build();
+        }
+      }
+    }
+    return getSyncAttributeIndexesMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowSummaryRequest,
       io.superdurable.gen.GetFlowSummaryResponse> getGetFlowSummaryMethod;
 
@@ -747,6 +778,13 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void syncAttributeIndexes(io.superdurable.gen.SyncAttributeIndexRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.SyncAttributeIndexResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getSyncAttributeIndexesMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowSummaryResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetFlowSummaryMethod(), responseObserver);
@@ -929,6 +967,14 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public void syncAttributeIndexes(io.superdurable.gen.SyncAttributeIndexRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.SyncAttributeIndexResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getSyncAttributeIndexesMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
     public void getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowSummaryResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
@@ -1101,6 +1147,13 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public io.superdurable.gen.SyncAttributeIndexResponse syncAttributeIndexes(io.superdurable.gen.SyncAttributeIndexRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getSyncAttributeIndexesMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
     public io.superdurable.gen.GetFlowSummaryResponse getFlowSummary(io.superdurable.gen.GetFlowSummaryRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getGetFlowSummaryMethod(), getCallOptions(), request);
@@ -1269,6 +1322,14 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.SyncAttributeIndexResponse> syncAttributeIndexes(
+        io.superdurable.gen.SyncAttributeIndexRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getSyncAttributeIndexesMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetFlowSummaryResponse> getFlowSummary(
         io.superdurable.gen.GetFlowSummaryRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1372,18 +1433,19 @@ public final class FlowServiceGrpc {
   private static final int METHODID_LOAD_BLOBS = 5;
   private static final int METHODID_WAIT_FOR_FLOW = 6;
   private static final int METHODID_SEARCH_FLOWS = 7;
-  private static final int METHODID_GET_FLOW_SUMMARY = 8;
-  private static final int METHODID_GET_HISTORY_EVENTS = 9;
-  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 10;
-  private static final int METHODID_GET_FLOW_STATE = 11;
-  private static final int METHODID_RESET_FLOW = 12;
-  private static final int METHODID_INVOKE_RPC = 13;
-  private static final int METHODID_SKIP_TIMER = 14;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 15;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 16;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 17;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 18;
-  private static final int METHODID_HEALTH_CHECK = 19;
+  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 8;
+  private static final int METHODID_GET_FLOW_SUMMARY = 9;
+  private static final int METHODID_GET_HISTORY_EVENTS = 10;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 11;
+  private static final int METHODID_GET_FLOW_STATE = 12;
+  private static final int METHODID_RESET_FLOW = 13;
+  private static final int METHODID_INVOKE_RPC = 14;
+  private static final int METHODID_SKIP_TIMER = 15;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 16;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 17;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 18;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 19;
+  private static final int METHODID_HEALTH_CHECK = 20;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1433,6 +1495,10 @@ public final class FlowServiceGrpc {
         case METHODID_SEARCH_FLOWS:
           serviceImpl.searchFlows((io.superdurable.gen.SearchFlowsRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.SearchFlowsResponse>) responseObserver);
+          break;
+        case METHODID_SYNC_ATTRIBUTE_INDEXES:
+          serviceImpl.syncAttributeIndexes((io.superdurable.gen.SyncAttributeIndexRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.SyncAttributeIndexResponse>) responseObserver);
           break;
         case METHODID_GET_FLOW_SUMMARY:
           serviceImpl.getFlowSummary((io.superdurable.gen.GetFlowSummaryRequest) request,
@@ -1556,6 +1622,13 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.SearchFlowsRequest,
               io.superdurable.gen.SearchFlowsResponse>(
                 service, METHODID_SEARCH_FLOWS)))
+        .addMethod(
+          getSyncAttributeIndexesMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.SyncAttributeIndexRequest,
+              io.superdurable.gen.SyncAttributeIndexResponse>(
+                service, METHODID_SYNC_ATTRIBUTE_INDEXES)))
         .addMethod(
           getGetFlowSummaryMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -1696,6 +1769,7 @@ public final class FlowServiceGrpc {
               .addMethod(getLoadBlobsMethod())
               .addMethod(getWaitForFlowMethod())
               .addMethod(getSearchFlowsMethod())
+              .addMethod(getSyncAttributeIndexesMethod())
               .addMethod(getGetFlowSummaryMethod())
               .addMethod(getGetHistoryEventsMethod())
               .addMethod(getWaitForHistoryEventMethod())

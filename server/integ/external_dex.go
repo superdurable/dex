@@ -24,109 +24,40 @@ import (
 	temporalapi "github.com/superdurable/dex/service/client/temporal"
 	dexconverter "github.com/superdurable/dex/service/common/converter"
 	"github.com/superdurable/dex/service/common/ptr"
-	enumspb "go.temporal.io/api/enums/v1"
-	operatorservicepb "go.temporal.io/api/operatorservice/v1"
-	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-type temporalSearchAttribute struct {
-	name          string
-	attributeType enumspb.IndexedValueType
-}
-
 type externalDexFlowClient struct {
 	dexpb.FlowServiceClient
 	maxWaitSeconds int32
 }
 
-var localDexDevTestSearchAttributes = []temporalSearchAttribute{
-	{"CustomKeywordField", enumspb.INDEXED_VALUE_TYPE_KEYWORD},
-	{"CustomKeywordArrayField", enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST},
-	{"CustomIntField", enumspb.INDEXED_VALUE_TYPE_INT},
-	{"CustomBoolField", enumspb.INDEXED_VALUE_TYPE_BOOL},
-	{"CustomDoubleField", enumspb.INDEXED_VALUE_TYPE_DOUBLE},
-	{"CustomDatetimeField", enumspb.INDEXED_VALUE_TYPE_DATETIME},
-	{"CustomTextField", enumspb.INDEXED_VALUE_TYPE_TEXT},
+var localDexDevTestAttributeIndexes = map[string]dexpb.IndexType{
+	"CustomKeywordField":      dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	"CustomKeywordArrayField": dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+	"CustomIntField":          dexpb.IndexType_INDEX_TYPE_INT,
+	"CustomBoolField":         dexpb.IndexType_INDEX_TYPE_BOOL,
+	"CustomDoubleField":       dexpb.IndexType_INDEX_TYPE_DOUBLE,
+	"CustomDatetimeField":     dexpb.IndexType_INDEX_TYPE_DATETIME,
+	"CustomTextField":         dexpb.IndexType_INDEX_TYPE_TEXT,
 }
 
-func prepareExternalDex(
-	ctx context.Context,
-	temporalClient client.Client,
-) error {
-	if err := ensureTemporalSearchAttributes(ctx, temporalClient); err != nil {
+func prepareExternalDex(ctx context.Context) error {
+	if err := waitForExternalDex(ctx); err != nil {
 		return err
 	}
-	return waitForExternalDex(ctx)
-}
-
-func ensureTemporalSearchAttributes(ctx context.Context, temporalClient client.Client) error {
-	missingAttributes, err := getMissingTemporalSearchAttributes(ctx, temporalClient)
+	connection, err := newDexClientConnection(*dexServerAddress, config.DefaultGrpcMaxMessageBytes)
 	if err != nil {
 		return err
 	}
-	if len(missingAttributes) == 0 {
-		return nil
-	}
-	_, err = temporalClient.OperatorService().AddSearchAttributes(
+	_, syncErr := dexpb.NewFlowServiceClient(connection).SyncAttributeIndexes(
 		ctx,
-		&operatorservicepb.AddSearchAttributesRequest{
-			Namespace:        testNamespace,
-			SearchAttributes: missingAttributes,
-		},
+		&dexpb.SyncAttributeIndexRequest{AttributeIndexes: localDexDevTestAttributeIndexes},
 	)
-	if err != nil {
-		return fmt.Errorf("register Temporal integration search attributes: %w", err)
-	}
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		missingAttributes, err = getMissingTemporalSearchAttributes(ctx, temporalClient)
-		if err != nil {
-			return err
-		}
-		if len(missingAttributes) == 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for Temporal integration search attributes: %w", ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
-func getMissingTemporalSearchAttributes(
-	ctx context.Context,
-	temporalClient client.Client,
-) (map[string]enumspb.IndexedValueType, error) {
-	response, err := temporalClient.OperatorService().ListSearchAttributes(
-		ctx,
-		&operatorservicepb.ListSearchAttributesRequest{Namespace: testNamespace},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list Temporal search attributes: %w", err)
-	}
-	missingAttributes := make(map[string]enumspb.IndexedValueType)
-	for _, requiredAttribute := range localDexDevTestSearchAttributes {
-		attributeType, exists := response.GetCustomAttributes()[requiredAttribute.name]
-		if !exists {
-			missingAttributes[requiredAttribute.name] = requiredAttribute.attributeType
-			continue
-		}
-		if attributeType != requiredAttribute.attributeType {
-			return nil, fmt.Errorf(
-				"Temporal search attribute %s must be %s, got %s",
-				requiredAttribute.name,
-				requiredAttribute.attributeType,
-				attributeType,
-			)
-		}
-	}
-	return missingAttributes, nil
+	return errors.Join(syncErr, connection.Close())
 }
 
 func waitForExternalDex(ctx context.Context) (waitErr error) {

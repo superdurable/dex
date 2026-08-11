@@ -25,23 +25,8 @@ invokes `EmployerOptInFlow.is_opted_in` over a `Client` and treats a
 because a `Client` needs a `Registry` that already contains both Flows. Tests
 can inject any object with an `is_opted_in(employer_id) -> bool` method instead.
 
-## Search attribute requirement
-
-If using Temporal:
-
-```bash
-temporal search-attribute create -name EMPLOYER_OPT_IN_EmployerId -type Keyword -y
-temporal search-attribute create -name SHORTLIST_EmployerId -type Keyword -y
-temporal search-attribute create -name SHORTLIST_CandidateId -type Keyword -y
-```
-
-If using Cadence:
-
-```bash
-cadence adm cl asa --search_attr_key EMPLOYER_OPT_IN_EmployerId --search_attr_type 1
-cadence adm cl asa --search_attr_key SHORTLIST_EmployerId --search_attr_type 1
-cadence adm cl asa --search_attr_key SHORTLIST_CandidateId --search_attr_type 1
-```
+The Worker synchronizes the Flow's Indexed Attributes automatically before
+opening its listener.
 
 With the sample server running:
 

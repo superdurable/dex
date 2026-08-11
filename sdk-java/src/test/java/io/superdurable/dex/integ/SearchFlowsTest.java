@@ -66,7 +66,7 @@ public final class SearchFlowsTest {
             assertNotNull(entry.getStartedAt());
             assertEquals(
                     keywordValue,
-                    entry.getSearchAttributes().get(SearchFlowsWorkflow.KEYWORD_KEY));
+                    entry.getIndexedAttributes().get(SearchFlowsWorkflow.KEYWORD_KEY));
         }
     }
 

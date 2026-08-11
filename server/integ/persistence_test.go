@@ -288,8 +288,8 @@ func doTestPersistenceWorkflow(
 			}
 			for _, flowRun := range searchResponse.GetFlowRuns() {
 				if flowRun.GetRunId() == runId &&
-					searchAttributeWritesPresent(expectedIndexedAttributes, flowRun.GetSearchAttributes()) &&
-					searchAttributePresent(flowRun.GetSearchAttributes(), expectedFlowType) {
+					searchAttributeWritesPresent(expectedIndexedAttributes, flowRun.GetIndexedAttributes()) &&
+					searchAttributePresent(flowRun.GetIndexedAttributes(), expectedFlowType) {
 					searchFlow = flowRun
 					return true
 				}
@@ -300,8 +300,8 @@ func doTestPersistenceWorkflow(
 		require.Equal(t, persistence.WorkflowType, searchFlow.GetFlowType())
 		require.NotEqual(t, dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED, searchFlow.GetFlowStatus())
 		require.NotNil(t, searchFlow.GetStartTime())
-		requireSearchAttributesMatch(t, expectedIndexedAttributes, searchFlow.GetSearchAttributes())
-		requireSearchAttributePresent(t, searchFlow.GetSearchAttributes(), expectedFlowType)
+		requireSearchAttributesMatch(t, expectedIndexedAttributes, searchFlow.GetIndexedAttributes())
+		requireSearchAttributePresent(t, searchFlow.GetIndexedAttributes(), expectedFlowType)
 
 		firstFlowId := flowId
 		startedRunIds := make(map[string]string)
@@ -380,16 +380,16 @@ func doTestPersistenceWorkflow(
 			}
 			for _, flowRun := range searchResponse.GetFlowRuns() {
 				if flowRun.GetRunId() == startedRunIds[extraFlowId] &&
-					searchAttributeWritesPresent(expectedExtraSearchAttributes, flowRun.GetSearchAttributes()) &&
-					searchAttributePresent(flowRun.GetSearchAttributes(), expectedFlowType) {
+					searchAttributeWritesPresent(expectedExtraSearchAttributes, flowRun.GetIndexedAttributes()) &&
+					searchAttributePresent(flowRun.GetIndexedAttributes(), expectedFlowType) {
 					extraSearchFlow = flowRun
 					return true
 				}
 			}
 			return false
 		}, 30*time.Second, 100*time.Millisecond)
-		requireSearchAttributesMatch(t, expectedExtraSearchAttributes, extraSearchFlow.GetSearchAttributes())
-		requireSearchAttributePresent(t, extraSearchFlow.GetSearchAttributes(), expectedFlowType)
+		requireSearchAttributesMatch(t, expectedExtraSearchAttributes, extraSearchFlow.GetIndexedAttributes())
+		requireSearchAttributePresent(t, extraSearchFlow.GetIndexedAttributes(), expectedFlowType)
 
 		time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
 

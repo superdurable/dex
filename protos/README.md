@@ -12,6 +12,10 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - **FlowService** — hosted by the server; SDKs call these RPCs
 - **WorkerService** — hosted by the worker; the server calls `WaitFor`, `Execute`, and `WorkerRpc`
 
+Workers call `SyncAttributeIndexes` before opening their listener. The RPC is
+an internal startup protocol: it adds missing backend indexes, validates
+existing types, and returns only after all requested indexes are readable.
+
 ## Worker targets
 
 `WorkerTarget.address` is a plaintext gRPC target. Set `is_headless_address` for a
@@ -35,8 +39,8 @@ accepts no input.
 ## Search flows
 
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
-start/close times, and all search attributes supplied by the backend visibility
-API. Search attribute values use the `Value` oneof; the response does not
+start/close times, and all Indexed Attributes supplied by Dex visibility as
+`indexed_attributes`. Indexed Attribute values use the `Value` oneof; the response does not
 expose backend index types.
 
 Temporal type metadata preserves numeric types. Cadence visibility payloads do

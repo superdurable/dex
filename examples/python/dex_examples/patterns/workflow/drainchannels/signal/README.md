@@ -34,4 +34,4 @@ looks empty" and "flow closes".
 ## Usage
 
 Start the flow with a first message, then publish more values to
-`queueSignalChannel` with `client.publish(...)` or from the Temporal UI.
+`queueSignalChannel` with `client.publish(...)`.

@@ -33,6 +33,7 @@ from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
 from dex.context import Context
+from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import FlowDefinitionError
 from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
 from dex.wait import Wait
@@ -178,6 +179,7 @@ class Registry:
     _steps: tuple[_RegisteredStep, ...]
     _rpcs: tuple[_RegisteredRPC, ...]
     _registered_flows: MappingProxyType[str, _RegisteredFlow]
+    _attribute_indexes: MappingProxyType[str, pb.IndexType]
 
     def __init__(
         self,
@@ -189,9 +191,11 @@ class Registry:
         immutable_flows = tuple(flows)
         resolved_codecs = codec_registry or CodecRegistry()
         try:
+            attribute_indexes: dict[str, pb.IndexType] = {}
             registered_flows = self._assemble(
                 immutable_flows,
                 resolved_codecs,
+                attribute_indexes,
                 allow_async_handlers=allow_async_handlers,
             )
         except FlowDefinitionError:
@@ -217,11 +221,17 @@ class Registry:
             "_registered_flows",
             MappingProxyType(registered_flows),
         )
+        object.__setattr__(
+            self,
+            "_attribute_indexes",
+            MappingProxyType(attribute_indexes),
+        )
 
     @staticmethod
     def _assemble(
         flows: tuple[Flow[Any], ...],
         codec_registry: CodecRegistry,
+        attribute_indexes: dict[str, pb.IndexType],
         *,
         allow_async_handlers: bool,
     ) -> dict[str, _RegisteredFlow]:
@@ -239,6 +249,7 @@ class Registry:
                     flow_name,
                     flow,
                     codec_registry,
+                    attribute_indexes,
                     allow_async_handlers=allow_async_handlers,
                 )
             except FlowDefinitionError:
@@ -257,6 +268,7 @@ class Registry:
         flow_name: str,
         flow: Flow[Any],
         codec_registry: CodecRegistry,
+        attribute_indexes: dict[str, pb.IndexType],
         *,
         allow_async_handlers: bool,
     ) -> _RegisteredFlow:
@@ -294,7 +306,7 @@ class Registry:
         schema = flow.get_persistence_schema()
         if not isinstance(schema, PersistenceSchema):
             raise TypeError("Flow persistence schema must be a PersistenceSchema")
-        persistence = Registry._assemble_persistence(schema)
+        persistence = Registry._assemble_persistence(schema, attribute_indexes)
         registered_rpcs: dict[str, _RegisteredRPC] = {}
         for attribute_name in dir(flow):
             method = getattr(flow, attribute_name)
@@ -334,13 +346,52 @@ class Registry:
     @staticmethod
     def _assemble_persistence(
         schema: PersistenceSchema,
+        attribute_indexes: dict[str, pb.IndexType],
     ) -> dict[str, _PersistenceDefinition]:
         persistence: dict[str, _PersistenceDefinition] = {}
         for definition in (*schema.attributes, *schema.channels):
             if definition.name in persistence:
                 raise ValueError(f"duplicate persistence definition {definition.name}")
             persistence[definition.name] = definition
+            Registry._register_attribute_index(definition, attribute_indexes)
         return persistence
+
+    @staticmethod
+    def _register_attribute_index(
+        definition: _PersistenceDefinition,
+        attribute_indexes: dict[str, pb.IndexType],
+    ) -> None:
+        if not isinstance(definition, (Attribute, AttributeMap)):
+            return
+        index = definition.index
+        if index is None:
+            return
+        if isinstance(definition, AttributeMap) and not index.index_key:
+            raise ValueError(
+                f"indexed AttributeMap {definition.name} requires an index key"
+            )
+        key = index.index_key or definition.name
+        index_type = Registry._map_index_type(index.type)
+        existing = attribute_indexes.get(key)
+        if existing is not None and existing != index_type:
+            raise ValueError(
+                f"Attribute index {key} has conflicting types {existing} and {index_type}"
+            )
+        attribute_indexes[key] = index_type
+
+    @staticmethod
+    def _map_index_type(index_type: Any) -> pb.IndexType:
+        from dex.attribute import IndexType
+
+        return {
+            IndexType.KEYWORD: pb.INDEX_TYPE_KEYWORD,
+            IndexType.FULL_TEXT: pb.INDEX_TYPE_TEXT,
+            IndexType.KEYWORD_ARRAY: pb.INDEX_TYPE_KEYWORD_ARRAY,
+            IndexType.INT: pb.INDEX_TYPE_INT,
+            IndexType.DOUBLE: pb.INDEX_TYPE_DOUBLE,
+            IndexType.BOOL: pb.INDEX_TYPE_BOOL,
+            IndexType.DATETIME: pb.INDEX_TYPE_DATETIME,
+        }[index_type]
 
     @staticmethod
     def _validate_rpc_locks(

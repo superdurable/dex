@@ -27,7 +27,6 @@ web_port="${DEX_INTEG_WEB_PORT:-18901}"
 temporal_port="${DEX_INTEG_TEMPORAL_PORT:-17233}"
 temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-18233}"
 dex_address="127.0.0.1:${dex_port}"
-temporal_address="127.0.0.1:${temporal_port}"
 log_file="/tmp/test-java-sdk-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
@@ -70,26 +69,14 @@ temporal server start-dev \
   --port "$temporal_port" \
   --ui-port "$temporal_ui_port" \
   --db-filename "$test_dir/temporal.db" \
-  --search-attribute FlowType=Keyword \
-  --search-attribute ActiveStepTypes=KeywordList \
-  --search-attribute CustomKeywordField=Keyword \
-  --search-attribute CustomIntField=Int \
-  --search-attribute CustomTextField=Text \
-  --search-attribute CustomDoubleField=Double \
-  --search-attribute CustomBoolField=Bool \
-  --search-attribute CustomKeywordArrayField=KeywordList \
-  --search-attribute CustomDatetimeField=Datetime \
   >>"$log_file" 2>&1 &
 temporal_pid=$!
 
 temporal_ready=false
 for _ in {1..240}; do
-  if temporal --address "$temporal_address" operator search-attribute list \
-      >"$test_dir/search-attributes" 2>/dev/null; then
-    if grep -q CustomTextField "$test_dir/search-attributes"; then
-      temporal_ready=true
-      break
-    fi
+  if temporal --address "$temporal_address" operator cluster health >/dev/null 2>&1; then
+    temporal_ready=true
+    break
   fi
   if ! kill -0 "$temporal_pid" 2>/dev/null; then
     echo "Temporal exited before becoming ready" >&2

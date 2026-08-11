@@ -20,6 +20,9 @@ import (
 
 type UnifiedClient interface {
 	Close()
+	ListAttributeIndexes(context.Context) (map[string]dexpb.IndexType, error)
+	AddAttributeIndexes(context.Context, map[string]dexpb.IndexType) error
+	NormalizeAttributeIndexType(dexpb.IndexType) dexpb.IndexType
 	errorHandler
 	StartInterpreterWorkflow(
 		ctx context.Context, options StartWorkflowOptions, args ...interface{},

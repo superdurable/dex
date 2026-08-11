@@ -77,6 +77,7 @@ service FlowService {
   rpc LoadBlobs(LoadBlobsRequest) returns (LoadBlobsResponse);
   rpc WaitForFlow(WaitForFlowRequest) returns (WaitForFlowResponse);
   rpc SearchFlows(SearchFlowsRequest) returns (SearchFlowsResponse);
+  rpc SyncAttributeIndexes(SyncAttributeIndexRequest) returns (SyncAttributeIndexResponse);
   rpc GetFlowSummary(GetFlowSummaryRequest) returns (GetFlowSummaryResponse);
   rpc GetHistoryEvents(GetHistoryEventsRequest) returns (GetHistoryEventsResponse);
   rpc WaitForHistoryEvent(WaitForHistoryEventRequest) returns (WaitForHistoryEventResponse);
@@ -407,12 +408,18 @@ message SearchFlowsResponse {
 message SearchFlowsResponseEntry {
   string flow_id = 1;
   string run_id = 2;
-  repeated KV search_attributes = 3;
+  repeated KV indexed_attributes = 3;
   string flow_type = 4;
   FlowStatus flow_status = 5;
   google.protobuf.Timestamp start_time = 6;
   google.protobuf.Timestamp close_time = 7;
 }
+
+message SyncAttributeIndexRequest {
+  map<string, IndexType> attribute_indexes = 1;
+}
+
+message SyncAttributeIndexResponse {}
 
 message FlowExecutionID {
   string flow_id = 1;

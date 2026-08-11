@@ -15,6 +15,7 @@
 package io.superdurable.dex;
 
 import io.superdurable.dex.exceptions.FlowDefinitionException;
+import io.superdurable.gen.IndexType;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -47,6 +48,7 @@ import java.util.Set;
 public final class Registry {
     private final List<Flow<?>> flows;
     private final Map<String, RegisteredFlow> registeredFlows;
+    private final Map<String, IndexType> attributeIndexes;
 
     /**
      * Builds and validates a registry from application Flow instances.
@@ -59,13 +61,19 @@ public final class Registry {
         if (flows == null) {
             throw new FlowDefinitionException("Flow definitions are required");
         }
-        final Map<String, RegisteredFlow> assembled = assemble(flows);
+        final Map<String, IndexType> indexes = new LinkedHashMap<String, IndexType>();
+        final Map<String, RegisteredFlow> assembled = assemble(flows, indexes);
         this.flows = Collections.unmodifiableList(new ArrayList<Flow<?>>(flows));
         this.registeredFlows = Collections.unmodifiableMap(assembled);
+        this.attributeIndexes = Collections.unmodifiableMap(indexes);
     }
 
     List<Flow<?>> getFlows() {
         return flows;
+    }
+
+    Map<String, IndexType> getAttributeIndexes() {
+        return attributeIndexes;
     }
 
     RegisteredFlow getFlow(final String flowType) {
@@ -86,7 +94,9 @@ public final class Registry {
                 "Flow class is not registered: " + flowClass.getName());
     }
 
-    private static Map<String, RegisteredFlow> assemble(final List<Flow<?>> flows) {
+    private static Map<String, RegisteredFlow> assemble(
+            final List<Flow<?>> flows,
+            final Map<String, IndexType> attributeIndexes) {
         final Map<String, RegisteredFlow> assembled =
                 new LinkedHashMap<String, RegisteredFlow>();
         for (Flow<?> flow : flows) {
@@ -97,12 +107,15 @@ public final class Registry {
             if (assembled.containsKey(flowType)) {
                 throw new FlowDefinitionException("Duplicate Flow: " + flowType);
             }
-            assembled.put(flowType, assembleFlow(flowType, flow));
+            assembled.put(flowType, assembleFlow(flowType, flow, attributeIndexes));
         }
         return assembled;
     }
 
-    private static RegisteredFlow assembleFlow(final String flowType, final Flow<?> flow) {
+    private static RegisteredFlow assembleFlow(
+            final String flowType,
+            final Flow<?> flow,
+            final Map<String, IndexType> attributeIndexes) {
         final StepList<?> definitions = flow.getSteps();
         if (definitions == null) {
             throw new FlowDefinitionException("Flow " + flowType + " requires Steps");
@@ -147,21 +160,22 @@ public final class Registry {
                     "Flow " + flowType + " requires a persistence schema");
         }
         final Map<String, PersistenceDefinition> persistence =
-                assemblePersistence(flowType, schema);
+                assemblePersistence(flowType, schema, attributeIndexes);
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
         return new RegisteredFlow(flowType, flow, steps, startStep, rpcs, persistence);
     }
 
     private static Map<String, PersistenceDefinition> assemblePersistence(
             final String flowType,
-            final PersistenceSchema schema) {
+            final PersistenceSchema schema,
+            final Map<String, IndexType> attributeIndexes) {
         final Map<String, PersistenceDefinition> persistence =
                 new LinkedHashMap<String, PersistenceDefinition>();
         for (PersistenceDefinition definition : schema.getAttributes()) {
-            addPersistence(flowType, persistence, definition);
+            addPersistence(flowType, persistence, definition, attributeIndexes);
         }
         for (PersistenceDefinition definition : schema.getChannels()) {
-            addPersistence(flowType, persistence, definition);
+            addPersistence(flowType, persistence, definition, attributeIndexes);
         }
         return persistence;
     }
@@ -169,7 +183,8 @@ public final class Registry {
     private static void addPersistence(
             final String flowType,
             final Map<String, PersistenceDefinition> persistence,
-            final PersistenceDefinition definition) {
+            final PersistenceDefinition definition,
+            final Map<String, IndexType> attributeIndexes) {
         if (definition == null) {
             throw new FlowDefinitionException(
                     "Flow " + flowType + " has a null persistence definition");
@@ -178,6 +193,64 @@ public final class Registry {
             throw new FlowDefinitionException(
                     "Flow " + flowType + " has duplicate persistence definition "
                             + definition.getName());
+        }
+        registerAttributeIndex(flowType, definition, attributeIndexes);
+    }
+
+    private static void registerAttributeIndex(
+            final String flowType,
+            final PersistenceDefinition definition,
+            final Map<String, IndexType> attributeIndexes) {
+        final AttributeIndex index;
+        final boolean attributeMap;
+        if (definition instanceof Attribute) {
+            index = ((Attribute<?>) definition).getIndex();
+            attributeMap = false;
+        } else if (definition instanceof AttributeMap) {
+            index = ((AttributeMap<?>) definition).getIndex();
+            attributeMap = true;
+        } else {
+            return;
+        }
+        if (index == null) {
+            return;
+        }
+        final String configuredKey = index.getIndexKey();
+        if (attributeMap && (configuredKey == null || configuredKey.trim().isEmpty())) {
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " indexed AttributeMap " + definition.getName()
+                            + " requires an index key");
+        }
+        final String key = configuredKey == null || configuredKey.isEmpty()
+                ? definition.getName()
+                : configuredKey;
+        final IndexType type = mapIndexType(index.getType());
+        final IndexType existing = attributeIndexes.put(key, type);
+        if (existing != null && existing != type) {
+            throw new FlowDefinitionException(
+                    "Attribute index " + key + " has conflicting types " + existing
+                            + " and " + type);
+        }
+    }
+
+    private static IndexType mapIndexType(final AttributeIndex.Type type) {
+        switch (type) {
+            case KEYWORD:
+                return IndexType.INDEX_TYPE_KEYWORD;
+            case FULL_TEXT:
+                return IndexType.INDEX_TYPE_TEXT;
+            case KEYWORD_ARRAY:
+                return IndexType.INDEX_TYPE_KEYWORD_ARRAY;
+            case INT:
+                return IndexType.INDEX_TYPE_INT;
+            case DOUBLE:
+                return IndexType.INDEX_TYPE_DOUBLE;
+            case BOOL:
+                return IndexType.INDEX_TYPE_BOOL;
+            case DATETIME:
+                return IndexType.INDEX_TYPE_DATETIME;
+            default:
+                throw new FlowDefinitionException("Unsupported Attribute index type: " + type);
         }
     }
 

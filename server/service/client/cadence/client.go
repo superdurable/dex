@@ -29,6 +29,8 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	historybuilder "github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/index"
+	cadenceadmin "github.com/uber/cadence-idl/go/proto/admin/v1"
+	cadenceapi "github.com/uber/cadence-idl/go/proto/api/v1"
 	realcadence "go.uber.org/cadence"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/.gen/go/shared"
@@ -43,6 +45,8 @@ type cadenceClient struct {
 	cClient                        client.Client
 	closeFunc                      func()
 	serviceClient                  workflowserviceclient.Interface
+	adminClient                    cadenceadmin.AdminAPIYARPCClient
+	adminSecurityToken             string
 	converter                      encoded.DataConverter
 	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
 	it                             *cadence.InterpreterWorker
@@ -142,13 +146,19 @@ func (t *cadenceClient) decodeAppErrDetails(err error, detailsPtr interface{}) e
 
 func NewCadenceClient(
 	domain string, cClient client.Client, serviceClient workflowserviceclient.Interface,
+	adminClient cadenceadmin.AdminAPIYARPCClient, adminSecurityToken string,
 	converter encoded.DataConverter, closeFunc func(), retryPolicy *config.QueryWorkflowFailedRetryPolicy,
 ) uclient.UnifiedClient {
+	if adminClient == nil {
+		panic("Cadence admin client must not be nil")
+	}
 	return &cadenceClient{
 		domain:                         domain,
 		cClient:                        cClient,
 		closeFunc:                      closeFunc,
 		serviceClient:                  serviceClient,
+		adminClient:                    adminClient,
+		adminSecurityToken:             adminSecurityToken,
 		converter:                      converter,
 		queryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicyWithDefaults(retryPolicy),
 	}
@@ -156,6 +166,75 @@ func NewCadenceClient(
 
 func (t *cadenceClient) Close() {
 	t.closeFunc()
+}
+
+func (t *cadenceClient) ListAttributeIndexes(ctx context.Context) (map[string]dexpb.IndexType, error) {
+	response, err := t.cClient.GetSearchAttributes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	indexes := make(map[string]dexpb.IndexType, len(response.GetKeys()))
+	for name, indexType := range response.GetKeys() {
+		indexes[name] = mapCadenceIndexedValueType(indexType)
+	}
+	return indexes, nil
+}
+
+func (t *cadenceClient) AddAttributeIndexes(ctx context.Context, indexes map[string]dexpb.IndexType) error {
+	searchAttributes := make(map[string]cadenceapi.IndexedValueType, len(indexes))
+	for name, indexType := range indexes {
+		searchAttributes[name] = mapToCadenceIndexedValueType(indexType)
+	}
+	_, err := t.adminClient.AddSearchAttribute(ctx, &cadenceadmin.AddSearchAttributeRequest{
+		SearchAttribute: searchAttributes,
+		SecurityToken:   t.adminSecurityToken,
+	})
+	return err
+}
+
+func (t *cadenceClient) NormalizeAttributeIndexType(indexType dexpb.IndexType) dexpb.IndexType {
+	if indexType == dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY {
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD
+	}
+	return indexType
+}
+
+func mapCadenceIndexedValueType(indexType shared.IndexedValueType) dexpb.IndexType {
+	switch indexType {
+	case shared.IndexedValueTypeString:
+		return dexpb.IndexType_INDEX_TYPE_TEXT
+	case shared.IndexedValueTypeKeyword:
+		return dexpb.IndexType_INDEX_TYPE_KEYWORD
+	case shared.IndexedValueTypeInt:
+		return dexpb.IndexType_INDEX_TYPE_INT
+	case shared.IndexedValueTypeDouble:
+		return dexpb.IndexType_INDEX_TYPE_DOUBLE
+	case shared.IndexedValueTypeBool:
+		return dexpb.IndexType_INDEX_TYPE_BOOL
+	case shared.IndexedValueTypeDatetime:
+		return dexpb.IndexType_INDEX_TYPE_DATETIME
+	default:
+		return dexpb.IndexType_INDEX_TYPE_UNSPECIFIED
+	}
+}
+
+func mapToCadenceIndexedValueType(indexType dexpb.IndexType) cadenceapi.IndexedValueType {
+	switch indexType {
+	case dexpb.IndexType_INDEX_TYPE_TEXT:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_STRING
+	case dexpb.IndexType_INDEX_TYPE_KEYWORD, dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_KEYWORD
+	case dexpb.IndexType_INDEX_TYPE_INT:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_INT
+	case dexpb.IndexType_INDEX_TYPE_DOUBLE:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_DOUBLE
+	case dexpb.IndexType_INDEX_TYPE_BOOL:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_BOOL
+	case dexpb.IndexType_INDEX_TYPE_DATETIME:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_DATETIME
+	default:
+		return cadenceapi.IndexedValueType_INDEXED_VALUE_TYPE_INVALID
+	}
 }
 
 func (t *cadenceClient) StartInterpreterWorkflow(
@@ -259,13 +338,13 @@ func (t *cadenceClient) ListWorkflow(
 			return nil, err
 		}
 		executions = append(executions, &dexpb.SearchFlowsResponseEntry{
-			FlowId:           *exe.Execution.WorkflowId,
-			RunId:            *exe.Execution.RunId,
-			SearchAttributes: searchAttributes,
-			FlowType:         stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
-			FlowStatus:       status,
-			StartTime:        cadenceTimestamp(exe.StartTime),
-			CloseTime:        cadenceTimestamp(exe.CloseTime),
+			FlowId:            *exe.Execution.WorkflowId,
+			RunId:             *exe.Execution.RunId,
+			IndexedAttributes: searchAttributes,
+			FlowType:          stringSearchAttribute(searchAttributes, service.SearchAttributeDexWorkflowType),
+			FlowStatus:        status,
+			StartTime:         cadenceTimestamp(exe.StartTime),
+			CloseTime:         cadenceTimestamp(exe.CloseTime),
 		})
 	}
 	return &uclient.ListWorkflowExecutionsResponse{

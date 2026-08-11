@@ -1,22 +1,11 @@
 #!/bin/bash
 
 for run in {1..120}; do
-  sleep 1
-  echo "now trying to register Dex system search attributes..."
-  if yes | cadence adm cl asa --search_attr_key FlowType --search_attr_type 1; then
+  if cadence --do default domain describe >/dev/null 2>&1; then
     break
   fi
+  cadence --do default domain register || true
+  sleep 1
 done
-
-yes | cadence adm cl asa --search_attr_key ActiveStepTypes --search_attr_type 1
-
-
-echo "After registering, it may take up 60s because of this issue. for Cadence to load the new search attributes." 
-echo "If run the test too early, you may see error: \"FlowType is not a valid search attribute key\""
-echo "and the test would fail with: unknown decision DecisionType: Activity, ID: 0, possible causes are nondeterministic workflow definition code or incompatible change in the workflow definition"
-sleep 65
-
-echo "now register the domain to tell the tests that Cadence is ready"
-cadence --do default domain register
 
 tail -f /dev/null

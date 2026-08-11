@@ -12,7 +12,6 @@ package integ
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -57,7 +56,7 @@ func TestAbnormalExitFlow(t *testing.T) {
 	result := waitForUncompletedFlow(t, flowID, false)
 	require.Equal(t, dex.FlowFailed, result.Status)
 	require.Equal(t, dex.FlowErrorWorkerMethod, result.ErrorType)
-	require.True(t, strings.Contains(result.ErrorMessage, "abnormal exit step"))
+	require.Contains(t, result.ErrorMessage, "abnormal exit step")
 
 	newRunID, err := integClient.StartFlow(
 		ctx,

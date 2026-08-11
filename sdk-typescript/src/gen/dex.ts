@@ -420,11 +420,23 @@ export interface SearchFlowsResponse {
 export interface SearchFlowsResponseEntry {
   flowId: string;
   runId: string;
-  searchAttributes: KV[];
+  indexedAttributes: KV[];
   flowType: string;
   flowStatus: FlowStatus;
   startTime: Date | undefined;
   closeTime: Date | undefined;
+}
+
+export interface SyncAttributeIndexRequest {
+  attributeIndexes: { [key: string]: IndexType };
+}
+
+export interface SyncAttributeIndexRequest_AttributeIndexesEntry {
+  key: string;
+  value: IndexType;
+}
+
+export interface SyncAttributeIndexResponse {
 }
 
 export interface FlowExecutionID {
@@ -3746,7 +3758,7 @@ function createBaseSearchFlowsResponseEntry(): SearchFlowsResponseEntry {
   return {
     flowId: "",
     runId: "",
-    searchAttributes: [],
+    indexedAttributes: [],
     flowType: "",
     flowStatus: 0,
     startTime: undefined,
@@ -3762,7 +3774,7 @@ export const SearchFlowsResponseEntry: MessageFns<SearchFlowsResponseEntry> = {
     if (message.runId !== "") {
       writer.uint32(18).string(message.runId);
     }
-    for (const v of message.searchAttributes) {
+    for (const v of message.indexedAttributes) {
       KV.encode(v!, writer.uint32(26).fork()).join();
     }
     if (message.flowType !== "") {
@@ -3808,7 +3820,7 @@ export const SearchFlowsResponseEntry: MessageFns<SearchFlowsResponseEntry> = {
             break;
           }
 
-          message.searchAttributes.push(KV.decode(reader, reader.uint32()));
+          message.indexedAttributes.push(KV.decode(reader, reader.uint32()));
           continue;
         }
         case 4: {
@@ -3859,11 +3871,168 @@ export const SearchFlowsResponseEntry: MessageFns<SearchFlowsResponseEntry> = {
     const message = createBaseSearchFlowsResponseEntry();
     message.flowId = object.flowId ?? "";
     message.runId = object.runId ?? "";
-    message.searchAttributes = object.searchAttributes?.map((e) => KV.fromPartial(e)) || [];
+    message.indexedAttributes = object.indexedAttributes?.map((e) => KV.fromPartial(e)) || [];
     message.flowType = object.flowType ?? "";
     message.flowStatus = object.flowStatus ?? 0;
     message.startTime = object.startTime ?? undefined;
     message.closeTime = object.closeTime ?? undefined;
+    return message;
+  },
+};
+
+function createBaseSyncAttributeIndexRequest(): SyncAttributeIndexRequest {
+  return { attributeIndexes: {} };
+}
+
+export const SyncAttributeIndexRequest: MessageFns<SyncAttributeIndexRequest> = {
+  encode(message: SyncAttributeIndexRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    globalThis.Object.entries(message.attributeIndexes).forEach(([key, value]: [string, IndexType]) => {
+      SyncAttributeIndexRequest_AttributeIndexesEntry.encode({ key: key as any, value }, writer.uint32(10).fork())
+        .join();
+    });
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SyncAttributeIndexRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncAttributeIndexRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          const entry1 = SyncAttributeIndexRequest_AttributeIndexesEntry.decode(reader, reader.uint32());
+          if (entry1.value !== undefined) {
+            message.attributeIndexes[entry1.key] = entry1.value;
+          }
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SyncAttributeIndexRequest>, I>>(base?: I): SyncAttributeIndexRequest {
+    return SyncAttributeIndexRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncAttributeIndexRequest>, I>>(object: I): SyncAttributeIndexRequest {
+    const message = createBaseSyncAttributeIndexRequest();
+    message.attributeIndexes = (globalThis.Object.entries(object.attributeIndexes ?? {}) as [string, IndexType][])
+      .reduce((acc: { [key: string]: IndexType }, [key, value]: [string, IndexType]) => {
+        if (value !== undefined) {
+          acc[key] = value as IndexType;
+        }
+        return acc;
+      }, {});
+    return message;
+  },
+};
+
+function createBaseSyncAttributeIndexRequest_AttributeIndexesEntry(): SyncAttributeIndexRequest_AttributeIndexesEntry {
+  return { key: "", value: 0 };
+}
+
+export const SyncAttributeIndexRequest_AttributeIndexesEntry: MessageFns<
+  SyncAttributeIndexRequest_AttributeIndexesEntry
+> = {
+  encode(
+    message: SyncAttributeIndexRequest_AttributeIndexesEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== 0) {
+      writer.uint32(16).int32(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SyncAttributeIndexRequest_AttributeIndexesEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncAttributeIndexRequest_AttributeIndexesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.value = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SyncAttributeIndexRequest_AttributeIndexesEntry>, I>>(
+    base?: I,
+  ): SyncAttributeIndexRequest_AttributeIndexesEntry {
+    return SyncAttributeIndexRequest_AttributeIndexesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncAttributeIndexRequest_AttributeIndexesEntry>, I>>(
+    object: I,
+  ): SyncAttributeIndexRequest_AttributeIndexesEntry {
+    const message = createBaseSyncAttributeIndexRequest_AttributeIndexesEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? 0;
+    return message;
+  },
+};
+
+function createBaseSyncAttributeIndexResponse(): SyncAttributeIndexResponse {
+  return {};
+}
+
+export const SyncAttributeIndexResponse: MessageFns<SyncAttributeIndexResponse> = {
+  encode(_: SyncAttributeIndexResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SyncAttributeIndexResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncAttributeIndexResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SyncAttributeIndexResponse>, I>>(base?: I): SyncAttributeIndexResponse {
+    return SyncAttributeIndexResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncAttributeIndexResponse>, I>>(_: I): SyncAttributeIndexResponse {
+    const message = createBaseSyncAttributeIndexResponse();
     return message;
   },
 };
@@ -13021,6 +13190,17 @@ export const FlowServiceService = {
     responseSerialize: (value: SearchFlowsResponse): Buffer => Buffer.from(SearchFlowsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): SearchFlowsResponse => SearchFlowsResponse.decode(value),
   },
+  syncAttributeIndexes: {
+    path: "/dex.FlowService/SyncAttributeIndexes" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: SyncAttributeIndexRequest): Buffer =>
+      Buffer.from(SyncAttributeIndexRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): SyncAttributeIndexRequest => SyncAttributeIndexRequest.decode(value),
+    responseSerialize: (value: SyncAttributeIndexResponse): Buffer =>
+      Buffer.from(SyncAttributeIndexResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): SyncAttributeIndexResponse => SyncAttributeIndexResponse.decode(value),
+  },
   getFlowSummary: {
     path: "/dex.FlowService/GetFlowSummary" as const,
     requestStream: false as const,
@@ -13152,6 +13332,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   loadBlobs: handleUnaryCall<LoadBlobsRequest, LoadBlobsResponse>;
   waitForFlow: handleUnaryCall<WaitForFlowRequest, WaitForFlowResponse>;
   searchFlows: handleUnaryCall<SearchFlowsRequest, SearchFlowsResponse>;
+  syncAttributeIndexes: handleUnaryCall<SyncAttributeIndexRequest, SyncAttributeIndexResponse>;
   getFlowSummary: handleUnaryCall<GetFlowSummaryRequest, GetFlowSummaryResponse>;
   getHistoryEvents: handleUnaryCall<GetHistoryEventsRequest, GetHistoryEventsResponse>;
   waitForHistoryEvent: handleUnaryCall<WaitForHistoryEventRequest, WaitForHistoryEventResponse>;
@@ -13283,6 +13464,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: SearchFlowsResponse) => void,
+  ): ClientUnaryCall;
+  syncAttributeIndexes(
+    request: SyncAttributeIndexRequest,
+    callback: (error: ServiceError | null, response: SyncAttributeIndexResponse) => void,
+  ): ClientUnaryCall;
+  syncAttributeIndexes(
+    request: SyncAttributeIndexRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SyncAttributeIndexResponse) => void,
+  ): ClientUnaryCall;
+  syncAttributeIndexes(
+    request: SyncAttributeIndexRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SyncAttributeIndexResponse) => void,
   ): ClientUnaryCall;
   getFlowSummary(
     request: GetFlowSummaryRequest,

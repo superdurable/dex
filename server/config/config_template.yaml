@@ -28,6 +28,8 @@ worker:
   # gRPC status codes that trigger failover between resolved headless endpoints.
   headlessFailoverStatusCodes: [14, 4, 2]
 interpreter:
+  # Bounds backend index creation and propagation checks. Existing indexes return immediately.
+  attributeIndexSyncTimeout: 2m
   defaultWorkflowConfig:
     continueAsNewThreshold: 100
   temporal:

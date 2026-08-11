@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-use crate::{Attribute, AttributeMap, Channel, ChannelMap};
+use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PersistenceSchema {
@@ -17,6 +17,7 @@ pub struct PersistenceSchema {
 pub(crate) struct PersistenceDefinition {
     pub(crate) name: String,
     pub(crate) kind: PersistenceKind,
+    pub(crate) index: Option<AttributeIndex>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,22 +34,30 @@ impl PersistenceSchema {
     }
 
     pub fn attribute<T>(mut self, attribute: &Attribute<T>) -> Self {
-        self.add(attribute.name(), PersistenceKind::Attribute);
+        self.add(
+            attribute.name(),
+            PersistenceKind::Attribute,
+            attribute.index().cloned(),
+        );
         self
     }
 
     pub fn attribute_map<T>(mut self, attribute: &AttributeMap<T>) -> Self {
-        self.add(attribute.name(), PersistenceKind::AttributeMap);
+        self.add(
+            attribute.name(),
+            PersistenceKind::AttributeMap,
+            attribute.index().cloned(),
+        );
         self
     }
 
     pub fn channel<T>(mut self, channel: &Channel<T>) -> Self {
-        self.add(channel.name(), PersistenceKind::Channel);
+        self.add(channel.name(), PersistenceKind::Channel, None);
         self
     }
 
     pub fn channel_map<T>(mut self, channel: &ChannelMap<T>) -> Self {
-        self.add(channel.name(), PersistenceKind::ChannelMap);
+        self.add(channel.name(), PersistenceKind::ChannelMap, None);
         self
     }
 
@@ -56,10 +65,11 @@ impl PersistenceSchema {
         &self.definitions
     }
 
-    fn add(&mut self, name: &str, kind: PersistenceKind) {
+    fn add(&mut self, name: &str, kind: PersistenceKind, index: Option<AttributeIndex>) {
         self.definitions.push(PersistenceDefinition {
             name: name.to_string(),
             kind,
+            index,
         });
     }
 }

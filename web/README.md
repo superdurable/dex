@@ -62,7 +62,7 @@ directory into the Go module and ultimately into `dexcli`.
 ## Pages
 
 The Flows page provides Basic and Advanced visibility queries, pagination,
-saved queries, configurable columns, custom search attributes, and timezone
+saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
 The Run page provides Overview (Live Flow State beside Selected event, then
