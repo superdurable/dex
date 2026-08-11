@@ -336,6 +336,7 @@ impl Context {
                 key,
                 value: Some(value),
                 index_config,
+                sync_config: None,
             },
         );
         Ok(())
