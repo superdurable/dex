@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,6 +51,7 @@ type sampleServer struct {
 	dealFlow       *datasetdeal.DealFlow
 	dealRepository datasetdeal.Repository
 	httpServer     *http.Server
+	workerAddress  string
 	workerResult   chan error
 	httpResult     chan error
 }
@@ -114,6 +116,7 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 		database:       database,
 		dealFlow:       dealFlow,
 		dealRepository: dealRepository,
+		workerAddress:  workerOptions.BindAddress,
 		workerResult:   make(chan error, 1),
 		httpResult:     make(chan error, 1),
 	}
@@ -178,10 +181,13 @@ func NewRouter(
 }
 
 func (server *sampleServer) Run(ctx context.Context) error {
-	startCronSchedule(server.client)
 	go func() {
 		server.workerResult <- server.worker.Start()
 	}()
+	if err := server.waitForWorker(ctx); err != nil {
+		return errors.Join(err, server.close())
+	}
+	startCronSchedule(server.client)
 	go func() {
 		err := server.httpServer.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
@@ -199,6 +205,48 @@ func (server *sampleServer) Run(ctx context.Context) error {
 		runErr = err
 	}
 	return errors.Join(runErr, server.close())
+}
+
+func (server *sampleServer) waitForWorker(ctx context.Context) error {
+	address, err := localWorkerAddress(server.workerAddress)
+	if err != nil {
+		return err
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		connection, dialErr := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		if dialErr == nil {
+			if closeErr := connection.Close(); closeErr != nil {
+				return fmt.Errorf("close Worker readiness connection: %w", closeErr)
+			}
+			return nil
+		}
+		select {
+		case workerErr := <-server.workerResult:
+			if workerErr == nil {
+				return errors.New("Worker stopped before becoming ready")
+			}
+			return workerErr
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func localWorkerAddress(bindAddress string) (string, error) {
+	host, port, err := net.SplitHostPort(bindAddress)
+	if err != nil {
+		return "", fmt.Errorf("parse Worker bind address: %w", err)
+	}
+	switch host {
+	case "", "0.0.0.0":
+		host = "127.0.0.1"
+	case "::":
+		host = "::1"
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 func (server *sampleServer) close() error {
