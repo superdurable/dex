@@ -21,7 +21,6 @@ const (
 	terminalNone terminalKind = iota
 	terminalCancel
 	terminalFailure
-	terminalGracefulCompletion
 	terminalForceCompletion
 )
 
@@ -55,15 +54,12 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	if c.provider.IsContinueAsNewError(retErr) {
 		return retErr
 	}
-	if !c.IsRequested() {
-		if retErr == nil {
-			c.RequestCompletion()
-		} else {
-			c.RequestFailure(retErr)
-		}
+	forceCompletion := c.kind == terminalForceCompletion
+	if c.kind == terminalCancel || c.kind == terminalFailure {
+		retErr = c.resultErr
 	}
 	if err := c.provider.Await(c.ctx, func() bool {
-		return c.kind == terminalForceCompletion ||
+		return forceCompletion ||
 			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
 	}); err != nil {
 		return err
@@ -71,10 +67,10 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	if err := c.attributeSyncer.FlushAndClose(c.ctx); err != nil {
 		return err
 	}
-	return c.ResultError()
+	return retErr
 }
 
-func (c *TerminalCoordinator) RequestClientStop(request *dexpb.StopFlowSignalRequest) {
+func (c *TerminalCoordinator) requestClientStop(request *dexpb.StopFlowSignalRequest) {
 	if request == nil || c.IsRequested() {
 		return
 	}
@@ -87,14 +83,14 @@ func (c *TerminalCoordinator) RequestClientStop(request *dexpb.StopFlowSignalReq
 		if reason == "" {
 			reason = "fail by client"
 		}
-		c.RequestFailure(c.provider.NewFlowError(
+		c.requestFailure(c.provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 			&dexpb.ErrorResponse{Detail: reason},
 		))
 	}
 }
 
-func (c *TerminalCoordinator) RequestFailure(cause error) {
+func (c *TerminalCoordinator) requestFailure(cause error) {
 	if c.IsRequested() {
 		return
 	}
@@ -108,14 +104,7 @@ func (c *TerminalCoordinator) RequestFailure(cause error) {
 	c.resultErr = cause
 }
 
-func (c *TerminalCoordinator) RequestCompletion() {
-	if c.IsRequested() {
-		return
-	}
-	c.kind = terminalGracefulCompletion
-}
-
-func (c *TerminalCoordinator) RequestForceCompletion() {
+func (c *TerminalCoordinator) requestForceCompletion() {
 	if c.IsRequested() {
 		return
 	}
@@ -124,8 +113,4 @@ func (c *TerminalCoordinator) RequestForceCompletion() {
 
 func (c *TerminalCoordinator) IsRequested() bool {
 	return c.kind != terminalNone
-}
-
-func (c *TerminalCoordinator) ResultError() error {
-	return c.resultErr
 }

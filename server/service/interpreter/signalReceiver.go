@@ -71,7 +71,7 @@ func NewSignalReceiver(
 			}
 			if received {
 				continueAsNewCounter.IncSignalsReceived()
-				sr.terminal.RequestClientStop(&val)
+				sr.terminal.requestClientStop(&val)
 				return
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
@@ -131,10 +131,7 @@ func NewSignalReceiver(
 			if received && !sr.terminal.IsRequested() {
 				continueAsNewCounter.IncSignalsReceived()
 				if err := flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
-					sr.terminal.RequestFailure(provider.NewFlowError(
-						dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-						&dexpb.ErrorResponse{Detail: err.Error()},
-					))
+					sr.failInvalidFlowConfig(err)
 				}
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
@@ -223,7 +220,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.StopFlowSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			sr.terminal.RequestClientStop(&val)
+			sr.terminal.requestClientStop(&val)
 		} else {
 			break
 		}
@@ -254,10 +251,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 				continue
 			}
 			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
-				sr.terminal.RequestFailure(sr.provider.NewFlowError(
-					dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-					&dexpb.ErrorResponse{Detail: err.Error()},
-				))
+				sr.failInvalidFlowConfig(err)
 			}
 		} else {
 			break
@@ -288,4 +282,11 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 			break
 		}
 	}
+}
+
+func (sr *SignalReceiver) failInvalidFlowConfig(err error) {
+	sr.terminal.requestFailure(sr.provider.NewFlowError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+		&dexpb.ErrorResponse{Detail: err.Error()},
+	))
 }

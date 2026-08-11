@@ -260,7 +260,6 @@ func (i *Interpreter) StartEngineFlow(
 		return nil, err
 	}
 
-	var forceCompleteWf bool
 	var shouldGracefulComplete bool
 
 	if !input.GetIsResumeFromContinueAsNew() {
@@ -327,16 +326,24 @@ func (i *Interpreter) StartEngineFlow(
 				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
 				attributeSynchronizer.ProducerStarted()
 				provider.GoNamed(stepCtx, "step-execution-thread:"+stepReqForLoopingOnly.GetStepType(), func(ctx interfaces.UnifiedContext) {
-					defer attributeSynchronizer.ProducerFinished()
+					var producerErr error
+					producerFailed := false
+					defer func() {
+						if producerFailed {
+							terminalCoordinator.requestFailure(producerErr)
+						}
+						attributeSynchronizer.ProducerFinished()
+					}()
 					stepRequest, ok := provider.GetContextValue(
 						ctx,
 						"stepRequest",
 					).(StepRequest)
 					if !ok {
-						terminalCoordinator.RequestFailure(provider.NewFlowError(
+						producerFailed = true
+						producerErr = provider.NewFlowError(
 							dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 							&dexpb.ErrorResponse{Detail: "cannot read step request from workflow context"},
-						))
+						)
 						return
 					}
 
@@ -365,12 +372,14 @@ func (i *Interpreter) StartEngineFlow(
 						terminalCoordinator,
 					)
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
-						terminalCoordinator.RequestFailure(stepExeErr)
+						producerFailed = true
+						producerErr = stepExeErr
 						return
 					}
 					if stepExecutionStatus == service.StepExecutionStatusFailedNoProceed && stepExeErr != nil {
 						// this is the case where stepExecutionStatus == FailureStepExecutionStatus
-						terminalCoordinator.RequestFailure(normalizeStepFailureError(provider, stepExeErr))
+						producerFailed = true
+						producerErr = normalizeStepFailureError(provider, stepExeErr)
 						// step execution fail should fail the flow, no more processing
 						return
 					}
@@ -386,7 +395,8 @@ func (i *Interpreter) StartEngineFlow(
 							signalReceiver,
 						)
 						if checkErr != nil {
-							terminalCoordinator.RequestFailure(checkErr)
+							producerFailed = true
+							producerErr = checkErr
 							// no return so that it can fall through to call MarkStepExecutionCompleted
 						}
 						if gracefulComplete {
@@ -395,20 +405,18 @@ func (i *Interpreter) StartEngineFlow(
 						if (gracefulComplete || forceComplete) && output != nil {
 							outputCollector.Add(output)
 						}
-						if forceComplete {
-							forceCompleteWf = true
-						}
-						if forceFail {
+						if forceFail && !producerFailed {
 							detail := ""
 							if output != nil {
 								detail = getFlowFailedDetailFromValue(output.GetCompletedStepOutput())
 							}
-							terminalCoordinator.RequestFailure(provider.NewFlowError(
+							producerFailed = true
+							producerErr = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
 								&dexpb.ErrorResponse{Detail: detail},
-							))
+							)
 						}
-						if canGoNext && !terminalCoordinator.IsRequested() {
+						if canGoNext && !producerFailed && !terminalCoordinator.IsRequested() {
 							stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 						}
 						// finally, mark step completed and may also update system search attribute
@@ -417,11 +425,12 @@ func (i *Interpreter) StartEngineFlow(
 							step,
 							stepExeId,
 							decision.GetNextSteps(),
-						); err != nil {
-							terminalCoordinator.RequestFailure(err)
+						); err != nil && !producerFailed {
+							producerFailed = true
+							producerErr = err
 						}
-						if forceComplete {
-							terminalCoordinator.RequestForceCompletion()
+						if forceComplete && !producerFailed {
+							terminalCoordinator.requestForceCompletion()
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
 						options := step.GetStepOptions()
@@ -441,7 +450,8 @@ func (i *Interpreter) StartEngineFlow(
 							decision.GetNextSteps(),
 						)
 						if err != nil {
-							terminalCoordinator.RequestFailure(err)
+							producerFailed = true
+							producerErr = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusWaitingAborted {
 						// NOTE: noop for WaitingCommandsStepExecutionStatus, because it means continueAsNew
@@ -455,24 +465,23 @@ func (i *Interpreter) StartEngineFlow(
 			//    Right after the queue is popped it becomes empty. When it's not empty, it means there are new steps to execute pushed into the queue,
 			//    and it's time to wake up the outer loop to go to next iteration. Alternatively, waiting for all current started in this iteration to complete will also work,
 			//    but not as efficient as this one because it will take much longer time.
-			// For a terminal request or forceCompleteFlow: this means we need to close flow immediately
+			// For a terminal request: this means we need to close flow immediately
 			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
 			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
 				return !stepRequestQueue.IsEmpty() ||
 					terminalCoordinator.IsRequested() ||
-					forceCompleteWf ||
 					stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0 ||
 					continueAsNewCounter.IsThresholdMet()
 			})
 			if continueAsNewCounter.IsThresholdMet() {
-				// NOTE: drain thread before checking terminal/forceCompleteFlow so that we can close the flow if possible
+				// NOTE: drain thread before checking terminal request so that we can close the flow if possible
 				if err := continueAsNewer.DrainThreads(ctx); err != nil {
 					awaitError = err
 				}
 			}
 
-			if terminalCoordinator.IsRequested() || forceCompleteWf {
+			if terminalCoordinator.IsRequested() {
 				output := &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}
@@ -491,8 +500,7 @@ func (i *Interpreter) StartEngineFlow(
 		if continueAsNewCounter.IsThresholdMet() {
 			// we have to drain this again because this can be from non-step cases
 			if err := continueAsNewer.DrainThreads(ctx); err != nil {
-				terminalCoordinator.RequestFailure(err)
-				break
+				return nil, err
 			}
 			// NOTE: This must be the last thing before continueAsNew!!!
 			// Otherwise, there could be signals unhandled
