@@ -49,21 +49,3 @@ func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.Activ
 func (a *activityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
 	activity.RecordHeartbeat(ctx, details...)
 }
-
-func (a *activityProvider) RecordCounter(
-	ctx context.Context,
-	name string,
-	value int64,
-	tags map[string]string,
-) {
-	activity.GetMetricsHandler(ctx).WithTags(tags).Counter(name).Inc(value)
-}
-
-func (a *activityProvider) RecordGauge(
-	ctx context.Context,
-	name string,
-	value float64,
-	tags map[string]string,
-) {
-	activity.GetMetricsHandler(ctx).WithTags(tags).Gauge(name).Update(value)
-}

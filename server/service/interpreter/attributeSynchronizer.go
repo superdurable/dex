@@ -70,8 +70,6 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			return
 		}
 		batch := s.nextBatch()
-		s.recordCounter("attribute_sync_batch", 1, batch[0].GetConfigName())
-		s.recordCounter("attribute_sync_batch_mutation", int64(len(batch)), batch[0].GetConfigName())
 		activityCtx := s.provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
 			StartToCloseTimeout:                 s.cfg.EffectiveSyncAttemptTimeout(),
 			LocalActivityScheduleToCloseTimeout: attributeSyncLocalActivityTimeout,
@@ -91,7 +89,6 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			nil,
 		)
 		if err != nil {
-			s.recordCounter("attribute_sync_retry_exhausted", 1, batch[0].GetConfigName())
 			s.provider.GetLogger(ctx).Error(
 				"Attribute Store batch retry exhausted; skipping batch",
 				"configName", batch[0].GetConfigName(),
@@ -117,16 +114,6 @@ func (s *AttributeSynchronizer) localRetryPolicy() *dexpb.RetryPolicy {
 	}
 }
 
-func (s *AttributeSynchronizer) recordCounter(name string, value int64, configName string) {
-	recorder, ok := s.provider.(interface {
-		RecordCounter(interfaces.UnifiedContext, string, int64, map[string]string)
-	})
-	if !ok {
-		return
-	}
-	recorder.RecordCounter(s.ctx, name, value, map[string]string{"attribute_store": configName})
-}
-
 func (s *AttributeSynchronizer) ApplyAttributeWrites(
 	writes []*dexpb.AttributeWrite,
 	configName string,
@@ -136,7 +123,6 @@ func (s *AttributeSynchronizer) ApplyAttributeWrites(
 			continue
 		}
 		if configName == "" {
-			s.recordCounter("attribute_sync_missing_target", 1, "")
 			s.provider.GetLogger(s.ctx).Error(
 				"Attribute sync is enabled without an Attribute Store target",
 				"attributeName", write.GetKey(),

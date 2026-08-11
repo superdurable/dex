@@ -77,15 +77,6 @@ func (a *Activities) SyncAttributeBatch(
 	ctx context.Context,
 	input *dexpb.SyncAttributeBatchActivityInput,
 ) error {
-	activityInfo := a.activityProvider.GetActivityInfo(ctx)
-	phase := "local"
-	if !activityInfo.IsLocalActivity {
-		phase = "regular"
-		if activityInfo.Attempt == 1 {
-			a.recordActivityMetric(ctx, "attribute_sync_fallback", 1, input.GetConfigName(), phase)
-		}
-	}
-	a.recordActivityGauge(ctx, "attribute_sync_batch_size", float64(len(input.GetMutations())), input.GetConfigName(), phase)
 	for _, mutation := range input.GetMutations() {
 		if mutation == nil {
 			continue
@@ -94,51 +85,7 @@ func (a *Activities) SyncAttributeBatch(
 			return fmt.Errorf("hydrate Attribute Store mutation: %w", err)
 		}
 	}
-	filteredCount, err := a.attributeStore.WriteBatch(ctx, input)
-	if filteredCount > 0 {
-		a.recordActivityMetric(ctx, "attribute_sync_filtered_mutation", int64(filteredCount), input.GetConfigName(), phase)
-	}
-	if err != nil {
-		return err
-	}
-	metricName := "attribute_sync_local_success"
-	if !activityInfo.IsLocalActivity {
-		metricName = "attribute_sync_regular_success"
-	}
-	a.recordActivityMetric(ctx, metricName, 1, input.GetConfigName(), phase)
-	return nil
-}
-
-func (a *Activities) recordActivityMetric(
-	ctx context.Context,
-	name string,
-	value int64,
-	configName string,
-	phase string,
-) {
-	recorder, ok := a.activityProvider.(interface {
-		RecordCounter(context.Context, string, int64, map[string]string)
-	})
-	if !ok {
-		return
-	}
-	recorder.RecordCounter(ctx, name, value, map[string]string{"attribute_store": configName, "phase": phase})
-}
-
-func (a *Activities) recordActivityGauge(
-	ctx context.Context,
-	name string,
-	value float64,
-	configName string,
-	phase string,
-) {
-	recorder, ok := a.activityProvider.(interface {
-		RecordGauge(context.Context, string, float64, map[string]string)
-	})
-	if !ok {
-		return
-	}
-	recorder.RecordGauge(ctx, name, value, map[string]string{"attribute_store": configName, "phase": phase})
+	return a.attributeStore.WriteBatch(ctx, input)
 }
 
 // InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.

@@ -76,13 +76,7 @@ window. Regular Activity attempts default to 30 seconds and a one-hour total
 retry budget. Exhaustion skips that batch; there is no automatic replay or
 backfill.
 
-Operational metrics include `attribute_sync_batch`,
-`attribute_sync_batch_mutation`, `attribute_sync_batch_size`,
-`attribute_sync_local_success`, `attribute_sync_fallback`,
-`attribute_sync_regular_success`, `attribute_sync_filtered_mutation`, and
-`attribute_sync_retry_exhausted`. Enabled writes without a target emit
-`attribute_sync_missing_target`. Metrics carry the `attribute_store` tag;
-Activity metrics also carry `phase=local|regular`.
+Filtered writes, missing targets, and retry exhaustion emit error logs.
 
 CancelFlow and FailFlow are cooperative and may wait for active Steps, locking
 RPCs, and multiple one-hour batch budgets. Cancel returns a native canceled error,

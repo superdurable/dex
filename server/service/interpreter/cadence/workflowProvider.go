@@ -215,19 +215,6 @@ func (w *workflowProvider) Await(ctx interfaces.UnifiedContext, condition func()
 	return workflow.Await(wfCtx, condition)
 }
 
-func (w *workflowProvider) RecordCounter(
-	ctx interfaces.UnifiedContext,
-	name string,
-	value int64,
-	tags map[string]string,
-) {
-	wfCtx, ok := ctx.GetContext().(workflow.Context)
-	if !ok {
-		panic("cannot convert to cadence workflow context")
-	}
-	workflow.GetMetricsScope(wfCtx).Tagged(tags).Counter(name).Inc(value)
-}
-
 func (w *workflowProvider) WithActivityOptions(
 	ctx interfaces.UnifiedContext, options interfaces.ActivityOptions,
 ) interfaces.UnifiedContext {

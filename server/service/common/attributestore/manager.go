@@ -401,13 +401,13 @@ func (m *Manager) HasStore(name string) bool {
 	return found
 }
 
-func (m *Manager) WriteBatch(ctx context.Context, input *dexpb.SyncAttributeBatchActivityInput) (int, error) {
+func (m *Manager) WriteBatch(ctx context.Context, input *dexpb.SyncAttributeBatchActivityInput) error {
 	if input == nil || input.GetFlowId() == "" || input.GetConfigName() == "" {
-		return 0, fmt.Errorf("Attribute Store batch requires FlowID and config name")
+		return fmt.Errorf("Attribute Store batch requires FlowID and config name")
 	}
 	entry, found := m.entries[input.GetConfigName()]
 	if !found {
-		return 0, fmt.Errorf("Attribute Store %q is unavailable", input.GetConfigName())
+		return fmt.Errorf("Attribute Store %q is unavailable", input.GetConfigName())
 	}
 	return entry.writeBatch(ctx, input.GetFlowId(), input.GetMutations())
 }
@@ -416,10 +416,10 @@ func (e *storeEntry) writeBatch(
 	ctx context.Context,
 	flowID string,
 	mutations []*dexpb.AttributeSyncItem,
-) (int, error) {
+) error {
 	snapshot := e.schema.Load()
 	if snapshot == nil {
-		return 0, fmt.Errorf("Attribute Store schema is unavailable")
+		return fmt.Errorf("Attribute Store schema is unavailable")
 	}
 	latest := make(map[string]*dexpb.Value, len(mutations))
 	for _, mutation := range mutations {
@@ -447,14 +447,13 @@ func (e *storeEntry) writeBatch(
 		filtered[name] = filteredValue{column: column, value: converted}
 	}
 	if len(filtered) == 0 {
-		return len(latest), nil
+		return nil
 	}
-	filteredCount := len(latest) - len(filtered)
 	query, arguments := e.buildUpsert(snapshot, flowID, filtered)
 	if _, err := e.db.ExecContext(ctx, query, arguments...); err != nil {
-		return filteredCount, fmt.Errorf("execute Attribute Store upsert: %w", err)
+		return fmt.Errorf("execute Attribute Store upsert: %w", err)
 	}
-	return filteredCount, nil
+	return nil
 }
 
 func (e *storeEntry) buildUpsert(

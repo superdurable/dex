@@ -76,7 +76,7 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return manager.entries["reporting"].schema.Load().columns["late_column"].name == "late_column"
 	}, 3*time.Second, 20*time.Millisecond)
-	filteredCount, err := manager.WriteBatch(ctx, &dexpb.SyncAttributeBatchActivityInput{
+	err = manager.WriteBatch(ctx, &dexpb.SyncAttributeBatchActivityInput{
 		FlowId:     "postgres-flow",
 		ConfigName: "reporting",
 		Mutations: []*dexpb.AttributeSyncItem{{
@@ -86,7 +86,6 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	require.Zero(t, filteredCount)
 	var lateColumn string
 	require.NoError(t, postgres.QueryRowContext(ctx,
 		`SELECT late_column FROM flow_attributes WHERE flow_id = $1`, "postgres-flow").Scan(&lateColumn))
@@ -163,7 +162,7 @@ json_value JSON, binary_value BLOB, nullable_value TEXT)`},
 
 func writeIntegrationBatch(t *testing.T, manager *Manager, configName, flowID string) {
 	t.Helper()
-	filteredCount, err := manager.WriteBatch(context.Background(), &dexpb.SyncAttributeBatchActivityInput{
+	err := manager.WriteBatch(context.Background(), &dexpb.SyncAttributeBatchActivityInput{
 		FlowId:     flowID,
 		ConfigName: configName,
 		Mutations: []*dexpb.AttributeSyncItem{
@@ -179,7 +178,6 @@ func writeIntegrationBatch(t *testing.T, manager *Manager, configName, flowID st
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, filteredCount)
 }
 
 func assertIntegrationRow(t *testing.T, database *sql.DB, flowID string) {
