@@ -47,6 +47,7 @@ Examples catch concrete types from `io.superdurable.dex.exceptions`.
 - [Signup](./src/main/java/io/superdurable/dex/workflow/signup)
 - [Job post](./src/main/java/io/superdurable/dex/workflow/jobpost)
 - [Shortlist candidates](./src/main/java/io/superdurable/dex/workflow/shortlistcandidates)
+- [Retrying Worker failure](./src/main/java/io/superdurable/dex/workflow/retryingfailure)
 
 ## Design patterns
 
