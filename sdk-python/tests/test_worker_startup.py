@@ -1,10 +1,12 @@
-# Copyright (c) 2026 Super Durable, Inc.
+# Legacy Materials in this file remain under their original licenses.
+# See LEGACY_NOTICES.md.
+
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Super Durable Source License 1.0.
-# You may not use this file except in compliance with the License.
-# See the LICENSE file in the repository root.
-#
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+# Modifications after the Legacy Cutoff are licensed under the
+# Super Durable Source License 1.0.
+# Legacy Materials remain under their original licenses.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from __future__ import annotations
 
@@ -60,7 +62,7 @@ class MemoryBlobCache:
         return None
 
 
-class SyncService(dex_pb2_grpc.FlowServiceServicer):  # type: ignore[misc]
+class SyncService(dex_pb2_grpc.FlowServiceServicer):
     def __init__(self, worker_port: int, failure: bool = False) -> None:
         self.worker_port = worker_port
         self.failure = failure
@@ -170,7 +172,10 @@ async def _test_async_worker_synchronizes_indexes_before_listening() -> None:
 
 def _start_flow_server(service: SyncService) -> tuple[grpc.Server, int]:
     server = grpc.server(ThreadPoolExecutor(max_workers=2))
-    dex_pb2_grpc.add_FlowServiceServicer_to_server(service, server)
+    dex_pb2_grpc.add_FlowServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        service,
+        server,
+    )
     port = server.add_insecure_port("127.0.0.1:0")
     if port == 0:
         raise RuntimeError("cannot bind test FlowService")
