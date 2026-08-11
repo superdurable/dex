@@ -40,7 +40,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -362,13 +361,6 @@ func (task *headerTask) expectedHeaderFor(relativePath string, absolutePath stri
 		}
 		return expectedHeader{classification: entry.Classification, templateID: entry.Classification}, true, nil
 	}
-	hasLegacy, err := task.hasLegacyBoundary(relativePath)
-	if err != nil {
-		return expectedHeader{}, false, err
-	}
-	if hasLegacy {
-		return expectedHeader{classification: "mixed", templateID: "mixed"}, true, nil
-	}
 	return expectedHeader{classification: "new", templateID: "new"}, true, nil
 }
 
@@ -408,51 +400,6 @@ func containsPath(paths []string, target string) bool {
 
 func hasPathPrefix(path string, prefix string) bool {
 	return path == prefix || strings.HasPrefix(path, strings.TrimRight(prefix, "/")+"/")
-}
-
-func (task *headerTask) hasLegacyBoundary(relativePath string) (bool, error) {
-	output, err := task.git(
-		"blame",
-		"-C",
-		"-C",
-		"-C",
-		"--line-porcelain",
-		task.policy.Cutoff+"..HEAD",
-		"--",
-		relativePath,
-	)
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return false, nil
-		}
-		return false, err
-	}
-	data, err := os.ReadFile(filepath.Join(task.config.rootDir, filepath.FromSlash(relativePath)))
-	if err != nil {
-		return false, err
-	}
-	header, _ := splitHeader(splitShebang(string(data)).body, filepath.Ext(relativePath))
-	headerLineCount := len(strings.Split(header, "\n"))
-	boundary := false
-	currentLine := 0
-	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && len(fields[0]) == 40 {
-			parsedLine, parseErr := strconv.Atoi(fields[2])
-			if parseErr == nil {
-				currentLine = parsedLine
-			}
-		} else if line == "boundary" {
-			boundary = true
-		} else if boundary && strings.HasPrefix(line, "filename ") {
-			if currentLine > headerLineCount {
-				return true, nil
-			}
-			boundary = false
-		}
-	}
-	return false, nil
 }
 
 func (task *headerTask) validate(relativePath string, data []byte, expected expectedHeader) error {
