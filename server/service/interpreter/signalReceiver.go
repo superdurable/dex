@@ -290,3 +290,7 @@ func (sr *SignalReceiver) failInvalidFlowConfig(err error) {
 		&dexpb.ErrorResponse{Detail: err.Error()},
 	))
 }
+
+func (sr *SignalReceiver) isStopFlowRequested() bool {
+	return sr.terminal.IsRequested()
+}
