@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Describes when Dex may invoke a Step's `execute` handler.
@@ -63,7 +64,10 @@ impl Wait {
         }
     }
 
-    /// Waits until every condition in at least one combination is satisfied.
+    /// Waits for every Condition in any combination.
+    ///
+    /// Every Condition needs a non-empty user ID. Clones of the same Condition
+    /// may be reused across combinations; distinct Conditions need unique IDs.
     pub fn any_combination_of(
         combinations: impl IntoIterator<Item = ConditionCombination>,
     ) -> Self {
@@ -76,12 +80,17 @@ impl Wait {
 /// Represents one durable timer or Channel predicate.
 ///
 /// Conditions are created by [`crate::Timer`], [`crate::Channel`], or [`crate::ChannelMap`]. Assign
-/// an ID when application code must identify a timer independently of its position.
+/// an ID when identifying a timer independently or using [`Wait::any_combination_of`].
+#[derive(Clone)]
 pub struct Condition {
+    pub(crate) identity: Arc<ConditionIdentity>,
     pub(crate) id: Option<String>,
     pub(crate) kind: ConditionKind,
 }
 
+pub(crate) struct ConditionIdentity;
+
+#[derive(Clone)]
 pub(crate) enum ConditionKind {
     Timer(Duration),
     Channel {
@@ -95,6 +104,7 @@ pub(crate) enum ConditionKind {
 impl Condition {
     pub(crate) fn timer(duration: Duration) -> Self {
         Self {
+            identity: Arc::new(ConditionIdentity),
             id: None,
             kind: ConditionKind::Timer(duration),
         }
@@ -107,6 +117,7 @@ impl Condition {
         at_most: Option<usize>,
     ) -> Self {
         Self {
+            identity: Arc::new(ConditionIdentity),
             id: None,
             kind: ConditionKind::Channel {
                 name,

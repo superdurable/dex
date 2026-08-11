@@ -192,7 +192,7 @@ pub(crate) enum StepDecisionKind {
     Next(Vec<StepMovement>),
     GracefulComplete(Box<dyn ErasedValue>),
     ForceComplete(Box<dyn ErasedValue>),
-    ForceCompleteWhenChannelsEmpty {
+    ForceCompleteIfChannelsEmpty {
         output: Box<dyn ErasedValue>,
         fallback: Box<StepMovement>,
         channels: Vec<ChannelGuard>,
@@ -232,13 +232,13 @@ impl StepDecision {
     }
 
     /// Completes with `output` when every guard is empty; otherwise follows `fallback`.
-    pub fn force_complete_when_channels_empty<Output: Value>(
+    pub fn force_complete_if_channels_empty<Output: Value>(
         output: Output,
         fallback: StepMovement,
         channels: impl IntoIterator<Item = ChannelGuard>,
     ) -> Self {
         Self {
-            kind: StepDecisionKind::ForceCompleteWhenChannelsEmpty {
+            kind: StepDecisionKind::ForceCompleteIfChannelsEmpty {
                 output: Box::new(TypedValue(output)),
                 fallback: Box::new(fallback),
                 channels: channels.into_iter().collect(),

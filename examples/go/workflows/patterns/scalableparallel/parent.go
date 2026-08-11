@@ -229,7 +229,7 @@ func (step loopForNextMessageStep) Execute(
 	}
 
 	if len(newWaitList) == 0 {
-		return dex.ForceCompleteOnChannelsEmpty(
+		return dex.ForceCompleteIfChannelsEmpty(
 			nil,
 			[]dex.ChannelDef{TaskQueue},
 			dex.MovementOf(loopForNextMessageStep{}, nil),

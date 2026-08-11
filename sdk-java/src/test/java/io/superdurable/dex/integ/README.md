@@ -14,7 +14,7 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | `ConditionalCompleteTest` | multi-message signal/internal channel draining and conditional close |
 | `InternalChannelTest` | parallel movements, payloads, unselected conditions, and channel maps |
 | `NoStartStateTest` | no-start, no-step, dead-end, and RPC-triggered movement |
-| `PersistenceTest` | typed attributes/maps, indexes, initial values, client reads/writes |
+| `PersistenceTest` | typed attributes/maps, scalar equality waits, indexes, initial values, client reads/writes |
 | `ResetTest` | RPC/channel replay counts, AttributeMap locks, and skip-reapply policies |
 | `RpcTest` | typed functions, procedures, errors, locking, and channel size |
 | `RpcWithMemoTest` | typed RPC persistence without the removed memo API |
@@ -29,6 +29,9 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 `ClientExceptionIntegrationTest` runs against a local gRPC service and verifies
 endpoint-aware missing-Flow errors, Worker invocation details, RPC lock
 conflicts, long-poll timeouts, and malformed-status fallback behavior.
+
+Worker contracts additionally cover user-owned Condition IDs and AttributeMap /
+ChannelMap introspection with buffered invocation changes.
 
 The dex-dev suite also verifies that read APIs can access closed Flows while
 RPC, publish, mutation, and step-wait APIs return `FlowNotActiveException`.

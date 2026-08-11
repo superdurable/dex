@@ -16,7 +16,9 @@ import {
   Attribute,
   AttributeMap,
   Channel,
+  ChannelMap,
   Client,
+  ConditionCombination,
   FlowDefinitionError,
   InvalidStepResultError,
   Registry,
@@ -45,9 +47,12 @@ import {
 import {
   Context as ProtoContext,
   InvokeExecuteMethodRequest,
+  InvokeWaitForMethodRequest,
 } from "../src/gen/dex.js";
 import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
+import { registeredFlowByName } from "../src/flow.js";
+import { InvocationContext } from "../src/invocation-context.js";
 
 interface OrderInput {
   readonly orderId: string;
@@ -263,6 +268,135 @@ test("invalid Step results include Flow and Step context", async () => {
   });
 });
 
+test("Worker maps only user-provided Condition IDs", async () => {
+  const conditionChannel = new Channel("condition-commands", stringCodec);
+  class ConditionStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+
+    public getStepType(): string {
+      return "ConditionStep";
+    }
+
+    public waitFor(_context: Context, input: string): Wait {
+      if (input === "unnamed") {
+        return Wait.anyOf(Timer.byDuration(1_000), conditionChannel.forOne());
+      }
+      if (input === "missing") {
+        return Wait.anyCombinationOf(ConditionCombination.of(conditionChannel.forOne()));
+      }
+      if (input === "duplicate") {
+        return Wait.anyCombinationOf(
+          ConditionCombination.of(
+            conditionChannel.forOne("same"),
+            Timer.byDuration(1_000, "same"),
+          ),
+        );
+      }
+      const reused = conditionChannel.forOne("__dex_internal_condition_0");
+      return Wait.anyCombinationOf(
+        ConditionCombination.of(reused),
+        ConditionCombination.of(reused),
+      );
+    }
+
+    public execute(_context: Context, input: string): StepDecision {
+      return gracefulComplete(input);
+    }
+  }
+  class ConditionFlow implements Flow<string> {
+    public readonly start = new ConditionStep();
+
+    public getFlowType(): string {
+      return "ConditionFlow";
+    }
+
+    public getSteps(): StepList<string> {
+      return StepList.startStep(this.start);
+    }
+
+    public getPersistenceSchema() {
+      return { channels: [conditionChannel] };
+    }
+  }
+  const flow = new ConditionFlow();
+  const hydrator = {
+    hydrateAll: async (values: readonly unknown[]) => values,
+  } as unknown as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const invoke = (input: string) =>
+    dispatcher.invokeWaitFor(
+      InvokeWaitForMethodRequest.create({
+        context: ProtoContext.create(),
+        flowType: flow.getFlowType(),
+        stepType: flow.start.getStepType(),
+        stepInput: encodeValue(stringCodec, input),
+      }),
+    );
+  const unnamed = await invoke("unnamed");
+  assert.equal(unnamed.waitingCondition?.timerConditions[0]?.conditionId, "");
+  assert.equal(unnamed.waitingCondition?.channelConditions[0]?.conditionId, "");
+  const reused = await invoke("reused");
+  assert.equal(
+    reused.waitingCondition?.channelConditions[0]?.conditionId,
+    "__dex_internal_condition_0",
+  );
+  assert.deepEqual(
+    reused.waitingCondition?.conditionCombinations.map((combination) => combination.conditionIds),
+    [["__dex_internal_condition_0"], ["__dex_internal_condition_0"]],
+  );
+  await assert.rejects(invoke("missing"), /requires every Condition/);
+  await assert.rejects(invoke("duplicate"), /duplicate Condition ID/);
+  assert.throws(() => conditionChannel.forOne(""), /must not be empty/);
+});
+
+test("map introspection tracks buffered changes", () => {
+  const attributes = new AttributeMap("items", stringCodec);
+  const channels = new ChannelMap("messages", stringCodec);
+  class MapFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "MapFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema() {
+      return { attributes: [attributes], channels: [channels] };
+    }
+  }
+  const registry = new Registry([new MapFlow()]);
+  const special = "special / key";
+  const physical = (name: string, instance: string) =>
+    `${name}/${encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+    )}`;
+  const context = new InvocationContext(
+    "rpc",
+    registeredFlowByName(registry, "MapFlow"),
+    ProtoContext.create(),
+    [
+      { key: physical("items", special), value: encodeValue(stringCodec, "initial") },
+      { key: physical("items", "z"), value: encodeValue(stringCodec, "remove") },
+    ],
+    [],
+    undefined,
+    {
+      [physical("messages", special)]: { size: 1 },
+      [physical("messages", "empty")]: { size: 0 },
+    },
+  );
+  assert.deepEqual(attributes.getAllInstanceKeys(context), [special, "z"]);
+  attributes.set(context, "a", "added");
+  attributes.delete(context, "z");
+  assert.deepEqual(attributes.getAllInstanceKeys(context), ["a", special]);
+  assert.equal(attributes.getMapSize(context), 2);
+  assert.deepEqual(channels.getAllInstanceKeys(context), [special]);
+  channels.publish(context, "a", "published");
+  assert.deepEqual(channels.getAllInstanceKeys(context), ["a", special]);
+  assert.equal(channels.getMapSize(context), 2);
+});
+
 test("blob cache contract opens the native DXBC cache", () => {
   const directory = mkdtempSync(join(tmpdir(), "dex-typescript-blob-cache-"));
   const cache = openBlobCache({ directory, maxBytes: 1024, frequencyCounters: 0 });
@@ -284,6 +418,14 @@ async function compileStrongTypes(client: Client): Promise<void> {
     orders.getOrder,
     "order-1",
     { orderId: "order-1" },
+  );
+  await client.waitForAttributeEqual("order-1", status, "ready", 30_000);
+  await client.waitForAttributeMapEqual(
+    "order-1",
+    new AttributeMap("items", stringCodec),
+    "one",
+    "ready",
+    30_000,
   );
   void runId;
   void output;

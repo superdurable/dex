@@ -58,7 +58,6 @@ import {
 } from "./value-mapper.js";
 import { Channel, ChannelMap, type Condition, type Wait } from "./wait.js";
 
-const internalConditionPrefix = "__dex_internal_condition_";
 
 export class WorkerDispatcher {
   public constructor(
@@ -261,7 +260,7 @@ function mapWait(flow: RegisteredFlow, wait: Wait | undefined): WaitingCondition
         ? WaitingConditionType.WAITING_CONDITION_TYPE_ALL_COMPLETED
         : WaitingConditionType.WAITING_CONDITION_TYPE_ANY_COMPLETED;
     for (const condition of wait.conditions) {
-      mapper.add(condition);
+      mapper.add(condition, false);
     }
   } else {
     waitingConditionType =
@@ -269,7 +268,7 @@ function mapWait(flow: RegisteredFlow, wait: Wait | undefined): WaitingCondition
     for (const combination of wait.combinations) {
       combinations.push(
         ProtoConditionCombination.create({
-          conditionIds: combination.conditions.map((condition) => mapper.add(condition)),
+          conditionIds: combination.conditions.map((condition) => mapper.add(condition, true)),
         }),
       );
     }
@@ -434,20 +433,27 @@ class ConditionMapper {
   public readonly channels: ChannelCondition[] = [];
   private readonly ids = new Map<Condition, string>();
   private readonly used = new Set<string>();
-  private nextId = 0;
 
   public constructor(private readonly flow: RegisteredFlow) {}
 
-  public add(condition: Condition): string {
+  public add(condition: Condition, idRequired: boolean): string {
     const existing = this.ids.get(condition);
     if (existing !== undefined) {
       return existing;
     }
-    const id = condition.conditionId ?? `${internalConditionPrefix}${this.nextId++}`;
-    if (id === "" || this.used.has(id)) {
-      throw new TypeError("duplicate or empty Condition ID");
+    const id = condition.conditionId ?? "";
+    if (idRequired && id === "") {
+      throw new TypeError("anyCombinationOf requires every Condition to have an ID");
     }
-    this.used.add(id);
+    if (condition.conditionId !== undefined && id === "") {
+      throw new TypeError("empty Condition ID");
+    }
+    if (id !== "" && this.used.has(id)) {
+      throw new TypeError("duplicate Condition ID");
+    }
+    if (id !== "") {
+      this.used.add(id);
+    }
     if (condition.kind === "timer") {
       this.timers.push(
         TimerCondition.create({

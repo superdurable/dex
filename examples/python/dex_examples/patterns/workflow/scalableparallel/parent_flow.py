@@ -36,7 +36,7 @@ from dex import (
     StepList,
     StepMovement,
     Wait,
-    force_complete_when_channels_empty,
+    force_complete_if_channels_empty,
     go_to,
     rpc,
 )
@@ -113,7 +113,7 @@ class LoopForNextMessage(Step[None]):
         self.current_wait_child_wfs.set(context, new_wait_list)
 
         if not new_wait_list:
-            return force_complete_when_channels_empty(
+            return force_complete_if_channels_empty(
                 None,
                 StepMovement.of(self, None),
                 self.task_queue,

@@ -206,6 +206,28 @@ class AttributeMap(Generic[ValueT]):
         """
         context._delete_attribute(cast(AttributeMap[object], self), instance)
 
+    def get_map_size(self, context: Context) -> int:
+        """Return the number of existing instances, including buffered writes.
+
+        Args:
+            context: The current Step or RPC Context.
+
+        Returns:
+            The number of keys visible after decision-local writes and deletions.
+        """
+        return len(self.get_all_instance_keys(context))
+
+    def get_all_instance_keys(self, context: Context) -> tuple[str, ...]:
+        """Return decoded existing instance keys in ascending order.
+
+        Args:
+            context: The current Step or RPC Context.
+
+        Returns:
+            An immutable tuple reflecting decision-local writes and deletions.
+        """
+        return context._attribute_map_keys(cast(AttributeMap[object], self))
+
     def lock(self, instance: str) -> AttributeLock:
         """Return a lock request for one map instance.
 

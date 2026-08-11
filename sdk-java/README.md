@@ -117,6 +117,25 @@ Client result decoding takes the output class and uses the configured mapper:
 String output = client.waitForFlow("flow-123", String.class);
 ```
 
+## Current API conventions
+
+Step executions use `StepExecutionId.of(stepType)` or
+`StepExecutionId.of(stepType, executionNumber)`. Constructors are intentionally
+not part of the public API.
+
+`Wait.allOf` and `Wait.anyOf` accept unnamed Conditions and send an empty
+Condition ID. Every Condition in `Wait.anyCombinationOf` must have a non-empty
+user ID; the same Condition object may be reused across combinations.
+
+`client.waitForAttributeEqual(...)` and
+`client.waitForAttributeMapEqual(...)` target the current run. Only String,
+boolean, integer, and floating-point wire values are accepted; objects, bytes,
+and null fail locally. `AttributeMap.getMapSize/getAllInstanceKeys` reflect
+buffered sets and deletes. The corresponding `ChannelMap` methods are RPC-only,
+include buffered publishes, and omit empty instances. Returned keys are decoded
+and sorted. Conditional completion is
+`StepDecision.forceCompleteIfChannelsEmpty(...)`.
+
 ## Exceptions
 
 Public exceptions live in `io.superdurable.dex.exceptions`. Catch concrete

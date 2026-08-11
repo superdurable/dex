@@ -5,7 +5,7 @@ soon as the channel is drained. A new signal simply starts a new flow execution
 under the same flow ID. Many short-lived flows are usually preferable to one
 long-lived flow, both for cost and for versioning.
 
-`force_complete_when_channels_empty(...)` performs the empty check atomically
+`force_complete_if_channels_empty(...)` performs the empty check atomically
 with the close decision, so no signal can be lost in the race between "channel
 looks empty" and "flow closes".
 

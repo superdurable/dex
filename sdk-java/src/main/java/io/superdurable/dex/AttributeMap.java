@@ -141,4 +141,27 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     public void delete(final Context context, final String instance) {
         context.deleteAttribute(this, instance);
     }
+
+    /**
+     * Returns the number of existing instances, including writes buffered by this invocation.
+     *
+     * @param context the Step or RPC invocation context
+     * @return the current number of instances
+     */
+    public int getMapSize(final Context context) {
+        return getAllInstanceKeys(context).size();
+    }
+
+    /**
+     * Returns existing instance keys in ascending order, including buffered writes.
+     *
+     * @param context the Step or RPC invocation context
+     * @return an immutable sorted list of decoded instance keys
+     */
+    public java.util.List<String> getAllInstanceKeys(final Context context) {
+        if (!(context instanceof InvocationContext)) {
+            throw new IllegalArgumentException("Dex invocation Context is required");
+        }
+        return ((InvocationContext) context).attributeMapKeys(this);
+    }
 }

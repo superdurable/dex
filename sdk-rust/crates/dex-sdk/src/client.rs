@@ -19,8 +19,9 @@ use dex_protocol::dex::{
     IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
     ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
     StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
-    TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForFlowRequest, WaitForFlowResponse,
-    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
+    TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeCondition,
+    WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest, WaitForFlowResponse,
+    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, wait_for_attribute_condition,
 };
 use tokio::runtime::Runtime;
 use tonic::transport::Endpoint;
@@ -611,6 +612,86 @@ impl Client {
                         flow_id: flow_id.to_string(),
                         step_type: step_execution.step_type.to_string(),
                         step_execution_number: step_execution.execution_number.to_string(),
+                        wait_time_seconds,
+                        request_id: Uuid::new_v4().to_string(),
+                    })
+                    .await
+            },
+        )
+    }
+
+    /// Blocks until a scalar Attribute in the current run equals `expected`.
+    ///
+    /// String, bool, integer, and double values are supported. Object, bytes,
+    /// and null values return [`SdkError::InvalidArgument`] before transport.
+    /// A server-side expiry returns [`SdkError::LongPollTimeout`].
+    pub fn wait_for_attribute_equal<T: Value>(
+        &self,
+        flow_id: &str,
+        attribute: &Attribute<T>,
+        expected: T,
+        timeout: Duration,
+    ) -> SdkResult<()> {
+        self.wait_for_attribute_value(flow_id, attribute.name(), &expected, timeout)
+    }
+
+    /// Blocks until one scalar AttributeMap instance equals `expected`.
+    ///
+    /// This targets the current run and otherwise has the same scalar,
+    /// timeout, request-ID, and error behavior as `wait_for_attribute_equal`.
+    pub fn wait_for_attribute_map_equal<T: Value>(
+        &self,
+        flow_id: &str,
+        attribute: &AttributeMap<T>,
+        instance: &str,
+        expected: T,
+        timeout: Duration,
+    ) -> SdkResult<()> {
+        self.wait_for_attribute_value(
+            flow_id,
+            &crate::registry::physical_name(attribute.name(), instance),
+            &expected,
+            timeout,
+        )
+    }
+
+    fn wait_for_attribute_value<T: Value>(
+        &self,
+        flow_id: &str,
+        key: &str,
+        expected: &T,
+        timeout: Duration,
+    ) -> SdkResult<()> {
+        let value = value_mapper::encode(expected)?;
+        if !matches!(
+            value.kind,
+            Some(dex_protocol::dex::value::Kind::StringValue(_))
+                | Some(dex_protocol::dex::value::Kind::BoolValue(_))
+                | Some(dex_protocol::dex::value::Kind::IntValue(_))
+                | Some(dex_protocol::dex::value::Kind::DoubleValue(_))
+        ) {
+            return Err(invalid(
+                "wait_for_attribute_equal supports only scalar values",
+            ));
+        }
+        let wait_time_seconds = seconds32(timeout)?;
+        self.call_empty(
+            "wait_for_attribute_equal",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .wait_for_attribute(WaitForAttributeRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        condition: Some(WaitForAttributeCondition {
+                            kind: Some(wait_for_attribute_condition::Kind::Equal(
+                                WaitForAttributeEqual {
+                                    key: key.to_string(),
+                                    value: Some(value),
+                                },
+                            )),
+                        }),
                         wait_time_seconds,
                         request_id: Uuid::new_v4().to_string(),
                     })

@@ -14,8 +14,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
@@ -388,7 +386,7 @@ func mapFlatWait(
 	}
 	mapper := newConditionMapper()
 	for _, condition := range conditions {
-		if _, err := mapper.add(condition); err != nil {
+		if _, err := mapper.add(condition, false); err != nil {
 			return nil, err
 		}
 	}
@@ -414,7 +412,7 @@ func mapCombinationWait(
 		}
 		ids := make([]string, 0, len(combination.conditions))
 		for _, condition := range combination.conditions {
-			id, err := mapper.add(condition)
+			id, err := mapper.add(condition, true)
 			if err != nil {
 				return nil, err
 			}
@@ -436,7 +434,6 @@ type conditionMapper struct {
 	usedIDs  map[string]struct{}
 	timers   []*dexpb.TimerCondition
 	channels []*dexpb.ChannelCondition
-	nextID   int
 }
 
 func newConditionMapper() *conditionMapper {
@@ -446,7 +443,10 @@ func newConditionMapper() *conditionMapper {
 	}
 }
 
-func (mapper *conditionMapper) add(condition Condition) (string, error) {
+func (mapper *conditionMapper) add(
+	condition Condition,
+	idRequired bool,
+) (string, error) {
 	concrete, ok := condition.(*conditionImpl)
 	if !ok || concrete == nil {
 		return "", fmt.Errorf("dex: invalid condition %T", condition)
@@ -457,7 +457,7 @@ func (mapper *conditionMapper) add(condition Condition) (string, error) {
 	if concrete.err != nil {
 		return "", concrete.err
 	}
-	id, err := mapper.assignID(concrete.conditionID, concrete.idSet)
+	id, err := mapper.assignID(concrete.conditionID, concrete.idSet, idRequired)
 	if err != nil {
 		return "", err
 	}
@@ -504,22 +504,22 @@ func (mapper *conditionMapper) add(condition Condition) (string, error) {
 func (mapper *conditionMapper) assignID(
 	explicit string,
 	explicitlySet bool,
+	required bool,
 ) (string, error) {
 	if explicitlySet && explicit == "" {
 		return "", fmt.Errorf("dex: explicit condition ID must not be empty")
 	}
-	id := explicit
-	if id == "" {
-		id = internalIDPrefix + strconv.Itoa(mapper.nextID)
-		mapper.nextID++
-	} else if strings.HasPrefix(id, internalIDPrefix) {
-		return "", fmt.Errorf("dex: condition ID %q uses reserved prefix", id)
+	if required && explicit == "" {
+		return "", fmt.Errorf("dex: AnyComboOf requires every condition to have an ID")
 	}
-	if _, found := mapper.usedIDs[id]; found {
-		return "", fmt.Errorf("dex: duplicate condition ID %q", id)
+	if explicit == "" {
+		return "", nil
 	}
-	mapper.usedIDs[id] = struct{}{}
-	return id, nil
+	if _, found := mapper.usedIDs[explicit]; found {
+		return "", fmt.Errorf("dex: duplicate condition ID %q", explicit)
+	}
+	mapper.usedIDs[explicit] = struct{}{}
+	return explicit, nil
 }
 
 func (mapper *conditionMapper) result(

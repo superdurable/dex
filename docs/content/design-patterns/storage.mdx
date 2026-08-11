@@ -31,6 +31,10 @@ update and serializes all keys under one lock. `AttributeMap` keeps each key as
 its own persistence entry, so updates are smaller and different keys do not
 contend. Per-key `set` / `delete` need no whole-store RPC lock.
 
+AttributeMap map-size and all-instance-keys methods expose the current
+invocation's effective entries. Buffered sets appear immediately, buffered
+deletes disappear, and decoded keys are returned in sorted order.
+
 Each physical attribute still has a size limit (on the order of a few MB); this
 pattern is for small KV Step, not a general database.
 

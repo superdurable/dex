@@ -149,6 +149,16 @@ impl<T> ChannelMap<T> {
         context.channel_map_size(self, instance)
     }
 
+    /// Returns the number of non-empty instances visible to the current RPC.
+    pub fn map_size(&self, context: &Context) -> HandlerResult<usize> {
+        Ok(self.all_instance_keys(context)?.len())
+    }
+
+    /// Returns sorted decoded non-empty keys, including buffered publishes.
+    pub fn all_instance_keys(&self, context: &Context) -> HandlerResult<Vec<String>> {
+        context.channel_map_keys(self)
+    }
+
     /// Decodes messages consumed by `instance`'s satisfied condition.
     ///
     /// # Errors

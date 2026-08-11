@@ -14,6 +14,8 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.InvalidStepResultException;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -97,8 +99,12 @@ public final class Wait {
     /**
      * Waits until every condition in any one supplied combination is satisfied.
      *
+     * <p>Every Condition must have a non-empty user-provided ID. Reusing the same Condition object
+     * across combinations is supported; distinct Conditions must not share an ID.
+     *
      * @param combinations alternative all-of condition groups
      * @return an any-combination wait definition
+     * @throws InvalidStepResultException when a Condition ID is missing, empty, or duplicated
      */
     public static Wait anyCombinationOf(final ConditionCombination... combinations) {
         return new Wait(

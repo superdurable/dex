@@ -227,7 +227,7 @@ public final class BasicTest {
             environment.client().startFlow(WORKFLOW, flowId, 5);
             environment.client().waitForStepCompletion(
                     flowId,
-                    new StepExecutionId("BasicSecondStep"),
+                    StepExecutionId.of("BasicSecondStep"),
                     Duration.ofSeconds(30));
             assertEquals(7, environment.client().waitForFlow(
                     flowId,
@@ -237,7 +237,7 @@ public final class BasicTest {
                     FlowNotActiveException.class,
                     () -> environment.client().waitForStepCompletion(
                             flowId,
-                            new StepExecutionId("BasicSecondStep", 2),
+                            StepExecutionId.of("BasicSecondStep", 2),
                             Duration.ofSeconds(1)));
         }
     }
@@ -325,7 +325,7 @@ public final class BasicTest {
         final FlowInfo info = client.describeFlow("basic");
         client.waitForStepCompletion(
                 "basic",
-                new StepExecutionId("BasicSecondStep"),
+                StepExecutionId.of("BasicSecondStep"),
                 Duration.ofSeconds(5));
         consume(info);
     }

@@ -52,6 +52,11 @@ waitFor(_context: Context, _input: void): Wait {
 
 Define Channels on the Flow; wait with `channel.for_one()` / `for_n`; publish from RPC or another Step.
 
+ChannelMap introspection is available during RPC handlers. Its map-size and
+all-instance-keys methods include buffered publishes, omit empty instances, and
+return decoded keys in sorted order. Per-instance message count remains on the
+existing `size` method.
+
 ## How Dex implements it
 
 Channel messages are persisted. Waiting Steps subscribe via Conditions; PublishToChannel completes matching waits.

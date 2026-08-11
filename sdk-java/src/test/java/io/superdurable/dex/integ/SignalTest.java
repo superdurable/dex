@@ -47,7 +47,7 @@ public final class SignalTest {
             environment.client().publish(flowId, WORKFLOW.signalMap, "one", 4);
             environment.client().skipTimer(
                     flowId,
-                    new StepExecutionId("SignalCombinationStep"),
+                    StepExecutionId.of("SignalCombinationStep"),
                     TimerId.byConditionId("test-timer-id"));
             assertEquals(6, environment.client().waitForFlow(
                     flowId,
@@ -67,7 +67,7 @@ public final class SignalTest {
         client.publish("signal", WORKFLOW.signalMap, "one", 5);
         client.skipTimer(
                 "signal",
-                new StepExecutionId("SignalCombinationStep"),
+                StepExecutionId.of("SignalCombinationStep"),
                 TimerId.byConditionId("test-timer-id"));
         final Integer output = client.waitForFlow("signal", Integer.class);
         consume(output);

@@ -119,6 +119,20 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
 
+### Waiting and map inspection
+
+`Wait.all_of` and `Wait.any_of` may use unnamed Conditions. Every Condition in
+`Wait.any_combination_of` must have a non-empty user ID; the same Condition
+instance may appear in multiple combinations.
+
+Both `Client` and `AsyncClient` provide `wait_for_attribute_equal` and
+`wait_for_attribute_map_equal`. They target the current run and accept only
+string, bool, int, or float wire values. JSON objects, bytes, and null fail
+before transport. `AttributeMap.get_map_size/get_all_instance_keys` include
+buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
+include buffered publishes, and omit empty instances. Keys are decoded and
+sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
+
 ### Errors
 
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads

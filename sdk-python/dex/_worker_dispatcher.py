@@ -32,8 +32,6 @@ from dex.step import (
 )
 from dex.wait import Wait, WaitKind
 
-_INTERNAL_CONDITION_PREFIX = "__dex_internal_condition_"
-
 
 class WorkerDispatcher:
     def __init__(
@@ -259,7 +257,8 @@ class WorkerDispatcher:
             for combination in wait.combinations:
                 waiting.condition_combinations.add(
                     condition_ids=[
-                        mapper.add(condition) for condition in combination.conditions
+                        mapper.add(condition, id_required=True)
+                        for condition in combination.conditions
                     ]
                 )
         else:
@@ -417,7 +416,6 @@ class _ConditionMapper:
         self._flow = flow
         self._ids: dict[int, str] = {}
         self._used: set[str] = set()
-        self._next_id = 0
         self.timers: list[pb.TimerCondition] = []
         self.channels: list[pb.ChannelCondition] = []
 
@@ -427,18 +425,22 @@ class _ConditionMapper:
         for condition in conditions:
             self.add(condition)
 
-    def add(self, condition: Condition) -> str:
+    def add(self, condition: Condition, *, id_required: bool = False) -> str:
         identity = id(condition)
         existing = self._ids.get(identity)
         if existing is not None:
             return existing
-        condition_id = condition.condition_id
-        if condition_id is None:
-            condition_id = f"{_INTERNAL_CONDITION_PREFIX}{self._next_id}"
-            self._next_id += 1
-        if not condition_id or condition_id in self._used:
-            raise ValueError("duplicate or empty Condition ID")
-        self._used.add(condition_id)
+        condition_id = condition.condition_id or ""
+        if id_required and not condition_id:
+            raise ValueError(
+                "any_combination_of requires every Condition to have an ID"
+            )
+        if condition.condition_id is not None and not condition_id:
+            raise ValueError("empty Condition ID")
+        if condition_id and condition_id in self._used:
+            raise ValueError("duplicate Condition ID")
+        if condition_id:
+            self._used.add(condition_id)
         if isinstance(condition, TimerCondition):
             seconds = condition.duration.total_seconds()
             if not seconds.is_integer():

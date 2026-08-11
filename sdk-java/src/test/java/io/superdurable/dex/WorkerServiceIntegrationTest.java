@@ -14,6 +14,7 @@
 
 package io.superdurable.dex;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -25,12 +26,14 @@ import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.gen.CloseDecisionType;
+import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
+import io.superdurable.gen.KV;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
 import io.superdurable.gen.SyncAttributeIndexRequest;
@@ -46,6 +49,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -98,6 +102,101 @@ final class WorkerServiceIntegrationTest {
         } finally {
             running.close();
         }
+    }
+
+    @Test
+    void mapsConditionIdsWithoutInternalValues() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final InvokeWaitForMethodResponse unnamed = running.client.invokeWaitForMethod(
+                    waitRequest(concrete("unnamed")));
+            assertEquals("", unnamed.getWaitingCondition()
+                    .getTimerConditions(0).getConditionId());
+            assertEquals("", unnamed.getWaitingCondition()
+                    .getChannelConditions(0).getConditionId());
+
+            final InvokeWaitForMethodResponse reused = running.client.invokeWaitForMethod(
+                    waitRequest(concrete("reused")));
+            assertEquals(
+                    "__dex_internal_condition_0",
+                    reused.getWaitingCondition().getChannelConditions(0).getConditionId());
+            assertEquals(
+                    reused.getWaitingCondition().getConditionCombinations(0).getConditionIds(0),
+                    reused.getWaitingCondition().getConditionCombinations(1).getConditionIds(0));
+
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWaitForMethod(
+                            waitRequest(concrete("missing-combination-id"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWaitForMethod(
+                            waitRequest(concrete("duplicate-id"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWaitForMethod(
+                            waitRequest(concrete("empty-id"))));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void mapIntrospectionTracksBufferedChanges() {
+        final AttributeMap<String> attributes = AttributeMap.define("items", String.class);
+        final ChannelMap<String> channels = ChannelMap.define("messages", String.class);
+        final Flow<Void> flow = new Flow<Void>() {
+            @Override
+            public String getFlowType() {
+                return "MapFlow";
+            }
+
+            @Override
+            public StepList<Void> getSteps() {
+                return StepList.empty();
+            }
+
+            @Override
+            public PersistenceSchema getPersistenceSchema() {
+                return PersistenceSchema.of(attributes, channels);
+            }
+        };
+        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
+        final ValueMapper values = new ValueMapper(new ObjectMapper());
+        final String special = "special / key";
+        final Map<String, ChannelInfo> channelInfos = new HashMap<String, ChannelInfo>();
+        channelInfos.put(
+                Registry.physicalName("messages", special),
+                ChannelInfo.newBuilder().setSize(1).build());
+        channelInfos.put(
+                Registry.physicalName("messages", "empty"),
+                ChannelInfo.getDefaultInstance());
+        final InvocationContext context = new InvocationContext(
+                InvocationContext.Method.RPC,
+                registry.getFlow("MapFlow"),
+                io.superdurable.gen.Context.getDefaultInstance(),
+                values,
+                Arrays.asList(
+                        KV.newBuilder()
+                                .setKey(Registry.physicalName("items", special))
+                                .setValue(values.encode("initial"))
+                                .build(),
+                        KV.newBuilder()
+                                .setKey(Registry.physicalName("items", "z"))
+                                .setValue(values.encode("remove"))
+                                .build()),
+                Collections.<KV>emptyList(),
+                null,
+                channelInfos);
+        assertEquals(Arrays.asList(special, "z"), attributes.getAllInstanceKeys(context));
+        attributes.set(context, "a", "added");
+        attributes.delete(context, "z");
+        assertEquals(Arrays.asList("a", special), attributes.getAllInstanceKeys(context));
+        assertEquals(2, attributes.getMapSize(context));
+        assertEquals(Collections.singletonList(special), channels.getAllInstanceKeys(context));
+        channels.publish(context, "a", "published");
+        assertEquals(Arrays.asList("a", special), channels.getAllInstanceKeys(context));
+        assertEquals(2, channels.getMapSize(context));
     }
 
     @Test
@@ -471,7 +570,8 @@ final class WorkerServiceIntegrationTest {
     }
 
     private static class BridgeFlow implements Flow<String> {
-        private final BridgeStep start = new BridgeStep();
+        private final Channel<Void> commands = Channel.define("commands", Void.class);
+        private final BridgeStep start = new BridgeStep(commands);
         private final Attribute<String> status = Attribute.define(
                 "status",
                 String.class,
@@ -495,12 +595,17 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public PersistenceSchema getPersistenceSchema() {
-            return PersistenceSchema.of(status);
+            return PersistenceSchema.of(status, commands);
         }
     }
 
     private static final class BridgeStep implements Step<String> {
         private final AtomicReference<String> handlerThread = new AtomicReference<String>();
+        private final Channel<Void> commands;
+
+        private BridgeStep(final Channel<Void> commands) {
+            this.commands = commands;
+        }
 
         @Override
         public Class<String> getInputType() {
@@ -514,6 +619,28 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
+            if ("unnamed".equals(input)) {
+                return Wait.allOf(
+                        Timer.byDuration(java.time.Duration.ofSeconds(1)),
+                        commands.forOne());
+            }
+            if ("reused".equals(input)) {
+                final Condition reused = commands.forOne("__dex_internal_condition_0");
+                return Wait.anyCombinationOf(
+                        ConditionCombination.of(reused),
+                        ConditionCombination.of(reused));
+            }
+            if ("missing-combination-id".equals(input)) {
+                return Wait.anyCombinationOf(ConditionCombination.of(commands.forOne()));
+            }
+            if ("duplicate-id".equals(input)) {
+                return Wait.anyCombinationOf(ConditionCombination.of(
+                        commands.forOne("duplicate"),
+                        Timer.byDuration(java.time.Duration.ofSeconds(1), "duplicate")));
+            }
+            if ("empty-id".equals(input)) {
+                return Wait.allOf(commands.forOne(""));
+            }
             return Wait.skipImmediately();
         }
 

@@ -70,7 +70,7 @@ final class InternalChannelWorkflow implements Flow<Integer> {
             return Wait.anyCombinationOf(
                     ConditionCombination.of(
                             firstChannel.forOne("first"),
-                            channelMap.forOne("one")),
+                            channelMap.forOne("one", "mapped")),
                     ConditionCombination.of(secondChannel.forOne("second")));
         }
 

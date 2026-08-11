@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -227,6 +228,38 @@ func (workerTestFlow) Update(
 	if err := workerTestItems.Set(ctx, input.OrderID, after); err != nil {
 		return nil, err
 	}
+	if input.Mode == "introspection" {
+		if keys := workerTestItems.AllInstanceKeys(ctx); !reflect.DeepEqual(
+			keys,
+			[]string{"initial / key", input.OrderID},
+		) || workerTestItems.MapSize(ctx) != len(keys) {
+			return nil, fmt.Errorf("unexpected AttributeMap keys %v", keys)
+		}
+		if err := workerTestItems.Delete(ctx, "initial / key"); err != nil {
+			return nil, err
+		}
+		if keys := workerTestItems.AllInstanceKeys(ctx); !reflect.DeepEqual(
+			keys,
+			[]string{input.OrderID},
+		) || workerTestItems.MapSize(ctx) != len(keys) {
+			return nil, fmt.Errorf("unexpected updated AttributeMap keys %v", keys)
+		}
+		if keys := workerTestByOrder.AllInstanceKeys(ctx); !reflect.DeepEqual(
+			keys,
+			[]string{"initial / key"},
+		) || workerTestByOrder.MapSize(ctx) != len(keys) {
+			return nil, fmt.Errorf("unexpected ChannelMap keys %v", keys)
+		}
+		if err := workerTestByOrder.Publish(ctx, input.OrderID, "mapped"); err != nil {
+			return nil, err
+		}
+		if keys := workerTestByOrder.AllInstanceKeys(ctx); !reflect.DeepEqual(
+			keys,
+			[]string{"initial / key", input.OrderID},
+		) || workerTestByOrder.MapSize(ctx) != len(keys) {
+			return nil, fmt.Errorf("unexpected updated ChannelMap keys %v", keys)
+		}
+	}
 	if err := ctx.RecordEvent("updated", input); err != nil {
 		return nil, err
 	}
@@ -349,15 +382,22 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	rpcInput := workerTestInput{OrderID: "order-1", Mode: "introspection"}
 	rpcResponse, err := client.InvokeWorkerRPC(
 		context.Background(),
 		&dexpb.InvokeWorkerRPCRequest{
 			Context:  workerRPCContext(),
 			FlowType: GetFinalFlowType(workerFlow),
 			RpcName:  "Update",
-			Input:    mustEncodeWorkerTestValue(t, waitInput),
+			Input:    mustEncodeWorkerTestValue(t, rpcInput),
+			Attributes: []*dexpb.KV{{
+				Key:   "items/initial%20%2F%20key",
+				Value: mustEncodeWorkerTestValue(t, 1),
+			}},
 			ChannelInfos: map[string]*dexpb.ChannelInfo{
-				"commands": {Size: 2},
+				"commands":                              {Size: 2},
+				"commands-by-order/empty":               {Size: 0},
+				"commands-by-order/initial%20%2F%20key": {Size: 1},
 			},
 		},
 	)
@@ -365,8 +405,8 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	var output workerTestOutput
 	require.NoError(t, decodeValue(rpcResponse.Output, &output))
 	require.Equal(t, workerTestOutput{Before: 2, After: 3}, output)
-	require.Len(t, rpcResponse.PublishToChannel, 1)
-	require.Len(t, rpcResponse.UpsertAttributes, 1)
+	require.Len(t, rpcResponse.PublishToChannel, 2)
+	require.Len(t, rpcResponse.UpsertAttributes, 2)
 	require.Equal(t, "items/order-1", rpcResponse.UpsertAttributes[0].Key)
 	require.True(t, rpcResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 	require.Len(t, rpcResponse.RecordEvents, 1)
@@ -963,7 +1003,7 @@ func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 		{name: "dead end", decision: DeadEnd(), close: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END},
 		{
 			name: "conditional",
-			decision: ForceCompleteOnChannelsEmpty(
+			decision: ForceCompleteIfChannelsEmpty(
 				"done",
 				[]ChannelDef{workerTestCommands},
 				MovementOf(workerTestFinish, workerTestInput{}),

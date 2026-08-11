@@ -26,8 +26,10 @@ import java.util.List;
  *
  * <pre>{@code
  * return Wait.anyCombinationOf(
- *         ConditionCombination.of(approval.forOne(), Timer.byDuration(shortDelay)),
- *         ConditionCombination.of(manualOverride.forOne()));
+ *         ConditionCombination.of(
+ *                 approval.forOne("approval"),
+ *                 Timer.byDuration(shortDelay, "short-delay")),
+ *         ConditionCombination.of(manualOverride.forOne("manual")));
  * }</pre>
  */
 public final class ConditionCombination {
@@ -39,6 +41,7 @@ public final class ConditionCombination {
 
     /**
      * Creates a combination whose conditions must all be satisfied.
+     * Each Condition needs a non-empty ID when passed to {@link Wait#anyCombinationOf}.
      *
      * @param conditions the conditions in this alternative
      * @return an immutable condition combination

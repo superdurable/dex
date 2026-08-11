@@ -40,7 +40,7 @@ from dex import (
     StepList,
     StepMovement,
     Wait,
-    force_complete_when_channels_empty,
+    force_complete_if_channels_empty,
     go_to,
     graceful_complete,
     rpc,
@@ -117,7 +117,7 @@ class LoopForNextRequest(Step[None]):
         if self.shutdown_requested.get(context):
             return go_to(self.move_to_another_instance, None)
         if not waiting:
-            return force_complete_when_channels_empty(
+            return force_complete_if_channels_empty(
                 "done",
                 StepMovement.of(self, None),
                 self.request_queue,

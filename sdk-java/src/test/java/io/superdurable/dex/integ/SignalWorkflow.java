@@ -79,7 +79,7 @@ final class SignalWorkflow implements Flow<Integer> {
                     ConditionCombination.of(
                             first.forOne("signal-1"),
                             third.forOne("signal-3"),
-                            signalMap.forOne("one"),
+                            signalMap.forOne("one", "signal-map"),
                             Timer.byDuration(Duration.ofDays(365), "test-timer-id")));
         }
 

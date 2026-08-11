@@ -1284,6 +1284,9 @@ func (client *Client) waitForAttributeEqual(
 	if err != nil {
 		return err
 	}
+	if !isScalarValue(encoded) {
+		return fmt.Errorf("dex: WaitForAttributeEqual supports only scalar values")
+	}
 	timeout, err := mapWaitOptions(options)
 	if err != nil {
 		return err
@@ -1303,6 +1306,18 @@ func (client *Client) waitForAttributeEqual(
 		RequestId:       requestID,
 	})
 	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
+}
+
+func isScalarValue(value *dexpb.Value) bool {
+	switch value.GetKind().(type) {
+	case *dexpb.Value_StringValue,
+		*dexpb.Value_BoolValue,
+		*dexpb.Value_IntValue,
+		*dexpb.Value_DoubleValue:
+		return true
+	default:
+		return false
+	}
 }
 
 // InvokeRPC synchronously invokes a registered RPC on an active Flow.

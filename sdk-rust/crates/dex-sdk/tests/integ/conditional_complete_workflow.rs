@@ -91,7 +91,7 @@ impl Step for ConditionalCompleteStep {
         } else {
             &self.internal
         };
-        Ok(StepDecision::force_complete_when_channels_empty(
+        Ok(StepDecision::force_complete_if_channels_empty(
             next,
             StepMovement::to(self, use_signal),
             [selected.when_empty()],

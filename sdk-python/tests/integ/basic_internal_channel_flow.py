@@ -35,7 +35,9 @@ class ConsumeStep(Step[int]):
         del context, input
         return Wait.any_combination_of(
             ConditionCombination.of(self.first.for_one(condition_id="first")),
-            ConditionCombination.of(self.channel_map.for_one("one")),
+            ConditionCombination.of(
+                self.channel_map.for_one("one", condition_id="mapped")
+            ),
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:

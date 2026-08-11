@@ -212,6 +212,24 @@ export class ChannelMap<T> {
   }
 
   /**
+   * Returns the number of non-empty instances visible to the current RPC.
+   * @param context - Current RPC Context.
+   * @returns The number of keys after including publications buffered by this RPC.
+   */
+  public getMapSize(context: Context): number {
+    return this.getAllInstanceKeys(context).length;
+  }
+
+  /**
+   * Returns decoded non-empty instance keys in ascending order.
+   * @param context - Current RPC Context.
+   * @returns Keys including publications buffered by the current RPC.
+   */
+  public getAllInstanceKeys(context: Context): readonly string[] {
+    return context.channelMapKeys(this as ChannelMap<unknown>);
+  }
+
+  /**
    * Returns values selected for one instance by the satisfied condition.
    * @param context - Current Step Context.
    * @param instance - Non-empty logical map key.
@@ -347,6 +365,7 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait accepting any complete condition combination.
+   * Every Condition requires a non-empty user ID; the same instance may be reused.
    * @param combinations - Alternative all-of condition groups.
    * @returns An any-combination Wait.
    */

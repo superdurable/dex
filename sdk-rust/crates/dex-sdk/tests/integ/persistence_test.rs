@@ -10,7 +10,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use dex_sdk::{Client, Registry, SdkError, SdkResult, StartFlowOptions};
+use dex_sdk::{Attribute, Client, Registry, SdkError, SdkResult, StartFlowOptions};
 
 use crate::persistence_set_attributes_workflow::PersistenceSetAttributesWorkflow;
 use crate::persistence_workflow::{PersistenceModel, PersistenceWorkflow};
@@ -216,10 +216,84 @@ fn test_set_data_attributes() {
         .client
         .start_flow(&workflow, &flow_id, "start".to_string())
         .expect("start set-data-attributes Flow");
-    environment
-        .client
-        .set_attribute(&flow_id, &workflow.data, "query-start".to_string())
-        .expect("set data Attribute");
+    assert!(matches!(
+        environment.client.wait_for_attribute_equal(
+            &flow_id,
+            &workflow.data,
+            "never".to_string(),
+            Duration::from_secs(1),
+        ),
+        Err(SdkError::LongPollTimeout { .. })
+    ));
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            environment.client.wait_for_attribute_equal(
+                &flow_id,
+                &workflow.data,
+                "query-start".to_string(),
+                Duration::from_secs(30),
+            )
+        });
+        environment
+            .client
+            .set_attribute(&flow_id, &workflow.data, "query-start".to_string())
+            .expect("set data Attribute");
+        waiting
+            .join()
+            .expect("join Attribute wait")
+            .expect("wait for data Attribute");
+    });
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            environment.client.wait_for_attribute_map_equal(
+                &flow_id,
+                &workflow.data_map,
+                "special / key",
+                "mapped-value".to_string(),
+                Duration::from_secs(30),
+            )
+        });
+        environment
+            .client
+            .set_attribute_map(
+                &flow_id,
+                &workflow.data_map,
+                "special / key",
+                "mapped-value".to_string(),
+            )
+            .expect("set special AttributeMap entry");
+        waiting
+            .join()
+            .expect("join AttributeMap wait")
+            .expect("wait for AttributeMap entry");
+    });
+    assert!(matches!(
+        environment.client.wait_for_attribute_equal(
+            &flow_id,
+            &workflow.model,
+            PersistenceModel { value: 8 },
+            Duration::from_secs(30),
+        ),
+        Err(SdkError::InvalidArgument { .. })
+    ));
+    assert!(matches!(
+        environment.client.wait_for_attribute_equal(
+            &flow_id,
+            &Attribute::<Vec<u8>>::new("bytes"),
+            vec![1],
+            Duration::from_secs(30),
+        ),
+        Err(SdkError::InvalidArgument { .. })
+    ));
+    assert!(matches!(
+        environment.client.wait_for_attribute_equal(
+            &flow_id,
+            &Attribute::<()>::new("null"),
+            (),
+            Duration::from_secs(30),
+        ),
+        Err(SdkError::InvalidArgument { .. })
+    ));
     environment
         .client
         .set_attribute_map(
@@ -299,6 +373,19 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
         "set-attributes",
         &workflow.keywords,
         vec!["one".to_string(), "two".to_string()],
+    )?;
+    client.wait_for_attribute_equal(
+        "set-attributes",
+        &workflow.data,
+        "value".to_string(),
+        Duration::from_secs(30),
+    )?;
+    client.wait_for_attribute_map_equal(
+        "set-attributes",
+        &workflow.data_map,
+        "one",
+        "value".to_string(),
+        Duration::from_secs(30),
     )?;
     let _: String = client.wait_for_flow("set-attributes")?;
     Ok(())

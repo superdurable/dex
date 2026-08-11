@@ -101,6 +101,23 @@ Invocation attribute reads return `(value, error)`. A missing static or map
 attribute returns `*dex.AttributeNotFoundError`, which callers can inspect with
 `errors.As` when absence is expected.
 
+## Waiting and map inspection
+
+`AllOf` and `AnyOf` may contain unnamed Conditions; the Worker sends an empty
+Condition ID and Dex evaluates them normally. Every Condition in `AnyComboOf`
+must use `WithConditionID`. Reusing the same Condition value across combinations
+is supported, while duplicate IDs on distinct Conditions are rejected.
+
+Clients wait on scalar Attribute equality in the current run with
+`WaitForAttributeEqual` or `WaitForAttributeMapEqual`. Expected values must
+encode as string, bool, integer, or double; JSON, bytes, and null fail before
+the RPC is sent.
+
+Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
+sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
+include buffered publishes, but omit empty instances. Keys are decoded and
+sorted. Use `ForceCompleteIfChannelsEmpty` for atomic conditional completion.
+
 ## Registration
 
 Registration uses pointer-stripped package-qualified Go types by default:

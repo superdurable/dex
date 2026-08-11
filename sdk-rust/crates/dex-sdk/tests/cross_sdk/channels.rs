@@ -204,7 +204,7 @@ impl Step for ChannelSecondStep {
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
         Ok(Wait::any_combination_of([ConditionCombination::all_of([
-            self.first.for_one(),
+            self.first.for_one().with_id("first"),
             Timer::by_duration(Duration::from_secs(24 * 60 * 60)).with_id("finish-timer"),
         ])]))
     }

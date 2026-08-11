@@ -41,7 +41,7 @@ class ConsumeStep implements Step<number> {
   public waitFor(_context: Context, _input: number): Wait {
     return Wait.anyCombinationOf(
       ConditionCombination.of(this.first.forOne("first")),
-      ConditionCombination.of(this.channelMap.forOne("one")),
+      ConditionCombination.of(this.channelMap.forOne("one", "mapped")),
     );
   }
 

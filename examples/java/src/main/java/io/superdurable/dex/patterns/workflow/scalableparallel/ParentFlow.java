@@ -191,7 +191,7 @@ public class ParentFlow implements Flow<BatchEnqueueRequest> {
             currentWaitChildWfs.set(context, newWaitList.toArray(new String[0]));
 
             if (newWaitList.isEmpty()) {
-                return StepDecision.forceCompleteWhenChannelsEmpty(
+                return StepDecision.forceCompleteIfChannelsEmpty(
                         null,
                         StepMovement.of(loopForNextMessage, null),
                         taskQueue);

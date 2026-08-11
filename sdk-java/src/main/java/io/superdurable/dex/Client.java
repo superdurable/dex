@@ -53,9 +53,13 @@ import io.superdurable.gen.StartFlowRequest;
 import io.superdurable.gen.StopFlowRequest;
 import io.superdurable.gen.TriggerContinueAsNewRequest;
 import io.superdurable.gen.UpdateFlowConfigRequest;
+import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForFlowResponse;
 import io.superdurable.gen.WaitForStepCompletionRequest;
+import io.superdurable.gen.WaitForAttributeCondition;
+import io.superdurable.gen.WaitForAttributeEqual;
+import io.superdurable.gen.WaitForAttributeRequest;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy;
@@ -789,6 +793,90 @@ public final class Client implements AutoCloseable {
                         .build()),
                 FlowTargetRequirement.ACTIVE,
                 flowId);
+    }
+
+    /**
+     * Blocks until a scalar Attribute equals the expected value or the wait duration expires.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the registered Attribute definition
+     * @param expected the expected string, boolean, integer, or floating-point value
+     * @param timeout the nonnegative whole-second wait duration
+     * @param <T> the Attribute value type
+     * @throws IllegalArgumentException if the expected value is not a supported scalar
+     * @throws LongPollTimeoutException if the timeout expires before the value matches
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the wait
+     */
+    public <T> void waitForAttributeEqual(
+            final String flowId,
+            final Attribute<T> attribute,
+            final T expected,
+            final Duration timeout) {
+        waitForAttributeEqual(flowId, attribute, null, expected, timeout);
+    }
+
+    /**
+     * Blocks until a scalar Attribute-map instance equals the expected value.
+     *
+     * @param flowId the target Flow ID
+     * @param attribute the registered Attribute-map definition
+     * @param instance the map instance
+     * @param expected the expected string, boolean, integer, or floating-point value
+     * @param timeout the nonnegative whole-second wait duration
+     * @param <T> the Attribute value type
+     * @throws IllegalArgumentException if the expected value is not a supported scalar
+     * @throws LongPollTimeoutException if the timeout expires before the value matches
+     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws DexServiceException if Dex otherwise cannot complete the wait
+     */
+    public <T> void waitForAttributeMapEqual(
+            final String flowId,
+            final AttributeMap<T> attribute,
+            final String instance,
+            final T expected,
+            final Duration timeout) {
+        waitForAttributeEqual(flowId, attribute, instance, expected, timeout);
+    }
+
+    private void waitForAttributeEqual(
+            final String flowId,
+            final PersistenceDefinition attribute,
+            final String instance,
+            final Object expected,
+            final Duration timeout) {
+        final Value encoded = values.encode(expected);
+        if (!isScalar(encoded)) {
+            throw new IllegalArgumentException(
+                    "waitForAttributeEqual supports only scalar values");
+        }
+        final String key = instance == null
+                ? attribute.getName()
+                : Registry.physicalName(attribute.getName(), instance);
+        call(
+                () -> service.waitForAttribute(WaitForAttributeRequest.newBuilder()
+                        .setFlowId(flowId)
+                        .setCondition(WaitForAttributeCondition.newBuilder()
+                                .setEqual(WaitForAttributeEqual.newBuilder()
+                                        .setKey(key)
+                                        .setValue(encoded)))
+                        .setWaitTimeSeconds(seconds32(timeout))
+                        .setRequestId(UUID.randomUUID().toString())
+                        .build()),
+                FlowTargetRequirement.ACTIVE,
+                flowId);
+    }
+
+    private static boolean isScalar(final Value value) {
+        switch (value.getKindCase()) {
+            case STRING_VALUE:
+            case BOOL_VALUE:
+            case INT_VALUE:
+            case DOUBLE_VALUE:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**

@@ -20,7 +20,7 @@ package io.superdurable.dex;
  * <pre>{@code
  * client.skipTimer(
  *         "order-123",
- *         new StepExecutionId("AwaitPayment"),
+ *         StepExecutionId.of("AwaitPayment"),
  *         TimerId.byConditionId("payment-deadline"));
  * }</pre>
  */

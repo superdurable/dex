@@ -33,6 +33,8 @@ Full integration verification:
 - Client methods return Promise because blocking the Node event loop is unsafe.
 - Step / waitFor / RPC handlers may be sync or async; several ported fixtures and
   `mixed_sync_async_flow.ts` exercise both styles on one Worker.
+- Persistence integration covers scalar Attribute equality waits; local
+  contracts cover Condition IDs and buffered map introspection.
 
 ## Error coverage
 

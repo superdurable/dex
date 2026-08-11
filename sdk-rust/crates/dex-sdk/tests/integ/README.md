@@ -51,4 +51,5 @@ one-to-one Java suite.
 | Non-completed Flow result | `FlowUncompleted` |
 
 Local contract tests also cover malformed rich details, fallible registration,
-and invalid Step-result worker metadata.
+invalid Step-result worker metadata, user-owned Condition IDs, and map
+introspection. Persistence integration covers scalar Attribute equality waits.

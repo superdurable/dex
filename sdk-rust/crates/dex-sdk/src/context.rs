@@ -17,7 +17,7 @@ use dex_protocol::dex::{
 };
 
 use crate::persistence::PersistenceKind;
-use crate::registry::{RegisteredFlow, physical_name};
+use crate::registry::{RegisteredFlow, decode_instance, physical_name};
 use crate::value_mapper;
 use crate::{Attribute, AttributeMap, Channel, ChannelMap, HandlerError, HandlerResult, Value};
 
@@ -258,6 +258,38 @@ impl Context {
         )
     }
 
+    pub(crate) fn attribute_map_keys<T>(
+        &self,
+        attribute: &AttributeMap<T>,
+    ) -> HandlerResult<Vec<String>> {
+        self.registered_name(
+            attribute.name(),
+            PersistenceKind::AttributeMap,
+            Some("key-check"),
+        )?;
+        let prefix = format!("{}/", attribute.name());
+        let mut physical_keys = self
+            .attributes
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect::<HashSet<_>>();
+        for (key, write) in &self.attribute_writes {
+            if !key.starts_with(&prefix) {
+                continue;
+            }
+            if matches!(
+                write.value.as_ref().and_then(|value| value.kind.as_ref()),
+                Some(value::Kind::NullValue(_))
+            ) {
+                physical_keys.remove(key);
+            } else {
+                physical_keys.insert(key.clone());
+            }
+        }
+        sorted_instance_keys(&prefix, physical_keys)
+    }
+
     /// Stages one typed Channel publication.
     pub fn publish<T: Value>(&mut self, channel: &Channel<T>, value: T) -> HandlerResult<()> {
         self.publish_value(
@@ -295,6 +327,30 @@ impl Context {
         instance: &str,
     ) -> HandlerResult<usize> {
         self.channel_size_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
+    }
+
+    pub(crate) fn channel_map_keys<T>(
+        &self,
+        channel: &ChannelMap<T>,
+    ) -> HandlerResult<Vec<String>> {
+        if self.method != InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "ChannelMap introspection requires an RPC invocation",
+            ));
+        }
+        self.registered_name(
+            channel.name(),
+            PersistenceKind::ChannelMap,
+            Some("key-check"),
+        )?;
+        let prefix = format!("{}/", channel.name());
+        let physical_keys = self
+            .channel_infos
+            .iter()
+            .filter(|(key, info)| key.starts_with(&prefix) && info.size > 0)
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
+        sorted_instance_keys(&prefix, physical_keys)
     }
 
     /// Decodes the messages consumed by a satisfied Channel condition.
@@ -484,6 +540,18 @@ impl Context {
     }
 }
 
+fn sorted_instance_keys(
+    prefix: &str,
+    physical_keys: HashSet<String>,
+) -> HandlerResult<Vec<String>> {
+    let mut keys = physical_keys
+        .iter()
+        .map(|key| decode_instance(key, prefix).map_err(HandlerError::new))
+        .collect::<HandlerResult<Vec<_>>>()?;
+    keys.sort();
+    Ok(keys)
+}
+
 #[derive(Clone)]
 pub(crate) struct InvocationCancellation {
     inner: Arc<InvocationCancellationInner>,
@@ -551,5 +619,93 @@ fn require_name(value: &str, kind: &str) -> HandlerResult<()> {
         Err(HandlerError::new(format!("{kind} is required")))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Context, InvocationMethod};
+    use crate::{
+        AttributeMap, ChannelMap, Flow, PersistenceSchema, Registry, registry::physical_name,
+        value_mapper,
+    };
+    use dex_protocol::dex::{ChannelInfo, Context as ProtoContext, Kv};
+    use std::collections::HashMap;
+
+    struct MapFlow {
+        attributes: AttributeMap<String>,
+        channels: ChannelMap<String>,
+    }
+
+    impl Flow for MapFlow {
+        type StartInput = ();
+
+        fn persistence(&self) -> PersistenceSchema {
+            PersistenceSchema::new()
+                .attribute_map(&self.attributes)
+                .channel_map(&self.channels)
+        }
+    }
+
+    #[test]
+    fn map_introspection_tracks_buffered_changes() {
+        let flow = MapFlow {
+            attributes: AttributeMap::new("items"),
+            channels: ChannelMap::new("messages"),
+        };
+        let registry = Registry::new().register(flow).expect("register map Flow");
+        let registered = registry.flow("MapFlow").expect("lookup map Flow").clone();
+        let attributes = AttributeMap::<String>::new("items");
+        let channels = ChannelMap::<String>::new("messages");
+        let special = "special / key";
+        let mut context = Context::new(
+            InvocationMethod::Rpc,
+            registered,
+            ProtoContext::default(),
+            vec![
+                Kv {
+                    key: physical_name("items", special),
+                    value: Some(value_mapper::encode_handler(&"initial".to_string()).unwrap()),
+                },
+                Kv {
+                    key: physical_name("items", "z"),
+                    value: Some(value_mapper::encode_handler(&"remove".to_string()).unwrap()),
+                },
+            ],
+            Vec::new(),
+            None,
+            HashMap::from([
+                (physical_name("messages", special), ChannelInfo { size: 1 }),
+                (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
+            ]),
+        )
+        .expect("create RPC Context");
+
+        assert_eq!(
+            vec![special.to_string(), "z".to_string()],
+            attributes.all_instance_keys(&context).unwrap()
+        );
+        attributes
+            .set(&mut context, "a", "added".to_string())
+            .unwrap();
+        attributes.delete(&mut context, "z").unwrap();
+        assert_eq!(
+            vec!["a".to_string(), special.to_string()],
+            attributes.all_instance_keys(&context).unwrap()
+        );
+        assert_eq!(2, attributes.map_size(&context).unwrap());
+
+        assert_eq!(
+            vec![special.to_string()],
+            channels.all_instance_keys(&context).unwrap()
+        );
+        channels
+            .publish(&mut context, "a", "published".to_string())
+            .unwrap();
+        assert_eq!(
+            vec!["a".to_string(), special.to_string()],
+            channels.all_instance_keys(&context).unwrap()
+        );
+        assert_eq!(2, channels.map_size(&context).unwrap());
     }
 }

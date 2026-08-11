@@ -420,10 +420,10 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		return fail(name, "", err)
 	}
 	if err := client.WaitForAttributeEqual(
-		ctx, flowID, subscription.CustomerDetails, customer,
+		ctx, flowID, subscription.BillingPeriodNumber, 0,
 		dex.WaitOptions{Timeout: 20 * time.Second},
 	); err != nil {
-		return fail(name, "wait customer", err)
+		return fail(name, "wait initialized", err)
 	}
 	var current subscription.Subscription
 	if err := client.InvokeRPC(

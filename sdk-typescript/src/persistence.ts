@@ -171,6 +171,24 @@ export class AttributeMap<T> {
   }
 
   /**
+   * Returns the number of existing instances, including buffered writes.
+   * @param context - Current Step or RPC Context.
+   * @returns The number of keys visible after decision-local writes and deletions.
+   */
+  public getMapSize(context: Context): number {
+    return this.getAllInstanceKeys(context).length;
+  }
+
+  /**
+   * Returns decoded existing instance keys in ascending order.
+   * @param context - Current Step or RPC Context.
+   * @returns Keys visible after decision-local writes and deletions.
+   */
+  public getAllInstanceKeys(context: Context): readonly string[] {
+    return context.attributeMapKeys(this as AttributeMap<unknown>);
+  }
+
+  /**
    * Returns an immutable AttributeMap definition whose writes are projected to the Flow's Attribute Store.
    *
    * Projection is asynchronous and latest-state only. Each map instance uses its physical Attribute name.

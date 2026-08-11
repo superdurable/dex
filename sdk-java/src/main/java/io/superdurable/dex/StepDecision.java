@@ -150,7 +150,7 @@ public final class StepDecision {
      * @param channels the {@link Channel} or {@link ChannelMap} definitions that must be empty
      * @return a conditional force-completion decision
      */
-    public static StepDecision forceCompleteWhenChannelsEmpty(
+    public static StepDecision forceCompleteIfChannelsEmpty(
             final Object output,
             final StepMovement<?> fallback,
             final Object... channels) {

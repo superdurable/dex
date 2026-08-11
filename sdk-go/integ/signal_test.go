@@ -52,7 +52,7 @@ func (channelFlowFirstStep) WaitFor(
 	struct{},
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
-		channelFlowFirst.ForOne(),
+		channelFlowFirst.ForOne(dex.WithConditionID("first")),
 		channelFlowSecond.ForOne(),
 	), nil
 }
@@ -88,7 +88,7 @@ func (channelFlowSecondStep) WaitFor(
 	struct{},
 ) (*dex.Wait, error) {
 	return dex.AnyComboOf(dex.Combo(
-		channelFlowFirst.ForOne(),
+		channelFlowFirst.ForOne(dex.WithConditionID("first")),
 		dex.Timer(24*time.Hour, dex.WithConditionID("finish-timer")),
 	)), nil
 }

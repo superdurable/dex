@@ -19,7 +19,7 @@ from dex import (
     StepList,
     StepMovement,
     Wait,
-    force_complete_when_channels_empty,
+    force_complete_if_channels_empty,
     rpc,
 )
 
@@ -43,7 +43,7 @@ class ConditionalStep(Step[bool]):
         next_value = self.counter.get(context) + 1
         self.counter.set(context, next_value)
         selected = self.signal if input else self.internal
-        return force_complete_when_channels_empty(
+        return force_complete_if_channels_empty(
             next_value,
             StepMovement.of(self, input),
             selected,

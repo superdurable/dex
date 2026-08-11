@@ -149,6 +149,11 @@ class Context(Protocol):
         instance: str | None,
     ) -> None: ...
 
+    def _attribute_map_keys(
+        self,
+        definition: AttributeMap[object],
+    ) -> tuple[str, ...]: ...
+
     def _publish_channel(
         self,
         definition: Channel[ValueT] | ChannelMap[ValueT],
@@ -167,3 +172,8 @@ class Context(Protocol):
         definition: Channel[ValueT] | ChannelMap[ValueT],
         instance: str | None,
     ) -> Sequence[ValueT]: ...
+
+    def _channel_map_keys(
+        self,
+        definition: ChannelMap[object],
+    ) -> tuple[str, ...]: ...

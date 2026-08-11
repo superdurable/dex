@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Sequence, TypeVar, cast
+from urllib.parse import unquote
 
 from dex._utils import require_name
 from dex._value_mapper import ValueMapper
@@ -203,6 +204,38 @@ class InvocationContext:
             self._channel_infos[name] = pb.ChannelInfo(
                 size=(current.size if current is not None else 0) + 1
             )
+
+    def _attribute_map_keys(
+        self,
+        definition: AttributeMap[object],
+    ) -> tuple[str, ...]:
+        self._require_registered(definition)
+        prefix = f"{definition.name}/"
+        physical_keys = {key for key in self._attributes if key.startswith(prefix)}
+        for key, write in self.attribute_writes.items():
+            if not key.startswith(prefix):
+                continue
+            if write.value.WhichOneof("kind") == "null_value":
+                physical_keys.discard(key)
+            else:
+                physical_keys.add(key)
+        return tuple(sorted(unquote(key[len(prefix) :]) for key in physical_keys))
+
+    def _channel_map_keys(
+        self,
+        definition: ChannelMap[object],
+    ) -> tuple[str, ...]:
+        self._require_registered(definition)
+        if self._method is not InvocationMethod.RPC:
+            raise ValueError("ChannelMap introspection requires an RPC invocation")
+        prefix = f"{definition.name}/"
+        return tuple(
+            sorted(
+                unquote(key[len(prefix) :])
+                for key, info in self._channel_infos.items()
+                if key.startswith(prefix) and info.size > 0
+            )
+        )
 
     def _channel_size(
         self,

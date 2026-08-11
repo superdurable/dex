@@ -101,7 +101,7 @@ impl Step for ConsumeStep {
         Ok(Wait::any_combination_of([
             ConditionCombination::all_of([
                 self.first_channel.for_one().with_id("first"),
-                self.channel_map.for_one("one"),
+                self.channel_map.for_one("one").with_id("mapped"),
             ]),
             ConditionCombination::all_of([self.second_channel.for_one().with_id("second")]),
         ]))

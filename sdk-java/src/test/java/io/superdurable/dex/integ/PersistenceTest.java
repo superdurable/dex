@@ -13,9 +13,11 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.Attribute;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
+import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -153,15 +157,63 @@ public final class PersistenceTest {
             final PersistenceWorkflow.ModelInput model = new PersistenceWorkflow.ModelInput();
             model.value = 7;
             environment.client().startFlow(SET_ATTRIBUTES_WORKFLOW, flowId, "start");
+            assertThrows(
+                    LongPollTimeoutException.class,
+                    () -> environment.client().waitForAttributeEqual(
+                            flowId,
+                            SET_ATTRIBUTES_WORKFLOW.data,
+                            "never",
+                            Duration.ofSeconds(1)));
+            final CompletableFuture<Void> waiting = CompletableFuture.runAsync(
+                    () -> environment.client().waitForAttributeEqual(
+                            flowId,
+                            SET_ATTRIBUTES_WORKFLOW.data,
+                            "query-start",
+                            Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
                     SET_ATTRIBUTES_WORKFLOW.data,
                     "query-start");
+            waiting.get(30, TimeUnit.SECONDS);
+            final CompletableFuture<Void> waitingMap = CompletableFuture.runAsync(
+                    () -> environment.client().waitForAttributeMapEqual(
+                            flowId,
+                            SET_ATTRIBUTES_WORKFLOW.dataMap,
+                            "special / key",
+                            "mapped-value",
+                            Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
                     SET_ATTRIBUTES_WORKFLOW.dataMap,
                     "one",
                     "mapped-value");
+            environment.client().setAttribute(
+                    flowId,
+                    SET_ATTRIBUTES_WORKFLOW.dataMap,
+                    "special / key",
+                    "mapped-value");
+            waitingMap.get(30, TimeUnit.SECONDS);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().waitForAttributeEqual(
+                            flowId,
+                            SET_ATTRIBUTES_WORKFLOW.model,
+                            model,
+                            Duration.ofSeconds(30)));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().waitForAttributeEqual(
+                            flowId,
+                            Attribute.define("bytes", byte[].class),
+                            new byte[] {1},
+                            Duration.ofSeconds(30)));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().waitForAttributeEqual(
+                            flowId,
+                            Attribute.define("null", Void.class),
+                            null,
+                            Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
                     SET_ATTRIBUTES_WORKFLOW.model,
@@ -221,6 +273,17 @@ public final class PersistenceTest {
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.keywords,
                 new String[] {"one", "two"});
+        client.waitForAttributeEqual(
+                "set-attributes",
+                SET_ATTRIBUTES_WORKFLOW.data,
+                "value",
+                Duration.ofSeconds(30));
+        client.waitForAttributeMapEqual(
+                "set-attributes",
+                SET_ATTRIBUTES_WORKFLOW.dataMap,
+                "one",
+                "value",
+                Duration.ofSeconds(30));
         final String output = client.waitForFlow("set-attributes", String.class);
         consume(output);
     }
