@@ -196,8 +196,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	stopBySignal, _ := u.signalReceiver.GetIfStopFlowRequested()
-	if !stopBySignal {
+	if !u.signalReceiver.IsStopFlowRequested() {
 		u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	}
 	u.continueAsNewCounter.IncSyncUpdateReceived()
@@ -399,8 +398,7 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 }
 
 func (u *WorkflowUpdater) rejectTerminalUpdate() error {
-	stopBySignal, _ := u.signalReceiver.GetIfStopFlowRequested()
-	if !stopBySignal {
+	if !u.signalReceiver.IsStopFlowRequested() {
 		return nil
 	}
 	return u.provider.NewUpdateError(

@@ -320,3 +320,7 @@ func (sr *SignalReceiver) requestStopFlowWithError(stopErr error) {
 func (sr *SignalReceiver) GetIfStopFlowRequested() (bool, error) {
 	return sr.stopFlowRequested, sr.stopFlowErr
 }
+
+func (sr *SignalReceiver) IsStopFlowRequested() bool {
+	return sr.stopFlowRequested
+}

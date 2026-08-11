@@ -288,8 +288,7 @@ func (i *Interpreter) StartEngineFlow(
 
 	for {
 		if err := provider.Await(ctx, func() bool {
-			stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
-			return !stepRequestQueue.IsEmpty() || stopBySignal || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
+			return !stepRequestQueue.IsEmpty() || signalReceiver.IsStopFlowRequested() || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
@@ -856,8 +855,7 @@ func (i *Interpreter) processStepExecution(
 			channelStore.Availability(),
 			completedTimerConditions,
 		)
-		stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
-		return conditionMet || stopBySignal || continueAsNewCounter.IsThresholdMet()
+		return conditionMet || signalReceiver.IsStopFlowRequested() || continueAsNewCounter.IsThresholdMet()
 	})
 
 	waitingConditionDoneOrCanceled = true
@@ -871,8 +869,7 @@ func (i *Interpreter) processStepExecution(
 		return true
 	})
 
-	stopBySignal, _ := signalReceiver.GetIfStopFlowRequested()
-	if stopBySignal || !conditionMet {
+	if signalReceiver.IsStopFlowRequested() || !conditionMet {
 		// this means stop was requested or continueAsNewCounter.IsThresholdMet == true
 		// not using only continueAsNewCounter.IsThresholdMet because matchPlan has higher priority without a terminal request
 		// it won't continueAsNew in those cases
