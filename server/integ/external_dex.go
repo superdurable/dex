@@ -169,7 +169,7 @@ func connectToExternalDexService(t *testing.T, testConfig DexServiceTestConfig) 
 	if unsupportedReason := externalDexUnsupportedReason(testConfig); unsupportedReason != "" {
 		t.Skipf("requires per-test in-process Dex configuration: %s", unsupportedReason)
 	}
-	cfg := createTestConfig(testConfig)
+	cfg := createTestConfig(t, testConfig)
 	dataConverter := dexconverter.NewTemporalDataConverter()
 	temporalClient := createTemporalClient(t, dataConverter)
 	unifiedClient := temporalapi.NewTemporalClient(
@@ -265,7 +265,7 @@ func externalDexUnsupportedReason(testConfig DexServiceTestConfig) string {
 	if len(testConfig.DefaultHeaders) > 0 {
 		return "default headers"
 	}
-	if testConfig.S3TestThreshold > 0 || testConfig.LazyLoading != nil {
+	if testConfig.S3TestThreshold > 0 || testConfig.BlobStoreEnabled != nil || testConfig.LazyLoading != nil {
 		return "external storage"
 	}
 	if *disableStickyCache {

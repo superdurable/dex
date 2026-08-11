@@ -62,6 +62,8 @@ const (
 	DefaultWorkerServiceRequestMaxAttempts = 3
 	// DefaultBlobCacheMaxBytes caps the Server Attribute blob cache at one GiB.
 	DefaultBlobCacheMaxBytes int64 = 1 << 30
+	// DefaultBlobStoreThresholdInBytes offloads Attribute payloads larger than one KiB.
+	DefaultBlobStoreThresholdInBytes = 1 << 10
 	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
 	DefaultAttributeStoreSchemaSyncInterval = time.Minute
 	// DefaultAttributeStoreSyncBatchSize caps mutations in one Attribute Store upsert.
@@ -93,22 +95,22 @@ type (
 		Worker WorkerConfig `yaml:"worker"`
 		// Interpreter selects Temporal or Cadence and worker activity settings. Exactly one of Temporal/Cadence must be set.
 		Interpreter Interpreter `yaml:"interpreter"`
-		// BlobStore offloads large Attribute payloads above ThresholdInBytes. Default disabled.
+		// BlobStore offloads large Attribute payloads above ThresholdInBytes. Default enabled.
 		BlobStore BlobStoreConfig `yaml:"blobStore"`
 		// AttributeStore configures optional MySQL/Postgres Attribute synchronization. Default disabled when Stores is empty.
 		AttributeStore AttributeStoreConfig `yaml:"attributeStore"`
 	}
 
 	BlobStoreConfig struct {
-		// Enabled turns external blob offload on or off. Default false.
-		Enabled bool `yaml:"enabled"`
+		// Enabled turns blob offload on or off. Default true when omitted.
+		Enabled *bool `yaml:"enabled"`
 		// LazyLoading turns lazy loading on or off.
 		// When on, server will only send blobIDs to worker for worker APIs(invoke waitFor/execute/RPC) and GetAttribute API.
 		// Worker wil call LoadBlobs API to get the actual values.
 		// So that worker & server can minimize the data transfer, and worker can cache the values if needed.
 		// Default true when omitted (nil).
 		LazyLoading *bool `yaml:"lazyLoading"`
-		// ThresholdInBytes is the payload size that triggers writing a blob id onto Value instead of inline data. Default 0 (never offload when Enabled is false).
+		// ThresholdInBytes triggers blob offload above this payload size. Default 1024. Zero uses the default.
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStoreConfigEntry `yaml:"supportedStorages"`
@@ -363,6 +365,22 @@ func (c BlobStoreConfig) EffectiveLazyLoading() bool {
 		return true
 	}
 	return *c.LazyLoading
+}
+
+// EffectiveEnabled returns Enabled, defaulting to true when omitted.
+func (c BlobStoreConfig) EffectiveEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// EffectiveThresholdInBytes returns the offload threshold or its one-KiB default.
+func (c BlobStoreConfig) EffectiveThresholdInBytes() int {
+	if c.ThresholdInBytes == 0 {
+		return DefaultBlobStoreThresholdInBytes
+	}
+	return c.ThresholdInBytes
 }
 
 // EffectiveMaxBytes returns the configured cache budget or its one-GiB default.

@@ -14,3 +14,6 @@ make attributeStoreIntegTests
 
 The suite covers startup schema contracts, both SQL upsert dialects, filtering,
 schema refresh recovery, and additive columns.
+
+In-process tests use an isolated local Blob Store with the default 1 KiB
+offload threshold. S3-specific tests replace it with MinIO.

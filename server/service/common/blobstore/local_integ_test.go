@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 )
 
@@ -29,7 +30,7 @@ func TestLocalBlobStoreIntegration(t *testing.T) {
 	logger, err := loggerimpl.NewDevelopment()
 	require.NoError(t, err)
 	store, err := NewBlobStore(nil, "local-namespace", &config.BlobStoreConfig{
-		Enabled: true,
+		Enabled: ptr.Any(true),
 		SupportedStorages: []config.BlobStoreConfigEntry{{
 			Status:         config.StorageStatusActive,
 			StorageId:      "local",

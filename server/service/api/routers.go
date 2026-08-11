@@ -65,7 +65,7 @@ func NewServer(
 	if blobStoreCfg == nil {
 		panic("blobStoreCfg must not be nil")
 	}
-	if blobStoreCfg.Enabled && store == nil {
+	if blobStoreCfg.EffectiveEnabled() && store == nil {
 		panic("store must not be nil when blob storage is enabled")
 	}
 	if interpreterCfg == nil {

@@ -368,7 +368,7 @@ func (a *Activities) persistStepEventInput(
 	method string,
 	input *dexpb.InternalAsyncStepInputSnapshot,
 ) error {
-	if !activityInfo.IsLocalActivity || !a.cfg.BlobStore.Enabled {
+	if !activityInfo.IsLocalActivity || !a.cfg.BlobStore.EffectiveEnabled() {
 		return nil
 	}
 	if stepExecutionID == "" {
@@ -521,11 +521,11 @@ func (a *Activities) offloadWorkerAttributeWrites(
 	flowId string,
 	invocationId string,
 ) error {
-	if !a.cfg.BlobStore.Enabled || a.blobStore == nil {
+	if !a.cfg.BlobStore.EffectiveEnabled() || a.blobStore == nil {
 		return nil
 	}
 	return blobstore.OffloadLargeAttributeWrites(
-		ctx, writes, flowId, invocationId, a.cfg.BlobStore.ThresholdInBytes, a.blobStore, true,
+		ctx, writes, flowId, invocationId, a.cfg.BlobStore.EffectiveThresholdInBytes(), a.blobStore, true,
 	)
 }
 
@@ -537,19 +537,19 @@ func (a *Activities) offloadWorkerSideEffects(
 	flowId string,
 	invocationId string,
 ) error {
-	threshold := a.cfg.BlobStore.ThresholdInBytes
+	threshold := a.cfg.BlobStore.EffectiveThresholdInBytes()
 	if err := blobstore.OffloadLargeKVs(
-		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
+		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.EffectiveEnabled(),
 	); err != nil {
 		return err
 	}
 	if err := blobstore.OffloadLargeKVs(
-		ctx, recordEvents, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
+		ctx, recordEvents, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.EffectiveEnabled(),
 	); err != nil {
 		return err
 	}
 	return blobstore.OffloadLargeChannelMessages(
-		ctx, channelMessages, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.Enabled,
+		ctx, channelMessages, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.EffectiveEnabled(),
 	)
 }
 
@@ -567,7 +567,7 @@ func (a *Activities) reuseOrOffloadDecisionInputs(
 	flowId string,
 	invocationId string,
 ) error {
-	if decision == nil || !a.cfg.BlobStore.Enabled || a.blobStore == nil {
+	if decision == nil || !a.cfg.BlobStore.EffectiveEnabled() || a.blobStore == nil {
 		return nil
 	}
 	for _, step := range decision.GetNextSteps() {
@@ -616,7 +616,7 @@ func (a *Activities) reuseOrOffloadStepInput(
 	invocationId string,
 ) error {
 	if step == nil || step.GetStepInput() == nil ||
-		!a.cfg.BlobStore.Enabled || a.blobStore == nil {
+		!a.cfg.BlobStore.EffectiveEnabled() || a.blobStore == nil {
 		return nil
 	}
 	if stepInputBlobRef(step.GetStepInput()).id != "" {
@@ -640,7 +640,7 @@ func (a *Activities) offloadStepInput(
 		stepInput,
 		flowId,
 		invocationId,
-		a.cfg.BlobStore.ThresholdInBytes,
+		a.cfg.BlobStore.EffectiveThresholdInBytes(),
 		a.blobStore,
 		true,
 	)

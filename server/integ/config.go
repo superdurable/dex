@@ -11,8 +11,11 @@
 package integ
 
 import (
+	"testing"
+
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 const testNamespace = "default"
@@ -28,12 +31,18 @@ type DexServiceTestConfig struct {
 	LocalBlobThreshold int
 	AttributeStore     config.AttributeStoreConfig
 	BlobCacheDirectory string
-	// LazyLoading overrides BlobStore.LazyLoading when S3 is enabled.
+	BlobStoreEnabled   *bool
+	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
 }
 
-func createTestConfig(testCfg DexServiceTestConfig) config.Config {
+func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config {
+	t.Helper()
+	blobStoreEnabled := testCfg.BlobStoreEnabled == nil || *testCfg.BlobStoreEnabled
+	if blobStoreEnabled && testCfg.S3TestThreshold == 0 && testCfg.LocalBlobDirectory == "" {
+		testCfg.LocalBlobDirectory = t.TempDir()
+	}
 	cfg := config.Config{
 		Api: config.ApiConfig{
 			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
@@ -44,6 +53,9 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 		},
 		Worker: config.WorkerConfig{
 			DefaultHeaders: testCfg.DefaultHeaders,
+		},
+		BlobStore: config.BlobStoreConfig{
+			Enabled: testCfg.BlobStoreEnabled,
 		},
 		Interpreter: config.Interpreter{
 			DefaultWorkflowConfig: syncDurabilityConfig(),
@@ -59,7 +71,7 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 	}
 	if testCfg.S3TestThreshold > 0 {
 		blobStoreCfg := config.BlobStoreConfig{
-			Enabled:                true,
+			Enabled:                ptr.Any(blobStoreEnabled),
 			LazyLoading:            testCfg.LazyLoading,
 			ThresholdInBytes:       testCfg.S3TestThreshold,
 			HistoryRetentionInDays: 3,
@@ -82,10 +94,14 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 		cfg.BlobStore = blobStoreCfg
 	}
 	if testCfg.LocalBlobDirectory != "" {
+		threshold := testCfg.LocalBlobThreshold
+		if threshold == 0 {
+			threshold = config.DefaultBlobStoreThresholdInBytes
+		}
 		cfg.BlobStore = config.BlobStoreConfig{
-			Enabled:                true,
+			Enabled:                ptr.Any(blobStoreEnabled),
 			LazyLoading:            testCfg.LazyLoading,
-			ThresholdInBytes:       testCfg.LocalBlobThreshold,
+			ThresholdInBytes:       threshold,
 			HistoryRetentionInDays: 3,
 			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,

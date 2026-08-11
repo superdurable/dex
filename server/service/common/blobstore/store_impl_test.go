@@ -25,6 +25,7 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 )
 
@@ -74,7 +75,7 @@ func createTestBlobStoreWithCache(t *testing.T, cacheConfig config.BlobCacheConf
 
 	// Create test configuration
 	storeConfig := config.BlobStoreConfig{
-		Enabled:          true,
+		Enabled:          ptr.Any(true),
 		ThresholdInBytes: 100,
 		BlobCache:        cacheConfig,
 		SupportedStorages: []config.BlobStoreConfigEntry{

@@ -45,7 +45,7 @@ func CreateS3Client(ctx context.Context, cfg *config.Config) (*s3.Client, error)
 	if cfg == nil {
 		panic("S3 config must not be nil")
 	}
-	if !cfg.BlobStore.Enabled {
+	if !cfg.BlobStore.EffectiveEnabled() {
 		return nil, nil
 	}
 

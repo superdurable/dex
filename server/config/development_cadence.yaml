@@ -25,3 +25,12 @@ interpreter:
     domain: default
   defaultWorkflowConfig:
     continueAsNewThreshold: 100
+blobStore:
+  enabled: true
+  thresholdInBytes: 1024
+  historyRetentionInDays: 3
+  supportedStorages:
+    - status: active
+      storageId: "local-cadence"
+      storageType: "local"
+      localDirectory: "./dex-blobs-cadence"

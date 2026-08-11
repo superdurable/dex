@@ -149,7 +149,7 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 		return fmt.Errorf("start Temporal interpreter worker: %w", err)
 	}
 
-	if iw.cfg.BlobStore.Enabled {
+	if iw.cfg.BlobStore.EffectiveEnabled() {
 		for _, storeCfg := range iw.cfg.BlobStore.SupportedStorages {
 			cronSchedule, scheduleErr := storeCfg.CleanupStrategy.CronSchedule()
 			if scheduleErr != nil {

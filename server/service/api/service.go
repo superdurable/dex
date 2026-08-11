@@ -74,7 +74,7 @@ func NewApiService(
 	if client == nil || logger == nil || workerPool == nil || attributeStore == nil || taskQueue == "" {
 		panic("API service requires non-nil dependencies and a task queue")
 	}
-	if blobStoreCfg.Enabled && store == nil {
+	if blobStoreCfg.EffectiveEnabled() && store == nil {
 		panic("API service requires a blob store when blob storage is enabled")
 	}
 	return &serviceImpl{
@@ -129,9 +129,9 @@ func (s *serviceImpl) StartFlow(
 		req.GetStepInput(),
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.blobStoreCfg.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.blobStoreCfg.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -140,9 +140,9 @@ func (s *serviceImpl) StartFlow(
 		attributes,
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.blobStoreCfg.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.blobStoreCfg.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -442,9 +442,9 @@ func (s *serviceImpl) PublishToChannel(
 		req.GetMessages(),
 		req.GetFlowId(),
 		uuid.NewString(),
-		s.blobStoreCfg.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.blobStoreCfg.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -598,9 +598,9 @@ func (s *serviceImpl) SetAttributes(
 		attributes,
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.blobStoreCfg.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.blobStoreCfg.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}

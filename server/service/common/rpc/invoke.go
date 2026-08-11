@@ -94,13 +94,13 @@ func InvokeWorkerRpc(
 
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx, resp.GetUpsertAttributes(), req.GetFlowId(), invocationId,
-		blobStoreCfg.ThresholdInBytes, blobStore, blobStoreCfg.Enabled,
+		blobStoreCfg.EffectiveThresholdInBytes(), blobStore, blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, err
 	}
 	if err := blobstore.OffloadLargeValue(
 		ctx, resp.GetOutput(), req.GetFlowId(), invocationId,
-		blobStoreCfg.ThresholdInBytes, blobStore, blobStoreCfg.Enabled,
+		blobStoreCfg.EffectiveThresholdInBytes(), blobStore, blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, err
 	}
@@ -126,8 +126,8 @@ func offloadRPCSideEffects(
 	blobStore blobstore.BlobStore,
 	blobStoreCfg *config.BlobStoreConfig,
 ) error {
-	threshold := blobStoreCfg.ThresholdInBytes
-	enabled := blobStoreCfg.Enabled
+	threshold := blobStoreCfg.EffectiveThresholdInBytes()
+	enabled := blobStoreCfg.EffectiveEnabled()
 	if err := blobstore.OffloadLargeKVs(
 		ctx, response.GetRecordEvents(), flowID, invocationID, threshold, blobStore, enabled,
 	); err != nil {

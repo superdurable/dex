@@ -209,9 +209,9 @@ func (s *supervisor) startDexRuntime(
 		},
 		Api: config.ApiConfig{Port: s.cfg.DexPort},
 		BlobStore: config.BlobStoreConfig{
-			Enabled:                true,
+			Enabled:                ptr.Any(true),
 			LazyLoading:            ptr.Any(true),
-			ThresholdInBytes:       1024,
+			ThresholdInBytes:       config.DefaultBlobStoreThresholdInBytes,
 			HistoryRetentionInDays: 1,
 			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,

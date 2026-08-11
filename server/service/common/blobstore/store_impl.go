@@ -69,7 +69,7 @@ func NewBlobStore(
 	if storeConfig == nil {
 		panic("NewBlobStore requires BlobStoreConfig")
 	}
-	if !storeConfig.Enabled {
+	if !storeConfig.EffectiveEnabled() {
 		return nil, nil
 	}
 	if err := storeConfig.BlobCache.Validate(); err != nil {

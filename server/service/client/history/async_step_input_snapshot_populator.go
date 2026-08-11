@@ -36,7 +36,7 @@ func NewAsyncStepInputSnapshotPopulator(
 	if cfg == nil || client == nil {
 		panic("async step input snapshot populator requires config and client")
 	}
-	if cfg.Enabled && store == nil {
+	if cfg.EffectiveEnabled() && store == nil {
 		panic("async step input snapshot populator requires a blob store when enabled")
 	}
 	return &AsyncStepInputSnapshotPopulator{
@@ -56,7 +56,7 @@ func (p *AsyncStepInputSnapshotPopulator) Populate(
 	if !hasMissingStepEventInput(events) {
 		return nil
 	}
-	if !p.cfg.Enabled {
+	if !p.cfg.EffectiveEnabled() {
 		markMissingStepEventInputsUnavailable(events)
 		return nil
 	}

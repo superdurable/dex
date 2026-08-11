@@ -31,7 +31,7 @@ interpreter:
     continueAsNewThreshold: 100
 blobStore:
   enabled: true
-  thresholdInBytes: 100000 # 100 KB
+  thresholdInBytes: 1024 # 1 KiB
   historyRetentionInDays: 3
   # S3 Attribute cache. The directory must be exclusive to this Server process.
   # blobCache:
