@@ -30,6 +30,7 @@ import io.superdurable.dex.workflow.engagement.EngagementFlow;
 import io.superdurable.dex.workflow.microservices.OrchestrationFlow;
 import io.superdurable.dex.workflow.money.transfer.MoneyTransferFlow;
 import io.superdurable.dex.workflow.polling.PollingFlow;
+import io.superdurable.dex.workflow.retryingfailure.RetryingFailureFlow;
 import io.superdurable.dex.workflow.subscription.SubscriptionFlow;
 
 import java.io.IOException;
@@ -61,6 +62,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final EngagementFlow engagementFlow;
     private final OrchestrationFlow orchestrationFlow;
     private final PollingFlow pollingFlow;
+    private final RetryingFailureFlow retryingFailureFlow;
     private final SubscriptionFlow subscriptionFlow;
 
     private IntegEnvironment(
@@ -74,6 +76,7 @@ final class IntegEnvironment implements AutoCloseable {
             final EngagementFlow engagementFlow,
             final OrchestrationFlow orchestrationFlow,
             final PollingFlow pollingFlow,
+            final RetryingFailureFlow retryingFailureFlow,
             final SubscriptionFlow subscriptionFlow) {
         this.cacheDirectory = cacheDirectory;
         this.blobCache = blobCache;
@@ -85,6 +88,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.engagementFlow = engagementFlow;
         this.orchestrationFlow = orchestrationFlow;
         this.pollingFlow = pollingFlow;
+        this.retryingFailureFlow = retryingFailureFlow;
         this.subscriptionFlow = subscriptionFlow;
     }
 
@@ -97,12 +101,14 @@ final class IntegEnvironment implements AutoCloseable {
         final EngagementFlow engagementFlow = new EngagementFlow(service);
         final OrchestrationFlow orchestrationFlow = new OrchestrationFlow(service);
         final PollingFlow pollingFlow = new PollingFlow(service);
+        final RetryingFailureFlow retryingFailureFlow = new RetryingFailureFlow();
         final SubscriptionFlow subscriptionFlow = new SubscriptionFlow(service);
         final List<Flow<?>> flows = Arrays.<Flow<?>>asList(
                 moneyTransferFlow,
                 engagementFlow,
                 orchestrationFlow,
                 pollingFlow,
+                retryingFailureFlow,
                 subscriptionFlow);
 
         final Path cacheDirectory = Files.createTempDirectory("dex-java-examples-integ-");
@@ -145,6 +151,7 @@ final class IntegEnvironment implements AutoCloseable {
                 engagementFlow,
                 orchestrationFlow,
                 pollingFlow,
+                retryingFailureFlow,
                 subscriptionFlow);
     }
 
@@ -166,6 +173,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     PollingFlow pollingFlow() {
         return pollingFlow;
+    }
+
+    RetryingFailureFlow retryingFailureFlow() {
+        return retryingFailureFlow;
     }
 
     SubscriptionFlow subscriptionFlow() {
