@@ -955,17 +955,25 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		detail = err.Error()
 	}
 	errorResponse := &dexpb.ErrorResponse{
-		Detail:                    detail,
 		SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		OriginalWorkerErrorStatus: int32(grpcStatus.Code()),
 	}
-	for _, detail := range grpcStatus.Details() {
-		workerError, ok := detail.(*dexpb.WorkerErrorResponse)
+	workerErrorFound := false
+	for _, statusDetail := range grpcStatus.Details() {
+		workerError, ok := statusDetail.(*dexpb.WorkerErrorResponse)
 		if !ok {
 			continue
 		}
+		workerErrorFound = true
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
+		if errorResponse.GetOriginalWorkerErrorDetail() == "" {
+			errorResponse.OriginalWorkerErrorDetail = detail
+		}
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
+		errorResponse.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
+	}
+	if !workerErrorFound {
+		errorResponse.Detail = detail
 	}
 	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
 }

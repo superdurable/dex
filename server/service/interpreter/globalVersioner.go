@@ -22,7 +22,9 @@ const globalChangeId = "global"
 // and gate on it via GlobalVersioner.
 const StartingVersionV1 = 1
 
-const MaxOfAllVersions = StartingVersionV1
+const DeterministicStepActivityIDVersion = 2
+
+const MaxOfAllVersions = DeterministicStepActivityIDVersion
 
 // GlobalVersioner is the forward hook for determinism-safe interpreter changes.
 // See https://stackoverflow.com/questions/73941723 for the pattern.
@@ -41,4 +43,8 @@ func NewGlobalVersioner(
 		ctx:              ctx,
 		version:          version,
 	}
+}
+
+func (v *GlobalVersioner) UsesDeterministicStepActivityIDs() bool {
+	return v.version >= DeterministicStepActivityIDVersion
 }

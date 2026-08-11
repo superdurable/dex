@@ -229,3 +229,16 @@ the complete suite. Each CI partition uses an independent runner and backend
 stack.
 
 To debug the failed test, search for `--- FAIL` in the output logs (in GitHub Action, click "view raw logs"") 
+
+### Pending Step failures
+
+Regular WaitFor and Execute activities use deterministic internal activity IDs
+that contain the Step execution ID. Temporal and Cadence describe responses use
+that ID to associate a pending activity's latest failure with the matching
+active Step returned by `GetFlowState`. Never join by Step type: multiple active
+executions may have the same type. A concurrent describe/query change is safe
+only when the Step execution ID still exists in the queried active snapshot.
+
+ASYNC local activities have no backend pending-activity record. Their retry
+failure becomes observable after the interpreter falls back to a regular
+activity.

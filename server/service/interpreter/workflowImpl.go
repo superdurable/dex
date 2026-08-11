@@ -80,7 +80,7 @@ func (i *Interpreter) StartEngineFlow(
 		})
 	}()
 
-	NewGlobalVersioner(provider, ctx)
+	globalVersioner := NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
 	runStartedTimestamp := provider.Now(ctx).Unix()
 	basicInfo := service.BasicInfo{
@@ -322,6 +322,7 @@ func (i *Interpreter) StartEngineFlow(
 						continueAsNewCounter,
 						stepExecutionCounter,
 						flowConfiger,
+						globalVersioner,
 					)
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
 						errToFailWf = stepExeErr
@@ -603,6 +604,7 @@ func (i *Interpreter) processStepExecution(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
+	globalVersioner *GlobalVersioner,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -615,6 +617,9 @@ func (i *Interpreter) processStepExecution(
 	}
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+	}
+	if globalVersioner.UsesDeterministicStepActivityIDs() {
+		activityOptions.ActivityID = service.WaitForStepActivityID(stepExeId)
 	}
 
 	var waitForMethErr error
@@ -643,6 +648,7 @@ func (i *Interpreter) processStepExecution(
 			flowConfiger,
 			stepExeLocals,
 			false,
+			globalVersioner,
 		)
 	}
 
@@ -728,6 +734,7 @@ func (i *Interpreter) processStepExecution(
 			continueAsNewer,
 			stepExecutionCounter,
 			flowConfiger,
+			globalVersioner,
 		)
 		if transientStatus != service.StepExecutionStatusCompleted {
 			return nil, transientStatus, transientErr
@@ -867,6 +874,7 @@ func (i *Interpreter) processStepExecution(
 		flowConfiger,
 		stepExeLocals,
 		false,
+		globalVersioner,
 	)
 }
 
@@ -880,6 +888,7 @@ func (i *Interpreter) processTransientStepExecution(
 	continueAsNewer *ContinueAsNewer,
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
+	globalVersioner *GlobalVersioner,
 ) (service.StepExecutionStatus, error) {
 	stepRequest := NewStepStartRequest(step)
 	if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
@@ -912,6 +921,7 @@ func (i *Interpreter) processTransientStepExecution(
 		flowConfiger,
 		nil,
 		true,
+		globalVersioner,
 	)
 	if status != service.StepExecutionStatusCompleted {
 		return status, err
@@ -941,10 +951,14 @@ func (i *Interpreter) invokeExecuteMethod(
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
 	isTransientStep bool,
+	globalVersioner *GlobalVersioner,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+	}
+	if globalVersioner.UsesDeterministicStepActivityIDs() {
+		activityOptions.ActivityID = service.ExecuteStepActivityID(stepExeId)
 	}
 	if step.StepOptions != nil {
 		executeMethodTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()

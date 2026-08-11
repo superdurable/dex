@@ -198,6 +198,8 @@ public final class RpcTest {
                     () -> environment.client().invokeRPC(stub::fail, "this is an error"));
             assertTrue(failure.getWorkerErrorType().contains("IllegalArgumentException"));
             assertTrue(failure.getWorkerErrorDetail().contains("this is an error"));
+            assertTrue(failure.getWorkerStackTrace().contains("IllegalArgumentException"));
+            assertTrue(failure.getWorkerStackTrace().contains("this is an error"));
             environment.client().stopFlow(flowId);
         }
     }

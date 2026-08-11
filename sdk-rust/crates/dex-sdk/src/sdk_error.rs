@@ -389,6 +389,7 @@ mod tests {
                 original_worker_error_detail: "invalid order".to_string(),
                 original_worker_error_type: "ApplicationError".to_string(),
                 original_worker_error_status: GrpcCode::InvalidArgument as i32,
+                original_worker_error_stack_trace: String::new(),
             },
         )
     }

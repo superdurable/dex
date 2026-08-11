@@ -32,6 +32,7 @@ log_file="/tmp/test-java-sdk-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+temporal_pid=""
 : >"$log_file"
 
 cleanup() {
@@ -39,6 +40,10 @@ cleanup() {
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
+  fi
+  if [[ -n "$temporal_pid" ]] && kill -0 "$temporal_pid" 2>/dev/null; then
+    kill -TERM "$temporal_pid"
+    wait "$temporal_pid" || true
   fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
@@ -60,24 +65,34 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
-"$binary_dir/dexcli" dev \
-  -bind-address 127.0.0.1 \
-  -dex-port "$dex_port" \
-  -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+temporal server start-dev \
+  --ip 127.0.0.1 \
+  --port "$temporal_port" \
+  --ui-port "$temporal_ui_port" \
+  --db-filename "$test_dir/temporal.db" \
+  --search-attribute FlowType=Keyword \
+  --search-attribute ActiveStepTypes=KeywordList \
+  --search-attribute CustomKeywordField=Keyword \
+  --search-attribute CustomIntField=Int \
+  --search-attribute CustomTextField=Text \
+  --search-attribute CustomDoubleField=Double \
+  --search-attribute CustomBoolField=Bool \
+  --search-attribute CustomKeywordArrayField=KeywordList \
+  --search-attribute CustomDatetimeField=Datetime \
   >>"$log_file" 2>&1 &
-dexcli_pid=$!
+temporal_pid=$!
 
 temporal_ready=false
 for _ in {1..240}; do
-  if temporal --address "$temporal_address" operator search-attribute list >/dev/null 2>&1; then
-    temporal_ready=true
-    break
+  if temporal --address "$temporal_address" operator search-attribute list \
+      >"$test_dir/search-attributes" 2>/dev/null; then
+    if grep -q CustomTextField "$test_dir/search-attributes"; then
+      temporal_ready=true
+      break
+    fi
   fi
-  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    echo "dexcli exited before Temporal became ready" >&2
+  if ! kill -0 "$temporal_pid" 2>/dev/null; then
+    echo "Temporal exited before becoming ready" >&2
     exit 1
   fi
   sleep 0.25
@@ -87,13 +102,13 @@ if ! $temporal_ready; then
   exit 1
 fi
 
-temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
-temporal --address "$temporal_address" operator search-attribute create --name CustomIntField --type Int
-temporal --address "$temporal_address" operator search-attribute create --name CustomTextField --type Text
-temporal --address "$temporal_address" operator search-attribute create --name CustomDoubleField --type Double
-temporal --address "$temporal_address" operator search-attribute create --name CustomBoolField --type Bool
-temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordArrayField --type KeywordList
-temporal --address "$temporal_address" operator search-attribute create --name CustomDatetimeField --type Datetime
+"$binary_dir/dexcli" dev \
+  -bind-address 127.0.0.1 \
+  -dex-port "$dex_port" \
+  -web-port "$web_port" \
+  -temporal-address "$temporal_address" \
+  >>"$log_file" 2>&1 &
+dexcli_pid=$!
 
 dex_ready=false
 for _ in {1..240}; do

@@ -344,16 +344,44 @@ func (t *cadenceClient) DescribeWorkflowExecution(
 	if info.CloseTime != nil {
 		closeTime = ptr.Any(time.Unix(0, info.GetCloseTime()))
 	}
+	pendingStepFailures, err := t.pendingStepFailures(resp.GetPendingActivities())
+	if err != nil {
+		return nil, err
+	}
 
 	return &uclient.DescribeWorkflowExecutionResponse{
-		RunId:             info.GetExecution().GetRunId(),
-		FirstRunId:        "", // Cadence does not provide FirstRunId
-		Status:            status,
-		IndexedAttributes: indexedAttributes,
-		Memos:             memo,
-		StartTime:         startTime,
-		CloseTime:         closeTime,
+		RunId:               info.GetExecution().GetRunId(),
+		FirstRunId:          "", // Cadence does not provide FirstRunId
+		Status:              status,
+		IndexedAttributes:   indexedAttributes,
+		Memos:               memo,
+		StartTime:           startTime,
+		CloseTime:           closeTime,
+		PendingStepFailures: pendingStepFailures,
 	}, nil
+}
+
+func (t *cadenceClient) pendingStepFailures(
+	pendingActivities []*shared.PendingActivityInfo,
+) (map[string]*dexpb.StepMethodFailure, error) {
+	failures := make(map[string]*dexpb.StepMethodFailure)
+	for _, pendingActivity := range pendingActivities {
+		stepExecutionID, ok := service.StepExecutionIDFromActivityID(pendingActivity.GetActivityID())
+		if !ok || pendingActivity.GetLastFailureReason() == "" {
+			continue
+		}
+		failure, err := t.cadenceStepFailure(
+			pendingActivity.GetLastFailureReason(),
+			pendingActivity.GetLastFailureDetails(),
+			"RETRY_STATE_IN_PROGRESS",
+		)
+		if err != nil {
+			return nil, err
+		}
+		failure.Attempt = pendingActivity.GetAttempt()
+		failures[stepExecutionID] = failure
+	}
+	return failures, nil
 }
 
 func (t *cadenceClient) GetWorkflowHistory(

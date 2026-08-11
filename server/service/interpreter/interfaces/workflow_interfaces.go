@@ -56,6 +56,7 @@ type WorkflowInfo struct {
 }
 
 type ActivityOptions struct {
+	ActivityID                          string
 	StartToCloseTimeout                 time.Duration
 	LocalActivityScheduleToCloseTimeout time.Duration
 	HeartbeatTimeout                    time.Duration

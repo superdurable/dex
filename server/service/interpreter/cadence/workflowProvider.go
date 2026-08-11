@@ -224,6 +224,7 @@ func (w *workflowProvider) WithActivityOptions(
 	}
 
 	wfCtx2 := workflow.WithActivityOptions(wfCtx, workflow.ActivityOptions{
+		ActivityID:             options.ActivityID,
 		StartToCloseTimeout:    startToCloseTimeout,
 		ScheduleToStartTimeout: time.Second * 10,
 		HeartbeatTimeout:       options.HeartbeatTimeout,

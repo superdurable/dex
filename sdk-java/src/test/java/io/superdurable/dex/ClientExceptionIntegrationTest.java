@@ -101,6 +101,7 @@ final class ClientExceptionIntegrationTest {
         assertEquals(Status.Code.UNKNOWN, worker.getWorkerCode());
         assertEquals("example.WorkerFailure", worker.getWorkerErrorType());
         assertEquals("handler failed", worker.getWorkerErrorDetail());
+        assertEquals("example.WorkerFailure: handler failed", worker.getWorkerStackTrace());
 
         final RpcLockConflictException conflict = assertThrows(
                 RpcLockConflictException.class,
@@ -220,6 +221,8 @@ final class ClientExceptionIntegrationTest {
                                 .setDetail("worker invocation failed")
                                 .setOriginalWorkerErrorType("example.WorkerFailure")
                                 .setOriginalWorkerErrorDetail("handler failed")
+                                .setOriginalWorkerErrorStackTrace(
+                                        "example.WorkerFailure: handler failed")
                                 .setOriginalWorkerErrorStatus(Status.Code.UNKNOWN.value())
                                 .build()));
                 return;

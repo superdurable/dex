@@ -37,7 +37,7 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-server-go proto-sdk-go proto-python clean ensure-tools ensure-python-tools
+.PHONY: proto proto-server-go proto-sdk-go proto-java proto-python clean ensure-tools ensure-python-tools
 
 proto: proto-server-go
 
@@ -68,16 +68,16 @@ proto-sdk-go: ensure-tools
 		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
 		$(PROTO_FILE)
 
-# proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
-# 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
-# 	mkdir -p $(SDK_JAVA_OUT)
-# 	protoc \
-# 		-I $(PROTO_DIR) \
-# 		--java_out=$(SDK_JAVA_OUT) \
-# 		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
-# 		--grpc-java_out=$(SDK_JAVA_OUT) \
-# 		$(PROTO_FILE)
-#
+proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
+	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
+	mkdir -p $(SDK_JAVA_OUT)
+	protoc \
+		-I $(PROTO_DIR) \
+		--java_out=$(SDK_JAVA_OUT) \
+		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
+		--grpc-java_out=$(SDK_JAVA_OUT) \
+		$(PROTO_FILE)
+
 proto-python: ensure-python-tools
 	rm -rf $(SDK_PYTHON_OUT)
 	mkdir -p $(SDK_PYTHON_OUT)

@@ -30,6 +30,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *         .workerTarget(new WorkerTarget("orders-worker:8803", false))
  *         .serverAddress("dex:8801")
  *         .objectMapper(applicationObjectMapper)
+ *         .grpcErrorStatusMapping(GrpcErrorStatusMapping.newBuilder()
+ *                 .map(PaymentDeclinedException.class, Status.Code.FAILED_PRECONDITION)
+ *                 .build())
  *         .build();
  * }</pre>
  */
@@ -38,12 +41,14 @@ public final class WorkerOptions {
     private final WorkerTarget workerTarget;
     private final String serverAddress;
     private final ObjectMapper objectMapper;
+    private final GrpcErrorStatusMapping grpcErrorStatusMapping;
 
     private WorkerOptions(final Builder builder) {
         this.bindAddress = builder.bindAddress;
         this.workerTarget = builder.workerTarget;
         this.serverAddress = builder.serverAddress;
         this.objectMapper = builder.objectMapper;
+        this.grpcErrorStatusMapping = builder.grpcErrorStatusMapping;
     }
 
     /**
@@ -71,12 +76,18 @@ public final class WorkerOptions {
         return objectMapper;
     }
 
+    GrpcErrorStatusMapping getGrpcErrorStatusMapping() {
+        return grpcErrorStatusMapping;
+    }
+
     /** Builds immutable {@link WorkerOptions} values. */
     public static final class Builder {
         private String bindAddress = ":8803";
         private WorkerTarget workerTarget;
         private String serverAddress = "localhost:8801";
         private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        private GrpcErrorStatusMapping grpcErrorStatusMapping =
+                GrpcErrorStatusMapping.newBuilder().build();
 
         private Builder() {
         }
@@ -126,6 +137,26 @@ public final class WorkerOptions {
                 throw new IllegalArgumentException("objectMapper is required");
             }
             this.objectMapper = value;
+            return this;
+        }
+
+        /**
+         * Sets how Worker application exceptions map to gRPC status codes.
+         *
+         * <p>The default mapping reports every Step-method and RPC exception as
+         * {@link io.grpc.Status.Code#INTERNAL}. Use a custom mapping only when an exception class has
+         * a stable operational meaning for the owner of the Worker application. The selected status
+         * is stored for diagnostics and does not replace Step retry or failure-policy configuration.
+         *
+         * @param value the nonnull immutable exception status mapping
+         * @return this builder
+         * @throws IllegalArgumentException if {@code value} is {@code null}
+         */
+        public Builder grpcErrorStatusMapping(final GrpcErrorStatusMapping value) {
+            if (value == null) {
+                throw new IllegalArgumentException("grpcErrorStatusMapping is required");
+            }
+            this.grpcErrorStatusMapping = value;
             return this;
         }
 

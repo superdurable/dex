@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
-import { EventDetails, eventTitle, SemanticEventDetails } from './EventDetails';
+import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
@@ -63,9 +63,34 @@ export function FlowOverview({
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = events.findLast((event) => event.type === 'FlowClosed');
   const startKind = started?.payload.initialStart ? 'Initial start' : 'Continued run';
-  const activeStepsExpand = useSectionExpand('overview:expand:active-steps');
+  const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const attributesExpand = useSectionExpand('overview:expand:attributes');
   const channelsExpand = useSectionExpand('overview:expand:channels');
+  const activeStepIds = state?.activeStepExecutions.map((step) => step.stepExecutionId) ?? [];
+  const allActiveStepsExpanded = activeStepIds.length > 0
+    && activeStepIds.every((stepExecutionId) => !collapsedActiveStepIds.has(stepExecutionId));
+
+  const setAllActiveStepsExpanded = (expanded: boolean) => {
+    setCollapsedActiveStepIds((current) => {
+      const next = new Set(current);
+      for (const stepExecutionId of activeStepIds) {
+        if (expanded) next.delete(stepExecutionId);
+        else next.add(stepExecutionId);
+      }
+      return next;
+    });
+  };
+
+  const toggleActiveStep = (stepExecutionId: string) => {
+    setCollapsedActiveStepIds((current) => {
+      const next = new Set(current);
+      if (next.has(stepExecutionId)) next.delete(stepExecutionId);
+      else next.add(stepExecutionId);
+      return next;
+    });
+  };
 
   return (
     <div className="overview-grid">
@@ -95,38 +120,52 @@ export function FlowOverview({
                 <div className="live-state-block-heading">
                   <p className="eyebrow">Active steps</p>
                   <SectionExpandToggle
-                    expanded={activeStepsExpand.expanded}
-                    onChange={activeStepsExpand.setExpanded}
+                    expanded={allActiveStepsExpanded}
+                    onChange={setAllActiveStepsExpanded}
                     label="active steps"
                   />
                 </div>
                 {state.activeStepExecutions.map((step) => (
-                  <div className="active-step-card" key={step.stepExecutionId}>
-                    <div className="active-step-heading">
-                      <b>{step.stepType}</b>
+                  <details
+                    className="active-step-card"
+                    key={step.stepExecutionId}
+                    open={!collapsedActiveStepIds.has(step.stepExecutionId)}
+                  >
+                    <summary onClick={(event) => {
+                      event.preventDefault();
+                      toggleActiveStep(step.stepExecutionId);
+                    }}>
+                      <span className="active-step-heading">
+                        <span className="active-step-disclosure" aria-hidden="true">▸</span>
+                        <b>{step.stepType}</b>
+                      </span>
                       <span className={`phase phase-${step.phase.toLowerCase()}`}>{step.phase}</span>
+                    </summary>
+                    <div className="active-step-content">
+                      <code>{step.stepExecutionId}</code>
+                      <span>From {step.fromStepExecutionId || '—'}</span>
+                      {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
+                        <JsonView
+                          value={step.waitingCondition}
+                          label="Waiting condition"
+                          persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
+                        />
+                      )}
+                      {step.timers.length > 0 && (
+                        <JsonView
+                          value={step.timers}
+                          label={`${step.timers.length} timers`}
+                          persistKey={`overview:active-step:${step.stepType}:timers`}
+                        />
+                      )}
+                      {step.lastFailureInfo && Object.keys(step.lastFailureInfo).length > 0 && (
+                        <div className="semantic-subsection">
+                          <h5>Last failure</h5>
+                          <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded />
+                        </div>
+                      )}
                     </div>
-                    <code>{step.stepExecutionId}</code>
-                    <span>From {step.fromStepExecutionId || '—'}</span>
-                    {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
-                      <JsonView
-                        value={step.waitingCondition}
-                        label="Waiting condition"
-                        persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
-                        forceOpen={activeStepsExpand.expanded || undefined}
-                        collapseNonce={activeStepsExpand.collapseNonce}
-                      />
-                    )}
-                    {step.timers.length > 0 && (
-                      <JsonView
-                        value={step.timers}
-                        label={`${step.timers.length} timers`}
-                        persistKey={`overview:active-step:${step.stepType}:timers`}
-                        forceOpen={activeStepsExpand.expanded || undefined}
-                        collapseNonce={activeStepsExpand.collapseNonce}
-                      />
-                    )}
-                  </div>
+                  </details>
                 ))}
                 {state.activeStepExecutions.length === 0 && (
                   <p className="muted">No active step executions.</p>

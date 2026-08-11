@@ -158,11 +158,13 @@ func doTestRpcWorkflow(
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assertions.Equal(rpc.WorkerApiErrorDetails, status.Convert(err).Message())
 	errResp := grpcErrorResponse(t, err)
 	assertions.Equal(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		errResp.GetSubStatus(),
 	)
+	assertions.Empty(errResp.GetDetail())
 	assertions.Equal(rpc.WorkerApiErrorDetails, errResp.GetOriginalWorkerErrorDetail())
 	assertions.Equal(rpc.WorkerApiErrorType, errResp.GetOriginalWorkerErrorType())
 	assertions.Equal(int32(codes.Unavailable), errResp.GetOriginalWorkerErrorStatus())
@@ -263,11 +265,13 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assertions.Equal(rpc.WorkerApiErrorDetails, status.Convert(err).Message())
 	workerFail := grpcErrorResponse(t, err)
 	assertions.Equal(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		workerFail.GetSubStatus(),
 	)
+	assertions.Empty(workerFail.GetDetail())
 	assertions.Equal(rpc.WorkerApiErrorDetails, workerFail.GetOriginalWorkerErrorDetail())
 	assertions.Equal(rpc.WorkerApiErrorType, workerFail.GetOriginalWorkerErrorType())
 	assertions.Equal(int32(codes.Unavailable), workerFail.GetOriginalWorkerErrorStatus())

@@ -37,15 +37,20 @@ func NewErrorAndStatus(code codes.Code, subStatus dexpb.ErrorSubStatus, details 
 func NewErrorAndStatusWithWorkerError(
 	code codes.Code, subStatus dexpb.ErrorSubStatus, details string,
 	originalWorkerDetails string, originalWorkerErrType string, originalWorkerStatus int32,
+	originalWorkerStackTrace string,
 ) *ErrorAndStatus {
+	if originalWorkerDetails != "" {
+		details = ""
+	}
 	return &ErrorAndStatus{
 		Code: code,
 		Error: &dexpb.ErrorResponse{
-			SubStatus:                 subStatus,
-			Detail:                    details,
-			OriginalWorkerErrorDetail: originalWorkerDetails,
-			OriginalWorkerErrorType:   originalWorkerErrType,
-			OriginalWorkerErrorStatus: originalWorkerStatus,
+			SubStatus:                     subStatus,
+			Detail:                        details,
+			OriginalWorkerErrorDetail:     originalWorkerDetails,
+			OriginalWorkerErrorType:       originalWorkerErrType,
+			OriginalWorkerErrorStatus:     originalWorkerStatus,
+			OriginalWorkerErrorStackTrace: originalWorkerStackTrace,
 		},
 	}
 }
@@ -55,7 +60,7 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 	if e == nil {
 		return nil
 	}
-	st := status.New(e.Code, e.Error.GetDetail())
+	st := status.New(e.Code, ErrorResponseDetail(e.Error))
 	if e.Error != nil {
 		withDetails, err := st.WithDetails(e.Error)
 		if err == nil {
@@ -63,6 +68,14 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 		}
 	}
 	return st.Err()
+}
+
+// ErrorResponseDetail returns the Worker detail when present, otherwise the server detail.
+func ErrorResponseDetail(errorResponse *dexpb.ErrorResponse) string {
+	if errorResponse.GetOriginalWorkerErrorDetail() != "" {
+		return errorResponse.GetOriginalWorkerErrorDetail()
+	}
+	return errorResponse.GetDetail()
 }
 
 // InvalidArgument is a convenience for bad client/worker input.
@@ -86,29 +99,40 @@ func AbortedLockFailure(details string) *ErrorAndStatus {
 }
 
 // WorkerAPIFailure maps a WorkerService gRPC failure to FailedPrecondition.
-// OriginalWorker* preserves the worker's code, detail, and type.
+// OriginalWorker* preserves the worker's code, detail, type, and stack.
 func WorkerAPIFailure(err error) (*ErrorAndStatus, bool) {
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
 		return nil, false
 	}
+	serverDetail := grpcStatus.Message()
+	if serverDetail == "" {
+		serverDetail = err.Error()
+	}
 	workerDetail := ""
 	workerType := ""
+	workerStackTrace := ""
 	for _, detail := range grpcStatus.Details() {
 		workerError, ok := detail.(*dexpb.WorkerErrorResponse)
 		if !ok {
 			continue
 		}
 		workerDetail = workerError.GetDetail()
+		if workerDetail == "" {
+			workerDetail = serverDetail
+		}
+		serverDetail = ""
 		workerType = workerError.GetErrorType()
+		workerStackTrace = workerError.GetStackTrace()
 	}
 	return NewErrorAndStatusWithWorkerError(
 		codes.FailedPrecondition,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		grpcStatus.Message(),
+		serverDetail,
 		workerDetail,
 		workerType,
 		int32(grpcStatus.Code()),
+		workerStackTrace,
 	), true
 }
 

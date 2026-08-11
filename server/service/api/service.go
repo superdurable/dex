@@ -699,7 +699,7 @@ func (s *serviceImpl) WaitForFlow(
 	if errorType, ok := s.client.GetIfFlowError(getErr, &errorResponse); ok {
 		response.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
 		response.ErrorType = errorType
-		response.ErrorMessage = errorResponse.GetDetail()
+		response.ErrorMessage = serviceerrors.ErrorResponseDetail(&errorResponse)
 		return response, nil
 	}
 
@@ -881,14 +881,28 @@ func (s *serviceImpl) GetFlowState(
 		return nil, s.handleError(err)
 	}
 	snapshot := dump.GetSnapshot()
+	activeStepExecutions := dump.GetActiveStepExecutions()
+	attachPendingStepFailures(activeStepExecutions, description.PendingStepFailures)
 	return &dexpb.GetFlowStateResponse{
 		FlowConfig:             dump.GetConfig(),
 		Attributes:             snapshot.GetAttributes(),
-		ActiveStepExecutions:   dump.GetActiveStepExecutions(),
+		ActiveStepExecutions:   activeStepExecutions,
 		QueuedSteps:            snapshot.GetStepsToStartFromBeginning(),
 		PendingChannelMessages: snapshot.GetChannelReceived(),
 		CompletedSteps:         snapshot.GetStepOutputs(),
 	}, nil
+}
+
+func attachPendingStepFailures(
+	activeStepExecutions []*dexpb.ActiveStepExecutionState,
+	pendingStepFailures map[string]*dexpb.StepMethodFailure,
+) {
+	for _, activeStepExecution := range activeStepExecutions {
+		failure := pendingStepFailures[activeStepExecution.GetStepExecutionId()]
+		if failure != nil {
+			activeStepExecution.LastFailureInfo = failure
+		}
+	}
 }
 
 func (s *serviceImpl) InvokeRPC(
@@ -1244,7 +1258,8 @@ func (s *serviceImpl) handleError(err error) error {
 				errorResponse.GetSubStatus() == dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED &&
 				errorResponse.GetOriginalWorkerErrorDetail() == "" &&
 				errorResponse.GetOriginalWorkerErrorType() == "" &&
-				errorResponse.GetOriginalWorkerErrorStatus() == 0 {
+				errorResponse.GetOriginalWorkerErrorStatus() == 0 &&
+				errorResponse.GetOriginalWorkerErrorStackTrace() == "" {
 				return serviceerrors.Internal(err.Error()).ToGRPCError()
 			}
 			grpcCode := codes.Internal
@@ -1258,6 +1273,7 @@ func (s *serviceImpl) handleError(err error) error {
 				errorResponse.GetOriginalWorkerErrorDetail(),
 				errorResponse.GetOriginalWorkerErrorType(),
 				errorResponse.GetOriginalWorkerErrorStatus(),
+				errorResponse.GetOriginalWorkerErrorStackTrace(),
 			).ToGRPCError()
 		}
 	}

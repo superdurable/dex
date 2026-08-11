@@ -126,6 +126,10 @@ func mapActiveStep(step *dexpb.ActiveStepExecutionState) (activeStepExecution, e
 	if err != nil {
 		return activeStepExecution{}, err
 	}
+	lastFailureInfo, err := protoMap(step.GetLastFailureInfo())
+	if err != nil {
+		return activeStepExecution{}, err
+	}
 	wholeStep, err := protoMap(step)
 	if err != nil {
 		return activeStepExecution{}, err
@@ -140,6 +144,7 @@ func mapActiveStep(step *dexpb.ActiveStepExecutionState) (activeStepExecution, e
 		CompletedConditions: completedConditions,
 		StepExecutionLocals: mapKeyValues(step.GetStepExecutionLocals()),
 		Timers:              interfaceSlice(wholeStep["timers"]),
+		LastFailureInfo:     lastFailureInfo,
 	}, nil
 }
 

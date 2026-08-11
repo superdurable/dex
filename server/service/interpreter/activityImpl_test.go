@@ -549,8 +549,9 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
 		&dexpb.WorkerErrorResponse{
-			Detail:    "worker detail",
-			ErrorType: "worker type",
+			Detail:     "worker detail",
+			ErrorType:  "worker type",
+			StackTrace: "worker stack",
 		},
 	)
 	require.NoError(t, err)
@@ -571,7 +572,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 		})
 
 	require.ErrorIs(t, composeActivityError(provider, grpcStatus.Err()), activityError)
-	require.Equal(t, "worker failure", errorResponse.GetDetail())
+	require.Empty(t, errorResponse.GetDetail())
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
@@ -580,6 +581,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, int32(codes.Internal), errorResponse.GetOriginalWorkerErrorStatus())
 	require.Equal(t, "worker detail", errorResponse.GetOriginalWorkerErrorDetail())
 	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
+	require.Equal(t, "worker stack", errorResponse.GetOriginalWorkerErrorStackTrace())
 }
 
 func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {

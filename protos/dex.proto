@@ -627,6 +627,7 @@ message ActiveStepExecutionState {
   StepExecutionCompletedConditions completed_conditions = 7;
   repeated KV step_execution_locals = 8;
   repeated TimerInfo timers = 9;
+  StepMethodFailure last_failure_info = 10;
 }
 
 message GetFlowStateRequest {
@@ -750,6 +751,7 @@ message ErrorResponse {
   string original_worker_error_detail = 3;
   string original_worker_error_type = 4;
   int32 original_worker_error_status = 5;
+  string original_worker_error_stack_trace = 6;
 }
 
 enum ErrorSubStatus {
@@ -764,6 +766,7 @@ enum ErrorSubStatus {
 message WorkerErrorResponse {
   string detail = 1;
   string error_type = 2;
+  string stack_trace = 3;
 }
 
 message ChannelInfo {

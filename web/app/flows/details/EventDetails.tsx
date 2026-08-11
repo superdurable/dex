@@ -27,6 +27,7 @@ import {
   executeFailurePolicyLabel,
   flowErrorTypeLabel,
   flowStatusLabel,
+  grpcStatusLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -119,11 +120,24 @@ function DetailSection({ title, children }: { title?: string; children: React.Re
   );
 }
 
-function Fields({ values, compact = false }: { values: Field[]; compact?: boolean }) {
+function Fields({
+  values,
+  compact = false,
+  stacked = false,
+}: {
+  values: Field[];
+  compact?: boolean;
+  stacked?: boolean;
+}) {
   const visible = values.filter(([, value]) => isPresent(value));
   if (visible.length === 0) return null;
+  const classes = [
+    'semantic-fields',
+    compact ? 'semantic-fields-compact' : '',
+    stacked ? 'semantic-fields-stacked' : '',
+  ].filter(Boolean).join(' ');
   return (
-    <dl className={`semantic-fields${compact ? ' semantic-fields-compact' : ''}`}>
+    <dl className={classes}>
       {visible.map(([label, value, wide]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
@@ -417,28 +431,48 @@ function StepDecisionContent({ value }: { value: unknown }) {
   );
 }
 
-function FailureContent({ value }: { value: unknown }) {
+export function FailureContent({
+  value,
+  stackInitiallyExpanded = false,
+}: {
+  value: unknown;
+  stackInitiallyExpanded?: boolean;
+}) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
   const details = asData(failure.details);
   const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.errorType)
     : failure.errorType;
+  const workerStatus = isPresent(details.originalWorkerErrorStatus)
+    ? grpcStatusLabel(details.originalWorkerErrorStatus)
+    : undefined;
+  const workerDetail = isPresent(details.originalWorkerErrorDetail)
+    ? details.originalWorkerErrorDetail
+    : undefined;
+  const serverDetail = workerDetail === undefined ? details.detail : undefined;
+  const stackTrace = isPresent(details.originalWorkerErrorStackTrace)
+    ? details.originalWorkerErrorStackTrace
+    : failure.stackTrace;
   return (
     <div className="semantic-alert">
       {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
       <Fields compact values={[
         ['Attempt', failure.attempt],
-        ['Error type', errorType],
-        ['Retry state', failure.retryState],
       ]} />
-      {hasData(details) && <Fields compact values={[
-        ['Detail', details.detail],
+      <Fields compact stacked values={[
+        ['Error type', errorType],
+        ['Detail', serverDetail],
         ['Worker error type', details.originalWorkerErrorType],
-        ['Worker error detail', details.originalWorkerErrorDetail],
-        ['Worker gRPC status', details.originalWorkerErrorStatus],
-      ]} />}
-      {isPresent(failure.stackTrace) && <pre>{String(failure.stackTrace)}</pre>}
+        ['Worker error detail', workerDetail],
+        ['Worker gRPC status', workerStatus],
+      ]} />
+      {isPresent(stackTrace) && (
+        <details className="failure-stack" open={stackInitiallyExpanded}>
+          <summary>Stack trace</summary>
+          <pre>{String(stackTrace)}</pre>
+        </details>
+      )}
     </div>
   );
 }

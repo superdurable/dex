@@ -84,6 +84,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("parallel-attribute-snapshots", func(t *testing.T) {
 		testWebParallelAttributeSnapshots(t, backendType)
 	})
+	t.Run("parallel-same-type-failures", func(t *testing.T) {
+		testWebParallelSameTypeFailures(t, backendType)
+	})
 	for _, method := range []string{"wait-for", "execute"} {
 		t.Run("sync-last-failure-"+method, func(t *testing.T) {
 			testWebSyncLastFailure(t, backendType, method, false)
@@ -102,6 +105,136 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	}
 }
 
+func testWebParallelSameTypeFailures(t *testing.T, backendType service.BackendType) {
+	handler := &webParallelFailureHandler{
+		flowType:        "web-parallel-same-type-failures",
+		failureObserved: make(chan struct{}),
+	}
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := handler.flowType + "-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           handler.flowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "root",
+		StepOptions:        &dexpb.StepOptions{SkipWaitFor: true},
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.failureObserved:
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+	}
+
+	var activeSteps []*dexpb.ActiveStepExecutionState
+	require.Eventually(t, func() bool {
+		state, stateErr := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+		})
+		if stateErr != nil || len(state.GetActiveStepExecutions()) != 2 {
+			return false
+		}
+		for _, activeStep := range state.GetActiveStepExecutions() {
+			if activeStep.GetStepType() != "branch" || activeStep.GetLastFailureInfo() == nil {
+				return false
+			}
+		}
+		activeSteps = state.GetActiveStepExecutions()
+		return true
+	}, 2*time.Second, 50*time.Millisecond)
+	for _, activeStep := range activeSteps {
+		failure := activeStep.GetLastFailureInfo()
+		require.Equal(t, int32(1), failure.GetAttempt())
+		require.Equal(
+			t,
+			activeStep.GetStepExecutionId(),
+			failure.GetDetails().GetOriginalWorkerErrorDetail(),
+		)
+	}
+
+	result, err := runtime.FlowClient.WaitForFlow(
+		ctx,
+		&dexpb.WaitForFlowRequest{FlowId: flowID},
+	)
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+}
+
+type webParallelFailureHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	flowType        string
+	failureCount    atomic.Int32
+	failureObserved chan struct{}
+}
+
+func (h *webParallelFailureHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != h.flowType {
+		return nil, fmt.Errorf("unexpected flow type %q", request.GetFlowType())
+	}
+	if request.GetStepType() == "root" {
+		options := webParallelFailureStepOptions()
+		return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{
+				{StepType: "branch", StepOptions: options},
+				{StepType: "branch", StepOptions: options},
+			},
+		}}, nil
+	}
+	if request.GetStepType() != "branch" {
+		return nil, fmt.Errorf("unexpected step type %q", request.GetStepType())
+	}
+	if request.GetContext().GetAttempt() == 1 {
+		if h.failureCount.Add(1) == 2 {
+			close(h.failureObserved)
+		}
+		return nil, webParallelFailureError(request.GetContext().GetStepExecutionId())
+	}
+	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+		CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+		},
+	}}, nil
+}
+
+func webParallelFailureStepOptions() *dexpb.StepOptions {
+	return &dexpb.StepOptions{
+		SkipWaitFor: true,
+		ExecuteRetryPolicy: &dexpb.RetryPolicy{
+			InitialIntervalSeconds: 3,
+			BackoffCoefficient:     1,
+			MaximumIntervalSeconds: 3,
+			MaximumAttempts:        2,
+		},
+	}
+}
+
+func webParallelFailureError(stepExecutionID string) error {
+	workerStatus, err := status.New(
+		codes.Internal,
+		"parallel branch failure",
+	).WithDetails(&dexpb.WorkerErrorResponse{
+		Detail:     stepExecutionID,
+		ErrorType:  "ParallelBranchFailure",
+		StackTrace: "parallel worker stack " + stepExecutionID,
+	})
+	if err != nil {
+		return err
+	}
+	return workerStatus.Err()
+}
+
 func testWebSyncLastFailure(
 	t *testing.T,
 	backendType service.BackendType,
@@ -109,9 +242,10 @@ func testWebSyncLastFailure(
 	terminal bool,
 ) {
 	handler := &webSyncRetryHandler{
-		flowType: "web-sync-last-failure-" + method,
-		method:   method,
-		terminal: terminal,
+		flowType:        "web-sync-last-failure-" + method,
+		method:          method,
+		terminal:        terminal,
+		failureObserved: make(chan struct{}),
 	}
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
@@ -131,6 +265,42 @@ func testWebSyncLastFailure(
 		}},
 	})
 	require.NoError(t, err)
+	select {
+	case <-handler.failureObserved:
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+	}
+	var activeFailure *dexpb.StepMethodFailure
+	require.Eventually(t, func() bool {
+		state, stateErr := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+		})
+		if stateErr != nil || len(state.GetActiveStepExecutions()) != 1 {
+			return false
+		}
+		activeFailure = state.GetActiveStepExecutions()[0].GetLastFailureInfo()
+		return activeFailure != nil
+	}, 2*time.Second, 50*time.Millisecond)
+	require.Equal(t, int32(1), activeFailure.GetAttempt())
+	expectedRetryState := "RETRY_STATE_IN_PROGRESS"
+	if backendType == service.BackendTypeTemporal {
+		expectedRetryState = "InProgress"
+	}
+	require.Equal(t, expectedRetryState, activeFailure.GetRetryState())
+	require.Empty(t, activeFailure.GetDetails().GetDetail())
+	require.Equal(t, "WorkerRetryError", activeFailure.GetDetails().GetOriginalWorkerErrorType())
+	require.Equal(
+		t,
+		"retryable worker failure",
+		activeFailure.GetDetails().GetOriginalWorkerErrorDetail(),
+	)
+	require.Equal(
+		t,
+		int32(codes.Unavailable),
+		activeFailure.GetDetails().GetOriginalWorkerErrorStatus(),
+	)
+	require.Equal(t, "java worker stack", activeFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
 	flowResult, err := runtime.FlowClient.WaitForFlow(
 		ctx,
 		&dexpb.WaitForFlowRequest{FlowId: flowID},
@@ -162,14 +332,20 @@ func testWebSyncLastFailure(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
 		lastFailure.GetErrorType(),
 	)
-	require.Equal(t, method+" failure 1", lastFailure.GetDetails().GetDetail())
+	require.Empty(t, lastFailure.GetDetails().GetDetail())
 	require.Equal(t, "WorkerRetryError", lastFailure.GetDetails().GetOriginalWorkerErrorType())
 	require.Equal(t, "retryable worker failure", lastFailure.GetDetails().GetOriginalWorkerErrorDetail())
 	require.Equal(t, int32(codes.Unavailable), lastFailure.GetDetails().GetOriginalWorkerErrorStatus())
+	require.Equal(t, "java worker stack", lastFailure.GetDetails().GetOriginalWorkerErrorStackTrace())
 	if terminal {
 		require.NotNil(t, terminalFailure)
 		require.Equal(t, int32(2), terminalFailure.GetAttempt())
-		require.Equal(t, method+" failure 2", terminalFailure.GetDetails().GetDetail())
+		require.Empty(t, terminalFailure.GetDetails().GetDetail())
+		require.Equal(
+			t,
+			"retryable worker failure",
+			terminalFailure.GetDetails().GetOriginalWorkerErrorDetail(),
+		)
 	} else {
 		require.Nil(t, terminalFailure)
 	}
@@ -177,9 +353,9 @@ func testWebSyncLastFailure(
 
 func webSyncRetryStepOptions(method string) *dexpb.StepOptions {
 	retryPolicy := &dexpb.RetryPolicy{
-		InitialIntervalSeconds: 1,
+		InitialIntervalSeconds: 3,
 		BackoffCoefficient:     1,
-		MaximumIntervalSeconds: 1,
+		MaximumIntervalSeconds: 3,
 		MaximumAttempts:        2,
 	}
 	if method == "execute" {
@@ -219,11 +395,12 @@ func syncRetryStepEvent(
 
 type webSyncRetryHandler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	flowType     string
-	method       string
-	terminal     bool
-	waitCalls    atomic.Int32
-	executeCalls atomic.Int32
+	flowType        string
+	method          string
+	terminal        bool
+	waitCalls       atomic.Int32
+	executeCalls    atomic.Int32
+	failureObserved chan struct{}
 }
 
 func (h *webSyncRetryHandler) InvokeWaitForMethod(
@@ -235,6 +412,9 @@ func (h *webSyncRetryHandler) InvokeWaitForMethod(
 	}
 	attempt := h.waitCalls.Add(1)
 	if h.method == "wait-for" && (attempt == 1 || h.terminal) {
+		if attempt == 1 {
+			close(h.failureObserved)
+		}
 		return nil, webSyncRetryError(h.method, attempt)
 	}
 	return &dexpb.InvokeWaitForMethodResponse{}, nil
@@ -249,6 +429,9 @@ func (h *webSyncRetryHandler) InvokeExecuteMethod(
 	}
 	attempt := h.executeCalls.Add(1)
 	if h.method == "execute" && (attempt == 1 || h.terminal) {
+		if attempt == 1 {
+			close(h.failureObserved)
+		}
 		return nil, webSyncRetryError(h.method, attempt)
 	}
 	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
@@ -263,8 +446,9 @@ func webSyncRetryError(method string, attempt int32) error {
 		codes.Unavailable,
 		fmt.Sprintf("%s failure %d", method, attempt),
 	).WithDetails(&dexpb.WorkerErrorResponse{
-		Detail:    "retryable worker failure",
-		ErrorType: "WorkerRetryError",
+		Detail:     "retryable worker failure",
+		ErrorType:  "WorkerRetryError",
+		StackTrace: "java worker stack",
 	})
 	if err != nil {
 		return err

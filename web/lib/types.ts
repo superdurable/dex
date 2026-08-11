@@ -85,6 +85,7 @@ export interface ActiveStepExecution {
   completedConditions?: Record<string, unknown>;
   stepExecutionLocals: KeyValue[];
   timers: Record<string, unknown>[];
+  lastFailureInfo?: Record<string, unknown>;
 }
 
 export interface FlowState {

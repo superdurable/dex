@@ -149,4 +149,19 @@ public interface ActiveStepExecutionStateOrBuilder extends
    */
   io.superdurable.gen.TimerInfoOrBuilder getTimersOrBuilder(
       int index);
+
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * @return Whether the lastFailureInfo field is set.
+   */
+  boolean hasLastFailureInfo();
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * @return The lastFailureInfo.
+   */
+  io.superdurable.gen.StepMethodFailure getLastFailureInfo();
+  /**
+   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   */
+  io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder();
 }

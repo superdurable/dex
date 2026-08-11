@@ -224,6 +224,7 @@ func (w *workflowProvider) WithActivityOptions(
 	}
 
 	wfCtx2 := workflow.WithActivityOptions(wfCtx, workflow.ActivityOptions{
+		ActivityID:             options.ActivityID,
 		ScheduleToCloseTimeout: scheduledToCloseTimeout,
 		StartToCloseTimeout:    options.StartToCloseTimeout,
 		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),

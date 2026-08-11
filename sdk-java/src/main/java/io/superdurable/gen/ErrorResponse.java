@@ -32,6 +32,7 @@ private static final long serialVersionUID = 0L;
     subStatus_ = 0;
     originalWorkerErrorDetail_ = "";
     originalWorkerErrorType_ = "";
+    originalWorkerErrorStackTrace_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -65,7 +66,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       detail_ = s;
@@ -81,7 +82,7 @@ private static final long serialVersionUID = 0L;
       getDetailBytes() {
     java.lang.Object ref = detail_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       detail_ = b;
@@ -122,7 +123,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       originalWorkerErrorDetail_ = s;
@@ -138,7 +139,7 @@ private static final long serialVersionUID = 0L;
       getOriginalWorkerErrorDetailBytes() {
     java.lang.Object ref = originalWorkerErrorDetail_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       originalWorkerErrorDetail_ = b;
@@ -161,7 +162,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs = 
+      com.google.protobuf.ByteString bs =
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       originalWorkerErrorType_ = s;
@@ -177,7 +178,7 @@ private static final long serialVersionUID = 0L;
       getOriginalWorkerErrorTypeBytes() {
     java.lang.Object ref = originalWorkerErrorType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
+      com.google.protobuf.ByteString b =
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       originalWorkerErrorType_ = b;
@@ -196,6 +197,45 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public int getOriginalWorkerErrorStatus() {
     return originalWorkerErrorStatus_;
+  }
+
+  public static final int ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER = 6;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object originalWorkerErrorStackTrace_ = "";
+  /**
+   * <code>string original_worker_error_stack_trace = 6;</code>
+   * @return The originalWorkerErrorStackTrace.
+   */
+  @java.lang.Override
+  public java.lang.String getOriginalWorkerErrorStackTrace() {
+    java.lang.Object ref = originalWorkerErrorStackTrace_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs =
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      originalWorkerErrorStackTrace_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string original_worker_error_stack_trace = 6;</code>
+   * @return The bytes for originalWorkerErrorStackTrace.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getOriginalWorkerErrorStackTraceBytes() {
+    java.lang.Object ref = originalWorkerErrorStackTrace_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b =
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      originalWorkerErrorStackTrace_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
   }
 
   private byte memoizedIsInitialized = -1;
@@ -227,6 +267,9 @@ private static final long serialVersionUID = 0L;
     if (originalWorkerErrorStatus_ != 0) {
       output.writeInt32(5, originalWorkerErrorStatus_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, originalWorkerErrorStackTrace_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -247,6 +290,9 @@ private static final long serialVersionUID = 0L;
     if (originalWorkerErrorStatus_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(5, originalWorkerErrorStatus_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, originalWorkerErrorStackTrace_);
     }
     return size;
   }
@@ -281,6 +327,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getOriginalWorkerErrorType())) return false;
     if (getOriginalWorkerErrorStatus()
         != other.getOriginalWorkerErrorStatus()) return false;
+    if (!getOriginalWorkerErrorStackTrace()
+        .equals(other.getOriginalWorkerErrorStackTrace())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -302,6 +350,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getOriginalWorkerErrorType().hashCode();
     hash = (37 * hash) + ORIGINAL_WORKER_ERROR_STATUS_FIELD_NUMBER;
     hash = (53 * hash) + getOriginalWorkerErrorStatus();
+    hash = (37 * hash) + ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER;
+    hash = (53 * hash) + getOriginalWorkerErrorStackTrace().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -438,6 +488,7 @@ private static final long serialVersionUID = 0L;
       originalWorkerErrorDetail_ = "";
       originalWorkerErrorType_ = "";
       originalWorkerErrorStatus_ = 0;
+      originalWorkerErrorStackTrace_ = "";
       return this;
     }
 
@@ -486,6 +537,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000010) != 0)) {
         result.originalWorkerErrorStatus_ = originalWorkerErrorStatus_;
       }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.originalWorkerErrorStackTrace_ = originalWorkerErrorStackTrace_;
+      }
     }
 
     @java.lang.Override
@@ -520,6 +574,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getOriginalWorkerErrorStatus() != 0) {
         setOriginalWorkerErrorStatus(other.getOriginalWorkerErrorStatus());
+      }
+      if (!other.getOriginalWorkerErrorStackTrace().isEmpty()) {
+        originalWorkerErrorStackTrace_ = other.originalWorkerErrorStackTrace_;
+        bitField0_ |= 0x00000020;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -572,6 +631,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000010;
               break;
             } // case 40
+            case 50: {
+              originalWorkerErrorStackTrace_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -614,7 +678,7 @@ private static final long serialVersionUID = 0L;
         getDetailBytes() {
       java.lang.Object ref = detail_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         detail_ = b;
@@ -738,7 +802,7 @@ private static final long serialVersionUID = 0L;
         getOriginalWorkerErrorDetailBytes() {
       java.lang.Object ref = originalWorkerErrorDetail_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         originalWorkerErrorDetail_ = b;
@@ -810,7 +874,7 @@ private static final long serialVersionUID = 0L;
         getOriginalWorkerErrorTypeBytes() {
       java.lang.Object ref = originalWorkerErrorType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
+        com.google.protobuf.ByteString b =
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         originalWorkerErrorType_ = b;
@@ -889,6 +953,78 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.lang.Object originalWorkerErrorStackTrace_ = "";
+    /**
+     * <code>string original_worker_error_stack_trace = 6;</code>
+     * @return The originalWorkerErrorStackTrace.
+     */
+    public java.lang.String getOriginalWorkerErrorStackTrace() {
+      java.lang.Object ref = originalWorkerErrorStackTrace_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        originalWorkerErrorStackTrace_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string original_worker_error_stack_trace = 6;</code>
+     * @return The bytes for originalWorkerErrorStackTrace.
+     */
+    public com.google.protobuf.ByteString
+        getOriginalWorkerErrorStackTraceBytes() {
+      java.lang.Object ref = originalWorkerErrorStackTrace_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b =
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        originalWorkerErrorStackTrace_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string original_worker_error_stack_trace = 6;</code>
+     * @param value The originalWorkerErrorStackTrace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOriginalWorkerErrorStackTrace(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      originalWorkerErrorStackTrace_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string original_worker_error_stack_trace = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOriginalWorkerErrorStackTrace() {
+      originalWorkerErrorStackTrace_ = getDefaultInstance().getOriginalWorkerErrorStackTrace();
+      bitField0_ = (bitField0_ & ~0x00000020);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string original_worker_error_stack_trace = 6;</code>
+     * @param value The bytes for originalWorkerErrorStackTrace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOriginalWorkerErrorStackTraceBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      originalWorkerErrorStackTrace_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:dex.ErrorResponse)
   }
 
@@ -939,4 +1075,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-
