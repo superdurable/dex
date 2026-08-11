@@ -167,3 +167,23 @@ export function grpcStatusLabel(value: unknown): string {
   }
   return `Unknown (${String(value)})`;
 }
+
+export function retryStateLabel(value: unknown): string {
+  const key = String(value ?? '');
+  return {
+    RETRY_STATE_IN_PROGRESS: 'Retry scheduled',
+    InProgress: 'Retry scheduled',
+    RETRY_STATE_NON_RETRYABLE_FAILURE: 'Non-retryable failure',
+    NonRetryableFailure: 'Non-retryable failure',
+    RETRY_STATE_TIMEOUT: 'Retry timeout',
+    Timeout: 'Retry timeout',
+    RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED: 'Maximum attempts reached',
+    MaximumAttemptsReached: 'Maximum attempts reached',
+    RETRY_STATE_RETRY_POLICY_NOT_SET: 'Retry policy not set',
+    RetryPolicyNotSet: 'Retry policy not set',
+    RETRY_STATE_INTERNAL_SERVER_ERROR: 'Internal server error',
+    InternalServerError: 'Internal server error',
+    RETRY_STATE_CANCEL_REQUESTED: 'Cancellation requested',
+    CancelRequested: 'Cancellation requested',
+  }[key] ?? key;
+}

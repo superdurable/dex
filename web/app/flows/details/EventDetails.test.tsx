@@ -101,6 +101,7 @@ describe('selected step event details', () => {
     expect(markup).toContain('Last failure');
     expect(markup).toContain('Attempt');
     expect(markup).toContain('Worker method failed');
+    expect(markup).toContain('Retry scheduled');
     expect(markup).toContain('sync retry failure');
     expect(markup).toContain('UnavailableWorker');
     expect(markup).toContain('try again');
@@ -108,6 +109,7 @@ describe('selected step event details', () => {
     expect(markup).toContain('java worker stack');
     expect(markup).not.toContain('backend stack');
     expect(markup).toContain('<details class="failure-stack">');
+    expect(markup).toContain('semantic-fields-stacked');
     expect(markup).not.toContain('Previous attempts');
   });
 

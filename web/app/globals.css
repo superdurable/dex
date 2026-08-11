@@ -1235,6 +1235,18 @@ pre {
   margin-bottom: 0;
 }
 
+.semantic-fields-compact.semantic-fields-stacked {
+  grid-template-columns: 1fr;
+  margin-top: 8px;
+}
+
+.semantic-fields-compact.semantic-fields-stacked > div {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .json-view {
   display: flex;
   width: 100%;
@@ -1317,26 +1329,52 @@ pre {
 }
 
 .active-step-card {
-  display: flex;
   margin-top: 9px;
   padding: 10px;
-  flex-direction: column;
-  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fbfcfc;
   font-size: 11px;
 }
 
-.active-step-card > .active-step-heading {
+.active-step-card > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 7px;
+  list-style: none;
+  cursor: pointer;
 }
 
-.active-step-card code,
-.active-step-card > span {
+.active-step-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.active-step-heading {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.active-step-disclosure {
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.active-step-card[open] .active-step-disclosure {
+  transform: rotate(90deg);
+}
+
+.active-step-content {
+  display: flex;
+  margin-top: 8px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.active-step-content > code,
+.active-step-content > span {
   overflow: hidden;
   color: var(--muted);
   text-overflow: ellipsis;

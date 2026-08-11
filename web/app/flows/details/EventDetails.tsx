@@ -28,6 +28,7 @@ import {
   flowErrorTypeLabel,
   flowStatusLabel,
   grpcStatusLabel,
+  retryStateLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -120,11 +121,24 @@ function DetailSection({ title, children }: { title?: string; children: React.Re
   );
 }
 
-function Fields({ values, compact = false }: { values: Field[]; compact?: boolean }) {
+function Fields({
+  values,
+  compact = false,
+  stacked = false,
+}: {
+  values: Field[];
+  compact?: boolean;
+  stacked?: boolean;
+}) {
   const visible = values.filter(([, value]) => isPresent(value));
   if (visible.length === 0) return null;
+  const classes = [
+    'semantic-fields',
+    compact ? 'semantic-fields-compact' : '',
+    stacked ? 'semantic-fields-stacked' : '',
+  ].filter(Boolean).join(' ');
   return (
-    <dl className={`semantic-fields${compact ? ' semantic-fields-compact' : ''}`}>
+    <dl className={classes}>
       {visible.map(([label, value, wide]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
@@ -443,9 +457,9 @@ export function FailureContent({
       <Fields compact values={[
         ['Attempt', failure.attempt],
         ['Error type', errorType],
-        ['Retry state', failure.retryState],
+        ['Retry state', retryStateLabel(failure.retryState)],
       ]} />
-      {hasData(details) && <Fields compact values={[
+      {hasData(details) && <Fields compact stacked values={[
         ['Detail', details.detail],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', details.originalWorkerErrorDetail],
