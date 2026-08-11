@@ -19,7 +19,7 @@ on:
 jobs:
   unit:
     name: Unit tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: server
@@ -36,7 +36,7 @@ jobs:
 
   attribute-store-integ:
     name: Attribute Store integration
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -61,7 +61,7 @@ jobs:
 
   blob-store-integ:
     name: Blob Store integration
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -84,7 +84,7 @@ jobs:
 
   web-api-integ:
     name: Web API integration (${{ matrix.backend }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -117,7 +117,7 @@ jobs:
 
   temporal-integ:
     name: Temporal integration (partition ${{ matrix.partition }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -144,7 +144,7 @@ jobs:
 
   cadence-integ:
     name: Cadence integration (partition ${{ matrix.partition }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false

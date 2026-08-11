@@ -146,6 +146,8 @@ check until the record is updated.
 
 Root workflows under [`.github/workflows/`](.github/workflows/) run path-filtered jobs for server and each SDK/samples tree, plus the copyright check. Prefer fixing those over re-adding nested `*/.github/workflows` duplicates.
 
+Every job in a `*-ci.yml` workflow must use a self-hosted runner for pushes to `main` while retaining its GitHub-hosted runner for pull requests and manual runs. Use `${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}` (with the appropriate hosted fallback), and run `make ci-runner-check` before submitting workflow changes.
+
 ## Releases (monorepo tags)
 
 Each component has its own version and tag prefix. Create a GitHub Release for that tag only — workflows filter on the prefix so one release does not publish another component.

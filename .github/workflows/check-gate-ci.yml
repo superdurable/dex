@@ -16,10 +16,12 @@ concurrency:
 jobs:
   check-gate:
     name: Check Gate CI
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      - name: Validate CI runner policy
+        run: make ci-runner-check
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name == 'pull_request'
