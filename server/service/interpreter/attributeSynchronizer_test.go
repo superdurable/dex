@@ -100,10 +100,5 @@ func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
 		require.Equal(t, attributeSyncLocalActivityTimeout, options.LocalActivityScheduleToCloseTimeout)
 		require.Equal(t, 30*time.Second, options.StartToCloseTimeout)
 		require.Equal(t, int32(3600), options.RetryPolicy.GetTotalDurationSeconds())
-		require.Zero(t, options.LocalActivityRetryPolicy.GetMaximumAttempts())
-		require.Equal(t, int32(7), options.LocalActivityRetryPolicy.GetTotalDurationSeconds())
-		require.Equal(t, options.RetryPolicy.GetInitialIntervalSeconds(), options.LocalActivityRetryPolicy.GetInitialIntervalSeconds())
-		require.Equal(t, options.RetryPolicy.GetMaximumIntervalSeconds(), options.LocalActivityRetryPolicy.GetMaximumIntervalSeconds())
-		require.Equal(t, options.RetryPolicy.GetBackoffCoefficient(), options.LocalActivityRetryPolicy.GetBackoffCoefficient())
 	}
 }

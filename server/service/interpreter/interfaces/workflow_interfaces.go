@@ -61,7 +61,6 @@ type ActivityOptions struct {
 	LocalActivityScheduleToCloseTimeout time.Duration
 	HeartbeatTimeout                    time.Duration
 	RetryPolicy                         *dexpb.RetryPolicy
-	LocalActivityRetryPolicy            *dexpb.RetryPolicy
 }
 
 type UnifiedContext interface {

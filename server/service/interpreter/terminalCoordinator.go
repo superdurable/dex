@@ -15,14 +15,21 @@ import (
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
+type terminalKind int
+
+const (
+	terminalNone terminalKind = iota
+	terminalCancel
+	terminalFailure
+	terminalGracefulCompletion
+	terminalForceCompletion
+)
+
 type TerminalCoordinator struct {
 	provider            interfaces.WorkflowProvider
-	requested           bool
-	status              dexpb.FlowStatus
-	cause               error
-	cancelReason        string
+	kind                terminalKind
+	resultErr           error
 	activeStepProducers int
-	waitForProducers    bool
 }
 
 func NewTerminalCoordinator(provider interfaces.WorkflowProvider) *TerminalCoordinator {
@@ -57,15 +64,13 @@ func (c *TerminalCoordinator) Finalize(
 }
 
 func (c *TerminalCoordinator) RequestClientStop(request *dexpb.StopFlowSignalRequest) {
-	if request == nil || c.requested {
+	if request == nil || c.IsRequested() {
 		return
 	}
 	switch request.GetStopType() {
 	case dexpb.StopType_STOP_TYPE_CANCEL:
-		c.requested = true
-		c.status = dexpb.FlowStatus_FLOW_STATUS_CANCELED
-		c.cancelReason = request.GetReason()
-		c.waitForProducers = true
+		c.kind = terminalCancel
+		c.resultErr = c.provider.NewCanceledError(request.GetReason())
 	case dexpb.StopType_STOP_TYPE_FAIL:
 		reason := request.GetReason()
 		if reason == "" {
@@ -79,7 +84,7 @@ func (c *TerminalCoordinator) RequestClientStop(request *dexpb.StopFlowSignalReq
 }
 
 func (c *TerminalCoordinator) RequestFailure(cause error) {
-	if c.requested {
+	if c.IsRequested() {
 		return
 	}
 	if cause == nil {
@@ -88,27 +93,22 @@ func (c *TerminalCoordinator) RequestFailure(cause error) {
 			&dexpb.ErrorResponse{Detail: "terminal failure has no cause"},
 		)
 	}
-	c.requested = true
-	c.status = dexpb.FlowStatus_FLOW_STATUS_FAILED
-	c.cause = cause
-	c.waitForProducers = true
+	c.kind = terminalFailure
+	c.resultErr = cause
 }
 
 func (c *TerminalCoordinator) RequestCompletion() {
-	if c.requested {
+	if c.IsRequested() {
 		return
 	}
-	c.requested = true
-	c.status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
-	c.waitForProducers = true
+	c.kind = terminalGracefulCompletion
 }
 
 func (c *TerminalCoordinator) RequestForceCompletion() {
-	if c.requested {
+	if c.IsRequested() {
 		return
 	}
-	c.requested = true
-	c.status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
+	c.kind = terminalForceCompletion
 }
 
 func (c *TerminalCoordinator) ProducerStarted() {
@@ -123,16 +123,13 @@ func (c *TerminalCoordinator) ProducerFinished() {
 }
 
 func (c *TerminalCoordinator) IsRequested() bool {
-	return c.requested
+	return c.kind != terminalNone
 }
 
 func (c *TerminalCoordinator) ProducersDrained(inflightUpdates int) bool {
-	return !c.waitForProducers || (c.activeStepProducers == 0 && inflightUpdates == 0)
+	return c.kind == terminalForceCompletion || (c.activeStepProducers == 0 && inflightUpdates == 0)
 }
 
 func (c *TerminalCoordinator) ResultError() error {
-	if c.status == dexpb.FlowStatus_FLOW_STATUS_CANCELED {
-		return c.provider.NewCanceledError(c.cancelReason)
-	}
-	return c.cause
+	return c.resultErr
 }

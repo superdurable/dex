@@ -74,7 +74,6 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			StartToCloseTimeout:                 s.cfg.EffectiveSyncAttemptTimeout(),
 			LocalActivityScheduleToCloseTimeout: attributeSyncLocalActivityTimeout,
 			RetryPolicy:                         s.cfg.EffectiveSyncRetryPolicy(),
-			LocalActivityRetryPolicy:            s.localRetryPolicy(),
 		})
 		err := s.provider.ExecuteActivity(
 			nil,
@@ -101,16 +100,6 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			s.actorStopped = true
 			return
 		}
-	}
-}
-
-func (s *AttributeSynchronizer) localRetryPolicy() *dexpb.RetryPolicy {
-	configured := s.cfg.EffectiveSyncRetryPolicy()
-	return &dexpb.RetryPolicy{
-		InitialIntervalSeconds: configured.GetInitialIntervalSeconds(),
-		MaximumIntervalSeconds: configured.GetMaximumIntervalSeconds(),
-		BackoffCoefficient:     configured.GetBackoffCoefficient(),
-		TotalDurationSeconds:   int32(attributeSyncLocalActivityTimeout / time.Second),
 	}
 }
 

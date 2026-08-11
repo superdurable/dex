@@ -243,13 +243,9 @@ func (w *workflowProvider) WithActivityOptions(
 	if options.LocalActivityScheduleToCloseTimeout > 0 {
 		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
 	}
-	localRetryPolicy := options.LocalActivityRetryPolicy
-	if localRetryPolicy == nil {
-		localRetryPolicy = options.RetryPolicy
-	}
 	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
 		ScheduleToCloseTimeout: localActivityTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(localRetryPolicy),
+		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
 	})
 	return interfaces.NewUnifiedContext(wfCtx3)
 }
