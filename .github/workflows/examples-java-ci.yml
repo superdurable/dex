@@ -6,7 +6,7 @@ on:
 jobs:
   unit:
     name: Build + unit tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: examples/java
@@ -34,7 +34,7 @@ jobs:
 
   integ:
     name: Integration tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: examples/java

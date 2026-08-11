@@ -22,7 +22,7 @@ concurrency:
 jobs:
   blob-cache:
     name: Blob cache tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: blob-cache-go

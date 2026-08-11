@@ -15,7 +15,7 @@ permissions:
 jobs:
   cla-check:
     name: Contributor agreement
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
       - name: Verify signature record
