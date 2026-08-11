@@ -60,6 +60,11 @@ explicit codec only for a custom encoding or a type Registry cannot derive.
 `PersistenceSchema.of(...)` accepts attributes and channels together and
 partitions them by definition type.
 
+`Worker` and `AsyncWorker` synchronize all registered Indexed Attributes with
+Dex Server before opening their listener. Existing indexes return immediately;
+failure or the default two-minute deadline aborts startup. An indexed
+`AttributeMap` must provide one fixed `index_key`.
+
 Initial attributes retain their value types without a public wrapper class:
 
 ```python

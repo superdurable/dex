@@ -25,14 +25,14 @@ type searchFlowsResponse struct {
 }
 
 type flowExecution struct {
-	FlowID           string     `json:"flowId"`
-	RunID            string     `json:"runId"`
-	FlowType         string     `json:"flowType"`
-	FlowStatus       string     `json:"flowStatus"`
-	FlowStatusCode   int32      `json:"flowStatusCode"`
-	StartTime        *string    `json:"startTime"`
-	CloseTime        *string    `json:"closeTime"`
-	SearchAttributes []keyValue `json:"searchAttributes"`
+	FlowID            string     `json:"flowId"`
+	RunID             string     `json:"runId"`
+	FlowType          string     `json:"flowType"`
+	FlowStatus        string     `json:"flowStatus"`
+	FlowStatusCode    int32      `json:"flowStatusCode"`
+	StartTime         *string    `json:"startTime"`
+	CloseTime         *string    `json:"closeTime"`
+	IndexedAttributes []keyValue `json:"indexedAttributes"`
 }
 
 type keyValue struct {

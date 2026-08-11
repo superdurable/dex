@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -16,12 +17,13 @@ use dex_protocol::dex::worker_service_server::{WorkerService, WorkerServiceServe
 use dex_protocol::dex::{
     InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodRequest,
     InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
+    SyncAttributeIndexRequest,
 };
 use prost::Message;
 use prost_types::Any;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
-use tonic::transport::{Endpoint, Server};
+use tonic::transport::{Channel, Endpoint, Server};
 use tonic::{Code, Request, Response, Status};
 
 use crate::value_hydrator::ValueHydrator;
@@ -35,6 +37,9 @@ const STOPPED: u8 = 2;
 pub struct Worker {
     runtime: Runtime,
     service: RustWorkerService,
+    flow_service: FlowServiceClient<Channel>,
+    attribute_indexes: HashMap<String, i32>,
+    attribute_index_sync_timeout: std::time::Duration,
     bind_address: SocketAddr,
     worker_target: WorkerTarget,
     shutdown: watch::Sender<bool>,
@@ -53,6 +58,11 @@ impl Worker {
         options: WorkerOptions,
     ) -> SdkResult<Self> {
         let runtime = Runtime::new().map_err(service_error)?;
+        if options.attribute_index_sync_timeout_value().is_zero() {
+            return Err(SdkError::FlowDefinition {
+                message: "attribute index sync timeout must be positive".to_string(),
+            });
+        }
         let bind_address = options
             .bind_address_value()
             .parse::<SocketAddr>()
@@ -73,12 +83,16 @@ impl Worker {
             let _runtime_guard = runtime.enter();
             FlowServiceClient::new(endpoint.connect_lazy())
         };
-        let hydrator = ValueHydrator::new(flow_service, blob_cache);
+        let attribute_indexes = registry.attribute_indexes().clone();
+        let hydrator = ValueHydrator::new(flow_service.clone(), blob_cache);
         let dispatcher = WorkerDispatcher::new(registry, hydrator);
         let (shutdown, _) = watch::channel(false);
         Ok(Self {
             runtime,
             service: RustWorkerService { dispatcher },
+            flow_service,
+            attribute_indexes,
+            attribute_index_sync_timeout: options.attribute_index_sync_timeout_value(),
             bind_address,
             worker_target,
             shutdown,
@@ -97,6 +111,27 @@ impl Worker {
                 message: "Worker can only be started once".to_string(),
             })?;
         let mut shutdown = self.shutdown.subscribe();
+        let mut flow_service = self.flow_service.clone();
+        let sync_result = self.runtime.block_on(async {
+            tokio::time::timeout(
+                self.attribute_index_sync_timeout,
+                flow_service.sync_attribute_indexes(SyncAttributeIndexRequest {
+                    attribute_indexes: self.attribute_indexes.clone(),
+                }),
+            )
+            .await
+        });
+        match sync_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(status)) => {
+                self.state.store(STOPPED, Ordering::Release);
+                return Err(service_error(status));
+            }
+            Err(elapsed) => {
+                self.state.store(STOPPED, Ordering::Release);
+                return Err(service_error(elapsed));
+            }
+        }
         let result = self.runtime.block_on(
             Server::builder()
                 .add_service(WorkerServiceServer::new(self.service.clone()))

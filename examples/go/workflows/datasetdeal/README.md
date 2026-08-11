@@ -78,7 +78,8 @@ UI, and E2E checks use bounded retries when a new execution has not appeared.
 Seller ProcessID filters and buyer ProcessID filters are combined directly with
 the buyer's `BuyerID` in Dex `SearchFlows` queries.
 
-Register these Temporal keyword search attributes before starting executions:
+The persistence schema declares these keyword Indexed Attributes, which the
+Worker synchronizes automatically before starting:
 
 - `ProcessID`
 - `BuyerID`
@@ -121,7 +122,7 @@ make datasetDealDemo
 ```
 
 The script starts PostgreSQL with Docker Compose, initializes the schema,
-starts Dex with its bundled Temporal dev server, registers search attributes,
+starts Dex, lets the Worker synchronize Indexed Attributes,
 starts the Go worker/API, and drives three executions:
 
 - buyer 1 rejects one counteroffer, accepts the next, then buys the full data;

@@ -16,6 +16,8 @@ package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
+
 /**
  * Configures a Java worker's listener, advertised target, server connection, and serialization.
  *
@@ -42,6 +44,7 @@ public final class WorkerOptions {
     private final String serverAddress;
     private final ObjectMapper objectMapper;
     private final GrpcErrorStatusMapping grpcErrorStatusMapping;
+    private final Duration attributeIndexSyncTimeout;
 
     private WorkerOptions(final Builder builder) {
         this.bindAddress = builder.bindAddress;
@@ -49,6 +52,7 @@ public final class WorkerOptions {
         this.serverAddress = builder.serverAddress;
         this.objectMapper = builder.objectMapper;
         this.grpcErrorStatusMapping = builder.grpcErrorStatusMapping;
+        this.attributeIndexSyncTimeout = builder.attributeIndexSyncTimeout;
     }
 
     /**
@@ -80,6 +84,10 @@ public final class WorkerOptions {
         return grpcErrorStatusMapping;
     }
 
+    Duration getAttributeIndexSyncTimeout() {
+        return attributeIndexSyncTimeout;
+    }
+
     /** Builds immutable {@link WorkerOptions} values. */
     public static final class Builder {
         private String bindAddress = ":8803";
@@ -88,6 +96,7 @@ public final class WorkerOptions {
         private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         private GrpcErrorStatusMapping grpcErrorStatusMapping =
                 GrpcErrorStatusMapping.newBuilder().build();
+        private Duration attributeIndexSyncTimeout = Duration.ofMinutes(2);
 
         private Builder() {
         }
@@ -157,6 +166,21 @@ public final class WorkerOptions {
                 throw new IllegalArgumentException("grpcErrorStatusMapping is required");
             }
             this.grpcErrorStatusMapping = value;
+            return this;
+        }
+
+        /**
+         * Sets the maximum duration for startup index synchronization.
+         *
+         * @param value a positive duration; the default is two minutes
+         * @return this builder
+         * @throws IllegalArgumentException if the duration is null, zero, or negative
+         */
+        public Builder attributeIndexSyncTimeout(final Duration value) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("attributeIndexSyncTimeout must be positive");
+            }
+            this.attributeIndexSyncTimeout = value;
             return this;
         }
 

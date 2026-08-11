@@ -51,7 +51,7 @@ const builtInFields = [
   'CloseTime',
 ];
 
-const hiddenSearchAttributes = new Set(['TemporalChangeVersion']);
+const hiddenIndexedAttributes = new Set(['TemporalChangeVersion']);
 
 interface SavedQuery {
   name: string;
@@ -107,8 +107,8 @@ export function FlowSearchPage() {
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
   const customAttributes = useMemo(() => {
     const keys = new Set<string>();
-    flows.forEach((flow) => flow.searchAttributes.forEach((item) => {
-      if (!hiddenSearchAttributes.has(item.key)) keys.add(item.key);
+    flows.forEach((flow) => flow.indexedAttributes.forEach((item) => {
+      if (!hiddenIndexedAttributes.has(item.key)) keys.add(item.key);
     }));
     return [...keys].sort();
   }, [flows]);
@@ -476,7 +476,7 @@ export function FlowSearchPage() {
                   ))}
                   {customAttributes.map((key) => (
                     <td key={key}>
-                      {displayValue(flow.searchAttributes.find((item) => item.key === key)?.value)}
+                      {displayValue(flow.indexedAttributes.find((item) => item.key === key)?.value)}
                     </td>
                   ))}
                 </tr>

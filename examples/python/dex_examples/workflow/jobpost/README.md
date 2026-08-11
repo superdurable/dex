@@ -10,23 +10,8 @@ policy. `Title` and `JobDescription` are full-text indexed and
 `LastUpdateTimeMillis` is integer indexed, so postings can be searched and
 ordered.
 
-## Search attribute requirement
-
-If using Temporal:
-
-```bash
-temporal search-attribute create -name Title -type Text -y
-temporal search-attribute create -name JobDescription -type Text -y
-temporal search-attribute create -name LastUpdateTimeMillis -type Int -y
-```
-
-If using Cadence:
-
-```bash
-cadence adm cl asa --search_attr_key Title --search_attr_type 0
-cadence adm cl asa --search_attr_key JobDescription --search_attr_type 0
-cadence adm cl asa --search_attr_key LastUpdateTimeMillis --search_attr_type 2
-```
+The Worker synchronizes these Indexed Attributes automatically before opening
+its listener.
 
 With the sample server running:
 

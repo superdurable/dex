@@ -48,7 +48,7 @@ class SearchFlowEntry:
     status: FlowStatus
     started_at: datetime
     closed_at: datetime | None
-    attributes: Mapping[str, Value]
+    indexed_attributes: Mapping[str, Value]
 
 
 @dataclass(frozen=True)

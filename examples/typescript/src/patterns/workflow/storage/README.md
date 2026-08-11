@@ -29,5 +29,5 @@ pattern is for small KV state, not a general database.
 ## Usage notes
 
 - Controller auto-starts the singleton flow if it is not running.
-- Prefer search attributes when you need many non-singleton storage flows to be
+- Prefer Indexed Attributes when you need many non-singleton storage flows to be
   queryable.

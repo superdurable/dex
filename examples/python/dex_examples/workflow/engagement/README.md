@@ -14,9 +14,8 @@ same atomic operation.
 `Status` is a `str`-backed enum so it stays JSON encodable when it is nested
 inside `EngagementDescription`.
 
-The engagement status is indexed through Temporal's `CustomKeywordField`. Create
-that search attribute when running against a separately managed Temporal
-cluster.
+The engagement status uses the `CustomKeywordField` Indexed Attribute, which
+the Worker synchronizes automatically.
 
 With the sample server running:
 

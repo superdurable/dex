@@ -14,11 +14,14 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 // Registry stores immutable Flow definitions shared by Client and Worker.
 type Registry struct {
-	flows map[string]*registeredFlow
+	flows            map[string]*registeredFlow
+	attributeIndexes map[string]dexpb.IndexType
 }
 
 type registeredFlow struct {
@@ -80,6 +83,14 @@ func NewRegistry(flows []Flow) (*Registry, error) {
 			)
 		}
 		assembled.flows[registered.flowType] = registered
+	}
+	assembled.attributeIndexes = make(map[string]dexpb.IndexType, len(indexTypes))
+	for name, indexType := range indexTypes {
+		mapped, err := mapIndexType(indexType)
+		if err != nil {
+			return nil, err
+		}
+		assembled.attributeIndexes[name] = mapped
 	}
 	return assembled, nil
 }
@@ -158,18 +169,19 @@ func (flow *registeredFlow) registerAttribute(
 			return fmt.Errorf("attribute %q: %w", name, err)
 		}
 		indexKey := effectiveIndexKey(name, index, isMap)
-		if indexKey != "" {
-			if existing, found := indexTypes[indexKey]; found &&
-				existing != index.Type {
-				return fmt.Errorf(
-					"index key %q has conflicting types %d and %d",
-					indexKey,
-					existing,
-					index.Type,
-				)
-			}
-			indexTypes[indexKey] = index.Type
+		if indexKey == "" {
+			return fmt.Errorf("indexed attribute map %q requires an index key", name)
 		}
+		if existing, found := indexTypes[indexKey]; found &&
+			existing != index.Type {
+			return fmt.Errorf(
+				"index key %q has conflicting types %d and %d",
+				indexKey,
+				existing,
+				index.Type,
+			)
+		}
+		indexTypes[indexKey] = index.Type
 	}
 	flow.attributes[name] = registeredAttribute{
 		def:   definition,

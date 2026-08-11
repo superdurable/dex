@@ -77,7 +77,7 @@ func TestMain(m *testing.M) {
 				context.Background(),
 				time.Duration(*dependencyWaitSeconds)*time.Second,
 			)
-			err = prepareExternalDex(dependencyCtx, temporalClient)
+			err = prepareExternalDex(dependencyCtx)
 			cancelDependency()
 			if err != nil {
 				temporalClient.Close()
@@ -93,7 +93,7 @@ func TestMain(m *testing.M) {
 
 	if *cadenceIntegTest {
 		for i := 0; i < *dependencyWaitSeconds; i++ {
-			_, _, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
+			_, _, _, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
 			if err != nil {
 				fmt.Println("wait for Cadence to be up...last err: ", err)
 				time.Sleep(time.Second)
@@ -108,7 +108,7 @@ func TestMain(m *testing.M) {
 
 		var closeFunc func()
 		var serviceClient workflowserviceclient.Interface
-		serviceClient, closeFunc, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
+		serviceClient, _, closeFunc, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
 		for i := 0; i < *dependencyWaitSeconds; i++ {
 			ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
 			_, err = serviceClient.DescribeDomain(ctx, &shared.DescribeDomainRequest{

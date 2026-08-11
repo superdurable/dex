@@ -62,7 +62,7 @@ Make sure you have the following installed and set up:
 
 1. Run Dex server
     * The simplest way is to run
-      `docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -p 7233:7233 -p 8233:8233 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest`
+      `docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest`
     * Or check out [Dex documentation](https://github.com/superdurable/dex?tab=readme-ov-file#how-to-use)
 2. [Python 3.13.2](https://www.python.org/downloads/)
 2. [uv](https://docs.astral.sh/uv/) for dependency management and virtual environments.

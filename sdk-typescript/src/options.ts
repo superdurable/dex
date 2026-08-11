@@ -97,7 +97,7 @@ export interface SearchFlowEntry {
   readonly status: FlowStatus;
   readonly startedAt: Date;
   readonly closedAt: Date | undefined;
-  readonly searchAttributes: ReadonlyMap<string, unknown>;
+  readonly indexedAttributes: ReadonlyMap<string, unknown>;
 }
 
 export interface SearchFlowsPage {
@@ -169,6 +169,8 @@ export interface WorkerOptions {
   readonly bindAddress?: string;
   readonly workerTarget?: WorkerTarget;
   readonly serverAddress?: string;
+  /** Startup Indexed Attribute synchronization deadline in milliseconds. Defaults to 120000. */
+  readonly attributeIndexSyncTimeoutMs?: number;
 }
 
 export interface WorkerTarget {

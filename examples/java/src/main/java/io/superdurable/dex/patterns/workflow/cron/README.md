@@ -36,7 +36,7 @@ restarts are safe.
 
 ## Schedule management
 
-View and manage the underlying Temporal schedule in the Temporal UI (local
+Inspect scheduled Flow executions in Dex Web (local
 `dexcli` Temporal or Temporal Cloud):
 
 - **Workflows** — filter by workflow ID `cron-schedule-sample`

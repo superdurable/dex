@@ -30,6 +30,6 @@ for run in {1..60}; do
   fi
 done
 
-echo "now waiting 10s for server to be ready, so that another script will register namespace/search attributes."
+echo "waiting 10s for the workflow backend to become ready"
 sleep 10
 "${SRC_ROOT}/dex-server" --config "${CONFIG_TEMPLATE_PATH}" start "$@"

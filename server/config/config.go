@@ -72,6 +72,8 @@ const (
 	DefaultAttributeStoreSyncAttemptTimeout = 30 * time.Second
 	// DefaultAttributeStoreSyncTotalDurationSeconds caps regular Activity retries at one hour.
 	DefaultAttributeStoreSyncTotalDurationSeconds int32 = 3600
+	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
+	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
 )
 
 const (
@@ -244,6 +246,8 @@ type (
 		InterpreterActivityConfig InterpreterActivityConfig `yaml:"interpreterActivityConfig"`
 		// VerboseDebug enables extra interpreter debug logs. Default false.
 		VerboseDebug bool `yaml:"verboseDebug"`
+		// AttributeIndexSyncTimeout bounds registration and backend propagation checks. Default 2m. Immutable after startup.
+		AttributeIndexSyncTimeout time.Duration `yaml:"attributeIndexSyncTimeout"`
 	}
 
 	TemporalConfig struct {
@@ -264,6 +268,8 @@ type (
 		HostPort string `yaml:"hostPort"`
 		// Domain is the Cadence domain. Default "default".
 		Domain string `yaml:"domain"`
+		// AdminSecurityToken authorizes Cadence search attribute registration. Default empty.
+		AdminSecurityToken string `yaml:"adminSecurityToken"`
 		// WorkerOptions are passed to the Cadence worker. Nil uses SDK defaults.
 		WorkerOptions *cadenceWorker.Options
 	}
@@ -608,6 +614,14 @@ func (c WorkerConfig) EffectiveHeadlessFailoverStatusCodes() []codes.Code {
 		statusCodes[index] = codes.Code(statusCode)
 	}
 	return statusCodes
+}
+
+// EffectiveAttributeIndexSyncTimeout returns the configured timeout or 2m.
+func (c Interpreter) EffectiveAttributeIndexSyncTimeout() time.Duration {
+	if c.AttributeIndexSyncTimeout <= 0 {
+		return DefaultAttributeIndexSyncTimeout
+	}
+	return c.AttributeIndexSyncTimeout
 }
 
 // QueryWorkflowFailedRetryPolicyWithDefaults fills zero fields with defaults (1s / 5 attempts).

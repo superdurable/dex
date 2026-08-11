@@ -35,6 +35,7 @@ import (
 	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
+	"github.com/superdurable/dex/service/indexsync"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -55,6 +56,7 @@ type serviceImpl struct {
 	workerPool         *workerclient.WorkerClientPool
 	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
 	attributeStore     *attributestore.Manager
+	indexSynchronizer  *indexsync.Synchronizer
 }
 
 func NewApiService(
@@ -88,6 +90,7 @@ func NewApiService(
 		workerPool:         workerPool,
 		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(blobStoreCfg, client, store),
 		attributeStore:     attributeStore,
+		indexSynchronizer:  indexsync.New(interpreterCfg, client),
 	}, nil
 }
 
@@ -748,6 +751,19 @@ func (s *serviceImpl) SearchFlows(
 		FlowRuns:      response.Executions,
 		NextPageToken: string(response.NextPageToken),
 	}, nil
+}
+
+func (s *serviceImpl) SyncAttributeIndexes(
+	ctx context.Context,
+	req *dexpb.SyncAttributeIndexRequest,
+) (*dexpb.SyncAttributeIndexResponse, error) {
+	if req == nil {
+		return nil, makeInvalidRequestError("request is required")
+	}
+	if err := s.indexSynchronizer.Sync(ctx, req.GetAttributeIndexes()); err != nil {
+		return nil, err
+	}
+	return &dexpb.SyncAttributeIndexResponse{}, nil
 }
 
 func (s *serviceImpl) GetFlowSummary(

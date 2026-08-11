@@ -36,6 +36,7 @@ const (
 	FlowService_LoadBlobs_FullMethodName             = "/dex.FlowService/LoadBlobs"
 	FlowService_WaitForFlow_FullMethodName           = "/dex.FlowService/WaitForFlow"
 	FlowService_SearchFlows_FullMethodName           = "/dex.FlowService/SearchFlows"
+	FlowService_SyncAttributeIndexes_FullMethodName  = "/dex.FlowService/SyncAttributeIndexes"
 	FlowService_GetFlowSummary_FullMethodName        = "/dex.FlowService/GetFlowSummary"
 	FlowService_GetHistoryEvents_FullMethodName      = "/dex.FlowService/GetHistoryEvents"
 	FlowService_WaitForHistoryEvent_FullMethodName   = "/dex.FlowService/WaitForHistoryEvent"
@@ -64,6 +65,7 @@ type FlowServiceClient interface {
 	LoadBlobs(ctx context.Context, in *LoadBlobsRequest, opts ...grpc.CallOption) (*LoadBlobsResponse, error)
 	WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*WaitForFlowResponse, error)
 	SearchFlows(ctx context.Context, in *SearchFlowsRequest, opts ...grpc.CallOption) (*SearchFlowsResponse, error)
+	SyncAttributeIndexes(ctx context.Context, in *SyncAttributeIndexRequest, opts ...grpc.CallOption) (*SyncAttributeIndexResponse, error)
 	GetFlowSummary(ctx context.Context, in *GetFlowSummaryRequest, opts ...grpc.CallOption) (*GetFlowSummaryResponse, error)
 	GetHistoryEvents(ctx context.Context, in *GetHistoryEventsRequest, opts ...grpc.CallOption) (*GetHistoryEventsResponse, error)
 	WaitForHistoryEvent(ctx context.Context, in *WaitForHistoryEventRequest, opts ...grpc.CallOption) (*WaitForHistoryEventResponse, error)
@@ -160,6 +162,16 @@ func (c *flowServiceClient) SearchFlows(ctx context.Context, in *SearchFlowsRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchFlowsResponse)
 	err := c.cc.Invoke(ctx, FlowService_SearchFlows_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) SyncAttributeIndexes(ctx context.Context, in *SyncAttributeIndexRequest, opts ...grpc.CallOption) (*SyncAttributeIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SyncAttributeIndexResponse)
+	err := c.cc.Invoke(ctx, FlowService_SyncAttributeIndexes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +312,7 @@ type FlowServiceServer interface {
 	LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error)
 	WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error)
 	SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error)
+	SyncAttributeIndexes(context.Context, *SyncAttributeIndexRequest) (*SyncAttributeIndexResponse, error)
 	GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error)
 	GetHistoryEvents(context.Context, *GetHistoryEventsRequest) (*GetHistoryEventsResponse, error)
 	WaitForHistoryEvent(context.Context, *WaitForHistoryEventRequest) (*WaitForHistoryEventResponse, error)
@@ -345,6 +358,9 @@ func (UnimplementedFlowServiceServer) WaitForFlow(context.Context, *WaitForFlowR
 }
 func (UnimplementedFlowServiceServer) SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SearchFlows not implemented")
+}
+func (UnimplementedFlowServiceServer) SyncAttributeIndexes(context.Context, *SyncAttributeIndexRequest) (*SyncAttributeIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncAttributeIndexes not implemented")
 }
 func (UnimplementedFlowServiceServer) GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFlowSummary not implemented")
@@ -543,6 +559,24 @@ func _FlowService_SearchFlows_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).SearchFlows(ctx, req.(*SearchFlowsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_SyncAttributeIndexes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncAttributeIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).SyncAttributeIndexes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_SyncAttributeIndexes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).SyncAttributeIndexes(ctx, req.(*SyncAttributeIndexRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -801,6 +835,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchFlows",
 			Handler:    _FlowService_SearchFlows_Handler,
+		},
+		{
+			MethodName: "SyncAttributeIndexes",
+			Handler:    _FlowService_SyncAttributeIndexes_Handler,
 		},
 		{
 			MethodName: "GetFlowSummary",

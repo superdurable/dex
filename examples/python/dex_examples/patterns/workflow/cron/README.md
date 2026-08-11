@@ -37,7 +37,7 @@ exists, the start call is a no-op.
 
 ## Schedule management
 
-View and manage the underlying Temporal schedule in the Temporal UI: filter
+Inspect scheduled Flow executions in Dex Web: filter
 workflows by the flow ID, or use the Schedules tab to pause, trigger, or delete.
 To change the schedule, update the expression, delete the old schedule in the
 UI, then restart the sample process so it recreates the schedule.

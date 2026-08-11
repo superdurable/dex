@@ -684,7 +684,7 @@ public final class Client implements AutoCloseable {
 
     private SearchFlowEntry mapSearchEntry(final SearchFlowsResponseEntry entry) {
         final Map<String, Object> attributes = new LinkedHashMap<String, Object>();
-        for (final KV attribute : entry.getSearchAttributesList()) {
+        for (final KV attribute : entry.getIndexedAttributesList()) {
             attributes.put(
                     attribute.getKey(),
                     values.decodeToObject(hydrator.hydrate(attribute.getValue())));

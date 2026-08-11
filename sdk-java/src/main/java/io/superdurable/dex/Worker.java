@@ -16,6 +16,7 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.SyncAttributeIndexRequest;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -57,6 +58,7 @@ public final class Worker implements AutoCloseable {
     private final WorkerTarget workerTarget;
     private final ExecutorService handlers;
     private final ManagedChannel flowChannel;
+    private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
     private final JavaWorkerService workerService;
     private Server server;
     private State state = State.CREATED;
@@ -96,8 +98,7 @@ public final class Worker implements AutoCloseable {
         this.flowChannel = ManagedChannelBuilder.forTarget(options.getServerAddress())
                 .usePlaintext()
                 .build();
-        final FlowServiceGrpc.FlowServiceBlockingStub flowService =
-                FlowServiceGrpc.newBlockingStub(flowChannel);
+        this.flowService = FlowServiceGrpc.newBlockingStub(flowChannel);
         final ValueMapper values = new ValueMapper(options.getObjectMapper());
         final WorkerDispatcher dispatcher = new WorkerDispatcher(
                 registry,
@@ -137,6 +138,19 @@ public final class Worker implements AutoCloseable {
         synchronized (this) {
             if (state != State.CREATED) {
                 throw new IllegalStateException("Worker cannot start from state " + state);
+            }
+            try {
+                flowService
+                        .withDeadlineAfter(
+                                options.getAttributeIndexSyncTimeout().toMillis(),
+                                TimeUnit.MILLISECONDS)
+                        .syncAttributeIndexes(SyncAttributeIndexRequest.newBuilder()
+                                .putAllAttributeIndexes(registry.getAttributeIndexes())
+                                .build());
+            } catch (RuntimeException failure) {
+                state = State.STOPPED;
+                shutdownResources();
+                throw new IllegalStateException("cannot synchronize Attribute indexes", failure);
             }
             try {
                 server = NettyServerBuilder.forAddress(bindAddress(options.getBindAddress()))

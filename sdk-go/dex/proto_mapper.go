@@ -767,18 +767,18 @@ func mapSearchFlowsPage(
 			}
 			closedAt = flow.CloseTime.AsTime()
 		}
-		attributes, err := mapValues(flow.SearchAttributes)
+		attributes, err := mapValues(flow.IndexedAttributes)
 		if err != nil {
 			return SearchFlowsPage{}, err
 		}
 		flows = append(flows, SearchFlowEntry{
-			FlowID:           flow.FlowId,
-			RunID:            flow.RunId,
-			FlowType:         flow.FlowType,
-			Status:           status,
-			StartedAt:        flow.StartTime.AsTime(),
-			ClosedAt:         closedAt,
-			SearchAttributes: attributes,
+			FlowID:            flow.FlowId,
+			RunID:             flow.RunId,
+			FlowType:          flow.FlowType,
+			Status:            status,
+			StartedAt:         flow.StartTime.AsTime(),
+			ClosedAt:          closedAt,
+			IndexedAttributes: attributes,
 		})
 	}
 	return SearchFlowsPage{

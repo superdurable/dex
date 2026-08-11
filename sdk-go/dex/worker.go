@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -26,8 +27,9 @@ import (
 )
 
 const (
-	defaultWorkerBindAddress = ":8803"
-	defaultFlowServiceTarget = "localhost:8801"
+	defaultWorkerBindAddress         = ":8803"
+	defaultFlowServiceTarget         = "localhost:8801"
+	defaultAttributeIndexSyncTimeout = 2 * time.Minute
 )
 
 // WorkerOptions configures the application-hosted WorkerService.
@@ -36,20 +38,24 @@ type WorkerOptions struct {
 	BindAddress string
 	// WorkerTarget is advertised to Dex and may differ from BindAddress. Default Address derives from BindAddress; Headless defaults false.
 	WorkerTarget WorkerTarget
-	// FlowServiceAddress is the plaintext Dex endpoint used only for blob hydration. Default: "localhost:8801".
+	// FlowServiceAddress is the plaintext Dex endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
 	FlowServiceAddress string
+	// AttributeIndexSyncTimeout bounds index registration at startup. Default: two minutes.
+	AttributeIndexSyncTimeout time.Duration
 	// Logger defaults to the shared BlobCache logger.
 	Logger Logger
 }
 
 // Worker hosts registered Flows over the private WorkerService protocol.
 type Worker struct {
-	registry     *Registry
-	bindAddress  string
-	workerTarget WorkerTarget
-	grpcServer   *grpc.Server
-	flowConn     *grpc.ClientConn
-	logger       Logger
+	registry                  *Registry
+	bindAddress               string
+	workerTarget              WorkerTarget
+	grpcServer                *grpc.Server
+	flowConn                  *grpc.ClientConn
+	flowService               dexpb.FlowServiceClient
+	attributeIndexSyncTimeout time.Duration
+	logger                    Logger
 
 	lifecycleMu sync.Mutex
 	state       workerState
@@ -78,7 +84,7 @@ func NewWorker(
 	if cache == nil {
 		panic("dex.NewWorker requires BlobCache")
 	}
-	bindAddress, target, flowServiceAddress, err := resolveWorkerOptions(options)
+	bindAddress, target, flowServiceAddress, syncTimeout, err := resolveWorkerOptions(options)
 	if err != nil {
 		return nil, err
 	}
@@ -92,10 +98,11 @@ func NewWorker(
 
 	logger := resolveLogger(options.Logger, cache.Logger())
 	grpcServer := grpc.NewServer()
+	flowService := dexpb.NewFlowServiceClient(flowConn)
 	service := newWorkerService(
 		registry,
 		newValueHydrator(
-			dexpb.NewFlowServiceClient(flowConn),
+			flowService,
 			cache,
 			logger,
 		),
@@ -103,27 +110,29 @@ func NewWorker(
 	)
 	dexpb.RegisterWorkerServiceServer(grpcServer, service)
 	return &Worker{
-		registry:     registry,
-		bindAddress:  bindAddress,
-		workerTarget: target,
-		grpcServer:   grpcServer,
-		flowConn:     flowConn,
-		logger:       logger,
-		state:        workerCreated,
-		done:         make(chan struct{}),
+		registry:                  registry,
+		bindAddress:               bindAddress,
+		workerTarget:              target,
+		grpcServer:                grpcServer,
+		flowConn:                  flowConn,
+		flowService:               flowService,
+		attributeIndexSyncTimeout: syncTimeout,
+		logger:                    logger,
+		state:                     workerCreated,
+		done:                      make(chan struct{}),
 	}, nil
 }
 
 func resolveWorkerOptions(
 	options WorkerOptions,
-) (string, WorkerTarget, string, error) {
+) (string, WorkerTarget, string, time.Duration, error) {
 	bindAddress := strings.TrimSpace(options.BindAddress)
 	if bindAddress == "" {
 		bindAddress = defaultWorkerBindAddress
 	}
 	bindHost, bindPort, err := validateWorkerBindAddress(bindAddress)
 	if err != nil {
-		return "", WorkerTarget{}, "", err
+		return "", WorkerTarget{}, "", 0, err
 	}
 
 	target, err := resolveAdvertisedWorkerTarget(
@@ -132,19 +141,28 @@ func resolveWorkerOptions(
 		options.WorkerTarget,
 	)
 	if err != nil {
-		return "", WorkerTarget{}, "", err
+		return "", WorkerTarget{}, "", 0, err
 	}
 	flowServiceAddress := strings.TrimSpace(options.FlowServiceAddress)
 	if flowServiceAddress == "" {
 		flowServiceAddress = defaultFlowServiceTarget
 	}
 	if err := validatePlaintextTarget(flowServiceAddress, false); err != nil {
-		return "", WorkerTarget{}, "", fmt.Errorf(
+		return "", WorkerTarget{}, "", 0, fmt.Errorf(
 			"dex: invalid FlowService address: %w",
 			err,
 		)
 	}
-	return bindAddress, target, flowServiceAddress, nil
+	syncTimeout := options.AttributeIndexSyncTimeout
+	if syncTimeout < 0 {
+		return "", WorkerTarget{}, "", 0, fmt.Errorf(
+			"dex: Attribute index sync timeout must be positive",
+		)
+	}
+	if syncTimeout == 0 {
+		syncTimeout = defaultAttributeIndexSyncTimeout
+	}
+	return bindAddress, target, flowServiceAddress, syncTimeout, nil
 }
 
 func validateWorkerBindAddress(address string) (string, string, error) {
@@ -210,6 +228,17 @@ func (worker *Worker) Start() error {
 		state := worker.state
 		worker.lifecycleMu.Unlock()
 		return fmt.Errorf("dex: Worker cannot start from state %s", state)
+	}
+	syncCtx, cancelSync := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
+	_, err := worker.flowService.SyncAttributeIndexes(syncCtx, &dexpb.SyncAttributeIndexRequest{
+		AttributeIndexes: worker.registry.attributeIndexes,
+	})
+	cancelSync()
+	if err != nil {
+		worker.state = workerStopped
+		worker.lifecycleMu.Unlock()
+		worker.finish()
+		return fmt.Errorf("dex: sync attribute indexes: %w", err)
 	}
 	listener, err := net.Listen("tcp", worker.bindAddress)
 	if err != nil {

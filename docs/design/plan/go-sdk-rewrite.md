@@ -485,6 +485,7 @@ type WorkerOptions struct {
 	BindAddress        string
 	WorkerTarget       WorkerTarget
 	FlowServiceAddress string
+	AttributeIndexSyncTimeout time.Duration
 	Logger             Logger
 }
 
@@ -569,10 +570,10 @@ address default but never automatically registers or updates the target for a
 flow. Client applies its configured default only when StartFlow assembles the
 new run's FlowConfig.
 
-An empty `FlowServiceAddress` uses `localhost:8801`. The Worker uses this
-plaintext target only for private `LoadBlobs` calls. It does not expose
-`LoadBlobs`, construct the Phase 5 public Client, or make any FlowService call
-when a request has no blob arms.
+An empty `FlowServiceAddress` uses `localhost:8801`. Before binding, the Worker
+uses this plaintext target to synchronize the Registry's Indexed Attributes.
+It also uses the target for private `LoadBlobs` calls. The synchronization
+deadline defaults to two minutes when `AttributeIndexSyncTimeout` is zero.
 
 The caller owns the shared BlobCache. Stopping the Worker does not purge or
 close it. The Worker owns and closes only its private FlowService connection.
@@ -581,7 +582,7 @@ close it. The Worker owns and closes only its private FlowService connection.
 the shared BlobCache logger, which defaults to `slog.Default`. A Worker override
 applies to Worker lifecycle, hydration, cache, and recovered-panic logs.
 
-`Start` binds the configured address, serves WorkerService, and blocks. It may
+`Start` synchronizes Indexed Attributes, binds the configured address, serves WorkerService, and blocks. It may
 be called once. A normal `Stop` makes `Start` return nil; bind and serve failures
 are returned. The Worker does not install signal handlers or start itself in a
 goroutine.
@@ -1004,7 +1005,7 @@ type SearchFlowEntry struct {
 	Status           FlowStatus
 	StartedAt        time.Time
 	ClosedAt         time.Time
-	SearchAttributes map[string]Value
+	IndexedAttributes map[string]Value
 }
 ```
 
@@ -1369,7 +1370,7 @@ order and calls `HydrateValuesInPlace` once:
 - InvokeRPC: output;
 - GetAttribute/GetAttributes: attribute values;
 - WaitForFlow: step completion outputs; and
-- SearchFlows: every entry's search attributes.
+- SearchFlows: every entry's Indexed Attributes.
 
 Repeated blob IDs are deduplicated inside that call. A response without blob
 arms makes no LoadBlobs RPC. Cached payload validation, corrupt-entry deletion,
@@ -2448,7 +2449,7 @@ type SearchFlowEntry struct {
 	Status           FlowStatus
 	StartedAt        time.Time
 	ClosedAt         time.Time
-	SearchAttributes map[string]Value
+	IndexedAttributes map[string]Value
 }
 
 type SearchFlowsPage struct {
@@ -2463,7 +2464,7 @@ type HealthInfo struct {
 }
 ```
 
-`StepCompletion.Output` and search attributes decode into a caller-provided
+`StepCompletion.Output` and Indexed Attributes decode into a caller-provided
 non-nil pointer. The SDK does not guess an application type when the response
 does not carry a typed definition.
 

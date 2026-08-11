@@ -42,7 +42,7 @@ def test_search_flows_finds_indexed_flow() -> None:
         assert entry.run_id
         assert entry.status == FlowStatus.COMPLETED
         assert entry.started_at is not None
-        assert entry.attributes[KEYWORD_KEY].data == keyword_value
+        assert entry.indexed_attributes[KEYWORD_KEY].data == keyword_value
 
 
 def test_search_flows_rejects_negative_page_size() -> None:

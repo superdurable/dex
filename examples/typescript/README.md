@@ -15,19 +15,13 @@ sub-status metadata.
 
 ```bash
 dexcli dev --temporal-db-filename /tmp/dex-examples.db
-
-# Required once per Temporal namespace:
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name ActiveStepTypes --type KeywordList
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomKeywordField --type Keyword
-temporal --address 127.0.0.1:7233 operator search-attribute create \
-  --name CustomTextField --type Text
-
 cd examples/typescript
 npm install
 npm start
 ```
+
+The Worker synchronizes all registered Indexed Attributes with Dex before it
+opens its listener; no backend CLI registration is required.
 
 Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,

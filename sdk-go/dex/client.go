@@ -242,13 +242,14 @@ type WaitForFlowResult struct {
 }
 
 type SearchFlowEntry struct {
-	FlowID           string
-	RunID            string
-	FlowType         string
-	Status           FlowStatus
-	StartedAt        time.Time
-	ClosedAt         time.Time
-	SearchAttributes map[string]Value
+	FlowID    string
+	RunID     string
+	FlowType  string
+	Status    FlowStatus
+	StartedAt time.Time
+	ClosedAt  time.Time
+	// IndexedAttributes contains values keyed by their physical index names.
+	IndexedAttributes map[string]Value
 }
 
 type SearchFlowsPage struct {
@@ -567,7 +568,7 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Valu
 		if flow == nil {
 			continue
 		}
-		for _, attribute := range flow.SearchAttributes {
+		for _, attribute := range flow.IndexedAttributes {
 			if attribute != nil {
 				pointers = append(pointers, &attribute.Value)
 			}

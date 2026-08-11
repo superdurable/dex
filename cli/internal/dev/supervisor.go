@@ -26,13 +26,10 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
 	"github.com/superdurable/dex/service/common/ptr"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
-	enumspb "go.temporal.io/api/enums/v1"
-	operatorservicepb "go.temporal.io/api/operatorservice/v1"
 	temporalclient "go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -80,7 +77,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 
 	var temporal *temporalProcess
 	if s.cfg.TemporalAddress == "" {
-		temporal, err = startTemporalProcess(s.cfg, s.stdout, s.stderr)
+		temporal, err = startTemporalProcess(s.cfg)
 		if err != nil {
 			return err
 		}
@@ -98,13 +95,6 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		}
 		return err
 	}
-	if err := validateSearchAttributes(startupCtx, temporalClient, s.cfg.TemporalNamespace); err != nil {
-		temporalClient.Close()
-		if ctx.Err() != nil {
-			return nil
-		}
-		return err
-	}
 	if temporal != nil {
 		temporalWebURL := "http://" + net.JoinHostPort(s.cfg.BindAddress, strconv.Itoa(s.cfg.TemporalUIPort))
 		if err := waitForHTTP(startupCtx, temporalWebURL, temporal); err != nil {
@@ -112,7 +102,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("wait for Temporal Web: %w", err)
+			return fmt.Errorf("wait for internal workflow UI: %w", err)
 		}
 	}
 	temporalClient.Close()
@@ -172,9 +162,9 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		}
 	case <-temporalDone(temporal):
 		if temporal.Err() == nil {
-			runErr = fmt.Errorf("Temporal stopped unexpectedly")
+			runErr = fmt.Errorf("workflow backend stopped unexpectedly")
 		} else {
-			runErr = fmt.Errorf("Temporal stopped unexpectedly: %w", temporal.Err())
+			runErr = fmt.Errorf("workflow backend stopped unexpectedly: %w", temporal.Err())
 		}
 	}
 	return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, runErr)
@@ -272,12 +262,6 @@ func (s *supervisor) printReady(webURL string, dexAddress string) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintf(s.stdout, "Dex Web:       %s\n", webURL)
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
-	if s.cfg.TemporalAddress == "" {
-		fmt.Fprintf(s.stdout, "Temporal Web:  http://%s\n", net.JoinHostPort(s.cfg.BindAddress, strconv.Itoa(s.cfg.TemporalUIPort)))
-		fmt.Fprintf(s.stdout, "Temporal:      %s\n", s.cfg.temporalAddress())
-	} else {
-		fmt.Fprintf(s.stdout, "Temporal:      %s (external)\n", s.cfg.TemporalAddress)
-	}
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
 }
@@ -337,7 +321,6 @@ func waitForTemporal(
 ) (temporalclient.Client, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	var lastErr error
 	for {
 		temporalClient, err := temporalclient.Dial(temporalclient.Options{
 			HostPort:  cfg.temporalAddress(),
@@ -355,52 +338,14 @@ func waitForTemporal(
 			}
 			temporalClient.Close()
 		}
-		lastErr = err
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("wait for Temporal at %s: %w", cfg.temporalAddress(), errors.Join(ctx.Err(), lastErr))
+			return nil, fmt.Errorf("wait for workflow backend: %w", ctx.Err())
 		case <-temporalDone(process):
-			return nil, fmt.Errorf("Temporal exited before readiness: %w", process.Err())
+			return nil, fmt.Errorf("workflow backend exited before readiness: %w", process.Err())
 		case <-ticker.C:
 		}
 	}
-}
-
-func validateSearchAttributes(ctx context.Context, temporalClient temporalclient.Client, namespace string) error {
-	response, err := temporalClient.OperatorService().ListSearchAttributes(
-		ctx,
-		&operatorservicepb.ListSearchAttributesRequest{Namespace: namespace},
-	)
-	if err != nil {
-		return fmt.Errorf("list Temporal search attributes for namespace %q: %w", namespace, err)
-	}
-	requiredAttributes := []struct {
-		name          string
-		attributeType enumspb.IndexedValueType
-	}{
-		{service.SearchAttributeDexWorkflowType, enumspb.INDEXED_VALUE_TYPE_KEYWORD},
-		{service.SearchAttributeActiveStepTypes, enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST},
-	}
-	for _, requiredAttribute := range requiredAttributes {
-		attributeType, exists := response.GetCustomAttributes()[requiredAttribute.name]
-		if !exists {
-			return fmt.Errorf(
-				"Temporal namespace %q is missing search attribute %s (%s)",
-				namespace,
-				requiredAttribute.name,
-				requiredAttribute.attributeType,
-			)
-		}
-		if attributeType != requiredAttribute.attributeType {
-			return fmt.Errorf(
-				"Temporal search attribute %s must be %s, got %s",
-				requiredAttribute.name,
-				requiredAttribute.attributeType,
-				attributeType,
-			)
-		}
-	}
-	return nil
 }
 
 func waitForDex(
@@ -448,17 +393,15 @@ func waitForDex(
 func waitForHTTP(ctx context.Context, url string, process *temporalProcess) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	var lastErr error
 	for {
-		lastErr = checkHTTP(ctx, url)
-		if lastErr == nil {
+		if err := checkHTTP(ctx, url); err == nil {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return errors.Join(ctx.Err(), lastErr)
+			return fmt.Errorf("wait for internal workflow UI: %w", ctx.Err())
 		case <-temporalDone(process):
-			return fmt.Errorf("Temporal exited before Web readiness: %w", process.Err())
+			return fmt.Errorf("workflow backend exited before UI readiness: %w", process.Err())
 		case <-ticker.C:
 		}
 	}

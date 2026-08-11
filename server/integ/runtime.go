@@ -36,6 +36,7 @@ import (
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/workerclient"
+	"github.com/superdurable/dex/service/indexsync"
 	"github.com/superdurable/dex/service/interpreter/cadence"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/sdk/client"
@@ -207,7 +208,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			workerPool,
 		)
 	case service.BackendTypeCadence:
-		serviceClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
+		serviceClient, adminClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
 			dex.DefaultCadenceHostPort,
 		)
 		require.NoError(t, err)
@@ -230,6 +231,8 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dex.DefaultCadenceDomain,
 			cadenceClient,
 			serviceClient,
+			adminClient,
+			cfg.Interpreter.Cadence.AdminSecurityToken,
 			dataConverter,
 			closeServiceClient,
 			&cfg.Api.QueryWorkflowFailedRetryPolicy,
@@ -252,6 +255,20 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	if store != nil {
 		t.Cleanup(func() { require.NoError(t, store.Close()) })
 	}
+	attributeIndexes := map[string]dexpb.IndexType{
+		"FlowType":        dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		"ActiveStepTypes": dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+	}
+	for name, indexType := range localDexDevTestAttributeIndexes {
+		attributeIndexes[name] = indexType
+	}
+	syncCtx, cancelSync := context.WithTimeout(
+		context.Background(),
+		cfg.Interpreter.EffectiveAttributeIndexSyncTimeout(),
+	)
+	err = indexsync.New(&cfg.Interpreter, unifiedClient).Sync(syncCtx, attributeIndexes)
+	cancelSync()
+	require.NoError(t, err)
 	startInterpreter(t, worker)
 	internalDumpCapture := &internalDumpHeaderCapture{}
 	runtime := &integRuntime{
@@ -633,7 +650,7 @@ func assertSearchFlows(
 		require.NoError(t, err)
 
 		for _, flowRun := range searchResp.GetFlowRuns() {
-			assertions.NotEmpty(flowRun.GetSearchAttributes())
+			assertions.NotEmpty(flowRun.GetIndexedAttributes())
 		}
 		currentCount += len(searchResp.GetFlowRuns())
 		if currentCount < expectedCount {

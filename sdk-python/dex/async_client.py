@@ -17,9 +17,9 @@ from uuid import uuid4
 
 import grpc
 
+from dex._async_value_hydrator import AsyncValueHydrator
 from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._utils import require_name
-from dex._async_value_hydrator import AsyncValueHydrator
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.attribute import Attribute, AttributeMap
@@ -468,7 +468,7 @@ class AsyncClient:
     ) -> SearchFlowEntry:
         attributes = {
             kv.key: self._values.to_value(await self._hydrator.hydrate(kv.value))
-            for kv in entry.search_attributes
+            for kv in entry.indexed_attributes
         }
         closed_at = (
             entry.close_time.ToDatetime(tzinfo=timezone.utc)

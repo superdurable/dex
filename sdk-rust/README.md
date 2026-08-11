@@ -146,8 +146,10 @@ Run the SDK integration suite against a fresh local `dexcli dev` stack:
 ./run-integration-tests.sh
 ```
 
-The script creates its own Temporal database, ports, BlobCache directory, and
-search attributes, then removes the temporary state.
+The script creates its own Dex environment, ports, and BlobCache directory,
+then removes the temporary state. Each Worker synchronizes its registered
+Indexed Attributes before listening; failure or the default two-minute
+deadline aborts startup.
 
 ## License
 

@@ -23,7 +23,6 @@ web_port="${DEX_JAVA_EXAMPLES_WEB_PORT:-19903}"
 temporal_port="${DEX_JAVA_EXAMPLES_TEMPORAL_PORT:-19235}"
 temporal_ui_port="${DEX_JAVA_EXAMPLES_TEMPORAL_UI_PORT:-19335}"
 dex_address="127.0.0.1:${dex_port}"
-temporal_address="127.0.0.1:${temporal_port}"
 log_file="/tmp/test-java-examples-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
@@ -65,26 +64,6 @@ fi
   -temporal-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
-
-temporal_ready=false
-for _ in {1..240}; do
-  if temporal --address "$temporal_address" operator search-attribute list >/dev/null 2>&1; then
-    temporal_ready=true
-    break
-  fi
-  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    echo "dexcli exited before Temporal became ready" >&2
-    exit 1
-  fi
-  sleep 0.25
-done
-if ! $temporal_ready; then
-  echo "Temporal did not become ready" >&2
-  exit 1
-fi
-
-temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
-temporal --address "$temporal_address" operator search-attribute create --name CustomTextField --type Text
 
 dex_ready=false
 for _ in {1..240}; do

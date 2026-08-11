@@ -31,7 +31,7 @@ test("searchFlows finds an indexed flow", async () => {
     assert.ok(entry.runId.length > 0);
     assert.equal(entry.status, "completed");
     assert.ok(entry.startedAt instanceof Date);
-    assert.equal(entry.searchAttributes.get(KEYWORD_KEY), keywordValue);
+    assert.equal(entry.indexedAttributes.get(KEYWORD_KEY), keywordValue);
   });
 });
 

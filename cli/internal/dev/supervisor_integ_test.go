@@ -80,6 +80,11 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if !strings.Contains(output.String(), "Dex development environment is ready") {
 		t.Fatalf("missing readiness output: %s", output.String())
 	}
+	if strings.Contains(output.String(), "Temporal") ||
+		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalPort)) ||
+		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalUIPort)) {
+		t.Fatalf("workflow backend endpoint leaked in output: %s", output.String())
+	}
 	if _, err := os.Stat(blobStoreDirectory); err != nil {
 		t.Fatalf("blob store was not retained after shutdown: %v", err)
 	}
@@ -100,7 +105,7 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	localConfig.TemporalPort = ports[0]
 	localConfig.TemporalUIPort = ports[1]
 	output := &synchronizedBuffer{}
-	temporal, err := startTemporalProcess(localConfig, output, output)
+	temporal, err := startTemporalProcess(localConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +117,6 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	startupCtx, cancelStartup := context.WithTimeout(context.Background(), localConfig.StartupTimeout)
 	temporalClient, err := waitForTemporal(startupCtx, localConfig, temporal)
 	if err != nil {
-		cancelStartup()
-		t.Fatal(err)
-	}
-	if err := validateSearchAttributes(startupCtx, temporalClient, localConfig.TemporalNamespace); err != nil {
-		temporalClient.Close()
 		cancelStartup()
 		t.Fatal(err)
 	}
@@ -157,6 +157,9 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	}
 	temporalClient.Close()
 	cancelHealth()
+	if strings.Contains(output.String(), localConfig.temporalAddress()) {
+		t.Fatalf("external workflow backend endpoint leaked in output: %s", output.String())
+	}
 }
 
 func TestBlobStoreDirectorySelection(t *testing.T) {

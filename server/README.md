@@ -20,7 +20,7 @@ and persisting state over long durations. With Dex, developers can build scalabl
 * **Durable Timer** provides timer that is durable, resilient to system failure.
 * **Automatic Retry** the background execution units(WorkflowState) are inherently resilient to failure, with built in distributed backoff retry using durable timer.
 * **Simplified Architecture** Dex applications are all REST based micro-services which are easy to deploy, monitor, scale, maintain(version) and operate with industry standards.
-* **Simplicity and explicitness of APIs** uses as few concepts as possible to model complex logic. It uses clear abstractions to defines workflows in terms of discrete states, with waitUntil conditions and execute actions, declarative schema for data and search attributes for persistence, and RPC for external interaction for both read and write.
+* **Simplicity and explicitness of APIs** uses as few concepts as possible to model complex logic. It uses clear abstractions to defines workflows in terms of discrete states, with waitUntil conditions and execute actions, declarative schema for data and Indexed Attributes for persistence, and RPC for external interaction for both read and write.
 * **Dynamic Interactions** allows external applications to interact with running workflows through RPC, signals, and internal channels.
 * **Extensive tooling** provides tooling to look up running state definitions, skipping timers, enhanced resetting etc.
 
@@ -57,15 +57,13 @@ This is the simplest option to run the server locally for development.
 
 Run the docker command to start the container for:
 * DEX service: http://localhost:8801/
-* Temporal WebUI: http://localhost:8233/
-* Temporal service: localhost:7233
 ```shell
-docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -p 7233:7233 -p 8233:8233 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest
+docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest
 ```
 
 ## Using docker image & docker-compose
 
-This option runs Temporal in separate container with slightly more power (more search attributes allowed).
+This option runs the internal workflow backend in a separate container.
 
 Checkout this repo, and run:
 
@@ -73,10 +71,12 @@ Checkout this repo, and run:
 docker pull superdurable/dex-server:latest && docker-compose -f ./docker-compose/docker-compose.yml up
 ```
 
-This by default will run Temporal server with it, again:
+This starts the complete Dex service stack:
 * DEX service: http://localhost:8801/
-* Temporal WebUI: http://localhost:8233/
-* Temporal service: localhost:7233
+
+Dex Server creates its system indexes at startup. Application Workers create
+their registered Indexed Attributes before listening, so no backend CLI setup
+is required.
 
 ## Production
 Check the [wiki](https://github.com/superdurable/dex/wiki/Dex-Server-Operations#how-to-deploy).

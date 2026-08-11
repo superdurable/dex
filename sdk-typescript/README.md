@@ -59,6 +59,11 @@ heterogeneous Steps with `.otherSteps(...)`. Use
 Non-starting Steps may use unrelated input types. `Flow` defaults to `void` for
 Flows without a start input.
 
+`Worker.start()` synchronizes every registered Indexed Attribute with Dex
+Server before binding its listener. Existing indexes return immediately;
+failure or the default 120-second deadline aborts startup. An indexed
+`AttributeMap` must provide one fixed `indexKey`.
+
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two
 handler calls. Timer and channel conditions determine how long a Step waits.
 

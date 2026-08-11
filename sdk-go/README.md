@@ -115,6 +115,11 @@ persistence schema, and exported RPC methods. It rejects empty or duplicate
 names, multiple starting steps, invalid indexes, undeclared locks, and
 incompatible execute-failure targets before WorkerService starts.
 
+`Worker.Start` aggregates every registered Indexed Attribute and synchronizes
+the physical index names with Dex Server before opening its listener. Existing
+indexes return immediately; a synchronization failure or the default two-minute
+deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
+
 `DefineStep` and `DefineStartStep` retain the step input type behind a private
 `typedStepDef` that implements the sealed `StepDef` interface. Runtime
 movements resolve through the current Flow's registered step definitions, so a

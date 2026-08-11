@@ -126,6 +126,13 @@ func (h *handler) SearchFlows(
 	return h.svc.SearchFlows(ctx, req)
 }
 
+func (h *handler) SyncAttributeIndexes(
+	ctx context.Context,
+	req *dexpb.SyncAttributeIndexRequest,
+) (*dexpb.SyncAttributeIndexResponse, error) {
+	return h.svc.SyncAttributeIndexes(ctx, req)
+}
+
 func (h *handler) GetFlowSummary(
 	ctx context.Context,
 	req *dexpb.GetFlowSummaryRequest,

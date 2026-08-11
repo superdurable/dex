@@ -33,33 +33,8 @@ The overall design of the workflows is as follows:
 
 # How to run
 
-First of all, you need to register the required search attributes.
-
-## Search attribute requirement
-
-If using Temporal:
-
-* New CLI (Temporal)
-```bash
-temporal search-attribute create -name EMPLOYER_OPT_IN_EmployerId -type Keyword -y
-temporal search-attribute create -name SHORTLIST_EmployerId -type Keyword -y
-temporal search-attribute create -name SHORTLIST_CandidateId -type Keyword -y
-```
-
-* Old CLI (tctl)
-``` bash
-tctl adm cl asa -n EMPLOYER_OPT_IN_EmployerId -t Keyword
-tctl adm cl asa -n SHORTLIST_EmployerId -t Keyword
-tctl adm cl asa -n SHORTLIST_CandidateId -t Keyword
-```
-
-If using Cadence:
-
-```bash
-cadence adm cl asa --search_attr_key EMPLOYER_OPT_IN_EmployerId --search_attr_type 1
-cadence adm cl asa --search_attr_key SHORTLIST_EmployerId --search_attr_type 1
-cadence adm cl asa --search_attr_key SHORTLIST_CandidateId --search_attr_type 1
-```
+The Worker synchronizes the Flow's Indexed Attributes automatically before
+opening its listener.
 
 ## Test the APIs in [Postman](https://www.postman.com)
 

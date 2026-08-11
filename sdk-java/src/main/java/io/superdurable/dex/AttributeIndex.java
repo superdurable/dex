@@ -14,8 +14,8 @@ package io.superdurable.dex;
  * Describes how an Attribute is indexed for Flow search.
  *
  * <p>Attach an index when defining an {@link Attribute} or {@link AttributeMap}. The optional
- * index key lets multiple logical Attributes share a server-side search field when the server
- * configuration permits it. A {@code null} index key uses the Attribute name.
+ * index key lets multiple logical Attributes share one physical Dex index when their types match.
+ * A {@code null} index key uses the Attribute name.
  *
  * <pre>{@code
  * Attribute<String> customer = Attribute.define(
@@ -55,7 +55,7 @@ public final class AttributeIndex {
     /**
      * Creates an index using the Attribute name as its search key.
      *
-     * @param type the search representation; must not be {@code null}
+     * @param type the index representation; must not be {@code null}
      * @throws IllegalArgumentException if {@code type} is {@code null}
      */
     public AttributeIndex(final Type type) {
@@ -63,10 +63,10 @@ public final class AttributeIndex {
     }
 
     /**
-     * Creates an index with an explicit server-side search key.
+     * Creates an index with an explicit physical index key.
      *
-     * @param type the search representation; must not be {@code null}
-     * @param indexKey the server-side search key, or {@code null} to use the Attribute name
+     * @param type the index representation; must not be {@code null}
+     * @param indexKey the physical index key, or {@code null} to use the Attribute name
      * @throws IllegalArgumentException if {@code type} is {@code null}
      */
     public AttributeIndex(final Type type, final String indexKey) {

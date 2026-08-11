@@ -69,7 +69,7 @@ fn test_search_flows_finds_indexed_flow() {
     assert_eq!(
         Some(&JsonValue::String(keyword_value)),
         entry
-            .search_attributes
+            .indexed_attributes
             .get(SearchFlowsWorkflow::KEYWORD_KEY)
     );
 }

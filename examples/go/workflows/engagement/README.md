@@ -2,7 +2,8 @@
 
 An employer starts an engagement with a job seeker. The Flow sends reminders until the user opts out, accepts decline and accept RPCs, records typed Attributes, and notifies an external system from independent Steps.
 
-The engagement status is indexed through Temporal's `CustomKeywordField`. Create that search attribute when running against a separately managed Temporal cluster.
+The engagement status uses the `CustomKeywordField` Indexed Attribute, which
+the Worker synchronizes automatically.
 
 With the sample server running:
 

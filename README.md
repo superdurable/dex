@@ -15,11 +15,10 @@ dexcli dev --open
 ```
 
 Open Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). This starts
-local Temporal and its Web UI automatically. Connect to an existing Temporal
-server instead with `dexcli dev --temporal-address localhost:7233`. Dex step
-inputs and large values persist by default in `$HOME/.dex/blobs`.
+the complete local Dex environment, including its internal workflow backend.
+Dex step inputs and large values persist by default in `$HOME/.dex/blobs`.
 
-See [cli/README.md](cli/README.md) for ports, persistence, and all flags.
+See [cli/README.md](cli/README.md) for Dex endpoints and persistence options.
 
 Product documentation: [https://docs.superdurable.io](https://docs.superdurable.io)
 (source in [`docs/`](docs/)).

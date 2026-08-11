@@ -102,18 +102,18 @@ fn test_persistence_reads() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn test_set_search_attributes() {
+fn test_set_indexed_attributes() {
     let environment = DexDevTestEnvironment::start(
         Registry::new().register(PersistenceSetAttributesWorkflow::new()),
     );
     let workflow = PersistenceSetAttributesWorkflow::new();
-    let flow_id = flow_id("set-search-attributes");
+    let flow_id = flow_id("set-indexed-attributes");
     let keywords = vec!["keyword-1".to_string(), "keyword-2".to_string()];
     let datetime = SystemTime::UNIX_EPOCH + Duration::new(1_731_456_001, 731_455_544);
     environment
         .client
         .start_flow(&workflow, &flow_id, "start".to_string())
-        .expect("start set-search-attributes Flow");
+        .expect("start set-indexed-attributes Flow");
     environment
         .client
         .set_attribute(&flow_id, &workflow.keyword, "keyword-1".to_string())
@@ -151,7 +151,7 @@ fn test_set_search_attributes() {
         environment
             .client
             .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
-            .expect("complete set-search-attributes Flow")
+            .expect("complete set-indexed-attributes Flow")
     );
     assert_eq!(
         Some("keyword-1".to_string()),

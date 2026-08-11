@@ -28,7 +28,6 @@ temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19233}"
 temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19333}"
 postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
 dex_address="127.0.0.1:${dex_port}"
-temporal_address="127.0.0.1:${temporal_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-e2e-$$"
 log_file="/tmp/test-go-examples-e2e-services.log"
@@ -64,28 +63,6 @@ make -C ../../cli build
   -temporal-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
-
-temporal_ready=false
-for _ in {1..240}; do
-  if temporal --address "$temporal_address" operator search-attribute list >/dev/null 2>&1; then
-    temporal_ready=true
-    break
-  fi
-  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
-    cat "$log_file" >&2
-    echo "dexcli exited before Temporal became ready" >&2
-    exit 1
-  fi
-  sleep 0.25
-done
-if ! $temporal_ready; then
-  cat "$log_file" >&2
-  echo "Temporal did not become ready" >&2
-  exit 1
-fi
-
-temporal --address "$temporal_address" operator search-attribute create --name CustomKeywordField --type Keyword
-./dataset-deal/register-search-attributes.sh "$temporal_address"
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \

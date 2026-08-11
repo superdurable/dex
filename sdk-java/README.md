@@ -272,8 +272,9 @@ Run the JVM/native integration tests and all E2E scenarios against a fresh
 ./run-integration-tests.sh
 ```
 
-The script builds `dexcli` from the current checkout, starts an isolated local
-Temporal and Dex server, and registers the test search attributes. Gradle builds
+The script builds `dexcli` from the current checkout and starts an isolated
+Dex environment. Each Worker automatically synchronizes its registered Indexed
+Attributes before listening. Gradle builds
 the Rust BlobCache JNI library and starts a fresh Java Worker for each E2E case
 with a unique worker port and flow ID. A clean checkout also requires Go 1.24+,
 Node.js 22+, Rust 1.88+, and Temporal CLI.

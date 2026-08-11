@@ -38,6 +38,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service/bootstrap"
+	adminv1 "github.com/uber/cadence-idl/go/proto/admin/v1"
 	"github.com/urfave/cli"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
 	"go.uber.org/cadence/client"
@@ -131,7 +132,9 @@ func BuildCadenceClient(
 	return bootstrap.BuildCadenceClient(serviceClient, domain, dataConverter)
 }
 
-func BuildCadenceServiceClient(hostPort string) (workflowserviceclient.Interface, func(), error) {
+func BuildCadenceServiceClient(
+	hostPort string,
+) (workflowserviceclient.Interface, adminv1.AdminAPIYARPCClient, func(), error) {
 	return bootstrap.BuildCadenceServiceClient(hostPort)
 }
 

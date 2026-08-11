@@ -464,7 +464,7 @@ class Client:
     def _map_search_entry(self, entry: pb.SearchFlowsResponseEntry) -> SearchFlowEntry:
         attributes = {
             kv.key: self._values.to_value(self._hydrator.hydrate(kv.value))
-            for kv in entry.search_attributes
+            for kv in entry.indexed_attributes
         }
         closed_at = (
             entry.close_time.ToDatetime(tzinfo=timezone.utc)

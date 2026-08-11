@@ -50,8 +50,7 @@ Factories live in [`service/common/converter`](service/common/converter):
 
 API clients and interpreter workers must use the **same** factory and memo codec.
 Temporal workers inherit it from their client; Cadence worker Options set it
-explicitly. Search attributes still use the backend mapper. Temporal Web may show
-opaque binary payloads by design.
+explicitly. Indexed Attributes still use the backend-native mapper.
 
 ## Interpreter runtime constraints
 
@@ -83,10 +82,8 @@ Start with shutting down already running dependencies: `docker compose -f docker
 Then simply run `docker compose -f docker-compose/integ-dependencies.yml up`. It will:
 
 * Start both Cadence & Temporal as dependencies
-* Set up required system search attributes
-* Set up customized search attributes for integration test(`persistence_test.go`)
-* Temporal WebUI:  http://localhost:8233/
-* Cadence WebUI:  http://localhost:8088/
+* Let Dex Server create its system indexes
+* Let test Workers synchronize their persistence-schema indexes
 
 ### Option 2: Run with your own Temporal service
 
@@ -97,29 +94,11 @@ Option 1 (recommended): use [Temporal CLI](https://github.com/temporalio/cli) --
 Option 2: use [temporal docker-compose](https://github.com/temporalio/docker-compose)
 
 
-Assuming you are using `default` namespace:
-
-1. Make sure you have registered system search attributes required by Dex server
-
-```shell
-  temporal  operator search-attribute  create --name DexWorkflowType --type Keyword
-  temporal  operator search-attribute  create --name DexGlobalWorkflowVersion --type Int 
-  temporal  operator search-attribute  create --name DexExecutingStateIds --type KeywordList 
-```
-
-2. For `persistence_test.go` integTests, you need to register below custom search attributes.
-
-```shell
-  temporal  operator search-attribute  create --name CustomKeywordField --type Keyword
-  temporal  operator search-attribute  create --name CustomIntField --type Int
-  temporal  operator search-attribute  create --name CustomBoolField --type Bool
-  temporal  operator search-attribute  create --name CustomDoubleField --type Double
-  temporal  operator search-attribute  create --name CustomDatetimeField --type Datetime
-  temporal  operator search-attribute  create --name CustomTextField --type Text
-```
-
-3. If you run into any issues with Search Attributes registration, use the below command to check the existing Search
-   attributes:`temporal operator search-attribute list`
+Assuming you are using the `default` namespace, grant Dex permission to list
+and add visibility indexes. Dex Server synchronizes `FlowType` and
+`ActiveStepTypes` before serving; each Worker synchronizes application indexes.
+The default deadline is two minutes and is configurable with
+`interpreter.attributeIndexSyncTimeout`.
 
 ### Option 3: Run with your own Cadence service
 
@@ -129,27 +108,13 @@ Assuming you are using `default` namespace:
 docker-compose -f docker-compose-es-v7.yml up
 ```
 
-2. Register a new domain if not haven `cadence --do default domain register`
-3. Register system search attributes required by Dex server
+2. Register a domain if needed: `cadence --do default domain register`.
+3. Grant Dex Admin API access to add visibility indexes. Configure an optional
+   security token with `interpreter.cadence.adminSecurityToken`.
 
-```
-cadence adm cl asa --search_attr_key DexGlobalWorkflowVersion --search_attr_type 2
-cadence adm cl asa --search_attr_key DexExecutingStateIds --search_attr_type 1
-cadence adm cl asa --search_attr_key DexWorkflowType --search_attr_type 1
-```
-
-After registering, it may
-take [up 60s](https://github.com/uber/cadence/blob/d618e32ac5ea05c411cca08c3e4859e800daa1e0/docker/config_template.yaml#L286)
-because of this [issue](https://github.com/uber/cadence/issues/5076). for Cadence to load the new search attributes. If
-you run the test too early, you may see error:  `"DexWorkflowType is not a valid search attribute key"`.
-
-4. For Cadence docker compose, go to Cadence http://localhost:8088/domains/default/workflows?range=last-30-days
-
-5. If not running by Cadence docker-compose, you must register those custom search attributes yourself.
-   `CustomKeywordField, CustomIntField, CustomBoolField, CustomBoolField, CustomDoubleField, CustomDatetimeField, CustomTextField`
-
-6. If you run into any issues with Search Attributes registration, use the below command to check the existing Search
-   attributes:  `cadence cl get-search-attr`
+Dex polls Cadence visibility after registration with exponential backoff until
+the configured deadline. `KEYWORD_ARRAY` uses Cadence's multi-valued Keyword
+representation and `TEXT` uses String.
 
 ## Run the server
 
@@ -174,8 +139,8 @@ To run with Cadence, make sure you specify the cadence config `--config config/d
 ## Run the integration tests
 For development, you may want to run the test locally for debugging, especially your PR has failed the tests in CI pipeline.
 
-:warning: NOTE: When running with local Cadence, you may need to wait for up to 60s for Search attributes to be ready, because of
-this [issue](https://github.com/uber/cadence/issues/5076).
+:warning: Cadence visibility propagation can be slow. Dex waits up to
+`interpreter.attributeIndexSyncTimeout` instead of requiring a fixed sleep.
 
 * To run the whole integ test suite against Cadence+Temporal service by this command `make integTests`
 * To run the whole suite for Temporal only `make temporalIntegTests` 
@@ -190,8 +155,8 @@ make temporalIntegTestsAgainstLocalDexDev
 
 This target connects to Temporal at `127.0.0.1:7233` and Dex Server at
 `127.0.0.1:8801`. Override them with `temporalHostPort` and
-`dexServerAddress`. The tests register missing custom integration search
-attributes but never start or stop Temporal or Dex Server. Each test still
+`dexServerAddress`. The tests synchronize missing custom integration indexes
+through Dex Server but never start or stop Temporal or Dex Server. Each test still
 starts its own worker on an ephemeral localhost port. Visibility search
 assertions are disabled because local Temporal uses SQLite instead of the CI
 visibility backend; indexed attribute read/write coverage remains enabled. The

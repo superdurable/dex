@@ -7,3 +7,5 @@
 # These are Windows script files and should use crlf
 *.bat           text eol=crlf
 
+# Preserve protoc's generated formatting.
+src/main/java/io/superdurable/gen/** -whitespace

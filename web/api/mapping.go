@@ -23,14 +23,14 @@ const blobReferenceField = "__dexBlobReference"
 
 func mapSearchEntry(entry *dexpb.SearchFlowsResponseEntry) flowExecution {
 	return flowExecution{
-		FlowID:           entry.GetFlowId(),
-		RunID:            entry.GetRunId(),
-		FlowType:         entry.GetFlowType(),
-		FlowStatus:       flowStatusLabel(entry.GetFlowStatus()),
-		FlowStatusCode:   int32(entry.GetFlowStatus()),
-		StartTime:        timestamp(entry.GetStartTime()),
-		CloseTime:        timestamp(entry.GetCloseTime()),
-		SearchAttributes: mapKeyValues(entry.GetSearchAttributes()),
+		FlowID:            entry.GetFlowId(),
+		RunID:             entry.GetRunId(),
+		FlowType:          entry.GetFlowType(),
+		FlowStatus:        flowStatusLabel(entry.GetFlowStatus()),
+		FlowStatusCode:    int32(entry.GetFlowStatus()),
+		StartTime:         timestamp(entry.GetStartTime()),
+		CloseTime:         timestamp(entry.GetCloseTime()),
+		IndexedAttributes: mapKeyValues(entry.GetIndexedAttributes()),
 	}
 }
 
