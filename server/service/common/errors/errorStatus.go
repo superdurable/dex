@@ -60,11 +60,7 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 	if e == nil {
 		return nil
 	}
-	detail := e.Error.GetOriginalWorkerErrorDetail()
-	if detail == "" {
-		detail = e.Error.GetDetail()
-	}
-	st := status.New(e.Code, detail)
+	st := status.New(e.Code, ErrorResponseDetail(e.Error))
 	if e.Error != nil {
 		withDetails, err := st.WithDetails(e.Error)
 		if err == nil {
@@ -72,6 +68,14 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 		}
 	}
 	return st.Err()
+}
+
+// ErrorResponseDetail returns the Worker detail when present, otherwise the server detail.
+func ErrorResponseDetail(errorResponse *dexpb.ErrorResponse) string {
+	if errorResponse.GetOriginalWorkerErrorDetail() != "" {
+		return errorResponse.GetOriginalWorkerErrorDetail()
+	}
+	return errorResponse.GetDetail()
 }
 
 // InvalidArgument is a convenience for bad client/worker input.

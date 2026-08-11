@@ -699,7 +699,7 @@ func (s *serviceImpl) WaitForFlow(
 	if errorType, ok := s.client.GetIfFlowError(getErr, &errorResponse); ok {
 		response.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
 		response.ErrorType = errorType
-		response.ErrorMessage = errorResponse.GetDetail()
+		response.ErrorMessage = serviceerrors.ErrorResponseDetail(&errorResponse)
 		return response, nil
 	}
 

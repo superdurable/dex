@@ -80,7 +80,8 @@ Worker caps its UTF-8 value at 16 KiB; other Worker SDKs may omit the field.
 
 `ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a
-`WorkerErrorResponse` use `detail`.
+`WorkerErrorResponse` use `detail`. Consumers should prefer the original Worker
+detail and fall back to `detail`.
 
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the
