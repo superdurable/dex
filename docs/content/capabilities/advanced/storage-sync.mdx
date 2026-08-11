@@ -43,9 +43,11 @@ Flow. Each later batch gets its own retry budget.
 
 Continue-as-New completes only the in-flight batch and carries the remaining
 queue to the next Run. Graceful completion, FailFlow, and cooperative CancelFlow
-wait for current producers and flush the queue. Hard Terminate, engine timeout,
-or direct backend cancellation may lose pending mutations. Reset does not
-backfill or reconcile an external row.
+wait for current producers and flush the queue. Signals accepted while a flush
+Activity runs are drained, and any resulting Attribute writes trigger another
+flush. RPC next steps are not started after terminal processing begins. Hard
+Terminate, engine timeout, or direct backend cancellation may lose pending
+mutations. Reset does not backfill or reconcile an external row.
 
 Blob-backed string and object values are hydrated inside the Activity before
 schema validation. With the Server Attribute blob cache enabled, a recent S3

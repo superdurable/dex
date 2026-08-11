@@ -94,6 +94,16 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		},
 	})
 	workerTarget := startWorker(t, signal.NewHandler())
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
 	flowID := "attribute-sync-" + newRequestID()
 	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
@@ -118,6 +128,16 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
 	})
 	require.NoError(t, err)
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		Attributes: []*dexpb.AttributeWrite{
+			syncedStringAttribute("message", "terminal-signal"),
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
@@ -130,7 +150,7 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		flowID,
 	).Scan(&message, &document)
 	require.NoError(t, err)
-	require.Equal(t, strings.Repeat("cache-backed-string", 8), message)
+	require.Equal(t, "terminal-signal", message)
 	require.JSONEq(t, `{"source":"blob-cache"}`, document)
 }
 

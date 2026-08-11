@@ -30,8 +30,7 @@ type AttributeSynchronizer struct {
 	flowID               string
 	pending              []*dexpb.AttributeSyncItem
 	activeProducers      int
-	flushRequested       bool
-	actorStopped         bool
+	terminalFlushing     bool
 }
 
 func NewAttributeSynchronizer(
@@ -62,12 +61,12 @@ func (s *AttributeSynchronizer) Start() {
 
 func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 	for {
-		if err := s.provider.Await(ctx, s.ready); err != nil {
-			s.actorStopped = true
+		if err := s.provider.Await(ctx, func() bool {
+			return len(s.pending) > 0 || s.shouldStop()
+		}); err != nil {
 			return
 		}
 		if s.shouldStop() {
-			s.actorStopped = true
 			return
 		}
 		batch := s.nextBatch()
@@ -97,10 +96,6 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 			)
 		}
 		s.pending = s.pending[len(batch):]
-		if s.shouldStop() {
-			s.actorStopped = true
-			return
-		}
 	}
 }
 
@@ -139,13 +134,13 @@ func (s *AttributeSynchronizer) ProducerFinished() {
 }
 
 func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) error {
-	s.flushRequested = true
-	if s.actorStopped && len(s.pending) > 0 {
-		// A terminal signal can supersede Continue-as-New after the actor stops.
-		s.actorStopped = false
-		s.Start()
+	if !s.terminalFlushing {
+		s.terminalFlushing = true
+		if s.continueAsNewCounter.IsThresholdMet() {
+			s.Start()
+		}
 	}
-	return s.provider.Await(ctx, func() bool { return s.actorStopped })
+	return s.provider.Await(ctx, func() bool { return len(s.pending) == 0 })
 }
 
 func (s *AttributeSynchronizer) PendingItems() []*dexpb.AttributeSyncItem {
@@ -170,13 +165,6 @@ func (s *AttributeSynchronizer) nextBatch() []*dexpb.AttributeSyncItem {
 	return s.pending[:count]
 }
 
-func (s *AttributeSynchronizer) ready() bool {
-	return len(s.pending) > 0 || s.shouldStop()
-}
-
 func (s *AttributeSynchronizer) shouldStop() bool {
-	if s.flushRequested {
-		return len(s.pending) == 0
-	}
-	return s.continueAsNewCounter.IsThresholdMet()
+	return !s.terminalFlushing && s.continueAsNewCounter.IsThresholdMet()
 }

@@ -212,6 +212,7 @@ func (i *Interpreter) StartEngineFlow(
 		ctx,
 		continueAsNewer,
 		attributeSynchronizer,
+		signalReceiver,
 		&forceCompleteWf,
 	)
 	defer func() {

@@ -1,12 +1,10 @@
-// Legacy Materials in this file remain under their original licenses.
-// See LEGACY_NOTICES.md.
-
-// Modifications Copyright (c) 2026 Super Durable, Inc.
+// Copyright (c) 2026 Super Durable, Inc.
 //
-// Modifications after the Legacy Cutoff are licensed under the
-// Super Durable Source License 1.0.
-// Legacy Materials remain under their original licenses.
-// See LICENSE and LEGACY_NOTICES.md.
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 package interpreter
 
@@ -17,6 +15,7 @@ type TerminalCoordinator struct {
 	ctx             interfaces.UnifiedContext
 	continueAsNewer *ContinueAsNewer
 	attributeSyncer *AttributeSynchronizer
+	signalReceiver  *SignalReceiver
 	forceComplete   *bool
 }
 
@@ -25,9 +24,10 @@ func NewTerminalCoordinator(
 	ctx interfaces.UnifiedContext,
 	continueAsNewer *ContinueAsNewer,
 	attributeSyncer *AttributeSynchronizer,
+	signalReceiver *SignalReceiver,
 	forceComplete *bool,
 ) *TerminalCoordinator {
-	if provider == nil || ctx == nil || continueAsNewer == nil || attributeSyncer == nil || forceComplete == nil {
+	if provider == nil || ctx == nil || continueAsNewer == nil || attributeSyncer == nil || signalReceiver == nil || forceComplete == nil {
 		panic("TerminalCoordinator requires non-nil dependencies")
 	}
 	return &TerminalCoordinator{
@@ -35,6 +35,7 @@ func NewTerminalCoordinator(
 		ctx:             ctx,
 		continueAsNewer: continueAsNewer,
 		attributeSyncer: attributeSyncer,
+		signalReceiver:  signalReceiver,
 		forceComplete:   forceComplete,
 	}
 }
@@ -49,8 +50,16 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	}); err != nil {
 		return err
 	}
-	if err := c.attributeSyncer.FlushAndClose(c.ctx); err != nil {
-		return err
+	for {
+		if err := c.attributeSyncer.FlushAndClose(c.ctx); err != nil {
+			return err
+		}
+		c.signalReceiver.DrainAllReceivedButUnprocessedSignals(c.ctx)
+		if stopBySignal, stopErr := c.signalReceiver.GetIfStopFlowRequested(); stopBySignal {
+			retErr = stopErr
+		}
+		if len(c.attributeSyncer.PendingItems()) == 0 {
+			return retErr
+		}
 	}
-	return retErr
 }

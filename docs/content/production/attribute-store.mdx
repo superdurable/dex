@@ -80,5 +80,8 @@ Filtered writes, missing targets, and retry exhaustion emit error logs.
 
 CancelFlow and FailFlow are cooperative and may wait for active Steps, locking
 RPCs, and multiple one-hour batch budgets. Cancel returns a native canceled error,
-so Temporal and Cadence retain the Canceled execution state. Terminate and engine
-timeouts are hard stops and may leave the external table behind workflow state.
+so Temporal and Cadence retain the Canceled execution state. SetAttributes and
+non-locking RPC result signals accepted during cleanup are drained for their
+Attribute writes; terminal processing does not start their next Steps. Terminate
+and engine timeouts are hard stops and may leave the external table behind
+workflow state.
