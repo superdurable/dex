@@ -7,6 +7,7 @@
     "cli",
     "web",
     "sdk-go",
+    "blob-cache-go",
     "sdk-java",
     "sdk-python",
     "sdk-rust",
@@ -15,6 +16,7 @@
     "script"
   ],
   "forced_new_prefixes": [
+    "blob-cache-go",
     "protos",
     "sdk-rust",
     "sdk-typescript",

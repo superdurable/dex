@@ -1,0 +1,36 @@
+name: Blob Cache Go CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "blob-cache-go/**"
+      - ".github/workflows/blob-cache-go-ci.yml"
+  pull_request:
+    paths:
+      - "blob-cache-go/**"
+      - ".github/workflows/blob-cache-go-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blob-cache-go-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  blob-cache:
+    name: Blob cache tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blob-cache-go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: blob-cache-go/go.mod
+          cache-dependency-path: blob-cache-go/go.sum
+      - name: Blob cache tests
+        run: make blobCacheTests
