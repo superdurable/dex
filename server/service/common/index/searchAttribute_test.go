@@ -145,12 +145,11 @@ func TestResolveDatetimeIndexValue(t *testing.T) {
 	)
 	require.True(t, dateTime.Equal(resolved.(time.Time)))
 
-	rawUnixNano := &dexpb.Value{Kind: &dexpb.Value_StringValue{
-		StringValue: "1785424800123456789",
+	numeric := &dexpb.Value{Kind: &dexpb.Value_StringValue{
+		StringValue: "20240101",
 	}}
-	require.Equal(
+	require.Nil(
 		t,
-		time.Unix(0, 1785424800123456789),
-		resolveNonNilIndexValue(rawUnixNano, dexpb.IndexType_INDEX_TYPE_DATETIME),
+		resolveNonNilIndexValue(numeric, dexpb.IndexType_INDEX_TYPE_DATETIME),
 	)
 }

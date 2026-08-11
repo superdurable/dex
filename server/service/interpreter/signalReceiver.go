@@ -86,9 +86,6 @@ func NewSignalReceiver(
 
 			received := false
 			err := provider.Await(ctx, func() bool {
-				if sr.stopFlowRequested {
-					return true
-				}
 				received = ch.ReceiveAsync(&val)
 				return received || continueAsNewCounter.IsThresholdMet()
 			})
@@ -120,9 +117,6 @@ func NewSignalReceiver(
 
 			received := false
 			err := provider.Await(ctx, func() bool {
-				if sr.stopFlowRequested {
-					return true
-				}
 				received = ch.ReceiveAsync(&val)
 				return received || continueAsNewCounter.IsThresholdMet()
 			})
@@ -176,9 +170,6 @@ func NewSignalReceiver(
 
 			received := false
 			err := provider.Await(ctx, func() bool {
-				if sr.stopFlowRequested {
-					return true
-				}
 				received = ch.ReceiveAsync(&val)
 				return received || continueAsNewCounter.IsThresholdMet()
 			})
