@@ -452,7 +452,6 @@ func (t *cadenceClient) pendingStepFailures(
 		failure, err := t.cadenceStepFailure(
 			pendingActivity.GetLastFailureReason(),
 			pendingActivity.GetLastFailureDetails(),
-			"RETRY_STATE_IN_PROGRESS",
 		)
 		if err != nil {
 			return nil, err
@@ -636,7 +635,6 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 			lastFailure, err = t.cadenceStepFailure(
 				attributes.GetLastFailureReason(),
 				attributes.GetLastFailureDetails(),
-				"RETRY_STATE_IN_PROGRESS",
 			)
 			if err != nil {
 				return err
@@ -658,7 +656,6 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		failure, err := t.cadenceStepFailure(
 			attributes.GetReason(),
 			attributes.GetDetails(),
-			"",
 		)
 		if err != nil {
 			return err
@@ -679,8 +676,7 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 			eventTime,
 			attributes.GetScheduledEventId(),
 			&dexpb.StepMethodFailure{
-				Message:    "step method activity timed out",
-				RetryState: attributes.GetTimeoutType().String(),
+				BackendError: attributes.GetTimeoutType().String(),
 			},
 		)
 	case shared.EventTypeMarkerRecorded:
@@ -910,12 +906,9 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 func (t *cadenceClient) cadenceStepFailure(
 	reason string,
 	detailsData []byte,
-	retryState string,
 ) (*dexpb.StepMethodFailure, error) {
 	failure := &dexpb.StepMethodFailure{
-		Message:    reason,
-		ErrorType:  reason,
-		RetryState: retryState,
+		BackendError: reason,
 	}
 	if len(detailsData) == 0 {
 		return failure, nil

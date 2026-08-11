@@ -11,52 +11,16 @@ public interface StepMethodFailureOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string message = 1;</code>
-   * @return The message.
+   * <code>string backend_error = 1;</code>
+   * @return The backendError.
    */
-  java.lang.String getMessage();
+  java.lang.String getBackendError();
   /**
-   * <code>string message = 1;</code>
-   * @return The bytes for message.
+   * <code>string backend_error = 1;</code>
+   * @return The bytes for backendError.
    */
   com.google.protobuf.ByteString
-      getMessageBytes();
-
-  /**
-   * <code>string error_type = 2;</code>
-   * @return The errorType.
-   */
-  java.lang.String getErrorType();
-  /**
-   * <code>string error_type = 2;</code>
-   * @return The bytes for errorType.
-   */
-  com.google.protobuf.ByteString
-      getErrorTypeBytes();
-
-  /**
-   * <code>string stack_trace = 3;</code>
-   * @return The stackTrace.
-   */
-  java.lang.String getStackTrace();
-  /**
-   * <code>string stack_trace = 3;</code>
-   * @return The bytes for stackTrace.
-   */
-  com.google.protobuf.ByteString
-      getStackTraceBytes();
-
-  /**
-   * <code>string retry_state = 4;</code>
-   * @return The retryState.
-   */
-  java.lang.String getRetryState();
-  /**
-   * <code>string retry_state = 4;</code>
-   * @return The bytes for retryState.
-   */
-  com.google.protobuf.ByteString
-      getRetryStateBytes();
+      getBackendErrorBytes();
 
   /**
    * <code>.dex.ErrorResponse details = 5;</code>

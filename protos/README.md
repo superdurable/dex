@@ -78,14 +78,20 @@ back to a regular activity.
 
 `WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
 The server persists it as `ErrorResponse.original_worker_error_stack_trace`
-without replacing the backend `StepMethodFailure.stack_trace`. Consumers should
-prefer the original Worker stack and fall back to the backend stack. The Java
-Worker caps its UTF-8 value at 16 KiB; other Worker SDKs may omit the field.
+inside structured failure details. `StepMethodFailure` does not retain a
+separate backend stack. The Java Worker caps its UTF-8 value at 16 KiB; other
+Worker SDKs may omit the field.
 
 `ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a
 `WorkerErrorResponse` use `detail`. Consumers should prefer the original Worker
 detail and fall back to `detail`.
+
+`StepMethodFailure.backend_error` uses Temporal's application failure type,
+timeout type, or fallback failure message. Cadence uses the activity failure
+reason or timeout type. `details` is present only when the failure carries a
+decodable `ErrorResponse`, so backend timeouts normally expose only
+`backend_error`.
 
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the

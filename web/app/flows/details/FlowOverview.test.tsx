@@ -36,8 +36,7 @@ describe('live Flow state failures', () => {
         timers: [],
         lastFailureInfo: {
           attempt: 2,
-          message: 'payment processor failed',
-          retryState: 'RETRY_STATE_IN_PROGRESS',
+          backendError: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
           details: {
             originalWorkerErrorType: 'PaymentProcessorException',
             originalWorkerErrorDetail: 'processor unavailable',
@@ -61,6 +60,9 @@ describe('live Flow state failures', () => {
     );
 
     expect(markup).toContain('Last failure');
+    expect(markup).toContain('Error type');
+    expect(markup).not.toContain('Backend error');
+    expect(markup).toContain('Worker method failed');
     expect(markup).not.toContain('Retry state');
     expect(markup).not.toContain('Retry scheduled');
     expect(markup).toContain('INTERNAL (13)');

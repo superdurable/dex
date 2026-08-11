@@ -542,10 +542,7 @@ export interface FlowClosedHistoryEvent {
 }
 
 export interface StepMethodFailure {
-  message: string;
-  errorType: string;
-  stackTrace: string;
-  retryState: string;
+  backendError: string;
   details: ErrorResponse | undefined;
   attempt: number;
 }
@@ -5387,22 +5384,13 @@ export const FlowClosedHistoryEvent: MessageFns<FlowClosedHistoryEvent> = {
 };
 
 function createBaseStepMethodFailure(): StepMethodFailure {
-  return { message: "", errorType: "", stackTrace: "", retryState: "", details: undefined, attempt: 0 };
+  return { backendError: "", details: undefined, attempt: 0 };
 }
 
 export const StepMethodFailure: MessageFns<StepMethodFailure> = {
   encode(message: StepMethodFailure, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.message !== "") {
-      writer.uint32(10).string(message.message);
-    }
-    if (message.errorType !== "") {
-      writer.uint32(18).string(message.errorType);
-    }
-    if (message.stackTrace !== "") {
-      writer.uint32(26).string(message.stackTrace);
-    }
-    if (message.retryState !== "") {
-      writer.uint32(34).string(message.retryState);
+    if (message.backendError !== "") {
+      writer.uint32(10).string(message.backendError);
     }
     if (message.details !== undefined) {
       ErrorResponse.encode(message.details, writer.uint32(42).fork()).join();
@@ -5425,31 +5413,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
             break;
           }
 
-          message.message = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.errorType = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.stackTrace = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.retryState = reader.string();
+          message.backendError = reader.string();
           continue;
         }
         case 5: {
@@ -5482,10 +5446,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
   },
   fromPartial<I extends Exact<DeepPartial<StepMethodFailure>, I>>(object: I): StepMethodFailure {
     const message = createBaseStepMethodFailure();
-    message.message = object.message ?? "";
-    message.errorType = object.errorType ?? "";
-    message.stackTrace = object.stackTrace ?? "";
-    message.retryState = object.retryState ?? "";
+    message.backendError = object.backendError ?? "";
     message.details = (object.details !== undefined && object.details !== null)
       ? ErrorResponse.fromPartial(object.details)
       : undefined;

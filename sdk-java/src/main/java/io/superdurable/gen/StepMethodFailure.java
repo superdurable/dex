@@ -28,10 +28,7 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private StepMethodFailure() {
-    message_ = "";
-    errorType_ = "";
-    stackTrace_ = "";
-    retryState_ = "";
+    backendError_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -53,156 +50,39 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int MESSAGE_FIELD_NUMBER = 1;
+  public static final int BACKEND_ERROR_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object message_ = "";
+  private volatile java.lang.Object backendError_ = "";
   /**
-   * <code>string message = 1;</code>
-   * @return The message.
+   * <code>string backend_error = 1;</code>
+   * @return The backendError.
    */
   @java.lang.Override
-  public java.lang.String getMessage() {
-    java.lang.Object ref = message_;
+  public java.lang.String getBackendError() {
+    java.lang.Object ref = backendError_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      message_ = s;
+      backendError_ = s;
       return s;
     }
   }
   /**
-   * <code>string message = 1;</code>
-   * @return The bytes for message.
+   * <code>string backend_error = 1;</code>
+   * @return The bytes for backendError.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getMessageBytes() {
-    java.lang.Object ref = message_;
+      getBackendErrorBytes() {
+    java.lang.Object ref = backendError_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      message_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int ERROR_TYPE_FIELD_NUMBER = 2;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object errorType_ = "";
-  /**
-   * <code>string error_type = 2;</code>
-   * @return The errorType.
-   */
-  @java.lang.Override
-  public java.lang.String getErrorType() {
-    java.lang.Object ref = errorType_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      errorType_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string error_type = 2;</code>
-   * @return The bytes for errorType.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getErrorTypeBytes() {
-    java.lang.Object ref = errorType_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      errorType_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int STACK_TRACE_FIELD_NUMBER = 3;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object stackTrace_ = "";
-  /**
-   * <code>string stack_trace = 3;</code>
-   * @return The stackTrace.
-   */
-  @java.lang.Override
-  public java.lang.String getStackTrace() {
-    java.lang.Object ref = stackTrace_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      stackTrace_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string stack_trace = 3;</code>
-   * @return The bytes for stackTrace.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getStackTraceBytes() {
-    java.lang.Object ref = stackTrace_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      stackTrace_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int RETRY_STATE_FIELD_NUMBER = 4;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object retryState_ = "";
-  /**
-   * <code>string retry_state = 4;</code>
-   * @return The retryState.
-   */
-  @java.lang.Override
-  public java.lang.String getRetryState() {
-    java.lang.Object ref = retryState_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      retryState_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string retry_state = 4;</code>
-   * @return The bytes for retryState.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRetryStateBytes() {
-    java.lang.Object ref = retryState_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      retryState_ = b;
+      backendError_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -260,17 +140,8 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(message_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, message_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, errorType_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 3, stackTrace_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(retryState_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 4, retryState_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(backendError_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 1, backendError_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(5, getDetails());
@@ -282,17 +153,8 @@ private static final long serialVersionUID = 0L;
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(message_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, message_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, errorType_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, stackTrace_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(retryState_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, retryState_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(backendError_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, backendError_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
@@ -326,14 +188,8 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.StepMethodFailure other = (io.superdurable.gen.StepMethodFailure) obj;
 
-    if (!getMessage()
-        .equals(other.getMessage())) return false;
-    if (!getErrorType()
-        .equals(other.getErrorType())) return false;
-    if (!getStackTrace()
-        .equals(other.getStackTrace())) return false;
-    if (!getRetryState()
-        .equals(other.getRetryState())) return false;
+    if (!getBackendError()
+        .equals(other.getBackendError())) return false;
     if (hasDetails() != other.hasDetails()) return false;
     if (hasDetails()) {
       if (!getDetails()
@@ -352,14 +208,8 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + MESSAGE_FIELD_NUMBER;
-    hash = (53 * hash) + getMessage().hashCode();
-    hash = (37 * hash) + ERROR_TYPE_FIELD_NUMBER;
-    hash = (53 * hash) + getErrorType().hashCode();
-    hash = (37 * hash) + STACK_TRACE_FIELD_NUMBER;
-    hash = (53 * hash) + getStackTrace().hashCode();
-    hash = (37 * hash) + RETRY_STATE_FIELD_NUMBER;
-    hash = (53 * hash) + getRetryState().hashCode();
+    hash = (37 * hash) + BACKEND_ERROR_FIELD_NUMBER;
+    hash = (53 * hash) + getBackendError().hashCode();
     if (hasDetails()) {
       hash = (37 * hash) + DETAILS_FIELD_NUMBER;
       hash = (53 * hash) + getDetails().hashCode();
@@ -503,10 +353,7 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      message_ = "";
-      errorType_ = "";
-      stackTrace_ = "";
-      retryState_ = "";
+      backendError_ = "";
       details_ = null;
       if (detailsBuilder_ != null) {
         detailsBuilder_.dispose();
@@ -547,25 +394,16 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.StepMethodFailure result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.message_ = message_;
-      }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.errorType_ = errorType_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.stackTrace_ = stackTrace_;
-      }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.retryState_ = retryState_;
+        result.backendError_ = backendError_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.details_ = detailsBuilder_ == null
             ? details_
             : detailsBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.attempt_ = attempt_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -583,24 +421,9 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.StepMethodFailure other) {
       if (other == io.superdurable.gen.StepMethodFailure.getDefaultInstance()) return this;
-      if (!other.getMessage().isEmpty()) {
-        message_ = other.message_;
+      if (!other.getBackendError().isEmpty()) {
+        backendError_ = other.backendError_;
         bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      if (!other.getErrorType().isEmpty()) {
-        errorType_ = other.errorType_;
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
-      if (!other.getStackTrace().isEmpty()) {
-        stackTrace_ = other.stackTrace_;
-        bitField0_ |= 0x00000004;
-        onChanged();
-      }
-      if (!other.getRetryState().isEmpty()) {
-        retryState_ = other.retryState_;
-        bitField0_ |= 0x00000008;
         onChanged();
       }
       if (other.hasDetails()) {
@@ -636,35 +459,20 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              message_ = input.readStringRequireUtf8();
+              backendError_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 18: {
-              errorType_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 18
-            case 26: {
-              stackTrace_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
-            case 34: {
-              retryState_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000008;
-              break;
-            } // case 34
             case 42: {
               input.readMessage(
                   internalGetDetailsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000002;
               break;
             } // case 42
             case 48: {
               attempt_ = input.readInt32();
-              bitField0_ |= 0x00000020;
+              bitField0_ |= 0x00000004;
               break;
             } // case 48
             default: {
@@ -684,290 +492,74 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object message_ = "";
+    private java.lang.Object backendError_ = "";
     /**
-     * <code>string message = 1;</code>
-     * @return The message.
+     * <code>string backend_error = 1;</code>
+     * @return The backendError.
      */
-    public java.lang.String getMessage() {
-      java.lang.Object ref = message_;
+    public java.lang.String getBackendError() {
+      java.lang.Object ref = backendError_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        message_ = s;
+        backendError_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
       }
     }
     /**
-     * <code>string message = 1;</code>
-     * @return The bytes for message.
+     * <code>string backend_error = 1;</code>
+     * @return The bytes for backendError.
      */
     public com.google.protobuf.ByteString
-        getMessageBytes() {
-      java.lang.Object ref = message_;
+        getBackendErrorBytes() {
+      java.lang.Object ref = backendError_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        message_ = b;
+        backendError_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <code>string message = 1;</code>
-     * @param value The message to set.
+     * <code>string backend_error = 1;</code>
+     * @param value The backendError to set.
      * @return This builder for chaining.
      */
-    public Builder setMessage(
+    public Builder setBackendError(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      message_ = value;
+      backendError_ = value;
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>string message = 1;</code>
+     * <code>string backend_error = 1;</code>
      * @return This builder for chaining.
      */
-    public Builder clearMessage() {
-      message_ = getDefaultInstance().getMessage();
+    public Builder clearBackendError() {
+      backendError_ = getDefaultInstance().getBackendError();
       bitField0_ = (bitField0_ & ~0x00000001);
       onChanged();
       return this;
     }
     /**
-     * <code>string message = 1;</code>
-     * @param value The bytes for message to set.
+     * <code>string backend_error = 1;</code>
+     * @param value The bytes for backendError to set.
      * @return This builder for chaining.
      */
-    public Builder setMessageBytes(
+    public Builder setBackendErrorBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      message_ = value;
+      backendError_ = value;
       bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object errorType_ = "";
-    /**
-     * <code>string error_type = 2;</code>
-     * @return The errorType.
-     */
-    public java.lang.String getErrorType() {
-      java.lang.Object ref = errorType_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        errorType_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string error_type = 2;</code>
-     * @return The bytes for errorType.
-     */
-    public com.google.protobuf.ByteString
-        getErrorTypeBytes() {
-      java.lang.Object ref = errorType_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        errorType_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string error_type = 2;</code>
-     * @param value The errorType to set.
-     * @return This builder for chaining.
-     */
-    public Builder setErrorType(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      errorType_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string error_type = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearErrorType() {
-      errorType_ = getDefaultInstance().getErrorType();
-      bitField0_ = (bitField0_ & ~0x00000002);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string error_type = 2;</code>
-     * @param value The bytes for errorType to set.
-     * @return This builder for chaining.
-     */
-    public Builder setErrorTypeBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      errorType_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object stackTrace_ = "";
-    /**
-     * <code>string stack_trace = 3;</code>
-     * @return The stackTrace.
-     */
-    public java.lang.String getStackTrace() {
-      java.lang.Object ref = stackTrace_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        stackTrace_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string stack_trace = 3;</code>
-     * @return The bytes for stackTrace.
-     */
-    public com.google.protobuf.ByteString
-        getStackTraceBytes() {
-      java.lang.Object ref = stackTrace_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        stackTrace_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string stack_trace = 3;</code>
-     * @param value The stackTrace to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStackTrace(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      stackTrace_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string stack_trace = 3;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStackTrace() {
-      stackTrace_ = getDefaultInstance().getStackTrace();
-      bitField0_ = (bitField0_ & ~0x00000004);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string stack_trace = 3;</code>
-     * @param value The bytes for stackTrace to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStackTraceBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      stackTrace_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object retryState_ = "";
-    /**
-     * <code>string retry_state = 4;</code>
-     * @return The retryState.
-     */
-    public java.lang.String getRetryState() {
-      java.lang.Object ref = retryState_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        retryState_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string retry_state = 4;</code>
-     * @return The bytes for retryState.
-     */
-    public com.google.protobuf.ByteString
-        getRetryStateBytes() {
-      java.lang.Object ref = retryState_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        retryState_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string retry_state = 4;</code>
-     * @param value The retryState to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRetryState(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      retryState_ = value;
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string retry_state = 4;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRetryState() {
-      retryState_ = getDefaultInstance().getRetryState();
-      bitField0_ = (bitField0_ & ~0x00000008);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string retry_state = 4;</code>
-     * @param value The bytes for retryState to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRetryStateBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      retryState_ = value;
-      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -980,7 +572,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the details field is set.
      */
     public boolean hasDetails() {
-      return ((bitField0_ & 0x00000010) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
      * <code>.dex.ErrorResponse details = 5;</code>
@@ -1005,7 +597,7 @@ private static final long serialVersionUID = 0L;
       } else {
         detailsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1019,7 +611,7 @@ private static final long serialVersionUID = 0L;
       } else {
         detailsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1028,7 +620,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeDetails(io.superdurable.gen.ErrorResponse value) {
       if (detailsBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           details_ != null &&
           details_ != io.superdurable.gen.ErrorResponse.getDefaultInstance()) {
           getDetailsBuilder().mergeFrom(value);
@@ -1039,7 +631,7 @@ private static final long serialVersionUID = 0L;
         detailsBuilder_.mergeFrom(value);
       }
       if (details_ != null) {
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
@@ -1048,7 +640,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ErrorResponse details = 5;</code>
      */
     public Builder clearDetails() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000002);
       details_ = null;
       if (detailsBuilder_ != null) {
         detailsBuilder_.dispose();
@@ -1061,7 +653,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ErrorResponse details = 5;</code>
      */
     public io.superdurable.gen.ErrorResponse.Builder getDetailsBuilder() {
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetDetailsFieldBuilder().getBuilder();
     }
@@ -1110,7 +702,7 @@ private static final long serialVersionUID = 0L;
     public Builder setAttempt(int value) {
 
       attempt_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -1119,7 +711,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearAttempt() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000004);
       attempt_ = 0;
       onChanged();
       return this;

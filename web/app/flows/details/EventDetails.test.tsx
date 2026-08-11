@@ -83,10 +83,11 @@ describe('selected step event details', () => {
       ...event.payload.context as Record<string, unknown>,
       lastFailureInfo: {
         attempt: 1,
-        message: 'worker unavailable',
-        errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
-        retryState: 'RETRY_STATE_IN_PROGRESS',
-        stackTrace: 'backend stack',
+        backendError: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
+        message: 'legacy message',
+        errorType: 'legacy error type',
+        retryState: 'legacy retry state',
+        stackTrace: 'legacy stack trace',
         details: {
           originalWorkerErrorType: 'UnavailableWorker',
           originalWorkerErrorDetail: 'try again',
@@ -99,6 +100,8 @@ describe('selected step event details', () => {
 
     expect(markup).toContain('Last failure');
     expect(markup).toContain('Attempt');
+    expect(markup).toContain('Error type');
+    expect(markup).not.toContain('Backend error');
     expect(markup).toContain('Worker method failed');
     expect(markup).not.toContain('Retry state');
     expect(markup).not.toContain('Retry scheduled');
@@ -107,21 +110,24 @@ describe('selected step event details', () => {
     expect(markup).toContain('try again');
     expect(markup).toContain('UNAVAILABLE (14)');
     expect(markup).toContain('java worker stack');
-    expect(markup).not.toContain('backend stack');
     expect(markup).toContain('<details class="failure-stack">');
     expect(markup).toContain('semantic-fields-stacked');
-    expect(markup).toMatch(/semantic-fields-stacked[^>]*>.*Error type/s);
+    expect(markup).toMatch(/semantic-fields-stacked[^>]*>.*Attempt.*Error type.*Worker error type/s);
+    expect(markup).not.toContain('legacy message');
+    expect(markup).not.toContain('legacy error type');
+    expect(markup).not.toContain('legacy retry state');
+    expect(markup).not.toContain('legacy stack trace');
     expect(markup).not.toContain('Previous attempts');
   });
 
-  it('falls back to the backend stack when the Worker does not provide one', () => {
+  it('does not render the removed backend stack when the Worker does not provide one', () => {
     const event = executeEvent(1);
     event.payload.context = {
       ...event.payload.context as Record<string, unknown>,
       lastFailureInfo: {
         attempt: 1,
-        message: 'worker method failed',
-        stackTrace: 'backend activity stack',
+        backendError: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
+        stackTrace: 'legacy backend activity stack',
         details: {
           originalWorkerErrorType: 'WorkerWithoutStackSupport',
           originalWorkerErrorStatus: 13,
@@ -130,9 +136,9 @@ describe('selected step event details', () => {
     };
     const markup = renderDetails(event);
 
-    expect(markup).toContain('backend activity stack');
+    expect(markup).not.toContain('legacy backend activity stack');
     expect(markup).toContain('INTERNAL (13)');
-    expect(markup).toContain('<details class="failure-stack">');
+    expect(markup).not.toContain('<details class="failure-stack">');
   });
 
   it('renders the terminal failure attempt with the same failure component', () => {
@@ -141,17 +147,17 @@ describe('selected step event details', () => {
     event.payload.output = {
       failure: {
         attempt: 2,
-        message: 'retry exhausted',
-        retryState: 'RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED',
-        details: { detail: 'terminal worker failure' },
+        backendError: 'StartToClose',
       },
     };
     const markup = renderDetails(event);
 
     expect(markup).toContain('Failure');
-    expect(markup).toContain('retry exhausted');
-    expect(markup).toContain('terminal worker failure');
+    expect(markup).toContain('Error type');
+    expect(markup).not.toContain('Backend error');
+    expect(markup).toContain('StartToClose');
     expect(markup).toContain('2');
+    expect(markup).not.toContain('Detail');
   });
 
   it('distinguishes an unavailable step input from a missing value blob', () => {

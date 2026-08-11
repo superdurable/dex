@@ -257,10 +257,10 @@ Continue-As-New 仍保持 run 边界。Web 不把不同 run 合并到同一个 e
 
 ```proto
 message StepMethodFailure {
-  string message = 1;
-  string error_type = 2;
-  string stack_trace = 3;
-  string retry_state = 4;
+  reserved 2, 3, 4;
+  reserved "message", "error_type", "stack_trace", "retry_state";
+
+  string backend_error = 1;
   ErrorResponse details = 5;
   int32 attempt = 6;
 }
@@ -349,7 +349,10 @@ message StepExecuteFailedEvent {
 
 不返回 previous attempt failures。SYNC Activity retry 只返回紧邻最终 attempt 的
 `last_failure_info`；terminal failure 放在 `output.failure`。两者的 `attempt` 分别标识其
-对应 attempt。ASYNC local failure 只用于触发 regular Activity fallback，不展示为用户事件。
+对应 attempt。`backend_error` 在 Temporal 上依次取 application failure type、timeout type
+或 fallback failure message；在 Cadence 上取 activity failure reason 或 timeout type。只有
+backend failure 携带可解码的 `ErrorResponse` 时才设置 `details`。ASYNC local failure 只用于
+触发 regular Activity fallback，不展示为用户事件。
 
 Web 只消费统一的 `input/output/context`，不根据 durability 选择额外 API。Server 在
 `GetHistoryEvents` 内部按实际执行路径补齐数据：
@@ -657,6 +660,7 @@ Selected event：
 - `Output`：WaitFor condition 或 Execute decision，以及 side effects；失败时显示 terminal failure；
 - `Context`：execution ID、from、durability、final attempt、started、duration、step options，
   以及可选的 SYNC last failure；
+- failure 将 `backend_error` 显示为独占一行的 “Error type”，并显示 attempt 和可选的结构化 Dex/worker details；
 - UI 不显示 previous attempts 或 transient-step 字段；
 - SYNC 和 ASYNC 使用完全相同的 renderer；
 - Raw JSON tab 使用 hydrated public event，不泄露 internal snapshot 或 blob location。

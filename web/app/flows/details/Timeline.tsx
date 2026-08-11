@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
-import { durabilityLabel } from '@/lib/semantic';
+import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { buildTimelineStepLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle } from './EventDetails';
@@ -298,12 +298,16 @@ function EventHighlights({ event }: { event: FlowHistoryEvent }) {
   const output = event.payload.output as Record<string, unknown> | undefined;
   const failure = output?.failure as Record<string, unknown> | undefined;
   if (!context && !failure) return null;
+  const backendError = typeof failure?.backendError === 'string'
+    && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
+    ? flowErrorTypeLabel(failure.backendError)
+    : failure?.backendError;
   return (
     <div className="event-highlights">
       {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
       {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}
-      {typeof failure?.message === 'string' && failure.message && (
-        <span className="failure-message">{failure.message}</span>
+      {typeof backendError === 'string' && backendError && (
+        <span className="failure-message">{backendError}</span>
       )}
     </div>
   );

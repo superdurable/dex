@@ -1181,6 +1181,10 @@ pre {
   margin-bottom: 7px;
 }
 
+.failure-alert > .semantic-fields-stacked {
+  margin-top: 0;
+}
+
 .failure-stack {
   margin-top: 7px;
 }

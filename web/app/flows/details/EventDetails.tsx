@@ -441,9 +441,10 @@ export function FailureContent({
   const failure = asData(value);
   if (!hasData(failure)) return null;
   const details = asData(failure.details);
-  const errorType = typeof failure.errorType === 'string' && failure.errorType.startsWith('FLOW_ERROR_TYPE_')
-    ? flowErrorTypeLabel(failure.errorType)
-    : failure.errorType;
+  const backendError = typeof failure.backendError === 'string'
+    && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
+    ? flowErrorTypeLabel(failure.backendError)
+    : failure.backendError;
   const workerStatus = isPresent(details.originalWorkerErrorStatus)
     ? grpcStatusLabel(details.originalWorkerErrorStatus)
     : undefined;
@@ -451,26 +452,20 @@ export function FailureContent({
     ? details.originalWorkerErrorDetail
     : undefined;
   const serverDetail = workerDetail === undefined ? details.detail : undefined;
-  const stackTrace = isPresent(details.originalWorkerErrorStackTrace)
-    ? details.originalWorkerErrorStackTrace
-    : failure.stackTrace;
   return (
-    <div className="semantic-alert">
-      {isPresent(failure.message) && <strong>{displayScalar(failure.message)}</strong>}
-      <Fields compact values={[
-        ['Attempt', failure.attempt],
-      ]} />
+    <div className="semantic-alert failure-alert">
       <Fields compact stacked values={[
-        ['Error type', errorType],
+        ['Attempt', failure.attempt],
+        ['Error type', backendError],
         ['Detail', serverDetail],
         ['Worker error type', details.originalWorkerErrorType],
         ['Worker error detail', workerDetail],
         ['Worker gRPC status', workerStatus],
       ]} />
-      {isPresent(stackTrace) && (
+      {isPresent(details.originalWorkerErrorStackTrace) && (
         <details className="failure-stack" open={stackInitiallyExpanded}>
           <summary>Stack trace</summary>
-          <pre>{String(stackTrace)}</pre>
+          <pre>{String(details.originalWorkerErrorStackTrace)}</pre>
         </details>
       )}
     </div>
