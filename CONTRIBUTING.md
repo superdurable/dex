@@ -10,6 +10,7 @@
 | [cli/](cli/) | `dexcli` local development environment |
 | [web/](web/) | Dex Web console |
 | [sdk-go/](sdk-go/) | Go SDK |
+| [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
 | [examples/go/](examples/go/) | Go examples |
 | [sdk-java/](sdk-java/) | Java SDK |
 | [examples/java/](examples/java/) | Java examples |
@@ -17,7 +18,7 @@
 | [examples/python/](examples/python/) | Python examples |
 | [sdk-rust/](sdk-rust/) | Shared Rust SDK Core |
 
-Go SDK + samples use root [`go.work`](go.work). Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
+Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace until its first release. Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 
 ## Prerequisites
 
@@ -50,6 +51,12 @@ make -C server unitTests
 
 ```bash
 make -C sdk-go ci-tests   # may start docker compose under sdk-go/integ
+```
+
+### Blob Cache Go
+
+```bash
+make -C blob-cache-go tests
 ```
 
 ### Dex CLI and Web
@@ -145,13 +152,14 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 | Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.1.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) via [`.github/workflows/sdk-python-publish.yml`](.github/workflows/sdk-python-publish.yml) (version from the tag) |
 | Java SDK | `sdk-java/vX.Y.Z` | `sdk-java/v0.0.3` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from the tag) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
+| Blob Cache Go | `blob-cache-go/vX.Y.Z` | `blob-cache-go/v0.1.0` | Go module tag for `github.com/superdurable/dex/blob-cache-go` |
 | TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
 
 Notes:
 
 - Java, TypeScript, and Python derive publish versions from tags (CI stamps the package metadata for the build). Bump committed version files when you want the repo tip to match.
-- Go uses a path-style tag (`sdk-go/v…`) so `go get` resolves the subdirectory module.
+- Go modules use path-style tags (`sdk-go/v…`, `blob-cache-go/v…`) so `go get` resolves each subdirectory module.
 - Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 - TypeScript publishing requires a GitHub Release after its one-time npm bootstrap publish.
 
