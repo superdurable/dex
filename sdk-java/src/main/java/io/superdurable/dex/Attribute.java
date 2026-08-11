@@ -46,11 +46,17 @@ public final class Attribute<T> extends PersistenceDefinition {
     private final String name;
     private final Class<T> valueType;
     private final AttributeIndex index;
+    private final boolean syncToAttributeStore;
 
-    private Attribute(final String name, final Class<T> valueType, final AttributeIndex index) {
+    private Attribute(
+            final String name,
+            final Class<T> valueType,
+            final AttributeIndex index,
+            final boolean syncToAttributeStore) {
         this.name = requireName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
+        this.syncToAttributeStore = syncToAttributeStore;
     }
 
     /**
@@ -64,7 +70,7 @@ public final class Attribute<T> extends PersistenceDefinition {
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> Attribute<T> define(final String name, final Class<T> valueType) {
-        return new Attribute<T>(name, valueType, null);
+        return new Attribute<T>(name, valueType, null, false);
     }
 
     /**
@@ -82,7 +88,20 @@ public final class Attribute<T> extends PersistenceDefinition {
             final String name,
             final Class<T> valueType,
             final AttributeIndex index) {
-        return new Attribute<T>(name, valueType, index);
+        return new Attribute<T>(name, valueType, index, false);
+    }
+
+    /**
+     * Returns a definition whose writes are projected through the Flow's Attribute Store.
+     *
+     * <p>The projection is asynchronous and latest-state only. A projection failure does not roll
+     * back the Flow Attribute. Deleting this Attribute projects SQL {@code NULL} when the target
+     * column permits it.
+     *
+     * @return a new immutable Attribute definition with Attribute Store synchronization enabled
+     */
+    public Attribute<T> syncToAttributeStore() {
+        return new Attribute<T>(name, valueType, index, true);
     }
 
     String getName() {
@@ -95,6 +114,11 @@ public final class Attribute<T> extends PersistenceDefinition {
 
     AttributeIndex getIndex() {
         return index;
+    }
+
+    @Override
+    boolean isSyncToAttributeStore() {
+        return syncToAttributeStore;
     }
 
     /**

@@ -91,6 +91,21 @@ blocking executor, so they do not occupy gRPC I/O tasks. Long-running handlers
 can call `Context::wait_for_cancellation` or poll `Context::is_cancelled` to
 observe method deadlines and disconnected callers.
 
+Opt an Attribute or AttributeMap into Attribute Store synchronization and
+select the Server-configured Store for the Flow:
+
+```rust
+use dex_sdk::{Attribute, FlowConfig};
+
+let email = Attribute::<String>::new("customer-email").sync_to_attribute_store();
+let config = FlowConfig::new().attribute_store_name("profiles");
+```
+
+The Store is an asynchronous latest-state projection. Deletion writes SQL
+`NULL`, and projection failures do not roll back Flow Attributes. Omitting the
+builder preserves the current target; passing `""` disables future
+synchronization while retaining protocol presence.
+
 ## Blob cache
 
 The shared cache keeps opaque payload bytes on disk and uses Stretto only for

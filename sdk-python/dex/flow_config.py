@@ -36,6 +36,9 @@ class FlowConfig:
     Every ``None`` field uses the registered or server default. Config may be set
     at start time or replaced on an active Flow through the Client.
 
+    Attribute Store projection is asynchronous. Failures never roll back Flow
+    Attributes, and already queued projections retain their original target.
+
     Attributes:
         active_step_search_mode: Optional active-Step visibility indexing policy.
         continue_as_new_threshold: Optional positive history-event threshold that
@@ -44,6 +47,8 @@ class FlowConfig:
             in bytes used by continue-as-new decisions.
         step_durability: Optional default durability for Step handlers.
         worker_target: Optional Worker endpoint for later handler calls.
+        attribute_store_name: Optional Server-configured Attribute Store name.
+            ``None`` leaves the field absent; an empty string disables future projections.
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
@@ -51,3 +56,4 @@ class FlowConfig:
     continue_as_new_page_size_bytes: int | None = None
     step_durability: StepDurability | None = None
     worker_target: WorkerTarget | None = None
+    attribute_store_name: str | None = None

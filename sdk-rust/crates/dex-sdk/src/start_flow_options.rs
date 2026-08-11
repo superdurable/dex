@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use std::sync::Arc;
 
-use dex_protocol::dex::IndexConfig;
+use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::registry::physical_name;
 use crate::step::{ErasedValue, TypedValue};
@@ -67,6 +67,7 @@ pub(crate) struct InitialAttribute {
     pub(crate) key: String,
     pub(crate) value: Arc<dyn ErasedValue>,
     pub(crate) index_config: Option<IndexConfig>,
+    pub(crate) sync_config: Option<AttributeSyncConfig>,
 }
 
 impl StartFlowOptions {
@@ -121,6 +122,7 @@ impl StartFlowOptions {
             key: attribute.name().to_string(),
             value: Arc::new(TypedValue(value)),
             index_config: attribute.index().map(|index| index.proto_config(false)),
+            sync_config: attribute.sync_config(),
         });
         self
     }
@@ -136,6 +138,7 @@ impl StartFlowOptions {
             key: physical_name(attribute.name(), instance),
             value: Arc::new(TypedValue(value)),
             index_config: attribute.index().map(|index| index.proto_config(true)),
+            sync_config: attribute.sync_config(),
         });
         self
     }
@@ -162,5 +165,38 @@ impl StartFlowOptions {
 impl Default for StartFlowOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StartFlowOptions;
+    use crate::{Attribute, AttributeMap};
+
+    #[test]
+    fn initial_attributes_retain_sync_configuration() {
+        let plain = Attribute::<String>::new("plain");
+        let synced = Attribute::<String>::new("synced").sync_to_attribute_store();
+        let synced_map = AttributeMap::<String>::new("map").sync_to_attribute_store();
+        let options = StartFlowOptions::new()
+            .initial_attribute(&plain, "plain".to_string())
+            .initial_attribute(&synced, "synced".to_string())
+            .initial_attribute_map(&synced_map, "tenant-1", "mapped".to_string());
+
+        assert!(options.attributes[0].sync_config.is_none());
+        assert_eq!(
+            options.attributes[1]
+                .sync_config
+                .as_ref()
+                .map(|config| config.enabled),
+            Some(true)
+        );
+        assert_eq!(
+            options.attributes[2]
+                .sync_config
+                .as_ref()
+                .map(|config| config.enabled),
+            Some(true)
+        );
     }
 }

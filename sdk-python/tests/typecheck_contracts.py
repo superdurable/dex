@@ -16,6 +16,7 @@ from dex import (
     Client,
     Context,
     Flow,
+    FlowConfig,
     PersistenceSchema,
     Registry,
     RPCResult,
@@ -67,11 +68,11 @@ output: Output = client.invoke_rpc(
     Input("input"),
 )
 
-status = Attribute("status", str)
-items = AttributeMap("items", int)
+status = Attribute("status", str, sync_to_attribute_store=True)
+items = AttributeMap("items", int, sync_to_attribute_store=True)
 persistence: PersistenceSchema = PersistenceSchema.of(status, items)
 start_options: StartFlowOptions = (
-    StartFlowOptions()
+    StartFlowOptions(config_override=FlowConfig(attribute_store_name="reporting"))
     .with_attribute(status, "ready")
     .with_attribute(items, "order-1", 1)
 )

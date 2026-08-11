@@ -179,17 +179,22 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	delay := 2 * time.Second
 	searchMode := SearchAllActiveSteps
 	durability := StepDurabilityAsync
-	attribute := DefineAttribute[string]("status")
+	attribute := DefineAttribute[string]("status", SyncToAttributeStore())
 	initial, err := InitialAttribute(attribute, "ready")
 	require.NoError(t, err)
+	attributeMap := DefineAttributeMap[string]("status-by-tenant", SyncToAttributeStore())
+	initialMap, err := InitialAttributeMapValue(attributeMap, "tenant-1", "ready")
+	require.NoError(t, err)
+	storeName := "reporting"
 
 	flowTimeout, options, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:    &timeout,
 		StartDelay: &delay,
-		Attributes: []InitialAttributeDef{initial},
+		Attributes: []InitialAttributeDef{initial, initialMap},
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
+			AttributeStoreName:   &storeName,
 			WorkerTarget: &WorkerTarget{
 				Address:  "worker:7233",
 				Headless: true,
@@ -199,14 +204,40 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), flowTimeout)
 	require.Equal(t, int32(2), options.FlowStartDelaySeconds)
-	require.Len(t, options.Attributes, 1)
+	require.Len(t, options.Attributes, 2)
+	require.True(t, options.Attributes[0].GetSyncConfig().GetEnabled())
+	require.True(t, options.Attributes[1].GetSyncConfig().GetEnabled())
 	require.NotNil(t, options.FlowConfigOverride.ActiveStepSearchMode)
 	require.NotNil(t, options.FlowConfigOverride.StepDurability)
 	require.True(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
+	require.Equal(t, "reporting", options.FlowConfigOverride.GetAttributeSyncConfigName())
+	require.NotNil(t, options.FlowConfigOverride.AttributeSyncConfigName)
+
+	disabled := ""
+	_, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
+		ConfigOverride: &FlowConfig{AttributeStoreName: &disabled},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeSyncConfigName)
+	require.Empty(t, disabledOptions.FlowConfigOverride.GetAttributeSyncConfigName())
 
 	_, empty, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
 	require.Nil(t, empty.FlowConfigOverride)
+}
+
+func TestAttributeWriteSyncMapping(t *testing.T) {
+	synced, err := mapAttributeWrite(AttributeWrite{
+		Name:                 "status",
+		Value:                "ready",
+		SyncToAttributeStore: true,
+	})
+	require.NoError(t, err)
+	require.True(t, synced.GetSyncConfig().GetEnabled())
+
+	plain, err := mapAttributeWrite(AttributeWrite{Name: "status", Value: "ready"})
+	require.NoError(t, err)
+	require.Nil(t, plain.SyncConfig)
 }
 
 func TestClientOptionMapping(t *testing.T) {

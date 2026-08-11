@@ -208,6 +208,9 @@ type AttributeWrite struct {
 	Value any
 	// Index optionally supplies search-index metadata for the write.
 	Index *AttributeIndex
+	// SyncToAttributeStore asynchronously projects this raw write through the Flow's Attribute Store.
+	// Deletes project SQL NULL, and projection failures do not roll back the Flow Attribute.
+	SyncToAttributeStore bool
 }
 
 // FlowStatus describes the current or terminal state of a Flow run.
@@ -463,6 +466,12 @@ func validateInitialAttributes(
 				concrete.name,
 			)
 		}
+		if registered.syncToAttributeStore != concrete.syncToAttributeStore {
+			return nil, fmt.Errorf(
+				"dex: attribute %q sync setting does not match its registered definition",
+				concrete.name,
+			)
+		}
 		physical, err := physicalName(concrete.name, concrete.instance, concrete.isMap)
 		if err != nil {
 			return nil, err
@@ -478,6 +487,7 @@ func validateInitialAttributes(
 		concrete.index = registered.index
 		concrete.encoded = encoded
 		concrete.indexConfig = indexConfig
+		concrete.syncToAttributeStore = registered.syncToAttributeStore
 		resolved = append(resolved, concrete)
 	}
 	return resolved, nil
@@ -1075,9 +1085,10 @@ func (client *Client) setAttribute(
 		return err
 	}
 	return client.setAttributes(ctx, flowID, []AttributeWrite{{
-		Name:  name,
-		Value: value,
-		Index: registered.index,
+		Name:                 name,
+		Value:                value,
+		Index:                registered.index,
+		SyncToAttributeStore: registered.syncToAttributeStore,
 	}})
 }
 

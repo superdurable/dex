@@ -1906,11 +1906,16 @@ type AttributeIndex struct {
 }
 
 func Indexed(index AttributeIndex) AttributeOption
+func SyncToAttributeStore() AttributeOption
 ```
 
 An empty `IndexKey` uses the concrete attribute key. A non-empty key supports
 dynamic attributes that write to a shared visibility key. Phase 2 validates
 that encoded values are compatible with the selected index type.
+
+`SyncToAttributeStore` marks every write from the definition for asynchronous
+latest-state projection to the Flow's selected Attribute Store. Deletes project
+SQL `NULL`; Store failures do not roll back Flow Attribute writes.
 
 ### Typed channels
 
@@ -2490,6 +2495,7 @@ const (
 
 type FlowConfig struct {
 	ActiveStepSearchMode       *ActiveStepSearchMode
+	AttributeStoreName         *string
 	ContinueAsNewThreshold     *int32
 	ContinueAsNewPageSizeBytes *int32
 	StepDurability             *StepDurability
@@ -2589,6 +2595,8 @@ type ResetOptions struct {
 ```
 
 Pointer fields in `FlowConfig` preserve proto presence for partial overrides.
+`AttributeStoreName == nil` omits the target override, while a pointer to an
+empty string disables synchronization for future enabled writes.
 `WorkerTarget` is configured through `FlowConfig`, not as a separate StartFlow
 argument. Phase 5 adds `ClientOptions.WorkerTarget` as the default inserted into
 that FlowConfig.
@@ -2604,7 +2612,7 @@ because its zero duration means the server-configured maximum long poll.
 `StepExecutionID.ExecutionNumber == nil` selects execution one.
 
 `InitialAttributeDef` is sealed and constructed with typed helpers so initial
-values carry the definition's index configuration:
+values carry the definition's index and Attribute Store sync configuration:
 
 ```go
 type InitialAttributeDef interface {

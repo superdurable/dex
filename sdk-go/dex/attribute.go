@@ -25,15 +25,20 @@ import "github.com/superdurable/dex/sdk-go/gen/dexpb"
 //		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 //	)
 type Attribute[T any] struct {
-	name  string
-	index *AttributeIndex
+	name                 string
+	index                *AttributeIndex
+	syncToAttributeStore bool
 }
 
-// DefineAttribute creates a typed Attribute with a stable name and optional search index.
+// DefineAttribute creates a typed Attribute with a stable name and definition options.
 // The definition does not perform I/O; register it through PersistenceSchema before use.
 func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T] {
 	config := applyAttributeOptions(options)
-	return Attribute[T]{name: key, index: config.index}
+	return Attribute[T]{
+		name:                 key,
+		index:                config.index,
+		syncToAttributeStore: config.syncToAttributeStore,
+	}
 }
 
 // AttributeDef is the interface of Attribute, without Go's generic
@@ -45,6 +50,7 @@ type AttributeDef interface {
 	attributeName() string
 	attributeIndex() *AttributeIndex
 	attributeIsMap() bool
+	attributeSyncToAttributeStore() bool
 }
 
 // Get returns the current value. Missing values return AttributeNotFoundError.
@@ -101,21 +107,30 @@ func (Attribute[T]) attributeIsMap() bool {
 	return false
 }
 
+func (a Attribute[T]) attributeSyncToAttributeStore() bool {
+	return a.syncToAttributeStore
+}
+
 // AttributeMap defines keyed typed persisted values.
 //
 // Register the map once in PersistenceSchema, then supply an instance string for every access and
 // lock.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
 type AttributeMap[T any] struct {
-	name  string
-	index *AttributeIndex
+	name                 string
+	index                *AttributeIndex
+	syncToAttributeStore bool
 }
 
-// DefineAttributeMap creates a typed Attribute map with a stable name and optional search index.
+// DefineAttributeMap creates a typed Attribute map with a stable name and definition options.
 // The definition performs no I/O; register it through PersistenceSchema before use.
 func DefineAttributeMap[T any](name string, options ...AttributeOption) AttributeMap[T] {
 	config := applyAttributeOptions(options)
-	return AttributeMap[T]{name: name, index: config.index}
+	return AttributeMap[T]{
+		name:                 name,
+		index:                config.index,
+		syncToAttributeStore: config.syncToAttributeStore,
+	}
 }
 
 // Get returns the current map value. Missing instances return AttributeNotFoundError.
@@ -178,8 +193,12 @@ func (AttributeMap[T]) attributeIsMap() bool {
 	return true
 }
 
+func (a AttributeMap[T]) attributeSyncToAttributeStore() bool {
+	return a.syncToAttributeStore
+}
+
 // AttributeOption configures an Attribute or AttributeMap definition.
-// Use Indexed to create values; custom implementations are not supported.
+// Use Indexed and SyncToAttributeStore to create values; custom implementations are not supported.
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)
 }
@@ -219,6 +238,12 @@ func Indexed(index AttributeIndex) AttributeOption {
 	return indexedAttributeOption{index: index}
 }
 
+// SyncToAttributeStore projects every write through the Flow's configured Attribute Store.
+// Projection is asynchronous and latest-state only. Deletes write SQL NULL, and failures do not roll back Flow Attributes.
+func SyncToAttributeStore() AttributeOption {
+	return syncToAttributeStoreOption{}
+}
+
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
 // Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or InvokeOptions.
 type AttributeLock interface {
@@ -249,11 +274,12 @@ func InitialAttribute[T any](
 		return nil, err
 	}
 	return initialAttribute{
-		name:        attribute.name,
-		value:       value,
-		index:       attribute.index,
-		encoded:     encoded,
-		indexConfig: indexConfig,
+		name:                 attribute.name,
+		value:                value,
+		index:                attribute.index,
+		syncToAttributeStore: attribute.syncToAttributeStore,
+		encoded:              encoded,
+		indexConfig:          indexConfig,
 	}, nil
 }
 
@@ -275,13 +301,14 @@ func InitialAttributeMapValue[T any](
 		return nil, err
 	}
 	return initialAttribute{
-		name:        attribute.name,
-		instance:    instance,
-		value:       value,
-		index:       attribute.index,
-		isMap:       true,
-		encoded:     encoded,
-		indexConfig: indexConfig,
+		name:                 attribute.name,
+		instance:             instance,
+		value:                value,
+		index:                attribute.index,
+		isMap:                true,
+		syncToAttributeStore: attribute.syncToAttributeStore,
+		encoded:              encoded,
+		indexConfig:          indexConfig,
 	}, nil
 }
 
@@ -295,7 +322,8 @@ type attributeInvocation interface {
 }
 
 type attributeConfig struct {
-	index *AttributeIndex
+	index                *AttributeIndex
+	syncToAttributeStore bool
 }
 
 func applyAttributeOptions(options []AttributeOption) attributeConfig {
@@ -315,6 +343,12 @@ func (option indexedAttributeOption) applyAttribute(config *attributeConfig) {
 	config.index = &index
 }
 
+type syncToAttributeStoreOption struct{}
+
+func (syncToAttributeStoreOption) applyAttribute(config *attributeConfig) {
+	config.syncToAttributeStore = true
+}
+
 type attributeLock struct {
 	name     string
 	instance string
@@ -324,13 +358,14 @@ type attributeLock struct {
 func (attributeLock) attributeLock() {}
 
 type initialAttribute struct {
-	name        string
-	instance    string
-	value       any
-	index       *AttributeIndex
-	isMap       bool
-	encoded     *dexpb.Value
-	indexConfig *dexpb.IndexConfig
+	name                 string
+	instance             string
+	value                any
+	index                *AttributeIndex
+	isMap                bool
+	syncToAttributeStore bool
+	encoded              *dexpb.Value
+	indexConfig          *dexpb.IndexConfig
 }
 
 func (initialAttribute) initialAttribute() {}

@@ -6,7 +6,12 @@ title: Flow config
 
 Runtime Flow configuration can be updated for some knobs (see `UpdateFlowConfig`). Prefer documenting the specific fields your SDK exposes rather than inventing server internals.
 
-`attribute_sync_config_name` selects a Server-configured Custom Attribute Store.
-An explicit empty string disables sync for future enabled writes. Pending
-mutations retain the target selected at enqueue time. A non-empty unknown name
-is rejected by StartFlow and UpdateFlowConfig.
+The SDK field is `AttributeStoreName` in Go, `attributeStoreName` in Java and
+TypeScript, and `attribute_store_name` in Python and Rust. Each maps to the
+optional protocol field `attribute_sync_config_name` and selects a
+Server-configured Custom Attribute Store.
+
+An omitted field preserves the current setting. An explicit empty string keeps
+protocol presence and disables synchronization for future enabled writes.
+Pending mutations retain the target selected at enqueue time. A non-empty
+unknown name is rejected by StartFlow and UpdateFlowConfig.

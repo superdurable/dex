@@ -209,6 +209,7 @@ impl Context {
             None,
             value_mapper::encode_handler(&value)?,
             attribute.index().map(|index| index.proto_config(false)),
+            attribute.sync_config(),
         )
     }
 
@@ -225,6 +226,7 @@ impl Context {
             Some(instance),
             value_mapper::encode_handler(&value)?,
             attribute.index().map(|index| index.proto_config(true)),
+            attribute.sync_config(),
         )
     }
 
@@ -236,6 +238,7 @@ impl Context {
             None,
             value_mapper::deletion(),
             attribute.index().map(|index| index.proto_config(false)),
+            attribute.sync_config(),
         )
     }
 
@@ -251,6 +254,7 @@ impl Context {
             Some(instance),
             value_mapper::deletion(),
             attribute.index().map(|index| index.proto_config(true)),
+            attribute.sync_config(),
         )
     }
 
@@ -378,6 +382,7 @@ impl Context {
         instance: Option<&str>,
         value: ProtoValue,
         index_config: Option<dex_protocol::dex::IndexConfig>,
+        sync_config: Option<dex_protocol::dex::AttributeSyncConfig>,
     ) -> HandlerResult<()> {
         let key = self.registered_name(name, kind, instance)?;
         self.attribute_writes.insert(
@@ -386,7 +391,7 @@ impl Context {
                 key,
                 value: Some(value),
                 index_config,
-                sync_config: None,
+                sync_config,
             },
         );
         Ok(())

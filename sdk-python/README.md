@@ -75,6 +75,19 @@ options = (
 )
 ```
 
+Opt in when declaring an Attribute or AttributeMap, and select the Store in
+Flow configuration:
+
+```python
+email = dex.Attribute("customer-email", str, sync_to_attribute_store=True)
+config = dex.FlowConfig(attribute_store_name="profiles")
+```
+
+The Store is an asynchronous latest-state projection. Deletion writes SQL
+`NULL`, and projection failures do not roll back Flow Attributes. `None`
+preserves the current target; an explicit empty string disables future
+synchronization while retaining protocol presence.
+
 ```
 pip install dex-python-sdk==0.1.0
 ```

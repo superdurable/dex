@@ -32,6 +32,7 @@ pub(crate) struct PersistenceDefinition {
     pub(crate) name: String,
     pub(crate) kind: PersistenceKind,
     pub(crate) index: Option<AttributeIndex>,
+    pub(crate) sync_to_attribute_store: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +55,7 @@ impl PersistenceSchema {
             attribute.name(),
             PersistenceKind::Attribute,
             attribute.index().cloned(),
+            attribute.is_sync_to_attribute_store(),
         );
         self
     }
@@ -64,19 +66,20 @@ impl PersistenceSchema {
             attribute.name(),
             PersistenceKind::AttributeMap,
             attribute.index().cloned(),
+            attribute.is_sync_to_attribute_store(),
         );
         self
     }
 
     /// Adds one Channel definition.
     pub fn channel<T>(mut self, channel: &Channel<T>) -> Self {
-        self.add(channel.name(), PersistenceKind::Channel, None);
+        self.add(channel.name(), PersistenceKind::Channel, None, false);
         self
     }
 
     /// Adds one keyed Channel-map definition.
     pub fn channel_map<T>(mut self, channel: &ChannelMap<T>) -> Self {
-        self.add(channel.name(), PersistenceKind::ChannelMap, None);
+        self.add(channel.name(), PersistenceKind::ChannelMap, None, false);
         self
     }
 
@@ -84,11 +87,36 @@ impl PersistenceSchema {
         &self.definitions
     }
 
-    fn add(&mut self, name: &str, kind: PersistenceKind, index: Option<AttributeIndex>) {
+    fn add(
+        &mut self,
+        name: &str,
+        kind: PersistenceKind,
+        index: Option<AttributeIndex>,
+        sync_to_attribute_store: bool,
+    ) {
         self.definitions.push(PersistenceDefinition {
             name: name.to_string(),
             kind,
             index,
+            sync_to_attribute_store,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PersistenceSchema;
+    use crate::{Attribute, AttributeMap};
+
+    #[test]
+    fn registration_metadata_retains_sync_configuration() {
+        let attribute = Attribute::<String>::new("plain");
+        let attribute_map = AttributeMap::<String>::new("map").sync_to_attribute_store();
+        let schema = PersistenceSchema::new()
+            .attribute(&attribute)
+            .attribute_map(&attribute_map);
+
+        assert!(!schema.definitions[0].sync_to_attribute_store);
+        assert!(schema.definitions[1].sync_to_attribute_store);
     }
 }

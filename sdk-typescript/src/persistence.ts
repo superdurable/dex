@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Channel, ChannelMap } from "./wait.js";
+import { markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import { requireName } from "./validation.js";
@@ -102,6 +103,17 @@ export class Attribute<T> {
   }
 
   /**
+   * Returns an immutable Attribute definition whose writes are projected to the Flow's Attribute Store.
+   *
+   * Projection is asynchronous and latest-state only. Deletion writes SQL `NULL`, projection failures do
+   * not roll back Flow Attribute writes, and the Flow must select a configured Attribute Store name.
+   * @returns A new synced definition; this definition remains unchanged.
+   */
+  public syncToAttributeStore(): Attribute<T> {
+    return markAttributeStoreSynced(new Attribute(this.name, this.codec, this.index));
+  }
+
+  /**
    * Creates a lock request for this Attribute.
    * @returns A lock for this singleton Attribute.
    */
@@ -156,6 +168,18 @@ export class AttributeMap<T> {
    */
   public delete(context: Context, instance: string): void {
     context.deleteAttribute(this as AttributeMap<unknown>, instance);
+  }
+
+  /**
+   * Returns an immutable AttributeMap definition whose writes are projected to the Flow's Attribute Store.
+   *
+   * Projection is asynchronous and latest-state only. Each map instance uses its physical Attribute name.
+   * Deletion writes SQL `NULL`, projection failures do not roll back Flow Attribute writes, and the Flow
+   * must select a configured Attribute Store name.
+   * @returns A new synced definition; this definition remains unchanged.
+   */
+  public syncToAttributeStore(): AttributeMap<T> {
+    return markAttributeStoreSynced(new AttributeMap(this.name, this.codec, this.index));
   }
 
   /**

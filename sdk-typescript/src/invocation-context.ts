@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Codec } from "./codec.js";
+import { mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Context } from "./context.js";
 import {
   ConditionStatus,
@@ -129,7 +130,7 @@ export class InvocationContext implements Context {
       key,
       value: encodeValue(attribute.codec, value),
       indexConfig: mapIndex(attribute.index),
-      syncConfig: undefined,
+      syncConfig: mapAttributeStoreSync(attribute),
     });
   }
 
@@ -143,7 +144,7 @@ export class InvocationContext implements Context {
       key,
       value: deletionValue(),
       indexConfig: mapIndex(attribute.index),
-      syncConfig: undefined,
+      syncConfig: mapAttributeStoreSync(attribute),
     });
   }
 

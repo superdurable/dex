@@ -31,6 +31,7 @@ public final class FlowConfig {
     private final Integer continueAsNewPageSizeBytes;
     private final StepDurability stepDurability;
     private final WorkerTarget workerTarget;
+    private final String attributeStoreName;
 
     private FlowConfig(final Builder builder) {
         this.activeStepSearchMode = builder.activeStepSearchMode;
@@ -38,6 +39,7 @@ public final class FlowConfig {
         this.continueAsNewPageSizeBytes = builder.continueAsNewPageSizeBytes;
         this.stepDurability = builder.stepDurability;
         this.workerTarget = builder.workerTarget;
+        this.attributeStoreName = builder.attributeStoreName;
     }
 
     /**
@@ -69,6 +71,10 @@ public final class FlowConfig {
         return workerTarget;
     }
 
+    String getAttributeStoreName() {
+        return attributeStoreName;
+    }
+
     /** Builds immutable {@link FlowConfig} values. */
     public static final class Builder {
         private ActiveStepSearchMode activeStepSearchMode;
@@ -76,6 +82,7 @@ public final class FlowConfig {
         private Integer continueAsNewPageSizeBytes;
         private StepDurability stepDurability;
         private WorkerTarget workerTarget;
+        private String attributeStoreName;
 
         private Builder() {
         }
@@ -142,6 +149,21 @@ public final class FlowConfig {
          */
         public Builder workerTarget(final WorkerTarget value) {
             workerTarget = value;
+            return this;
+        }
+
+        /**
+         * Selects the Server-configured Attribute Store for enabled Attribute writes.
+         *
+         * <p>A nonempty value selects a named store. An empty string explicitly disables future
+         * projections, while omitting this call leaves the current or server-selected value
+         * unchanged. Already queued projections retain their original target.
+         *
+         * @param value the Attribute Store name, or an empty string to disable future projections
+         * @return this builder
+         */
+        public Builder attributeStoreName(final String value) {
+            attributeStoreName = value;
             return this;
         }
 

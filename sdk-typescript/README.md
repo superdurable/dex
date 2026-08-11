@@ -67,6 +67,20 @@ failure or the default 120-second deadline aborts startup. An indexed
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two
 handler calls. Timer and channel conditions determine how long a Step waits.
 
+Opt an Attribute or AttributeMap into Attribute Store synchronization, then
+select the Server-configured Store for the Flow:
+
+```typescript
+const email = new Attribute("customer-email", stringCodec)
+  .syncToAttributeStore();
+const config: FlowConfig = { attributeStoreName: "profiles" };
+```
+
+The Store is an asynchronous latest-state projection. Deletion writes SQL
+`NULL`, and projection failures do not roll back Flow Attributes. Omitting
+`attributeStoreName` preserves the current target; `attributeStoreName: ""`
+disables future synchronization while retaining protocol presence.
+
 ### Async handlers
 
 `Step.execute`, `Step.waitFor`, and RPC methods may be `async` and return a

@@ -51,6 +51,7 @@ func mapInitialAttributes(
 			Key:         key,
 			Value:       concrete.encoded,
 			IndexConfig: concrete.indexConfig,
+			SyncConfig:  mapAttributeSyncConfig(concrete.syncToAttributeStore),
 		})
 	}
 	return mapped, nil
@@ -68,12 +69,14 @@ func mapAttributeWrite(write AttributeWrite) (*dexpb.AttributeWrite, error) {
 		Key:         write.Name,
 		Value:       value,
 		IndexConfig: indexConfig,
+		SyncConfig:  mapAttributeSyncConfig(write.SyncToAttributeStore),
 	}, nil
 }
 
 func mapAttributeDelete(
 	name string,
 	index *AttributeIndex,
+	syncToAttributeStore bool,
 ) (*dexpb.AttributeWrite, error) {
 	if name == "" {
 		return nil, fmt.Errorf("dex: attribute delete name must not be empty")
@@ -86,7 +89,15 @@ func mapAttributeDelete(
 		Key:         name,
 		Value:       value,
 		IndexConfig: indexConfig,
+		SyncConfig:  mapAttributeSyncConfig(syncToAttributeStore),
 	}, nil
+}
+
+func mapAttributeSyncConfig(enabled bool) *dexpb.AttributeSyncConfig {
+	if !enabled {
+		return nil
+	}
+	return &dexpb.AttributeSyncConfig{Enabled: true}
 }
 
 func mapStartFlowOptions(
@@ -330,6 +341,7 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
 		WorkerTarget:                 mapWorkerTarget(config.WorkerTarget),
+		AttributeSyncConfigName:      config.AttributeStoreName,
 	}, nil
 }
 
