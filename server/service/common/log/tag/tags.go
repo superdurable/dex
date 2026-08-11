@@ -18,13 +18,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications after the Legacy Cutoff are licensed under the
+// Super Durable Source License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 package tag
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 // LoggingCallAtKey is reserved tag
@@ -42,6 +49,36 @@ const LoggingCallAtKey = "logging-call-at"
 // Error returns tag for Error
 func Error(err error) Tag {
 	return newErrorTag("error", err)
+}
+
+// Interval returns the polling interval tag.
+func Interval(interval time.Duration) Tag {
+	return newDurationTag("interval", interval)
+}
+
+// Elapsed returns the elapsed duration tag.
+func Elapsed(elapsed time.Duration) Tag {
+	return newDurationTag("elapsed", elapsed)
+}
+
+// IndexCount returns the attribute index count tag.
+func IndexCount(count int) Tag {
+	return newInt("index-count", count)
+}
+
+// Requested returns requested attribute indexes.
+func Requested(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("requested", indexes)
+}
+
+// Missing returns missing attribute indexes.
+func Missing(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("missing", indexes)
+}
+
+// Indexes returns attribute indexes.
+func Indexes(indexes map[string]dexpb.IndexType) Tag {
+	return newObjectTag("indexes", indexes)
 }
 
 // Timestamp returns tag for Timestamp
