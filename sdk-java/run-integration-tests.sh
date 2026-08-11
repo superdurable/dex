@@ -27,6 +27,7 @@ web_port="${DEX_INTEG_WEB_PORT:-18901}"
 temporal_port="${DEX_INTEG_TEMPORAL_PORT:-17233}"
 temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-18233}"
 dex_address="127.0.0.1:${dex_port}"
+temporal_address="127.0.0.1:${temporal_port}"
 log_file="/tmp/test-java-sdk-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
