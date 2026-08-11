@@ -204,9 +204,15 @@ func (i *Interpreter) StartEngineFlow(
 	if updateErr != nil {
 		return nil, updateErr
 	}
-	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
+
+	// we need these global varirables because sub threads(goroutine) need to report error back
+	// to main goroutine to return.
+	// Note that different errors could overwrite each other.
+	// We only support last one wins. we may use multiError to improve.
+	var errToFailWf error
 	var forceCompleteWf bool
 	var shouldGracefulComplete bool
+
 	terminalCoordinator := NewTerminalCoordinator(
 		provider,
 		ctx,
