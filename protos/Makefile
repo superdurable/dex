@@ -77,7 +77,6 @@ proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
 		--plugin=protoc-gen-grpc-java=$(GRPC_JAVA_PLUGIN) \
 		--grpc-java_out=$(SDK_JAVA_OUT) \
 		$(PROTO_FILE)
-	find $(SDK_JAVA_OUT)/io/superdurable/gen -name '*.java' -exec perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/\s+\z/\n/' {} +
 
 proto-python: ensure-python-tools
 	rm -rf $(SDK_PYTHON_OUT)

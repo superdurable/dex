@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodFailure failure = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder>
+        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> 
         internalGetFailureFieldBuilder() {
       if (failureBuilder_ == null) {
         failureBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,3 +565,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

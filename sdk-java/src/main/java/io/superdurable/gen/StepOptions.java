@@ -181,7 +181,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       executeFailureProceedStepType_ = s;
@@ -197,7 +197,7 @@ private static final long serialVersionUID = 0L;
       getExecuteFailureProceedStepTypeBytes() {
     java.lang.Object ref = executeFailureProceedStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       executeFailureProceedStepType_ = b;
@@ -1179,7 +1179,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.RetryPolicy wait_for_retry_policy = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder>
+        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder> 
         internalGetWaitForRetryPolicyFieldBuilder() {
       if (waitForRetryPolicyBuilder_ == null) {
         waitForRetryPolicyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1300,7 +1300,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.RetryPolicy execute_retry_policy = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder>
+        io.superdurable.gen.RetryPolicy, io.superdurable.gen.RetryPolicy.Builder, io.superdurable.gen.RetryPolicyOrBuilder> 
         internalGetExecuteRetryPolicyFieldBuilder() {
       if (executeRetryPolicyBuilder_ == null) {
         executeRetryPolicyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1442,7 +1442,7 @@ private static final long serialVersionUID = 0L;
         getExecuteFailureProceedStepTypeBytes() {
       java.lang.Object ref = executeFailureProceedStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         executeFailureProceedStepType_ = b;
@@ -1597,7 +1597,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions execute_failure_proceed_step_options = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
         internalGetExecuteFailureProceedStepOptionsFieldBuilder() {
       if (executeFailureProceedStepOptionsBuilder_ == null) {
         executeFailureProceedStepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -2018,3 +2018,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

@@ -84,7 +84,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder> 
       getTimerConditionsOrBuilderList() {
     return timerConditions_;
   }
@@ -125,7 +125,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder> 
       getChannelConditionsOrBuilderList() {
     return channelConditions_;
   }
@@ -166,7 +166,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder> 
       getConditionCombinationsOrBuilderList() {
     return conditionCombinations_;
   }
@@ -565,7 +565,7 @@ private static final long serialVersionUID = 0L;
             timerConditionsBuilder_ = null;
             timerConditions_ = other.timerConditions_;
             bitField0_ = (bitField0_ & ~0x00000002);
-            timerConditionsBuilder_ =
+            timerConditionsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetTimerConditionsFieldBuilder() : null;
           } else {
@@ -591,7 +591,7 @@ private static final long serialVersionUID = 0L;
             channelConditionsBuilder_ = null;
             channelConditions_ = other.channelConditions_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            channelConditionsBuilder_ =
+            channelConditionsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetChannelConditionsFieldBuilder() : null;
           } else {
@@ -617,7 +617,7 @@ private static final long serialVersionUID = 0L;
             conditionCombinationsBuilder_ = null;
             conditionCombinations_ = other.conditionCombinations_;
             bitField0_ = (bitField0_ & ~0x00000008);
-            conditionCombinationsBuilder_ =
+            conditionCombinationsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetConditionCombinationsFieldBuilder() : null;
           } else {
@@ -959,7 +959,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder> 
          getTimerConditionsOrBuilderList() {
       if (timerConditionsBuilder_ != null) {
         return timerConditionsBuilder_.getMessageOrBuilderList();
@@ -985,12 +985,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
      */
-    public java.util.List<io.superdurable.gen.TimerCondition.Builder>
+    public java.util.List<io.superdurable.gen.TimerCondition.Builder> 
          getTimerConditionsBuilderList() {
       return internalGetTimerConditionsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.TimerCondition, io.superdurable.gen.TimerCondition.Builder, io.superdurable.gen.TimerConditionOrBuilder>
+        io.superdurable.gen.TimerCondition, io.superdurable.gen.TimerCondition.Builder, io.superdurable.gen.TimerConditionOrBuilder> 
         internalGetTimerConditionsFieldBuilder() {
       if (timerConditionsBuilder_ == null) {
         timerConditionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1199,7 +1199,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder> 
          getChannelConditionsOrBuilderList() {
       if (channelConditionsBuilder_ != null) {
         return channelConditionsBuilder_.getMessageOrBuilderList();
@@ -1225,12 +1225,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelCondition.Builder>
+    public java.util.List<io.superdurable.gen.ChannelCondition.Builder> 
          getChannelConditionsBuilderList() {
       return internalGetChannelConditionsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelCondition, io.superdurable.gen.ChannelCondition.Builder, io.superdurable.gen.ChannelConditionOrBuilder>
+        io.superdurable.gen.ChannelCondition, io.superdurable.gen.ChannelCondition.Builder, io.superdurable.gen.ChannelConditionOrBuilder> 
         internalGetChannelConditionsFieldBuilder() {
       if (channelConditionsBuilder_ == null) {
         channelConditionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1439,7 +1439,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder> 
          getConditionCombinationsOrBuilderList() {
       if (conditionCombinationsBuilder_ != null) {
         return conditionCombinationsBuilder_.getMessageOrBuilderList();
@@ -1465,12 +1465,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
      */
-    public java.util.List<io.superdurable.gen.ConditionCombination.Builder>
+    public java.util.List<io.superdurable.gen.ConditionCombination.Builder> 
          getConditionCombinationsBuilderList() {
       return internalGetConditionCombinationsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ConditionCombination, io.superdurable.gen.ConditionCombination.Builder, io.superdurable.gen.ConditionCombinationOrBuilder>
+        io.superdurable.gen.ConditionCombination, io.superdurable.gen.ConditionCombination.Builder, io.superdurable.gen.ConditionCombinationOrBuilder> 
         internalGetConditionCombinationsFieldBuilder() {
       if (conditionCombinationsBuilder_ == null) {
         conditionCombinationsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1534,3 +1534,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

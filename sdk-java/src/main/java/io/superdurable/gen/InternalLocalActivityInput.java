@@ -569,7 +569,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodOptions method_options = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder>
+        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder> 
         internalGetMethodOptionsFieldBuilder() {
       if (methodOptionsBuilder_ == null) {
         methodOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -632,3 +632,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

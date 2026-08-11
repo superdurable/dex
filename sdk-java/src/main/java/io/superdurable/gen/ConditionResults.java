@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ChannelResult channel_results = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder> 
       getChannelResultsOrBuilderList() {
     return channelResults_;
   }
@@ -105,7 +105,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.TimerResult timer_results = 2;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder> 
       getTimerResultsOrBuilderList() {
     return timerResults_;
   }
@@ -480,7 +480,7 @@ private static final long serialVersionUID = 0L;
             channelResultsBuilder_ = null;
             channelResults_ = other.channelResults_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            channelResultsBuilder_ =
+            channelResultsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetChannelResultsFieldBuilder() : null;
           } else {
@@ -506,7 +506,7 @@ private static final long serialVersionUID = 0L;
             timerResultsBuilder_ = null;
             timerResults_ = other.timerResults_;
             bitField0_ = (bitField0_ & ~0x00000002);
-            timerResultsBuilder_ =
+            timerResultsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetTimerResultsFieldBuilder() : null;
           } else {
@@ -786,7 +786,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelResult channel_results = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder> 
          getChannelResultsOrBuilderList() {
       if (channelResultsBuilder_ != null) {
         return channelResultsBuilder_.getMessageOrBuilderList();
@@ -812,12 +812,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelResult channel_results = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelResult.Builder>
+    public java.util.List<io.superdurable.gen.ChannelResult.Builder> 
          getChannelResultsBuilderList() {
       return internalGetChannelResultsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelResult, io.superdurable.gen.ChannelResult.Builder, io.superdurable.gen.ChannelResultOrBuilder>
+        io.superdurable.gen.ChannelResult, io.superdurable.gen.ChannelResult.Builder, io.superdurable.gen.ChannelResultOrBuilder> 
         internalGetChannelResultsFieldBuilder() {
       if (channelResultsBuilder_ == null) {
         channelResultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1026,7 +1026,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerResult timer_results = 2;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder> 
          getTimerResultsOrBuilderList() {
       if (timerResultsBuilder_ != null) {
         return timerResultsBuilder_.getMessageOrBuilderList();
@@ -1052,12 +1052,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerResult timer_results = 2;</code>
      */
-    public java.util.List<io.superdurable.gen.TimerResult.Builder>
+    public java.util.List<io.superdurable.gen.TimerResult.Builder> 
          getTimerResultsBuilderList() {
       return internalGetTimerResultsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.TimerResult, io.superdurable.gen.TimerResult.Builder, io.superdurable.gen.TimerResultOrBuilder>
+        io.superdurable.gen.TimerResult, io.superdurable.gen.TimerResult.Builder, io.superdurable.gen.TimerResultOrBuilder> 
         internalGetTimerResultsFieldBuilder() {
       if (timerResultsBuilder_ == null) {
         timerResultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1153,3 +1153,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

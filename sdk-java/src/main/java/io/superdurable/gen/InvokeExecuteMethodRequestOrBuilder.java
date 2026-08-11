@@ -67,7 +67,7 @@ public interface InvokeExecuteMethodRequestOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getAttributesList();
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
@@ -80,7 +80,7 @@ public interface InvokeExecuteMethodRequestOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
@@ -91,7 +91,7 @@ public interface InvokeExecuteMethodRequestOrBuilder extends
   /**
    * <code>repeated .dex.KV step_exe_locals = 6;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getStepExeLocalsList();
   /**
    * <code>repeated .dex.KV step_exe_locals = 6;</code>
@@ -104,7 +104,7 @@ public interface InvokeExecuteMethodRequestOrBuilder extends
   /**
    * <code>repeated .dex.KV step_exe_locals = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getStepExeLocalsOrBuilderList();
   /**
    * <code>repeated .dex.KV step_exe_locals = 6;</code>

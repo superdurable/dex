@@ -130,7 +130,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       kind_ = s;
@@ -152,7 +152,7 @@ private static final long serialVersionUID = 0L;
     }
     java.lang.Object ref = kind_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       kind_ = b;
@@ -190,7 +190,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       kind_ = s;
@@ -212,7 +212,7 @@ private static final long serialVersionUID = 0L;
     }
     java.lang.Object ref = kind_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       kind_ = b;
@@ -242,7 +242,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       kind_ = s;
@@ -260,7 +260,7 @@ private static final long serialVersionUID = 0L;
     }
     java.lang.Object ref = kind_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       kind_ = b;
@@ -985,7 +985,7 @@ private static final long serialVersionUID = 0L;
       }
       java.lang.Object ref = kind_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         kind_ = b;
@@ -1098,7 +1098,7 @@ private static final long serialVersionUID = 0L;
       }
       java.lang.Object ref = kind_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         kind_ = b;
@@ -1199,7 +1199,7 @@ private static final long serialVersionUID = 0L;
       }
       java.lang.Object ref = kind_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         kind_ = b;
@@ -1372,7 +1372,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.EncodedObject obj_value = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.EncodedObject, io.superdurable.gen.EncodedObject.Builder, io.superdurable.gen.EncodedObjectOrBuilder>
+        io.superdurable.gen.EncodedObject, io.superdurable.gen.EncodedObject.Builder, io.superdurable.gen.EncodedObjectOrBuilder> 
         internalGetObjValueFieldBuilder() {
       if (objValueBuilder_ == null) {
         if (!(kindCase_ == 4)) {
@@ -1659,3 +1659,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

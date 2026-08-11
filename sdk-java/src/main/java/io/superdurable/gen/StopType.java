@@ -140,3 +140,4 @@ public enum StopType
 
   // @@protoc_insertion_point(enum_scope:dex.StopType)
 }
+

@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value output = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetOutputFieldBuilder() {
       if (outputBuilder_ == null) {
         outputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,3 +565,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

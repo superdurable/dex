@@ -92,7 +92,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -108,7 +108,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -131,7 +131,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepType_ = s;
@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
       getStepTypeBytes() {
     java.lang.Object ref = stepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepType_ = b;
@@ -197,7 +197,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV attributes = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -238,7 +238,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV step_exe_locals = 6;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getStepExeLocalsOrBuilderList() {
     return stepExeLocals_;
   }
@@ -749,7 +749,7 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            attributesBuilder_ =
+            attributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -775,7 +775,7 @@ private static final long serialVersionUID = 0L;
             stepExeLocalsBuilder_ = null;
             stepExeLocals_ = other.stepExeLocals_;
             bitField0_ = (bitField0_ & ~0x00000020);
-            stepExeLocalsBuilder_ =
+            stepExeLocalsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepExeLocalsFieldBuilder() : null;
           } else {
@@ -994,7 +994,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Context context = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Context, io.superdurable.gen.Context.Builder, io.superdurable.gen.ContextOrBuilder>
+        io.superdurable.gen.Context, io.superdurable.gen.Context.Builder, io.superdurable.gen.ContextOrBuilder> 
         internalGetContextFieldBuilder() {
       if (contextBuilder_ == null) {
         contextBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1032,7 +1032,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1104,7 +1104,7 @@ private static final long serialVersionUID = 0L;
         getStepTypeBytes() {
       java.lang.Object ref = stepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepType_ = b;
@@ -1259,7 +1259,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1467,7 +1467,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1493,12 +1493,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1707,7 +1707,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_exe_locals = 6;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getStepExeLocalsOrBuilderList() {
       if (stepExeLocalsBuilder_ != null) {
         return stepExeLocalsBuilder_.getMessageOrBuilderList();
@@ -1733,12 +1733,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_exe_locals = 6;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getStepExeLocalsBuilderList() {
       return internalGetStepExeLocalsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetStepExeLocalsFieldBuilder() {
       if (stepExeLocalsBuilder_ == null) {
         stepExeLocalsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1860,7 +1860,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ConditionResults condition_results = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ConditionResults, io.superdurable.gen.ConditionResults.Builder, io.superdurable.gen.ConditionResultsOrBuilder>
+        io.superdurable.gen.ConditionResults, io.superdurable.gen.ConditionResults.Builder, io.superdurable.gen.ConditionResultsOrBuilder> 
         internalGetConditionResultsFieldBuilder() {
       if (conditionResultsBuilder_ == null) {
         conditionResultsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1923,3 +1923,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

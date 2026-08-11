@@ -70,7 +70,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, java.lang.Integer> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, java.lang.Integer>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepTypeStartedCountEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.INT32,
@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, java.lang.Integer> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, java.lang.Integer>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepTypeCurrentlyExecutingCountEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.INT32,
@@ -235,7 +235,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, io.superdurable.gen.StepExecutionNumbers> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, io.superdurable.gen.StepExecutionNumbers>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCounterInfo_StepActiveExecutionNumsEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.MESSAGE,
@@ -1238,3 +1238,4 @@ io.superdurable.gen.StepExecutionNumbers defaultValue) {
   }
 
 }
+

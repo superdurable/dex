@@ -13,7 +13,7 @@ public interface InterpreterWorkflowOutputOrBuilder extends
   /**
    * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
    */
-  java.util.List<io.superdurable.gen.StepCompletionOutput>
+  java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getStepCompletionOutputsList();
   /**
    * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
@@ -26,7 +26,7 @@ public interface InterpreterWorkflowOutputOrBuilder extends
   /**
    * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getStepCompletionOutputsOrBuilderList();
   /**
    * <code>repeated .dex.StepCompletionOutput step_completion_outputs = 1;</code>

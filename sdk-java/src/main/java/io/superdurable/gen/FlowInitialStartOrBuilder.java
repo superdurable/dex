@@ -55,7 +55,7 @@ public interface FlowInitialStartOrBuilder extends
   /**
    * <code>repeated .dex.KV initial_attributes = 4;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getInitialAttributesList();
   /**
    * <code>repeated .dex.KV initial_attributes = 4;</code>
@@ -68,7 +68,7 @@ public interface FlowInitialStartOrBuilder extends
   /**
    * <code>repeated .dex.KV initial_attributes = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getInitialAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV initial_attributes = 4;</code>

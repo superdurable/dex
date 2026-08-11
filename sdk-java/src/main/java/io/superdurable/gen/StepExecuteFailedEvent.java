@@ -630,7 +630,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodEventInput input = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodEventInput, io.superdurable.gen.StepMethodEventInput.Builder, io.superdurable.gen.StepMethodEventInputOrBuilder>
+        io.superdurable.gen.StepMethodEventInput, io.superdurable.gen.StepMethodEventInput.Builder, io.superdurable.gen.StepMethodEventInputOrBuilder> 
         internalGetInputFieldBuilder() {
       if (inputBuilder_ == null) {
         inputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -751,7 +751,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodFailedOutput output = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodFailedOutput, io.superdurable.gen.StepMethodFailedOutput.Builder, io.superdurable.gen.StepMethodFailedOutputOrBuilder>
+        io.superdurable.gen.StepMethodFailedOutput, io.superdurable.gen.StepMethodFailedOutput.Builder, io.superdurable.gen.StepMethodFailedOutputOrBuilder> 
         internalGetOutputFieldBuilder() {
       if (outputBuilder_ == null) {
         outputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -872,7 +872,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodEventContext context = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodEventContext, io.superdurable.gen.StepMethodEventContext.Builder, io.superdurable.gen.StepMethodEventContextOrBuilder>
+        io.superdurable.gen.StepMethodEventContext, io.superdurable.gen.StepMethodEventContext.Builder, io.superdurable.gen.StepMethodEventContextOrBuilder> 
         internalGetContextFieldBuilder() {
       if (contextBuilder_ == null) {
         contextBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -935,3 +935,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

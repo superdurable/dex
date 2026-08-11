@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, io.superdurable.gen.TimerInfoList> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, io.superdurable.gen.TimerInfoList>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_GetCurrentTimerInfosQueryResponse_StepExecutionCurrentTimerInfosEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.MESSAGE,
@@ -726,3 +726,4 @@ io.superdurable.gen.TimerInfoList defaultValue) {
   }
 
 }
+

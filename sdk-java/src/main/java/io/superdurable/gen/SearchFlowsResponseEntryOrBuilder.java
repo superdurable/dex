@@ -37,7 +37,7 @@ public interface SearchFlowsResponseEntryOrBuilder extends
   /**
    * <code>repeated .dex.KV search_attributes = 3;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getSearchAttributesList();
   /**
    * <code>repeated .dex.KV search_attributes = 3;</code>
@@ -50,7 +50,7 @@ public interface SearchFlowsResponseEntryOrBuilder extends
   /**
    * <code>repeated .dex.KV search_attributes = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getSearchAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV search_attributes = 3;</code>

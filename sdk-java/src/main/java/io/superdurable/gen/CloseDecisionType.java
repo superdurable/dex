@@ -158,3 +158,4 @@ public enum CloseDecisionType
 
   // @@protoc_insertion_point(enum_scope:dex.CloseDecisionType)
 }
+

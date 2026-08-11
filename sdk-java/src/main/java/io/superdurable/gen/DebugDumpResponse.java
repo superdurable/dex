@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder> 
       getActiveStepExecutionsOrBuilderList() {
     return activeStepExecutions_;
   }
@@ -575,7 +575,7 @@ private static final long serialVersionUID = 0L;
             activeStepExecutionsBuilder_ = null;
             activeStepExecutions_ = other.activeStepExecutions_;
             bitField0_ = (bitField0_ & ~0x00000008);
-            activeStepExecutionsBuilder_ =
+            activeStepExecutionsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetActiveStepExecutionsFieldBuilder() : null;
           } else {
@@ -777,7 +777,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
         internalGetConfigFieldBuilder() {
       if (configBuilder_ == null) {
         configBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -898,7 +898,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewDump snapshot = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewDump, io.superdurable.gen.ContinueAsNewDump.Builder, io.superdurable.gen.ContinueAsNewDumpOrBuilder>
+        io.superdurable.gen.ContinueAsNewDump, io.superdurable.gen.ContinueAsNewDump.Builder, io.superdurable.gen.ContinueAsNewDumpOrBuilder> 
         internalGetSnapshotFieldBuilder() {
       if (snapshotBuilder_ == null) {
         snapshotBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1190,7 +1190,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder> 
          getActiveStepExecutionsOrBuilderList() {
       if (activeStepExecutionsBuilder_ != null) {
         return activeStepExecutionsBuilder_.getMessageOrBuilderList();
@@ -1216,12 +1216,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
      */
-    public java.util.List<io.superdurable.gen.ActiveStepExecutionState.Builder>
+    public java.util.List<io.superdurable.gen.ActiveStepExecutionState.Builder> 
          getActiveStepExecutionsBuilderList() {
       return internalGetActiveStepExecutionsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ActiveStepExecutionState, io.superdurable.gen.ActiveStepExecutionState.Builder, io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+        io.superdurable.gen.ActiveStepExecutionState, io.superdurable.gen.ActiveStepExecutionState.Builder, io.superdurable.gen.ActiveStepExecutionStateOrBuilder> 
         internalGetActiveStepExecutionsFieldBuilder() {
       if (activeStepExecutionsBuilder_ == null) {
         activeStepExecutionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1285,3 +1285,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

@@ -24,7 +24,7 @@ public interface WaitForFlowResponseOrBuilder extends
   /**
    * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
-  java.util.List<io.superdurable.gen.StepCompletionOutput>
+  java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getResultsList();
   /**
    * <code>repeated .dex.StepCompletionOutput results = 2;</code>
@@ -37,7 +37,7 @@ public interface WaitForFlowResponseOrBuilder extends
   /**
    * <code>repeated .dex.StepCompletionOutput results = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getResultsOrBuilderList();
   /**
    * <code>repeated .dex.StepCompletionOutput results = 2;</code>

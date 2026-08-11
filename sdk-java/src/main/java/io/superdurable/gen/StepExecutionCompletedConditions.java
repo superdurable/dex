@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
         java.lang.Integer, java.lang.Integer> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.Integer, java.lang.Integer>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCompletedConditions_CompletedTimerConditionsEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCompletedConditions_CompletedTimerConditionsEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.INT32,
                 0,
                 com.google.protobuf.WireFormat.FieldType.ENUM,
@@ -792,3 +792,4 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
   }
 
 }
+

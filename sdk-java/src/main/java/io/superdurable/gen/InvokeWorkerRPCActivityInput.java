@@ -566,7 +566,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.PrepareRpcQueryResponse rpc_prep = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.PrepareRpcQueryResponse, io.superdurable.gen.PrepareRpcQueryResponse.Builder, io.superdurable.gen.PrepareRpcQueryResponseOrBuilder>
+        io.superdurable.gen.PrepareRpcQueryResponse, io.superdurable.gen.PrepareRpcQueryResponse.Builder, io.superdurable.gen.PrepareRpcQueryResponseOrBuilder> 
         internalGetRpcPrepFieldBuilder() {
       if (rpcPrepBuilder_ == null) {
         rpcPrepBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -687,7 +687,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeRPCRequest request = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeRPCRequest, io.superdurable.gen.InvokeRPCRequest.Builder, io.superdurable.gen.InvokeRPCRequestOrBuilder>
+        io.superdurable.gen.InvokeRPCRequest, io.superdurable.gen.InvokeRPCRequest.Builder, io.superdurable.gen.InvokeRPCRequestOrBuilder> 
         internalGetRequestFieldBuilder() {
       if (requestBuilder_ == null) {
         requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -750,3 +750,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

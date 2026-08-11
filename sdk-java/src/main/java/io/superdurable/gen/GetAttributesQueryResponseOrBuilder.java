@@ -13,7 +13,7 @@ public interface GetAttributesQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getAttributesList();
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
@@ -26,7 +26,7 @@ public interface GetAttributesQueryResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV attributes = 1;</code>

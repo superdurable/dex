@@ -37,7 +37,7 @@ public interface SyncAttributeBatchActivityInputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeSyncItem>
+  java.util.List<io.superdurable.gen.AttributeSyncItem> 
       getMutationsList();
   /**
    * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
@@ -50,7 +50,7 @@ public interface SyncAttributeBatchActivityInputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
       getMutationsOrBuilderList();
   /**
    * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>

@@ -24,7 +24,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
    */
-  java.util.List<io.superdurable.gen.TimerCondition>
+  java.util.List<io.superdurable.gen.TimerCondition> 
       getTimerConditionsList();
   /**
    * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
@@ -37,7 +37,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder>
+  java.util.List<? extends io.superdurable.gen.TimerConditionOrBuilder> 
       getTimerConditionsOrBuilderList();
   /**
    * <code>repeated .dex.TimerCondition timer_conditions = 2;</code>
@@ -48,7 +48,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelCondition>
+  java.util.List<io.superdurable.gen.ChannelCondition> 
       getChannelConditionsList();
   /**
    * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
@@ -61,7 +61,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ChannelConditionOrBuilder> 
       getChannelConditionsOrBuilderList();
   /**
    * <code>repeated .dex.ChannelCondition channel_conditions = 3;</code>
@@ -72,7 +72,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
    */
-  java.util.List<io.superdurable.gen.ConditionCombination>
+  java.util.List<io.superdurable.gen.ConditionCombination> 
       getConditionCombinationsList();
   /**
    * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
@@ -85,7 +85,7 @@ public interface WaitingConditionOrBuilder extends
   /**
    * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ConditionCombinationOrBuilder> 
       getConditionCombinationsOrBuilderList();
   /**
    * <code>repeated .dex.ConditionCombination condition_combinations = 4;</code>

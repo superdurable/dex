@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
       getPendingScheduledOrBuilderList() {
     return pendingScheduled_;
   }
@@ -377,7 +377,7 @@ private static final long serialVersionUID = 0L;
             pendingScheduledBuilder_ = null;
             pendingScheduled_ = other.pendingScheduled_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            pendingScheduledBuilder_ =
+            pendingScheduledBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetPendingScheduledFieldBuilder() : null;
           } else {
@@ -636,7 +636,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
          getPendingScheduledOrBuilderList() {
       if (pendingScheduledBuilder_ != null) {
         return pendingScheduledBuilder_.getMessageOrBuilderList();
@@ -662,12 +662,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo pending_scheduled = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.TimerInfo.Builder>
+    public java.util.List<io.superdurable.gen.TimerInfo.Builder> 
          getPendingScheduledBuilderList() {
       return internalGetPendingScheduledFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder>
+        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder> 
         internalGetPendingScheduledFieldBuilder() {
       if (pendingScheduledBuilder_ == null) {
         pendingScheduledBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -731,3 +731,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

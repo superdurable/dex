@@ -605,7 +605,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WorkerTarget worker_target = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> 
         internalGetWorkerTargetFieldBuilder() {
       if (workerTargetBuilder_ == null) {
         workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -726,7 +726,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder>
+        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder> 
         internalGetRequestFieldBuilder() {
       if (requestBuilder_ == null) {
         requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -833,3 +833,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

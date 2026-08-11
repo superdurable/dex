@@ -13,7 +13,7 @@ public interface ConditionResultsOrBuilder extends
   /**
    * <code>repeated .dex.ChannelResult channel_results = 1;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelResult>
+  java.util.List<io.superdurable.gen.ChannelResult> 
       getChannelResultsList();
   /**
    * <code>repeated .dex.ChannelResult channel_results = 1;</code>
@@ -26,7 +26,7 @@ public interface ConditionResultsOrBuilder extends
   /**
    * <code>repeated .dex.ChannelResult channel_results = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ChannelResultOrBuilder> 
       getChannelResultsOrBuilderList();
   /**
    * <code>repeated .dex.ChannelResult channel_results = 1;</code>
@@ -37,7 +37,7 @@ public interface ConditionResultsOrBuilder extends
   /**
    * <code>repeated .dex.TimerResult timer_results = 2;</code>
    */
-  java.util.List<io.superdurable.gen.TimerResult>
+  java.util.List<io.superdurable.gen.TimerResult> 
       getTimerResultsList();
   /**
    * <code>repeated .dex.TimerResult timer_results = 2;</code>
@@ -50,7 +50,7 @@ public interface ConditionResultsOrBuilder extends
   /**
    * <code>repeated .dex.TimerResult timer_results = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder>
+  java.util.List<? extends io.superdurable.gen.TimerResultOrBuilder> 
       getTimerResultsOrBuilderList();
   /**
    * <code>repeated .dex.TimerResult timer_results = 2;</code>

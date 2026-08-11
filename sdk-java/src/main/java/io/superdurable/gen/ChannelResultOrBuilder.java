@@ -48,7 +48,7 @@ public interface ChannelResultOrBuilder extends
   /**
    * <code>repeated .dex.Value values = 4;</code>
    */
-  java.util.List<io.superdurable.gen.Value>
+  java.util.List<io.superdurable.gen.Value> 
       getValuesList();
   /**
    * <code>repeated .dex.Value values = 4;</code>
@@ -61,7 +61,7 @@ public interface ChannelResultOrBuilder extends
   /**
    * <code>repeated .dex.Value values = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ValueOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
       getValuesOrBuilderList();
   /**
    * <code>repeated .dex.Value values = 4;</code>

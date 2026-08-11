@@ -587,7 +587,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WaitForAttributeEqual equal = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitForAttributeEqual, io.superdurable.gen.WaitForAttributeEqual.Builder, io.superdurable.gen.WaitForAttributeEqualOrBuilder>
+        io.superdurable.gen.WaitForAttributeEqual, io.superdurable.gen.WaitForAttributeEqual.Builder, io.superdurable.gen.WaitForAttributeEqualOrBuilder> 
         internalGetEqualFieldBuilder() {
       if (equalBuilder_ == null) {
         if (!(kindCase_ == 1)) {
@@ -655,3 +655,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

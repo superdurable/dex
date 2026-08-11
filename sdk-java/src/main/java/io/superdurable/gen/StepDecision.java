@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getNextStepsOrBuilderList() {
     return nextSteps_;
   }
@@ -440,7 +440,7 @@ private static final long serialVersionUID = 0L;
             nextStepsBuilder_ = null;
             nextSteps_ = other.nextSteps_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            nextStepsBuilder_ =
+            nextStepsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetNextStepsFieldBuilder() : null;
           } else {
@@ -709,7 +709,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepMovement next_steps = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
          getNextStepsOrBuilderList() {
       if (nextStepsBuilder_ != null) {
         return nextStepsBuilder_.getMessageOrBuilderList();
@@ -735,12 +735,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.StepMovement next_steps = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.StepMovement.Builder>
+    public java.util.List<io.superdurable.gen.StepMovement.Builder> 
          getNextStepsBuilderList() {
       return internalGetNextStepsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder>
+        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> 
         internalGetNextStepsFieldBuilder() {
       if (nextStepsBuilder_ == null) {
         nextStepsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -862,7 +862,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.CloseDecision close_decision = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.CloseDecision, io.superdurable.gen.CloseDecision.Builder, io.superdurable.gen.CloseDecisionOrBuilder>
+        io.superdurable.gen.CloseDecision, io.superdurable.gen.CloseDecision.Builder, io.superdurable.gen.CloseDecisionOrBuilder> 
         internalGetCloseDecisionFieldBuilder() {
       if (closeDecisionBuilder_ == null) {
         closeDecisionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -925,3 +925,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

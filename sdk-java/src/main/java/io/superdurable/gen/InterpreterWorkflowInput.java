@@ -65,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -81,7 +81,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -104,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       startStepType_ = s;
@@ -120,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getStartStepTypeBytes() {
     java.lang.Object ref = startStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       startStepType_ = b;
@@ -196,7 +196,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getInitAttributesOrBuilderList() {
     return initAttributes_;
   }
@@ -757,7 +757,7 @@ private static final long serialVersionUID = 0L;
             initAttributesBuilder_ = null;
             initAttributes_ = other.initAttributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            initAttributesBuilder_ =
+            initAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetInitAttributesFieldBuilder() : null;
           } else {
@@ -898,7 +898,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -970,7 +970,7 @@ private static final long serialVersionUID = 0L;
         getStartStepTypeBytes() {
       java.lang.Object ref = startStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         startStepType_ = b;
@@ -1125,7 +1125,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1246,7 +1246,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
         internalGetStepOptionsFieldBuilder() {
       if (stepOptionsBuilder_ == null) {
         stepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1454,7 +1454,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
          getInitAttributesOrBuilderList() {
       if (initAttributesBuilder_ != null) {
         return initAttributesBuilder_.getMessageOrBuilderList();
@@ -1480,12 +1480,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeWrite.Builder>
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
          getInitAttributesBuilderList() {
       return internalGetInitAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
         internalGetInitAttributesFieldBuilder() {
       if (initAttributesBuilder_ == null) {
         initAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1607,7 +1607,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 9;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
         internalGetConfigFieldBuilder() {
       if (configBuilder_ == null) {
         configBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1772,7 +1772,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder>
+        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder> 
         internalGetContinueAsNewInputFieldBuilder() {
       if (continueAsNewInputBuilder_ == null) {
         continueAsNewInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1835,3 +1835,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

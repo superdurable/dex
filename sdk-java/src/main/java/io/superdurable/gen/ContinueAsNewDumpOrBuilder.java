@@ -13,7 +13,7 @@ public interface ContinueAsNewDumpOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement steps_to_start_from_beginning = 1;</code>
    */
-  java.util.List<io.superdurable.gen.StepMovement>
+  java.util.List<io.superdurable.gen.StepMovement> 
       getStepsToStartFromBeginningList();
   /**
    * <code>repeated .dex.StepMovement steps_to_start_from_beginning = 1;</code>
@@ -26,7 +26,7 @@ public interface ContinueAsNewDumpOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement steps_to_start_from_beginning = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getStepsToStartFromBeginningOrBuilderList();
   /**
    * <code>repeated .dex.StepMovement steps_to_start_from_beginning = 1;</code>
@@ -37,7 +37,7 @@ public interface ContinueAsNewDumpOrBuilder extends
   /**
    * <code>repeated .dex.StepExecutionResumeInfo step_executions_to_resume = 2;</code>
    */
-  java.util.List<io.superdurable.gen.StepExecutionResumeInfo>
+  java.util.List<io.superdurable.gen.StepExecutionResumeInfo> 
       getStepExecutionsToResumeList();
   /**
    * <code>repeated .dex.StepExecutionResumeInfo step_executions_to_resume = 2;</code>
@@ -50,7 +50,7 @@ public interface ContinueAsNewDumpOrBuilder extends
   /**
    * <code>repeated .dex.StepExecutionResumeInfo step_executions_to_resume = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder> 
       getStepExecutionsToResumeOrBuilderList();
   /**
    * <code>repeated .dex.StepExecutionResumeInfo step_executions_to_resume = 2;</code>
@@ -110,7 +110,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput step_outputs = 5;</code>
    */
-  java.util.List<io.superdurable.gen.StepCompletionOutput>
+  java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getStepOutputsList();
   /**
    * <code>repeated .dex.StepCompletionOutput step_outputs = 5;</code>
@@ -123,7 +123,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput step_outputs = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getStepOutputsOrBuilderList();
   /**
    * <code>repeated .dex.StepCompletionOutput step_outputs = 5;</code>
@@ -134,7 +134,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StaleSkipTimer stale_skip_timers = 6;</code>
    */
-  java.util.List<io.superdurable.gen.StaleSkipTimer>
+  java.util.List<io.superdurable.gen.StaleSkipTimer> 
       getStaleSkipTimersList();
   /**
    * <code>repeated .dex.StaleSkipTimer stale_skip_timers = 6;</code>
@@ -147,7 +147,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StaleSkipTimer stale_skip_timers = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StaleSkipTimerOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StaleSkipTimerOrBuilder> 
       getStaleSkipTimersOrBuilderList();
   /**
    * <code>repeated .dex.StaleSkipTimer stale_skip_timers = 6;</code>
@@ -162,7 +162,7 @@ io.superdurable.gen.ChannelValues defaultValue);
    *
    * <code>repeated .dex.KV attributes = 7;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getAttributesList();
   /**
    * <pre>
@@ -187,7 +187,7 @@ io.superdurable.gen.ChannelValues defaultValue);
    *
    * <code>repeated .dex.KV attributes = 7;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <pre>
@@ -202,7 +202,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeSyncItem>
+  java.util.List<io.superdurable.gen.AttributeSyncItem> 
       getPendingAttributeSyncMutationsList();
   /**
    * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
@@ -215,7 +215,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
       getPendingAttributeSyncMutationsOrBuilderList();
   /**
    * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_mutations = 8;</code>

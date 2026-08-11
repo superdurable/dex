@@ -25,7 +25,7 @@ public interface FlowContinuedStartOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
    */
-  java.util.List<io.superdurable.gen.StepMovement>
+  java.util.List<io.superdurable.gen.StepMovement> 
       getStepsToStartList();
   /**
    * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
@@ -38,7 +38,7 @@ public interface FlowContinuedStartOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getStepsToStartOrBuilderList();
   /**
    * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
@@ -49,7 +49,7 @@ public interface FlowContinuedStartOrBuilder extends
   /**
    * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
    */
-  java.util.List<io.superdurable.gen.StepExecutionResumeInfo>
+  java.util.List<io.superdurable.gen.StepExecutionResumeInfo> 
       getStepsToResumeList();
   /**
    * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
@@ -62,7 +62,7 @@ public interface FlowContinuedStartOrBuilder extends
   /**
    * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder> 
       getStepsToResumeOrBuilderList();
   /**
    * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
@@ -107,7 +107,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getAttributesList();
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
@@ -120,7 +120,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV attributes = 5;</code>
@@ -131,7 +131,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
    */
-  java.util.List<io.superdurable.gen.StepCompletionOutput>
+  java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getCompletedStepsList();
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
@@ -144,7 +144,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getCompletedStepsOrBuilderList();
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>

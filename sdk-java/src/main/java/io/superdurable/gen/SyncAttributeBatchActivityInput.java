@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowId_ = s;
@@ -80,7 +80,7 @@ private static final long serialVersionUID = 0L;
       getFlowIdBytes() {
     java.lang.Object ref = flowId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowId_ = b;
@@ -103,7 +103,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       configName_ = s;
@@ -119,7 +119,7 @@ private static final long serialVersionUID = 0L;
       getConfigNameBytes() {
     java.lang.Object ref = configName_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       configName_ = b;
@@ -143,7 +143,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
       getMutationsOrBuilderList() {
     return mutations_;
   }
@@ -495,7 +495,7 @@ private static final long serialVersionUID = 0L;
             mutationsBuilder_ = null;
             mutations_ = other.mutations_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            mutationsBuilder_ =
+            mutationsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetMutationsFieldBuilder() : null;
           } else {
@@ -594,7 +594,7 @@ private static final long serialVersionUID = 0L;
         getFlowIdBytes() {
       java.lang.Object ref = flowId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowId_ = b;
@@ -666,7 +666,7 @@ private static final long serialVersionUID = 0L;
         getConfigNameBytes() {
       java.lang.Object ref = configName_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         configName_ = b;
@@ -908,7 +908,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
          getMutationsOrBuilderList() {
       if (mutationsBuilder_ != null) {
         return mutationsBuilder_.getMessageOrBuilderList();
@@ -934,12 +934,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeSyncItem mutations = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeSyncItem.Builder>
+    public java.util.List<io.superdurable.gen.AttributeSyncItem.Builder> 
          getMutationsBuilderList() {
       return internalGetMutationsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder>
+        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> 
         internalGetMutationsFieldBuilder() {
       if (mutationsBuilder_ == null) {
         mutationsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1003,3 +1003,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

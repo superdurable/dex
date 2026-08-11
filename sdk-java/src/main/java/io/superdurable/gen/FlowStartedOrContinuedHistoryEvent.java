@@ -131,7 +131,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -901,7 +901,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder>
+        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder> 
         internalGetFlowExecutionIdFieldBuilder() {
       if (flowExecutionIdBuilder_ == null) {
         flowExecutionIdBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -939,7 +939,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1094,7 +1094,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig flow_config = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
         internalGetFlowConfigFieldBuilder() {
       if (flowConfigBuilder_ == null) {
         flowConfigBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1215,7 +1215,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Duration flow_timeout = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder>
+        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> 
         internalGetFlowTimeoutFieldBuilder() {
       if (flowTimeoutBuilder_ == null) {
         flowTimeoutBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1352,7 +1352,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowInitialStart initial_start = 10;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowInitialStart, io.superdurable.gen.FlowInitialStart.Builder, io.superdurable.gen.FlowInitialStartOrBuilder>
+        io.superdurable.gen.FlowInitialStart, io.superdurable.gen.FlowInitialStart.Builder, io.superdurable.gen.FlowInitialStartOrBuilder> 
         internalGetInitialStartFieldBuilder() {
       if (initialStartBuilder_ == null) {
         if (!(startOrContinueCase_ == 10)) {
@@ -1494,7 +1494,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder>
+        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder> 
         internalGetContinuedStartFieldBuilder() {
       if (continuedStartBuilder_ == null) {
         if (!(startOrContinueCase_ == 11)) {
@@ -1562,3 +1562,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

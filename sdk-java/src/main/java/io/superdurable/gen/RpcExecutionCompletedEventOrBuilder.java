@@ -70,7 +70,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite>
+  java.util.List<io.superdurable.gen.AttributeWrite> 
       getUpsertAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
@@ -83,7 +83,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getUpsertAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
@@ -94,7 +94,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 6;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getRecordEventsList();
   /**
    * <code>repeated .dex.KV record_events = 6;</code>
@@ -107,7 +107,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getRecordEventsOrBuilderList();
   /**
    * <code>repeated .dex.KV record_events = 6;</code>
@@ -118,7 +118,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelMessage>
+  java.util.List<io.superdurable.gen.ChannelMessage> 
       getPublishToChannelList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
@@ -131,7 +131,7 @@ public interface RpcExecutionCompletedEventOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
       getPublishToChannelOrBuilderList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>

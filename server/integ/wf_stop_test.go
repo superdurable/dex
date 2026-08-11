@@ -31,15 +31,23 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowCanceled(t, service.BackendTypeTemporal, nil)
-		smallWaitForFastTest()
-		doTestWorkflowCanceled(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
-		smallWaitForFastTest()
 		// Cancel must wait for an in-flight Execute producer before closing.
-		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeTemporal)
+		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeTemporal, nil)
+		smallWaitForFastTest()
+		doTestWorkflowCancelWaitsForProducer(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewSyncDurabilityConfig(),
+		)
 		smallWaitForFastTest()
 		// Cancel and Fail must wake a step suspended on a channel.
-		doTestWorkflowStopWhileSuspended(t, service.BackendTypeTemporal)
+		doTestWorkflowStopWhileSuspended(t, service.BackendTypeTemporal, nil)
+		smallWaitForFastTest()
+		doTestWorkflowStopWhileSuspended(
+			t,
+			service.BackendTypeTemporal,
+			minimumContinueAsNewSyncDurabilityConfig(),
+		)
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeTemporal, nil)
@@ -59,15 +67,23 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestWorkflowCanceled(t, service.BackendTypeCadence, nil)
-		smallWaitForFastTest()
-		doTestWorkflowCanceled(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
-		smallWaitForFastTest()
 		// Cancel must wait for an in-flight Execute producer before closing.
-		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeCadence)
+		doTestWorkflowCancelWaitsForProducer(t, service.BackendTypeCadence, nil)
+		smallWaitForFastTest()
+		doTestWorkflowCancelWaitsForProducer(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewSyncDurabilityConfig(),
+		)
 		smallWaitForFastTest()
 		// Cancel and Fail must wake a step suspended on a channel.
-		doTestWorkflowStopWhileSuspended(t, service.BackendTypeCadence)
+		doTestWorkflowStopWhileSuspended(t, service.BackendTypeCadence, nil)
+		smallWaitForFastTest()
+		doTestWorkflowStopWhileSuspended(
+			t,
+			service.BackendTypeCadence,
+			minimumContinueAsNewSyncDurabilityConfig(),
+		)
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, service.BackendTypeCadence, nil)
@@ -82,50 +98,11 @@ func TestWorkflowCanceledCadence(t *testing.T) {
 	}
 }
 
-func doTestWorkflowCanceled(
+func doTestWorkflowCancelWaitsForProducer(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
 ) {
-	workerHandler := signal.NewHandler()
-	workerTarget := startWorker(t, workerHandler)
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
-	flowClient := runtime.FlowClient
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	flowId := "wf-cancel-test-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
-		RequestId:          newRequestID(),
-		FlowId:             flowId,
-		FlowType:           signal.WorkflowType,
-		FlowTimeoutSeconds: 10,
-
-		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
-			FlowConfigOverride: flowConfig,
-		}, workerTarget),
-	})
-	require.NoError(t, err)
-
-	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
-		FlowId:   flowId,
-		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
-	})
-	require.NoError(t, err)
-
-	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
-		FlowId: flowId,
-	})
-	require.NoError(t, err)
-
-	assertions := assert.New(t)
-	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
-	assertions.Equal(dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
-	assertions.Empty(response.GetErrorMessage())
-}
-
-func doTestWorkflowCancelWaitsForProducer(t *testing.T, backendType service.BackendType) {
 	workerHandler := newCooperativeStopHandler()
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
@@ -141,7 +118,9 @@ func doTestWorkflowCancelWaitsForProducer(t *testing.T, backendType service.Back
 		FlowType:           cooperativeStopFlowType,
 		FlowTimeoutSeconds: 20,
 		StartStepType:      cooperativeStopStepType,
-		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: flowConfig,
+		}, workerTarget),
 	})
 	require.NoError(t, err)
 
@@ -160,9 +139,15 @@ func doTestWorkflowCancelWaitsForProducer(t *testing.T, backendType service.Back
 	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, response.GetErrorType())
+	require.Empty(t, response.GetErrorMessage())
 }
 
-func doTestWorkflowStopWhileSuspended(t *testing.T, backendType service.BackendType) {
+func doTestWorkflowStopWhileSuspended(
+	t *testing.T,
+	backendType service.BackendType,
+	flowConfig *dexpb.FlowConfig,
+) {
 	workerHandler := newSuspendedStopHandler()
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
@@ -186,7 +171,9 @@ func doTestWorkflowStopWhileSuspended(t *testing.T, backendType service.BackendT
 			FlowType:           suspendedStopFlowType,
 			FlowTimeoutSeconds: 20,
 			StartStepType:      suspendedStopStepType,
-			FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+			FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+				FlowConfigOverride: flowConfig,
+			}, workerTarget),
 		})
 		require.NoError(t, err)
 

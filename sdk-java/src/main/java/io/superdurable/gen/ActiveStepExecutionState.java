@@ -68,7 +68,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepExecutionId_ = s;
@@ -84,7 +84,7 @@ private static final long serialVersionUID = 0L;
       getStepExecutionIdBytes() {
     java.lang.Object ref = stepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepExecutionId_ = b;
@@ -107,7 +107,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       fromStepExecutionId_ = s;
@@ -123,7 +123,7 @@ private static final long serialVersionUID = 0L;
       getFromStepExecutionIdBytes() {
     java.lang.Object ref = fromStepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       fromStepExecutionId_ = b;
@@ -146,7 +146,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepType_ = s;
@@ -162,7 +162,7 @@ private static final long serialVersionUID = 0L;
       getStepTypeBytes() {
     java.lang.Object ref = stepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepType_ = b;
@@ -282,7 +282,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV step_execution_locals = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getStepExecutionLocalsOrBuilderList() {
     return stepExecutionLocals_;
   }
@@ -323,7 +323,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.TimerInfo timers = 9;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
       getTimersOrBuilderList() {
     return timers_;
   }
@@ -901,7 +901,7 @@ private static final long serialVersionUID = 0L;
             stepExecutionLocalsBuilder_ = null;
             stepExecutionLocals_ = other.stepExecutionLocals_;
             bitField0_ = (bitField0_ & ~0x00000080);
-            stepExecutionLocalsBuilder_ =
+            stepExecutionLocalsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepExecutionLocalsFieldBuilder() : null;
           } else {
@@ -927,7 +927,7 @@ private static final long serialVersionUID = 0L;
             timersBuilder_ = null;
             timers_ = other.timers_;
             bitField0_ = (bitField0_ & ~0x00000100);
-            timersBuilder_ =
+            timersBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetTimersFieldBuilder() : null;
           } else {
@@ -1080,7 +1080,7 @@ private static final long serialVersionUID = 0L;
         getStepExecutionIdBytes() {
       java.lang.Object ref = stepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepExecutionId_ = b;
@@ -1152,7 +1152,7 @@ private static final long serialVersionUID = 0L;
         getFromStepExecutionIdBytes() {
       java.lang.Object ref = fromStepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         fromStepExecutionId_ = b;
@@ -1224,7 +1224,7 @@ private static final long serialVersionUID = 0L;
         getStepTypeBytes() {
       java.lang.Object ref = stepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepType_ = b;
@@ -1431,7 +1431,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMovement movement = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder>
+        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> 
         internalGetMovementFieldBuilder() {
       if (movementBuilder_ == null) {
         movementBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1552,7 +1552,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WaitingCondition waiting_condition = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitingCondition, io.superdurable.gen.WaitingCondition.Builder, io.superdurable.gen.WaitingConditionOrBuilder>
+        io.superdurable.gen.WaitingCondition, io.superdurable.gen.WaitingCondition.Builder, io.superdurable.gen.WaitingConditionOrBuilder> 
         internalGetWaitingConditionFieldBuilder() {
       if (waitingConditionBuilder_ == null) {
         waitingConditionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1673,7 +1673,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepExecutionCompletedConditions completed_conditions = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepExecutionCompletedConditions, io.superdurable.gen.StepExecutionCompletedConditions.Builder, io.superdurable.gen.StepExecutionCompletedConditionsOrBuilder>
+        io.superdurable.gen.StepExecutionCompletedConditions, io.superdurable.gen.StepExecutionCompletedConditions.Builder, io.superdurable.gen.StepExecutionCompletedConditionsOrBuilder> 
         internalGetCompletedConditionsFieldBuilder() {
       if (completedConditionsBuilder_ == null) {
         completedConditionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1881,7 +1881,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_execution_locals = 8;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getStepExecutionLocalsOrBuilderList() {
       if (stepExecutionLocalsBuilder_ != null) {
         return stepExecutionLocalsBuilder_.getMessageOrBuilderList();
@@ -1907,12 +1907,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_execution_locals = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getStepExecutionLocalsBuilderList() {
       return internalGetStepExecutionLocalsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetStepExecutionLocalsFieldBuilder() {
       if (stepExecutionLocalsBuilder_ == null) {
         stepExecutionLocalsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2121,7 +2121,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo timers = 9;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
          getTimersOrBuilderList() {
       if (timersBuilder_ != null) {
         return timersBuilder_.getMessageOrBuilderList();
@@ -2147,12 +2147,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.TimerInfo timers = 9;</code>
      */
-    public java.util.List<io.superdurable.gen.TimerInfo.Builder>
+    public java.util.List<io.superdurable.gen.TimerInfo.Builder> 
          getTimersBuilderList() {
       return internalGetTimersFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder>
+        io.superdurable.gen.TimerInfo, io.superdurable.gen.TimerInfo.Builder, io.superdurable.gen.TimerInfoOrBuilder> 
         internalGetTimersFieldBuilder() {
       if (timersBuilder_ == null) {
         timersBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2274,7 +2274,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder>
+        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> 
         internalGetLastFailureInfoFieldBuilder() {
       if (lastFailureInfoBuilder_ == null) {
         lastFailureInfoBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -2337,3 +2337,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

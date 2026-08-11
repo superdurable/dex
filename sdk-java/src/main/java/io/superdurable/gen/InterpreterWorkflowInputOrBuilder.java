@@ -67,7 +67,7 @@ public interface InterpreterWorkflowInputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite>
+  java.util.List<io.superdurable.gen.AttributeWrite> 
       getInitAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
@@ -80,7 +80,7 @@ public interface InterpreterWorkflowInputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getInitAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>

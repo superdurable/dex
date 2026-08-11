@@ -502,7 +502,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewDumpRequest request = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewDumpRequest, io.superdurable.gen.ContinueAsNewDumpRequest.Builder, io.superdurable.gen.ContinueAsNewDumpRequestOrBuilder>
+        io.superdurable.gen.ContinueAsNewDumpRequest, io.superdurable.gen.ContinueAsNewDumpRequest.Builder, io.superdurable.gen.ContinueAsNewDumpRequestOrBuilder> 
         internalGetRequestFieldBuilder() {
       if (requestBuilder_ == null) {
         requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -565,3 +565,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+
