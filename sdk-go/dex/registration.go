@@ -19,6 +19,11 @@ import (
 )
 
 // Registry stores immutable Flow definitions shared by Client and Worker.
+//
+// NewRegistry validates every definition before publishing the Registry. Build one
+// Registry during application startup and reuse it for every Client and
+// Worker that must exchange those Flow types. Registry is safe for concurrent reads
+// after NewRegistry returns.
 type Registry struct {
 	flows            map[string]*registeredFlow
 	attributeIndexes map[string]dexpb.IndexType
@@ -57,6 +62,17 @@ type registeredChannel struct {
 }
 
 // NewRegistry validates and assembles Flow definitions atomically.
+//
+// flows may be empty, but every supplied Flow must be non-nil and have a unique,
+// package-qualified Flow type. NewRegistry also validates starting Steps, Step
+// options, RPC signatures, persistence definitions, and cross-Flow Attribute index
+// compatibility. It returns FlowDefinitionError for an invalid Flow and publishes no
+// partially assembled Registry.
+//
+//	registry, err := dex.NewRegistry([]dex.Flow{OrderFlow{}, RefundFlow{}})
+//	if err != nil {
+//		return err
+//	}
 func NewRegistry(flows []Flow) (*Registry, error) {
 	assembled := &Registry{
 		flows: make(map[string]*registeredFlow, len(flows)),

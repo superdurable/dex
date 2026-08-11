@@ -40,6 +40,25 @@ use crate::{
     WorkerTarget,
 };
 
+/// Provides blocking, typed control of registered Dex Flows.
+///
+/// Client methods block the calling thread while an internal Tokio runtime performs gRPC and blob
+/// hydration. The Client owns its transport resources; dropping it releases them. Flow, Step, RPC,
+/// Attribute, and Channel arguments are checked against the supplied [`Registry`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, Registry};
+/// use std::sync::Arc;
+///
+/// let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+///     "/tmp/dex-blobs", 64 * 1024 * 1024, 0,
+/// )?)?);
+/// let client = Client::try_new(Registry::new(), cache, ClientOptions::new())?;
+/// client.health_check()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct Client {
     runtime: Runtime,
     registry: Registry,
@@ -49,11 +68,24 @@ pub struct Client {
 }
 
 impl Client {
+    /// Creates a Client or panics when runtime or endpoint initialization fails.
+    ///
+    /// Prefer [`Self::try_new`] when the application can recover from startup configuration errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a Tokio runtime cannot be created or the server address is invalid.
     pub fn new(registry: Registry, blob_cache: Arc<BlobCache>, options: ClientOptions) -> Self {
         Self::try_new(registry, blob_cache, options)
             .unwrap_or_else(|error| panic!("cannot create Dex Client: {error}"))
     }
 
+    /// Creates a Client from validated definitions, a shared BlobCache, and connection options.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::Service`] if runtime or endpoint initialization fails. The transport
+    /// connects lazily, so server availability is checked by the first operation.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
@@ -76,6 +108,14 @@ impl Client {
         })
     }
 
+    /// Starts a registered Flow with server-default options.
+    ///
+    /// Returns the server-assigned run ID. `input` is encoded for the registered starting Step.
+    ///
+    /// # Errors
+    ///
+    /// Returns a definition or mapping error locally, [`SdkError::FlowAlreadyStarted`] for a reuse
+    /// conflict, or another service-backed [`SdkError`] when Dex rejects the request.
     pub fn start_flow<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
@@ -85,6 +125,14 @@ impl Client {
         self.start_flow_with_options(flow, flow_id, input, StartFlowOptions::new())
     }
 
+    /// Starts a registered Flow with explicit lifecycle, retry, and initial persistence options.
+    ///
+    /// Returns the server-assigned run ID. A missing request ID is replaced with a generated UUID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError`] for invalid IDs, unregistered or mismatched Flow types, encoding
+    /// failures, invalid option durations, reuse conflicts, and service failures.
     pub fn start_flow_with_options<SomeFlow: Flow>(
         &self,
         flow: &SomeFlow,
@@ -149,6 +197,12 @@ impl Client {
         })
     }
 
+    /// Invokes a registered RPC with typed input and decodes its typed output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::RpcLockConflict`] when locks cannot be acquired, WorkerInvocation for a
+    /// handler failure, FlowNotActive for a terminal Flow, or a mapping/service error.
     pub fn invoke_rpc<Input: Value, Output: Value>(
         &self,
         flow_id: &str,
@@ -158,6 +212,9 @@ impl Client {
         self.do_invoke_rpc(flow_id, rpc.name(), &input)
     }
 
+    /// Invokes a registered no-input RPC and decodes its typed output.
+    ///
+    /// Errors use the same specialized variants as [`Self::invoke_rpc`].
     pub fn invoke_rpc_without_input<Output: Value>(
         &self,
         flow_id: &str,
@@ -166,6 +223,9 @@ impl Client {
         self.do_invoke_rpc(flow_id, rpc.name(), &())
     }
 
+    /// Reads one Attribute from the current run.
+    ///
+    /// Returns `Ok(None)` when no value is stored.
     pub fn get_attribute<T: Value>(
         &self,
         flow_id: &str,
@@ -174,6 +234,9 @@ impl Client {
         self.get_attribute_value(flow_id, attribute.name())
     }
 
+    /// Reads one Attribute-map instance from the current run.
+    ///
+    /// Returns `Ok(None)` when the instance is absent.
     pub fn get_attribute_map<T: Value>(
         &self,
         flow_id: &str,
@@ -186,6 +249,11 @@ impl Client {
         )
     }
 
+    /// Writes one Attribute on an active Flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
     pub fn set_attribute<T: Value>(
         &self,
         flow_id: &str,
@@ -200,6 +268,11 @@ impl Client {
         )
     }
 
+    /// Writes one Attribute-map instance on an active Flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
     pub fn set_attribute_map<T: Value>(
         &self,
         flow_id: &str,
@@ -215,6 +288,7 @@ impl Client {
         )
     }
 
+    /// Publishes one typed message to a Channel on an active Flow.
     pub fn publish<T: Value>(
         &self,
         flow_id: &str,
@@ -224,6 +298,7 @@ impl Client {
         self.publish_values(flow_id, channel.name(), [value])
     }
 
+    /// Publishes an ordered batch of typed messages to one Channel atomically.
     pub fn publish_many<T: Value>(
         &self,
         flow_id: &str,
@@ -233,6 +308,7 @@ impl Client {
         self.publish_values(flow_id, channel.name(), values)
     }
 
+    /// Publishes an ordered batch to one Channel-map instance atomically.
     pub fn publish_map<T: Value>(
         &self,
         flow_id: &str,
@@ -247,11 +323,23 @@ impl Client {
         )
     }
 
+    /// Blocks until a Flow completes successfully and decodes its first completion output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowUncompleted`] for other terminal statuses, FlowNotFound for an
+    /// unknown ID, or a mapping/service error. This overload has no client-side timeout.
     pub fn wait_for_flow<Output: Value>(&self, flow_id: &str) -> SdkResult<Output> {
         self.wait_for_flow_response(flow_id, None)
             .and_then(|response| self.decode_flow_output(response))
     }
 
+    /// Blocks up to `timeout` for successful Flow completion and decodes its output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::LongPollTimeout`] when the timeout elapses while the Flow remains active;
+    /// other errors match [`Self::wait_for_flow`].
     pub fn wait_for_flow_with_timeout<Output: Value>(
         &self,
         flow_id: &str,
@@ -261,6 +349,11 @@ impl Client {
             .and_then(|response| self.decode_flow_output(response))
     }
 
+    /// Returns current identity, status, type, and start time for the latest run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowNotFound`] for an unknown ID or a service/protocol error.
     pub fn describe_flow(&self, flow_id: &str) -> SdkResult<FlowInfo> {
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
@@ -294,10 +387,18 @@ impl Client {
         })
     }
 
+    /// Executes a server search query and returns its first page.
+    ///
+    /// `page_size` must be non-negative; zero uses the server default. Indexed values are hydrated
+    /// and decoded as [`serde_json::Value`].
     pub fn search_flows(&self, query: &str, page_size: i32) -> SdkResult<SearchFlowsPage> {
         self.search_flows_page(query, page_size, "")
     }
 
+    /// Continues a search with the opaque token returned by a previous page.
+    ///
+    /// Keep `query` and `page_size` consistent across pages. An empty returned token marks the last
+    /// page.
     pub fn search_flows_page(
         &self,
         query: &str,
@@ -358,6 +459,11 @@ impl Client {
         })
     }
 
+    /// Cancels, terminates, or fails an active Flow according to `options`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowNotActive`] when no active run exists or another service error.
     pub fn stop_flow(&self, flow_id: &str, options: StopFlowOptions) -> SdkResult<()> {
         let stop_type = match options.stop_type {
             StopType::Cancel => ProtoStopType::Cancel,
@@ -381,6 +487,14 @@ impl Client {
         )
     }
 
+    /// Creates a new run by replaying an existing Flow from the selected historical point.
+    ///
+    /// Returns the new server-assigned run ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns InvalidArgument for an unrepresentable history ID or time, FlowNotFound for an
+    /// unknown ID, or another service error.
     pub fn reset_flow(&self, flow_id: &str, options: ResetFlowOptions) -> SdkResult<String> {
         let mut request = ResetFlowRequest {
             flow_id: flow_id.to_string(),
@@ -432,6 +546,12 @@ impl Client {
         })
     }
 
+    /// Marks one timer in an active Step execution as satisfied immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns InvalidArgument for an oversized index, FlowNotActive for a terminal Flow, or a
+    /// service error when the Step execution or timer cannot be targeted.
     pub fn skip_timer(
         &self,
         flow_id: &str,
@@ -466,6 +586,12 @@ impl Client {
         )
     }
 
+    /// Blocks until one Step execution completes or `timeout` elapses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::LongPollTimeout`] on timeout, FlowNotActive when appropriate, or another
+    /// service error. Successful completion returns `()` and does not decode Step output.
     pub fn wait_for_step_completion(
         &self,
         flow_id: &str,
@@ -491,6 +617,9 @@ impl Client {
         )
     }
 
+    /// Replaces mutable runtime configuration fields on an active Flow.
+    ///
+    /// Unset fields retain server-defined behavior.
     pub fn update_flow_config(&self, flow_id: &str, config: FlowConfig) -> SdkResult<()> {
         let flow_config = self.map_flow_config(Some(&config))?;
         self.call_empty(
@@ -509,6 +638,7 @@ impl Client {
         )
     }
 
+    /// Requests that an active Flow roll its history into a successor run.
     pub fn trigger_continue_as_new(&self, flow_id: &str) -> SdkResult<()> {
         self.call_empty(
             "trigger_continue_as_new",
@@ -525,6 +655,9 @@ impl Client {
         )
     }
 
+    /// Verifies that Dex FlowService responds successfully.
+    ///
+    /// Returns `Ok(())` for a healthy service and a service-backed [`SdkError`] otherwise.
     pub fn health_check(&self) -> SdkResult<()> {
         self.call_empty(
             "health_check",

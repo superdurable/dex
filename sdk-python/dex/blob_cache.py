@@ -14,6 +14,15 @@ from dex._native import NativeBlobCache
 
 @dataclass(frozen=True)
 class BlobCacheConfig:
+    """Configure the local persistent cache for large Dex values.
+
+    Attributes:
+        directory: The writable directory that stores cache data and metadata.
+        max_bytes: The positive maximum on-disk payload size in bytes.
+        frequency_counters: Admission-policy counter count. Zero selects the default
+            of 10,000; larger values improve frequency estimates at a memory cost.
+    """
+
     directory: str
     max_bytes: int
     frequency_counters: int = 10_000
@@ -30,18 +39,62 @@ class BlobCacheConfig:
 
 
 class BlobCache(Protocol):
+    """Provide local, bounded storage for content-addressed Dex blobs.
+
+    Implementations may be called concurrently by Clients and Workers. Blob IDs are
+    opaque server identifiers; callers should not derive their own IDs.
+    """
+
     @property
-    def config(self) -> BlobCacheConfig: ...
+    def config(self) -> BlobCacheConfig:
+        """Return the immutable configuration used to open this cache.
 
-    def get(self, blob_id: str) -> bytes | None: ...
+        Returns:
+            The effective cache configuration.
+        """
+        ...
 
-    def put(self, blob_id: str, payload: bytes) -> bool: ...
+    def get(self, blob_id: str) -> bytes | None:
+        """Read a cached payload without contacting Dex.
 
-    def delete(self, blob_id: str) -> None: ...
+        Args:
+            blob_id: The non-empty, opaque blob identifier.
 
-    def delete_all(self) -> None: ...
+        Returns:
+            The payload bytes, or ``None`` when the entry is absent.
+        """
+        ...
 
-    def close(self) -> None: ...
+    def put(self, blob_id: str, payload: bytes) -> bool:
+        """Offer a payload to the bounded cache.
+
+        Args:
+            blob_id: The non-empty, opaque blob identifier.
+            payload: The bytes to retain; the cache does not take mutable ownership.
+
+        Returns:
+            ``True`` when admitted, or ``False`` when the policy rejects the entry.
+        """
+        ...
+
+    def delete(self, blob_id: str) -> None:
+        """Delete one cached payload if present.
+
+        Args:
+            blob_id: The opaque identifier to remove.
+        """
+        ...
+
+    def delete_all(self) -> None:
+        """Delete every cached payload while keeping the cache open."""
+        ...
+
+    def close(self) -> None:
+        """Flush metadata and release native cache resources.
+
+        Repeated calls are safe; other methods must not be used after close.
+        """
+        ...
 
 
 class _RustBlobCache:
@@ -70,4 +123,23 @@ class _RustBlobCache:
 
 
 def open_blob_cache(config: BlobCacheConfig) -> BlobCache:
+    """Open or create a native BlobCache.
+
+    Args:
+        config: Valid directory, byte capacity, and admission-policy settings.
+
+    Returns:
+        An open cache owned by the caller; call :meth:`BlobCache.close` at shutdown.
+
+    Raises:
+        ValueError: If a configuration value is invalid.
+        OSError: If the directory cannot be created, locked, or opened.
+
+    Examples:
+        >>> cache = open_blob_cache(BlobCacheConfig(".dex-cache", 64 * 1024**2))
+        >>> try:
+        ...     cache.put("blob-1", b"payload")
+        ... finally:
+        ...     cache.close()
+    """
     return _RustBlobCache(config)

@@ -14,15 +14,48 @@ import { StepList, type Step } from "./step.js";
 import { requireName } from "./validation.js";
 import type { Channel, ChannelMap } from "./wait.js";
 
+/**
+ * Defines one durable application Flow and its registered API surface.
+ * @typeParam StartInput - Value accepted by the optional starting Step.
+ */
 export interface Flow<StartInput = void> {
+  /**
+   * Returns the protocol Flow type.
+   * @returns A non-empty Flow type unique within the Registry.
+   */
   getFlowType(): string;
+  /**
+   * Returns this Flow's Step definitions.
+   * @returns Zero or one starting Step plus all other registered Steps.
+   */
   getSteps(): StepList<StartInput>;
+  /**
+   * Returns this Flow's persistence definitions.
+   * @returns Attributes and Channels owned by this Flow; omission means empty.
+   */
   getPersistenceSchema?(): PersistenceSchema;
 }
 
+/**
+ * Validates and stores immutable Flow definitions shared by Client and Worker.
+ * Construction checks names, Step/RPC signatures, persistence definitions, locks,
+ * and Attribute indexes atomically.
+ *
+ * @example
+ * ```ts
+ * const orders = new OrdersFlow();
+ * const registry = new Registry([orders]);
+ * ```
+ */
 export class Registry {
+  /** Registered Flow instances in input order. */
   public readonly flows: readonly Flow<any>[];
 
+  /**
+   * Creates an immutable Registry.
+   * @param flows - Flow instances with unique Flow types.
+   * @throws {@link FlowDefinitionError} when any public definition is invalid.
+   */
   public constructor(flows: readonly Flow<any>[]) {
     const flowsByInstance = new Map<Flow<any>, RegisteredFlow>();
     const flowsByName = new Map<string, RegisteredFlow>();

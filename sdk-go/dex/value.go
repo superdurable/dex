@@ -37,11 +37,27 @@ var (
 )
 
 // Value is an opaque Dex value. Decoded string values contain valid UTF-8.
+//
+// Values returned by bulk Client reads are already hydrated. Use Decode with the
+// same Go type used by the corresponding Attribute. Primitive
+// values preserve their wire kind; structs, maps, and non-byte slices use JSON;
+// byte slices use the raw-bytes encoding.
 type Value struct {
 	value *dexpb.Value
 }
 
 // Decode decodes Value into a non-nil pointer.
+//
+// valuePtr must be a non-nil pointer compatible with the encoded wire value. Decode
+// replaces the pointed-to value on success and returns a ValueMappingError for an
+// incompatible target, malformed payload, unsupported encoding, or numeric overflow.
+//
+//	values, err := client.GetAttributes(ctx, flowID, statusAttribute)
+//	if err != nil {
+//		return err
+//	}
+//	var status string
+//	err = values[statusAttribute.AttributeName()].Decode(&status)
 func (value Value) Decode(valuePtr any) error {
 	return decodeValue(value.value, valuePtr)
 }

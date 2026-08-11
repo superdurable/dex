@@ -34,6 +34,26 @@ const CREATED: u8 = 0;
 const RUNNING: u8 = 1;
 const STOPPED: u8 = 2;
 
+/// Hosts registered Flow Step and RPC handlers over application WorkerService.
+///
+/// A Worker owns an internal Tokio runtime and is one-shot. [`Self::start`] first synchronizes
+/// Attribute indexes with Dex, then blocks the calling thread while serving gRPC. Call [`Self::stop`]
+/// from another thread to request graceful server shutdown.
+///
+/// # Examples
+///
+/// ```no_run
+/// use dex_sdk::{BlobCache, BlobCacheConfig, Registry, Worker, WorkerOptions};
+/// use std::sync::Arc;
+///
+/// let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+///     "/tmp/dex-blobs", 64 * 1024 * 1024, 0,
+/// )?)?);
+/// let worker = Worker::try_new(Registry::new(), cache, WorkerOptions::new())?;
+/// println!("advertise {}", worker.worker_target().address());
+/// worker.start()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct Worker {
     runtime: Runtime,
     service: RustWorkerService,
@@ -47,11 +67,23 @@ pub struct Worker {
 }
 
 impl Worker {
+    /// Creates a Worker or panics when options or runtime initialization are invalid.
+    ///
+    /// # Panics
+    ///
+    /// Panics for an invalid bind address, zero index-sync timeout, invalid Dex endpoint, or Tokio
+    /// runtime creation failure. Prefer [`Self::try_new`] for recoverable startup.
     pub fn new(registry: Registry, blob_cache: Arc<BlobCache>, options: WorkerOptions) -> Self {
         Self::try_new(registry, blob_cache, options)
             .unwrap_or_else(|error| panic!("cannot create Rust Worker: {error}"))
     }
 
+    /// Creates a one-shot Worker without binding its listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowDefinition`] for invalid Worker options or Service for runtime and
+    /// endpoint initialization failures. The Dex connection is lazy.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
@@ -100,10 +132,17 @@ impl Worker {
         })
     }
 
+    /// Returns the resolved WorkerService target that Clients should advertise to Dex.
     pub fn worker_target(&self) -> &WorkerTarget {
         &self.worker_target
     }
 
+    /// Synchronizes Attribute indexes, serves WorkerService, and blocks until stopped or failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns FlowDefinition if called more than once, or Service for index synchronization,
+    /// timeout, bind, and server failures.
     pub fn start(&self) -> SdkResult<()> {
         self.state
             .compare_exchange(CREATED, RUNNING, Ordering::AcqRel, Ordering::Acquire)
@@ -143,6 +182,9 @@ impl Worker {
         result.map_err(service_error)
     }
 
+    /// Requests shutdown of a running Worker and returns immediately.
+    ///
+    /// Calling `stop` before or after `start` is safe; [`Self::start`] observes the shutdown signal.
     pub fn stop(&self) {
         let _ = self.shutdown.send(true);
     }

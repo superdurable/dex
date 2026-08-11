@@ -73,6 +73,31 @@ def rpc(
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
 ) -> CallableT | Callable[[CallableT], CallableT]:
+    """Mark a Flow method as a typed RPC handler.
+
+    Use ``@rpc`` with defaults or call ``@rpc(...)`` with configuration. A handler
+    receives Context plus zero or one typed input and returns ``RPCResult[T]`` or
+    ``None``. Registry construction validates annotations and Attribute locks.
+
+    Args:
+        handler: The decorated bound-method function when used as ``@rpc``.
+        name: Optional protocol RPC name; defaults to the method name.
+        timeout: Optional non-negative handler timeout.
+        lock_attributes: Attribute locks held for the entire handler invocation.
+
+    Returns:
+        The original handler, or a decorator that returns it after attaching options.
+
+    Raises:
+        ValueError: If ``name`` is empty or ``timeout`` is negative.
+
+    Examples:
+        >>> class Orders(Flow[None]):
+        ...     @rpc(timeout=timedelta(seconds=10), lock_attributes=(status.lock(),))
+        ...     def cancel(self, context: Context, reason: str) -> RPCResult[bool]:
+        ...         status.set(context, "canceled")
+        ...         return RPCResult(True)
+    """
     if name is not None:
         require_name(name)
     if timeout is not None and timeout < timedelta(0):
@@ -93,17 +118,47 @@ def rpc(
 
 @dataclass(frozen=True)
 class RPCResult(Generic[OutputT]):
+    """Return a typed RPC output and optional next-Step movements.
+
+    Attributes:
+        output: The value decoded into the Client caller's expected output type.
+        next_steps: Step movements applied atomically with handler persistence writes.
+    """
+
     output: OutputT
     next_steps: tuple[StepMovement[Any], ...] = ()
 
 
 @dataclass(frozen=True)
 class PersistenceSchema:
+    """Declare the Attributes and Channels owned by a Flow type.
+
+    Definitions must have unique names and are immutable after Registry creation.
+
+    Attributes:
+        attributes: Singleton and map Attribute definitions.
+        channels: Singleton and map Channel definitions.
+
+    Examples:
+        >>> schema = PersistenceSchema.of(status, balances, approvals, events)
+    """
+
     attributes: tuple[Attribute[Any] | AttributeMap[Any], ...] = ()
     channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
 
     @staticmethod
     def of(*definitions: _PersistenceDefinition) -> PersistenceSchema:
+        """Partition persistence definitions into Attributes and Channels.
+
+        Args:
+            *definitions: Attribute, AttributeMap, Channel, or ChannelMap definitions.
+
+        Returns:
+            An immutable schema preserving relative order within each category.
+
+        Raises:
+            TypeError: If a value is not a supported persistence definition.
+        """
         attributes: list[Attribute[Any] | AttributeMap[Any]] = []
         channels: list[Channel[Any] | ChannelMap[Any]] = []
         for definition in definitions:
@@ -117,13 +172,37 @@ class PersistenceSchema:
 
 
 class Flow(Generic[StartT], ABC):
+    """Define a durable application Flow and its registered API surface.
+
+    Subclasses return their Steps and persistence schema and may expose methods
+    decorated with :func:`rpc`. Construct one Flow instance and pass it to Registry;
+    Client calls must use that same registered instance.
+    """
+
     def get_flow_type(self) -> str:
+        """Return the protocol Flow type used by Client and Dex.
+
+        Override it to decouple the type from the Python class name.
+
+        Returns:
+            A non-empty Flow type unique within the Registry.
+        """
         return type(self).__name__
 
     def get_steps(self) -> StepList[StartT]:
+        """Return the immutable Step definitions for this Flow.
+
+        Returns:
+            A StepList with zero or one starting Step and all reachable Steps.
+        """
         return StepList.empty()
 
     def get_persistence_schema(self) -> PersistenceSchema:
+        """Return the Attributes and Channels owned by this Flow.
+
+        Returns:
+            The persistence schema; the default is empty.
+        """
         return PersistenceSchema.of()
 
 
@@ -174,6 +253,21 @@ class _RegisteredFlow:
 
 @dataclass(frozen=True)
 class Registry:
+    """Validate and store immutable Flow definitions shared by Client and Worker.
+
+    Registry construction inspects Step and RPC signatures, resolves codecs, checks
+    names and locks, and assembles Attribute indexes atomically. The result is safe
+    for concurrent reads.
+
+    Attributes:
+        flows: The registered Flow instances in input order.
+        codec_registry: The codec registry used for every handler and persistence type.
+
+    Examples:
+        >>> orders = Orders()
+        >>> registry = Registry([orders], CodecRegistry({Money: money_codec}))
+    """
+
     flows: tuple[Flow[Any], ...]
     codec_registry: CodecRegistry
     _steps: tuple[_RegisteredStep, ...]
@@ -188,6 +282,19 @@ class Registry:
         *,
         allow_async_handlers: bool = False,
     ) -> None:
+        """Validate and assemble a set of Flow definitions.
+
+        Args:
+            flows: Flow instances with unique Flow types.
+            codec_registry: Optional custom codecs; defaults to ``CodecRegistry()``.
+            allow_async_handlers: Accept ``async def`` Step and RPC handlers. Sync
+                Client/Worker construction leaves this ``False``; Async variants use
+                ``True``.
+
+        Raises:
+            FlowDefinitionError: If any Flow, Step, RPC, persistence definition,
+                annotation, codec, lock, or index is invalid.
+        """
         immutable_flows = tuple(flows)
         resolved_codecs = codec_registry or CodecRegistry()
         try:
@@ -519,6 +626,18 @@ class Registry:
 
     @staticmethod
     def physical_name(name: str, instance: str) -> str:
+        """Return the escaped physical name for a map definition instance.
+
+        Args:
+            name: The logical AttributeMap or ChannelMap name.
+            instance: The non-empty logical instance key.
+
+        Returns:
+            ``name`` followed by a slash and percent-encoded instance.
+
+        Raises:
+            ValueError: If ``instance`` is empty.
+        """
         require_name(instance)
         return f"{name}/{quote(instance, safe='')}"
 

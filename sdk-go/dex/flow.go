@@ -76,6 +76,7 @@ type Flow interface {
 // FlowDefaults uses the package-qualified Go type as the durable flow type.
 type FlowDefaults struct{}
 
+// GetFlowType returns empty so Registry derives the package-qualified Go type name.
 func (FlowDefaults) GetFlowType() string {
 	return ""
 }
@@ -84,6 +85,8 @@ func (FlowDefaults) GetFlowType() string {
 // registers. Every attribute or channel used from WaitFor, Execute, or RPC must
 // appear here.
 type PersistenceSchema struct {
+	// Attributes contains every Attribute and AttributeMap used by the Flow.
 	Attributes []AttributeDef
-	Channels   []ChannelDef
+	// Channels contains every Channel and ChannelMap used by the Flow.
+	Channels []ChannelDef
 }

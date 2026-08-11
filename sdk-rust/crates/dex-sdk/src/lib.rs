@@ -6,6 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+//! Strongly typed Rust client and worker APIs for durable Dex Flows.
+//!
+//! Define [`Flow`] and [`Step`] implementations, register them with [`Registry`], host them with
+//! [`Worker`], and control executions with [`Client`]. The crate also exposes typed Attributes,
+//! Channels, waits, decisions, RPCs, lifecycle options, and structured errors.
+
+#![deny(missing_docs)]
+
 mod attribute;
 mod channel;
 mod client;
@@ -36,7 +44,7 @@ mod worker_dispatcher;
 mod worker_options;
 
 pub use attribute::{Attribute, AttributeIndex, AttributeMap};
-pub use channel::{Channel, ChannelMap};
+pub use channel::{Channel, ChannelGuard, ChannelMap};
 pub use client::Client;
 pub use client_options::ClientOptions;
 pub use context::Context;
@@ -49,7 +57,7 @@ pub use persistence::PersistenceSchema;
 pub use registry::Registry;
 pub use reset_flow_options::ResetFlowOptions;
 pub use retry_policy::RetryPolicy;
-pub use rpc::{Rpc, RpcList, RpcResult};
+pub use rpc::{Rpc, RpcDefinition, RpcList, RpcResult};
 pub use sdk_error::{ErrorSubStatus, SdkError, SdkResult, ServiceError, WorkerError};
 pub use start_flow_options::{IdReusePolicy, StartFlowOptions};
 pub use step::{Step, StepDecision, StepList, StepMovement};

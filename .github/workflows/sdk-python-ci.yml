@@ -86,6 +86,8 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: uv sync --locked
+    - name: Validate public API documentation
+      run: uv run --frozen python scripts/check_public_docs.py
     - name: Verify generated protobuf stubs
       run: |
         make -C ../protos proto-python

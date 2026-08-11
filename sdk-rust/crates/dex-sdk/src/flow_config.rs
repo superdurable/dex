@@ -9,6 +9,10 @@
 use crate::{StepDurability, WorkerTarget};
 
 #[derive(Clone, Debug, Default)]
+/// Overrides runtime behavior for one Flow.
+///
+/// Omitted fields use Dex server defaults. Pass a value to [`crate::StartFlowOptions::config_override`]
+/// for one execution or to [`crate::Client::update_flow_config`] for an active Flow.
 pub struct FlowConfig {
     pub(crate) active_step_search_mode: Option<ActiveStepSearchMode>,
     pub(crate) continue_as_new_threshold: Option<u32>,
@@ -18,30 +22,36 @@ pub struct FlowConfig {
 }
 
 impl FlowConfig {
+    /// Creates a config with every field delegated to server defaults.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Controls which active Step types Dex places in the search index.
     pub fn active_step_search_mode(mut self, value: ActiveStepSearchMode) -> Self {
         self.active_step_search_mode = Some(value);
         self
     }
 
+    /// Sets the event-count threshold that triggers Continue-As-New.
     pub fn continue_as_new_threshold(mut self, value: u32) -> Self {
         self.continue_as_new_threshold = Some(value);
         self
     }
 
+    /// Sets the maximum history page size, in bytes, carried into Continue-As-New.
     pub fn continue_as_new_page_size_bytes(mut self, value: u32) -> Self {
         self.continue_as_new_page_size_bytes = Some(value);
         self
     }
 
+    /// Sets the default persistence durability for Step handler writes.
     pub fn step_durability(mut self, value: StepDurability) -> Self {
         self.step_durability = Some(value);
         self
     }
 
+    /// Routes future Step and RPC invocations to this WorkerService target.
     pub fn worker_target(mut self, value: WorkerTarget) -> Self {
         self.worker_target = Some(value);
         self
@@ -49,8 +59,12 @@ impl FlowConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls which active Step types Dex indexes for Flow search.
 pub enum ActiveStepSearchMode {
+    /// Indexes every active Step type, including execute-only Steps.
     All,
+    /// Indexes a Step type only after its `wait_for` handler runs.
     WithWaitFor,
+    /// Disables active-Step indexing for the Flow.
     Disabled,
 }

@@ -29,12 +29,42 @@ from dex.worker_options import WorkerOptions, WorkerTarget
 
 
 class Worker:
+    """Host synchronous registered Step and RPC handlers over WorkerService.
+
+    A Worker is one-shot. Call ``start`` on a dedicated thread because it blocks,
+    then call ``stop`` or ``close`` during shutdown. Handlers run concurrently in a
+    bounded thread pool and must synchronize shared application state.
+
+    Attributes:
+        registry: The immutable Flow Registry served by this Worker.
+        blob_cache: The shared cache used to hydrate large values.
+        options: The effective WorkerOptions.
+
+    Examples:
+        >>> worker = Worker(registry, cache)
+        >>> thread = threading.Thread(target=worker.start, daemon=True)
+        >>> thread.start()
+        >>> worker.worker_target.address
+        'localhost:8803'
+        >>> worker.stop()
+    """
+
     def __init__(
         self,
         registry: Registry,
         blob_cache: BlobCache,
         options: WorkerOptions | None = None,
     ) -> None:
+        """Construct a Worker without starting its listener.
+
+        Args:
+            registry: A Registry created for synchronous handlers.
+            blob_cache: An open cache shared for value hydration.
+            options: Networking and startup options; ``None`` uses defaults.
+
+        Raises:
+            ValueError: If a configured target or bind address is malformed.
+        """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
@@ -69,10 +99,25 @@ class Worker:
         )
 
     def __enter__(self) -> Worker:
+        """Return this Worker for synchronous context-manager use.
+
+        Entering does not call ``start``.
+
+        Returns:
+            This Worker instance.
+        """
         return self
 
     @property
     def worker_target(self) -> WorkerTarget:
+        """Return the effective endpoint advertised to Dex.
+
+        Before ``start``, an ephemeral bind port may not yet be resolved. After
+        binding, the property contains the actual selected port.
+
+        Returns:
+            The immutable advertised WorkerTarget.
+        """
         return self._worker_target
 
     def __exit__(
@@ -81,9 +126,25 @@ class Worker:
         exception: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the Worker when leaving a context-manager block.
+
+        Args:
+            exception_type: The active exception type, if any.
+            exception: The active exception value, if any.
+            traceback: The active traceback, if any.
+        """
         self.close()
 
     def start(self) -> None:
+        """Synchronize Attribute indexes, serve WorkerService, and block.
+
+        ``start`` may be called exactly once. It first contacts FlowService using the
+        configured synchronization timeout, then binds the listener and waits until
+        ``stop`` shuts the server down.
+
+        Raises:
+            RuntimeError: If lifecycle state, index synchronization, or binding fails.
+        """
         with self._lock:
             if self._state != "created":
                 raise RuntimeError(f"Worker cannot start from state {self._state}")
@@ -116,6 +177,11 @@ class Worker:
         self._server.wait_for_termination()
 
     def stop(self) -> None:
+        """Drain handlers for five seconds and release Worker resources.
+
+        Calls before ``start`` and repeated calls after shutdown are safe. Remaining
+        handler futures are canceled after the gRPC grace period.
+        """
         with self._lock:
             if self._state in ("stopped", "closed"):
                 return
@@ -128,6 +194,10 @@ class Worker:
                 self._state = "stopped"
 
     def close(self) -> None:
+        """Stop the Worker and permanently mark it closed.
+
+        ``close`` is idempotent; a closed Worker cannot be started again.
+        """
         self.stop()
         with self._lock:
             self._state = "closed"

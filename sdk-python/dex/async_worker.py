@@ -25,12 +25,37 @@ from dex.worker_options import WorkerOptions, WorkerTarget
 
 
 class AsyncWorker:
+    """Host asynchronous registered Step and RPC handlers over WorkerService.
+
+    A Worker is one-shot. Await ``start`` in a background task because it waits for
+    termination, and await ``stop`` or ``close`` during shutdown. Application
+    handlers may overlap on the event loop and must avoid blocking operations.
+
+    Attributes:
+        registry: The immutable Flow Registry served by this Worker.
+        blob_cache: The shared cache used to hydrate large values.
+        options: The effective WorkerOptions.
+
+    Examples:
+        >>> async with AsyncWorker(registry, cache) as worker:
+        ...     task = asyncio.create_task(worker.start())
+        ...     await worker.stop()
+        ...     await task
+    """
+
     def __init__(
         self,
         registry: Registry,
         blob_cache: BlobCache,
         options: WorkerOptions | None = None,
     ) -> None:
+        """Construct an AsyncWorker without starting its listener.
+
+        Args:
+            registry: A Registry created with ``allow_async_handlers=True``.
+            blob_cache: An open cache shared for asynchronous value hydration.
+            options: Networking and startup options; ``None`` uses defaults.
+        """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
@@ -58,9 +83,21 @@ class AsyncWorker:
 
     @property
     def worker_target(self) -> WorkerTarget:
+        """Return the effective endpoint advertised to Dex.
+
+        Returns:
+            The immutable WorkerTarget, including the actual port after binding.
+        """
         return self._worker_target
 
     async def __aenter__(self) -> AsyncWorker:
+        """Return this Worker for asynchronous context-manager use.
+
+        Entering does not start the listener.
+
+        Returns:
+            This AsyncWorker instance.
+        """
         return self
 
     async def __aexit__(
@@ -69,9 +106,24 @@ class AsyncWorker:
         exception: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the Worker when leaving an asynchronous context block.
+
+        Args:
+            exception_type: The active exception type, if any.
+            exception: The active exception value, if any.
+            traceback: The active traceback, if any.
+        """
         await self.close()
 
     async def start(self) -> None:
+        """Synchronize Attribute indexes, serve WorkerService, and await shutdown.
+
+        ``start`` may be awaited exactly once. It contacts FlowService before binding
+        and completes only after ``stop`` terminates the server.
+
+        Raises:
+            RuntimeError: If lifecycle state, index synchronization, or binding fails.
+        """
         if self._state != "created":
             raise RuntimeError(f"AsyncWorker cannot start from state {self._state}")
         try:
@@ -104,6 +156,10 @@ class AsyncWorker:
         self._stopped.set()
 
     async def stop(self) -> None:
+        """Gracefully stop handlers and release asynchronous channel resources.
+
+        Calls before ``start`` and repeated calls after shutdown are safe.
+        """
         if self._state in ("stopped", "closed"):
             return
         self._state = "stopping"
@@ -114,6 +170,10 @@ class AsyncWorker:
         self._stopped.set()
 
     async def close(self) -> None:
+        """Stop the AsyncWorker and permanently mark it closed.
+
+        Repeated calls are safe; a closed Worker cannot be started again.
+        """
         await self.stop()
         self._state = "closed"
 

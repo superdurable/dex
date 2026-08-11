@@ -145,8 +145,14 @@ continue importing only from `@superdurable/dex`.
 - `gen/`: checked-in protobuf and grpc-js bindings
 
 Run `npm run build:native` once to stage the DXBC Node addon for the current
-platform, then `npm test` for runtime contracts and `npm run typecheck` for
-strict static contracts. Run `./run-integration-tests.sh` for all 58 IWF
+platform, then `npm test` for runtime contracts, `npm run typecheck` for strict
+static contracts, and `npm run docs:check` for public API documentation. The
+documentation check follows the actual exports of `src/index.ts` and requires
+JSDoc for every public class, interface, type, overload, member, object-style
+enum value, type parameter, input, and output; generated sources are excluded.
+The comments appear in TypeScript language-service and IDE hovers.
+
+Run `./run-integration-tests.sh` for all 58 IWF
 compatibility scenarios against an isolated `dexcli dev` environment. Run
 `npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
 standard protobuf includes must be installed.

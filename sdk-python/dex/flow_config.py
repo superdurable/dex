@@ -14,6 +14,15 @@ from dex.worker_options import WorkerTarget
 
 
 class ActiveStepSearchMode(Enum):
+    """Control which active Steps are included in Flow search indexing.
+
+    Attributes:
+        DEFAULT: Use the Dex server's current default policy.
+        ALL: Index every active Step.
+        WITH_WAIT_FOR: Index only active Steps that define ``wait_for``.
+        DISABLED: Do not index active Steps.
+    """
+
     DEFAULT = "default"
     ALL = "all"
     WITH_WAIT_FOR = "with_wait_for"
@@ -22,6 +31,21 @@ class ActiveStepSearchMode(Enum):
 
 @dataclass(frozen=True)
 class FlowConfig:
+    """Override server behavior for one Flow execution.
+
+    Every ``None`` field delegates to the registered or server default. Config may
+    be supplied at start time or replaced on an active Flow through the Client.
+
+    Attributes:
+        active_step_search_mode: Optional active-Step visibility indexing policy.
+        continue_as_new_threshold: Optional positive history-event threshold that
+            requests continue-as-new.
+        continue_as_new_page_size_bytes: Optional positive history page-size budget
+            in bytes used by continue-as-new decisions.
+        step_durability: Optional default durability for Step handlers.
+        worker_target: Optional Worker endpoint for subsequent handler dispatch.
+    """
+
     active_step_search_mode: ActiveStepSearchMode | None = None
     continue_as_new_threshold: int | None = None
     continue_as_new_page_size_bytes: int | None = None

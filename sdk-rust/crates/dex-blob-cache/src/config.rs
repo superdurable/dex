@@ -14,6 +14,11 @@ pub(crate) const MAX_BLOB_ID_BYTES: usize = 1 << 20;
 const DEFAULT_FREQUENCY_COUNTERS: i64 = 10_000;
 
 #[derive(Clone, Debug)]
+/// Configures one persistent [`crate::BlobCache`].
+///
+/// The directory contains cache-owned files and must not be shared with unrelated data. The byte
+/// limit bounds admitted payloads. Frequency counters tune admission accuracy; pass `0` to use the
+/// default of 10,000.
 pub struct BlobCacheConfig {
     directory: PathBuf,
     max_bytes: i64,
@@ -21,6 +26,29 @@ pub struct BlobCacheConfig {
 }
 
 impl BlobCacheConfig {
+    /// Validates and creates a cache configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `directory` - Cache-owned filesystem directory.
+    /// * `max_bytes` - Positive maximum number of payload bytes admitted to the cache.
+    /// * `frequency_counters` - Admission-policy counters, or `0` for the 10,000 default.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlobCacheError::InvalidConfig`] when the directory is empty, the byte limit is not
+    /// positive, the counter count is negative, or the count cannot fit in [`usize`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_blob_cache::BlobCacheConfig;
+    ///
+    /// let config = BlobCacheConfig::new("/tmp/dex-blobs", 64 * 1024 * 1024, 0)?;
+    /// assert_eq!(config.max_bytes(), 64 * 1024 * 1024);
+    /// assert_eq!(config.frequency_counters(), 10_000);
+    /// # Ok::<(), dex_blob_cache::BlobCacheError>(())
+    /// ```
     pub fn new(
         directory: impl Into<PathBuf>,
         max_bytes: i64,
@@ -58,14 +86,17 @@ impl BlobCacheConfig {
         })
     }
 
+    /// Returns the cache-owned filesystem directory.
     pub fn directory(&self) -> &Path {
         &self.directory
     }
 
+    /// Returns the maximum admitted payload bytes.
     pub fn max_bytes(&self) -> i64 {
         self.max_bytes
     }
 
+    /// Returns the admission-policy frequency counter count.
     pub fn frequency_counters(&self) -> usize {
         self.frequency_counters
     }

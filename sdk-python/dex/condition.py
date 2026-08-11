@@ -67,8 +67,25 @@ class ChannelCondition(Condition, Generic[ValueT]):
 
 @dataclass(frozen=True)
 class ConditionCombination:
+    """Group Conditions that must become ready together.
+
+    Pass combinations to :meth:`Wait.any_combination_of` when several alternative
+    groups are acceptable.
+
+    Attributes:
+        conditions: The ordered Conditions in this all-of group.
+    """
+
     conditions: tuple[Condition, ...]
 
     @staticmethod
     def of(*conditions: Condition) -> ConditionCombination:
+        """Create a combination from one or more Conditions.
+
+        Args:
+            *conditions: Conditions that must all become ready together.
+
+        Returns:
+            An immutable combination preserving argument order.
+        """
         return ConditionCombination(conditions)

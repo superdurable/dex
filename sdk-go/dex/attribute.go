@@ -13,12 +13,24 @@ package dex
 import "github.com/superdurable/dex/sdk-go/gen/dexpb"
 
 // Attribute defines a typed persisted value.
+//
+// Declare an Attribute once, include it in the Flow's PersistenceSchema, and reuse the same value
+// from Step and RPC code. Values use the SDK's native scalar and JSON encoding rules.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
+//
+// Example:
+//
+//	var orderStatus = dex.DefineAttribute[string](
+//		"order-status",
+//		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+//	)
 type Attribute[T any] struct {
 	name  string
 	index *AttributeIndex
 }
 
+// DefineAttribute creates a typed Attribute with a stable name and optional search index.
+// The definition does not perform I/O; register it through PersistenceSchema before use.
 func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T] {
 	config := applyAttributeOptions(options)
 	return Attribute[T]{name: key, index: config.index}
@@ -26,6 +38,9 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 
 // AttributeDef is the interface of Attribute, without Go's generic
 // So that internal sdk can use it to workaround Go's generic limitations
+//
+// AttributeDef is sealed. Applications obtain values from DefineAttribute or
+// DefineAttributeMap, then pass them to PersistenceSchema and Client methods.
 type AttributeDef interface {
 	attributeName() string
 	attributeIndex() *AttributeIndex
@@ -33,6 +48,7 @@ type AttributeDef interface {
 }
 
 // Get returns the current value. Missing values return AttributeNotFoundError.
+// It returns an error when ctx is not an SDK invocation or the value cannot be decoded.
 func (a Attribute[T]) Get(ctx Context) (value T, err error) {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -48,6 +64,8 @@ func (a Attribute[T]) Get(ctx Context) (value T, err error) {
 	return value, nil
 }
 
+// Set stages value for durable persistence when the current Step or RPC invocation succeeds.
+// It returns an error when ctx is not an SDK invocation or value cannot be encoded or indexed.
 func (a Attribute[T]) Set(ctx Context, value T) error {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -56,6 +74,8 @@ func (a Attribute[T]) Set(ctx Context, value T) error {
 	return invocation.setAttribute(a.name, value, a.index)
 }
 
+// Delete stages removal of this Attribute. Deleting a missing value is valid.
+// It returns an error when ctx is not an SDK invocation.
 func (a Attribute[T]) Delete(ctx Context) error {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -64,6 +84,7 @@ func (a Attribute[T]) Delete(ctx Context) error {
 	return invocation.deleteAttribute(a.name, a.index)
 }
 
+// AttributeName returns the stable name sent to Dex and used in PersistenceSchema.
 func (a Attribute[T]) AttributeName() string {
 	return a.name
 }
@@ -81,18 +102,24 @@ func (Attribute[T]) attributeIsMap() bool {
 }
 
 // AttributeMap defines keyed typed persisted values.
+//
+// Register the map once in PersistenceSchema, then supply an instance string for every access and
+// lock.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
 type AttributeMap[T any] struct {
 	name  string
 	index *AttributeIndex
 }
 
+// DefineAttributeMap creates a typed Attribute map with a stable name and optional search index.
+// The definition performs no I/O; register it through PersistenceSchema before use.
 func DefineAttributeMap[T any](name string, options ...AttributeOption) AttributeMap[T] {
 	config := applyAttributeOptions(options)
 	return AttributeMap[T]{name: name, index: config.index}
 }
 
 // Get returns the current map value. Missing instances return AttributeNotFoundError.
+// It returns an error when ctx is invalid or the value cannot be decoded.
 func (a AttributeMap[T]) Get(
 	ctx Context,
 	instance string,
@@ -114,6 +141,8 @@ func (a AttributeMap[T]) Get(
 	return value, nil
 }
 
+// Set stages value for one map instance when the invocation succeeds.
+// It returns an error for an invalid context or a value that cannot be encoded or indexed.
 func (a AttributeMap[T]) Set(ctx Context, instance string, value T) error {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -122,6 +151,8 @@ func (a AttributeMap[T]) Set(ctx Context, instance string, value T) error {
 	return invocation.setAttributeMap(a.name, instance, value, a.index)
 }
 
+// Delete stages removal of one map instance. Deleting a missing instance is valid.
+// It returns an error when ctx is not an SDK invocation.
 func (a AttributeMap[T]) Delete(ctx Context, instance string) error {
 	invocation, ok := ctx.(attributeInvocation)
 	if !ok {
@@ -130,6 +161,7 @@ func (a AttributeMap[T]) Delete(ctx Context, instance string) error {
 	return invocation.deleteAttributeMap(a.name, instance, a.index)
 }
 
+// AttributeName returns the stable shared name of this Attribute map.
 func (a AttributeMap[T]) AttributeName() string {
 	return a.name
 }
@@ -146,40 +178,59 @@ func (AttributeMap[T]) attributeIsMap() bool {
 	return true
 }
 
+// AttributeOption configures an Attribute or AttributeMap definition.
+// Use Indexed to create values; the interface is sealed to SDK implementations.
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)
 }
 
+// IndexType identifies the search representation required for an indexed Attribute value.
 type IndexType uint8
 
 const (
+	// IndexKeyword indexes one exact UTF-8 string for equality and aggregation queries.
 	IndexKeyword IndexType = iota + 1
+	// IndexFullText indexes analyzed UTF-8 text for full-text queries.
 	IndexFullText
+	// IndexKeywordArray indexes a slice or array of exact UTF-8 strings.
 	IndexKeywordArray
+	// IndexInt indexes a signed or unsigned integer that fits in int64.
 	IndexInt
+	// IndexDouble indexes a finite floating-point value.
 	IndexDouble
+	// IndexBool indexes a Boolean value.
 	IndexBool
+	// IndexDatetime indexes time.Time or an RFC3339Nano string.
 	IndexDatetime
 )
 
 // AttributeIndex configures visibility indexing; datetime values use time.Time or RFC3339Nano strings.
+// An empty IndexKey uses the Attribute name
+// for single values and a derived physical name for map instances.
 type AttributeIndex struct {
-	Type     IndexType
+	// Type selects the required value representation.
+	Type IndexType
+	// IndexKey overrides the physical search field; empty uses the Attribute-derived key.
 	IndexKey string
 }
 
+// Indexed enables search indexing with index on an Attribute or AttributeMap definition.
 func Indexed(index AttributeIndex) AttributeOption {
 	return indexedAttributeOption{index: index}
 }
 
+// AttributeLock identifies one Attribute or Attribute-map instance lock.
+// Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or InvokeOptions.
 type AttributeLock interface {
 	attributeLock()
 }
 
+// LockAttribute creates a lock for the single value represented by attribute.
 func LockAttribute[T any](attribute Attribute[T]) AttributeLock {
 	return attributeLock{name: attribute.name}
 }
 
+// LockAttributeMap creates a lock scoped to one Attribute-map instance.
 func LockAttributeMap[T any](
 	attribute AttributeMap[T],
 	instance string,
@@ -187,6 +238,8 @@ func LockAttributeMap[T any](
 	return attributeLock{name: attribute.name, instance: instance, isMap: true}
 }
 
+// InitialAttribute encodes a value for StartFlowOptions.Attributes.
+// It returns ValueMappingError when the value is unsupported or incompatible with its index.
 func InitialAttribute[T any](
 	attribute Attribute[T],
 	value T,
@@ -204,10 +257,14 @@ func InitialAttribute[T any](
 	}, nil
 }
 
+// InitialAttributeDef is an encoded Attribute initialization accepted by StartFlowOptions.
+// Values are created by InitialAttribute and InitialAttributeMapValue.
 type InitialAttributeDef interface {
 	initialAttribute()
 }
 
+// InitialAttributeMapValue encodes one Attribute-map instance for StartFlowOptions.Attributes.
+// It returns ValueMappingError when the value is unsupported or incompatible with its index.
 func InitialAttributeMapValue[T any](
 	attribute AttributeMap[T],
 	instance string,

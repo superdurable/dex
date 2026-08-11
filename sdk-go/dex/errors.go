@@ -25,17 +25,23 @@ var (
 
 // AttributeNotFoundError reports a missing invocation attribute.
 type AttributeNotFoundError struct {
+	// AttributeName is the stable Attribute or AttributeMap name.
 	AttributeName string
-	Instance      string
+	// Instance is the missing map instance, or empty for a single Attribute.
+	Instance string
 }
 
 // FlowDefinitionError reports an invalid or unregistered Flow definition.
 type FlowDefinitionError struct {
-	FlowType   string
+	// FlowType identifies the invalid or unregistered Flow when known.
+	FlowType string
+	// Definition identifies the invalid Step, RPC, Attribute, or Channel when known.
 	Definition string
-	Err        error
+	// Err preserves the developer-actionable contract violation.
+	Err error
 }
 
+// Error formats the Flow definition and its underlying contract violation.
 func (e *FlowDefinitionError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -53,18 +59,24 @@ func (e *FlowDefinitionError) Error() string {
 	return prefix + ": " + e.Err.Error()
 }
 
+// Unwrap returns the underlying definition violation.
 func (e *FlowDefinitionError) Unwrap() error {
 	return e.Err
 }
 
 // InvalidStepResultError reports an invalid Worker handler result.
 type InvalidStepResultError struct {
+	// FlowType identifies the containing Flow.
 	FlowType string
+	// StepType identifies the Step, or empty for an RPC.
 	StepType string
-	Method   string
-	Err      error
+	// Method is WaitFor, Execute, or the RPC name.
+	Method string
+	// Err preserves the violated result contract.
+	Err error
 }
 
+// Error formats the handler location and invalid-result detail.
 func (e *InvalidStepResultError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -82,16 +94,20 @@ func (e *InvalidStepResultError) Error() string {
 	return prefix + ": " + e.Err.Error()
 }
 
+// Unwrap returns the underlying result-contract violation.
 func (e *InvalidStepResultError) Unwrap() error {
 	return e.Err
 }
 
 // ValueMappingError reports a Dex value conversion failure.
 type ValueMappingError struct {
+	// Operation describes whether encoding, decoding, indexing, or hydration failed.
 	Operation string
-	Err       error
+	// Err preserves the serializer or type-conversion failure.
+	Err error
 }
 
+// Error formats the value operation and underlying mapping failure.
 func (e *ValueMappingError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -106,10 +122,12 @@ func (e *ValueMappingError) Error() string {
 	return prefix + ": " + e.Err.Error()
 }
 
+// Unwrap returns the underlying value-mapping failure.
 func (e *ValueMappingError) Unwrap() error {
 	return e.Err
 }
 
+// Error identifies the missing Attribute or Attribute-map instance.
 func (e *AttributeNotFoundError) Error() string {
 	if e.Instance == "" {
 		return fmt.Sprintf("dex: attribute %q not found", e.AttributeName)
@@ -123,14 +141,20 @@ func (e *AttributeNotFoundError) Error() string {
 
 // ServiceError reports a FlowService failure.
 type ServiceError struct {
-	Op        string
-	FlowID    string
-	Code      codes.Code
+	// Op is the SDK operation that failed.
+	Op string
+	// FlowID is the targeted Flow ID, or empty for service-wide operations.
+	FlowID string
+	// Code is the outer gRPC status code.
+	Code codes.Code
+	// SubStatus is Dex's specialized error classification.
 	SubStatus ErrorSubStatus
-	Detail    string
-	cause     error
+	// Detail is the most specific server or transport message available.
+	Detail string
+	cause  error
 }
 
+// Error formats operation, Flow identity, gRPC code, and detail.
 func (e *ServiceError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -148,75 +172,96 @@ func (e *ServiceError) Error() string {
 	return fmt.Sprintf("%s: %s: %s", prefix, e.Code, e.Detail)
 }
 
+// Unwrap returns the original gRPC transport failure.
 func (e *ServiceError) Unwrap() error {
 	return e.cause
 }
 
 // FlowAlreadyStartedError reports a duplicate Flow start.
 type FlowAlreadyStartedError struct {
+	// ServiceError contains the failed StartFlow metadata.
 	*ServiceError
 }
 
+// Unwrap returns the shared service failure.
 func (e *FlowAlreadyStartedError) Unwrap() error {
 	return e.ServiceError
 }
 
 // FlowNotFoundError reports a missing Flow for an existing-Flow operation.
 type FlowNotFoundError struct {
+	// ServiceError contains the failed existing-Flow operation metadata.
 	*ServiceError
 }
 
+// Unwrap returns the shared service failure.
 func (e *FlowNotFoundError) Unwrap() error {
 	return e.ServiceError
 }
 
 // FlowNotActiveError reports a missing active Flow.
 type FlowNotActiveError struct {
+	// ServiceError contains the failed active-Flow operation metadata.
 	*ServiceError
 }
 
+// Unwrap returns the shared service failure.
 func (e *FlowNotActiveError) Unwrap() error {
 	return e.ServiceError
 }
 
 // WorkerInvocationError reports a WorkerService or user-handler failure.
 type WorkerInvocationError struct {
+	// ServiceError contains the outer Dex service failure.
 	*ServiceError
+	// Worker preserves the original Worker-side status, type, and detail.
 	Worker *WorkerError
 }
 
+// Unwrap returns the outer service failure.
 func (e *WorkerInvocationError) Unwrap() error {
 	return e.ServiceError
 }
 
 // RPCLockConflictError reports concurrent RPC lock contention.
 type RPCLockConflictError struct {
+	// ServiceError contains the aborted RPC metadata.
 	*ServiceError
 }
 
+// Unwrap returns the shared service failure.
 func (e *RPCLockConflictError) Unwrap() error {
 	return e.ServiceError
 }
 
 // LongPollTimeoutError reports an expired server long poll.
 type LongPollTimeoutError struct {
+	// ServiceError contains the timed-out wait metadata.
 	*ServiceError
 }
 
+// Unwrap returns the shared service failure.
 func (e *LongPollTimeoutError) Unwrap() error {
 	return e.ServiceError
 }
 
 // FlowUncompletedError reports a Flow that closed without completing.
 type FlowUncompletedError struct {
-	FlowID       string
-	RunID        string
-	Status       FlowStatus
-	ErrorType    FlowErrorType
+	// FlowID is the application-assigned Flow ID.
+	FlowID string
+	// RunID is the server-assigned terminal run ID.
+	RunID string
+	// Status is the terminal non-completed status.
+	Status FlowStatus
+	// ErrorType is Dex's Flow failure category when supplied.
+	ErrorType FlowErrorType
+	// ErrorMessage is the server completion detail when supplied.
 	ErrorMessage string
-	Completions  []StepCompletion
+	// Completions contains completed Step outputs returned by Dex.
+	Completions []StepCompletion
 }
 
+// Error formats the terminal Flow status and optional failure detail.
 func (e *FlowUncompletedError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -230,8 +275,11 @@ func (e *FlowUncompletedError) Error() string {
 
 // WorkerError preserves the original WorkerService failure.
 type WorkerError struct {
-	Code   codes.Code
-	Type   string
+	// Code is the original Worker gRPC status.
+	Code codes.Code
+	// Type is the original Worker error or exception type.
+	Type string
+	// Detail is the original Worker-provided message.
 	Detail string
 }
 
@@ -239,10 +287,15 @@ type WorkerError struct {
 type ErrorSubStatus uint8
 
 const (
+	// ErrorSubStatusUncategorized means Dex supplied no recognized specialization.
 	ErrorSubStatusUncategorized ErrorSubStatus = iota + 1
+	// ErrorSubStatusFlowAlreadyStarted identifies a Flow ID reuse conflict.
 	ErrorSubStatusFlowAlreadyStarted
+	// ErrorSubStatusFlowNotFound identifies an unknown or inactive Flow.
 	ErrorSubStatusFlowNotFound
+	// ErrorSubStatusWorkerAPI identifies a failed Step or RPC invocation.
 	ErrorSubStatusWorkerAPI
+	// ErrorSubStatusLongPollTimeout identifies an active wait whose deadline elapsed.
 	ErrorSubStatusLongPollTimeout
 )
 

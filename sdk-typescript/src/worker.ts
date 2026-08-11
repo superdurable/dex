@@ -34,7 +34,21 @@ import { WorkerDispatcher } from "./worker-dispatcher.js";
 
 type WorkerState = "created" | "running" | "stopping" | "stopped" | "closed";
 
+/**
+ * Hosts registered Step and RPC handlers over the private WorkerService protocol.
+ *
+ * A Worker is one-shot. Call `start` for non-blocking startup or `run` to await
+ * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
+ *
+ * @example
+ * ```ts
+ * const worker = new Worker(registry, cache);
+ * await worker.start();
+ * try { console.log(worker.workerTarget.address); } finally { await worker.close(); }
+ * ```
+ */
 export class Worker {
+  /** Effective endpoint advertised to Dex. */
   public readonly workerTarget: WorkerTarget;
 
   private readonly server = new Server();
@@ -43,6 +57,12 @@ export class Worker {
   private resolveStopped!: () => void;
   private state: WorkerState = "created";
 
+  /**
+   * Constructs a Worker without starting its listener.
+   * @param registry - Immutable Flow definitions served by this Worker.
+   * @param blobCache - Open cache used to hydrate large handler values.
+   * @param options - Networking and startup settings; omission uses local defaults.
+   */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
@@ -64,6 +84,10 @@ export class Worker {
     });
   }
 
+  /**
+   * Synchronizes Attribute indexes and starts the WorkerService listener.
+   * The promise resolves after successful binding; call exactly once.
+   */
   public async start(): Promise<void> {
     if (this.state !== "created") {
       throw new Error(`Worker cannot start from state ${this.state}`);
@@ -85,11 +109,16 @@ export class Worker {
     }
   }
 
+  /** Starts the Worker and waits until `close` completes shutdown. */
   public async run(): Promise<void> {
     await this.start();
     await this.stopped;
   }
 
+  /**
+   * Gracefully stops the listener and releases the FlowService connection.
+   * Calls before `start` and repeated calls after shutdown are safe.
+   */
   public async close(): Promise<void> {
     if (this.state === "closed") {
       return;

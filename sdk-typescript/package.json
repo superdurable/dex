@@ -35,6 +35,7 @@
     "build": "tsc -p tsconfig.json",
     "build:native": "node scripts/build-native.mjs",
     "coverage:integration": "./run-integration-tests.sh --coverage",
+    "docs:check": "node scripts/check-public-docs.mjs",
     "generate:proto": "node scripts/generate-proto.mjs",
     "prepack": "npm run build:native && npm run build",
     "test:integration": "npm run build:native && npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",

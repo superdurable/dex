@@ -28,6 +28,11 @@ pub(crate) enum InvocationMethod {
     Rpc,
 }
 
+/// Provides immutable invocation metadata and staged durable mutations to Step and RPC handlers.
+///
+/// A Context belongs to one handler attempt and must not outlive the call. Attribute writes,
+/// Channel publications, locals, and events become visible atomically only when the handler returns
+/// successfully. Application values are freshly decoded and owned by the invocation.
 pub struct Context {
     method: InvocationMethod,
     flow: RegisteredFlow,
@@ -45,34 +50,42 @@ pub struct Context {
 }
 
 impl Context {
+    /// Returns the application-assigned Flow ID.
     pub fn flow_id(&self) -> &str {
         &self.metadata.flow_id
     }
 
+    /// Returns the server-assigned run ID for this execution.
     pub fn run_id(&self) -> &str {
         &self.metadata.run_id
     }
 
+    /// Returns when the current Flow run started.
     pub fn flow_started_at(&self) -> SystemTime {
         system_time(self.metadata.flow_started_timestamp)
     }
 
+    /// Returns the current Step execution ID, or an empty string for an RPC.
     pub fn step_execution_id(&self) -> &str {
         &self.metadata.step_execution_id
     }
 
+    /// Returns the predecessor Step execution ID, or an empty string when absent.
     pub fn from_step_execution_id(&self) -> &str {
         &self.metadata.from_step_execution_id
     }
 
+    /// Returns when the first attempt of this handler invocation started.
     pub fn first_attempt_at(&self) -> SystemTime {
         system_time(self.metadata.first_attempt_timestamp)
     }
 
+    /// Returns the one-based handler attempt number.
     pub fn attempt(&self) -> u32 {
         u32::try_from(self.metadata.attempt).unwrap_or_default()
     }
 
+    /// Returns whether any timer condition completed for this `execute` invocation.
     pub fn has_any_timer_fired(&self) -> bool {
         self.condition_results.as_ref().is_some_and(|results| {
             results
@@ -82,6 +95,9 @@ impl Context {
         })
     }
 
+    /// Returns whether the zero-based timer at `index` completed.
+    ///
+    /// Missing indexes return `false`.
     pub fn has_timer_fired(&self, index: usize) -> bool {
         self.condition_results
             .as_ref()
@@ -89,20 +105,30 @@ impl Context {
             .is_some_and(|timer| timer.condition_status == ConditionStatus::Completed as i32)
     }
 
+    /// Returns whether `execute` is running because `wait_for` exhausted retries with Proceed.
     pub fn wait_for_method_failed(&self) -> bool {
         self.condition_results
             .as_ref()
             .is_some_and(|results| results.wait_for_failed)
     }
 
+    /// Blocks the current thread until Dex cancels this handler attempt.
+    ///
+    /// Use this only for interruptible application work; ordinary handlers should return normally.
     pub fn wait_for_cancellation(&self) {
         self.cancellation.wait();
     }
 
+    /// Returns immediately with the current handler-cancellation state.
     pub fn is_cancelled(&self) -> bool {
         self.cancellation.is_cancelled()
     }
 
+    /// Stages a Step-execution-local value visible to later attempts of the same execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an empty key or an encoding failure.
     pub fn set_step_execution_local<T: Value>(&mut self, key: &str, value: T) -> HandlerResult<()> {
         require_name(key, "step-execution local key")?;
         let value = value_mapper::encode_handler(&value)?;
@@ -116,6 +142,11 @@ impl Context {
         Ok(())
     }
 
+    /// Reads a required Step-execution-local value, including writes staged by this attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an empty key, a missing value, or a decoding failure.
     pub fn step_execution_local<T: Value>(&self, key: &str) -> HandlerResult<T> {
         require_name(key, "step-execution local key")?;
         let value = self
@@ -127,6 +158,13 @@ impl Context {
         value_mapper::decode_handler(value)
     }
 
+    /// Records one named diagnostic event with a typed payload.
+    ///
+    /// Event names must be unique within the invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an empty or duplicate name or an encoding failure.
     pub fn record_event<T: Value>(&mut self, name: &str, value: T) -> HandlerResult<()> {
         require_name(name, "event name")?;
         if !self.event_names.insert(name.to_string()) {
@@ -141,10 +179,12 @@ impl Context {
         Ok(())
     }
 
+    /// Reads an Attribute value, including writes staged by this invocation.
     pub fn get_attribute<T: Value>(&self, attribute: &Attribute<T>) -> HandlerResult<Option<T>> {
         self.get_attribute_value(attribute.name(), PersistenceKind::Attribute, None)
     }
 
+    /// Reads one Attribute-map instance, including staged writes.
     pub fn get_attribute_map<T: Value>(
         &self,
         attribute: &AttributeMap<T>,
@@ -157,6 +197,7 @@ impl Context {
         )
     }
 
+    /// Stages a typed Attribute write.
     pub fn set_attribute<T: Value>(
         &mut self,
         attribute: &Attribute<T>,
@@ -171,6 +212,7 @@ impl Context {
         )
     }
 
+    /// Stages a typed write for one Attribute-map instance.
     pub fn set_attribute_map<T: Value>(
         &mut self,
         attribute: &AttributeMap<T>,
@@ -186,6 +228,7 @@ impl Context {
         )
     }
 
+    /// Stages deletion of an Attribute value.
     pub fn delete_attribute<T>(&mut self, attribute: &Attribute<T>) -> HandlerResult<()> {
         self.set_attribute_value(
             attribute.name(),
@@ -196,6 +239,7 @@ impl Context {
         )
     }
 
+    /// Stages deletion of one Attribute-map instance.
     pub fn delete_attribute_map<T>(
         &mut self,
         attribute: &AttributeMap<T>,
@@ -210,6 +254,7 @@ impl Context {
         )
     }
 
+    /// Stages one typed Channel publication.
     pub fn publish<T: Value>(&mut self, channel: &Channel<T>, value: T) -> HandlerResult<()> {
         self.publish_value(
             channel.name(),
@@ -219,6 +264,7 @@ impl Context {
         )
     }
 
+    /// Stages one typed publication to a Channel-map instance.
     pub fn publish_map<T: Value>(
         &mut self,
         channel: &ChannelMap<T>,
@@ -233,10 +279,12 @@ impl Context {
         )
     }
 
+    /// Returns the current invocation snapshot's Channel queue size.
     pub fn channel_size<T>(&self, channel: &Channel<T>) -> HandlerResult<usize> {
         self.channel_size_value(channel.name(), PersistenceKind::Channel, None)
     }
 
+    /// Returns one Channel-map instance's queue size.
     pub fn channel_map_size<T>(
         &self,
         channel: &ChannelMap<T>,
@@ -245,10 +293,12 @@ impl Context {
         self.channel_size_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
     }
 
+    /// Decodes the messages consumed by a satisfied Channel condition.
     pub fn channel_results<T: Value>(&self, channel: &Channel<T>) -> HandlerResult<Vec<T>> {
         self.channel_results_value(channel.name(), PersistenceKind::Channel, None)
     }
 
+    /// Decodes messages consumed by one satisfied Channel-map condition.
     pub fn channel_map_results<T: Value>(
         &self,
         channel: &ChannelMap<T>,

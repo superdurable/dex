@@ -33,20 +33,39 @@ const (
 )
 
 // WorkerOptions configures the application-hosted WorkerService.
+//
+// Zero values select local plaintext defaults. BindAddress controls the listening
+// socket, while WorkerTarget is the address Dex advertises to running Flows; these
+// commonly differ in containers or headless service deployments.
 type WorkerOptions struct {
 	// BindAddress is the plaintext WorkerService listener for Dex; it may differ from WorkerTarget. Default: ":8803".
+	// It uses host:port syntax.
 	BindAddress string
 	// WorkerTarget is advertised to Dex and may differ from BindAddress. Default Address derives from BindAddress; Headless defaults false.
 	WorkerTarget WorkerTarget
 	// FlowServiceAddress is the plaintext Dex endpoint used for startup synchronization and blob hydration. Default: "localhost:8801".
+	// Startup synchronization registers Attribute indexes.
 	FlowServiceAddress string
 	// AttributeIndexSyncTimeout bounds index registration at startup. Default: two minutes.
+	// Negative durations are invalid.
 	AttributeIndexSyncTimeout time.Duration
 	// Logger defaults to the shared BlobCache logger.
+	// It receives concurrent structured Worker logs and falls back to slog.Default.
 	Logger Logger
 }
 
 // Worker hosts registered Flows over the private WorkerService protocol.
+//
+// A Worker is one-shot: construct it, call Start once, then call Stop during
+// shutdown. Start blocks while serving. Step and RPC handlers may execute
+// concurrently, so application handler state must provide its own synchronization.
+//
+//	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{})
+//	if err != nil {
+//		return err
+//	}
+//	go func() { serveErr <- worker.Start() }()
+//	defer worker.Stop(context.Background())
 type Worker struct {
 	registry                  *Registry
 	bindAddress               string
@@ -73,6 +92,12 @@ const (
 )
 
 // NewWorker constructs a one-shot Worker from shared dependencies.
+//
+// registry supplies definitions and cache hydrates large values. It panics when
+// registry or cache is nil. It validates listener, advertised target,
+// FlowService address, and synchronization timeout, then creates the private gRPC
+// server and FlowService connection without starting the listener. The returned
+// Worker owns that connection; Start or Stop closes it.
 func NewWorker(
 	registry *Registry,
 	cache *blobcache.Cache,
@@ -222,6 +247,13 @@ func validatePlaintextTarget(address string, requireHostPort bool) error {
 }
 
 // Start serves WorkerService and blocks until Stop or a serve failure.
+//
+// Start may be called exactly once. Before listening, it synchronizes Attribute
+// indexes and waits up to
+// WorkerOptions.AttributeIndexSyncTimeout for Dex to accept the Registry's indexes.
+// It returns nil after a normal Stop, or an error for synchronization, listener,
+// serving, or invalid lifecycle state failures. Call Start on a dedicated goroutine
+// when the application must continue doing other work.
 func (worker *Worker) Start() error {
 	worker.lifecycleMu.Lock()
 	if worker.state != workerCreated {
@@ -265,6 +297,11 @@ func (worker *Worker) Start() error {
 }
 
 // Stop drains handlers until ctx expires, then force-stops the Worker.
+//
+// Stop accepts calls before Start and repeated calls after shutdown. A nil context is
+// invalid. If ctx expires while handlers are draining, Stop force-closes the gRPC
+// server, waits for cleanup, and returns ctx.Err. Stop closes the Worker's internal
+// FlowService connection before returning.
 func (worker *Worker) Stop(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("dex: Worker Stop context must not be nil")
@@ -309,6 +346,9 @@ func (worker *Worker) finish() {
 }
 
 // WorkerTarget returns a copy suitable for FlowConfig.WorkerTarget.
+//
+// The result is also suitable for ClientOptions.WorkerTarget. Mutating it does not
+// reconfigure the Worker.
 func (worker *Worker) WorkerTarget() *WorkerTarget {
 	target := worker.workerTarget
 	return &target

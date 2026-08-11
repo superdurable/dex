@@ -223,7 +223,18 @@ make -C ../protos proto-python
 Checked-in Python stubs land in `dex/dexpb/`.
 #### Linting
 
-To run linting for this project:
+Validate that every `dex.__all__` class, function, constant, public method,
+argument, return value, dataclass field, enum value, and public instance
+attribute has a Google-style docstring:
+
+```bash
+uv run --frozen python scripts/check_public_docs.py
+```
+
+The checker resolves definitions from the public package export table, so
+private helpers and generated protobuf modules are excluded. Use `help(dex.Client)`
+or IDE hover information to read the same documentation. To run all other
+linting for this project:
 
 ```bash
 uv run --frozen pre-commit run --show-diff-on-failure --color=always --all-files

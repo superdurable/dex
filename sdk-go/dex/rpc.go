@@ -12,13 +12,29 @@ package dex
 
 import "reflect"
 
+// RPC is a typed Flow method that may read persistence and return output plus Step movements.
+//
+// Exported Flow methods matching this signature are registered under their Go method names. Return
+// a non-nil RPCResult on success or an error to report a Worker invocation failure.
+//
+// Example:
+//
+//	func (OrderFlow) GetStatus(
+//		ctx dex.Context,
+//		input GetStatusInput,
+//	) (*dex.RPCResult[OrderStatus], error) {
+//		return &dex.RPCResult[OrderStatus]{Output: OrderStatus{}}, nil
+//	}
 type RPC[IN, OUT any] func(
 	ctx Context,
 	input IN,
 ) (*RPCResult[OUT], error)
 
+// RPCResult carries typed RPC output and optional Step movements committed after success.
 type RPCResult[OUT any] struct {
-	Output    OUT
+	// Output is encoded as the RPC response value.
+	Output OUT
+	// NextSteps are scheduled in order after the RPC persistence changes commit.
 	NextSteps []StepMovement
 }
 

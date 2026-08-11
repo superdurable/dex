@@ -13,10 +13,17 @@ package logging
 import "log/slog"
 
 // Logger receives structured SDK logs.
+//
+// msg is the human-readable event and keyvals contains alternating string keys and
+// values. Implementations should be safe for concurrent Client and Worker calls.
 type Logger interface {
+	// Debug records diagnostic detail normally disabled in production.
 	Debug(msg string, keyvals ...interface{})
+	// Info records routine SDK lifecycle and request information.
 	Info(msg string, keyvals ...interface{})
+	// Warn records a recoverable condition that may require operator attention.
 	Warn(msg string, keyvals ...interface{})
+	// Error records an SDK operation failure and its structured context.
 	Error(msg string, keyvals ...interface{})
 }
 
