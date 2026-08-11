@@ -134,7 +134,7 @@ func (r *Runtime) createServices() error {
 		return err
 	}
 	r.blobStore = store
-	r.indexSynchronizer = indexsync.New(&r.cfg.Interpreter, client)
+	r.indexSynchronizer = indexsync.New(&r.cfg.Interpreter, client, r.logger)
 	if r.options.Services.API {
 		r.apiServer = api.NewServer(
 			&r.cfg.Api,

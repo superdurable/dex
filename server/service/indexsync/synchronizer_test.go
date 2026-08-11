@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +41,7 @@ func TestSyncReturnsImmediatelyForExistingIndexes(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{{indexes: map[string]dexpb.IndexType{
 		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}}}}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	started := time.Now()
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
@@ -58,7 +59,7 @@ func TestSyncWaitsForNewIndexesToBecomeVisible(t *testing.T) {
 		{indexes: map[string]dexpb.IndexType{}},
 		{indexes: map[string]dexpb.IndexType{"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD}},
 	}}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
 		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
@@ -77,7 +78,7 @@ func TestSyncAcceptsConcurrentRegistration(t *testing.T) {
 		},
 		addErr: status.Error(codes.AlreadyExists, "registered concurrently"),
 	}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
 		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
@@ -97,7 +98,7 @@ func TestSyncRetriesTransientRegistration(t *testing.T) {
 		},
 		addErrors: []error{status.Error(codes.Unavailable, "not accepted"), nil},
 	}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
 		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
@@ -112,7 +113,7 @@ func TestSyncFailsImmediatelyForPermissionErrors(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{{
 		err: status.Error(codes.PermissionDenied, "denied"),
 	}}}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	started := time.Now()
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
@@ -128,7 +129,7 @@ func TestSyncUsesEarlierCallerDeadline(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{{
 		err: status.Error(codes.Unavailable, "not ready"),
 	}}}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
 
@@ -146,7 +147,7 @@ func TestSyncUsesConfiguredPropagationDeadline(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{
 		{indexes: map[string]dexpb.IndexType{}},
 	}}
-	synchronizer := New(testConfig(25*time.Millisecond), client)
+	synchronizer := New(testConfig(25*time.Millisecond), client, log.NewNoop())
 
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
 		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
@@ -163,7 +164,7 @@ func TestSyncNormalizesBackendIndexTypes(t *testing.T) {
 		}}},
 		normalizeKeywordArray: true,
 	}
-	synchronizer := New(testConfig(time.Second), client)
+	synchronizer := New(testConfig(time.Second), client, log.NewNoop())
 
 	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
 		"Tags": dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,

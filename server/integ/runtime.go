@@ -266,7 +266,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		context.Background(),
 		cfg.Interpreter.EffectiveAttributeIndexSyncTimeout(),
 	)
-	err = indexsync.New(&cfg.Interpreter, unifiedClient).Sync(syncCtx, attributeIndexes)
+	err = indexsync.New(&cfg.Interpreter, unifiedClient, logger).Sync(syncCtx, attributeIndexes)
 	cancelSync()
 	require.NoError(t, err)
 	startInterpreter(t, worker)
