@@ -64,7 +64,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder> 
       getEventsOrBuilderList() {
     return events_;
   }
@@ -431,7 +431,7 @@ private static final long serialVersionUID = 0L;
             eventsBuilder_ = null;
             events_ = other.events_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            eventsBuilder_ =
+            eventsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetEventsFieldBuilder() : null;
           } else {
@@ -706,7 +706,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder> 
          getEventsOrBuilderList() {
       if (eventsBuilder_ != null) {
         return eventsBuilder_.getMessageOrBuilderList();
@@ -732,12 +732,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.FlowHistoryEvent.Builder>
+    public java.util.List<io.superdurable.gen.FlowHistoryEvent.Builder> 
          getEventsBuilderList() {
       return internalGetEventsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.FlowHistoryEvent, io.superdurable.gen.FlowHistoryEvent.Builder, io.superdurable.gen.FlowHistoryEventOrBuilder>
+        io.superdurable.gen.FlowHistoryEvent, io.superdurable.gen.FlowHistoryEvent.Builder, io.superdurable.gen.FlowHistoryEventOrBuilder> 
         internalGetEventsFieldBuilder() {
       if (eventsBuilder_ == null) {
         eventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -865,3 +865,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

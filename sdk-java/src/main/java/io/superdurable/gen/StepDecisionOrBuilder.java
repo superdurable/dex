@@ -13,7 +13,7 @@ public interface StepDecisionOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
-  java.util.List<io.superdurable.gen.StepMovement>
+  java.util.List<io.superdurable.gen.StepMovement> 
       getNextStepsList();
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
@@ -26,7 +26,7 @@ public interface StepDecisionOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getNextStepsOrBuilderList();
   /**
    * <code>repeated .dex.StepMovement next_steps = 1;</code>

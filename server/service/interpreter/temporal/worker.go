@@ -16,6 +16,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/workerclient"
@@ -44,6 +45,7 @@ func NewInterpreterWorker(
 	dataConverter converter.DataConverter,
 	unifiedClient uclient.UnifiedClient,
 	store blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	workerPool *workerclient.WorkerClientPool,
 ) *InterpreterWorker {
 	if cfg == nil {
@@ -61,6 +63,7 @@ func NewInterpreterWorker(
 		internal,
 		unifiedClient,
 		store,
+		attributeStore,
 		eventHandler,
 		cfg,
 	)
@@ -139,14 +142,15 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
 	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
 	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)
+	iw.worker.RegisterActivity(iw.activities.SyncAttributeBatch)
 
 	err := iw.worker.Start()
 	if err != nil {
 		return fmt.Errorf("start Temporal interpreter worker: %w", err)
 	}
 
-	if iw.cfg.ExternalStorage.Enabled {
-		for _, storeCfg := range iw.cfg.ExternalStorage.SupportedStorages {
+	if iw.cfg.BlobStore.EffectiveEnabled() {
+		for _, storeCfg := range iw.cfg.BlobStore.SupportedStorages {
 			cronSchedule, scheduleErr := storeCfg.CleanupStrategy.CronSchedule()
 			if scheduleErr != nil {
 				return fmt.Errorf("invalid blobstore cleanup strategy: %w", scheduleErr)

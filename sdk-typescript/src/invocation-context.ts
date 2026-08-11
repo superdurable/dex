@@ -129,6 +129,7 @@ export class InvocationContext implements Context {
       key,
       value: encodeValue(attribute.codec, value),
       indexConfig: mapIndex(attribute.index),
+      syncConfig: undefined,
     });
   }
 
@@ -142,6 +143,7 @@ export class InvocationContext implements Context {
       key,
       value: deletionValue(),
       indexConfig: mapIndex(attribute.index),
+      syncConfig: undefined,
     });
   }
 

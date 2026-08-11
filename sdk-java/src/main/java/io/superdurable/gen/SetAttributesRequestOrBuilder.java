@@ -37,7 +37,7 @@ public interface SetAttributesRequestOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite attributes = 3;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite>
+  java.util.List<io.superdurable.gen.AttributeWrite> 
       getAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite attributes = 3;</code>
@@ -50,7 +50,7 @@ public interface SetAttributesRequestOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite attributes = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite attributes = 3;</code>

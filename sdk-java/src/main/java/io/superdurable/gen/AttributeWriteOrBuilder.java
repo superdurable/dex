@@ -63,4 +63,31 @@ public interface AttributeWriteOrBuilder extends
    * <code>.dex.IndexConfig index_config = 3;</code>
    */
   io.superdurable.gen.IndexConfigOrBuilder getIndexConfigOrBuilder();
+
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   * @return Whether the syncConfig field is set.
+   */
+  boolean hasSyncConfig();
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   * @return The syncConfig.
+   */
+  io.superdurable.gen.AttributeSyncConfig getSyncConfig();
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   */
+  io.superdurable.gen.AttributeSyncConfigOrBuilder getSyncConfigOrBuilder();
 }

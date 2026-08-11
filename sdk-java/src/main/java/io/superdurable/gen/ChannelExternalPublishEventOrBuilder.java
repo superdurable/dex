@@ -13,7 +13,7 @@ public interface ChannelExternalPublishEventOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage messages = 1;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelMessage>
+  java.util.List<io.superdurable.gen.ChannelMessage> 
       getMessagesList();
   /**
    * <code>repeated .dex.ChannelMessage messages = 1;</code>
@@ -26,7 +26,7 @@ public interface ChannelExternalPublishEventOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage messages = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
       getMessagesOrBuilderList();
   /**
    * <code>repeated .dex.ChannelMessage messages = 1;</code>

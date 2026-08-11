@@ -196,7 +196,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	if !u.signalReceiver.IsStopFlowRequested() {
+		u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	}
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{
 		Response: &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
@@ -207,6 +209,9 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	_ interfaces.UnifiedContext,
 	input *dexpb.InvokeRPCRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if input == nil || input.GetRpcName() == "" {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -262,6 +267,9 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 	_ interfaces.UnifiedContext,
 	request *dexpb.WaitForStepCompletionRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if request == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -356,6 +364,9 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 	_ interfaces.UnifiedContext,
 	request *dexpb.WaitForAttributeRequest,
 ) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
 	if request == nil || request.GetCondition() == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
@@ -384,6 +395,16 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 		)
 	}
 	return nil
+}
+
+func (u *WorkflowUpdater) rejectTerminalUpdate() error {
+	if !u.signalReceiver.IsStopFlowRequested() {
+		return nil
+	}
+	return u.provider.NewUpdateError(
+		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
+		"flow terminal cleanup is in progress",
+	)
 }
 
 func (u *WorkflowUpdater) handleWaitForAttribute(

@@ -462,7 +462,10 @@ func testWebStepInputWithoutStorage(
 	durability dexpb.StepDurability,
 ) {
 	workerTarget := startWorker(t, basic.NewHandler())
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:      backendType,
+		BlobStoreEnabled: ptr.Any(false),
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	flowID := fmt.Sprintf("web-storage-disabled-%s-%s", durability, uuid.NewString())

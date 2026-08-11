@@ -211,7 +211,16 @@ export interface AttributeWrite {
     | Value
     | undefined;
   /** Omit when indexing is inferred or attribute is not indexed. */
-  indexConfig: IndexConfig | undefined;
+  indexConfig:
+    | IndexConfig
+    | undefined;
+  /** Omit or disable to keep this write out of the configured Attribute Store. */
+  syncConfig: AttributeSyncConfig | undefined;
+}
+
+export interface AttributeSyncConfig {
+  /** Enqueues this write for the Flow's current Attribute Store target. */
+  enabled: boolean;
 }
 
 export interface KV {
@@ -292,7 +301,11 @@ export interface FlowConfig {
   continueAsNewThreshold?: number | undefined;
   continueAsNewPageSizeInBytes?: number | undefined;
   stepDurability?: StepDurability | undefined;
-  workerTarget: WorkerTarget | undefined;
+  workerTarget:
+    | WorkerTarget
+    | undefined;
+  /** Present empty disables future synchronization; non-empty selects a Server-configured store. */
+  attributeSyncConfigName?: string | undefined;
 }
 
 export interface WorkerTarget {
@@ -632,6 +645,7 @@ export interface ActiveStepExecutionState {
   completedConditions: StepExecutionCompletedConditions | undefined;
   stepExecutionLocals: KV[];
   timers: TimerInfo[];
+  lastFailureInfo: StepMethodFailure | undefined;
 }
 
 export interface GetFlowStateRequest {
@@ -754,11 +768,13 @@ export interface ErrorResponse {
   originalWorkerErrorDetail: string;
   originalWorkerErrorType: string;
   originalWorkerErrorStatus: number;
+  originalWorkerErrorStackTrace: string;
 }
 
 export interface WorkerErrorResponse {
   detail: string;
   errorType: string;
+  stackTrace: string;
 }
 
 export interface ChannelInfo {
@@ -968,6 +984,7 @@ export interface ContinueAsNewDump {
   staleSkipTimers: StaleSkipTimer[];
   /** Stored values only; index metadata remains in backend search attributes. */
   attributes: KV[];
+  pendingAttributeSyncItems: AttributeSyncItem[];
 }
 
 export interface ContinueAsNewDump_ChannelReceivedEntry {
@@ -983,11 +1000,8 @@ export interface InterpreterWorkflowInput {
   flowType: string;
   startStepType: string;
   stepInput: Value | undefined;
-  stepOptions:
-    | StepOptions
-    | undefined;
-  /** IndexConfig is processed before workflow start. */
-  initAttributes: KV[];
+  stepOptions: StepOptions | undefined;
+  initAttributes: AttributeWrite[];
   config:
     | FlowConfig
     | undefined;
@@ -1055,6 +1069,18 @@ export interface CleanupBlobStoreActivityOutput {
   totalDeleted: number;
 }
 
+export interface AttributeSyncItem {
+  configName: string;
+  key: string;
+  value: Value | undefined;
+}
+
+export interface SyncAttributeBatchActivityInput {
+  flowId: string;
+  configName: string;
+  items: AttributeSyncItem[];
+}
+
 export interface ExecuteRpcSignalRequest {
   rpcInput: Value | undefined;
   rpcOutput: Value | undefined;
@@ -1070,7 +1096,8 @@ export interface SkipTimerSignalRequest {
   timerConditionIndex: number;
 }
 
-export interface FailFlowSignalRequest {
+export interface StopFlowSignalRequest {
+  stopType: StopType;
   reason: string;
 }
 
@@ -1378,7 +1405,7 @@ export const EncodedObject: MessageFns<EncodedObject> = {
 };
 
 function createBaseAttributeWrite(): AttributeWrite {
-  return { key: "", value: undefined, indexConfig: undefined };
+  return { key: "", value: undefined, indexConfig: undefined, syncConfig: undefined };
 }
 
 export const AttributeWrite: MessageFns<AttributeWrite> = {
@@ -1391,6 +1418,9 @@ export const AttributeWrite: MessageFns<AttributeWrite> = {
     }
     if (message.indexConfig !== undefined) {
       IndexConfig.encode(message.indexConfig, writer.uint32(26).fork()).join();
+    }
+    if (message.syncConfig !== undefined) {
+      AttributeSyncConfig.encode(message.syncConfig, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -1426,6 +1456,14 @@ export const AttributeWrite: MessageFns<AttributeWrite> = {
           message.indexConfig = IndexConfig.decode(reader, reader.uint32());
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.syncConfig = AttributeSyncConfig.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1445,6 +1483,55 @@ export const AttributeWrite: MessageFns<AttributeWrite> = {
     message.indexConfig = (object.indexConfig !== undefined && object.indexConfig !== null)
       ? IndexConfig.fromPartial(object.indexConfig)
       : undefined;
+    message.syncConfig = (object.syncConfig !== undefined && object.syncConfig !== null)
+      ? AttributeSyncConfig.fromPartial(object.syncConfig)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseAttributeSyncConfig(): AttributeSyncConfig {
+  return { enabled: false };
+}
+
+export const AttributeSyncConfig: MessageFns<AttributeSyncConfig> = {
+  encode(message: AttributeSyncConfig, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.enabled !== false) {
+      writer.uint32(8).bool(message.enabled);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AttributeSyncConfig {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAttributeSyncConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.enabled = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<AttributeSyncConfig>, I>>(base?: I): AttributeSyncConfig {
+    return AttributeSyncConfig.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AttributeSyncConfig>, I>>(object: I): AttributeSyncConfig {
+    const message = createBaseAttributeSyncConfig();
+    message.enabled = object.enabled ?? false;
     return message;
   },
 };
@@ -2351,6 +2438,7 @@ function createBaseFlowConfig(): FlowConfig {
     continueAsNewPageSizeInBytes: undefined,
     stepDurability: undefined,
     workerTarget: undefined,
+    attributeSyncConfigName: undefined,
   };
 }
 
@@ -2370,6 +2458,9 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     }
     if (message.workerTarget !== undefined) {
       WorkerTarget.encode(message.workerTarget, writer.uint32(42).fork()).join();
+    }
+    if (message.attributeSyncConfigName !== undefined) {
+      writer.uint32(50).string(message.attributeSyncConfigName);
     }
     return writer;
   },
@@ -2421,6 +2512,14 @@ export const FlowConfig: MessageFns<FlowConfig> = {
           message.workerTarget = WorkerTarget.decode(reader, reader.uint32());
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.attributeSyncConfigName = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2442,6 +2541,7 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     message.workerTarget = (object.workerTarget !== undefined && object.workerTarget !== null)
       ? WorkerTarget.fromPartial(object.workerTarget)
       : undefined;
+    message.attributeSyncConfigName = object.attributeSyncConfigName ?? undefined;
     return message;
   },
 };
@@ -6470,6 +6570,7 @@ function createBaseActiveStepExecutionState(): ActiveStepExecutionState {
     completedConditions: undefined,
     stepExecutionLocals: [],
     timers: [],
+    lastFailureInfo: undefined,
   };
 }
 
@@ -6501,6 +6602,9 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
     }
     for (const v of message.timers) {
       TimerInfo.encode(v!, writer.uint32(74).fork()).join();
+    }
+    if (message.lastFailureInfo !== undefined) {
+      StepMethodFailure.encode(message.lastFailureInfo, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -6584,6 +6688,14 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
           message.timers.push(TimerInfo.decode(reader, reader.uint32()));
           continue;
         }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.lastFailureInfo = StepMethodFailure.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6613,6 +6725,9 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
       : undefined;
     message.stepExecutionLocals = object.stepExecutionLocals?.map((e) => KV.fromPartial(e)) || [];
     message.timers = object.timers?.map((e) => TimerInfo.fromPartial(e)) || [];
+    message.lastFailureInfo = (object.lastFailureInfo !== undefined && object.lastFailureInfo !== null)
+      ? StepMethodFailure.fromPartial(object.lastFailureInfo)
+      : undefined;
     return message;
   },
 };
@@ -7896,6 +8011,7 @@ function createBaseErrorResponse(): ErrorResponse {
     originalWorkerErrorDetail: "",
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
+    originalWorkerErrorStackTrace: "",
   };
 }
 
@@ -7915,6 +8031,9 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     }
     if (message.originalWorkerErrorStatus !== 0) {
       writer.uint32(40).int32(message.originalWorkerErrorStatus);
+    }
+    if (message.originalWorkerErrorStackTrace !== "") {
+      writer.uint32(50).string(message.originalWorkerErrorStackTrace);
     }
     return writer;
   },
@@ -7966,6 +8085,14 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
           message.originalWorkerErrorStatus = reader.int32();
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.originalWorkerErrorStackTrace = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -7985,12 +8112,13 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     message.originalWorkerErrorDetail = object.originalWorkerErrorDetail ?? "";
     message.originalWorkerErrorType = object.originalWorkerErrorType ?? "";
     message.originalWorkerErrorStatus = object.originalWorkerErrorStatus ?? 0;
+    message.originalWorkerErrorStackTrace = object.originalWorkerErrorStackTrace ?? "";
     return message;
   },
 };
 
 function createBaseWorkerErrorResponse(): WorkerErrorResponse {
-  return { detail: "", errorType: "" };
+  return { detail: "", errorType: "", stackTrace: "" };
 }
 
 export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
@@ -8000,6 +8128,9 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
     }
     if (message.errorType !== "") {
       writer.uint32(18).string(message.errorType);
+    }
+    if (message.stackTrace !== "") {
+      writer.uint32(26).string(message.stackTrace);
     }
     return writer;
   },
@@ -8027,6 +8158,14 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
           message.errorType = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.stackTrace = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8043,6 +8182,7 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
     const message = createBaseWorkerErrorResponse();
     message.detail = object.detail ?? "";
     message.errorType = object.errorType ?? "";
+    message.stackTrace = object.stackTrace ?? "";
     return message;
   },
 };
@@ -10442,6 +10582,7 @@ function createBaseContinueAsNewDump(): ContinueAsNewDump {
     stepOutputs: [],
     staleSkipTimers: [],
     attributes: [],
+    pendingAttributeSyncItems: [],
   };
 }
 
@@ -10467,6 +10608,9 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
     }
     for (const v of message.attributes) {
       KV.encode(v!, writer.uint32(58).fork()).join();
+    }
+    for (const v of message.pendingAttributeSyncItems) {
+      AttributeSyncItem.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -10537,6 +10681,14 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
           message.attributes.push(KV.decode(reader, reader.uint32()));
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.pendingAttributeSyncItems.push(AttributeSyncItem.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10567,6 +10719,8 @@ export const ContinueAsNewDump: MessageFns<ContinueAsNewDump> = {
     message.stepOutputs = object.stepOutputs?.map((e) => StepCompletionOutput.fromPartial(e)) || [];
     message.staleSkipTimers = object.staleSkipTimers?.map((e) => StaleSkipTimer.fromPartial(e)) || [];
     message.attributes = object.attributes?.map((e) => KV.fromPartial(e)) || [];
+    message.pendingAttributeSyncItems =
+      object.pendingAttributeSyncItems?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
     return message;
   },
 };
@@ -10709,7 +10863,7 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
       StepOptions.encode(message.stepOptions, writer.uint32(58).fork()).join();
     }
     for (const v of message.initAttributes) {
-      KV.encode(v!, writer.uint32(66).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(66).fork()).join();
     }
     if (message.config !== undefined) {
       FlowConfig.encode(message.config, writer.uint32(74).fork()).join();
@@ -10767,7 +10921,7 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
             break;
           }
 
-          message.initAttributes.push(KV.decode(reader, reader.uint32()));
+          message.initAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 9: {
@@ -10816,7 +10970,7 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     message.stepOptions = (object.stepOptions !== undefined && object.stepOptions !== null)
       ? StepOptions.fromPartial(object.stepOptions)
       : undefined;
-    message.initAttributes = object.initAttributes?.map((e) => KV.fromPartial(e)) || [];
+    message.initAttributes = object.initAttributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.config = (object.config !== undefined && object.config !== null)
       ? FlowConfig.fromPartial(object.config)
       : undefined;
@@ -11530,6 +11684,148 @@ export const CleanupBlobStoreActivityOutput: MessageFns<CleanupBlobStoreActivity
   },
 };
 
+function createBaseAttributeSyncItem(): AttributeSyncItem {
+  return { configName: "", key: "", value: undefined };
+}
+
+export const AttributeSyncItem: MessageFns<AttributeSyncItem> = {
+  encode(message: AttributeSyncItem, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.configName !== "") {
+      writer.uint32(10).string(message.configName);
+    }
+    if (message.key !== "") {
+      writer.uint32(18).string(message.key);
+    }
+    if (message.value !== undefined) {
+      Value.encode(message.value, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AttributeSyncItem {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAttributeSyncItem();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.configName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.value = Value.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<AttributeSyncItem>, I>>(base?: I): AttributeSyncItem {
+    return AttributeSyncItem.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AttributeSyncItem>, I>>(object: I): AttributeSyncItem {
+    const message = createBaseAttributeSyncItem();
+    message.configName = object.configName ?? "";
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    return message;
+  },
+};
+
+function createBaseSyncAttributeBatchActivityInput(): SyncAttributeBatchActivityInput {
+  return { flowId: "", configName: "", items: [] };
+}
+
+export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActivityInput> = {
+  encode(message: SyncAttributeBatchActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.configName !== "") {
+      writer.uint32(18).string(message.configName);
+    }
+    for (const v of message.items) {
+      AttributeSyncItem.encode(v!, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SyncAttributeBatchActivityInput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncAttributeBatchActivityInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.configName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.items.push(AttributeSyncItem.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SyncAttributeBatchActivityInput>, I>>(base?: I): SyncAttributeBatchActivityInput {
+    return SyncAttributeBatchActivityInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncAttributeBatchActivityInput>, I>>(
+    object: I,
+  ): SyncAttributeBatchActivityInput {
+    const message = createBaseSyncAttributeBatchActivityInput();
+    message.flowId = object.flowId ?? "";
+    message.configName = object.configName ?? "";
+    message.items = object.items?.map((e) => AttributeSyncItem.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
   return {
     rpcInput: undefined,
@@ -11719,27 +12015,38 @@ export const SkipTimerSignalRequest: MessageFns<SkipTimerSignalRequest> = {
   },
 };
 
-function createBaseFailFlowSignalRequest(): FailFlowSignalRequest {
-  return { reason: "" };
+function createBaseStopFlowSignalRequest(): StopFlowSignalRequest {
+  return { stopType: 0, reason: "" };
 }
 
-export const FailFlowSignalRequest: MessageFns<FailFlowSignalRequest> = {
-  encode(message: FailFlowSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const StopFlowSignalRequest: MessageFns<StopFlowSignalRequest> = {
+  encode(message: StopFlowSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.stopType !== 0) {
+      writer.uint32(8).int32(message.stopType);
+    }
     if (message.reason !== "") {
-      writer.uint32(10).string(message.reason);
+      writer.uint32(18).string(message.reason);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): FailFlowSignalRequest {
+  decode(input: BinaryReader | Uint8Array, length?: number): StopFlowSignalRequest {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseFailFlowSignalRequest();
+    const message = createBaseStopFlowSignalRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1: {
-          if (tag !== 10) {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.stopType = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
             break;
           }
 
@@ -11755,11 +12062,12 @@ export const FailFlowSignalRequest: MessageFns<FailFlowSignalRequest> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<FailFlowSignalRequest>, I>>(base?: I): FailFlowSignalRequest {
-    return FailFlowSignalRequest.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<StopFlowSignalRequest>, I>>(base?: I): StopFlowSignalRequest {
+    return StopFlowSignalRequest.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<FailFlowSignalRequest>, I>>(object: I): FailFlowSignalRequest {
-    const message = createBaseFailFlowSignalRequest();
+  fromPartial<I extends Exact<DeepPartial<StopFlowSignalRequest>, I>>(object: I): StopFlowSignalRequest {
+    const message = createBaseStopFlowSignalRequest();
+    message.stopType = object.stopType ?? 0;
     message.reason = object.reason ?? "";
     return message;
   },

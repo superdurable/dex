@@ -153,6 +153,44 @@ private static final long serialVersionUID = 0L;
     return indexConfig_ == null ? io.superdurable.gen.IndexConfig.getDefaultInstance() : indexConfig_;
   }
 
+  public static final int SYNC_CONFIG_FIELD_NUMBER = 4;
+  private io.superdurable.gen.AttributeSyncConfig syncConfig_;
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   * @return Whether the syncConfig field is set.
+   */
+  @java.lang.Override
+  public boolean hasSyncConfig() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   * @return The syncConfig.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.AttributeSyncConfig getSyncConfig() {
+    return syncConfig_ == null ? io.superdurable.gen.AttributeSyncConfig.getDefaultInstance() : syncConfig_;
+  }
+  /**
+   * <pre>
+   * Omit or disable to keep this write out of the configured Attribute Store.
+   * </pre>
+   *
+   * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.AttributeSyncConfigOrBuilder getSyncConfigOrBuilder() {
+    return syncConfig_ == null ? io.superdurable.gen.AttributeSyncConfig.getDefaultInstance() : syncConfig_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -176,6 +214,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(3, getIndexConfig());
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(4, getSyncConfig());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -190,6 +231,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, getIndexConfig());
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, getSyncConfig());
     }
     return size;
   }
@@ -227,6 +272,11 @@ private static final long serialVersionUID = 0L;
       if (!getIndexConfig()
           .equals(other.getIndexConfig())) return false;
     }
+    if (hasSyncConfig() != other.hasSyncConfig()) return false;
+    if (hasSyncConfig()) {
+      if (!getSyncConfig()
+          .equals(other.getSyncConfig())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -247,6 +297,10 @@ private static final long serialVersionUID = 0L;
     if (hasIndexConfig()) {
       hash = (37 * hash) + INDEX_CONFIG_FIELD_NUMBER;
       hash = (53 * hash) + getIndexConfig().hashCode();
+    }
+    if (hasSyncConfig()) {
+      hash = (37 * hash) + SYNC_CONFIG_FIELD_NUMBER;
+      hash = (53 * hash) + getSyncConfig().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -380,6 +434,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetValueFieldBuilder();
         internalGetIndexConfigFieldBuilder();
+        internalGetSyncConfigFieldBuilder();
       }
     }
     @java.lang.Override
@@ -396,6 +451,11 @@ private static final long serialVersionUID = 0L;
       if (indexConfigBuilder_ != null) {
         indexConfigBuilder_.dispose();
         indexConfigBuilder_ = null;
+      }
+      syncConfig_ = null;
+      if (syncConfigBuilder_ != null) {
+        syncConfigBuilder_.dispose();
+        syncConfigBuilder_ = null;
       }
       return this;
     }
@@ -446,6 +506,12 @@ private static final long serialVersionUID = 0L;
             : indexConfigBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.syncConfig_ = syncConfigBuilder_ == null
+            ? syncConfig_
+            : syncConfigBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -471,6 +537,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasIndexConfig()) {
         mergeIndexConfig(other.getIndexConfig());
+      }
+      if (other.hasSyncConfig()) {
+        mergeSyncConfig(other.getSyncConfig());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -517,6 +586,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetSyncConfigFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -882,6 +958,163 @@ private static final long serialVersionUID = 0L;
         indexConfig_ = null;
       }
       return indexConfigBuilder_;
+    }
+
+    private io.superdurable.gen.AttributeSyncConfig syncConfig_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.AttributeSyncConfig, io.superdurable.gen.AttributeSyncConfig.Builder, io.superdurable.gen.AttributeSyncConfigOrBuilder> syncConfigBuilder_;
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     * @return Whether the syncConfig field is set.
+     */
+    public boolean hasSyncConfig() {
+      return ((bitField0_ & 0x00000008) != 0);
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     * @return The syncConfig.
+     */
+    public io.superdurable.gen.AttributeSyncConfig getSyncConfig() {
+      if (syncConfigBuilder_ == null) {
+        return syncConfig_ == null ? io.superdurable.gen.AttributeSyncConfig.getDefaultInstance() : syncConfig_;
+      } else {
+        return syncConfigBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public Builder setSyncConfig(io.superdurable.gen.AttributeSyncConfig value) {
+      if (syncConfigBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        syncConfig_ = value;
+      } else {
+        syncConfigBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public Builder setSyncConfig(
+        io.superdurable.gen.AttributeSyncConfig.Builder builderForValue) {
+      if (syncConfigBuilder_ == null) {
+        syncConfig_ = builderForValue.build();
+      } else {
+        syncConfigBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public Builder mergeSyncConfig(io.superdurable.gen.AttributeSyncConfig value) {
+      if (syncConfigBuilder_ == null) {
+        if (((bitField0_ & 0x00000008) != 0) &&
+          syncConfig_ != null &&
+          syncConfig_ != io.superdurable.gen.AttributeSyncConfig.getDefaultInstance()) {
+          getSyncConfigBuilder().mergeFrom(value);
+        } else {
+          syncConfig_ = value;
+        }
+      } else {
+        syncConfigBuilder_.mergeFrom(value);
+      }
+      if (syncConfig_ != null) {
+        bitField0_ |= 0x00000008;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public Builder clearSyncConfig() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      syncConfig_ = null;
+      if (syncConfigBuilder_ != null) {
+        syncConfigBuilder_.dispose();
+        syncConfigBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public io.superdurable.gen.AttributeSyncConfig.Builder getSyncConfigBuilder() {
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return internalGetSyncConfigFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    public io.superdurable.gen.AttributeSyncConfigOrBuilder getSyncConfigOrBuilder() {
+      if (syncConfigBuilder_ != null) {
+        return syncConfigBuilder_.getMessageOrBuilder();
+      } else {
+        return syncConfig_ == null ?
+            io.superdurable.gen.AttributeSyncConfig.getDefaultInstance() : syncConfig_;
+      }
+    }
+    /**
+     * <pre>
+     * Omit or disable to keep this write out of the configured Attribute Store.
+     * </pre>
+     *
+     * <code>.dex.AttributeSyncConfig sync_config = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.AttributeSyncConfig, io.superdurable.gen.AttributeSyncConfig.Builder, io.superdurable.gen.AttributeSyncConfigOrBuilder> 
+        internalGetSyncConfigFieldBuilder() {
+      if (syncConfigBuilder_ == null) {
+        syncConfigBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.AttributeSyncConfig, io.superdurable.gen.AttributeSyncConfig.Builder, io.superdurable.gen.AttributeSyncConfigOrBuilder>(
+                getSyncConfig(),
+                getParentForChildren(),
+                isClean());
+        syncConfig_ = null;
+      }
+      return syncConfigBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.AttributeWrite)

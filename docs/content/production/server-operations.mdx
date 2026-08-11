@@ -22,11 +22,25 @@ This supervises Temporal, Dex Server, and Dex Web for local use. See [CLI README
 - Run Dex server as a managed service with health checks
 - Point it at a production Temporal/Cadence cluster
 - Configure blob storage for large payloads
+- Optionally configure MySQL/PostgreSQL Custom Attribute Stores
 - Expose Dex Web (or your own UI) behind auth as needed
 
 ## Configuration
 
 Server configuration is YAML/typed config for the Go server (not every knob is exposed on `dexcli dev`). For Docker-based deploys, see archived notes under `docs/archive/` and current `server/config` docs in the repo.
+
+The blob section is named `blobStore`; the former `externalStorage` key is not
+accepted. `BlobStoreConfig` contains `BlobStoreConfigEntry` values.
+
+An optional `blobStore.blobCache` caches only S3-backed Attribute objects. A
+non-empty `directory` enables it, must be exclusive to one Server process, and
+defaults to a 1 GiB budget. Eligible new objects are always admitted by evicting
+the coldest entries; oversized objects bypass the cache. Cache initialization,
+recovery, checksum, and disk I/O errors are strict Server/system errors. Local
+blob storage and step-event input snapshots bypass this cache.
+
+See [Custom Attribute Store](/production/attribute-store) for table and retry
+requirements.
 
 ## Backends
 

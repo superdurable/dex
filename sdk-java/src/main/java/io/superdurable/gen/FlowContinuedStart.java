@@ -78,7 +78,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       previousRunId_ = s;
@@ -94,7 +94,7 @@ private static final long serialVersionUID = 0L;
       getPreviousRunIdBytes() {
     java.lang.Object ref = previousRunId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       previousRunId_ = b;
@@ -118,7 +118,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getStepsToStartOrBuilderList() {
     return stepsToStart_;
   }
@@ -159,7 +159,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder> 
       getStepsToResumeOrBuilderList() {
     return stepsToResume_;
   }
@@ -192,7 +192,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, io.superdurable.gen.ChannelValues> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, io.superdurable.gen.ChannelValues>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_FlowContinuedStart_PendingChannelMessagesEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_FlowContinuedStart_PendingChannelMessagesEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.MESSAGE,
@@ -279,7 +279,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
    * <code>repeated .dex.KV attributes = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -320,7 +320,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getCompletedStepsOrBuilderList() {
     return completedSteps_;
   }
@@ -803,7 +803,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
             stepsToStartBuilder_ = null;
             stepsToStart_ = other.stepsToStart_;
             bitField0_ = (bitField0_ & ~0x00000002);
-            stepsToStartBuilder_ =
+            stepsToStartBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepsToStartFieldBuilder() : null;
           } else {
@@ -829,7 +829,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
             stepsToResumeBuilder_ = null;
             stepsToResume_ = other.stepsToResume_;
             bitField0_ = (bitField0_ & ~0x00000004);
-            stepsToResumeBuilder_ =
+            stepsToResumeBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepsToResumeFieldBuilder() : null;
           } else {
@@ -858,7 +858,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            attributesBuilder_ =
+            attributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -884,7 +884,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
             completedStepsBuilder_ = null;
             completedSteps_ = other.completedSteps_;
             bitField0_ = (bitField0_ & ~0x00000020);
-            completedStepsBuilder_ =
+            completedStepsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetCompletedStepsFieldBuilder() : null;
           } else {
@@ -1026,7 +1026,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
         getPreviousRunIdBytes() {
       java.lang.Object ref = previousRunId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         previousRunId_ = b;
@@ -1268,7 +1268,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
          getStepsToStartOrBuilderList() {
       if (stepsToStartBuilder_ != null) {
         return stepsToStartBuilder_.getMessageOrBuilderList();
@@ -1294,12 +1294,12 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepMovement steps_to_start = 2;</code>
      */
-    public java.util.List<io.superdurable.gen.StepMovement.Builder>
+    public java.util.List<io.superdurable.gen.StepMovement.Builder> 
          getStepsToStartBuilderList() {
       return internalGetStepsToStartFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder>
+        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> 
         internalGetStepsToStartFieldBuilder() {
       if (stepsToStartBuilder_ == null) {
         stepsToStartBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1508,7 +1508,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.StepExecutionResumeInfoOrBuilder> 
          getStepsToResumeOrBuilderList() {
       if (stepsToResumeBuilder_ != null) {
         return stepsToResumeBuilder_.getMessageOrBuilderList();
@@ -1534,12 +1534,12 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepExecutionResumeInfo steps_to_resume = 3;</code>
      */
-    public java.util.List<io.superdurable.gen.StepExecutionResumeInfo.Builder>
+    public java.util.List<io.superdurable.gen.StepExecutionResumeInfo.Builder> 
          getStepsToResumeBuilderList() {
       return internalGetStepsToResumeFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepExecutionResumeInfo, io.superdurable.gen.StepExecutionResumeInfo.Builder, io.superdurable.gen.StepExecutionResumeInfoOrBuilder>
+        io.superdurable.gen.StepExecutionResumeInfo, io.superdurable.gen.StepExecutionResumeInfo.Builder, io.superdurable.gen.StepExecutionResumeInfoOrBuilder> 
         internalGetStepsToResumeFieldBuilder() {
       if (stepsToResumeBuilder_ == null) {
         stepsToResumeBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1903,7 +1903,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1929,12 +1929,12 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2143,7 +2143,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
          getCompletedStepsOrBuilderList() {
       if (completedStepsBuilder_ != null) {
         return completedStepsBuilder_.getMessageOrBuilderList();
@@ -2169,12 +2169,12 @@ io.superdurable.gen.ChannelValues defaultValue) {
     /**
      * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
      */
-    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder>
+    public java.util.List<io.superdurable.gen.StepCompletionOutput.Builder> 
          getCompletedStepsBuilderList() {
       return internalGetCompletedStepsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder>
+        io.superdurable.gen.StepCompletionOutput, io.superdurable.gen.StepCompletionOutput.Builder, io.superdurable.gen.StepCompletionOutputOrBuilder> 
         internalGetCompletedStepsFieldBuilder() {
       if (completedStepsBuilder_ == null) {
         completedStepsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2238,3 +2238,4 @@ io.superdurable.gen.ChannelValues defaultValue) {
   }
 
 }
+

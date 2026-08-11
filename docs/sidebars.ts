@@ -89,6 +89,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'production/application-operations',
         'production/server-operations',
+        'production/attribute-store',
         'production/versioning',
       ],
     },

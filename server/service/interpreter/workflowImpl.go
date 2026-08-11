@@ -51,7 +51,172 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	var persistenceManager *PersistenceManager
+
+	globalVersioner := NewGlobalVersioner(provider, ctx)
+	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
+	runStartedTimestamp := provider.Now(ctx).Unix()
+	basicInfo := service.BasicInfo{
+		FlowType:            input.GetFlowType(),
+		RunStartedTimestamp: runStartedTimestamp,
+	}
+
+	var channelStore *ChannelStore
+	var stepRequestQueue *StepRequestQueue
+	var timerProcessor interfaces.TimerProcessor
+	var continueAsNewCounter *cont.ContinueAsNewCounter
+	var signalReceiver *SignalReceiver
+	var stepExecutionCounter *StepExecutionCounter
+	var outputCollector *OutputCollector
+	var continueAsNewer *ContinueAsNewer
+	var attributeSynchronizer *AttributeSynchronizer
+	if input.GetIsResumeFromContinueAsNew() {
+		previous, err := i.LoadInternalsFromPreviousRun(
+			ctx,
+			provider,
+			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
+			flowConfiger.EffectiveContinueAsNewPageSizeInBytes(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// The below initialization order should be the same as for non-continueAsNew
+
+		channelStore = RebuildChannelStore(previous.GetChannelReceived())
+		stepRequestQueue = NewStepRequestQueueWithResumeRequests(
+			previous.GetStepsToStartFromBeginning(),
+			previous.GetStepExecutionsToResume(),
+		)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		attributeSynchronizer = NewAttributeSynchronizer(
+			&i.sharedConfig.AttributeStore,
+			i.activities,
+			provider,
+			ctx,
+			continueAsNewCounter,
+			previous.GetPendingAttributeSyncItems(),
+		)
+		persistenceManager = NewPersistenceManager(
+			provider,
+			previous.GetAttributes(),
+			attributeSynchronizer,
+			flowConfiger,
+		)
+		timerProcessor = timers.NewGreedyTimerProcessor(
+			ctx,
+			provider,
+			continueAsNewCounter,
+			previous.GetStaleSkipTimers(),
+		)
+		stepExecutionCounter = RebuildStepExecutionCounter(
+			ctx,
+			provider,
+			flowConfiger,
+			continueAsNewCounter,
+			previous.GetCounterInfo(),
+		)
+		outputCollector = NewOutputCollector(previous.GetStepOutputs())
+		continueAsNewer = NewContinueAsNewer(
+			&i.sharedConfig.Api,
+			provider,
+			channelStore,
+			stepExecutionCounter,
+			persistenceManager,
+			stepRequestQueue,
+			outputCollector,
+			timerProcessor,
+			attributeSynchronizer,
+		)
+	} else {
+		channelStore = NewChannelStore()
+		stepRequestQueue = NewStepRequestQueue()
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		attributeSynchronizer = NewAttributeSynchronizer(
+			&i.sharedConfig.AttributeStore,
+			i.activities,
+			provider,
+			ctx,
+			continueAsNewCounter,
+			nil,
+		)
+		persistenceManager = NewPersistenceManager(
+			provider,
+			attributeWritesToKVs(input.GetInitAttributes()),
+			attributeSynchronizer,
+			flowConfiger,
+		)
+		attributeSynchronizer.AppendingToPendings(
+			input.GetInitAttributes(),
+			flowConfiger.Get().GetAttributeSyncConfigName(),
+		)
+		timerProcessor = timers.NewGreedyTimerProcessor(
+			ctx,
+			provider,
+			continueAsNewCounter,
+			nil,
+		)
+		stepExecutionCounter = NewStepExecutionCounter(
+			ctx,
+			provider,
+			flowConfiger,
+			continueAsNewCounter,
+		)
+		outputCollector = NewOutputCollector(nil)
+		continueAsNewer = NewContinueAsNewer(
+			&i.sharedConfig.Api,
+			provider,
+			channelStore,
+			stepExecutionCounter,
+			persistenceManager,
+			stepRequestQueue,
+			outputCollector,
+			timerProcessor,
+			attributeSynchronizer,
+		)
+	}
+	signalReceiver = NewSignalReceiver(
+		ctx,
+		provider,
+		channelStore,
+		stepRequestQueue,
+		persistenceManager,
+		timerProcessor,
+		continueAsNewCounter,
+		flowConfiger,
+	)
+	attributeSynchronizer.Start()
+
+	updateErr := NewWorkflowUpdater(
+		&i.sharedConfig.Api,
+		i.activities,
+		ctx,
+		provider,
+		persistenceManager,
+		stepRequestQueue,
+		continueAsNewer,
+		continueAsNewCounter,
+		channelStore,
+		signalReceiver,
+		stepExecutionCounter,
+		flowConfiger,
+		basicInfo,
+	)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
+	var forceCompleteWf bool
+	var shouldGracefulComplete bool
+	terminalCoordinator := NewTerminalCoordinator(
+		provider,
+		ctx,
+		continueAsNewer,
+		attributeSynchronizer,
+		signalReceiver,
+		&forceCompleteWf,
+	)
 	defer func() {
+		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
 		if provider.IsReplaying(ctx) {
 			return
 		}
@@ -79,135 +244,6 @@ func (i *Interpreter) StartEngineFlow(
 			Attributes:         attributes,
 		})
 	}()
-
-	globalVersioner := NewGlobalVersioner(provider, ctx)
-	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
-	runStartedTimestamp := provider.Now(ctx).Unix()
-	basicInfo := service.BasicInfo{
-		FlowType:            input.GetFlowType(),
-		RunStartedTimestamp: runStartedTimestamp,
-	}
-
-	var channelStore *ChannelStore
-	var stepRequestQueue *StepRequestQueue
-	var timerProcessor interfaces.TimerProcessor
-	var continueAsNewCounter *cont.ContinueAsNewCounter
-	var signalReceiver *SignalReceiver
-	var stepExecutionCounter *StepExecutionCounter
-	var outputCollector *OutputCollector
-	var continueAsNewer *ContinueAsNewer
-	if input.GetIsResumeFromContinueAsNew() {
-		previous, err := i.LoadInternalsFromPreviousRun(
-			ctx,
-			provider,
-			input.GetContinueAsNewInput().GetPreviousInternalRunId(),
-			flowConfiger.EffectiveContinueAsNewPageSizeInBytes(),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// The below initialization order should be the same as for non-continueAsNew
-
-		channelStore = RebuildChannelStore(previous.GetChannelReceived())
-		stepRequestQueue = NewStepRequestQueueWithResumeRequests(
-			previous.GetStepsToStartFromBeginning(),
-			previous.GetStepExecutionsToResume(),
-		)
-		persistenceManager = NewPersistenceManager(provider, previous.GetAttributes())
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
-		timerProcessor = timers.NewGreedyTimerProcessor(
-			ctx,
-			provider,
-			continueAsNewCounter,
-			previous.GetStaleSkipTimers(),
-		)
-		signalReceiver = NewSignalReceiver(
-			ctx,
-			provider,
-			channelStore,
-			stepRequestQueue,
-			persistenceManager,
-			timerProcessor,
-			continueAsNewCounter,
-			flowConfiger,
-		)
-		stepExecutionCounter = RebuildStepExecutionCounter(
-			ctx,
-			provider,
-			flowConfiger,
-			continueAsNewCounter,
-			previous.GetCounterInfo(),
-		)
-		outputCollector = NewOutputCollector(previous.GetStepOutputs())
-		continueAsNewer = NewContinueAsNewer(
-			&i.sharedConfig.Api,
-			provider,
-			channelStore,
-			stepExecutionCounter,
-			persistenceManager,
-			stepRequestQueue,
-			outputCollector,
-			timerProcessor,
-		)
-	} else {
-		channelStore = NewChannelStore()
-		stepRequestQueue = NewStepRequestQueue()
-		persistenceManager = NewPersistenceManager(provider, input.GetInitAttributes())
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
-		timerProcessor = timers.NewGreedyTimerProcessor(
-			ctx,
-			provider,
-			continueAsNewCounter,
-			nil,
-		)
-		signalReceiver = NewSignalReceiver(
-			ctx,
-			provider,
-			channelStore,
-			stepRequestQueue,
-			persistenceManager,
-			timerProcessor,
-			continueAsNewCounter,
-			flowConfiger,
-		)
-		stepExecutionCounter = NewStepExecutionCounter(
-			ctx,
-			provider,
-			flowConfiger,
-			continueAsNewCounter,
-		)
-		outputCollector = NewOutputCollector(nil)
-		continueAsNewer = NewContinueAsNewer(
-			&i.sharedConfig.Api,
-			provider,
-			channelStore,
-			stepExecutionCounter,
-			persistenceManager,
-			stepRequestQueue,
-			outputCollector,
-			timerProcessor,
-		)
-	}
-
-	updateErr := NewWorkflowUpdater(
-		&i.sharedConfig.Api,
-		i.activities,
-		ctx,
-		provider,
-		persistenceManager,
-		stepRequestQueue,
-		continueAsNewer,
-		continueAsNewCounter,
-		channelStore,
-		signalReceiver,
-		stepExecutionCounter,
-		flowConfiger,
-		basicInfo,
-	)
-	if updateErr != nil {
-		return nil, updateErr
-	}
 	// We intentionally set the query handler after the continueAsNew/dumpInternal activity.
 	// This is to ensure the correctness. If we set the query handler before that,
 	// the query handler could return empty data (since the loading hasn't completed), which will be incorrect response.
@@ -225,10 +261,6 @@ func (i *Interpreter) StartEngineFlow(
 	); err != nil {
 		return nil, err
 	}
-
-	var errToFailWf error // Note that today different errors could overwrite each other, we only support last one wins. we may use multiError to improve.
-	var forceCompleteWf bool
-	var shouldGracefulComplete bool
 
 	if !input.GetIsResumeFromContinueAsNew() {
 		// it's possible that a flow is started without any starting step
@@ -257,15 +289,15 @@ func (i *Interpreter) StartEngineFlow(
 
 	for {
 		if err := provider.Await(ctx, func() bool {
-			failFlowByClient, _ := signalReceiver.IsFailWorkFlowRequested()
-			return !stepRequestQueue.IsEmpty() || failFlowByClient || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
+			return !stepRequestQueue.IsEmpty() || signalReceiver.IsStopFlowRequested() || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
 
-		failWorkflowByClient, failErr := signalReceiver.IsFailWorkFlowRequested()
-		if failWorkflowByClient {
-			return nil, failErr
+		if stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested(); stopBySignal {
+			return &dexpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, stopErr
 		}
 
 		// gracefully complete flow when all steps are executed to dead ends
@@ -288,7 +320,9 @@ func (i *Interpreter) StartEngineFlow(
 				// execute in another thread for parallelism
 				// step must be passed via parameter https://stackoverflow.com/questions/67263092
 				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
+				attributeSynchronizer.ProducerStarted()
 				provider.GoNamed(stepCtx, "step-execution-thread:"+stepReqForLoopingOnly.GetStepType(), func(ctx interfaces.UnifiedContext) {
+					defer attributeSynchronizer.ProducerFinished()
 					stepRequest, ok := provider.GetContextValue(
 						ctx,
 						"stepRequest",
@@ -323,6 +357,7 @@ func (i *Interpreter) StartEngineFlow(
 						stepExecutionCounter,
 						flowConfiger,
 						globalVersioner,
+						signalReceiver,
 					)
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
 						errToFailWf = stepExeErr
@@ -414,9 +449,9 @@ func (i *Interpreter) StartEngineFlow(
 			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
 			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
-				failFlowByClient, failErr := signalReceiver.IsFailWorkFlowRequested()
-				if failFlowByClient {
-					errToFailWf = failErr
+				stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested()
+				if stopBySignal {
+					errToFailWf = stopErr
 					return true
 				}
 				return !stepRequestQueue.IsEmpty() ||
@@ -459,11 +494,10 @@ func (i *Interpreter) StartEngineFlow(
 
 			// after draining signals, there could be some changes like
 			// last fail flow signal, return the flow so that we don't carry over the fail request
-			failByApi, failErr := signalReceiver.IsFailWorkFlowRequested()
-			if failByApi {
+			if stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested(); stopBySignal {
 				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
-				}, failErr
+				}, stopErr
 			}
 			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
 				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
@@ -605,6 +639,7 @@ func (i *Interpreter) processStepExecution(
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	globalVersioner *GlobalVersioner,
+	signalReceiver *SignalReceiver,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -814,14 +849,14 @@ func (i *Interpreter) processStepExecution(
 	var matchPlan *channel.MatchPlan
 	var conditionMet bool
 
-	// Wait for condition met OR continue-as-new threshold
+	// Wait for condition met, stop signal, or continue-as-new threshold
 	_ = provider.Await(ctx, func() bool {
 		matchPlan, conditionMet = channel.Plan(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
 		)
-		return conditionMet || continueAsNewCounter.IsThresholdMet()
+		return conditionMet || signalReceiver.IsStopFlowRequested() || continueAsNewCounter.IsThresholdMet()
 	})
 
 	waitingConditionDoneOrCanceled = true
@@ -835,9 +870,9 @@ func (i *Interpreter) processStepExecution(
 		return true
 	})
 
-	if !conditionMet {
-		// this means continueAsNewCounter.IsThresholdMet == true
-		// not using continueAsNewCounter.IsThresholdMet because matchPlan is higher prioritized
+	if signalReceiver.IsStopFlowRequested() || !conditionMet {
+		// this means stop was requested or continueAsNewCounter.IsThresholdMet == true
+		// not using only continueAsNewCounter.IsThresholdMet because matchPlan has higher priority without a terminal request
 		// it won't continueAsNew in those cases
 		// 1. waitFor method fail with proceed policy
 		// 2. empty condition

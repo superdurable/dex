@@ -53,6 +53,21 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
   io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOrBuilder();
 
   /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   * @return Whether the flowTimeout field is set.
+   */
+  boolean hasFlowTimeout();
+  /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   * @return The flowTimeout.
+   */
+  com.google.protobuf.Duration getFlowTimeout();
+  /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   */
+  com.google.protobuf.DurationOrBuilder getFlowTimeoutOrBuilder();
+
+  /**
    * <code>.dex.FlowInitialStart initial_start = 10;</code>
    * @return Whether the initialStart field is set.
    */

@@ -198,4 +198,28 @@ io.superdurable.gen.ChannelValues defaultValue);
    */
   io.superdurable.gen.KVOrBuilder getAttributesOrBuilder(
       int index);
+
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  java.util.List<io.superdurable.gen.AttributeSyncItem> 
+      getPendingAttributeSyncItemsList();
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncItems(int index);
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  int getPendingAttributeSyncItemsCount();
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
+      getPendingAttributeSyncItemsOrBuilderList();
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncItemsOrBuilder(
+      int index);
 }

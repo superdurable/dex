@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -52,7 +53,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 	provider := &s2WorkflowProvider{}
 	attributeB := stringKV("b", "two")
 	attributeA := stringKV("a", "one")
-	manager := NewPersistenceManager(provider, []*dexpb.KV{attributeB, attributeA})
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{attributeB, attributeA})
 
 	all := manager.GetAllAttributes()
 	require.Equal(t, []string{"a", "b"}, []string{all[0].GetKey(), all[1].GetKey()})
@@ -76,7 +77,7 @@ func TestPersistenceOwnershipOrderingAndQuery(t *testing.T) {
 
 func TestPersistenceBatchSerializedEquality(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, nil)
+	manager := newTestPersistenceManager(provider, nil)
 
 	object := &dexpb.AttributeWrite{
 		Key: "object",
@@ -111,7 +112,7 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 		IndexKey: "CustomKeywordField",
 	}
 	initial := stringKV("indexed", "old")
-	manager := NewPersistenceManager(provider, []*dexpb.KV{initial})
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{initial})
 
 	provider.upsertErr = errors.New("backend unavailable")
 	replacement := stringAttribute("indexed", "new", indexConfig)
@@ -130,7 +131,7 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 
 func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
 
 	deletion := &dexpb.AttributeWrite{
 		Key: "indexed",
@@ -153,7 +154,7 @@ func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{stringKV("indexed", "old")})
 
 	moved := stringAttribute("indexed", "new", &dexpb.IndexConfig{
 		Enable:   true,
@@ -185,7 +186,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 
 func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	provider := &s2WorkflowProvider{}
-	manager := NewPersistenceManager(provider, nil)
+	manager := newTestPersistenceManager(provider, nil)
 
 	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{
 		stringAttribute("first", "new-first", &dexpb.IndexConfig{
@@ -210,6 +211,18 @@ func stringAttribute(key, value string, indexConfig *dexpb.IndexConfig) *dexpb.A
 		Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}},
 		IndexConfig: indexConfig,
 	}
+}
+
+func newTestPersistenceManager(
+	provider interfaces.WorkflowProvider,
+	attributes []*dexpb.KV,
+) *PersistenceManager {
+	return NewPersistenceManager(
+		provider,
+		attributes,
+		&AttributeSynchronizer{},
+		interpreterconfig.NewFlowConfiger(&dexpb.FlowConfig{}),
+	)
 }
 
 func stringKV(key, value string) *dexpb.KV {

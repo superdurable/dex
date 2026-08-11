@@ -347,7 +347,7 @@ always-on, no version gate:
   | `ApiV1WorkflowDumpPost` | **removed from FlowService** | replaced by `InternalService.DumpFlowForContinueAsNew` (proto bytes pages); the public DumpFlow API is gone |
 
 - Construct API and transport components with constructor injection. Pass
-  `*config.ApiConfig`, `*config.ExternalStorageConfig`, and
+  `*config.ApiConfig`, `*config.BlobStoreConfig`, and
   `*config.Interpreter` sections only to components that need them;
   do not pass `config.Config` or individual tunables. Constructors panic on nil
   required sections. Do not add setter injection.

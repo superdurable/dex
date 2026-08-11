@@ -34,3 +34,12 @@ interpreter:
     hostPort: "temporal:7233"
     namespace: "default"
     cloudAPIKey: ""
+blobStore:
+  enabled: true
+  thresholdInBytes: 1024
+  historyRetentionInDays: 3
+  supportedStorages:
+    - status: active
+      storageId: "local"
+      storageType: "local"
+      localDirectory: "/dex/dex-blobs"

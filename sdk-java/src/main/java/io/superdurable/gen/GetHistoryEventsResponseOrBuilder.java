@@ -13,7 +13,7 @@ public interface GetHistoryEventsResponseOrBuilder extends
   /**
    * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
    */
-  java.util.List<io.superdurable.gen.FlowHistoryEvent>
+  java.util.List<io.superdurable.gen.FlowHistoryEvent> 
       getEventsList();
   /**
    * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
@@ -26,7 +26,7 @@ public interface GetHistoryEventsResponseOrBuilder extends
   /**
    * <code>repeated .dex.FlowHistoryEvent events = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder>
+  java.util.List<? extends io.superdurable.gen.FlowHistoryEventOrBuilder> 
       getEventsOrBuilderList();
   /**
    * <code>repeated .dex.FlowHistoryEvent events = 1;</code>

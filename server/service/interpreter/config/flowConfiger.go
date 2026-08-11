@@ -57,6 +57,9 @@ func (fc *FlowConfiger) UpdateByAPI(config *dexpb.FlowConfig) error {
 	if config.WorkerTarget != nil {
 		fc.config.WorkerTarget = config.WorkerTarget
 	}
+	if config.AttributeSyncConfigName != nil {
+		fc.config.AttributeSyncConfigName = config.AttributeSyncConfigName
+	}
 	return nil
 }
 

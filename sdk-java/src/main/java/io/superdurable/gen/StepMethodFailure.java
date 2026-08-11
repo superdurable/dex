@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       message_ = s;
@@ -82,7 +82,7 @@ private static final long serialVersionUID = 0L;
       getMessageBytes() {
     java.lang.Object ref = message_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       message_ = b;
@@ -105,7 +105,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       errorType_ = s;
@@ -121,7 +121,7 @@ private static final long serialVersionUID = 0L;
       getErrorTypeBytes() {
     java.lang.Object ref = errorType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       errorType_ = b;
@@ -144,7 +144,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stackTrace_ = s;
@@ -160,7 +160,7 @@ private static final long serialVersionUID = 0L;
       getStackTraceBytes() {
     java.lang.Object ref = stackTrace_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stackTrace_ = b;
@@ -183,7 +183,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       retryState_ = s;
@@ -199,7 +199,7 @@ private static final long serialVersionUID = 0L;
       getRetryStateBytes() {
     java.lang.Object ref = retryState_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       retryState_ = b;
@@ -709,7 +709,7 @@ private static final long serialVersionUID = 0L;
         getMessageBytes() {
       java.lang.Object ref = message_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         message_ = b;
@@ -781,7 +781,7 @@ private static final long serialVersionUID = 0L;
         getErrorTypeBytes() {
       java.lang.Object ref = errorType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         errorType_ = b;
@@ -853,7 +853,7 @@ private static final long serialVersionUID = 0L;
         getStackTraceBytes() {
       java.lang.Object ref = stackTrace_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stackTrace_ = b;
@@ -925,7 +925,7 @@ private static final long serialVersionUID = 0L;
         getRetryStateBytes() {
       java.lang.Object ref = retryState_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         retryState_ = b;
@@ -1080,7 +1080,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ErrorResponse details = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder>
+        io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder> 
         internalGetDetailsFieldBuilder() {
       if (detailsBuilder_ == null) {
         detailsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1175,3 +1175,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

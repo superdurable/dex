@@ -227,6 +227,14 @@ integTestsNoSearch:
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
 
+# Requires SQL dependencies and covers both workflow backends in dedicated CI.
+attributeStoreIntegTests:
+	@GOWORK=off go test -v -tags=attributestore_integration ./service/common/attributestore -timeout 5m
+	@GOWORK=off go test -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m
+
+blobStoreIntegTests:
+	@GOWORK=off go test -v ./service/common/blobstore -timeout 5m
+
 localBlobStoreTests:
 	@GOWORK=off go test -v ./service/common/blobstore -run '^TestLocalBlobStore'
 

@@ -30,6 +30,7 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service/common/blobcache"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
 	"go.temporal.io/sdk/client"
@@ -40,48 +41,65 @@ var errStoreNotFound = errors.New("store not found")
 type blobStoreImpl struct {
 	s3Client                    *s3.Client
 	pathPrefix                  string // the Temporal namespace or Cadence domain + "/"
-	activeStorage               config.BlobStorageConfig
-	supportedStore              map[string]config.BlobStorageConfig // storeId as key
+	activeStorage               config.BlobStoreConfigEntry
+	supportedStore              map[string]config.BlobStoreConfigEntry // storeId as key
 	logger                      log.Logger
 	writeObjectErrorCounter     client.MetricsCounter
 	readObjectErrorCounter      client.MetricsCounter
 	writeObjectSuccessHistogram client.MetricsTimer
 	readObjectSuccessHistogram  client.MetricsTimer
+	blobCache                   *blobcache.Cache
+	blobCacheHitCounter         client.MetricsCounter
+	blobCacheMissCounter        client.MetricsCounter
+	blobCacheWriteCounter       client.MetricsCounter
+	blobCacheReadFillCounter    client.MetricsCounter
+	blobCacheEvictionCounter    client.MetricsCounter
+	blobCacheOversizedCounter   client.MetricsCounter
+	blobCacheCorruptionCounter  client.MetricsCounter
+	blobCacheErrorCounter       client.MetricsCounter
 }
 
 func NewBlobStore(
 	s3Client *s3.Client,
 	temporalOrCadenceNamespace string,
-	storeConfig config.ExternalStorageConfig,
+	storeConfig *config.BlobStoreConfig,
 	logger log.Logger,
 	metrics client.MetricsHandler,
-) BlobStore {
-	if !storeConfig.Enabled {
-		return nil
+) (BlobStore, error) {
+	if storeConfig == nil {
+		panic("NewBlobStore requires BlobStoreConfig")
+	}
+	if !storeConfig.EffectiveEnabled() {
+		return nil, nil
+	}
+	if err := storeConfig.BlobCache.Validate(); err != nil {
+		return nil, err
 	}
 
-	var activeStorage *config.BlobStorageConfig
-	supportedStores := map[string]config.BlobStorageConfig{}
+	var activeStorage *config.BlobStoreConfigEntry
+	supportedStores := map[string]config.BlobStoreConfigEntry{}
+	hasS3Storage := false
 	for _, storage := range storeConfig.SupportedStorages {
 		if storage.Status == config.StorageStatusActive {
 			if activeStorage != nil {
-				panic("cannot have more than one active storage configured")
+				return nil, errors.New("cannot have more than one active storage configured")
 			}
 			activeStorage = &storage
 		}
 		supportedStores[storage.StorageId] = storage
 		switch storage.StorageType {
 		case config.StorageTypeS3:
+			hasS3Storage = true
 		case config.StorageTypeLocal:
 			if storage.LocalDirectory == "" {
-				panic("local storage requires a directory")
+				return nil, errors.New("local storage requires a directory")
 			}
 		default:
-			panic("unsupported blob storage type")
+			return nil, fmt.Errorf("unsupported blob storage type %q", storage.StorageType)
 		}
 	}
 	if activeStorage == nil {
-		panic("no active storage found")
+		return nil, errors.New("no active storage found")
 	}
 
 	metricsHandler := metrics.WithTags(map[string]string{"prefix": temporalOrCadenceNamespace})
@@ -89,6 +107,14 @@ func NewBlobStore(
 	readObjectErrorCounter := metricsHandler.Counter("read_object_error")
 	writeObjectSuccessHistogram := metricsHandler.Timer("write_object_success")
 	readObjectSuccessHistogram := metricsHandler.Timer("read_object_success")
+	var attributeCache *blobcache.Cache
+	if storeConfig.BlobCache.Directory != "" && hasS3Storage {
+		var err error
+		attributeCache, err = blobcache.New(&storeConfig.BlobCache)
+		if err != nil {
+			return nil, fmt.Errorf("initialize Attribute blob cache: %w", err)
+		}
+	}
 
 	return &blobStoreImpl{
 		s3Client:                    s3Client,
@@ -100,7 +126,16 @@ func NewBlobStore(
 		readObjectErrorCounter:      readObjectErrorCounter,
 		writeObjectSuccessHistogram: writeObjectSuccessHistogram,
 		readObjectSuccessHistogram:  readObjectSuccessHistogram,
-	}
+		blobCache:                   attributeCache,
+		blobCacheHitCounter:         metricsHandler.Counter("blob_cache_hit"),
+		blobCacheMissCounter:        metricsHandler.Counter("blob_cache_miss"),
+		blobCacheWriteCounter:       metricsHandler.Counter("blob_cache_write_through"),
+		blobCacheReadFillCounter:    metricsHandler.Counter("blob_cache_read_fill"),
+		blobCacheEvictionCounter:    metricsHandler.Counter("blob_cache_eviction"),
+		blobCacheOversizedCounter:   metricsHandler.Counter("blob_cache_oversized_bypass"),
+		blobCacheCorruptionCounter:  metricsHandler.Counter("blob_cache_corruption"),
+		blobCacheErrorCounter:       metricsHandler.Counter("blob_cache_error"),
+	}, nil
 }
 
 func (b *blobStoreImpl) WriteObject(
@@ -140,6 +175,17 @@ func (b *blobStoreImpl) WriteObject(
 			err = fmt.Errorf("failed to write object: %w", err)
 		}
 		return
+	}
+	if b.activeStorage.StorageType == config.StorageTypeS3 {
+		if err = b.cacheAttributeObject(storeId, path, data, b.blobCacheWriteCounter); err != nil {
+			b.writeObjectErrorCounter.Inc(1)
+			b.logger.Error("Attribute blob cache write failed",
+				tag.Key("path"), tag.Value(path),
+				tag.Key("storeId"), tag.Value(storeId),
+				tag.Error(err))
+			err = fmt.Errorf("failed to cache written object: %w", err)
+			return
+		}
 	}
 	b.writeObjectSuccessHistogram.Record(time.Duration(len(data)))
 	return
@@ -198,7 +244,7 @@ func (b *blobStoreImpl) ReadStepEventInput(
 
 func (b *blobStoreImpl) writeObject(
 	ctx context.Context,
-	storage config.BlobStorageConfig,
+	storage config.BlobStoreConfigEntry,
 	path string,
 	data []byte,
 ) error {
@@ -262,6 +308,21 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		b.readObjectErrorCounter.Inc(1)
 		return nil, fmt.Errorf("%w for %s", errStoreNotFound, storeId)
 	}
+	if storeConfig.StorageType == config.StorageTypeS3 && b.blobCache != nil {
+		data, found, err := b.readCachedAttributeObject(storeId, path)
+		if err != nil {
+			b.readObjectErrorCounter.Inc(1)
+			b.logger.Error("Attribute blob cache read failed",
+				tag.Key("path"), tag.Value(path),
+				tag.Key("storeId"), tag.Value(storeId),
+				tag.Error(err))
+			return nil, fmt.Errorf("failed to read cached object: %w", err)
+		}
+		if found {
+			b.readObjectSuccessHistogram.Record(time.Duration(len(data)))
+			return data, nil
+		}
+	}
 	data, err := b.readObject(ctx, storeConfig, path)
 	if err != nil {
 		b.readObjectErrorCounter.Inc(1)
@@ -284,13 +345,81 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 			tag.Error(err))
 		return nil, fmt.Errorf("failed to read object: %w", err)
 	}
+	if storeConfig.StorageType == config.StorageTypeS3 {
+		if err := b.cacheAttributeObject(storeId, path, data, b.blobCacheReadFillCounter); err != nil {
+			b.readObjectErrorCounter.Inc(1)
+			b.logger.Error("Attribute blob cache fill failed",
+				tag.Key("path"), tag.Value(path),
+				tag.Key("storeId"), tag.Value(storeId),
+				tag.Error(err))
+			return nil, fmt.Errorf("failed to fill object cache: %w", err)
+		}
+	}
 	b.readObjectSuccessHistogram.Record(time.Duration(len(data)))
 	return data, nil
 }
 
+func (b *blobStoreImpl) readCachedAttributeObject(storeID, path string) ([]byte, bool, error) {
+	data, found, err := b.blobCache.Get(b.attributeCacheKey(storeID, path))
+	if err != nil {
+		b.recordBlobCacheError(err)
+		return nil, false, err
+	}
+	if !found {
+		b.blobCacheMissCounter.Inc(1)
+		return nil, false, nil
+	}
+	b.blobCacheHitCounter.Inc(1)
+	return data, true, nil
+}
+
+func (b *blobStoreImpl) cacheAttributeObject(
+	storeID string,
+	path string,
+	data []byte,
+	successCounter client.MetricsCounter,
+) error {
+	if b.blobCache == nil {
+		return nil
+	}
+	result, err := b.blobCache.Put(b.attributeCacheKey(storeID, path), data)
+	if result.Evicted > 0 {
+		b.blobCacheEvictionCounter.Inc(int64(result.Evicted))
+	}
+	if err != nil {
+		b.recordBlobCacheError(err)
+		return err
+	}
+	if !result.Cached {
+		b.blobCacheOversizedCounter.Inc(1)
+		return nil
+	}
+	successCounter.Inc(1)
+	return nil
+}
+
+func (b *blobStoreImpl) attributeCacheKey(storeID, path string) string {
+	return fmt.Sprintf(
+		"%d:%s%d:%s%d:%s",
+		len(b.pathPrefix),
+		b.pathPrefix,
+		len(storeID),
+		storeID,
+		len(path),
+		path,
+	)
+}
+
+func (b *blobStoreImpl) recordBlobCacheError(err error) {
+	b.blobCacheErrorCounter.Inc(1)
+	if errors.Is(err, blobcache.ErrCorrupt) {
+		b.blobCacheCorruptionCounter.Inc(1)
+	}
+}
+
 func (b *blobStoreImpl) readObject(
 	ctx context.Context,
-	storage config.BlobStorageConfig,
+	storage config.BlobStoreConfigEntry,
 	path string,
 ) ([]byte, error) {
 	switch storage.StorageType {
@@ -304,6 +433,13 @@ func (b *blobStoreImpl) readObject(
 	default:
 		return nil, fmt.Errorf("unsupported blob storage type %q", storage.StorageType)
 	}
+}
+
+func (b *blobStoreImpl) Close() error {
+	if b.blobCache == nil {
+		return nil
+	}
+	return b.blobCache.Close()
 }
 
 // IsObjectNotFound reports whether a backend object is absent.

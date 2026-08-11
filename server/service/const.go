@@ -41,7 +41,7 @@ const (
 	DexSystemConstPrefix = "__DexSystem_"
 
 	SkipTimerSignalChannelName            = DexSystemConstPrefix + "SkipTimerChannel"
-	FailWorkflowSignalChannelName         = DexSystemConstPrefix + "FailWorkflowChannel"
+	StopWorkflowSignalChannelName         = DexSystemConstPrefix + "StopWorkflowChannel"
 	UpdateConfigSignalChannelName         = DexSystemConstPrefix + "UpdateWorkflowConfig"
 	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
 	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"

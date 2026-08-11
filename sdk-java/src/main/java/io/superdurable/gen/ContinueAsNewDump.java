@@ -33,6 +33,7 @@ private static final long serialVersionUID = 0L;
     stepOutputs_ = java.util.Collections.emptyList();
     staleSkipTimers_ = java.util.Collections.emptyList();
     attributes_ = java.util.Collections.emptyList();
+    pendingAttributeSyncItems_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -396,6 +397,47 @@ io.superdurable.gen.ChannelValues defaultValue) {
     return attributes_.get(index);
   }
 
+  public static final int PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER = 8;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncItems_;
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncItemsList() {
+    return pendingAttributeSyncItems_;
+  }
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
+      getPendingAttributeSyncItemsOrBuilderList() {
+    return pendingAttributeSyncItems_;
+  }
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  @java.lang.Override
+  public int getPendingAttributeSyncItemsCount() {
+    return pendingAttributeSyncItems_.size();
+  }
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncItems(int index) {
+    return pendingAttributeSyncItems_.get(index);
+  }
+  /**
+   * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncItemsOrBuilder(
+      int index) {
+    return pendingAttributeSyncItems_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -433,6 +475,9 @@ io.superdurable.gen.ChannelValues defaultValue) {
     }
     for (int i = 0; i < attributes_.size(); i++) {
       output.writeMessage(7, attributes_.get(i));
+    }
+    for (int i = 0; i < pendingAttributeSyncItems_.size(); i++) {
+      output.writeMessage(8, pendingAttributeSyncItems_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -497,6 +542,15 @@ io.superdurable.gen.ChannelValues defaultValue) {
           }
           size += 1 * count;
         }
+
+        {
+          final int count = pendingAttributeSyncItems_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(pendingAttributeSyncItems_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -538,6 +592,8 @@ io.superdurable.gen.ChannelValues defaultValue) {
         .equals(other.getStaleSkipTimersList())) return false;
     if (!getAttributesList()
         .equals(other.getAttributesList())) return false;
+    if (!getPendingAttributeSyncItemsList()
+        .equals(other.getPendingAttributeSyncItemsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -576,6 +632,10 @@ io.superdurable.gen.ChannelValues defaultValue) {
     if (getAttributesCount() > 0) {
       hash = (37 * hash) + ATTRIBUTES_FIELD_NUMBER;
       hash = (53 * hash) + getAttributesList().hashCode();
+    }
+    if (getPendingAttributeSyncItemsCount() > 0) {
+      hash = (37 * hash) + PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER;
+      hash = (53 * hash) + getPendingAttributeSyncItemsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -735,6 +795,7 @@ io.superdurable.gen.ChannelValues defaultValue) {
         internalGetStepOutputsFieldBuilder();
         internalGetStaleSkipTimersFieldBuilder();
         internalGetAttributesFieldBuilder();
+        internalGetPendingAttributeSyncItemsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -782,6 +843,13 @@ io.superdurable.gen.ChannelValues defaultValue) {
         attributesBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000040);
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItems_ = java.util.Collections.emptyList();
+      } else {
+        pendingAttributeSyncItems_ = null;
+        pendingAttributeSyncItemsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000080);
       return this;
     }
 
@@ -859,6 +927,15 @@ io.superdurable.gen.ChannelValues defaultValue) {
         result.attributes_ = attributes_;
       } else {
         result.attributes_ = attributesBuilder_.build();
+      }
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (((bitField0_ & 0x00000080) != 0)) {
+          pendingAttributeSyncItems_ = java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
+          bitField0_ = (bitField0_ & ~0x00000080);
+        }
+        result.pendingAttributeSyncItems_ = pendingAttributeSyncItems_;
+      } else {
+        result.pendingAttributeSyncItems_ = pendingAttributeSyncItemsBuilder_.build();
       }
     }
 
@@ -1025,6 +1102,32 @@ io.superdurable.gen.ChannelValues defaultValue) {
           }
         }
       }
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (!other.pendingAttributeSyncItems_.isEmpty()) {
+          if (pendingAttributeSyncItems_.isEmpty()) {
+            pendingAttributeSyncItems_ = other.pendingAttributeSyncItems_;
+            bitField0_ = (bitField0_ & ~0x00000080);
+          } else {
+            ensurePendingAttributeSyncItemsIsMutable();
+            pendingAttributeSyncItems_.addAll(other.pendingAttributeSyncItems_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.pendingAttributeSyncItems_.isEmpty()) {
+          if (pendingAttributeSyncItemsBuilder_.isEmpty()) {
+            pendingAttributeSyncItemsBuilder_.dispose();
+            pendingAttributeSyncItemsBuilder_ = null;
+            pendingAttributeSyncItems_ = other.pendingAttributeSyncItems_;
+            bitField0_ = (bitField0_ & ~0x00000080);
+            pendingAttributeSyncItemsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetPendingAttributeSyncItemsFieldBuilder() : null;
+          } else {
+            pendingAttributeSyncItemsBuilder_.addAllMessages(other.pendingAttributeSyncItems_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -1132,6 +1235,19 @@ io.superdurable.gen.ChannelValues defaultValue) {
               }
               break;
             } // case 58
+            case 66: {
+              io.superdurable.gen.AttributeSyncItem m =
+                  input.readMessage(
+                      io.superdurable.gen.AttributeSyncItem.parser(),
+                      extensionRegistry);
+              if (pendingAttributeSyncItemsBuilder_ == null) {
+                ensurePendingAttributeSyncItemsIsMutable();
+                pendingAttributeSyncItems_.add(m);
+              } else {
+                pendingAttributeSyncItemsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 66
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2695,6 +2811,246 @@ io.superdurable.gen.ChannelValues defaultValue) {
         attributes_ = null;
       }
       return attributesBuilder_;
+    }
+
+    private java.util.List<io.superdurable.gen.AttributeSyncItem> pendingAttributeSyncItems_ =
+      java.util.Collections.emptyList();
+    private void ensurePendingAttributeSyncItemsIsMutable() {
+      if (!((bitField0_ & 0x00000080) != 0)) {
+        pendingAttributeSyncItems_ = new java.util.ArrayList<io.superdurable.gen.AttributeSyncItem>(pendingAttributeSyncItems_);
+        bitField0_ |= 0x00000080;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> pendingAttributeSyncItemsBuilder_;
+
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public java.util.List<io.superdurable.gen.AttributeSyncItem> getPendingAttributeSyncItemsList() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
+      } else {
+        return pendingAttributeSyncItemsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public int getPendingAttributeSyncItemsCount() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.size();
+      } else {
+        return pendingAttributeSyncItemsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public io.superdurable.gen.AttributeSyncItem getPendingAttributeSyncItems(int index) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.get(index);
+      } else {
+        return pendingAttributeSyncItemsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder setPendingAttributeSyncItems(
+        int index, io.superdurable.gen.AttributeSyncItem value) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.set(index, value);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder setPendingAttributeSyncItems(
+        int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder addPendingAttributeSyncItems(io.superdurable.gen.AttributeSyncItem value) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(value);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder addPendingAttributeSyncItems(
+        int index, io.superdurable.gen.AttributeSyncItem value) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(index, value);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder addPendingAttributeSyncItems(
+        io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(builderForValue.build());
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder addPendingAttributeSyncItems(
+        int index, io.superdurable.gen.AttributeSyncItem.Builder builderForValue) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder addAllPendingAttributeSyncItems(
+        java.lang.Iterable<? extends io.superdurable.gen.AttributeSyncItem> values) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, pendingAttributeSyncItems_);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder clearPendingAttributeSyncItems() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItems_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000080);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public Builder removePendingAttributeSyncItems(int index) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        ensurePendingAttributeSyncItemsIsMutable();
+        pendingAttributeSyncItems_.remove(index);
+        onChanged();
+      } else {
+        pendingAttributeSyncItemsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public io.superdurable.gen.AttributeSyncItem.Builder getPendingAttributeSyncItemsBuilder(
+        int index) {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public io.superdurable.gen.AttributeSyncItemOrBuilder getPendingAttributeSyncItemsOrBuilder(
+        int index) {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        return pendingAttributeSyncItems_.get(index);  } else {
+        return pendingAttributeSyncItemsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.AttributeSyncItemOrBuilder> 
+         getPendingAttributeSyncItemsOrBuilderList() {
+      if (pendingAttributeSyncItemsBuilder_ != null) {
+        return pendingAttributeSyncItemsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(pendingAttributeSyncItems_);
+      }
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncItemsBuilder() {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().addBuilder(
+          io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public io.superdurable.gen.AttributeSyncItem.Builder addPendingAttributeSyncItemsBuilder(
+        int index) {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.AttributeSyncItem.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.AttributeSyncItem pending_attribute_sync_items = 8;</code>
+     */
+    public java.util.List<io.superdurable.gen.AttributeSyncItem.Builder> 
+         getPendingAttributeSyncItemsBuilderList() {
+      return internalGetPendingAttributeSyncItemsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder> 
+        internalGetPendingAttributeSyncItemsFieldBuilder() {
+      if (pendingAttributeSyncItemsBuilder_ == null) {
+        pendingAttributeSyncItemsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.AttributeSyncItem, io.superdurable.gen.AttributeSyncItem.Builder, io.superdurable.gen.AttributeSyncItemOrBuilder>(
+                pendingAttributeSyncItems_,
+                ((bitField0_ & 0x00000080) != 0),
+                getParentForChildren(),
+                isClean());
+        pendingAttributeSyncItems_ = null;
+      }
+      return pendingAttributeSyncItemsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ContinueAsNewDump)

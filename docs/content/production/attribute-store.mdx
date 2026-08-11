@@ -1,0 +1,87 @@
+---
+title: Custom Attribute Store
+---
+
+# Custom Attribute Store operations
+
+Custom Attribute Store projects selected Flow Attribute writes into MySQL or
+PostgreSQL. Dex never creates or migrates the destination table.
+
+## Configuration
+
+```yaml
+attributeStore:
+  stores:
+    reporting:
+      type: postgres
+      dsn: postgres://user:password@host/database
+      tableName: public.flow_attributes
+    operational:
+      type: mysql
+      dsn: user:password@tcp(host:3306)/database
+      tableName: flow_attributes
+  schemaSyncInterval: 1m
+  syncBatchSize: 100
+  syncAttemptTimeout: 30s
+  syncRetryPolicy:
+    initialIntervalSeconds: 1
+    maximumIntervalSeconds: 30
+    backoffCoefficient: 2
+    maximumAttempts: 0
+    totalDurationSeconds: 3600
+```
+
+The Server connects, pings, and describes every configured table during startup.
+One failure fails startup and closes already-opened pools. Every table must have
+exactly one character-compatible primary key; Dex writes the Flow ID into the
+discovered key. Any other `NOT NULL` column must have a default or generated
+value so a partial insert can create a row.
+
+`tableName` accepts `table` or `schema.table` for PostgreSQL and `table` or
+`database.table` for MySQL. Identifiers are parsed and quoted; values always use
+SQL parameters. DSNs and Attribute payloads are not logged.
+
+## Schema refresh
+
+Each store refreshes independently. The one-minute default receives uniform
+90–110% jitter every cycle. A successful describe atomically replaces the
+immutable in-memory snapshot. A failure retains the previous snapshot and
+retries after the next jittered interval.
+
+Adding nullable/defaulted columns is therefore discovered without restarting
+Dex. Removing or changing columns may cause later mutations to be filtered or
+retried, depending on whether validation or SQL execution detects the change.
+
+## Type contract
+
+- strings: character, varchar, or text, with declared length enforced
+- `int64`: signed integer or scale-zero numeric, with range/precision enforced
+- double: floating or numeric
+- bool: PostgreSQL boolean; MySQL boolean, `tinyint(1)`, or `bit(1)`
+- JSON object: JSON/JSONB, after payload validation
+- other object: PostgreSQL bytea or MySQL binary/varbinary/blob
+- null: nullable columns only
+
+An Attribute name must exactly match a non-primary-key column. Missing columns,
+type mismatches, primary-key writes, oversized values, and nulls for required
+columns are logged and filtered without blocking valid fields in the batch. If
+all fields are filtered, the Activity succeeds without SQL.
+
+## Delivery and shutdown
+
+SQL upserts are idempotent latest-state writes. Local Activity optimization is
+limited to seven seconds. It uses the configured backoff intervals and
+coefficient, but its attempts are bounded only by that seven-second total
+window. Regular Activity attempts default to 30 seconds and a one-hour total
+retry budget. Exhaustion skips that batch; there is no automatic replay or
+backfill.
+
+Filtered writes, missing targets, and retry exhaustion emit error logs.
+
+CancelFlow and FailFlow are cooperative and may wait for active Steps, locking
+RPCs, and multiple one-hour batch budgets. Cancel returns a native canceled error,
+so Temporal and Cadence retain the Canceled execution state. SetAttributes and
+non-locking RPC result signals accepted during cleanup are drained for their
+Attribute writes; terminal processing does not start their next Steps. Terminate
+and engine timeouts are hard stops and may leave the external table behind
+workflow state.

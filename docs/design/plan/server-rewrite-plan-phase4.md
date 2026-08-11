@@ -324,7 +324,7 @@ migration compiles.
   - Remove `env.SetSharedEnv`, every `env.Get*`, `activityProviderRegistry`, and init
     registration. Validate activity input `backend_type` matches the worker backend.
   - Do not pass `config.Config`. `Activities` receives `*config.ApiConfig`,
-    `*config.ExternalStorageConfig`, and `*config.InterpreterActivityConfig`.
+    `*config.BlobStoreConfig`, and `*config.InterpreterActivityConfig`.
     Backend worker constructors receive their own `*config.TemporalConfig` or
     `*config.CadenceConfig`, plus `*config.Interpreter` only where fields outside the
     backend section are actually consumed.

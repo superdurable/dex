@@ -65,7 +65,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -81,7 +81,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -104,7 +104,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       startStepType_ = s;
@@ -120,7 +120,7 @@ private static final long serialVersionUID = 0L;
       getStartStepTypeBytes() {
     java.lang.Object ref = startStepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       startStepType_ = b;
@@ -184,61 +184,41 @@ private static final long serialVersionUID = 0L;
 
   public static final int INIT_ATTRIBUTES_FIELD_NUMBER = 8;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.KV> initAttributes_;
+  private java.util.List<io.superdurable.gen.AttributeWrite> initAttributes_;
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.KV> getInitAttributesList() {
+  public java.util.List<io.superdurable.gen.AttributeWrite> getInitAttributesList() {
     return initAttributes_;
   }
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getInitAttributesOrBuilderList() {
     return initAttributes_;
   }
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
   public int getInitAttributesCount() {
     return initAttributes_.size();
   }
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.KV getInitAttributes(int index) {
+  public io.superdurable.gen.AttributeWrite getInitAttributes(int index) {
     return initAttributes_.get(index);
   }
   /**
-   * <pre>
-   * IndexConfig is processed before workflow start.
-   * </pre>
-   *
-   * <code>repeated .dex.KV init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.KVOrBuilder getInitAttributesOrBuilder(
+  public io.superdurable.gen.AttributeWriteOrBuilder getInitAttributesOrBuilder(
       int index) {
     return initAttributes_.get(index);
   }
@@ -777,7 +757,7 @@ private static final long serialVersionUID = 0L;
             initAttributesBuilder_ = null;
             initAttributes_ = other.initAttributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            initAttributesBuilder_ =
+            initAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetInitAttributesFieldBuilder() : null;
           } else {
@@ -845,9 +825,9 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 58
             case 66: {
-              io.superdurable.gen.KV m =
+              io.superdurable.gen.AttributeWrite m =
                   input.readMessage(
-                      io.superdurable.gen.KV.parser(),
+                      io.superdurable.gen.AttributeWrite.parser(),
                       extensionRegistry);
               if (initAttributesBuilder_ == null) {
                 ensureInitAttributesIsMutable();
@@ -918,7 +898,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -990,7 +970,7 @@ private static final long serialVersionUID = 0L;
         getStartStepTypeBytes() {
       java.lang.Object ref = startStepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         startStepType_ = b;
@@ -1145,7 +1125,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1266,7 +1246,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder>
+        io.superdurable.gen.StepOptions, io.superdurable.gen.StepOptions.Builder, io.superdurable.gen.StepOptionsOrBuilder> 
         internalGetStepOptionsFieldBuilder() {
       if (stepOptionsBuilder_ == null) {
         stepOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1279,26 +1259,22 @@ private static final long serialVersionUID = 0L;
       return stepOptionsBuilder_;
     }
 
-    private java.util.List<io.superdurable.gen.KV> initAttributes_ =
+    private java.util.List<io.superdurable.gen.AttributeWrite> initAttributes_ =
       java.util.Collections.emptyList();
     private void ensureInitAttributesIsMutable() {
       if (!((bitField0_ & 0x00000010) != 0)) {
-        initAttributes_ = new java.util.ArrayList<io.superdurable.gen.KV>(initAttributes_);
+        initAttributes_ = new java.util.ArrayList<io.superdurable.gen.AttributeWrite>(initAttributes_);
         bitField0_ |= 0x00000010;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> initAttributesBuilder_;
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> initAttributesBuilder_;
 
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.KV> getInitAttributesList() {
+    public java.util.List<io.superdurable.gen.AttributeWrite> getInitAttributesList() {
       if (initAttributesBuilder_ == null) {
         return java.util.Collections.unmodifiableList(initAttributes_);
       } else {
@@ -1306,11 +1282,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public int getInitAttributesCount() {
       if (initAttributesBuilder_ == null) {
@@ -1320,13 +1292,9 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public io.superdurable.gen.KV getInitAttributes(int index) {
+    public io.superdurable.gen.AttributeWrite getInitAttributes(int index) {
       if (initAttributesBuilder_ == null) {
         return initAttributes_.get(index);
       } else {
@@ -1334,14 +1302,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder setInitAttributes(
-        int index, io.superdurable.gen.KV value) {
+        int index, io.superdurable.gen.AttributeWrite value) {
       if (initAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1355,14 +1319,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder setInitAttributes(
-        int index, io.superdurable.gen.KV.Builder builderForValue) {
+        int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
       if (initAttributesBuilder_ == null) {
         ensureInitAttributesIsMutable();
         initAttributes_.set(index, builderForValue.build());
@@ -1373,13 +1333,9 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public Builder addInitAttributes(io.superdurable.gen.KV value) {
+    public Builder addInitAttributes(io.superdurable.gen.AttributeWrite value) {
       if (initAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1393,14 +1349,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder addInitAttributes(
-        int index, io.superdurable.gen.KV value) {
+        int index, io.superdurable.gen.AttributeWrite value) {
       if (initAttributesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1414,14 +1366,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder addInitAttributes(
-        io.superdurable.gen.KV.Builder builderForValue) {
+        io.superdurable.gen.AttributeWrite.Builder builderForValue) {
       if (initAttributesBuilder_ == null) {
         ensureInitAttributesIsMutable();
         initAttributes_.add(builderForValue.build());
@@ -1432,14 +1380,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder addInitAttributes(
-        int index, io.superdurable.gen.KV.Builder builderForValue) {
+        int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
       if (initAttributesBuilder_ == null) {
         ensureInitAttributesIsMutable();
         initAttributes_.add(index, builderForValue.build());
@@ -1450,14 +1394,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder addAllInitAttributes(
-        java.lang.Iterable<? extends io.superdurable.gen.KV> values) {
+        java.lang.Iterable<? extends io.superdurable.gen.AttributeWrite> values) {
       if (initAttributesBuilder_ == null) {
         ensureInitAttributesIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
@@ -1469,11 +1409,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder clearInitAttributes() {
       if (initAttributesBuilder_ == null) {
@@ -1486,11 +1422,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
     public Builder removeInitAttributes(int index) {
       if (initAttributesBuilder_ == null) {
@@ -1503,24 +1435,16 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public io.superdurable.gen.KV.Builder getInitAttributesBuilder(
+    public io.superdurable.gen.AttributeWrite.Builder getInitAttributesBuilder(
         int index) {
       return internalGetInitAttributesFieldBuilder().getBuilder(index);
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public io.superdurable.gen.KVOrBuilder getInitAttributesOrBuilder(
+    public io.superdurable.gen.AttributeWriteOrBuilder getInitAttributesOrBuilder(
         int index) {
       if (initAttributesBuilder_ == null) {
         return initAttributes_.get(index);  } else {
@@ -1528,13 +1452,9 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
          getInitAttributesOrBuilderList() {
       if (initAttributesBuilder_ != null) {
         return initAttributesBuilder_.getMessageOrBuilderList();
@@ -1543,45 +1463,33 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public io.superdurable.gen.KV.Builder addInitAttributesBuilder() {
+    public io.superdurable.gen.AttributeWrite.Builder addInitAttributesBuilder() {
       return internalGetInitAttributesFieldBuilder().addBuilder(
-          io.superdurable.gen.KV.getDefaultInstance());
+          io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public io.superdurable.gen.KV.Builder addInitAttributesBuilder(
+    public io.superdurable.gen.AttributeWrite.Builder addInitAttributesBuilder(
         int index) {
       return internalGetInitAttributesFieldBuilder().addBuilder(
-          index, io.superdurable.gen.KV.getDefaultInstance());
+          index, io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <pre>
-     * IndexConfig is processed before workflow start.
-     * </pre>
-     *
-     * <code>repeated .dex.KV init_attributes = 8;</code>
+     * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
          getInitAttributesBuilderList() {
       return internalGetInitAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
         internalGetInitAttributesFieldBuilder() {
       if (initAttributesBuilder_ == null) {
         initAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
-            io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
+            io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>(
                 initAttributes_,
                 ((bitField0_ & 0x00000010) != 0),
                 getParentForChildren(),
@@ -1699,7 +1607,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig config = 9;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
         internalGetConfigFieldBuilder() {
       if (configBuilder_ == null) {
         configBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1864,7 +1772,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder>
+        io.superdurable.gen.ContinueAsNewInput, io.superdurable.gen.ContinueAsNewInput.Builder, io.superdurable.gen.ContinueAsNewInputOrBuilder> 
         internalGetContinueAsNewInputFieldBuilder() {
       if (continueAsNewInputBuilder_ == null) {
         continueAsNewInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1927,3 +1835,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

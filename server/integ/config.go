@@ -11,8 +11,11 @@
 package integ
 
 import (
+	"testing"
+
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 const testNamespace = "default"
@@ -26,12 +29,20 @@ type DexServiceTestConfig struct {
 	S3TestThreshold    int
 	LocalBlobDirectory string
 	LocalBlobThreshold int
-	// LazyLoading overrides ExternalStorage.LazyLoading when S3 is enabled.
+	AttributeStore     config.AttributeStoreConfig
+	BlobCacheDirectory string
+	BlobStoreEnabled   *bool
+	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
 }
 
-func createTestConfig(testCfg DexServiceTestConfig) config.Config {
+func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config {
+	t.Helper()
+	blobStoreEnabled := testCfg.BlobStoreEnabled == nil || *testCfg.BlobStoreEnabled
+	if blobStoreEnabled && testCfg.S3TestThreshold == 0 && testCfg.LocalBlobDirectory == "" {
+		testCfg.LocalBlobDirectory = t.TempDir()
+	}
 	cfg := config.Config{
 		Api: config.ApiConfig{
 			MaxWaitSeconds: 12, // use 12 so that we can test it in the waiting test
@@ -43,11 +54,15 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 		Worker: config.WorkerConfig{
 			DefaultHeaders: testCfg.DefaultHeaders,
 		},
+		BlobStore: config.BlobStoreConfig{
+			Enabled: testCfg.BlobStoreEnabled,
+		},
 		Interpreter: config.Interpreter{
 			DefaultWorkflowConfig: syncDurabilityConfig(),
 			VerboseDebug:          false,
 		},
 	}
+	cfg.AttributeStore = testCfg.AttributeStore
 	switch testCfg.BackendType {
 	case service.BackendTypeTemporal:
 		cfg.Interpreter.Temporal = &config.TemporalConfig{}
@@ -55,12 +70,15 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 		cfg.Interpreter.Cadence = &config.CadenceConfig{}
 	}
 	if testCfg.S3TestThreshold > 0 {
-		externalStorage := config.ExternalStorageConfig{
-			Enabled:                true,
+		blobStoreCfg := config.BlobStoreConfig{
+			Enabled:                ptr.Any(blobStoreEnabled),
 			LazyLoading:            testCfg.LazyLoading,
 			ThresholdInBytes:       testCfg.S3TestThreshold,
 			HistoryRetentionInDays: 3,
-			SupportedStorages: []config.BlobStorageConfig{
+			BlobCache: config.BlobCacheConfig{
+				Directory: testCfg.BlobCacheDirectory,
+			},
+			SupportedStorages: []config.BlobStoreConfigEntry{
 				{
 					Status:      config.StorageStatusActive,
 					StorageId:   "s3-store-id",
@@ -73,15 +91,19 @@ func createTestConfig(testCfg DexServiceTestConfig) config.Config {
 				},
 			},
 		}
-		cfg.ExternalStorage = externalStorage
+		cfg.BlobStore = blobStoreCfg
 	}
 	if testCfg.LocalBlobDirectory != "" {
-		cfg.ExternalStorage = config.ExternalStorageConfig{
-			Enabled:                true,
+		threshold := testCfg.LocalBlobThreshold
+		if threshold == 0 {
+			threshold = config.DefaultBlobStoreThresholdInBytes
+		}
+		cfg.BlobStore = config.BlobStoreConfig{
+			Enabled:                ptr.Any(blobStoreEnabled),
 			LazyLoading:            testCfg.LazyLoading,
-			ThresholdInBytes:       testCfg.LocalBlobThreshold,
+			ThresholdInBytes:       threshold,
 			HistoryRetentionInDays: 3,
-			SupportedStorages: []config.BlobStorageConfig{{
+			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,
 				StorageId:      "local-store-id",
 				StorageType:    config.StorageTypeLocal,

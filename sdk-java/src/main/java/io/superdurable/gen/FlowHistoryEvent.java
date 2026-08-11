@@ -1172,7 +1172,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Timestamp event_time = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
         internalGetEventTimeFieldBuilder() {
       if (eventTimeBuilder_ == null) {
         eventTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1309,7 +1309,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartedOrContinuedHistoryEvent flow_started_or_continued = 20;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowStartedOrContinuedHistoryEvent, io.superdurable.gen.FlowStartedOrContinuedHistoryEvent.Builder, io.superdurable.gen.FlowStartedOrContinuedHistoryEventOrBuilder>
+        io.superdurable.gen.FlowStartedOrContinuedHistoryEvent, io.superdurable.gen.FlowStartedOrContinuedHistoryEvent.Builder, io.superdurable.gen.FlowStartedOrContinuedHistoryEventOrBuilder> 
         internalGetFlowStartedOrContinuedFieldBuilder() {
       if (flowStartedOrContinuedBuilder_ == null) {
         if (!(payloadCase_ == 20)) {
@@ -1451,7 +1451,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowClosedHistoryEvent flow_closed = 21;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowClosedHistoryEvent, io.superdurable.gen.FlowClosedHistoryEvent.Builder, io.superdurable.gen.FlowClosedHistoryEventOrBuilder>
+        io.superdurable.gen.FlowClosedHistoryEvent, io.superdurable.gen.FlowClosedHistoryEvent.Builder, io.superdurable.gen.FlowClosedHistoryEventOrBuilder> 
         internalGetFlowClosedFieldBuilder() {
       if (flowClosedBuilder_ == null) {
         if (!(payloadCase_ == 21)) {
@@ -1593,7 +1593,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepWaitForCompletedEvent step_wait_for_completed = 22;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepWaitForCompletedEvent, io.superdurable.gen.StepWaitForCompletedEvent.Builder, io.superdurable.gen.StepWaitForCompletedEventOrBuilder>
+        io.superdurable.gen.StepWaitForCompletedEvent, io.superdurable.gen.StepWaitForCompletedEvent.Builder, io.superdurable.gen.StepWaitForCompletedEventOrBuilder> 
         internalGetStepWaitForCompletedFieldBuilder() {
       if (stepWaitForCompletedBuilder_ == null) {
         if (!(payloadCase_ == 22)) {
@@ -1735,7 +1735,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepWaitForFailedEvent step_wait_for_failed = 23;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepWaitForFailedEvent, io.superdurable.gen.StepWaitForFailedEvent.Builder, io.superdurable.gen.StepWaitForFailedEventOrBuilder>
+        io.superdurable.gen.StepWaitForFailedEvent, io.superdurable.gen.StepWaitForFailedEvent.Builder, io.superdurable.gen.StepWaitForFailedEventOrBuilder> 
         internalGetStepWaitForFailedFieldBuilder() {
       if (stepWaitForFailedBuilder_ == null) {
         if (!(payloadCase_ == 23)) {
@@ -1877,7 +1877,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepExecuteCompletedEvent step_execute_completed = 24;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepExecuteCompletedEvent, io.superdurable.gen.StepExecuteCompletedEvent.Builder, io.superdurable.gen.StepExecuteCompletedEventOrBuilder>
+        io.superdurable.gen.StepExecuteCompletedEvent, io.superdurable.gen.StepExecuteCompletedEvent.Builder, io.superdurable.gen.StepExecuteCompletedEventOrBuilder> 
         internalGetStepExecuteCompletedFieldBuilder() {
       if (stepExecuteCompletedBuilder_ == null) {
         if (!(payloadCase_ == 24)) {
@@ -2019,7 +2019,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepExecuteFailedEvent step_execute_failed = 25;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepExecuteFailedEvent, io.superdurable.gen.StepExecuteFailedEvent.Builder, io.superdurable.gen.StepExecuteFailedEventOrBuilder>
+        io.superdurable.gen.StepExecuteFailedEvent, io.superdurable.gen.StepExecuteFailedEvent.Builder, io.superdurable.gen.StepExecuteFailedEventOrBuilder> 
         internalGetStepExecuteFailedFieldBuilder() {
       if (stepExecuteFailedBuilder_ == null) {
         if (!(payloadCase_ == 25)) {
@@ -2161,7 +2161,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.RpcExecutionCompletedEvent rpc_execution_completed = 26;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.RpcExecutionCompletedEvent, io.superdurable.gen.RpcExecutionCompletedEvent.Builder, io.superdurable.gen.RpcExecutionCompletedEventOrBuilder>
+        io.superdurable.gen.RpcExecutionCompletedEvent, io.superdurable.gen.RpcExecutionCompletedEvent.Builder, io.superdurable.gen.RpcExecutionCompletedEventOrBuilder> 
         internalGetRpcExecutionCompletedFieldBuilder() {
       if (rpcExecutionCompletedBuilder_ == null) {
         if (!(payloadCase_ == 26)) {
@@ -2303,7 +2303,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ChannelExternalPublishEvent channel_external_publish = 27;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ChannelExternalPublishEvent, io.superdurable.gen.ChannelExternalPublishEvent.Builder, io.superdurable.gen.ChannelExternalPublishEventOrBuilder>
+        io.superdurable.gen.ChannelExternalPublishEvent, io.superdurable.gen.ChannelExternalPublishEvent.Builder, io.superdurable.gen.ChannelExternalPublishEventOrBuilder> 
         internalGetChannelExternalPublishFieldBuilder() {
       if (channelExternalPublishBuilder_ == null) {
         if (!(payloadCase_ == 27)) {
@@ -2371,3 +2371,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

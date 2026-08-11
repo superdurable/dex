@@ -78,7 +78,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV attributes = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -118,7 +118,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       runId_ = s;
@@ -134,7 +134,7 @@ private static final long serialVersionUID = 0L;
       getRunIdBytes() {
     java.lang.Object ref = runId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       runId_ = b;
@@ -168,7 +168,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -184,7 +184,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -226,7 +226,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String, io.superdurable.gen.ChannelInfo> defaultEntry =
             com.google.protobuf.MapEntry
             .<java.lang.String, io.superdurable.gen.ChannelInfo>newDefaultInstance(
-                io.superdurable.gen.DexProto.internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor,
+                io.superdurable.gen.DexProto.internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor, 
                 com.google.protobuf.WireFormat.FieldType.STRING,
                 "",
                 com.google.protobuf.WireFormat.FieldType.MESSAGE,
@@ -714,7 +714,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            attributesBuilder_ =
+            attributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -1023,7 +1023,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1049,12 +1049,12 @@ io.superdurable.gen.ChannelInfo defaultValue) {
     /**
      * <code>repeated .dex.KV attributes = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1093,7 +1093,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         getRunIdBytes() {
       java.lang.Object ref = runId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         runId_ = b;
@@ -1197,7 +1197,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1352,7 +1352,7 @@ io.superdurable.gen.ChannelInfo defaultValue) {
      * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>
+        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> 
         internalGetWorkerTargetFieldBuilder() {
       if (workerTargetBuilder_ == null) {
         workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1570,3 +1570,4 @@ io.superdurable.gen.ChannelInfo defaultValue) {
   }
 
 }
+

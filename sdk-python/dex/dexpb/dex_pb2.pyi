@@ -259,14 +259,22 @@ class EncodedObject(_message.Message):
     def __init__(self, encoding: _Optional[str] = ..., payload: _Optional[bytes] = ...) -> None: ...
 
 class AttributeWrite(_message.Message):
-    __slots__ = ("key", "value", "index_config")
+    __slots__ = ("key", "value", "index_config", "sync_config")
     KEY_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
     INDEX_CONFIG_FIELD_NUMBER: _ClassVar[int]
+    SYNC_CONFIG_FIELD_NUMBER: _ClassVar[int]
     key: str
     value: Value
     index_config: IndexConfig
-    def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., index_config: _Optional[_Union[IndexConfig, _Mapping]] = ...) -> None: ...
+    sync_config: AttributeSyncConfig
+    def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., index_config: _Optional[_Union[IndexConfig, _Mapping]] = ..., sync_config: _Optional[_Union[AttributeSyncConfig, _Mapping]] = ...) -> None: ...
+
+class AttributeSyncConfig(_message.Message):
+    __slots__ = ("enabled",)
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    def __init__(self, enabled: _Optional[bool] = ...) -> None: ...
 
 class KV(_message.Message):
     __slots__ = ("key", "value")
@@ -393,18 +401,20 @@ class FlowStartOptions(_message.Message):
     def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., cron_schedule: _Optional[str] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ...) -> None: ...
 
 class FlowConfig(_message.Message):
-    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target")
+    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_sync_config_name")
     ACTIVE_STEP_SEARCH_MODE_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_THRESHOLD_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_PAGE_SIZE_IN_BYTES_FIELD_NUMBER: _ClassVar[int]
     STEP_DURABILITY_FIELD_NUMBER: _ClassVar[int]
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
     active_step_search_mode: ActiveStepSearchMode
     continue_as_new_threshold: int
     continue_as_new_page_size_in_bytes: int
     step_durability: StepDurability
     worker_target: WorkerTarget
-    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ...) -> None: ...
+    attribute_sync_config_name: str
+    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., attribute_sync_config_name: _Optional[str] = ...) -> None: ...
 
 class WorkerTarget(_message.Message):
     __slots__ = ("address", "is_headless_address")
@@ -1469,7 +1479,7 @@ class StaleSkipTimer(_message.Message):
     def __init__(self, step_execution_id: _Optional[str] = ..., timer_condition_id: _Optional[str] = ..., timer_condition_index: _Optional[int] = ...) -> None: ...
 
 class ContinueAsNewDump(_message.Message):
-    __slots__ = ("steps_to_start_from_beginning", "step_executions_to_resume", "channel_received", "counter_info", "step_outputs", "stale_skip_timers", "attributes")
+    __slots__ = ("steps_to_start_from_beginning", "step_executions_to_resume", "channel_received", "counter_info", "step_outputs", "stale_skip_timers", "attributes", "pending_attribute_sync_items")
     class ChannelReceivedEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1484,6 +1494,7 @@ class ContinueAsNewDump(_message.Message):
     STEP_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STALE_SKIP_TIMERS_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    PENDING_ATTRIBUTE_SYNC_ITEMS_FIELD_NUMBER: _ClassVar[int]
     steps_to_start_from_beginning: _containers.RepeatedCompositeFieldContainer[StepMovement]
     step_executions_to_resume: _containers.RepeatedCompositeFieldContainer[StepExecutionResumeInfo]
     channel_received: _containers.MessageMap[str, ChannelValues]
@@ -1491,7 +1502,8 @@ class ContinueAsNewDump(_message.Message):
     step_outputs: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
     stale_skip_timers: _containers.RepeatedCompositeFieldContainer[StaleSkipTimer]
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    pending_attribute_sync_items: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
+    def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., pending_attribute_sync_items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class ContinueAsNewInput(_message.Message):
     __slots__ = ("previous_internal_run_id",)
@@ -1513,11 +1525,11 @@ class InterpreterWorkflowInput(_message.Message):
     start_step_type: str
     step_input: Value
     step_options: StepOptions
-    init_attributes: _containers.RepeatedCompositeFieldContainer[KV]
+    init_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     config: FlowConfig
     is_resume_from_continue_as_new: bool
     continue_as_new_input: ContinueAsNewInput
-    def __init__(self, flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
 
 class InterpreterWorkflowOutput(_message.Message):
     __slots__ = ("step_completion_outputs",)
@@ -1605,6 +1617,26 @@ class CleanupBlobStoreActivityOutput(_message.Message):
     total_deleted: int
     def __init__(self, total_deleted: _Optional[int] = ...) -> None: ...
 
+class AttributeSyncItem(_message.Message):
+    __slots__ = ("config_name", "key", "value")
+    CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    config_name: str
+    key: str
+    value: Value
+    def __init__(self, config_name: _Optional[str] = ..., key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+
+class SyncAttributeBatchActivityInput(_message.Message):
+    __slots__ = ("flow_id", "config_name", "items")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    config_name: str
+    items: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
+    def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
+
 class ExecuteRpcSignalRequest(_message.Message):
     __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel")
     RPC_INPUT_FIELD_NUMBER: _ClassVar[int]
@@ -1631,11 +1663,13 @@ class SkipTimerSignalRequest(_message.Message):
     timer_condition_index: int
     def __init__(self, step_execution_id: _Optional[str] = ..., timer_condition_id: _Optional[str] = ..., timer_condition_index: _Optional[int] = ...) -> None: ...
 
-class FailFlowSignalRequest(_message.Message):
-    __slots__ = ("reason",)
+class StopFlowSignalRequest(_message.Message):
+    __slots__ = ("stop_type", "reason")
+    STOP_TYPE_FIELD_NUMBER: _ClassVar[int]
     REASON_FIELD_NUMBER: _ClassVar[int]
+    stop_type: StopType
     reason: str
-    def __init__(self, reason: _Optional[str] = ...) -> None: ...
+    def __init__(self, stop_type: _Optional[_Union[StopType, str]] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class GetAttributesQueryRequest(_message.Message):
     __slots__ = ("keys", "all_keys")

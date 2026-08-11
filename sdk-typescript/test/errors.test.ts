@@ -115,6 +115,7 @@ function serviceError(
     originalWorkerErrorDetail: "",
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
+    originalWorkerErrorStackTrace: "",
     ...worker,
   }).finish();
   const writer = new BinaryWriter();

@@ -615,6 +615,20 @@ func (mr *MockWorkflowProviderMockRecorder) IsApplicationError(err interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsApplicationError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsApplicationError), err)
 }
 
+// IsContinueAsNewError mocks base method.
+func (m *MockWorkflowProvider) IsContinueAsNewError(err error) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsContinueAsNewError", err)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsContinueAsNewError indicates an expected call of IsContinueAsNewError.
+func (mr *MockWorkflowProviderMockRecorder) IsContinueAsNewError(err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsContinueAsNewError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsContinueAsNewError), err)
+}
+
 // IsReplaying mocks base method.
 func (m *MockWorkflowProvider) IsReplaying(ctx UnifiedContext) bool {
 	m.ctrl.T.Helper()
@@ -683,6 +697,20 @@ func (m *MockWorkflowProvider) NewFlowError(errType dexpb.FlowErrorType, resp *d
 func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, resp interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, resp)
+}
+
+// NewCanceledError mocks base method.
+func (m *MockWorkflowProvider) NewCanceledError(reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewCanceledError", reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewCanceledError indicates an expected call of NewCanceledError.
+func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewCanceledError), reason)
 }
 
 // Now mocks base method.

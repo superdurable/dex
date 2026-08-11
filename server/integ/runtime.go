@@ -29,6 +29,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	cadenceapi "github.com/superdurable/dex/service/client/cadence"
 	temporalapi "github.com/superdurable/dex/service/client/temporal"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	dexconverter "github.com/superdurable/dex/service/common/converter"
 	"github.com/superdurable/dex/service/common/log"
@@ -157,7 +158,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	cfg := createTestConfig(testConfig)
+	cfg := createTestConfig(t, testConfig)
 	cfg.Interpreter.InterpreterActivityConfig.InternalServiceTarget = listener.Addr().String()
 	workerPool, err := workerclient.NewWorkerClientPool(&cfg)
 	require.NoError(t, err)
@@ -166,6 +167,9 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	require.NoError(t, err)
 	s3Client, err := dex.CreateS3Client(cfg, context.Background())
 	require.NoError(t, err)
+	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, attributeStore.Close()) })
 
 	var worker interpreterWorker
 	var unifiedClient uclient.UnifiedClient
@@ -177,13 +181,14 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dataConverter = encryptionDataConverter
 		}
 		temporalClient := createTemporalClient(t, dataConverter)
-		store = blobstore.NewBlobStore(
+		store, err = blobstore.NewBlobStore(
 			s3Client,
 			testNamespace,
-			cfg.ExternalStorage,
+			&cfg.BlobStore,
 			logger,
 			client.MetricsNopHandler,
 		)
+		require.NoError(t, err)
 		unifiedClient = temporalapi.NewTemporalClient(
 			temporalClient,
 			testNamespace,
@@ -198,6 +203,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dataConverter,
 			unifiedClient,
 			store,
+			attributeStore,
 			workerPool,
 		)
 	case service.BackendTypeCadence:
@@ -212,13 +218,14 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dataConverter,
 		)
 		require.NoError(t, err)
-		store = blobstore.NewBlobStore(
+		store, err = blobstore.NewBlobStore(
 			s3Client,
 			dex.DefaultCadenceDomain,
-			cfg.ExternalStorage,
+			&cfg.BlobStore,
 			logger,
 			client.MetricsNopHandler,
 		)
+		require.NoError(t, err)
 		unifiedClient = cadenceapi.NewCadenceClient(
 			dex.DefaultCadenceDomain,
 			cadenceClient,
@@ -236,10 +243,14 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dataConverter,
 			unifiedClient,
 			store,
+			attributeStore,
 			workerPool,
 		)
 	default:
 		require.FailNow(t, "unsupported backend", testConfig.BackendType)
+	}
+	if store != nil {
+		t.Cleanup(func() { require.NoError(t, store.Close()) })
 	}
 	startInterpreter(t, worker)
 	internalDumpCapture := &internalDumpHeaderCapture{}
@@ -263,6 +274,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		unifiedClient,
 		logger,
 		store,
+		attributeStore,
 		worker.Close,
 		workerPool,
 		newInternalDumpHeaderCaptureInterceptor(internalDumpCapture),
@@ -330,6 +342,7 @@ func startApiServer(
 	unifiedClient uclient.UnifiedClient,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	closeInterpreter func(),
 	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
@@ -338,11 +351,12 @@ func startApiServer(
 
 	server := api.NewServer(
 		&cfg.Api,
-		&cfg.ExternalStorage,
+		&cfg.BlobStore,
 		&cfg.Interpreter,
 		unifiedClient,
 		logger,
 		store,
+		attributeStore,
 		func(context.Context) error { return nil },
 		workerPool,
 		extraUnaryInterceptors...,

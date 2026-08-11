@@ -211,7 +211,7 @@ Set `skipContinueAsNewTests=false` to run every top-level test. When filtering,
 the target lists the tests and runs those whose names do not contain
 `ContinueAsNew`.
 
-Tests requiring per-process Dex configuration—external storage, memo
+Tests requiring per-process Dex configuration—blob storage, memo
 encryption, default headers, or disabled sticky cache—are skipped in this mode.
 They remain covered by `temporalIntegTests`, which starts an in-process Dex
 runtime for every test.

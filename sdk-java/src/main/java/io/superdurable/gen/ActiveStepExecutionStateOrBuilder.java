@@ -105,7 +105,7 @@ public interface ActiveStepExecutionStateOrBuilder extends
   /**
    * <code>repeated .dex.KV step_execution_locals = 8;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getStepExecutionLocalsList();
   /**
    * <code>repeated .dex.KV step_execution_locals = 8;</code>
@@ -118,7 +118,7 @@ public interface ActiveStepExecutionStateOrBuilder extends
   /**
    * <code>repeated .dex.KV step_execution_locals = 8;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getStepExecutionLocalsOrBuilderList();
   /**
    * <code>repeated .dex.KV step_execution_locals = 8;</code>
@@ -129,7 +129,7 @@ public interface ActiveStepExecutionStateOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo timers = 9;</code>
    */
-  java.util.List<io.superdurable.gen.TimerInfo>
+  java.util.List<io.superdurable.gen.TimerInfo> 
       getTimersList();
   /**
    * <code>repeated .dex.TimerInfo timers = 9;</code>
@@ -142,7 +142,7 @@ public interface ActiveStepExecutionStateOrBuilder extends
   /**
    * <code>repeated .dex.TimerInfo timers = 9;</code>
    */
-  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder>
+  java.util.List<? extends io.superdurable.gen.TimerInfoOrBuilder> 
       getTimersOrBuilderList();
   /**
    * <code>repeated .dex.TimerInfo timers = 9;</code>

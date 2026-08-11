@@ -95,8 +95,10 @@ type TimerProcessor interface {
 
 type WorkflowProvider interface {
 	NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error
+	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
+	IsContinueAsNewError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error

@@ -60,7 +60,7 @@ public interface DebugDumpResponseOrBuilder extends
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
    */
-  java.util.List<io.superdurable.gen.ActiveStepExecutionState>
+  java.util.List<io.superdurable.gen.ActiveStepExecutionState> 
       getActiveStepExecutionsList();
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
@@ -73,7 +73,7 @@ public interface DebugDumpResponseOrBuilder extends
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder> 
       getActiveStepExecutionsOrBuilderList();
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 4;</code>

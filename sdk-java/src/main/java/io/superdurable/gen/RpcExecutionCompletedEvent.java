@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       rpcName_ = s;
@@ -82,7 +82,7 @@ private static final long serialVersionUID = 0L;
       getRpcNameBytes() {
     java.lang.Object ref = rpcName_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       rpcName_ = b;
@@ -184,7 +184,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getUpsertAttributesOrBuilderList() {
     return upsertAttributes_;
   }
@@ -225,7 +225,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV record_events = 6;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getRecordEventsOrBuilderList() {
     return recordEvents_;
   }
@@ -266,7 +266,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
       getPublishToChannelOrBuilderList() {
     return publishToChannel_;
   }
@@ -770,7 +770,7 @@ private static final long serialVersionUID = 0L;
             upsertAttributesBuilder_ = null;
             upsertAttributes_ = other.upsertAttributes_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            upsertAttributesBuilder_ =
+            upsertAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertAttributesFieldBuilder() : null;
           } else {
@@ -796,7 +796,7 @@ private static final long serialVersionUID = 0L;
             recordEventsBuilder_ = null;
             recordEvents_ = other.recordEvents_;
             bitField0_ = (bitField0_ & ~0x00000020);
-            recordEventsBuilder_ =
+            recordEventsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetRecordEventsFieldBuilder() : null;
           } else {
@@ -822,7 +822,7 @@ private static final long serialVersionUID = 0L;
             publishToChannelBuilder_ = null;
             publishToChannel_ = other.publishToChannel_;
             bitField0_ = (bitField0_ & ~0x00000040);
-            publishToChannelBuilder_ =
+            publishToChannelBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetPublishToChannelFieldBuilder() : null;
           } else {
@@ -963,7 +963,7 @@ private static final long serialVersionUID = 0L;
         getRpcNameBytes() {
       java.lang.Object ref = rpcName_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         rpcName_ = b;
@@ -1118,7 +1118,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value input = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetInputFieldBuilder() {
       if (inputBuilder_ == null) {
         inputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1239,7 +1239,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value output = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetOutputFieldBuilder() {
       if (outputBuilder_ == null) {
         outputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1360,7 +1360,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepDecision step_decision = 4;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder>
+        io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder> 
         internalGetStepDecisionFieldBuilder() {
       if (stepDecisionBuilder_ == null) {
         stepDecisionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1568,7 +1568,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
          getUpsertAttributesOrBuilderList() {
       if (upsertAttributesBuilder_ != null) {
         return upsertAttributesBuilder_.getMessageOrBuilderList();
@@ -1594,12 +1594,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.AttributeWrite upsert_attributes = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.AttributeWrite.Builder>
+    public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
          getUpsertAttributesBuilderList() {
       return internalGetUpsertAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>
+        io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> 
         internalGetUpsertAttributesFieldBuilder() {
       if (upsertAttributesBuilder_ == null) {
         upsertAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1808,7 +1808,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV record_events = 6;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getRecordEventsOrBuilderList() {
       if (recordEventsBuilder_ != null) {
         return recordEventsBuilder_.getMessageOrBuilderList();
@@ -1834,12 +1834,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV record_events = 6;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getRecordEventsBuilderList() {
       return internalGetRecordEventsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetRecordEventsFieldBuilder() {
       if (recordEventsBuilder_ == null) {
         recordEventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2048,7 +2048,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
          getPublishToChannelOrBuilderList() {
       if (publishToChannelBuilder_ != null) {
         return publishToChannelBuilder_.getMessageOrBuilderList();
@@ -2074,12 +2074,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.ChannelMessage publish_to_channel = 7;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelMessage.Builder>
+    public java.util.List<io.superdurable.gen.ChannelMessage.Builder> 
          getPublishToChannelBuilderList() {
       return internalGetPublishToChannelFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>
+        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> 
         internalGetPublishToChannelFieldBuilder() {
       if (publishToChannelBuilder_ == null) {
         publishToChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -2143,3 +2143,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

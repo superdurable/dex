@@ -31,13 +31,14 @@ type ContinueAsNewer struct {
 	StepExecutionToResumeMap map[string]*dexpb.StepExecutionResumeInfo // stepExeId to StepExecutionResumeInfo
 	inflightUpdateOperations int
 
-	stepRequestQueue     *StepRequestQueue
-	channelStore         *ChannelStore
-	stepExecutionCounter *StepExecutionCounter
-	activeStepMovements  map[string]*dexpb.StepMovement
-	persistenceManager   *PersistenceManager
-	outputCollector      *OutputCollector
-	timerProcessor       interfaces.TimerProcessor
+	stepRequestQueue      *StepRequestQueue
+	channelStore          *ChannelStore
+	stepExecutionCounter  *StepExecutionCounter
+	activeStepMovements   map[string]*dexpb.StepMovement
+	persistenceManager    *PersistenceManager
+	outputCollector       *OutputCollector
+	timerProcessor        interfaces.TimerProcessor
+	attributeSynchronizer *AttributeSynchronizer
 }
 
 func NewContinueAsNewer(
@@ -46,10 +47,11 @@ func NewContinueAsNewer(
 	channelStore *ChannelStore, stepExecutionCounter *StepExecutionCounter,
 	persistenceManager *PersistenceManager, stepRequestQueue *StepRequestQueue, collector *OutputCollector,
 	timerProcessor interfaces.TimerProcessor,
+	attributeSynchronizer *AttributeSynchronizer,
 ) *ContinueAsNewer {
 	if apiCfg == nil || provider == nil || stepRequestQueue == nil || channelStore == nil ||
 		stepExecutionCounter == nil || persistenceManager == nil || collector == nil ||
-		timerProcessor == nil {
+		timerProcessor == nil || attributeSynchronizer == nil {
 		panic("ContinueAsNewer requires non-nil dependencies")
 	}
 	return &ContinueAsNewer{
@@ -58,13 +60,14 @@ func NewContinueAsNewer(
 
 		StepExecutionToResumeMap: map[string]*dexpb.StepExecutionResumeInfo{},
 
-		stepRequestQueue:     stepRequestQueue,
-		channelStore:         channelStore,
-		stepExecutionCounter: stepExecutionCounter,
-		activeStepMovements:  map[string]*dexpb.StepMovement{},
-		persistenceManager:   persistenceManager,
-		outputCollector:      collector,
-		timerProcessor:       timerProcessor,
+		stepRequestQueue:      stepRequestQueue,
+		channelStore:          channelStore,
+		stepExecutionCounter:  stepExecutionCounter,
+		activeStepMovements:   map[string]*dexpb.StepMovement{},
+		persistenceManager:    persistenceManager,
+		outputCollector:       collector,
+		timerProcessor:        timerProcessor,
+		attributeSynchronizer: attributeSynchronizer,
 	}
 }
 
@@ -168,6 +171,7 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 		StaleSkipTimers: c.timerProcessor.Dump(
 			c.stepExecutionCounter.IsStepExecutionActive,
 		),
+		PendingAttributeSyncItems: c.attributeSynchronizer.PendingItems(),
 	}
 }
 

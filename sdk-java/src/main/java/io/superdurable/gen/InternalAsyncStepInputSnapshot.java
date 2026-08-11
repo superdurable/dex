@@ -709,7 +709,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodOptions method_options = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder>
+        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder> 
         internalGetMethodOptionsFieldBuilder() {
       if (methodOptionsBuilder_ == null) {
         methodOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -846,7 +846,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeWaitForMethodRequest wait_for_request = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodRequest.Builder, io.superdurable.gen.InvokeWaitForMethodRequestOrBuilder>
+        io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodRequest.Builder, io.superdurable.gen.InvokeWaitForMethodRequestOrBuilder> 
         internalGetWaitForRequestFieldBuilder() {
       if (waitForRequestBuilder_ == null) {
         if (!(requestCase_ == 2)) {
@@ -988,7 +988,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.InvokeExecuteMethodRequest execute_request = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder>
+        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder> 
         internalGetExecuteRequestFieldBuilder() {
       if (executeRequestBuilder_ == null) {
         if (!(requestCase_ == 3)) {
@@ -1056,3 +1056,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

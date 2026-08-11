@@ -127,6 +127,7 @@ func decodePathPart(value string) (string, error) {
 }
 
 type BlobStore interface {
+	Close() error
 	// WriteObject will write to the current active store
 	// returns the active storeId
 	// The final path pattern is pathPrefix + yyyymmdd$workflowId/uuid

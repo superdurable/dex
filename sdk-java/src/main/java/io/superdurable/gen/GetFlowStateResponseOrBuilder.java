@@ -28,7 +28,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 2;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getAttributesList();
   /**
    * <code>repeated .dex.KV attributes = 2;</code>
@@ -41,7 +41,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.KV attributes = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList();
   /**
    * <code>repeated .dex.KV attributes = 2;</code>
@@ -52,7 +52,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 3;</code>
    */
-  java.util.List<io.superdurable.gen.ActiveStepExecutionState>
+  java.util.List<io.superdurable.gen.ActiveStepExecutionState> 
       getActiveStepExecutionsList();
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 3;</code>
@@ -65,7 +65,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ActiveStepExecutionStateOrBuilder> 
       getActiveStepExecutionsOrBuilderList();
   /**
    * <code>repeated .dex.ActiveStepExecutionState active_step_executions = 3;</code>
@@ -76,7 +76,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement queued_steps = 4;</code>
    */
-  java.util.List<io.superdurable.gen.StepMovement>
+  java.util.List<io.superdurable.gen.StepMovement> 
       getQueuedStepsList();
   /**
    * <code>repeated .dex.StepMovement queued_steps = 4;</code>
@@ -89,7 +89,7 @@ public interface GetFlowStateResponseOrBuilder extends
   /**
    * <code>repeated .dex.StepMovement queued_steps = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepMovementOrBuilder> 
       getQueuedStepsOrBuilderList();
   /**
    * <code>repeated .dex.StepMovement queued_steps = 4;</code>
@@ -134,7 +134,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
    */
-  java.util.List<io.superdurable.gen.StepCompletionOutput>
+  java.util.List<io.superdurable.gen.StepCompletionOutput> 
       getCompletedStepsList();
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
@@ -147,7 +147,7 @@ io.superdurable.gen.ChannelValues defaultValue);
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>
    */
-  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder>
+  java.util.List<? extends io.superdurable.gen.StepCompletionOutputOrBuilder> 
       getCompletedStepsOrBuilderList();
   /**
    * <code>repeated .dex.StepCompletionOutput completed_steps = 6;</code>

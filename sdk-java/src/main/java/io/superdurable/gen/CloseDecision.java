@@ -783,7 +783,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value close_input = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetCloseInputFieldBuilder() {
       if (closeInputBuilder_ == null) {
         closeInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<

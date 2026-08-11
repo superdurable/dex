@@ -8,49 +8,54 @@ title: Storage sync
 
 Application databases still exist. Teams want Durable Execution state to land in systems they already query (warehouses, OLTP, object stores).
 
-## Code examples
+## Custom Attribute Store
 
-Choose an SDK (preference is sticky in this browser; default Python).
+Dex can asynchronously copy selected Attribute writes into a deployment-managed
+MySQL or PostgreSQL table. The workflow Attribute remains the source of truth;
+the external row is a latest-state projection.
 
-<SdkTabs>
-<SdkSnippet lang="python">
+Two settings opt in:
 
-```python
-# Prefer explicit application writes from Steps when you need OLTP rows.
-# Keep Attributes for execution state.
-```
+1. The Flow's `attribute_sync_config_name` selects a named Server store.
+2. Each `AttributeWrite` sets `sync_config.enabled = true`.
 
-</SdkSnippet>
-  <SdkSnippet lang="go">
+The current high-level SDKs do not expose these fields. This release supports
+IDL users and Server-side integrations while generated protobuf bindings remain
+available in every SDK module.
 
-```go
-// Same idea in Go — see examples/go and sdk-go.
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-// Same idea in Java — see examples/java and sdk-java.
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-// Prefer explicit application writes from Steps for OLTP rows.
-// Keep Attributes for execution state. See examples/typescript.
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Today, treat Attributes and your own application writes as the source of truth inside Flows. Export patterns vary by deployment.
+Changing the Flow target affects only new writes. Already queued mutations keep
+the target selected when they were enqueued. Clearing the target disables later
+sync; enabled writes still update the workflow Attribute and produce an error
+metric/log rather than entering a queue with no destination.
 
 ## How Dex implements it
 
-Dex persists Flow Attributes and history via its Temporal/Cadence backend and blob store. First-class sync connectors to arbitrary warehouses are a platform direction (see marketing site); OSS Dex does not invent fake sync APIs in the SDKs.
+Dex first applies the workflow Attribute and existing visibility index update,
+then appends a mutation to a workflow-owned durable FIFO. A single synchronizer
+groups up to the configured batch size, without crossing target-store boundaries,
+and performs one SQL upsert. Duplicate Attribute names inside a batch use the
+last write.
+
+The synchronizer tries a Local Activity for at most seven seconds, then falls
+back to a regular Activity. Regular attempts default to 30 seconds and retry for
+up to one hour. An exhausted batch is logged and skipped; it does not fail the
+Flow. Each later batch gets its own retry budget.
+
+Continue-as-New completes only the in-flight batch and carries the remaining
+queue to the next Run. Graceful completion, FailFlow, and cooperative CancelFlow
+wait for current producers and flush the queue. Signals accepted while a flush
+Activity runs are drained, and any resulting Attribute writes trigger another
+flush. RPC next steps are not started after terminal processing begins. Hard
+Terminate, engine timeout, or direct backend cancellation may lose pending
+mutations. Reset does not backfill or reconcile an external row.
+
+Blob-backed string and object values are hydrated inside the Activity before
+schema validation. With the Server Attribute blob cache enabled, a recent S3
+write normally hydrates from local disk without another S3 read.
 
 ## Traditional workarounds
 
-Teams build ETL from event logs, dual-writes, or CDC — each with consistency headaches.
+Use explicit application writes when every external update must be part of the
+business transaction. Attribute sync intentionally favors workflow progress:
+schema/type mismatches are filtered item-by-item, and a batch is skipped after
+its retry budget expires. There is no backfill in this release.

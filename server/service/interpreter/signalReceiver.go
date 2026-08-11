@@ -13,21 +13,20 @@ package interpreter
 import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
-	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type SignalReceiver struct {
-	failFlowByClient       bool
-	reasonFailFlowByClient *string
-	provider               interfaces.WorkflowProvider
-	timerProcessor         interfaces.TimerProcessor
-	flowConfiger           *config.FlowConfiger
-	channelStore           *ChannelStore
-	stepRequestQueue       *StepRequestQueue
-	persistenceManager     *PersistenceManager
+	provider           interfaces.WorkflowProvider
+	timerProcessor     interfaces.TimerProcessor
+	flowConfiger       *config.FlowConfiger
+	channelStore       *ChannelStore
+	stepRequestQueue   *StepRequestQueue
+	persistenceManager *PersistenceManager
+	stopFlowRequested  bool
+	stopFlowErr        error
 }
 
 func NewSignalReceiver(
@@ -42,7 +41,6 @@ func NewSignalReceiver(
 ) *SignalReceiver {
 	sr := &SignalReceiver{
 		provider:           provider,
-		failFlowByClient:   false,
 		timerProcessor:     timerProcessor,
 		flowConfiger:       flowConfiger,
 		channelStore:       channelStore,
@@ -50,15 +48,14 @@ func NewSignalReceiver(
 		persistenceManager: persistenceManager,
 	}
 
-	//The thread waits until a FailWorkflowSignalChannelName signal has been
-	//received or a continueAsNew run is triggered. When a signal has been received it sets
-	//SignalReceiver.failFlowByClient to true and sets SignalReceiver.reasonFailFlowByClient to the reason
-	//given in the signal's value. If continueIsNew is triggered, the thread completes after all signals have been processed.
-	provider.GoNamed(ctx, "fail-flow-system-signal-handler", func(ctx interfaces.UnifiedContext) {
+	//The thread waits until a StopWorkflowSignalChannelName signal has been
+	//received or a continueAsNew run is triggered. When a signal has been received it requests
+	//cooperative terminal cleanup. If continueIsNew is triggered, the thread completes after all signals have been processed.
+	provider.GoNamed(ctx, "stop-flow-system-signal-handler", func(ctx interfaces.UnifiedContext) {
 		for {
-			ch := provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
+			ch := provider.GetSignalChannel(ctx, service.StopWorkflowSignalChannelName)
 
-			val := dexpb.FailFlowSignalRequest{}
+			val := dexpb.StopFlowSignalRequest{}
 			received := false
 			err := provider.Await(ctx, func() bool {
 				received = ch.ReceiveAsync(&val)
@@ -70,8 +67,8 @@ func NewSignalReceiver(
 			}
 			if received {
 				continueAsNewCounter.IncSignalsReceived()
-				sr.failFlowByClient = true
-				sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
+				sr.requestStopFlow(&val)
+				return
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
 				break
@@ -130,8 +127,7 @@ func NewSignalReceiver(
 			if received {
 				continueAsNewCounter.IncSignalsReceived()
 				if err := flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
-					sr.failFlowByClient = true
-					sr.reasonFailFlowByClient = ptr.Any(err.Error())
+					sr.failInvalidFlowConfig(err)
 				}
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
@@ -151,12 +147,12 @@ func NewSignalReceiver(
 		received := false
 		err := provider.Await(ctx, func() bool {
 			received = ch.ReceiveAsync(nil)
-			return received || continueAsNewCounter.IsThresholdMet()
+			return received || continueAsNewCounter.IsThresholdMet() || sr.stopFlowRequested
 		})
 		if err != nil {
 			return
 		}
-		if received {
+		if received && !sr.stopFlowRequested {
 			continueAsNewCounter.TriggerByAPI()
 			return
 		}
@@ -213,15 +209,16 @@ func NewSignalReceiver(
 // so that the signals can be carried over to next run by continueAsNew.
 // 2. Conditional close/complete flow on channel:
 // retrieve all channel messages before checking the channels
+// 3. Terminal finalization:
+// retrieve signals accepted while Attribute Store Activities were running.
 func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	ctx interfaces.UnifiedContext,
 ) {
-	ch := sr.provider.GetSignalChannel(ctx, service.FailWorkflowSignalChannelName)
+	ch := sr.provider.GetSignalChannel(ctx, service.StopWorkflowSignalChannelName)
 	for {
-		val := dexpb.FailFlowSignalRequest{}
+		val := dexpb.StopFlowSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			sr.failFlowByClient = true
-			sr.reasonFailFlowByClient = ptr.Any(val.GetReason())
+			sr.requestStopFlow(&val)
 		} else {
 			break
 		}
@@ -246,8 +243,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 		val := dexpb.UpdateFlowConfigRequest{}
 		if ch.ReceiveAsync(&val) {
 			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
-				sr.failFlowByClient = true
-				sr.reasonFailFlowByClient = ptr.Any(err.Error())
+				sr.failInvalidFlowConfig(err)
 			}
 		} else {
 			break
@@ -277,17 +273,47 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	}
 }
 
-func (sr *SignalReceiver) IsFailWorkFlowRequested() (bool, error) {
-	reason := "fail by client"
-	if sr.reasonFailFlowByClient != nil {
-		reason = *sr.reasonFailFlowByClient
+func (sr *SignalReceiver) failInvalidFlowConfig(err error) {
+	sr.doRequestStopFlowWithError(sr.provider.NewFlowError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
+		&dexpb.ErrorResponse{Detail: err.Error()},
+	))
+}
+
+func (sr *SignalReceiver) requestStopFlow(request *dexpb.StopFlowSignalRequest) {
+	if request == nil || sr.stopFlowRequested {
+		return
 	}
-	if sr.failFlowByClient {
-		return true, sr.provider.NewFlowError(
+	switch request.GetStopType() {
+	case dexpb.StopType_STOP_TYPE_CANCEL:
+		sr.doRequestStopFlowWithError(sr.provider.NewCanceledError(request.GetReason()))
+	case dexpb.StopType_STOP_TYPE_FAIL:
+		reason := request.GetReason()
+		if reason == "" {
+			reason = "fail by client"
+		}
+		sr.doRequestStopFlowWithError(sr.provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 			&dexpb.ErrorResponse{Detail: reason},
-		)
+		))
 	}
+}
 
-	return false, nil
+func (sr *SignalReceiver) doRequestStopFlowWithError(stopErr error) {
+	if sr.stopFlowRequested {
+		return
+	}
+	if stopErr == nil {
+		panic("stop Flow error is nil")
+	}
+	sr.stopFlowRequested = true
+	sr.stopFlowErr = stopErr
+}
+
+func (sr *SignalReceiver) GetIfStopFlowRequested() (bool, error) {
+	return sr.stopFlowRequested, sr.stopFlowErr
+}
+
+func (sr *SignalReceiver) IsStopFlowRequested() bool {
+	return sr.stopFlowRequested
 }

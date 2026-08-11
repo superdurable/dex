@@ -47,6 +47,13 @@ func (w *workflowProvider) NewFlowError(
 	return cadence.NewCustomError(errType.String(), resp)
 }
 
+func (w *workflowProvider) NewCanceledError(reason string) error {
+	if reason == "" {
+		return cadence.NewCanceledError()
+	}
+	return cadence.NewCanceledError(reason)
+}
+
 func (w *workflowProvider) NewUpdateError(
 	errType dexpb.UpdateErrorType,
 	detail string,
@@ -57,6 +64,11 @@ func (w *workflowProvider) NewUpdateError(
 func (w *workflowProvider) IsApplicationError(err error) bool {
 	var applicationError *cadence.CustomError
 	return errors.As(err, &applicationError)
+}
+
+func (w *workflowProvider) IsContinueAsNewError(err error) bool {
+	var continueAsNewError *workflow.ContinueAsNewError
+	return errors.As(err, &continueAsNewError)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(

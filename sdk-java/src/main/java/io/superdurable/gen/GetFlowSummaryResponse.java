@@ -92,7 +92,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       firstRunId_ = s;
@@ -108,7 +108,7 @@ private static final long serialVersionUID = 0L;
       getFirstRunIdBytes() {
     java.lang.Object ref = firstRunId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       firstRunId_ = b;
@@ -131,7 +131,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       requestId_ = s;
@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
       getRequestIdBytes() {
     java.lang.Object ref = requestId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       requestId_ = b;
@@ -170,7 +170,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -186,7 +186,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -863,7 +863,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder>
+        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder> 
         internalGetFlowExecutionIdFieldBuilder() {
       if (flowExecutionIdBuilder_ == null) {
         flowExecutionIdBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -901,7 +901,7 @@ private static final long serialVersionUID = 0L;
         getFirstRunIdBytes() {
       java.lang.Object ref = firstRunId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         firstRunId_ = b;
@@ -973,7 +973,7 @@ private static final long serialVersionUID = 0L;
         getRequestIdBytes() {
       java.lang.Object ref = requestId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         requestId_ = b;
@@ -1045,7 +1045,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1252,7 +1252,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Timestamp start_time = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
         internalGetStartTimeFieldBuilder() {
       if (startTimeBuilder_ == null) {
         startTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1373,7 +1373,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Timestamp close_time = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
         internalGetCloseTimeFieldBuilder() {
       if (closeTimeBuilder_ == null) {
         closeTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1436,3 +1436,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

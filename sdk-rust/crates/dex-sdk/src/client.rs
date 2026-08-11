@@ -612,6 +612,7 @@ impl Client {
             key: key.to_string(),
             value: Some(value_mapper::encode(value)?),
             index_config,
+            sync_config: None,
         };
         self.call_empty(
             "set_attribute",
@@ -735,6 +736,7 @@ impl Client {
                     key: attribute.key.clone(),
                     value: Some(attribute.value.encode()?),
                     index_config: attribute.index_config.clone(),
+                    sync_config: None,
                 })
             })
             .collect::<SdkResult<Vec<_>>>()?;
@@ -804,6 +806,7 @@ impl Client {
                     }) as i32
                 }),
             worker_target: target.map(map_worker_target),
+            attribute_sync_config_name: None,
         })
     }
 

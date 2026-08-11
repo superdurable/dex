@@ -63,7 +63,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       currentStepExecutionId_ = s;
@@ -79,7 +79,7 @@ private static final long serialVersionUID = 0L;
       getCurrentStepExecutionIdBytes() {
     java.lang.Object ref = currentStepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       currentStepExecutionId_ = b;
@@ -102,7 +102,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       fromStepExecutionId_ = s;
@@ -118,7 +118,7 @@ private static final long serialVersionUID = 0L;
       getFromStepExecutionIdBytes() {
     java.lang.Object ref = fromStepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       fromStepExecutionId_ = b;
@@ -475,7 +475,7 @@ private static final long serialVersionUID = 0L;
         getCurrentStepExecutionIdBytes() {
       java.lang.Object ref = currentStepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         currentStepExecutionId_ = b;
@@ -547,7 +547,7 @@ private static final long serialVersionUID = 0L;
         getFromStepExecutionIdBytes() {
       java.lang.Object ref = fromStepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         fromStepExecutionId_ = b;
@@ -644,3 +644,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

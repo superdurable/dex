@@ -131,7 +131,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       flowType_ = s;
@@ -147,7 +147,7 @@ private static final long serialVersionUID = 0L;
       getFlowTypeBytes() {
     java.lang.Object ref = flowType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       flowType_ = b;
@@ -181,6 +181,32 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOrBuilder() {
     return flowConfig_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : flowConfig_;
+  }
+
+  public static final int FLOW_TIMEOUT_FIELD_NUMBER = 4;
+  private com.google.protobuf.Duration flowTimeout_;
+  /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   * @return Whether the flowTimeout field is set.
+   */
+  @java.lang.Override
+  public boolean hasFlowTimeout() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   * @return The flowTimeout.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Duration getFlowTimeout() {
+    return flowTimeout_ == null ? com.google.protobuf.Duration.getDefaultInstance() : flowTimeout_;
+  }
+  /**
+   * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.DurationOrBuilder getFlowTimeoutOrBuilder() {
+    return flowTimeout_ == null ? com.google.protobuf.Duration.getDefaultInstance() : flowTimeout_;
   }
 
   public static final int INITIAL_START_FIELD_NUMBER = 10;
@@ -268,6 +294,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(3, getFlowConfig());
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(4, getFlowTimeout());
+    }
     if (startOrContinueCase_ == 10) {
       output.writeMessage(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
     }
@@ -288,6 +317,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, getFlowConfig());
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(4, getFlowTimeout());
     }
     if (startOrContinueCase_ == 10) {
       size += com.google.protobuf.CodedOutputStream
@@ -333,6 +366,11 @@ private static final long serialVersionUID = 0L;
       if (!getFlowConfig()
           .equals(other.getFlowConfig())) return false;
     }
+    if (hasFlowTimeout() != other.hasFlowTimeout()) return false;
+    if (hasFlowTimeout()) {
+      if (!getFlowTimeout()
+          .equals(other.getFlowTimeout())) return false;
+    }
     if (!getStartOrContinueCase().equals(other.getStartOrContinueCase())) return false;
     switch (startOrContinueCase_) {
       case 10:
@@ -366,6 +404,10 @@ private static final long serialVersionUID = 0L;
     if (hasFlowConfig()) {
       hash = (37 * hash) + FLOW_CONFIG_FIELD_NUMBER;
       hash = (53 * hash) + getFlowConfig().hashCode();
+    }
+    if (hasFlowTimeout()) {
+      hash = (37 * hash) + FLOW_TIMEOUT_FIELD_NUMBER;
+      hash = (53 * hash) + getFlowTimeout().hashCode();
     }
     switch (startOrContinueCase_) {
       case 10:
@@ -511,6 +553,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetFlowExecutionIdFieldBuilder();
         internalGetFlowConfigFieldBuilder();
+        internalGetFlowTimeoutFieldBuilder();
       }
     }
     @java.lang.Override
@@ -527,6 +570,11 @@ private static final long serialVersionUID = 0L;
       if (flowConfigBuilder_ != null) {
         flowConfigBuilder_.dispose();
         flowConfigBuilder_ = null;
+      }
+      flowTimeout_ = null;
+      if (flowTimeoutBuilder_ != null) {
+        flowTimeoutBuilder_.dispose();
+        flowTimeoutBuilder_ = null;
       }
       if (initialStartBuilder_ != null) {
         initialStartBuilder_.clear();
@@ -586,6 +634,12 @@ private static final long serialVersionUID = 0L;
             : flowConfigBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.flowTimeout_ = flowTimeoutBuilder_ == null
+            ? flowTimeout_
+            : flowTimeoutBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -624,6 +678,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasFlowConfig()) {
         mergeFlowConfig(other.getFlowConfig());
+      }
+      if (other.hasFlowTimeout()) {
+        mergeFlowTimeout(other.getFlowTimeout());
       }
       switch (other.getStartOrContinueCase()) {
         case INITIAL_START: {
@@ -683,6 +740,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 34: {
+              input.readMessage(
+                  internalGetFlowTimeoutFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 34
             case 82: {
               input.readMessage(
                   internalGetInitialStartFieldBuilder().getBuilder(),
@@ -837,7 +901,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder>
+        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder> 
         internalGetFlowExecutionIdFieldBuilder() {
       if (flowExecutionIdBuilder_ == null) {
         flowExecutionIdBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -875,7 +939,7 @@ private static final long serialVersionUID = 0L;
         getFlowTypeBytes() {
       java.lang.Object ref = flowType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         flowType_ = b;
@@ -1030,7 +1094,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowConfig flow_config = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder>
+        io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
         internalGetFlowConfigFieldBuilder() {
       if (flowConfigBuilder_ == null) {
         flowConfigBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1041,6 +1105,127 @@ private static final long serialVersionUID = 0L;
         flowConfig_ = null;
       }
       return flowConfigBuilder_;
+    }
+
+    private com.google.protobuf.Duration flowTimeout_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> flowTimeoutBuilder_;
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     * @return Whether the flowTimeout field is set.
+     */
+    public boolean hasFlowTimeout() {
+      return ((bitField0_ & 0x00000008) != 0);
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     * @return The flowTimeout.
+     */
+    public com.google.protobuf.Duration getFlowTimeout() {
+      if (flowTimeoutBuilder_ == null) {
+        return flowTimeout_ == null ? com.google.protobuf.Duration.getDefaultInstance() : flowTimeout_;
+      } else {
+        return flowTimeoutBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public Builder setFlowTimeout(com.google.protobuf.Duration value) {
+      if (flowTimeoutBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        flowTimeout_ = value;
+      } else {
+        flowTimeoutBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public Builder setFlowTimeout(
+        com.google.protobuf.Duration.Builder builderForValue) {
+      if (flowTimeoutBuilder_ == null) {
+        flowTimeout_ = builderForValue.build();
+      } else {
+        flowTimeoutBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public Builder mergeFlowTimeout(com.google.protobuf.Duration value) {
+      if (flowTimeoutBuilder_ == null) {
+        if (((bitField0_ & 0x00000008) != 0) &&
+          flowTimeout_ != null &&
+          flowTimeout_ != com.google.protobuf.Duration.getDefaultInstance()) {
+          getFlowTimeoutBuilder().mergeFrom(value);
+        } else {
+          flowTimeout_ = value;
+        }
+      } else {
+        flowTimeoutBuilder_.mergeFrom(value);
+      }
+      if (flowTimeout_ != null) {
+        bitField0_ |= 0x00000008;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public Builder clearFlowTimeout() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      flowTimeout_ = null;
+      if (flowTimeoutBuilder_ != null) {
+        flowTimeoutBuilder_.dispose();
+        flowTimeoutBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public com.google.protobuf.Duration.Builder getFlowTimeoutBuilder() {
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return internalGetFlowTimeoutFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    public com.google.protobuf.DurationOrBuilder getFlowTimeoutOrBuilder() {
+      if (flowTimeoutBuilder_ != null) {
+        return flowTimeoutBuilder_.getMessageOrBuilder();
+      } else {
+        return flowTimeout_ == null ?
+            com.google.protobuf.Duration.getDefaultInstance() : flowTimeout_;
+      }
+    }
+    /**
+     * <code>.google.protobuf.Duration flow_timeout = 4;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> 
+        internalGetFlowTimeoutFieldBuilder() {
+      if (flowTimeoutBuilder_ == null) {
+        flowTimeoutBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder>(
+                getFlowTimeout(),
+                getParentForChildren(),
+                isClean());
+        flowTimeout_ = null;
+      }
+      return flowTimeoutBuilder_;
     }
 
     private com.google.protobuf.SingleFieldBuilder<
@@ -1167,7 +1352,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowInitialStart initial_start = 10;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowInitialStart, io.superdurable.gen.FlowInitialStart.Builder, io.superdurable.gen.FlowInitialStartOrBuilder>
+        io.superdurable.gen.FlowInitialStart, io.superdurable.gen.FlowInitialStart.Builder, io.superdurable.gen.FlowInitialStartOrBuilder> 
         internalGetInitialStartFieldBuilder() {
       if (initialStartBuilder_ == null) {
         if (!(startOrContinueCase_ == 10)) {
@@ -1309,7 +1494,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowContinuedStart continued_start = 11;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder>
+        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder> 
         internalGetContinuedStartFieldBuilder() {
       if (continuedStartBuilder_ == null) {
         if (!(startOrContinueCase_ == 11)) {
@@ -1377,3 +1562,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

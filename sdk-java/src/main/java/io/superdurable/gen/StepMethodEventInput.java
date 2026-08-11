@@ -128,7 +128,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV attributes = 4;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getAttributesOrBuilderList() {
     return attributes_;
   }
@@ -169,7 +169,7 @@ private static final long serialVersionUID = 0L;
    * <code>repeated .dex.KV step_execution_locals = 5;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getStepExecutionLocalsOrBuilderList() {
     return stepExecutionLocals_;
   }
@@ -607,7 +607,7 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
             bitField0_ = (bitField0_ & ~0x00000008);
-            attributesBuilder_ =
+            attributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
           } else {
@@ -633,7 +633,7 @@ private static final long serialVersionUID = 0L;
             stepExecutionLocalsBuilder_ = null;
             stepExecutionLocals_ = other.stepExecutionLocals_;
             bitField0_ = (bitField0_ & ~0x00000010);
-            stepExecutionLocalsBuilder_ =
+            stepExecutionLocalsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetStepExecutionLocalsFieldBuilder() : null;
           } else {
@@ -869,7 +869,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
         internalGetStepInputFieldBuilder() {
       if (stepInputBuilder_ == null) {
         stepInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -990,7 +990,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.ConditionResults condition_results = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ConditionResults, io.superdurable.gen.ConditionResults.Builder, io.superdurable.gen.ConditionResultsOrBuilder>
+        io.superdurable.gen.ConditionResults, io.superdurable.gen.ConditionResults.Builder, io.superdurable.gen.ConditionResultsOrBuilder> 
         internalGetConditionResultsFieldBuilder() {
       if (conditionResultsBuilder_ == null) {
         conditionResultsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1198,7 +1198,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 4;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getAttributesOrBuilderList() {
       if (attributesBuilder_ != null) {
         return attributesBuilder_.getMessageOrBuilderList();
@@ -1224,12 +1224,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV attributes = 4;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getAttributesBuilderList() {
       return internalGetAttributesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetAttributesFieldBuilder() {
       if (attributesBuilder_ == null) {
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1438,7 +1438,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_execution_locals = 5;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+    public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getStepExecutionLocalsOrBuilderList() {
       if (stepExecutionLocalsBuilder_ != null) {
         return stepExecutionLocalsBuilder_.getMessageOrBuilderList();
@@ -1464,12 +1464,12 @@ private static final long serialVersionUID = 0L;
     /**
      * <code>repeated .dex.KV step_execution_locals = 5;</code>
      */
-    public java.util.List<io.superdurable.gen.KV.Builder>
+    public java.util.List<io.superdurable.gen.KV.Builder> 
          getStepExecutionLocalsBuilderList() {
       return internalGetStepExecutionLocalsFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>
+        io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> 
         internalGetStepExecutionLocalsFieldBuilder() {
       if (stepExecutionLocalsBuilder_ == null) {
         stepExecutionLocalsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
@@ -1533,3 +1533,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

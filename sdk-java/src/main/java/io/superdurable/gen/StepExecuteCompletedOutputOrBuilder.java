@@ -28,7 +28,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
    */
-  java.util.List<io.superdurable.gen.AttributeWrite>
+  java.util.List<io.superdurable.gen.AttributeWrite> 
       getUpsertAttributesList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
@@ -41,7 +41,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
    */
-  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder>
+  java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getUpsertAttributesOrBuilderList();
   /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 2;</code>
@@ -52,7 +52,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 3;</code>
    */
-  java.util.List<io.superdurable.gen.ChannelMessage>
+  java.util.List<io.superdurable.gen.ChannelMessage> 
       getPublishToChannelList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 3;</code>
@@ -65,7 +65,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 3;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder>
+  java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
       getPublishToChannelOrBuilderList();
   /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 3;</code>
@@ -76,7 +76,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 4;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getRecordEventsList();
   /**
    * <code>repeated .dex.KV record_events = 4;</code>
@@ -89,7 +89,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.KV record_events = 4;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getRecordEventsOrBuilderList();
   /**
    * <code>repeated .dex.KV record_events = 4;</code>
@@ -100,7 +100,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.KV upsert_step_execution_locals = 5;</code>
    */
-  java.util.List<io.superdurable.gen.KV>
+  java.util.List<io.superdurable.gen.KV> 
       getUpsertStepExecutionLocalsList();
   /**
    * <code>repeated .dex.KV upsert_step_execution_locals = 5;</code>
@@ -113,7 +113,7 @@ public interface StepExecuteCompletedOutputOrBuilder extends
   /**
    * <code>repeated .dex.KV upsert_step_execution_locals = 5;</code>
    */
-  java.util.List<? extends io.superdurable.gen.KVOrBuilder>
+  java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getUpsertStepExecutionLocalsOrBuilderList();
   /**
    * <code>repeated .dex.KV upsert_step_execution_locals = 5;</code>

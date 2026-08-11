@@ -66,7 +66,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepExecutionId_ = s;
@@ -82,7 +82,7 @@ private static final long serialVersionUID = 0L;
       getStepExecutionIdBytes() {
     java.lang.Object ref = stepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepExecutionId_ = b;
@@ -105,7 +105,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       fromStepExecutionId_ = s;
@@ -121,7 +121,7 @@ private static final long serialVersionUID = 0L;
       getFromStepExecutionIdBytes() {
     java.lang.Object ref = fromStepExecutionId_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       fromStepExecutionId_ = b;
@@ -144,7 +144,7 @@ private static final long serialVersionUID = 0L;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
-      com.google.protobuf.ByteString bs =
+      com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
       stepType_ = s;
@@ -160,7 +160,7 @@ private static final long serialVersionUID = 0L;
       getStepTypeBytes() {
     java.lang.Object ref = stepType_;
     if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b =
+      com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
       stepType_ = b;
@@ -927,7 +927,7 @@ private static final long serialVersionUID = 0L;
         getStepExecutionIdBytes() {
       java.lang.Object ref = stepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepExecutionId_ = b;
@@ -999,7 +999,7 @@ private static final long serialVersionUID = 0L;
         getFromStepExecutionIdBytes() {
       java.lang.Object ref = fromStepExecutionId_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         fromStepExecutionId_ = b;
@@ -1071,7 +1071,7 @@ private static final long serialVersionUID = 0L;
         getStepTypeBytes() {
       java.lang.Object ref = stepType_;
       if (ref instanceof String) {
-        com.google.protobuf.ByteString b =
+        com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
         stepType_ = b;
@@ -1310,7 +1310,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Timestamp started_time = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder>
+        com.google.protobuf.Timestamp, com.google.protobuf.Timestamp.Builder, com.google.protobuf.TimestampOrBuilder> 
         internalGetStartedTimeFieldBuilder() {
       if (startedTimeBuilder_ == null) {
         startedTimeBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1431,7 +1431,7 @@ private static final long serialVersionUID = 0L;
      * <code>.google.protobuf.Duration duration = 7;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder>
+        com.google.protobuf.Duration, com.google.protobuf.Duration.Builder, com.google.protobuf.DurationOrBuilder> 
         internalGetDurationFieldBuilder() {
       if (durationBuilder_ == null) {
         durationBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1552,7 +1552,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodOptions method_options = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder>
+        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder> 
         internalGetMethodOptionsFieldBuilder() {
       if (methodOptionsBuilder_ == null) {
         methodOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1713,7 +1713,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder>
+        io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> 
         internalGetLastFailureInfoFieldBuilder() {
       if (lastFailureInfoBuilder_ == null) {
         lastFailureInfoBuilder_ = new com.google.protobuf.SingleFieldBuilder<
@@ -1776,3 +1776,4 @@ private static final long serialVersionUID = 0L;
   }
 
 }
+

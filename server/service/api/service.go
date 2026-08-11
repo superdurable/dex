@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/client/history"
+	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/grpctarget"
@@ -49,41 +50,44 @@ type serviceImpl struct {
 	taskQueue          string
 	logger             log.Logger
 	apiCfg             *config.ApiConfig
-	extStore           *config.ExternalStorageConfig
+	blobStoreCfg       *config.BlobStoreConfig
 	interpreterCfg     *config.Interpreter
 	workerPool         *workerclient.WorkerClientPool
 	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
+	attributeStore     *attributestore.Manager
 }
 
 func NewApiService(
 	apiCfg *config.ApiConfig,
-	extStore *config.ExternalStorageConfig,
+	blobStoreCfg *config.BlobStoreConfig,
 	interpreterCfg *config.Interpreter,
 	client uclient.UnifiedClient,
 	taskQueue string,
 	logger log.Logger,
 	store blobstore.BlobStore,
+	attributeStore *attributestore.Manager,
 	workerPool *workerclient.WorkerClientPool,
 ) (ApiService, error) {
-	if apiCfg == nil || extStore == nil || interpreterCfg == nil {
+	if apiCfg == nil || blobStoreCfg == nil || interpreterCfg == nil {
 		panic("API service requires non-nil config sections")
 	}
-	if client == nil || logger == nil || workerPool == nil || taskQueue == "" {
+	if client == nil || logger == nil || workerPool == nil || attributeStore == nil || taskQueue == "" {
 		panic("API service requires non-nil dependencies and a task queue")
 	}
-	if extStore.Enabled && store == nil {
-		panic("API service requires a blob store when external storage is enabled")
+	if blobStoreCfg.EffectiveEnabled() && store == nil {
+		panic("API service requires a blob store when blob storage is enabled")
 	}
 	return &serviceImpl{
 		apiCfg:             apiCfg,
-		extStore:           extStore,
+		blobStoreCfg:       blobStoreCfg,
 		client:             client,
 		store:              store,
 		taskQueue:          taskQueue,
 		logger:             logger,
 		interpreterCfg:     interpreterCfg,
 		workerPool:         workerPool,
-		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(extStore, client, store),
+		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(blobStoreCfg, client, store),
+		attributeStore:     attributeStore,
 	}, nil
 }
 
@@ -125,9 +129,9 @@ func (s *serviceImpl) StartFlow(
 		req.GetStepInput(),
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.extStore.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.extStore.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -136,22 +140,11 @@ func (s *serviceImpl) StartFlow(
 		attributes,
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.extStore.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.extStore.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
-	}
-
-	initAttributes := make([]*dexpb.KV, 0, len(attributes))
-	for _, attribute := range attributes {
-		if _, isNull := attribute.GetValue().GetKind().(*dexpb.Value_NullValue); isNull {
-			continue
-		}
-		initAttributes = append(initAttributes, &dexpb.KV{
-			Key:   attribute.GetKey(),
-			Value: attribute.GetValue(),
-		})
 	}
 
 	var workflowConfig dexpb.FlowConfig
@@ -165,6 +158,9 @@ func (s *serviceImpl) StartFlow(
 	}
 	if err := interpreterconfig.ValidateFlowConfig(&workflowConfig); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := s.validateAttributeStoreName(workflowConfig.GetAttributeSyncConfigName()); err != nil {
+		return nil, err
 	}
 	workerTarget, err := grpctarget.NormalizeWorkerTarget(workflowConfig.GetWorkerTarget())
 	if err != nil {
@@ -217,7 +213,7 @@ func (s *serviceImpl) StartFlow(
 		StartStepType:  req.GetStartStepType(),
 		StepInput:      req.GetStepInput(),
 		StepOptions:    req.GetStepOptions(),
-		InitAttributes: initAttributes,
+		InitAttributes: attributes,
 		Config:         &workflowConfig,
 	}
 
@@ -261,6 +257,9 @@ func overrideWorkflowConfig(configOverride dexpb.FlowConfig, workflowConfig *dex
 	}
 	if configOverride.WorkerTarget != nil {
 		workflowConfig.WorkerTarget = configOverride.WorkerTarget
+	}
+	if configOverride.AttributeSyncConfigName != nil {
+		workflowConfig.AttributeSyncConfigName = configOverride.AttributeSyncConfigName
 	}
 }
 
@@ -443,9 +442,9 @@ func (s *serviceImpl) PublishToChannel(
 		req.GetMessages(),
 		req.GetFlowId(),
 		uuid.NewString(),
-		s.extStore.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.extStore.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -470,6 +469,11 @@ func (s *serviceImpl) UpdateFlowConfig(
 	}
 	if err := interpreterconfig.ValidateFlowConfig(req.GetFlowConfig()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
+	}
+	if req.GetFlowConfig().AttributeSyncConfigName != nil {
+		if err := s.validateAttributeStoreName(req.GetFlowConfig().GetAttributeSyncConfigName()); err != nil {
+			return nil, err
+		}
 	}
 	if req.GetFlowConfig().GetWorkerTarget() != nil {
 		workerTarget, err := grpctarget.NormalizeWorkerTarget(req.GetFlowConfig().GetWorkerTarget())
@@ -519,18 +523,16 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) 
 	}
 	var err error
 	switch stopType {
-	case dexpb.StopType_STOP_TYPE_CANCEL:
-		err = s.client.CancelWorkflow(ctx, req.GetFlowId(), req.GetRunId())
-	case dexpb.StopType_STOP_TYPE_TERMINATE:
-		err = s.client.TerminateWorkflow(ctx, req.GetFlowId(), req.GetRunId(), req.GetReason())
-	case dexpb.StopType_STOP_TYPE_FAIL:
+	case dexpb.StopType_STOP_TYPE_CANCEL, dexpb.StopType_STOP_TYPE_FAIL:
 		err = s.client.SignalWorkflow(
 			ctx,
 			req.GetFlowId(),
 			req.GetRunId(),
-			service.FailWorkflowSignalChannelName,
-			&dexpb.FailFlowSignalRequest{Reason: req.GetReason()},
+			service.StopWorkflowSignalChannelName,
+			&dexpb.StopFlowSignalRequest{StopType: stopType, Reason: req.GetReason()},
 		)
+	case dexpb.StopType_STOP_TYPE_TERMINATE:
+		err = s.client.TerminateWorkflow(ctx, req.GetFlowId(), req.GetRunId(), req.GetReason())
 	default:
 		return nil, makeInvalidRequestError("stop type is required")
 	}
@@ -538,6 +540,13 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) 
 		return nil, s.handleError(err)
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *serviceImpl) validateAttributeStoreName(name string) error {
+	if name == "" || s.attributeStore.HasStore(name) {
+		return nil
+	}
+	return makeInvalidRequestError(fmt.Sprintf("unknown Attribute Store %q", name))
 }
 
 func (s *serviceImpl) GetAttributes(
@@ -562,7 +571,7 @@ func (s *serviceImpl) GetAttributes(
 		return nil, s.handleError(err)
 	}
 	attributes := queryResponse.GetAttributes()
-	if !s.extStore.EffectiveLazyLoading() {
+	if !s.blobStoreCfg.EffectiveLazyLoading() {
 		if err := blobstore.HydrateKVs(ctx, attributes, s.store); err != nil {
 			return nil, s.handleError(err)
 		}
@@ -589,9 +598,9 @@ func (s *serviceImpl) SetAttributes(
 		attributes,
 		req.GetFlowId(),
 		req.GetRequestId(),
-		s.extStore.ThresholdInBytes,
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
 		s.store,
-		s.extStore.Enabled,
+		s.blobStoreCfg.EffectiveEnabled(),
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -1000,7 +1009,7 @@ func (s *serviceImpl) doInvokeRPC(
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 		s.store,
 		req.GetRequestId(),
-		s.extStore,
+		s.blobStoreCfg,
 	)
 	if err != nil {
 		return nil, err

@@ -140,3 +140,4 @@ public enum WaitingConditionType
 
   // @@protoc_insertion_point(enum_scope:dex.WaitingConditionType)
 }
+

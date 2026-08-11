@@ -48,6 +48,13 @@ func (w *workflowProvider) NewFlowError(
 	return temporal.NewApplicationError("", errType.String(), resp)
 }
 
+func (w *workflowProvider) NewCanceledError(reason string) error {
+	if reason == "" {
+		return temporal.NewCanceledError()
+	}
+	return temporal.NewCanceledError(reason)
+}
+
 func (w *workflowProvider) NewUpdateError(
 	errType dexpb.UpdateErrorType,
 	detail string,
@@ -58,6 +65,10 @@ func (w *workflowProvider) NewUpdateError(
 func (w *workflowProvider) IsApplicationError(err error) bool {
 	var applicationError *temporal.ApplicationError
 	return errors.As(err, &applicationError)
+}
+
+func (w *workflowProvider) IsContinueAsNewError(err error) bool {
+	return workflow.IsContinueAsNewError(err)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(

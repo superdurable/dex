@@ -25,6 +25,7 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 )
 
@@ -39,6 +40,10 @@ const (
 )
 
 func createTestBlobStore(t *testing.T) BlobStore {
+	return createTestBlobStoreWithCache(t, config.BlobCacheConfig{})
+}
+
+func createTestBlobStoreWithCache(t *testing.T, cacheConfig config.BlobCacheConfig) BlobStore {
 	// Create S3 client for MinIO
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
 		awsconfig.WithRegion(testRegion),
@@ -69,10 +74,11 @@ func createTestBlobStore(t *testing.T) BlobStore {
 	}
 
 	// Create test configuration
-	storeConfig := config.ExternalStorageConfig{
-		Enabled:          true,
+	storeConfig := config.BlobStoreConfig{
+		Enabled:          ptr.Any(true),
 		ThresholdInBytes: 100,
-		SupportedStorages: []config.BlobStorageConfig{
+		BlobCache:        cacheConfig,
+		SupportedStorages: []config.BlobStoreConfigEntry{
 			{
 				Status:      config.StorageStatusActive,
 				StorageId:   testStorageId,
@@ -88,8 +94,10 @@ func createTestBlobStore(t *testing.T) BlobStore {
 
 	logger, err := loggerimpl.NewDevelopment()
 	assert.NoError(t, err)
-	blobStore := NewBlobStore(s3Client, testNamespace, storeConfig, logger, client.MetricsNopHandler)
+	blobStore, err := NewBlobStore(s3Client, testNamespace, &storeConfig, logger, client.MetricsNopHandler)
+	assert.NoError(t, err)
 	assert.NotNil(t, blobStore)
+	t.Cleanup(func() { assert.NoError(t, blobStore.Close()) })
 
 	return blobStore
 }
