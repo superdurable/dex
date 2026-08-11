@@ -329,9 +329,9 @@ func (i *Interpreter) StartEngineFlow(
 				// execute in another thread for parallelism
 				// step must be passed via parameter https://stackoverflow.com/questions/67263092
 				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
-				terminalCoordinator.ProducerStarted()
+				attributeSynchronizer.ProducerStarted()
 				provider.GoNamed(stepCtx, "step-execution-thread:"+stepReqForLoopingOnly.GetStepType(), func(ctx interfaces.UnifiedContext) {
-					defer terminalCoordinator.ProducerFinished()
+					defer attributeSynchronizer.ProducerFinished()
 					stepRequest, ok := provider.GetContextValue(
 						ctx,
 						"stepRequest",

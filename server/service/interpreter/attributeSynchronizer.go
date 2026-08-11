@@ -29,6 +29,7 @@ type AttributeSynchronizer struct {
 	continueAsNewCounter *cont.ContinueAsNewCounter
 	flowID               string
 	pending              []*dexpb.AttributeSyncItem
+	activeProducers      int
 	flushRequested       bool
 	actorStopped         bool
 }
@@ -126,6 +127,17 @@ func (s *AttributeSynchronizer) ApplyAttributeWrites(
 	}
 }
 
+func (s *AttributeSynchronizer) ProducerStarted() {
+	s.activeProducers++
+}
+
+func (s *AttributeSynchronizer) ProducerFinished() {
+	s.activeProducers--
+	if s.activeProducers < 0 {
+		panic("active Attribute producer count is negative")
+	}
+}
+
 func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) error {
 	s.flushRequested = true
 	if s.actorStopped && len(s.pending) > 0 {
@@ -138,6 +150,10 @@ func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) err
 
 func (s *AttributeSynchronizer) Pending() []*dexpb.AttributeSyncItem {
 	return s.pending
+}
+
+func (s *AttributeSynchronizer) ProducersDrained() bool {
+	return s.activeProducers == 0
 }
 
 func (s *AttributeSynchronizer) nextBatch() []*dexpb.AttributeSyncItem {

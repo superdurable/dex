@@ -26,13 +26,12 @@ const (
 )
 
 type TerminalCoordinator struct {
-	provider            interfaces.WorkflowProvider
-	ctx                 interfaces.UnifiedContext
-	continueAsNewer     *ContinueAsNewer
-	attributeSyncer     *AttributeSynchronizer
-	kind                terminalKind
-	resultErr           error
-	activeStepProducers int
+	provider        interfaces.WorkflowProvider
+	ctx             interfaces.UnifiedContext
+	continueAsNewer *ContinueAsNewer
+	attributeSyncer *AttributeSynchronizer
+	kind            terminalKind
+	resultErr       error
 }
 
 func NewTerminalCoordinator(
@@ -64,7 +63,8 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 		}
 	}
 	if err := c.provider.Await(c.ctx, func() bool {
-		return c.ProducersDrained(c.continueAsNewer.inflightUpdateOperations)
+		return c.kind == terminalForceCompletion ||
+			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
 	}); err != nil {
 		return err
 	}
@@ -122,23 +122,8 @@ func (c *TerminalCoordinator) RequestForceCompletion() {
 	c.kind = terminalForceCompletion
 }
 
-func (c *TerminalCoordinator) ProducerStarted() {
-	c.activeStepProducers++
-}
-
-func (c *TerminalCoordinator) ProducerFinished() {
-	c.activeStepProducers--
-	if c.activeStepProducers < 0 {
-		panic("active step producer count is negative")
-	}
-}
-
 func (c *TerminalCoordinator) IsRequested() bool {
 	return c.kind != terminalNone
-}
-
-func (c *TerminalCoordinator) ProducersDrained(inflightUpdates int) bool {
-	return c.kind == terminalForceCompletion || (c.activeStepProducers == 0 && inflightUpdates == 0)
 }
 
 func (c *TerminalCoordinator) ResultError() error {
