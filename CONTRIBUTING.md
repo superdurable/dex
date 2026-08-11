@@ -18,7 +18,7 @@
 | [examples/python/](examples/python/) | Python examples |
 | [sdk-rust/](sdk-rust/) | Shared Rust SDK Core |
 
-Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace until its first release. Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
+Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace so consumers resolve released versions. Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 
 ## Prerequisites
 

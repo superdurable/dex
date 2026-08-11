@@ -4,8 +4,8 @@
 Dex components. The [blobcache package](blobcache/README.md) uses Ristretto
 TinyLFU admission and SampledLFU eviction while keeping payloads on disk.
 
-Dex Server and the Go SDK do not yet import this module. Release it with a
-path-style tag such as `blob-cache-go/v0.1.0` before adding those dependencies.
+Dex Server and the Go SDK consume released versions of this module. Use
+path-style tags such as `blob-cache-go/v0.1.0` for releases.
 
 Run its tests from the repository root:
 

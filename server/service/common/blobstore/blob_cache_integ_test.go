@@ -25,7 +25,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
-	"github.com/superdurable/dex/service/common/blobcache"
 )
 
 func TestS3AttributeBlobCacheIntegration(t *testing.T) {
@@ -118,7 +117,7 @@ func TestS3AttributeBlobCacheIntegration(t *testing.T) {
 		require.Equal(t, payload, loaded)
 	})
 
-	t.Run("corruption fails before source retry", func(t *testing.T) {
+	t.Run("corruption invalidates and refills from source", func(t *testing.T) {
 		payload := []byte("corruption payload")
 		storeID, path, err := store.WriteObject(
 			ctx,
@@ -134,9 +133,11 @@ func TestS3AttributeBlobCacheIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, file.Close())
 
-		_, err = store.ReadObject(ctx, storeID, path)
-		require.ErrorIs(t, err, blobcache.ErrCorrupt)
 		loaded, err := store.ReadObject(ctx, storeID, path)
+		require.NoError(t, err)
+		require.Equal(t, payload, loaded)
+		deleteS3Object(t, ctx, store, path)
+		loaded, err = store.ReadObject(ctx, storeID, path)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 	})

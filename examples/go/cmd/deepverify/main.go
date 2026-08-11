@@ -34,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/engagement"
 	"github.com/superdurable/dex/examples/go/workflows/jobpost"
@@ -53,7 +54,6 @@ import (
 	"github.com/superdurable/dex/examples/go/workflows/signup"
 	"github.com/superdurable/dex/examples/go/workflows/subscription"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 

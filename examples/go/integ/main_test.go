@@ -34,12 +34,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	exampleserver "github.com/superdurable/dex/examples/go/cmd/server/dex"
 	"github.com/superdurable/dex/examples/go/workflows"
 	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
 	"github.com/superdurable/dex/examples/go/workflows/service"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 )
 
 var (

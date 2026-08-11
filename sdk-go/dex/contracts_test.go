@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"google.golang.org/grpc/codes"
 )

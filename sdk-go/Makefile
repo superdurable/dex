@@ -148,9 +148,6 @@ e2eTests:
 integrationCoverage:
 	$Q ./run-e2e-tests.sh --coverage
 
-blobCacheTests:
-	$Q go test -race ./dex/blobcache
-
 workerIntegTests:
 	$Q go test -race -v ./dex -run '^TestWorker'
 
@@ -160,10 +157,10 @@ clientIntegTests:
 unitTests:
 	$Q go test -v ./dex ./examples/...
 
-tests: unitTests clientIntegTests workerIntegTests blobCacheTests
+tests: unitTests clientIntegTests workerIntegTests
 
 ci-tests:
-	$Q go test -v -cover ./dex ./examples/... ./dex/blobcache -coverprofile coverage.out -coverpkg ./dex/...
+	$Q go test -v -cover ./dex ./examples/... -coverprofile coverage.out -coverpkg ./dex/...
 
 fmt:
 	$Q gofmt -s -w ./dex ./examples ./integ

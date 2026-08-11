@@ -20,7 +20,7 @@ This plan is based on the current:
 - [`sdk-go/dex/client.go`](../../../sdk-go/dex/client.go)
 - [`sdk-go/dex/options.go`](../../../sdk-go/dex/options.go)
 - [`sdk-go/dex/errors.go`](../../../sdk-go/dex/errors.go)
-- [`sdk-go/dex/blobcache/cache.go`](../../../sdk-go/dex/blobcache/cache.go)
+- [`blob-cache-go/blobcache/cache.go`](../../../blob-cache-go/blobcache/cache.go)
 - [`docs/design/transient-step-movement.md`](../transient-step-movement.md)
 
 The old `sdk-go/dex` API is not a compatibility constraint. The product has not
@@ -938,7 +938,7 @@ Run Phase 4 verification through the Makefile:
 ```bash
 make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase4.log
 make -C sdk-go workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase4-worker.log
-make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcache.log
+make -C blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase4-blobcache.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase4-copyright.log
 ```
 
@@ -957,7 +957,7 @@ does not yet provide the public Client calls needed to start and drive runs.
   worker integration and race verification commands.
 - Update the Go examples to construct one Registry and BlobCache, pass both to
   the Worker, and show signal-driven `Stop(ctx)` without generated protobufs.
-- Update [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
+- Update [`blob-cache-go/blobcache/README.md`](../../../blob-cache-go/blobcache/README.md)
   with cache ownership and Worker hydration wiring; do not change cache policy
   documentation.
 
@@ -1508,7 +1508,7 @@ Run Phase 5 verification through the Makefile:
 make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase5.log
 make -C sdk-go clientIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-client.log
 make -C sdk-go workerIntegTests 2>&1 | tee /tmp/test-go-sdk-phase5-worker.log
-make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
+make -C blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase5-blobcache.log
 make -C sdk-go e2eTests 2>&1 | tee /tmp/test-go-sdk-phase5-e2e.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase5-copyright.log
 ```
@@ -1532,7 +1532,7 @@ five SDK targets and uploads Temporal/Dex logs on an E2E failure.
   Client and Worker, configure WorkerTarget once on Client, close them in
   ownership order, and demonstrate every Client API including initial
   attributes.
-- Update [`sdk-go/dex/blobcache/README.md`](../../../sdk-go/dex/blobcache/README.md)
+- Update [`blob-cache-go/blobcache/README.md`](../../../blob-cache-go/blobcache/README.md)
   to state that Client and Worker receive the same caller-owned cache.
 - Remove documentation for the legacy HTTP worker, generated application
   imports, Workflow/State, and the obsolete `dextest` package.
@@ -2839,7 +2839,7 @@ Run Phase 2 verification through the Makefile:
 
 ```bash
 make -C sdk-go unitTests 2>&1 | tee /tmp/test-go-sdk-phase2.log
-make -C sdk-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase2-blobcache.log
+make -C blob-cache-go blobCacheTests 2>&1 | tee /tmp/test-go-sdk-phase2-blobcache.log
 make copyright-check 2>&1 | tee /tmp/test-go-sdk-phase2-copyright.log
 ```
 

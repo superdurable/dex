@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/superdurable/dex/sdk-go/dex/blobcache"
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

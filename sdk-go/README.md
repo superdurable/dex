@@ -152,6 +152,9 @@ invocation state in `dex.Context`.
 
 Applications share one Registry and BlobCache between Worker and Client:
 
+The cache comes from
+[`github.com/superdurable/dex/blob-cache-go/blobcache`](https://pkg.go.dev/github.com/superdurable/dex/blob-cache-go/blobcache).
+
 ```go
 logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 registry, err := dex.NewRegistry([]dex.Flow{Orders})
@@ -326,7 +329,6 @@ Compilable examples:
 make unitTests
 make clientIntegTests
 make workerIntegTests
-make blobCacheTests
 make e2eTests
 make copyright-check
 ```
@@ -344,7 +346,7 @@ make integrationCoverage
 ```
 
 The report measures only production packages under `./dex/...`. Unit
-tests, BlobCache package tests, examples, generated protobuf stubs under
+tests, standalone BlobCache module tests, examples, generated protobuf stubs under
 `gen/`, and `*_test.go` files are excluded. Open `coverage/index.html` for
 annotated source, or inspect `coverage/coverage.txt` for per-function
 totals. `coverage/coverage.out` is the profile uploaded by CI.
