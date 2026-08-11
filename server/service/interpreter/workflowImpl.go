@@ -52,39 +52,6 @@ func (i *Interpreter) StartEngineFlow(
 
 	var persistenceManager *PersistenceManager
 	var terminalCoordinator *TerminalCoordinator
-	defer func() {
-		eventErr := retErr
-		if terminalCoordinator != nil && terminalCoordinator.IsRequested() {
-			eventErr = terminalCoordinator.ResultError()
-		}
-		if !provider.IsReplaying(ctx) {
-			eventType := event.EventTypeUnspecified
-			if eventErr == nil {
-				eventType = event.EventTypeFlowComplete
-			} else if provider.IsApplicationError(eventErr) {
-				eventType = event.EventTypeFlowFail
-			}
-			if eventType != event.EventTypeUnspecified {
-				info := provider.GetWorkflowInfo(ctx)
-				var attributes []*dexpb.KV
-				if persistenceManager != nil {
-					attributes = persistenceManager.GetAllAttributes()
-				}
-				// send metrics for the workflow result
-				event.Handle(event.Event{
-					FlowId:             info.WorkflowExecution.ID,
-					RunId:              info.WorkflowExecution.RunID,
-					FlowType:           input.GetFlowType(),
-					EventType:          eventType,
-					StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
-					Attributes:         attributes,
-				})
-			}
-		}
-		if terminalCoordinator != nil {
-			retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
-		}
-	}()
 
 	globalVersioner := NewGlobalVersioner(provider, ctx)
 	flowConfiger := interpreterconfig.NewFlowConfiger(input.GetConfig())
@@ -246,6 +213,35 @@ func (i *Interpreter) StartEngineFlow(
 	if updateErr != nil {
 		return nil, updateErr
 	}
+	defer func() {
+		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
+		if provider.IsReplaying(ctx) {
+			return
+		}
+		eventType := event.EventTypeUnspecified
+		if retErr == nil {
+			eventType = event.EventTypeFlowComplete
+		} else if provider.IsApplicationError(retErr) {
+			eventType = event.EventTypeFlowFail
+		}
+		if eventType == event.EventTypeUnspecified {
+			return
+		}
+		info := provider.GetWorkflowInfo(ctx)
+		var attributes []*dexpb.KV
+		if persistenceManager != nil {
+			attributes = persistenceManager.GetAllAttributes()
+		}
+		// send metrics for the workflow result
+		event.Handle(event.Event{
+			FlowId:             info.WorkflowExecution.ID,
+			RunId:              info.WorkflowExecution.RunID,
+			FlowType:           input.GetFlowType(),
+			EventType:          eventType,
+			StartTimestampInMs: info.WorkflowStartTime.UnixMilli(),
+			Attributes:         attributes,
+		})
+	}()
 	// We intentionally set the query handler after the continueAsNew/dumpInternal activity.
 	// This is to ensure the correctness. If we set the query handler before that,
 	// the query handler could return empty data (since the loading hasn't completed), which will be incorrect response.
