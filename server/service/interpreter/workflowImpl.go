@@ -389,6 +389,7 @@ func (i *Interpreter) StartEngineFlow(
 						stepExecutionCounter,
 						flowConfiger,
 						globalVersioner,
+						terminal,
 					)
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
 						terminal.RequestFailure(stepExeErr)
@@ -671,6 +672,7 @@ func (i *Interpreter) processStepExecution(
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	globalVersioner *GlobalVersioner,
+	terminal *TerminalCoordinator,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -880,14 +882,14 @@ func (i *Interpreter) processStepExecution(
 	var matchPlan *channel.MatchPlan
 	var conditionMet bool
 
-	// Wait for condition met OR continue-as-new threshold
+	// Wait for condition met, terminal request, or continue-as-new threshold
 	_ = provider.Await(ctx, func() bool {
 		matchPlan, conditionMet = channel.Plan(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
 		)
-		return conditionMet || continueAsNewCounter.IsThresholdMet()
+		return conditionMet || terminal.IsRequested() || continueAsNewCounter.IsThresholdMet()
 	})
 
 	waitingConditionDoneOrCanceled = true
@@ -901,9 +903,9 @@ func (i *Interpreter) processStepExecution(
 		return true
 	})
 
-	if !conditionMet {
-		// this means continueAsNewCounter.IsThresholdMet == true
-		// not using continueAsNewCounter.IsThresholdMet because matchPlan is higher prioritized
+	if terminal.IsRequested() || !conditionMet {
+		// this means terminal was requested or continueAsNewCounter.IsThresholdMet == true
+		// not using only continueAsNewCounter.IsThresholdMet because matchPlan has higher priority without a terminal request
 		// it won't continueAsNew in those cases
 		// 1. waitFor method fail with proceed policy
 		// 2. empty condition
