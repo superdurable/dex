@@ -788,6 +788,7 @@ message ErrorResponse {
   int32 original_worker_error_status = 5;
   string original_worker_error_stack_trace = 6;
   int32 original_worker_retry_after_seconds = 7;
+  int32 attempt = 8;
 }
 
 enum ErrorSubStatus {
@@ -1066,6 +1067,7 @@ message BlobStoreCleanupWorkflowOutput {
 message InvokeWaitForMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
+  InternalStepActivityRetryContext retry_context = 3;
 }
 
 message InvokeWaitForMethodActivityOutput {
@@ -1077,6 +1079,21 @@ message InvokeExecuteMethodActivityInput {
   InvokeExecuteMethodRequest request = 2;
   // Requires a DeadEnd close decision without next steps.
   bool is_transient_step = 3;
+  InternalStepActivityRetryContext retry_context = 4;
+}
+
+message InternalStepActivityRetryContext {
+  int32 previous_attempts = 1;
+  int64 first_attempt_timestamp = 2;
+  StepMethodOptions original_method_options = 3;
+}
+
+message InternalLocalStepActivityFailure {
+  LocalActivityInput local_activity_input = 1;
+  string step_type = 2;
+  bool is_transient_step = 3;
+  InternalStepActivityRetryContext retry_context = 4;
+  int32 attempt = 5;
 }
 
 message InvokeExecuteMethodActivityOutput {

@@ -286,31 +286,10 @@ func (w *workflowProvider) WithActivityOptions(
 		panic("cannot convert to cadence workflow context")
 	}
 
-	unlimited := time.Hour * 24 * 365
-	startToCloseTimeout := options.StartToCloseTimeout
-	if startToCloseTimeout == 0 {
-		// unlimited to match Temporal for default
-		startToCloseTimeout = unlimited
-	}
+	wfCtx2 := workflow.WithActivityOptions(wfCtx, cadenceActivityOptions(options))
 
-	wfCtx2 := workflow.WithActivityOptions(wfCtx, workflow.ActivityOptions{
-		ActivityID:             options.ActivityID,
-		StartToCloseTimeout:    startToCloseTimeout,
-		ScheduleToStartTimeout: time.Second * 10,
-		HeartbeatTimeout:       options.HeartbeatTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
-	})
-
-	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
-	localActivityTimeout := 7 * time.Second
-	if options.LocalActivityScheduleToCloseTimeout > 0 {
-		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
-	}
-	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
-		ScheduleToCloseTimeout: localActivityTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
-	})
-	return interfaces.NewUnifiedContext(wfCtx3)
+	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, cadenceLocalActivityOptions(options))
+	return interfaces.NewUnifiedActivityContext(wfCtx3, options)
 }
 
 type futureImpl struct {
@@ -352,14 +331,92 @@ func (w *workflowProvider) ExecuteActivity(
 	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
 		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
-		err = workflow.ExecuteLocalActivity(wfCtx, activity, localArgs...).Get(wfCtx, valuePtr)
+		options, optionsFound := interfaces.ActivityOptionsFromContext(ctx)
+		localCtx := workflow.WithLocalActivityOptions(wfCtx, cadenceLocalActivityOptions(options))
+		firstAttemptTime := workflow.Now(wfCtx)
+		retryContext, stepActivity := interfaces.InitializeStepActivityRetryContext(
+			regularInput,
+			options,
+			firstAttemptTime,
+		)
+		err = workflow.ExecuteLocalActivity(localCtx, activity, localArgs...).Get(localCtx, valuePtr)
 		if err == nil {
 			return nil
 		}
-		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		if !stepActivity {
+			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		}
+		if !optionsFound {
+			return err
+		}
+		previousAttempts, ok := cadenceLocalActivityAttempt(err)
+		if !ok {
+			return err
+		}
+		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
+			options.RetryPolicy,
+			previousAttempts,
+			workflow.Now(wfCtx).Sub(firstAttemptTime),
+		)
+		if !canFallback {
+			return err
+		}
+		regularInput = interfaces.StepActivityInputForFallback(regularInput, retryContext, previousAttempts)
+		options.RetryPolicy = remainingPolicy
+		regularCtx := workflow.WithActivityOptions(wfCtx, cadenceActivityOptions(options))
+		regularArgs = []interface{}{regularInput}
+		if localActivityOnlyInput != nil {
+			regularArgs = append(regularArgs, nil)
+		}
+		return workflow.ExecuteActivity(regularCtx, activity, regularArgs...).Get(regularCtx, valuePtr)
 	default:
 		return fmt.Errorf("unsupported step durability %s", durability)
 	}
+}
+
+func cadenceActivityOptions(options interfaces.ActivityOptions) workflow.ActivityOptions {
+	unlimited := time.Hour * 24 * 365
+	startToCloseTimeout := options.StartToCloseTimeout
+	if startToCloseTimeout == 0 {
+		// unlimited to match Temporal for default
+		startToCloseTimeout = unlimited
+	}
+	return workflow.ActivityOptions{
+		ActivityID:             options.ActivityID,
+		StartToCloseTimeout:    startToCloseTimeout,
+		ScheduleToStartTimeout: time.Second * 10,
+		HeartbeatTimeout:       options.HeartbeatTimeout,
+		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
+	}
+}
+
+func cadenceLocalActivityOptions(options interfaces.ActivityOptions) workflow.LocalActivityOptions {
+	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
+	localActivityTimeout := 7 * time.Second
+	if options.LocalActivityScheduleToCloseTimeout > 0 {
+		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
+	}
+	if totalDuration := options.RetryPolicy.GetTotalDurationSeconds(); totalDuration > 0 && time.Duration(totalDuration)*time.Second < localActivityTimeout {
+		localActivityTimeout = time.Duration(totalDuration) * time.Second
+	}
+	localRetryPolicy := retry.LocalActivityRetryPolicy(options.RetryPolicy, localActivityTimeout)
+	return workflow.LocalActivityOptions{
+		ScheduleToCloseTimeout: localActivityTimeout,
+		RetryPolicy:            retry.ConvertCadenceLocalActivityRetryPolicy(localRetryPolicy),
+	}
+}
+
+func cadenceLocalActivityAttempt(err error) (int32, bool) {
+	var customError *cadence.CustomError
+	if !errors.As(err, &customError) || !customError.HasDetails() {
+		return 0, false
+	}
+	var response dexpb.ErrorResponse
+	var localFailure dexpb.InternalLocalStepActivityFailure
+	if detailErr := customError.Details(&response, &localFailure); detailErr != nil || response.GetAttempt() <= 0 {
+		return 0, false
+	}
+	return response.GetAttempt(), true
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

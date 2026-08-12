@@ -57,6 +57,9 @@ class RetryPolicy:
 
     A ``None`` duration or zero numeric value uses the server default.
     Attempts include the initial call. Retries stop at the first configured limit.
+    With asynchronous Step durability, local and regular execution share attempts
+    and elapsed duration. Fallback is immediate; later regular retries continue the
+    cumulative backoff sequence.
 
     Attributes:
         initial_interval: Delay before the first retry.

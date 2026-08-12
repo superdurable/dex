@@ -79,6 +79,17 @@ matches an active Step execution. ASYNC local-activity retries are not observabl
 through backend describe; the failure becomes visible after execution falls
 back to a regular activity.
 
+ASYNC local and regular activities share one logical retry sequence. Maximum
+attempts and total duration apply across both phases, and attempts remain
+1-based and cumulative in Worker `Context`, `ErrorResponse`, and semantic
+history. Fallback is immediate, without the local failure's transition delay.
+The regular policy subtracts consumed attempts and elapsed local duration, then
+sets its initial interval to the original backoff for the cumulative attempt,
+capped by the configured maximum interval. If either budget is exhausted, the
+local failure is terminal and produces the Step failed event without scheduling
+a regular activity. `ErrorResponse.attempt` is zero for errors outside a Step
+method attempt.
+
 `WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
 The server persists it as `ErrorResponse.original_worker_error_stack_trace`
 inside structured failure details. `StepMethodFailure` does not retain a
@@ -111,9 +122,10 @@ decodable `ErrorResponse`, so backend timeouts normally expose only
 `backend_error`.
 
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
-is the local-only runtime argument. `InternalAsyncStepInputSnapshot` is the
-run-scoped request and method-options record; neither internal type is returned
-by `FlowService`.
+is the local-only runtime argument. `InternalStepActivityRetryContext` and
+`InternalLocalStepActivityFailure` carry fallback bookkeeping.
+`InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
+record; none of these internal types is returned by `FlowService`.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store

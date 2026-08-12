@@ -249,6 +249,17 @@ private static final long serialVersionUID = 0L;
     return originalWorkerRetryAfterSeconds_;
   }
 
+  public static final int ATTEMPT_FIELD_NUMBER = 8;
+  private int attempt_ = 0;
+  /**
+   * <code>int32 attempt = 8;</code>
+   * @return The attempt.
+   */
+  @java.lang.Override
+  public int getAttempt() {
+    return attempt_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -284,6 +295,9 @@ private static final long serialVersionUID = 0L;
     if (originalWorkerRetryAfterSeconds_ != 0) {
       output.writeInt32(7, originalWorkerRetryAfterSeconds_);
     }
+    if (attempt_ != 0) {
+      output.writeInt32(8, attempt_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -311,6 +325,10 @@ private static final long serialVersionUID = 0L;
     if (originalWorkerRetryAfterSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(7, originalWorkerRetryAfterSeconds_);
+    }
+    if (attempt_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(8, attempt_);
     }
     return size;
   }
@@ -349,6 +367,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getOriginalWorkerErrorStackTrace())) return false;
     if (getOriginalWorkerRetryAfterSeconds()
         != other.getOriginalWorkerRetryAfterSeconds()) return false;
+    if (getAttempt()
+        != other.getAttempt()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -374,6 +394,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getOriginalWorkerErrorStackTrace().hashCode();
     hash = (37 * hash) + ORIGINAL_WORKER_RETRY_AFTER_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getOriginalWorkerRetryAfterSeconds();
+    hash = (37 * hash) + ATTEMPT_FIELD_NUMBER;
+    hash = (53 * hash) + getAttempt();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -512,6 +534,7 @@ private static final long serialVersionUID = 0L;
       originalWorkerErrorStatus_ = 0;
       originalWorkerErrorStackTrace_ = "";
       originalWorkerRetryAfterSeconds_ = 0;
+      attempt_ = 0;
       return this;
     }
 
@@ -566,6 +589,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000040) != 0)) {
         result.originalWorkerRetryAfterSeconds_ = originalWorkerRetryAfterSeconds_;
       }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.attempt_ = attempt_;
+      }
     }
 
     @java.lang.Override
@@ -608,6 +634,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getOriginalWorkerRetryAfterSeconds() != 0) {
         setOriginalWorkerRetryAfterSeconds(other.getOriginalWorkerRetryAfterSeconds());
+      }
+      if (other.getAttempt() != 0) {
+        setAttempt(other.getAttempt());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -670,6 +699,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 56
+            case 64: {
+              attempt_ = input.readInt32();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 64
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1087,6 +1121,38 @@ private static final long serialVersionUID = 0L;
     public Builder clearOriginalWorkerRetryAfterSeconds() {
       bitField0_ = (bitField0_ & ~0x00000040);
       originalWorkerRetryAfterSeconds_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private int attempt_ ;
+    /**
+     * <code>int32 attempt = 8;</code>
+     * @return The attempt.
+     */
+    @java.lang.Override
+    public int getAttempt() {
+      return attempt_;
+    }
+    /**
+     * <code>int32 attempt = 8;</code>
+     * @param value The attempt to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAttempt(int value) {
+
+      attempt_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>int32 attempt = 8;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAttempt() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      attempt_ = 0;
       onChanged();
       return this;
     }

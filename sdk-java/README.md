@@ -70,6 +70,12 @@ return Wait.until(
 the two handler calls. Timer and channel conditions determine how long a Step
 waits.
 
+`waitForRetry(...)` and `executeRetry(...)` limit one logical handler
+execution. With asynchronous Step durability, local and fallback regular
+activities share maximum attempts, total duration, and 1-based attempt numbers.
+Fallback starts immediately; later regular retries continue the backoff
+sequence at the cumulative attempt.
+
 `ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
 accept a configured mapper when needed. Java does not expose a public Codec API.
 Workers use a builder so optional transport settings remain readable:

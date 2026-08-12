@@ -88,6 +88,31 @@ func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse)
 }
 
+// NewFlowErrorWithDetails mocks base method.
+func (m *MockActivityProvider) NewFlowErrorWithDetails(
+	errType dexpb.FlowErrorType,
+	errorResponse *dexpb.ErrorResponse,
+	additionalDetails ...interface{},
+) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{errType, errorResponse}
+	varargs = append(varargs, additionalDetails...)
+	ret := m.ctrl.Call(m, "NewFlowErrorWithDetails", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewFlowErrorWithDetails indicates an expected call of NewFlowErrorWithDetails.
+func (mr *MockActivityProviderMockRecorder) NewFlowErrorWithDetails(
+	errType, errorResponse interface{},
+	additionalDetails ...interface{},
+) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := []interface{}{errType, errorResponse}
+	varargs = append(varargs, additionalDetails...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowErrorWithDetails", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowErrorWithDetails), varargs...)
+}
+
 // RecordHeartbeat mocks base method.
 func (m *MockActivityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
 	m.ctrl.T.Helper()

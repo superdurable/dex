@@ -101,6 +101,32 @@ private static final long serialVersionUID = 0L;
     return request_ == null ? io.superdurable.gen.InvokeWaitForMethodRequest.getDefaultInstance() : request_;
   }
 
+  public static final int RETRY_CONTEXT_FIELD_NUMBER = 3;
+  private io.superdurable.gen.InternalStepActivityRetryContext retryContext_;
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   * @return Whether the retryContext field is set.
+   */
+  @java.lang.Override
+  public boolean hasRetryContext() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   * @return The retryContext.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.InternalStepActivityRetryContext getRetryContext() {
+    return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+  }
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder() {
+    return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -121,6 +147,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getRequest());
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(3, getRetryContext());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -132,6 +161,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getRequest());
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, getRetryContext());
     }
     return size;
   }
@@ -167,6 +200,11 @@ private static final long serialVersionUID = 0L;
       if (!getRequest()
           .equals(other.getRequest())) return false;
     }
+    if (hasRetryContext() != other.hasRetryContext()) return false;
+    if (hasRetryContext()) {
+      if (!getRetryContext()
+          .equals(other.getRetryContext())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -185,6 +223,10 @@ private static final long serialVersionUID = 0L;
     if (hasRequest()) {
       hash = (37 * hash) + REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getRequest().hashCode();
+    }
+    if (hasRetryContext()) {
+      hash = (37 * hash) + RETRY_CONTEXT_FIELD_NUMBER;
+      hash = (53 * hash) + getRetryContext().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -318,6 +360,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetWorkerTargetFieldBuilder();
         internalGetRequestFieldBuilder();
+        internalGetRetryContextFieldBuilder();
       }
     }
     @java.lang.Override
@@ -333,6 +376,11 @@ private static final long serialVersionUID = 0L;
       if (requestBuilder_ != null) {
         requestBuilder_.dispose();
         requestBuilder_ = null;
+      }
+      retryContext_ = null;
+      if (retryContextBuilder_ != null) {
+        retryContextBuilder_.dispose();
+        retryContextBuilder_ = null;
       }
       return this;
     }
@@ -380,6 +428,12 @@ private static final long serialVersionUID = 0L;
             : requestBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.retryContext_ = retryContextBuilder_ == null
+            ? retryContext_
+            : retryContextBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -400,6 +454,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasRequest()) {
         mergeRequest(other.getRequest());
+      }
+      if (other.hasRetryContext()) {
+        mergeRetryContext(other.getRetryContext());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -441,6 +498,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetRetryContextFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -698,6 +762,127 @@ private static final long serialVersionUID = 0L;
         request_ = null;
       }
       return requestBuilder_;
+    }
+
+    private io.superdurable.gen.InternalStepActivityRetryContext retryContext_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder> retryContextBuilder_;
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     * @return Whether the retryContext field is set.
+     */
+    public boolean hasRetryContext() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     * @return The retryContext.
+     */
+    public io.superdurable.gen.InternalStepActivityRetryContext getRetryContext() {
+      if (retryContextBuilder_ == null) {
+        return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+      } else {
+        return retryContextBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public Builder setRetryContext(io.superdurable.gen.InternalStepActivityRetryContext value) {
+      if (retryContextBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        retryContext_ = value;
+      } else {
+        retryContextBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public Builder setRetryContext(
+        io.superdurable.gen.InternalStepActivityRetryContext.Builder builderForValue) {
+      if (retryContextBuilder_ == null) {
+        retryContext_ = builderForValue.build();
+      } else {
+        retryContextBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public Builder mergeRetryContext(io.superdurable.gen.InternalStepActivityRetryContext value) {
+      if (retryContextBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          retryContext_ != null &&
+          retryContext_ != io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance()) {
+          getRetryContextBuilder().mergeFrom(value);
+        } else {
+          retryContext_ = value;
+        }
+      } else {
+        retryContextBuilder_.mergeFrom(value);
+      }
+      if (retryContext_ != null) {
+        bitField0_ |= 0x00000004;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public Builder clearRetryContext() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      retryContext_ = null;
+      if (retryContextBuilder_ != null) {
+        retryContextBuilder_.dispose();
+        retryContextBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public io.superdurable.gen.InternalStepActivityRetryContext.Builder getRetryContextBuilder() {
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return internalGetRetryContextFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    public io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder() {
+      if (retryContextBuilder_ != null) {
+        return retryContextBuilder_.getMessageOrBuilder();
+      } else {
+        return retryContext_ == null ?
+            io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+      }
+    }
+    /**
+     * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder> 
+        internalGetRetryContextFieldBuilder() {
+      if (retryContextBuilder_ == null) {
+        retryContextBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder>(
+                getRetryContext(),
+                getParentForChildren(),
+                isClean());
+        retryContext_ = null;
+      }
+      return retryContextBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InvokeWaitForMethodActivityInput)

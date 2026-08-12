@@ -283,30 +283,10 @@ func (w *workflowProvider) WithActivityOptions(
 		panic("cannot convert to temporal workflow context")
 	}
 
-	// in Temporal, scheduled to close timeout is the timeout include all retries
-	scheduledToCloseTimeout := time.Duration(0)
-	if options.RetryPolicy.GetTotalDurationSeconds() > 0 {
-		scheduledToCloseTimeout = time.Second * time.Duration(options.RetryPolicy.GetTotalDurationSeconds())
-	}
+	wfCtx2 := workflow.WithActivityOptions(wfCtx, temporalActivityOptions(options))
 
-	wfCtx2 := workflow.WithActivityOptions(wfCtx, workflow.ActivityOptions{
-		ActivityID:             options.ActivityID,
-		ScheduleToCloseTimeout: scheduledToCloseTimeout,
-		StartToCloseTimeout:    options.StartToCloseTimeout,
-		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),
-		HeartbeatTimeout:       options.HeartbeatTimeout,
-	})
-
-	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
-	localActivityTimeout := 7 * time.Second
-	if options.LocalActivityScheduleToCloseTimeout > 0 {
-		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
-	}
-	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
-		ScheduleToCloseTimeout: localActivityTimeout,
-		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),
-	})
-	return interfaces.NewUnifiedContext(wfCtx3)
+	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, temporalLocalActivityOptions(options))
+	return interfaces.NewUnifiedActivityContext(wfCtx3, options)
 }
 
 type futureImpl struct {
@@ -348,14 +328,90 @@ func (w *workflowProvider) ExecuteActivity(
 	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
 		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
-		err = workflow.ExecuteLocalActivity(wfCtx, activity, localArgs...).Get(wfCtx, valuePtr)
+		options, optionsFound := interfaces.ActivityOptionsFromContext(ctx)
+		localCtx := workflow.WithLocalActivityOptions(wfCtx, temporalLocalActivityOptions(options))
+		firstAttemptTime := workflow.Now(wfCtx)
+		retryContext, stepActivity := interfaces.InitializeStepActivityRetryContext(
+			regularInput,
+			options,
+			firstAttemptTime,
+		)
+		err = workflow.ExecuteLocalActivity(localCtx, activity, localArgs...).Get(localCtx, valuePtr)
 		if err == nil {
 			return nil
 		}
-		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		if !stepActivity {
+			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		}
+		if !optionsFound {
+			return err
+		}
+		previousAttempts, ok := temporalLocalActivityAttempt(err)
+		if !ok {
+			return err
+		}
+		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
+			options.RetryPolicy,
+			previousAttempts,
+			workflow.Now(wfCtx).Sub(firstAttemptTime),
+		)
+		if !canFallback {
+			return err
+		}
+		regularInput = interfaces.StepActivityInputForFallback(regularInput, retryContext, previousAttempts)
+		options.RetryPolicy = remainingPolicy
+		regularCtx := workflow.WithActivityOptions(wfCtx, temporalActivityOptions(options))
+		regularArgs = []interface{}{regularInput}
+		if localActivityOnlyInput != nil {
+			regularArgs = append(regularArgs, nil)
+		}
+		return workflow.ExecuteActivity(regularCtx, activity, regularArgs...).Get(regularCtx, valuePtr)
 	default:
 		return fmt.Errorf("unsupported step durability %s", durability)
 	}
+}
+
+func temporalActivityOptions(options interfaces.ActivityOptions) workflow.ActivityOptions {
+	// in Temporal, scheduled to close timeout is the timeout include all retries
+	scheduleToCloseTimeout := time.Duration(0)
+	if options.RetryPolicy.GetTotalDurationSeconds() > 0 {
+		scheduleToCloseTimeout = time.Second * time.Duration(options.RetryPolicy.GetTotalDurationSeconds())
+	}
+	return workflow.ActivityOptions{
+		ActivityID:             options.ActivityID,
+		ScheduleToCloseTimeout: scheduleToCloseTimeout,
+		StartToCloseTimeout:    options.StartToCloseTimeout,
+		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(options.RetryPolicy),
+		HeartbeatTimeout:       options.HeartbeatTimeout,
+	}
+}
+
+func temporalLocalActivityOptions(options interfaces.ActivityOptions) workflow.LocalActivityOptions {
+	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
+	localActivityTimeout := 7 * time.Second
+	if options.LocalActivityScheduleToCloseTimeout > 0 {
+		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
+	}
+	if totalDuration := options.RetryPolicy.GetTotalDurationSeconds(); totalDuration > 0 && time.Duration(totalDuration)*time.Second < localActivityTimeout {
+		localActivityTimeout = time.Duration(totalDuration) * time.Second
+	}
+	localRetryPolicy := retry.LocalActivityRetryPolicy(options.RetryPolicy, localActivityTimeout)
+	return workflow.LocalActivityOptions{
+		ScheduleToCloseTimeout: localActivityTimeout,
+		RetryPolicy:            retry.ConvertTemporalActivityRetryPolicy(localRetryPolicy),
+	}
+}
+
+func temporalLocalActivityAttempt(err error) (int32, bool) {
+	var applicationError *temporal.ApplicationError
+	if !errors.As(err, &applicationError) || !applicationError.HasDetails() {
+		return 0, false
+	}
+	var response dexpb.ErrorResponse
+	if detailErr := applicationError.Details(&response); detailErr != nil || response.GetAttempt() <= 0 {
+		return 0, false
+	}
+	return response.GetAttempt(), true
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

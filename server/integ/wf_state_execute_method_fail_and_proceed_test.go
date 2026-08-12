@@ -209,15 +209,8 @@ func doTestStateExecuteMethodFailAndProceed(
 	require.NoError(t, err)
 
 	history := workerHandler.GetTestResult().InvokeHistory
-	expectedExecute := int64(1)
-	if executeDurabilityOverride == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
-		expectedExecute = 2
-		if backendType == service.BackendTypeCadence {
-			expectedExecute = 3
-		}
-	}
 	require.Equal(t, map[string]int64{
-		"S1_execute":      expectedExecute,
+		"S1_execute":      1,
 		"Recover_execute": 1,
 	}, history)
 

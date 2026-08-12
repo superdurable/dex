@@ -107,6 +107,13 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		response, getErr := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{waitForAttributeBlobKey},
+		})
+		return getErr == nil && len(response.GetAttributes()) == 1
+	}, 5*time.Second, 50*time.Millisecond)
 
 	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,

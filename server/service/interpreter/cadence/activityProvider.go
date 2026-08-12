@@ -36,6 +36,16 @@ func (a *activityProvider) NewFlowError(
 	return cadence.NewCustomError(errType.String(), errorResponse)
 }
 
+func (a *activityProvider) NewFlowErrorWithDetails(
+	errType dexpb.FlowErrorType,
+	errorResponse *dexpb.ErrorResponse,
+	additionalDetails ...interface{},
+) error {
+	details := []interface{}{errorResponse}
+	details = append(details, additionalDetails...)
+	return cadence.NewCustomError(errType.String(), details...)
+}
+
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {
 	info := activity.GetInfo(ctx)
 	// Cadence LocalActivity leaves ScheduledTimestamp unset (zero).

@@ -113,7 +113,7 @@ func doTestStateApiFail(
 	if flowConfig != nil &&
 		flowConfig.GetStepDurability() == dexpb.StepDurability_STEP_DURABILITY_ASYNC &&
 		waitForDurabilityOverride != dexpb.StepDurability_STEP_DURABILITY_SYNC {
-		expectedWaitFor = 4
+		expectedWaitFor = 2
 	}
 	require.Equal(t, map[string]int64{
 		"S1_waitFor": expectedWaitFor,

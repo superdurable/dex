@@ -49,4 +49,19 @@ public interface InvokeExecuteMethodActivityInputOrBuilder extends
    * @return The isTransientStep.
    */
   boolean getIsTransientStep();
+
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+   * @return Whether the retryContext field is set.
+   */
+  boolean hasRetryContext();
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+   * @return The retryContext.
+   */
+  io.superdurable.gen.InternalStepActivityRetryContext getRetryContext();
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+   */
+  io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder();
 }

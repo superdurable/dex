@@ -28,6 +28,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	uclient "github.com/superdurable/dex/service/client"
 	historybuilder "github.com/superdurable/dex/service/client/history"
+	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/index"
 	cadenceadmin "github.com/uber/cadence-idl/go/proto/admin/v1"
 	cadenceapi "github.com/uber/cadence-idl/go/proto/api/v1"
@@ -55,6 +56,7 @@ type cadenceClient struct {
 type localActivityMarkerData struct {
 	ActivityType string `json:"activityType,omitempty"`
 	ErrReason    string `json:"errReason,omitempty"`
+	ErrJSON      string `json:"errJson,omitempty"`
 	ResultJSON   string `json:"resultJson,omitempty"`
 	Attempt      int32  `json:"attempt,omitempty"`
 }
@@ -867,6 +869,37 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 	}
 	if marker.ResultJSON == "" {
 		localFallbackCounts[activityMethod(marker.ActivityType)]++
+		if marker.ErrReason == "" {
+			return nil
+		}
+		failure, metadata, err := t.cadenceLocalStepFailure(
+			marker.ErrReason,
+			[]byte(marker.ErrJSON),
+		)
+		if err != nil {
+			return err
+		}
+		if metadata == nil {
+			return nil
+		}
+		switch {
+		case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+			builder.RecordLocalActivityFailed(
+				event.GetEventId(),
+				time.Unix(0, event.GetTimestamp()),
+				blobstore.StepEventInputMethodWaitFor,
+				failure,
+				metadata,
+			)
+		case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+			builder.RecordLocalActivityFailed(
+				event.GetEventId(),
+				time.Unix(0, event.GetTimestamp()),
+				blobstore.StepEventInputMethodExecute,
+				failure,
+				metadata,
+			)
+		}
 		return nil
 	}
 	result := []byte(marker.ResultJSON)
@@ -919,6 +952,28 @@ func (t *cadenceClient) cadenceStepFailure(
 	}
 	failure.Details = details
 	return failure, nil
+}
+
+func (t *cadenceClient) cadenceLocalStepFailure(
+	reason string,
+	detailsData []byte,
+) (*dexpb.StepMethodFailure, *dexpb.InternalLocalStepActivityFailure, error) {
+	if len(detailsData) == 0 {
+		return &dexpb.StepMethodFailure{BackendError: reason}, nil, nil
+	}
+	details := &dexpb.ErrorResponse{}
+	metadata := &dexpb.InternalLocalStepActivityFailure{}
+	if err := t.converter.FromData(detailsData, details, metadata); err != nil {
+		legacyFailure, legacyErr := t.cadenceStepFailure(reason, detailsData)
+		if legacyErr != nil {
+			return nil, nil, legacyErr
+		}
+		return legacyFailure, nil, nil
+	}
+	return &dexpb.StepMethodFailure{
+		BackendError: reason,
+		Details:      details,
+	}, metadata, nil
 }
 
 func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {
