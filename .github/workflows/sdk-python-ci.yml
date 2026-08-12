@@ -33,6 +33,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: "1.97.1"
+
 concurrency:
   group: sdk-python-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
