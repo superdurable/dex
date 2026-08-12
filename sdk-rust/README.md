@@ -35,10 +35,11 @@ Flat waits may contain unnamed Conditions and send an empty Condition ID.
 `Wait::any_combination_of` requires a non-empty user ID on every Condition; a
 cloned Condition retains its identity and may be reused across combinations.
 
-`Client::wait_for_attribute_equal` and
-`Client::wait_for_attribute_map_equal` target the current run and accept only
-string, bool, integer, or double wire values. JSON, bytes, and null return a
-local `InvalidArgument`. `AttributeMap::map_size/all_instance_keys` include
+Client-side map reads and writes use `get_attribute_map_instance` and
+`set_attribute_map_instance`. `Client::wait_for_attribute_equal` and
+`Client::wait_for_attribute_map_instance_equal` target the current run and
+accept only string, bool, integer, or double wire values. JSON, bytes, and null
+return a local `InvalidArgument`. `AttributeMap::map_size/all_instance_keys` include
 buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Conditional completion is

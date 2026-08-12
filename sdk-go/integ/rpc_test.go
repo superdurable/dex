@@ -176,7 +176,7 @@ func TestRPCFlow(t *testing.T) {
 		)
 	}()
 	go func() {
-		waitErrors <- integClient.WaitForAttributeMapEqual(
+		waitErrors <- integClient.WaitForAttributeMapInstanceEqual(
 			ctx,
 			flowID,
 			rpcFlowWaitMap,

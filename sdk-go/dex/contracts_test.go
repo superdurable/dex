@@ -461,7 +461,7 @@ var _ func(
 	dex.AttributeDef,
 	string,
 	any,
-) (bool, error) = (*dex.Client).GetAttributeMap
+) (bool, error) = (*dex.Client).GetAttributeMapInstance
 
 var _ func(
 	*dex.Client,
@@ -478,7 +478,7 @@ var _ func(
 	dex.AttributeDef,
 	string,
 	any,
-) error = (*dex.Client).SetAttributeMap
+) error = (*dex.Client).SetAttributeMapInstance
 
 var _ func(
 	*dex.Client,
@@ -497,7 +497,7 @@ var _ func(
 	string,
 	any,
 	dex.WaitOptions,
-) error = (*dex.Client).WaitForAttributeMapEqual
+) error = (*dex.Client).WaitForAttributeMapInstanceEqual
 
 var _ func(
 	*dex.Client,

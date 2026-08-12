@@ -39,7 +39,7 @@ async def test_async_wait_for_attribute_equal() -> None:
         await environment.client.set_attribute(flow_id, flow.data, "ready")
         await waiting
         waiting_map = asyncio.create_task(
-            environment.client.wait_for_attribute_map_equal(
+            environment.client.wait_for_attribute_equal(
                 flow_id, flow.data_map, "special / key", "mapped", timeout
             )
         )

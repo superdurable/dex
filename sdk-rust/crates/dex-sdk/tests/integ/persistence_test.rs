@@ -61,7 +61,7 @@ fn test_persistence_reads() {
         None,
         environment
             .client
-            .get_attribute_map(&flow_id, &workflow.data_map, "one")
+            .get_attribute_map_instance(&flow_id, &workflow.data_map, "one")
             .expect("get deleted AttributeMap entry")
     );
     assert_eq!(
@@ -245,7 +245,7 @@ fn test_set_data_attributes() {
     });
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| {
-            environment.client.wait_for_attribute_map_equal(
+            environment.client.wait_for_attribute_map_instance_equal(
                 &flow_id,
                 &workflow.data_map,
                 "special / key",
@@ -255,7 +255,7 @@ fn test_set_data_attributes() {
         });
         environment
             .client
-            .set_attribute_map(
+            .set_attribute_map_instance(
                 &flow_id,
                 &workflow.data_map,
                 "special / key",
@@ -296,7 +296,7 @@ fn test_set_data_attributes() {
     ));
     environment
         .client
-        .set_attribute_map(
+        .set_attribute_map_instance(
             &flow_id,
             &workflow.data_map,
             "one",
@@ -329,7 +329,7 @@ fn test_set_data_attributes() {
         Some("mapped-value".to_string()),
         environment
             .client
-            .get_attribute_map(&flow_id, &workflow.data_map, "one")
+            .get_attribute_map_instance(&flow_id, &workflow.data_map, "one")
             .expect("get AttributeMap entry")
     );
     assert_eq!(
@@ -349,6 +349,8 @@ fn compile_persistence_reads(client: &Client) -> SdkResult<()> {
         .initial_attribute_map(&workflow.data_map, "one", "initial".to_string());
     client.start_flow_with_options(&workflow, "persistence", "input".to_string(), options)?;
     let _: Option<String> = client.get_attribute("persistence", &workflow.data)?;
+    let _: Option<String> =
+        client.get_attribute_map_instance("persistence", &workflow.data_map, "one")?;
     let _: Option<i32> = client.get_attribute("persistence", &workflow.integer)?;
     let _: Option<SystemTime> = client.get_attribute("persistence", &workflow.datetime)?;
     Ok(())
@@ -359,7 +361,7 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
     let workflow = PersistenceSetAttributesWorkflow::new();
     client.start_flow(&workflow, "set-attributes", "input".to_string())?;
     client.set_attribute("set-attributes", &workflow.data, "value".to_string())?;
-    client.set_attribute_map(
+    client.set_attribute_map_instance(
         "set-attributes",
         &workflow.data_map,
         "one",
@@ -380,7 +382,7 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
         "value".to_string(),
         Duration::from_secs(30),
     )?;
-    client.wait_for_attribute_map_equal(
+    client.wait_for_attribute_map_instance_equal(
         "set-attributes",
         &workflow.data_map,
         "one",

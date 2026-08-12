@@ -90,7 +90,7 @@ test("Client sets scalar, mapped, and model data attributes", async () => {
     const waiting = client.waitForAttributeEqual(id, flow.data, "query-start", 30_000);
     await client.setAttribute(id, flow.data, "query-start");
     await waiting;
-    const waitingMap = client.waitForAttributeMapEqual(
+    const waitingMap = client.waitForAttributeEqual(
       id,
       flow.dataMap,
       "special / key",

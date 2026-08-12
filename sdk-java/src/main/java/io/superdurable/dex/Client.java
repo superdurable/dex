@@ -813,7 +813,7 @@ public final class Client implements AutoCloseable {
             final Attribute<T> attribute,
             final T expected,
             final Duration timeout) {
-        waitForAttributeEqual(flowId, attribute, null, expected, timeout);
+        waitForAttributeValue(flowId, attribute, null, expected, timeout);
     }
 
     /**
@@ -830,16 +830,16 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
-    public <T> void waitForAttributeMapEqual(
+    public <T> void waitForAttributeEqual(
             final String flowId,
             final AttributeMap<T> attribute,
             final String instance,
             final T expected,
             final Duration timeout) {
-        waitForAttributeEqual(flowId, attribute, instance, expected, timeout);
+        waitForAttributeValue(flowId, attribute, instance, expected, timeout);
     }
 
-    private void waitForAttributeEqual(
+    private void waitForAttributeValue(
             final String flowId,
             final PersistenceDefinition attribute,
             final String instance,

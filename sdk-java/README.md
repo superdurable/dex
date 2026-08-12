@@ -127,8 +127,8 @@ not part of the public API.
 Condition ID. Every Condition in `Wait.anyCombinationOf` must have a non-empty
 user ID; the same Condition object may be reused across combinations.
 
-`client.waitForAttributeEqual(...)` and
-`client.waitForAttributeMapEqual(...)` target the current run. Only String,
+`client.waitForAttributeEqual(...)` overloads cover singleton Attributes and
+AttributeMap instances in the current run. Only String,
 boolean, integer, and floating-point wire values are accepted; objects, bytes,
 and null fail locally. `AttributeMap.getMapSize/getAllInstanceKeys` reflect
 buffered sets and deletes. The corresponding `ChannelMap` methods are RPC-only,

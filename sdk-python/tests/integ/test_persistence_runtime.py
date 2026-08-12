@@ -113,7 +113,7 @@ def test_set_data_attributes() -> None:
             waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
         with ThreadPoolExecutor(max_workers=1) as executor:
             waiting = executor.submit(
-                environment.client.wait_for_attribute_map_equal,
+                environment.client.wait_for_attribute_equal,
                 flow_id,
                 flow.data_map,
                 "one",

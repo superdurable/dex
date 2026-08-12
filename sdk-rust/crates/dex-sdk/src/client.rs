@@ -238,7 +238,7 @@ impl Client {
     /// Reads one Attribute-map instance from the current run.
     ///
     /// Returns `Ok(None)` when the instance is absent.
-    pub fn get_attribute_map<T: Value>(
+    pub fn get_attribute_map_instance<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
@@ -275,7 +275,7 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
-    pub fn set_attribute_map<T: Value>(
+    pub fn set_attribute_map_instance<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
@@ -639,7 +639,7 @@ impl Client {
     ///
     /// This targets the current run and otherwise has the same scalar,
     /// timeout, request-ID, and error behavior as `wait_for_attribute_equal`.
-    pub fn wait_for_attribute_map_equal<T: Value>(
+    pub fn wait_for_attribute_map_instance_equal<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,

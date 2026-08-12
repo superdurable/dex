@@ -109,9 +109,10 @@ must use `WithConditionID`. Reusing the same Condition value across combinations
 is supported, while duplicate IDs on distinct Conditions are rejected.
 
 Clients wait on scalar Attribute equality in the current run with
-`WaitForAttributeEqual` or `WaitForAttributeMapEqual`. Expected values must
-encode as string, bool, integer, or double; JSON, bytes, and null fail before
-the RPC is sent.
+`WaitForAttributeEqual` or `WaitForAttributeMapInstanceEqual`. Client-side map
+reads and writes use `GetAttributeMapInstance` and `SetAttributeMapInstance`.
+Expected values must encode as string, bool, integer, or double; JSON, bytes,
+and null fail before the RPC is sent.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and

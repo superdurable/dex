@@ -787,6 +787,7 @@ class AsyncClient:
             "active",
         )
 
+    @overload
     async def wait_for_attribute_equal(
         self,
         flow_id: str,
@@ -812,11 +813,10 @@ class AsyncClient:
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
-        await self._wait_for_attribute_equal(
-            flow_id, attribute, None, expected, timeout
-        )
+        ...
 
-    async def wait_for_attribute_map_equal(
+    @overload
+    async def wait_for_attribute_equal(
         self,
         flow_id: str,
         attribute: AttributeMap[ValueT],
@@ -842,6 +842,36 @@ class AsyncClient:
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
+        ...
+
+    async def wait_for_attribute_equal(
+        self,
+        flow_id: str,
+        attribute: Attribute[Any] | AttributeMap[Any],
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        """Await a scalar Attribute or AttributeMap instance equaling a value.
+
+        Singleton form is ``wait_for_attribute_equal(flow_id, attribute, expected,
+        timeout)``; map form adds ``instance`` before ``expected``.
+
+        Args:
+            flow_id: The non-empty active Flow ID.
+            attribute: The registered Attribute or AttributeMap to observe.
+            *args: Positional expected value and timeout, optionally preceded by a map instance.
+            **kwargs: The same arguments supplied by name.
+
+        Raises:
+            TypeError: If arguments do not match the Attribute definition.
+            ValueError: If an identifier, timeout, or expected value is invalid.
+            LongPollTimeoutError: If equality is not observed before the timeout.
+            FlowNotActiveError: If the Flow closes first.
+            DexServiceError: If FlowService cannot perform the wait.
+        """
+        instance, expected, timeout = self._attribute_wait_arguments(
+            attribute, args, kwargs
+        )
         await self._wait_for_attribute_equal(
             flow_id, attribute, instance, expected, timeout
         )
@@ -1125,6 +1155,38 @@ class AsyncClient:
         ):
             return args[0], args[1]
         raise TypeError("set_attribute received invalid arguments")
+
+    @staticmethod
+    def _attribute_wait_arguments(
+        definition: Attribute[Any] | AttributeMap[Any],
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> tuple[str | None, object, timedelta]:
+        parameter_names: tuple[str, ...]
+        if isinstance(definition, Attribute):
+            parameter_names = ("expected", "timeout")
+        elif isinstance(definition, AttributeMap):
+            parameter_names = ("instance", "expected", "timeout")
+        else:
+            raise TypeError("wait_for_attribute_equal received invalid arguments")
+        if len(args) > len(parameter_names):
+            raise TypeError("wait_for_attribute_equal received invalid arguments")
+        arguments = dict(zip(parameter_names, args))
+        for name, value in kwargs.items():
+            if name not in parameter_names or name in arguments:
+                raise TypeError("wait_for_attribute_equal received invalid arguments")
+            arguments[name] = value
+        if set(arguments) != set(parameter_names):
+            raise TypeError("wait_for_attribute_equal received invalid arguments")
+        timeout = arguments["timeout"]
+        if not isinstance(timeout, timedelta):
+            raise TypeError("wait_for_attribute_equal received invalid arguments")
+        if isinstance(definition, Attribute):
+            return None, arguments["expected"], timeout
+        instance = arguments["instance"]
+        if not isinstance(instance, str):
+            raise TypeError("wait_for_attribute_equal received invalid arguments")
+        return instance, arguments["expected"], timeout
 
     @staticmethod
     def _seconds32(duration: timedelta) -> int:

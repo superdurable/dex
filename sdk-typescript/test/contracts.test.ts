@@ -420,7 +420,7 @@ async function compileStrongTypes(client: Client): Promise<void> {
     { orderId: "order-1" },
   );
   await client.waitForAttributeEqual("order-1", status, "ready", 30_000);
-  await client.waitForAttributeMapEqual(
+  await client.waitForAttributeEqual(
     "order-1",
     new AttributeMap("items", stringCodec),
     "one",

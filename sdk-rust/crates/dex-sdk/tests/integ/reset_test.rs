@@ -146,7 +146,7 @@ fn assert_completed_with_attributes(
     );
     let item = environment
         .client
-        .get_attribute_map(flow_id, &workflow.items, "order-1")
+        .get_attribute_map_instance(flow_id, &workflow.items, "order-1")
         .expect("get reset AttributeMap entry");
     if expects_attribute_map_value {
         assert_eq!(Some("locked".to_string()), item);
@@ -210,7 +210,7 @@ fn assert_reset_times_out_without_attributes(
         None,
         environment
             .client
-            .get_attribute_map(flow_id, &workflow.items, "order-1")
+            .get_attribute_map_instance(flow_id, &workflow.items, "order-1")
             .expect("get cleared reset AttributeMap entry")
     );
 }
