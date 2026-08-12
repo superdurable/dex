@@ -1,0 +1,120 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
+package command
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+)
+
+type App struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+	getenv func(string) string
+}
+
+func NewApp(stdin io.Reader, stdout io.Writer, stderr io.Writer) *App {
+	if stdin == nil {
+		panic("command stdin must not be nil")
+	}
+	if stdout == nil {
+		panic("command stdout must not be nil")
+	}
+	if stderr == nil {
+		panic("command stderr must not be nil")
+	}
+	return &App{
+		stdin:  stdin,
+		stdout: stdout,
+		stderr: stderr,
+		getenv: os.Getenv,
+	}
+}
+
+func (a *App) Execute(ctx context.Context, args []string) error {
+	options := defaultOptions(a.getenv)
+	remaining, err := parseRootOptions(args, &options)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			a.printUsage()
+			return nil
+		}
+		return newUsageError("dexcli", err)
+	}
+	if len(remaining) == 0 {
+		a.printUsage()
+		return nil
+	}
+	if err := options.validate(); err != nil {
+		return newUsageError("dexcli", err)
+	}
+	switch remaining[0] {
+	case "health":
+		return a.executeHealth(ctx, remaining[1:], options)
+	case "flow":
+		return newFlowCommand(a.stdin, a.stdout, a.stderr).Execute(ctx, remaining[1:], options)
+	case "api":
+		return newAPICommand(a.stdin, a.stdout, a.stderr).Execute(ctx, remaining[1:], options)
+	case "help", "--help", "-h":
+		a.printUsage()
+		return nil
+	default:
+		return newUsageError("dexcli", fmt.Errorf("unknown command %q", remaining[0]))
+	}
+}
+
+func (a *App) executeHealth(ctx context.Context, args []string, options options) error {
+	flags := newFlagSet("dexcli health", a.stderr)
+	addCommonFlags(flags, &options)
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(a.stdout, "Usage: dexcli health [global flags]")
+			return nil
+		}
+		return newUsageError("health", err)
+	}
+	if flags.NArg() != 0 {
+		return newUsageError("health", fmt.Errorf("unexpected arguments: %v", flags.Args()))
+	}
+	if err := options.validate(); err != nil {
+		return newUsageError("health", err)
+	}
+	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		response, err := client.service.HealthCheck(callCtx, emptyRequest())
+		if err != nil {
+			return newOperationError("health", err)
+		}
+		result := map[string]any{
+			"condition": response.GetCondition(),
+			"hostname":  response.GetHostname(),
+			"duration":  response.GetDuration(),
+		}
+		return writeOutput(a.stdout, options.output, result)
+	})
+}
+
+func (a *App) printUsage() {
+	fmt.Fprintln(a.stdout, "Usage: dexcli [global flags] <command>")
+	fmt.Fprintln(a.stdout)
+	fmt.Fprintln(a.stdout, "Commands:")
+	fmt.Fprintln(a.stdout, "  health    Check Dex FlowService health")
+	fmt.Fprintln(a.stdout, "  flow      Search, inspect, watch, stop, or reset Flows")
+	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
+	fmt.Fprintln(a.stdout)
+	fmt.Fprintln(a.stdout, "Global flags:")
+	fmt.Fprintln(a.stdout, "  --server host:port                 Dex FlowService target")
+	fmt.Fprintln(a.stdout, "  --output json|table                output format (default json)")
+	fmt.Fprintln(a.stdout, "  --timeout duration                 request timeout (default 30s; 0 disables)")
+	fmt.Fprintln(a.stdout, "  --no-hydrate                       return blob references without loading values")
+}
