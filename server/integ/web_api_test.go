@@ -69,6 +69,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 			testWebCurrentState(t, backendType, lazyLoading)
 		})
 	}
+	t.Run("set-attributes-history", func(t *testing.T) {
+		testWebSetAttributesHistory(t, backendType)
+	})
 	for _, durability := range []dexpb.StepDurability{
 		dexpb.StepDurability_STEP_DURABILITY_SYNC,
 		dexpb.StepDurability_STEP_DURABILITY_ASYNC,
@@ -1351,6 +1354,90 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 		)
 	}
 	assertExternalChannelValuesLoad(t, ctx, runtime.FlowClient, events)
+}
+
+func testWebSetAttributesHistory(t *testing.T, backendType service.BackendType) {
+	workerTarget := startWorker(t, signal.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowID := signal.WorkflowType + "-web-set-attribute-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		state, stateErr := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+		})
+		return stateErr == nil && len(state.GetActiveStepExecutions()) == 1
+	}, 30*time.Second, 50*time.Millisecond)
+	_, nextInternalEventID := getAllWebHistoryEvents(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+
+	attribute := &dexpb.AttributeWrite{
+		Key: "web-set-attribute",
+		Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+			StringValue: "updated-from-web",
+		}},
+	}
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		FlowId:    flowID,
+		RunId:     startResponse.GetRunId(),
+		RequestId: newRequestID(),
+		Attributes: []*dexpb.AttributeWrite{
+			attribute,
+		},
+	})
+	require.NoError(t, err)
+	waitResponse, err := runtime.FlowClient.WaitForHistoryEvent(ctx, &dexpb.WaitForHistoryEventRequest{
+		FlowId:              flowID,
+		RunId:               startResponse.GetRunId(),
+		NextInternalEventId: nextInternalEventID,
+	})
+	require.NoError(t, err)
+	require.True(t, waitResponse.GetEventAvailable())
+	events, _ := getAllWebHistoryEvents(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+	var rpcEvent *dexpb.RpcExecutionCompletedEvent
+	for _, event := range events {
+		candidate := event.GetRpcExecutionCompleted()
+		if candidate.GetRpcName() == service.SystemSetAttributeRPCName {
+			rpcEvent = candidate
+			break
+		}
+	}
+	require.NotNil(t, rpcEvent)
+	require.Len(t, rpcEvent.GetUpsertAttributes(), 1)
+	require.True(t, proto.Equal(attribute, rpcEvent.GetUpsertAttributes()[0]))
+	require.Nil(t, rpcEvent.GetInput())
+	require.Nil(t, rpcEvent.GetOutput())
+	require.Nil(t, rpcEvent.GetStepDecision())
+
+	messages := make([]*dexpb.ChannelMessage, 4)
+	for index := range messages {
+		messages[index] = &dexpb.ChannelMessage{ChannelName: signal.SignalName}
+	}
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId:   flowID,
+		RunId:    startResponse.GetRunId(),
+		Messages: messages,
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
 }
 
 func testWebAsyncLocalFallback(t *testing.T, backendType service.BackendType) {

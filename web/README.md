@@ -73,6 +73,8 @@ Continued runs link to their previous run from Timeline and Step graph.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Timeline and Step graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
+External attribute writes appear as RPC events named `_sys/set_attribute`, with
+the changed values under Upsert attributes.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
 including its backend-native error, worker details, named and numeric gRPC

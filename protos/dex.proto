@@ -1104,6 +1104,7 @@ message ExecuteRpcSignalRequest {
   StepDecision step_decision = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  string rpc_name = 7;
 }
 
 message SkipTimerSignalRequest {

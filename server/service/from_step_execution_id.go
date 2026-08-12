@@ -12,7 +12,10 @@ package service
 
 import "github.com/superdurable/dex/gen/dexpb"
 
-const StartingStepFromStepExecutionId = "__start__"
+const (
+	StartingStepFromStepExecutionId = "__start__"
+	SystemSetAttributeRPCName       = "_sys/set_attribute"
+)
 
 const rpcStepSourcePrefix = "__rpc/"
 

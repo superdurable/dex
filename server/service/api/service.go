@@ -612,7 +612,10 @@ func (s *serviceImpl) SetAttributes(
 		req.GetFlowId(),
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
-		&dexpb.ExecuteRpcSignalRequest{UpsertAttributes: attributes},
+		&dexpb.ExecuteRpcSignalRequest{
+			RpcName:          service.SystemSetAttributeRPCName,
+			UpsertAttributes: attributes,
+		},
 	); err != nil {
 		return nil, s.handleError(err)
 	}
@@ -1037,6 +1040,7 @@ func (s *serviceImpl) doInvokeRPC(
 		len(decision.GetNextSteps()) > 0 ||
 		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
+			RpcName:          req.GetRpcName(),
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),
 			RecordEvents:     workerResponse.GetRecordEvents(),

@@ -23,8 +23,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const rpcSourcePrefix = "__rpc/"
-
 type Builder struct {
 	flowID              string
 	runID               string
@@ -367,7 +365,7 @@ func (b *Builder) RecordSignal(
 		))
 		return
 	}
-	rpcName := rpcNameFromDecision(request.GetStepDecision())
+	rpcName := request.GetRpcName()
 	if rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
 		return
 	}
@@ -629,14 +627,4 @@ func isExternalPublish(request *dexpb.ExecuteRpcSignalRequest) bool {
 		len(request.GetRecordEvents()) == 0 &&
 		request.GetRpcInput() == nil &&
 		request.GetRpcOutput() == nil
-}
-
-func rpcNameFromDecision(decision *dexpb.StepDecision) string {
-	for _, movement := range decision.GetNextSteps() {
-		source := movement.GetFromStepExecutionIdInternalOnly()
-		if strings.HasPrefix(source, rpcSourcePrefix) {
-			return strings.TrimPrefix(source, rpcSourcePrefix)
-		}
-	}
-	return ""
 }

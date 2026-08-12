@@ -337,6 +337,31 @@ describe('selected step event details', () => {
   });
 });
 
+describe('RPC event details', () => {
+  it('renders external SetAttributes as a system RPC with its writes', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 9,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'RpcExecutionCompleted',
+      payload: {
+        rpcName: '_sys/set_attribute',
+        upsertAttributes: [{
+          key: 'order-status',
+          value: { stringValue: 'complete' },
+        }],
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('RPC name');
+    expect(markup).toContain('_sys/set_attribute');
+    expect(markup).toContain('Upsert attributes');
+    expect(markup).toContain('order-status');
+    expect(markup).toContain('complete');
+  });
+});
+
 describe('flow start event details', () => {
   it('renders the configured flow timeout', () => {
     const event: FlowHistoryEvent = {
