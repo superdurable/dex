@@ -311,7 +311,7 @@ Dex environment. Each Worker automatically synchronizes its registered Indexed
 Attributes before listening. Gradle builds
 the Rust BlobCache JNI library and starts a fresh Java Worker for each E2E case
 with a unique worker port and flow ID. A clean checkout also requires Go 1.24+,
-Node.js 22+, Rust 1.88+, and Temporal CLI.
+Node.js 22+, Rust 1.97+, and Temporal CLI.
 
 ### Measure integration coverage
 
@@ -338,7 +338,7 @@ open the packaged Rust BlobCache library and perform a cache round trip.
 ./validate-publication.sh 0.0.3-local
 ```
 
-The command requires JDK 17, Rust 1.88+, and Maven. Published classes still
+The command requires JDK 17, Rust 1.97+, and Maven. Published classes still
 target Java 8.
 
 ### Validate public API documentation

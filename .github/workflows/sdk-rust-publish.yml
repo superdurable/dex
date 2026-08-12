@@ -28,7 +28,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTUP_TOOLCHAIN: "1.88.0"
+  RUSTUP_TOOLCHAIN: "1.97.1"
 
 jobs:
   prepare:
@@ -52,7 +52,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Resolve release version
         id: release
         shell: bash
@@ -118,7 +118,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Stamp package versions from release
         run: >-
           python scripts/stamp_release_version.py

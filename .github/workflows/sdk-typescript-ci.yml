@@ -46,14 +46,14 @@ jobs:
       matrix:
         node-version: ["22", "24"]
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
@@ -76,14 +76,14 @@ jobs:
       contents: read
       id-token: write
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: "22"

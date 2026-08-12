@@ -160,6 +160,8 @@ npm run build:native
 
 ## Development
 
+Rust 1.97 or newer is required.
+
 Format and test the workspace:
 
 ```bash

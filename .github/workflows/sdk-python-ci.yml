@@ -51,7 +51,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: Install Rust
-      run: rustup toolchain install 1.88.0 --profile minimal
+      run: rustup toolchain install 1.97.1 --profile minimal
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
       with:
@@ -76,7 +76,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: Install Rust
-      run: rustup toolchain install 1.88.0 --profile minimal
+      run: rustup toolchain install 1.97.1 --profile minimal
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
       with:
@@ -158,7 +158,7 @@ jobs:
     - name: Install Temporal CLI runtime for dexcli dev
       uses: temporalio/setup-temporal@v0
     - name: Install Rust
-      run: rustup toolchain install 1.88.0 --profile minimal
+      run: rustup toolchain install 1.97.1 --profile minimal
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b   # v8.1.0
       with:

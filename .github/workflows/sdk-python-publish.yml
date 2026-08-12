@@ -124,7 +124,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           maturin-version: v1.14.1
-          rust-toolchain: "1.88.0"
+          rust-toolchain: "1.97.1"
           working-directory: sdk-python
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
@@ -169,7 +169,7 @@ jobs:
         with:
           command: sdist
           maturin-version: v1.14.1
-          rust-toolchain: "1.88.0"
+          rust-toolchain: "1.97.1"
           working-directory: sdk-python
           args: --out dist
       - name: Build wheel from source distribution

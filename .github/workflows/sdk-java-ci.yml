@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
@@ -68,14 +68,14 @@ jobs:
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
-      RUSTUP_TOOLCHAIN: '1.88.0'
+      RUSTUP_TOOLCHAIN: '1.97.1'
     defaults:
       run:
         working-directory: sdk-java
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
@@ -95,7 +95,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
     defaults:
       run:
         working-directory: sdk-java
@@ -131,7 +131,7 @@ jobs:
           echo "${binary_dir}" >> "${GITHUB_PATH}"
           "${binary_dir}/temporal" --version
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-java@v5
         with:
           distribution: zulu

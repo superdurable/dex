@@ -45,11 +45,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     env:
-      RUSTUP_TOOLCHAIN: '1.88.0'
+      RUSTUP_TOOLCHAIN: '1.97.1'
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Build BlobCache JNI
         working-directory: sdk-rust
         run: cargo build --release -p dex-blob-cache-jni --locked
