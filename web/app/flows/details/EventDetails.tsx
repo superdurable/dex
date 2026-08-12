@@ -51,10 +51,20 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
 };
 
 export function eventTitle(event: FlowHistoryEvent): string {
+  if (isSetAttributesEvent(event)) return 'Attributes updated';
   if (event.type === 'FlowStartedOrContinued' && hasData(asData(event.payload.continuedStart))) {
     return 'Flow continued';
   }
   return eventTitles[event.type];
+}
+
+export function eventTypeLabel(event: FlowHistoryEvent): string {
+  return isSetAttributesEvent(event) ? 'SetAttributes' : event.type;
+}
+
+function isSetAttributesEvent(event: FlowHistoryEvent): boolean {
+  return event.type === 'RpcExecutionCompleted'
+    && event.payload.isSetAttributeApi === true;
 }
 
 function asData(value: unknown): Data {
@@ -763,6 +773,14 @@ function RPCDetails({ payload }: { payload: Data }) {
   );
 }
 
+function SetAttributesDetails({ payload }: { payload: Data }) {
+  return (
+    <DetailSection title="Updated attributes">
+      <KeyValues values={payload.upsertAttributes} emptyLabel="No attributes updated" />
+    </DetailSection>
+  );
+}
+
 export function SemanticEventDetails({
   event,
   history = [event],
@@ -781,6 +799,7 @@ export function SemanticEventDetails({
       : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
+  if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
   if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} />;
   return (
     <DetailSection title="Published messages">

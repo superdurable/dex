@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { STEP_EVENT_INPUT_UNAVAILABLE } from '@/lib/unavailable';
-import { SemanticEventDetails } from './EventDetails';
+import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
 
 function executeEvent(durability: number): FlowHistoryEvent {
   return {
@@ -334,6 +334,33 @@ describe('selected step event details', () => {
 
     expect(markup).toContain('Fail flow');
     expect(markup).toContain('rpc-account');
+  });
+});
+
+describe('RPC event details', () => {
+  it('renders external SetAttributes without exposing its system RPC', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 9,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'RpcExecutionCompleted',
+      payload: {
+        isSetAttributeApi: true,
+        upsertAttributes: [{
+          key: 'order-status',
+          value: { stringValue: 'complete' },
+        }],
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(eventTitle(event)).toBe('Attributes updated');
+    expect(eventTypeLabel(event)).toBe('SetAttributes');
+    expect(markup).toContain('Updated attributes');
+    expect(markup).toContain('order-status');
+    expect(markup).toContain('complete');
+    expect(markup).not.toContain('RPC call');
+    expect(markup).not.toContain('RPC name');
   });
 });
 

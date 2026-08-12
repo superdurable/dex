@@ -54,6 +54,9 @@ Temporal/Cadence history into Dex semantic events, and `WaitForHistoryEvent`
 supports incremental refresh. `GetFlowState` returns the interpreter
 snapshot for a running flow.
 
+External `SetAttributes` writes appear as `RpcExecutionCompleted` events with
+`is_set_attribute_api` set and the writes in `upsert_attributes`.
+
 Flow started/continued events expose the configured flow timeout as a protobuf
 duration. An absent duration means the flow has no timeout.
 
