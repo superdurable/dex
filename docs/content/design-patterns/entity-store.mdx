@@ -11,7 +11,7 @@ into an application-owned PostgreSQL table.
 
 Applications often need both durable orchestration state and a conventional SQL
 read model. `UserProfileFlow` uses the user ID as its Flow ID, stores the profile
-as three Attributes, and opts those definitions into Attribute Store sync. The
+as seven Attributes, and opts those definitions into Attribute Store sync. The
 Flow selects the Server store named `entityStore`, whose destination table uses
 the Flow ID as its `user_id` primary key.
 
@@ -21,8 +21,8 @@ and cannot roll back a successful Flow Attribute write.
 ## Key components
 
 1. **`UserProfileFlow`**: One long-lived Flow per user.
-2. **Synced Attribute definitions**: `display_name`, `email`, and
-   `marketing_opt_in` project every initial value, RPC update, and deletion.
+2. **Synced Attribute definitions**: text, boolean, integer, double, datetime,
+   and JSON fields project every initial value, RPC update, and deletion.
 3. **`FlowConfig`**: Selects the Server-configured `entityStore` target.
 4. **`user_profiles`**: Application-owned PostgreSQL table whose primary key is
    populated from the Flow ID.
@@ -35,7 +35,7 @@ and cannot roll back a successful Flow Attribute write.
 - `POST /design-pattern/entity-store/profile/clear?userId=...` — delete the synced values
 
 Clearing the profile leaves its SQL row in place and projects SQL `NULL` into the
-three nullable columns.
+seven nullable columns.
 
 ## SDK definitions
 
@@ -49,6 +49,12 @@ class UserProfileFlow(Flow[None]):
     marketing_opt_in = Attribute(
         "marketing_opt_in", bool, sync_to_attribute_store=True
     )
+    credits = Attribute("credits", int, sync_to_attribute_store=True)
+    weight = Attribute("weight", float, sync_to_attribute_store=True)
+    last_logged_in_time = Attribute(
+        "last_logged_in_time", datetime, sync_to_attribute_store=True
+    )
+    metadata = Attribute("metadata", UserProfileMetadata, sync_to_attribute_store=True)
 
 await client.start_flow(
     flow,

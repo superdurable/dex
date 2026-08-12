@@ -16,5 +16,9 @@ CREATE TABLE user_profiles (
     user_id TEXT PRIMARY KEY,
     display_name TEXT,
     email TEXT,
-    marketing_opt_in BOOLEAN
+    marketing_opt_in BOOLEAN,
+    credits BIGINT,
+    weight DOUBLE PRECISION,
+    last_logged_in_time TIMESTAMPTZ,
+    metadata JSONB
 );

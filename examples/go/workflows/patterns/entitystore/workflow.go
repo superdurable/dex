@@ -22,6 +22,7 @@ package entitystore
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -32,12 +33,25 @@ var (
 	DisplayName    = dex.DefineAttribute[string]("display_name", dex.SyncToAttributeStore())
 	Email          = dex.DefineAttribute[string]("email", dex.SyncToAttributeStore())
 	MarketingOptIn = dex.DefineAttribute[bool]("marketing_opt_in", dex.SyncToAttributeStore())
+	Credits        = dex.DefineAttribute[int64]("credits", dex.SyncToAttributeStore())
+	Weight         = dex.DefineAttribute[float64]("weight", dex.SyncToAttributeStore())
+	LastLoggedIn   = dex.DefineAttribute[time.Time]("last_logged_in_time", dex.SyncToAttributeStore())
+	Metadata       = dex.DefineAttribute[UserProfileMetadata]("metadata", dex.SyncToAttributeStore())
 )
 
+type UserProfileMetadata struct {
+	Source string   `json:"source"`
+	Tags   []string `json:"tags"`
+}
+
 type UserProfile struct {
-	DisplayName    string `json:"displayName"`
-	Email          string `json:"email"`
-	MarketingOptIn bool   `json:"marketingOptIn"`
+	DisplayName    string              `json:"displayName"`
+	Email          string              `json:"email"`
+	MarketingOptIn bool                `json:"marketingOptIn"`
+	Credits        int64               `json:"credits"`
+	Weight         float64             `json:"weight"`
+	LastLoggedIn   time.Time           `json:"lastLoggedInTime"`
+	Metadata       UserProfileMetadata `json:"metadata"`
 }
 
 type UserProfileRequest struct {
@@ -63,7 +77,9 @@ func (*UserProfileFlow) GetSteps() []dex.StepDef {
 
 func (*UserProfileFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{DisplayName, Email, MarketingOptIn},
+		Attributes: []dex.AttributeDef{
+			DisplayName, Email, MarketingOptIn, Credits, Weight, LastLoggedIn, Metadata,
+		},
 	}
 }
 
@@ -81,6 +97,18 @@ func (*UserProfileFlow) UpdateProfile(
 		return nil, err
 	}
 	if err := MarketingOptIn.Set(ctx, profile.MarketingOptIn); err != nil {
+		return nil, err
+	}
+	if err := Credits.Set(ctx, profile.Credits); err != nil {
+		return nil, err
+	}
+	if err := Weight.Set(ctx, profile.Weight); err != nil {
+		return nil, err
+	}
+	if err := LastLoggedIn.Set(ctx, profile.LastLoggedIn); err != nil {
+		return nil, err
+	}
+	if err := Metadata.Set(ctx, profile.Metadata); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -102,10 +130,30 @@ func (*UserProfileFlow) GetProfile(
 	if err != nil {
 		return nil, err
 	}
+	credits, err := Credits.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	weight, err := Weight.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lastLoggedIn, err := LastLoggedIn.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := Metadata.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[UserProfile]{Output: UserProfile{
 		DisplayName:    displayName,
 		Email:          email,
 		MarketingOptIn: marketingOptIn,
+		Credits:        credits,
+		Weight:         weight,
+		LastLoggedIn:   lastLoggedIn,
+		Metadata:       metadata,
 	}}, nil
 }
 
@@ -120,6 +168,18 @@ func (*UserProfileFlow) ClearProfile(
 		return nil, err
 	}
 	if err := MarketingOptIn.Delete(ctx); err != nil {
+		return nil, err
+	}
+	if err := Credits.Delete(ctx); err != nil {
+		return nil, err
+	}
+	if err := Weight.Delete(ctx); err != nil {
+		return nil, err
+	}
+	if err := LastLoggedIn.Delete(ctx); err != nil {
+		return nil, err
+	}
+	if err := Metadata.Delete(ctx); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -141,7 +201,25 @@ func InitialAttributes(profile UserProfile) ([]dex.InitialAttributeDef, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []dex.InitialAttributeDef{displayName, email, marketingOptIn}, nil
+	credits, err := dex.InitialAttribute(Credits, profile.Credits)
+	if err != nil {
+		return nil, err
+	}
+	weight, err := dex.InitialAttribute(Weight, profile.Weight)
+	if err != nil {
+		return nil, err
+	}
+	lastLoggedIn, err := dex.InitialAttribute(LastLoggedIn, profile.LastLoggedIn)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := dex.InitialAttribute(Metadata, profile.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	return []dex.InitialAttributeDef{
+		displayName, email, marketingOptIn, credits, weight, lastLoggedIn, metadata,
+	}, nil
 }
 
 func validateProfile(profile UserProfile) error {
@@ -150,6 +228,12 @@ func validateProfile(profile UserProfile) error {
 	}
 	if profile.Email == "" {
 		return fmt.Errorf("email is required")
+	}
+	if profile.LastLoggedIn.IsZero() {
+		return fmt.Errorf("last logged-in time is required")
+	}
+	if profile.Metadata.Source == "" {
+		return fmt.Errorf("metadata is required")
 	}
 	return nil
 }

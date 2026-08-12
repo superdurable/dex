@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from dex import (
     FlowConfig,
@@ -26,7 +26,7 @@ from dex import (
     StartFlowOptions,
     StepExecutionId,
 )
-from quart import Blueprint, Response, jsonify
+from quart import Blueprint, Response, abort, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -34,10 +34,16 @@ from dex_examples.controller.query import (
     optional_query,
     required_body_field,
     required_bool_body_field,
+    required_float_body_field,
+    required_int_body_field,
+    required_object_body_field,
     required_int_query,
     required_query,
 )
-from dex_examples.patterns.workflow.entitystore.user_profile import UserProfileRequest
+from dex_examples.patterns.workflow.entitystore.user_profile import (
+    UserProfileMetadata,
+    UserProfileRequest,
+)
 from dex_examples.patterns.workflow.entitystore.user_profile_flow import STORE_NAME
 from dex_examples.patterns.workflow.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.workflow.recovery.failure_recovery_workflow_input import (
@@ -128,6 +134,10 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
             await required_body_field("displayName"),
             await required_body_field("email"),
             await required_bool_body_field("marketingOptIn"),
+            await required_int_body_field("credits"),
+            await required_float_body_field("weight"),
+            datetime.fromisoformat(await required_body_field("lastLoggedInTime")),
+            await required_user_profile_metadata(),
         )
         profile = profile_request.profile()
         options = (
@@ -141,6 +151,13 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.user_profile.marketing_opt_in,
                 profile.marketing_opt_in,
             )
+            .with_attribute(app_state.user_profile.credits, profile.credits)
+            .with_attribute(app_state.user_profile.weight, profile.weight)
+            .with_attribute(
+                app_state.user_profile.last_logged_in_time,
+                profile.last_logged_in_time,
+            )
+            .with_attribute(app_state.user_profile.metadata, profile.metadata)
         )
         return await app_state.client.start_flow(
             app_state.user_profile,
@@ -156,6 +173,10 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
             await required_body_field("displayName"),
             await required_body_field("email"),
             await required_bool_body_field("marketingOptIn"),
+            await required_int_body_field("credits"),
+            await required_float_body_field("weight"),
+            datetime.fromisoformat(await required_body_field("lastLoggedInTime")),
+            await required_user_profile_metadata(),
         )
         await app_state.client.invoke_rpc(
             app_state.user_profile.update_profile,
@@ -318,3 +339,14 @@ def create_design_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
         return f"success for workflow {flow_id}"
 
     return blueprint
+
+
+async def required_user_profile_metadata() -> UserProfileMetadata:
+    value = await required_object_body_field("metadata")
+    source = value.get("source")
+    tags = value.get("tags")
+    if not isinstance(source, str) or not source:
+        abort(400, description="metadata.source must be a non-empty string")
+    if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+        abort(400, description="metadata.tags must be an array of strings")
+    return UserProfileMetadata(source, tags)

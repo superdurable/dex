@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 import pytest
@@ -29,7 +29,10 @@ from dex import (
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.workflow.entitystore.user_profile import UserProfile
+from dex_examples.patterns.workflow.entitystore.user_profile import (
+    UserProfile,
+    UserProfileMetadata,
+)
 from dex_examples.patterns.workflow.entitystore.user_profile_flow import STORE_NAME
 from dex_examples.patterns.workflow.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.workflow.recovery.failure_recovery_workflow_input import (
@@ -252,7 +255,15 @@ async def test_entity_store_profile_lifecycle(
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("entity-store")
-    profile = UserProfile("Ada Lovelace", "ada@example.com", True)
+    profile = UserProfile(
+        "Ada Lovelace",
+        "ada@example.com",
+        True,
+        120,
+        59.5,
+        datetime(2026, 8, 11, 15, 30, tzinfo=timezone.utc),
+        UserProfileMetadata("integration", ["example", "pro"]),
+    )
     options = (
         StartFlowOptions(
             timeout=timedelta(hours=1),
@@ -261,9 +272,23 @@ async def test_entity_store_profile_lifecycle(
         .with_attribute(app.user_profile.display_name, profile.display_name)
         .with_attribute(app.user_profile.email, profile.email)
         .with_attribute(app.user_profile.marketing_opt_in, profile.marketing_opt_in)
+        .with_attribute(app.user_profile.credits, profile.credits)
+        .with_attribute(app.user_profile.weight, profile.weight)
+        .with_attribute(
+            app.user_profile.last_logged_in_time, profile.last_logged_in_time
+        )
+        .with_attribute(app.user_profile.metadata, profile.metadata)
     )
     await client.start_flow(app.user_profile, flow_id, None, options)
-    updated = UserProfile("Ada Byron", "ada@example.com", False)
+    updated = UserProfile(
+        "Ada Byron",
+        "ada@example.com",
+        False,
+        180,
+        60.25,
+        datetime(2026, 8, 12, 9, 45, tzinfo=timezone.utc),
+        UserProfileMetadata("integration", ["example", "enterprise"]),
+    )
     await client.invoke_rpc(
         app.user_profile.update_profile,
         flow_id,

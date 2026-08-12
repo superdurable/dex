@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -856,6 +857,13 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 		DisplayName:    "Ada Lovelace",
 		Email:          "ada-" + stamp + "@example.com",
 		MarketingOptIn: true,
+		Credits:        120,
+		Weight:         59.5,
+		LastLoggedIn:   time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC),
+		Metadata: entitystore.UserProfileMetadata{
+			Source: "deepverify",
+			Tags:   []string{"example", "pro"},
+		},
 	}
 	attributes, err := entitystore.InitialAttributes(profile)
 	if err != nil {
@@ -876,6 +884,13 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 			DisplayName:    "Ada Byron",
 			Email:          profile.Email,
 			MarketingOptIn: false,
+			Credits:        180,
+			Weight:         60.25,
+			LastLoggedIn:   time.Date(2026, 8, 12, 9, 45, 0, 0, time.UTC),
+			Metadata: entitystore.UserProfileMetadata{
+				Source: "deepverify",
+				Tags:   []string{"example", "enterprise"},
+			},
 		},
 		&none, dex.InvokeOptions{},
 	); err != nil {
@@ -887,7 +902,13 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	); err != nil {
 		return fail(name, "get", err)
 	}
-	if got.DisplayName != "Ada Byron" || got.Email != profile.Email || got.MarketingOptIn {
+	if got.DisplayName != "Ada Byron" || got.Email != profile.Email || got.MarketingOptIn ||
+		got.Credits != 180 || got.Weight != 60.25 ||
+		!got.LastLoggedIn.Equal(time.Date(2026, 8, 12, 9, 45, 0, 0, time.UTC)) ||
+		!reflect.DeepEqual(got.Metadata, entitystore.UserProfileMetadata{
+			Source: "deepverify",
+			Tags:   []string{"example", "enterprise"},
+		}) {
 		return fail(name, fmt.Sprintf("unexpected profile: %+v", got), nil)
 	}
 	if err := client.InvokeRPC(

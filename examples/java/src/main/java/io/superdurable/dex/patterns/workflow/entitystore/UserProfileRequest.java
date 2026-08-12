@@ -16,12 +16,18 @@
 
 package io.superdurable.dex.patterns.workflow.entitystore;
 
+import java.time.Instant;
+
 /** HTTP request that identifies a user and supplies profile fields. */
 public class UserProfileRequest {
     public String userId;
     public String displayName;
     public String email;
     public boolean marketingOptIn;
+    public long credits;
+    public double weight;
+    public Instant lastLoggedInTime;
+    public UserProfileMetadata metadata;
 
     public UserProfileRequest() {
     }
@@ -30,17 +36,32 @@ public class UserProfileRequest {
             final String userId,
             final String displayName,
             final String email,
-            final boolean marketingOptIn) {
+            final boolean marketingOptIn,
+            final long credits,
+            final double weight,
+            final Instant lastLoggedInTime,
+            final UserProfileMetadata metadata) {
         this.userId = userId;
         this.displayName = displayName;
         this.email = email;
         this.marketingOptIn = marketingOptIn;
+        this.credits = credits;
+        this.weight = weight;
+        this.lastLoggedInTime = lastLoggedInTime;
+        this.metadata = metadata;
         validate();
     }
 
     public UserProfile toProfile() {
         validate();
-        return new UserProfile(displayName, email, marketingOptIn);
+        return new UserProfile(
+                displayName,
+                email,
+                marketingOptIn,
+                credits,
+                weight,
+                lastLoggedInTime,
+                metadata);
     }
 
     private void validate() {

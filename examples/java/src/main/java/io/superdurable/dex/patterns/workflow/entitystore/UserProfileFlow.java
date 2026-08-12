@@ -23,6 +23,7 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.StepList;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 /** Keeps one user profile in Dex and projects its Attributes to PostgreSQL. */
@@ -36,6 +37,14 @@ public class UserProfileFlow implements Flow<Void> {
             Attribute.define("email", String.class).syncToAttributeStore();
     public final Attribute<Boolean> marketingOptIn =
             Attribute.define("marketing_opt_in", Boolean.class).syncToAttributeStore();
+    public final Attribute<Long> credits =
+            Attribute.define("credits", Long.class).syncToAttributeStore();
+    public final Attribute<Double> weight =
+            Attribute.define("weight", Double.class).syncToAttributeStore();
+    public final Attribute<Instant> lastLoggedInTime =
+            Attribute.define("last_logged_in_time", Instant.class).syncToAttributeStore();
+    public final Attribute<UserProfileMetadata> metadata =
+            Attribute.define("metadata", UserProfileMetadata.class).syncToAttributeStore();
 
     @Override
     public StepList<Void> getSteps() {
@@ -44,7 +53,14 @@ public class UserProfileFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(displayName, email, marketingOptIn);
+        return PersistenceSchema.of(
+                displayName,
+                email,
+                marketingOptIn,
+                credits,
+                weight,
+                lastLoggedInTime,
+                metadata);
     }
 
     @RPC
@@ -53,6 +69,10 @@ public class UserProfileFlow implements Flow<Void> {
         displayName.set(context, profile.displayName);
         email.set(context, profile.email);
         marketingOptIn.set(context, profile.marketingOptIn);
+        credits.set(context, profile.credits);
+        weight.set(context, profile.weight);
+        lastLoggedInTime.set(context, profile.lastLoggedInTime);
+        metadata.set(context, profile.metadata);
     }
 
     @RPC
@@ -60,7 +80,11 @@ public class UserProfileFlow implements Flow<Void> {
         return RPCResult.of(new UserProfile(
                 displayName.get(context),
                 email.get(context),
-                marketingOptIn.get(context)));
+                marketingOptIn.get(context),
+                credits.get(context),
+                weight.get(context),
+                lastLoggedInTime.get(context),
+                metadata.get(context)));
     }
 
     @RPC
@@ -68,5 +92,9 @@ public class UserProfileFlow implements Flow<Void> {
         displayName.delete(context);
         email.delete(context);
         marketingOptIn.delete(context);
+        credits.delete(context);
+        weight.delete(context);
+        lastLoggedInTime.delete(context);
+        metadata.delete(context);
     }
 }

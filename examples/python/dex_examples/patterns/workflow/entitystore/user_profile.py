@@ -15,6 +15,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass
+class UserProfileMetadata:
+    source: str
+    tags: list[str]
+
+    def validate(self) -> None:
+        if not self.source:
+            raise ValueError("metadata.source is required")
 
 
 @dataclass
@@ -22,6 +33,10 @@ class UserProfile:
     display_name: str
     email: str
     marketing_opt_in: bool
+    credits: int
+    weight: float
+    last_logged_in_time: datetime
+    metadata: UserProfileMetadata
 
     def __post_init__(self) -> None:
         self.validate()
@@ -31,6 +46,9 @@ class UserProfile:
             raise ValueError("display_name is required")
         if not self.email:
             raise ValueError("email is required")
+        if self.last_logged_in_time.tzinfo is None:
+            raise ValueError("last_logged_in_time must include a timezone")
+        self.metadata.validate()
 
 
 @dataclass
@@ -39,6 +57,10 @@ class UserProfileRequest:
     display_name: str
     email: str
     marketing_opt_in: bool
+    credits: int
+    weight: float
+    last_logged_in_time: datetime
+    metadata: UserProfileMetadata
 
     def __post_init__(self) -> None:
         if not self.user_id:
@@ -49,4 +71,8 @@ class UserProfileRequest:
             self.display_name,
             self.email,
             self.marketing_opt_in,
+            self.credits,
+            self.weight,
+            self.last_logged_in_time,
+            self.metadata,
         )

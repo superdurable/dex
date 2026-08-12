@@ -519,6 +519,9 @@ func (c columnSchema) convert(value *dexpb.Value, storeType config.AttributeStor
 		}
 		return nil, nil
 	case *dexpb.Value_StringValue:
+		if c.acceptsTemporal(storeType) {
+			return parseDatetime(kind.StringValue)
+		}
 		if !c.acceptsString() {
 			return nil, fmt.Errorf("column does not accept strings")
 		}
@@ -615,6 +618,13 @@ func (c columnSchema) acceptsBool(storeType config.AttributeStoreType) bool {
 	return c.columnType == "tinyint(1)" || c.columnType == "bit(1)" || c.dataType == "boolean" || c.dataType == "bool"
 }
 
+func (c columnSchema) acceptsTemporal(storeType config.AttributeStoreType) bool {
+	if storeType == config.AttributeStoreTypePostgres {
+		return c.dataType == "timestamp with time zone"
+	}
+	return c.dataType == "datetime" || c.dataType == "timestamp"
+}
+
 func (c columnSchema) convertObject(
 	object *dexpb.EncodedObject,
 	storeType config.AttributeStoreType,
@@ -625,6 +635,9 @@ func (c columnSchema) convertObject(
 	if strings.EqualFold(object.GetEncoding(), "json") {
 		if !json.Valid(object.GetPayload()) {
 			return nil, fmt.Errorf("JSON payload is invalid")
+		}
+		if c.acceptsTemporal(storeType) {
+			return parseJSONDatetime(object.GetPayload())
 		}
 		if c.dataType != "json" && c.dataType != "jsonb" {
 			return nil, fmt.Errorf("column does not accept JSON")
@@ -641,6 +654,60 @@ func (c columnSchema) convertObject(
 		return nil, fmt.Errorf("object exceeds column length")
 	}
 	return object.GetPayload(), nil
+}
+
+func parseDatetime(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("datetime must use RFC3339: %w", err)
+	}
+	return parsed, nil
+}
+
+func parseJSONDatetime(payload []byte) (time.Time, error) {
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return time.Time{}, fmt.Errorf("decode JSON datetime: %w", err)
+	}
+	switch datetime := value.(type) {
+	case string:
+		return parseDatetime(datetime)
+	case json.Number:
+		return parseUnixDatetime(datetime.String())
+	default:
+		return time.Time{}, fmt.Errorf("datetime payload must be a JSON string or epoch-seconds number")
+	}
+}
+
+func parseUnixDatetime(value string) (time.Time, error) {
+	negative := strings.HasPrefix(value, "-")
+	unsigned := strings.TrimPrefix(value, "-")
+	parts := strings.Split(unsigned, ".")
+	if len(parts) > 2 || len(parts) == 0 || parts[0] == "" {
+		return time.Time{}, fmt.Errorf("datetime epoch seconds are invalid")
+	}
+	seconds, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("datetime epoch seconds are invalid: %w", err)
+	}
+	var nanoseconds int64
+	if len(parts) == 2 {
+		if len(parts[1]) == 0 || len(parts[1]) > 9 {
+			return time.Time{}, fmt.Errorf("datetime epoch fraction must contain one to nine digits")
+		}
+		fraction := parts[1] + strings.Repeat("0", 9-len(parts[1]))
+		nanoseconds, err = strconv.ParseInt(fraction, 10, 64)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("datetime epoch fraction is invalid: %w", err)
+		}
+	}
+	if negative {
+		seconds = -seconds
+		nanoseconds = -nanoseconds
+	}
+	return time.Unix(seconds, nanoseconds), nil
 }
 
 func (c columnSchema) acceptsBinary(storeType config.AttributeStoreType) bool {

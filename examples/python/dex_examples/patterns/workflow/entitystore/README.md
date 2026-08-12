@@ -3,6 +3,9 @@
 One `UserProfileFlow` per user keeps the durable profile in Dex while projecting
 selected Attributes to PostgreSQL.
 
+The projection covers text, boolean, integer, double, RFC3339 datetime, and JSON
+metadata columns.
+
 ## Endpoints
 
 - `POST /design-pattern/entity-store/profile`

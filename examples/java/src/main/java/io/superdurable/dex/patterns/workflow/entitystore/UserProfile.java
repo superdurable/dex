@@ -16,11 +16,17 @@
 
 package io.superdurable.dex.patterns.workflow.entitystore;
 
+import java.time.Instant;
+
 /** User profile fields stored as individual Dex Attributes. */
 public class UserProfile {
     public String displayName;
     public String email;
     public boolean marketingOptIn;
+    public long credits;
+    public double weight;
+    public Instant lastLoggedInTime;
+    public UserProfileMetadata metadata;
 
     public UserProfile() {
     }
@@ -28,10 +34,18 @@ public class UserProfile {
     public UserProfile(
             final String displayName,
             final String email,
-            final boolean marketingOptIn) {
+            final boolean marketingOptIn,
+            final long credits,
+            final double weight,
+            final Instant lastLoggedInTime,
+            final UserProfileMetadata metadata) {
         this.displayName = displayName;
         this.email = email;
         this.marketingOptIn = marketingOptIn;
+        this.credits = credits;
+        this.weight = weight;
+        this.lastLoggedInTime = lastLoggedInTime;
+        this.metadata = metadata;
         validate();
     }
 
@@ -42,5 +56,15 @@ public class UserProfile {
         if (email == null || email.isEmpty()) {
             throw new IllegalArgumentException("email is required");
         }
+        if (!Double.isFinite(weight)) {
+            throw new IllegalArgumentException("weight must be finite");
+        }
+        if (lastLoggedInTime == null) {
+            throw new IllegalArgumentException("lastLoggedInTime is required");
+        }
+        if (metadata == null) {
+            throw new IllegalArgumentException("metadata is required");
+        }
+        metadata.validate();
     }
 }

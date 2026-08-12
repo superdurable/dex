@@ -156,6 +156,13 @@ export function registerDesignPatternRoutes(
           flows.userProfileFlow.marketingOptIn,
           profile.marketingOptIn,
         ),
+        InitialAttribute.of(flows.userProfileFlow.credits, BigInt(profile.credits)),
+        InitialAttribute.of(flows.userProfileFlow.weight, profile.weight),
+        InitialAttribute.of(
+          flows.userProfileFlow.lastLoggedInTime,
+          profile.lastLoggedInTime,
+        ),
+        InitialAttribute.of(flows.userProfileFlow.metadata, profile.metadata),
       ],
       configOverride: { attributeStoreName: ENTITY_STORE_NAME },
     }));
@@ -367,5 +374,31 @@ function profileFromRequest(request: UserProfileRequest): UserProfile {
     displayName: requiredString(request.displayName, "displayName"),
     email: requiredString(request.email, "email"),
     marketingOptIn: request.marketingOptIn,
+    credits: requiredSafeInteger(request.credits, "credits"),
+    weight: requiredFiniteNumber(request.weight, "weight"),
+    lastLoggedInTime: requiredDate(request.lastLoggedInTime, "lastLoggedInTime"),
+    metadata: request.metadata,
   };
+}
+
+function requiredSafeInteger(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`${name} must be a safe integer`);
+  }
+  return value;
+}
+
+function requiredFiniteNumber(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+  return value;
+}
+
+function requiredDate(value: unknown, name: string): Date {
+  const result = new Date(String(value ?? ""));
+  if (Number.isNaN(result.getTime())) {
+    throw new Error(`${name} must be an ISO datetime`);
+  }
+  return result;
 }

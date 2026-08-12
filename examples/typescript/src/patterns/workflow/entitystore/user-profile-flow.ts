@@ -18,6 +18,8 @@ import {
   Attribute,
   StepList,
   booleanCodec,
+  doubleCodec,
+  int64Codec,
   rpc,
   stringCodec,
   type Context,
@@ -26,7 +28,12 @@ import {
   type RPCResult,
 } from "@superdurable/dex";
 
-import { userProfileCodec, type UserProfile } from "./user-profile.js";
+import {
+  dateCodec,
+  metadataCodec,
+  userProfileCodec,
+  type UserProfile,
+} from "./user-profile.js";
 
 export const ENTITY_STORE_NAME = "entityStore";
 
@@ -35,6 +42,12 @@ export class UserProfileFlow implements Flow<void> {
     .syncToAttributeStore();
   public readonly email = new Attribute("email", stringCodec).syncToAttributeStore();
   public readonly marketingOptIn = new Attribute("marketing_opt_in", booleanCodec)
+    .syncToAttributeStore();
+  public readonly credits = new Attribute("credits", int64Codec).syncToAttributeStore();
+  public readonly weight = new Attribute("weight", doubleCodec).syncToAttributeStore();
+  public readonly lastLoggedInTime = new Attribute("last_logged_in_time", dateCodec)
+    .syncToAttributeStore();
+  public readonly metadata = new Attribute("metadata", metadataCodec)
     .syncToAttributeStore();
 
   public getFlowType(): string {
@@ -46,7 +59,17 @@ export class UserProfileFlow implements Flow<void> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.displayName, this.email, this.marketingOptIn] };
+    return {
+      attributes: [
+        this.displayName,
+        this.email,
+        this.marketingOptIn,
+        this.credits,
+        this.weight,
+        this.lastLoggedInTime,
+        this.metadata,
+      ],
+    };
   }
 
   @rpc({ inputCodec: userProfileCodec })
@@ -54,6 +77,10 @@ export class UserProfileFlow implements Flow<void> {
     this.displayName.set(context, profile.displayName);
     this.email.set(context, profile.email);
     this.marketingOptIn.set(context, profile.marketingOptIn);
+    this.credits.set(context, BigInt(profile.credits));
+    this.weight.set(context, profile.weight);
+    this.lastLoggedInTime.set(context, profile.lastLoggedInTime);
+    this.metadata.set(context, profile.metadata);
   }
 
   @rpc({ outputCodec: userProfileCodec })
@@ -63,6 +90,10 @@ export class UserProfileFlow implements Flow<void> {
         displayName: this.displayName.get(context),
         email: this.email.get(context),
         marketingOptIn: this.marketingOptIn.get(context),
+        credits: Number(this.credits.get(context)),
+        weight: this.weight.get(context),
+        lastLoggedInTime: this.lastLoggedInTime.get(context),
+        metadata: this.metadata.get(context),
       },
     };
   }
@@ -72,6 +103,10 @@ export class UserProfileFlow implements Flow<void> {
     this.displayName.delete(context);
     this.email.delete(context);
     this.marketingOptIn.delete(context);
+    this.credits.delete(context);
+    this.weight.delete(context);
+    this.lastLoggedInTime.delete(context);
+    this.metadata.delete(context);
   }
 }
 

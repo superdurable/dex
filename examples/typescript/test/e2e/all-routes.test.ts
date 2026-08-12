@@ -309,6 +309,10 @@ test("design-pattern entity store profile lifecycle", async () => {
       displayName: "Ada Lovelace",
       email: "ada@example.com",
       marketingOptIn: true,
+      credits: 120,
+      weight: 59.5,
+      lastLoggedInTime: "2026-08-11T15:30:00Z",
+      metadata: { source: "e2e", tags: ["example", "pro"] },
     }),
     "entity store create",
   );
@@ -318,6 +322,10 @@ test("design-pattern entity store profile lifecycle", async () => {
       displayName: "Ada Byron",
       email: "ada.byron@example.com",
       marketingOptIn: false,
+      credits: 180,
+      weight: 60.25,
+      lastLoggedInTime: "2026-08-12T09:45:00Z",
+      metadata: { source: "e2e", tags: ["example", "enterprise"] },
     }),
     "entity store update",
   );

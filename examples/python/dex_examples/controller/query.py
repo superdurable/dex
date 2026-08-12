@@ -57,6 +57,30 @@ async def required_bool_body_field(name: str) -> bool:
     return value
 
 
+async def required_int_body_field(name: str) -> int:
+    body = await request.get_json(silent=True)
+    value = body.get(name) if isinstance(body, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int):
+        abort(400, description=f"{name} must be an integer in the request body")
+    return value
+
+
+async def required_float_body_field(name: str) -> float:
+    body = await request.get_json(silent=True)
+    value = body.get(name) if isinstance(body, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        abort(400, description=f"{name} must be a number in the request body")
+    return float(value)
+
+
+async def required_object_body_field(name: str) -> dict[str, object]:
+    body = await request.get_json(silent=True)
+    value = body.get(name) if isinstance(body, dict) else None
+    if not isinstance(value, dict):
+        abort(400, description=f"{name} must be an object in the request body")
+    return value
+
+
 def new_flow_id(prefix: str) -> str:
     return f"{prefix}-{time.time_ns()}"
 
