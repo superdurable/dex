@@ -315,10 +315,16 @@ function WaitingConditionView({ value }: { value: unknown }) {
   );
 }
 
-function WaitingConditionContent({ value }: { value: unknown }) {
+function WaitingConditionContent({
+  value,
+  showEmpty = false,
+}: {
+  value: unknown;
+  showEmpty?: boolean;
+}) {
   const { timezone } = usePreferences();
   const condition = asData(value);
-  if (!hasData(condition)) return null;
+  if (!hasData(condition) && !showEmpty) return null;
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
   const combinations = asDataArray(condition.conditionCombinations);
@@ -604,10 +610,10 @@ function StepMethodDetails({
         ) : <p className="muted">No input</p>}
       </DetailSection>
       <DetailSection title="Output">
-        {isWaitFor && hasData(asData(output.waitForCondition)) ? (
+        {event.type === 'StepWaitForCompleted' ? (
           <div className="semantic-subsection">
             <h5>WaitFor condition</h5>
-            <WaitingConditionContent value={output.waitForCondition} />
+            <WaitingConditionContent value={output.waitForCondition} showEmpty />
           </div>
         ) : !isWaitFor && hasData(asData(output.stepDecision)) ? (
           <div className="semantic-subsection">

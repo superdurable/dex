@@ -46,10 +46,10 @@ function executeEvent(durability: number): FlowHistoryEvent {
   };
 }
 
-function waitForEvent(waitForCondition: Record<string, unknown>): FlowHistoryEvent {
+function waitForEvent(waitForCondition?: Record<string, unknown>): FlowHistoryEvent {
   const event = executeEvent(1);
   event.type = 'StepWaitForCompleted';
-  event.payload.output = { waitForCondition };
+  event.payload.output = waitForCondition ? { waitForCondition } : {};
   return event;
 }
 
@@ -355,9 +355,7 @@ describe('selected step event details', () => {
   });
 
   it('explains that an empty WaitFor condition skips waiting immediately', () => {
-    const markup = renderDetails(waitForEvent({
-      waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
-    }));
+    const markup = renderDetails(waitForEvent());
 
     expect(markup).toContain('Empty condition — skips WaitFor immediately');
     expect(markup).not.toContain('All completed');
