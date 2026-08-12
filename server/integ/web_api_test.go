@@ -88,6 +88,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("parallel-same-type-failures", func(t *testing.T) {
 		testWebParallelSameTypeFailures(t, backendType)
 	})
+	t.Run("force-closed-pending-step", func(t *testing.T) {
+		testWebForceClosedPendingStep(t, backendType)
+	})
 	for _, method := range []string{"wait-for", "execute"} {
 		t.Run("sync-last-failure-"+method, func(t *testing.T) {
 			testWebSyncLastFailure(t, backendType, method, false)
@@ -107,6 +110,79 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 			testWebStepInputWithoutStorage(t, backendType, durability)
 		})
 	}
+}
+
+func testWebForceClosedPendingStep(t *testing.T, backendType service.BackendType) {
+	handler := newCooperativeStopHandler()
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := "web-force-closed-pending-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           cooperativeStopFlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      cooperativeStopStepType,
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.executeStarted:
+	case <-ctx.Done():
+		require.FailNow(t, "Execute did not start", ctx.Err())
+	}
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		RunId:    startResponse.GetRunId(),
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId: flowID,
+		RunId:  startResponse.GetRunId(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TERMINATED, result.GetFlowStatus())
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	var closed *dexpb.FlowClosedHistoryEvent
+	for _, event := range events {
+		if event.GetFlowClosed() != nil {
+			closed = event.GetFlowClosed()
+		}
+		require.Nil(t, event.GetStepExecuteCompleted())
+		require.Nil(t, event.GetStepExecuteFailed())
+	}
+	require.NotNil(t, closed)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TERMINATED, closed.GetFlowStatus())
+	require.Len(t, closed.GetPendingStepMethods(), 1)
+	pending := closed.GetPendingStepMethods()[0]
+	require.Equal(t, dexpb.StepMethodKind_STEP_METHOD_KIND_EXECUTE, pending.GetMethod())
+	require.Contains(t, []dexpb.PendingStepMethodPhase{
+		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_SCHEDULED,
+		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_STARTED,
+	}, pending.GetPhase())
+	require.NotNil(t, pending.GetInput())
+	require.False(t, pending.GetInput().GetUnavailable())
+	methodContext := pending.GetContext()
+	require.Equal(t, cooperativeStopStepType+"-1", methodContext.GetStepExecutionId())
+	require.Equal(t, service.StartingStepFromStepExecutionId, methodContext.GetFromStepExecutionId())
+	require.Equal(t, cooperativeStopStepType, methodContext.GetStepType())
+	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, methodContext.GetDurability())
+	require.Equal(t, int32(1), methodContext.GetFinalAttempt())
+	require.NoError(t, methodContext.GetStartedTime().CheckValid())
+	require.NoError(t, methodContext.GetDuration().CheckValid())
 }
 
 func testWebParallelSameTypeFailures(t *testing.T, backendType service.BackendType) {

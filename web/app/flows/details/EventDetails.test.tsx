@@ -337,6 +337,39 @@ describe('selected step event details', () => {
   });
 });
 
+describe('flow close details', () => {
+  it('renders step methods left pending by a forced close', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 20,
+      eventTime: '2026-08-05T23:44:35Z',
+      type: 'FlowClosed',
+      payload: {
+        flowStatus: 5,
+        pendingStepMethods: [{
+          method: 2,
+          phase: 2,
+          input: { stepInput: { stringValue: 'charge' } },
+          context: {
+            stepExecutionId: 'charge-1',
+            fromStepExecutionId: 'authorize-1',
+            stepType: 'charge',
+            durability: 1,
+            finalAttempt: 1,
+            duration: '3s',
+          },
+        }],
+      },
+    };
+
+    const markup = renderDetails(event);
+    expect(markup).toContain('Pending step methods');
+    expect(markup).toContain('Execute pending');
+    expect(markup).toContain('Started');
+    expect(markup).toContain('charge-1');
+    expect(markup).toContain('3s');
+  });
+});
+
 describe('flow start event details', () => {
   it('renders the configured flow timeout', () => {
     const event: FlowHistoryEvent = {

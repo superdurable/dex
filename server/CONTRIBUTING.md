@@ -234,3 +234,8 @@ only when the Step execution ID still exists in the queried active snapshot.
 ASYNC local activities have no backend pending-activity record. Their retry
 failure becomes observable after the interpreter falls back to a regular
 activity.
+
+Semantic history retains regular Step activities that remain unresolved when a
+flow closes in `FlowClosedHistoryEvent.pending_step_methods`. Build these from
+scheduled history rather than backend describe, whose pending list is empty
+after termination.

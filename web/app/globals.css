@@ -1978,6 +1978,10 @@ pre {
   background: #d39732;
 }
 
+.legend-pending {
+  background: #8c6fc4;
+}
+
 .legend-completed {
   background: #4e81a9;
 }
@@ -2017,6 +2021,10 @@ pre {
 
 .react-flow__node.node-waiting {
   border-color: #d39732;
+}
+
+.react-flow__node.node-pending {
+  border-color: #8c6fc4;
 }
 
 .react-flow__node.node-failed {
@@ -2205,6 +2213,10 @@ pre {
 
 .graph-method-failed strong {
   color: var(--danger);
+}
+
+.graph-method-pending strong {
+  color: #6f4ea8;
 }
 
 .graph-method-execute strong {

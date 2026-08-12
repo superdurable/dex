@@ -519,6 +519,29 @@ message FlowClosedHistoryEvent {
   FlowErrorType error_type = 3;
   string error_message = 4;
   string continued_to_run_id = 5;
+  repeated PendingStepMethod pending_step_methods = 6;
+}
+
+// StepMethodKind identifies a Step Worker method.
+enum StepMethodKind {
+  STEP_METHOD_KIND_UNSPECIFIED = 0;
+  STEP_METHOD_KIND_WAIT_FOR = 1;
+  STEP_METHOD_KIND_EXECUTE = 2;
+}
+
+// PendingStepMethodPhase reports the latest persisted backend lifecycle event.
+enum PendingStepMethodPhase {
+  PENDING_STEP_METHOD_PHASE_UNSPECIFIED = 0;
+  PENDING_STEP_METHOD_PHASE_SCHEDULED = 1;
+  PENDING_STEP_METHOD_PHASE_STARTED = 2;
+}
+
+// PendingStepMethod describes a regular Step activity unresolved at flow closure.
+message PendingStepMethod {
+  StepMethodKind method = 1;
+  StepMethodEventInput input = 2;
+  StepMethodEventContext context = 3;
+  PendingStepMethodPhase phase = 4;
 }
 
 message StepMethodFailure {

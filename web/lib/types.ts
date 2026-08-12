@@ -101,12 +101,15 @@ export interface StepGraphNode {
   id: string;
   label: string;
   kind: 'source' | 'step' | 'terminal';
-  status: 'Source' | 'Active' | 'Waiting' | 'Completed' | 'Failed' | 'Terminal';
+  status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Terminal';
   previousRunId?: string;
   stepType?: string;
   fromStepExecutionId?: string;
   waitFor?: FlowHistoryEvent;
   execute?: FlowHistoryEvent;
+  pendingWaitFor?: Record<string, unknown>;
+  pendingExecute?: Record<string, unknown>;
+  pendingEvent?: FlowHistoryEvent;
   active?: ActiveStepExecution;
   transient?: boolean;
 }

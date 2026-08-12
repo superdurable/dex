@@ -393,11 +393,30 @@ func (b *Builder) RecordClose(
 	eventTime time.Time,
 	payload *dexpb.FlowClosedHistoryEvent,
 ) {
+	payload.PendingStepMethods = append(payload.PendingStepMethods, b.pendingStepMethods(eventTime)...)
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
 		&dexpb.FlowHistoryEvent_FlowClosed{FlowClosed: payload},
 	))
+}
+
+func (b *Builder) pendingStepMethods(closedTime time.Time) []*dexpb.PendingStepMethod {
+	scheduledEventIDs := make([]int64, 0, len(b.scheduledActivities))
+	for scheduledEventID := range b.scheduledActivities {
+		scheduledEventIDs = append(scheduledEventIDs, scheduledEventID)
+	}
+	sort.Slice(scheduledEventIDs, func(left int, right int) bool {
+		return scheduledEventIDs[left] < scheduledEventIDs[right]
+	})
+	pendingMethods := make([]*dexpb.PendingStepMethod, 0, len(scheduledEventIDs))
+	for _, scheduledEventID := range scheduledEventIDs {
+		pendingMethods = append(
+			pendingMethods,
+			b.scheduledActivities[scheduledEventID].pendingStepMethod(closedTime),
+		)
+	}
+	return pendingMethods
 }
 
 func (b *Builder) EventsInRange(
@@ -451,6 +470,54 @@ func (b *Builder) populateContinuedStart() error {
 	continued.Attributes = dump.GetAttributes()
 	continued.CompletedSteps = dump.GetStepOutputs()
 	return nil
+}
+
+func (s *scheduledActivity) pendingStepMethod(closedTime time.Time) *dexpb.PendingStepMethod {
+	startedTime, finalAttempt := s.executionTiming()
+	phase := dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_STARTED
+	if s.firstStartedTime.IsZero() {
+		phase = dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_SCHEDULED
+	}
+	switch {
+	case s.waitInput != nil:
+		request := s.waitInput.GetRequest()
+		return &dexpb.PendingStepMethod{
+			Method: dexpb.StepMethodKind_STEP_METHOD_KIND_WAIT_FOR,
+			Input:  waitEventInput(request),
+			Context: stepMethodEventContext(
+				request.GetContext(),
+				request.GetStepType(),
+				s.durability,
+				false,
+				startedTime,
+				closedTime,
+				finalAttempt,
+				s.methodOptions,
+				s.lastFailure,
+			),
+			Phase: phase,
+		}
+	case s.executeInput != nil:
+		request := s.executeInput.GetRequest()
+		return &dexpb.PendingStepMethod{
+			Method: dexpb.StepMethodKind_STEP_METHOD_KIND_EXECUTE,
+			Input:  executeEventInput(request),
+			Context: stepMethodEventContext(
+				request.GetContext(),
+				request.GetStepType(),
+				s.durability,
+				s.executeInput.GetIsTransientStep(),
+				startedTime,
+				closedTime,
+				finalAttempt,
+				s.methodOptions,
+				s.lastFailure,
+			),
+			Phase: phase,
+		}
+	default:
+		panic("scheduled step activity has no method input")
+	}
 }
 
 func (s *scheduledActivity) executionTiming() (time.Time, int32) {

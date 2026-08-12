@@ -726,6 +726,7 @@ function ContinuedStartDetails({ payload, showHeading = true }: { payload: Data;
 
 function FlowClosedDetails({ payload }: { payload: Data }) {
   const errorType = isPresent(payload.errorType) ? flowErrorTypeLabel(payload.errorType) : undefined;
+  const pendingMethods = asDataArray(payload.pendingStepMethods);
   return (
     <>
       <DetailSection title="Outcome">
@@ -745,8 +746,45 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
       {Array.isArray(payload.results) && payload.results.length > 0 && (
         <DetailSection title="Flow results"><StepOutputs values={payload.results} /></DetailSection>
       )}
+      {pendingMethods.length > 0 && (
+        <DetailSection title="Pending step methods">
+          <div className="semantic-records">
+            {pendingMethods.map((pending, index) => {
+              const input = asData(pending.input);
+              const context = asData(pending.context);
+              return (
+                <div className="semantic-record" key={`${String(context.stepExecutionId)}-${index}`}>
+                  <strong>{pendingMethodLabel(pending.method)} pending</strong>
+                  <Fields values={[
+                    ['Execution ID', context.stepExecutionId],
+                    ['Step type', context.stepType],
+                    ['From', context.fromStepExecutionId],
+                    ['Activity phase', pendingPhaseLabel(pending.phase)],
+                    ['Durability', durabilityLabel(context.durability)],
+                    ['Current attempt', context.finalAttempt],
+                    ['Elapsed', protobufDuration(context.duration)],
+                  ]} />
+                  <ValueBlock label="Step input" value={input.stepInput} />
+                </div>
+              );
+            })}
+          </div>
+        </DetailSection>
+      )}
     </>
   );
+}
+
+function pendingMethodLabel(value: unknown): string {
+  if (value === 1) return 'WaitFor';
+  if (value === 2) return 'Execute';
+  return 'Step method';
+}
+
+function pendingPhaseLabel(value: unknown): string {
+  if (value === 1) return 'Scheduled';
+  if (value === 2) return 'Started';
+  return 'Unspecified';
 }
 
 function RPCDetails({ payload }: { payload: Data }) {
