@@ -183,6 +183,10 @@ func (s *Synchronizer) waitUntilVisible(
 				tag.Missing(missing),
 				tag.Interval(nextPollInterval(interval)),
 			)
+			addErr := s.addAttributeIndexes(ctx, missing)
+			if addErr != nil && !isRetryable(addErr) && !isConcurrentRegistration(addErr) {
+				return backendError(addErr)
+			}
 		} else if !isRetryable(err) {
 			return backendError(err)
 		} else {

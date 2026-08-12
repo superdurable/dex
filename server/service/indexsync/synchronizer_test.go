@@ -70,6 +70,27 @@ func TestSyncWaitsForNewIndexesToBecomeVisible(t *testing.T) {
 	require.Equal(t, 1, client.addCallCount())
 }
 
+func TestSyncRetriesIndexesMissingAfterSuccessfulRegistration(t *testing.T) {
+	client := &scriptedClient{listResults: []listResult{
+		{indexes: map[string]dexpb.IndexType{}},
+		{indexes: map[string]dexpb.IndexType{"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD}},
+		{indexes: map[string]dexpb.IndexType{
+			"FlowType": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+			"Status":   dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		}},
+	}}
+	synchronizer := New(testConfig(2*time.Second), client, log.NewNoop())
+
+	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
+		"FlowType": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		"Status":   dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 3, client.listCallCount())
+	require.Equal(t, 2, client.addCallCount())
+}
+
 func TestSyncAcceptsConcurrentRegistration(t *testing.T) {
 	client := &scriptedClient{
 		listResults: []listResult{
