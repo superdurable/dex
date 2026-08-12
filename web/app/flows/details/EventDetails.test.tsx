@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { STEP_EVENT_INPUT_UNAVAILABLE } from '@/lib/unavailable';
-import { SemanticEventDetails } from './EventDetails';
+import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
 
 function executeEvent(durability: number): FlowHistoryEvent {
   return {
@@ -338,7 +338,7 @@ describe('selected step event details', () => {
 });
 
 describe('RPC event details', () => {
-  it('renders external SetAttributes as a system RPC with its writes', () => {
+  it('renders external SetAttributes without exposing its system RPC', () => {
     const event: FlowHistoryEvent = {
       eventId: 9,
       eventTime: '2026-08-05T23:44:30Z',
@@ -354,11 +354,14 @@ describe('RPC event details', () => {
 
     const markup = renderDetails(event);
 
-    expect(markup).toContain('RPC name');
-    expect(markup).toContain('_sys/set_attribute');
-    expect(markup).toContain('Upsert attributes');
+    expect(eventTitle(event)).toBe('Attributes updated');
+    expect(eventTypeLabel(event)).toBe('SetAttributes');
+    expect(markup).toContain('Updated attributes');
     expect(markup).toContain('order-status');
     expect(markup).toContain('complete');
+    expect(markup).not.toContain('RPC call');
+    expect(markup).not.toContain('RPC name');
+    expect(markup).not.toContain('_sys/set_attribute');
   });
 });
 
