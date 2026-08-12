@@ -38,11 +38,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Build BlobCache Node binding
         working-directory: sdk-rust
         run: cargo build --release -p dex-blob-cache-node --locked
@@ -67,14 +67,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.97.1"
     defaults:
       run:
         working-directory: sdk-typescript
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-node@v6
         with:
           node-version: "24"

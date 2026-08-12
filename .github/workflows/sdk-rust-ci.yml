@@ -30,7 +30,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  RUSTUP_TOOLCHAIN: "1.88.0"
+  RUSTUP_TOOLCHAIN: "1.97.1"
 
 jobs:
   quality:
@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Validate public API documentation
@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Run tests
         run: cargo test --workspace --locked
 
@@ -93,7 +93,7 @@ jobs:
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
       - name: Install Rust
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Run integration tests
         run: ./run-integration-tests.sh
       - name: Upload service logs

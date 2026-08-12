@@ -6,6 +6,7 @@ license-file.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Generated Dex protobuf and gRPC protocol"
+publish = ["crates-io"]
 
 [dependencies]
 prost.workspace = true

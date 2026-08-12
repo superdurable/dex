@@ -160,6 +160,8 @@ npm run build:native
 
 ## Development
 
+Rust 1.97 or newer is required.
+
 Format and test the workspace:
 
 ```bash
@@ -185,6 +187,17 @@ The script creates its own Dex environment, ports, and BlobCache directory,
 then removes the temporary state. Each Worker synchronizes its registered
 Indexed Attributes before listening; failure or the default two-minute
 deadline aborts startup.
+
+## Releases
+
+Publish `dex-sdk`, `dex-blob-cache`, and `dex-protocol` by creating a GitHub
+Release whose tag is `sdk-rust/vX.Y.Z`. The release workflow stamps all crate
+versions and internal registry requirements from the tag in its temporary
+checkout, then publishes the crates in dependency order. No version-bump commit
+is required before publishing.
+
+The workflow also supports a manual validation run. Manual publishing is
+restricted to `main` and requires the `CRATES_IO_TOKEN` repository secret.
 
 ## License
 

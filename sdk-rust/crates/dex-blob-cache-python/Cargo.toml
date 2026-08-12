@@ -6,11 +6,12 @@ license-file.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Python binding for the shared Dex DXBC blob cache"
+publish = false
 
 [lib]
 name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-dex-blob-cache = { path = "../dex-blob-cache" }
+dex-blob-cache.workspace = true
 pyo3 = { workspace = true, features = ["abi3-py311", "extension-module"] }
