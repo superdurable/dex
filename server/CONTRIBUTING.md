@@ -57,12 +57,13 @@ explicitly. Indexed Attributes still use the backend-native mapper.
 Interpreter workflows and activities use constructor injection. Do not add mutable
 package-global environments or registries.
 
-`WaitForStepCompletion`, `WaitForAttribute`, and locking RPCs are Temporal-only
-synchronous updates. Non-locking RPCs remain available on both backends.
+`WaitForStepCompletion` and `WaitForAttribute` are Temporal-only synchronous
+updates. Every Temporal InvokeRPC is an `InvokeRpc` synchronous update. Cadence
+supports non-locking InvokeRPC through query, WorkerService, and optional signal.
 
-Their protobuf requests require a client-generated `request_id`. The server passes
-it to Temporal as the Update ID, so one logical call must reuse the same ID across
-retries and keep the operation and input unchanged. Temporal deduplicates only
+Their protobuf requests require a client-generated `request_id`. For Temporal
+InvokeRPC and waits, the server passes it as the Update ID, so one logical call
+must reuse the same ID across retries and keep the operation and input unchanged. Temporal deduplicates only
 within one namespace, workflow ID, and run ID; Continue-as-New starts a new
 deduplication scope. SDK support remains deferred during the server rewrite.
 

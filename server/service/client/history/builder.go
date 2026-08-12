@@ -435,6 +435,29 @@ func (b *Builder) RecordSignal(
 	))
 }
 
+func (b *Builder) RecordInvokeRpcUpdate(
+	eventID int64,
+	eventTime time.Time,
+	request *dexpb.InvokeRPCRequest,
+	result *dexpb.InvokeRpcUpdateResult,
+) {
+	b.events = append(b.events, newEvent(
+		eventID,
+		eventTime,
+		&dexpb.FlowHistoryEvent_RpcExecutionCompleted{
+			RpcExecutionCompleted: &dexpb.RpcExecutionCompletedEvent{
+				RpcName:          request.GetRpcName(),
+				Input:            request.GetInput(),
+				Output:           result.GetResponse().GetOutput(),
+				StepDecision:     result.GetStepDecision(),
+				UpsertAttributes: result.GetUpsertAttributes(),
+				RecordEvents:     result.GetRecordEvents(),
+				PublishToChannel: result.GetPublishToChannel(),
+			},
+		},
+	))
+}
+
 func (b *Builder) RecordClose(
 	eventID int64,
 	eventTime time.Time,

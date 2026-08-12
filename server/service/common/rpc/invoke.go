@@ -38,9 +38,9 @@ func InvokeWorkerRpc(
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
-		if err := blobstore.HydrateValue(ctx, req.GetInput(), blobStore); err != nil {
-			return nil, err
-		}
+	}
+	if err := blobstore.HydrateValue(ctx, req.GetInput(), blobStore); err != nil {
+		return nil, err
 	}
 
 	timeoutSeconds := req.GetTimeoutSeconds()

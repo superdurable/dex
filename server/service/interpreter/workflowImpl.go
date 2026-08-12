@@ -49,6 +49,10 @@ func (i *Interpreter) StartEngineFlow(
 	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
+	invokeRpcBootstrap := newInvokeRpcBootstrap(provider)
+	if err := invokeRpcBootstrap.register(ctx); err != nil {
+		return nil, err
+	}
 
 	var persistenceManager *PersistenceManager
 
@@ -119,6 +123,7 @@ func (i *Interpreter) StartEngineFlow(
 		continueAsNewer = NewContinueAsNewer(
 			&i.sharedConfig.Api,
 			provider,
+			invokeRpcBootstrap,
 			channelStore,
 			stepExecutionCounter,
 			persistenceManager,
@@ -165,6 +170,7 @@ func (i *Interpreter) StartEngineFlow(
 		continueAsNewer = NewContinueAsNewer(
 			&i.sharedConfig.Api,
 			provider,
+			invokeRpcBootstrap,
 			channelStore,
 			stepExecutionCounter,
 			persistenceManager,
@@ -186,25 +192,6 @@ func (i *Interpreter) StartEngineFlow(
 	)
 	attributeSynchronizer.Start()
 
-	updateErr := NewWorkflowUpdater(
-		&i.sharedConfig.Api,
-		i.activities,
-		ctx,
-		provider,
-		persistenceManager,
-		stepRequestQueue,
-		continueAsNewer,
-		continueAsNewCounter,
-		channelStore,
-		signalReceiver,
-		stepExecutionCounter,
-		flowConfiger,
-		basicInfo,
-	)
-	if updateErr != nil {
-		return nil, updateErr
-	}
-
 	// we need these global varirables because sub threads(goroutine) need to report error back
 	// to main goroutine to return.
 	// Note that different errors could overwrite each other.
@@ -221,6 +208,27 @@ func (i *Interpreter) StartEngineFlow(
 		signalReceiver,
 		&forceCompleteWf,
 	)
+	workflowUpdater, updateErr := NewWorkflowUpdater(
+		&i.sharedConfig.Api,
+		i.activities,
+		ctx,
+		provider,
+		persistenceManager,
+		stepRequestQueue,
+		continueAsNewer,
+		continueAsNewCounter,
+		channelStore,
+		signalReceiver,
+		terminalCoordinator,
+		stepExecutionCounter,
+		flowConfiger,
+		basicInfo,
+	)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+	invokeRpcBootstrap.updater = workflowUpdater
+
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
 		if provider.IsReplaying(ctx) {

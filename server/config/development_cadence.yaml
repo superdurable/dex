@@ -10,6 +10,7 @@
 
 api:
   port: 8801
+  includeCadenceRPCInputOutputIntoHistory: false
   queryWorkflowFailedRetryPolicy:
     initialIntervalSeconds: 1
     maximumAttempts: 5

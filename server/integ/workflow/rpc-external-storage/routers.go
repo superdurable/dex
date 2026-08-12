@@ -60,8 +60,8 @@ var (
 	LargeDataValue   = jsonStringValue(LargeDataContent)
 	InitialSmallData = jsonStringValue(InitialSmallDataContent)
 	InitialLargeData = jsonStringValue(InitialLargeDataContent)
-	TestInput        = jsonStringValue("test-input-value")
-	TestOutput       = jsonStringValue("test-output-value")
+	TestInput        = jsonStringValue("rpc-input-" + strings.Repeat("i", 240))
+	TestOutput       = jsonStringValue("rpc-output-" + strings.Repeat("o", 240))
 )
 
 type handler struct {

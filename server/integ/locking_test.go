@@ -197,6 +197,12 @@ func doTestLockingWorkflow(
 		FlowId: flowId,
 		Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
 	})
+	if status.Code(err) == codes.DeadlineExceeded {
+		attributesResp, err = flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+			FlowId: flowId,
+			Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
+		})
+	}
 	require.NoError(t, err)
 	attributeMap := attributesToMap(attributesResp.GetAttributes())
 	assertions.Equal(finalCounterValue, attributeMap[locking.TestSearchAttributeIntKey].GetIntValue())
@@ -206,10 +212,9 @@ func doTestLockingWorkflow(
 	)
 
 	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
-		FlowId:                flowId,
-		ResetType:             dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
-		StepType:              locking.StateWaiting,
-		SkipLockingRpcReapply: true,
+		FlowId:    flowId,
+		ResetType: dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
+		StepType:  locking.StateWaiting,
 	})
 	require.NoError(t, err)
 

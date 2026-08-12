@@ -11,12 +11,13 @@ package interpreter
 import "github.com/superdurable/dex/service/interpreter/interfaces"
 
 type TerminalCoordinator struct {
-	provider        interfaces.WorkflowProvider
-	ctx             interfaces.UnifiedContext
-	continueAsNewer *ContinueAsNewer
-	attributeSyncer *AttributeSynchronizer
-	signalReceiver  *SignalReceiver
-	forceComplete   *bool
+	provider          interfaces.WorkflowProvider
+	ctx               interfaces.UnifiedContext
+	continueAsNewer   *ContinueAsNewer
+	attributeSyncer   *AttributeSynchronizer
+	signalReceiver    *SignalReceiver
+	forceComplete     *bool
+	startedFinalizing bool
 }
 
 func NewTerminalCoordinator(
@@ -44,9 +45,10 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	if c.provider.IsContinueAsNewError(retErr) {
 		return retErr
 	}
+	c.startedFinalizing = true
 	if err := c.provider.Await(c.ctx, func() bool {
-		return *c.forceComplete ||
-			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
+		return c.continueAsNewer.inflightUpdateOperations == 0 &&
+			(*c.forceComplete || c.attributeSyncer.ProducersDrained())
 	}); err != nil {
 		return err
 	}
@@ -62,4 +64,8 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 			return retErr
 		}
 	}
+}
+
+func (c *TerminalCoordinator) hasStartedFinalizing() bool {
+	return c.startedFinalizing
 }

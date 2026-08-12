@@ -25,8 +25,9 @@ import (
 )
 
 type ContinueAsNewer struct {
-	provider interfaces.WorkflowProvider
-	apiCfg   *config.ApiConfig
+	provider  interfaces.WorkflowProvider
+	apiCfg    *config.ApiConfig
+	bootstrap *invokeRpcBootstrap
 
 	StepExecutionToResumeMap map[string]*dexpb.StepExecutionResumeInfo // stepExeId to StepExecutionResumeInfo
 	inflightUpdateOperations int
@@ -44,19 +45,22 @@ type ContinueAsNewer struct {
 func NewContinueAsNewer(
 	apiCfg *config.ApiConfig,
 	provider interfaces.WorkflowProvider,
+	bootstrap *invokeRpcBootstrap,
 	channelStore *ChannelStore, stepExecutionCounter *StepExecutionCounter,
 	persistenceManager *PersistenceManager, stepRequestQueue *StepRequestQueue, collector *OutputCollector,
 	timerProcessor interfaces.TimerProcessor,
 	attributeSynchronizer *AttributeSynchronizer,
 ) *ContinueAsNewer {
-	if apiCfg == nil || provider == nil || stepRequestQueue == nil || channelStore == nil ||
+	if apiCfg == nil || provider == nil || bootstrap == nil ||
+		stepRequestQueue == nil || channelStore == nil ||
 		stepExecutionCounter == nil || persistenceManager == nil || collector == nil ||
 		timerProcessor == nil || attributeSynchronizer == nil {
 		panic("ContinueAsNewer requires non-nil dependencies")
 	}
 	return &ContinueAsNewer{
-		provider: provider,
-		apiCfg:   apiCfg,
+		provider:  provider,
+		apiCfg:    apiCfg,
+		bootstrap: bootstrap,
 
 		StepExecutionToResumeMap: map[string]*dexpb.StepExecutionResumeInfo{},
 
@@ -338,14 +342,14 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 	runId := c.provider.GetWorkflowInfo(ctx).WorkflowExecution.RunID
 
 	remainingThreadCount := c.provider.GetThreadCount()
-	if remainingThreadCount == 0 && c.inflightUpdateOperations == 0 {
+	if remainingThreadCount == 0 && c.inflightOperations() == 0 {
 		inMemoryContinueAsNewMonitor.Delete(runId)
 		return true
 	}
 
 	initTimeValue, ok := inMemoryContinueAsNewMonitor.Load(runId)
 	c.provider.GetLogger(ctx).Debug("continueAsNew is in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
-		remainingThreadCount, initTimeValue, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
+		remainingThreadCount, initTimeValue, c.provider.GetPendingThreadNames(), c.inflightOperations())
 
 	if !ok {
 		inMemoryContinueAsNewMonitor.Store(runId, time.Now())
@@ -358,7 +362,7 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 	if elapsed >= errThreshold {
 		c.provider.GetLogger(ctx).Warn(
 			"continueAsNew is likely stuck (unless worker API is stuck) in draining remainingThreadCount, attempt, threadNames, inflightUpdateOperations",
-			remainingThreadCount, initTime, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
+			remainingThreadCount, initTime, c.provider.GetPendingThreadNames(), c.inflightOperations())
 		return false
 	}
 	if elapsed >= warnThreshold {
@@ -367,4 +371,8 @@ func (c *ContinueAsNewer) allThreadsDrained(ctx interfaces.UnifiedContext) bool 
 			remainingThreadCount, initTime, c.provider.GetPendingThreadNames(), c.inflightUpdateOperations)
 	}
 	return false
+}
+
+func (c *ContinueAsNewer) inflightOperations() int {
+	return c.inflightUpdateOperations + c.bootstrap.inflightOperations
 }

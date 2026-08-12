@@ -250,7 +250,11 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 		}
 	}
 
-	ch = sr.provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
+	sr.drainReceivedRpcSignals(ctx)
+}
+
+func (sr *SignalReceiver) drainReceivedRpcSignals(ctx interfaces.UnifiedContext) {
+	ch := sr.provider.GetSignalChannel(ctx, service.ExecuteRpcSignalChannelName)
 	for {
 		val := dexpb.ExecuteRpcSignalRequest{}
 		if ch.ReceiveAsync(&val) {

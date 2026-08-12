@@ -106,6 +106,22 @@ func TestRpcWorkflowCadenceContinueAsNew(t *testing.T) {
 	}
 }
 
+func TestRpcLockingUnimplementedCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeCadence})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:         newRequestID(),
+		FlowId:            "cadence-locking-rpc-" + uuid.NewString(),
+		RpcName:           rpc.RPCName,
+		LockAttributeKeys: []string{"lock-key"},
+	})
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
 func doTestRpcWorkflow(
 	t *testing.T,
 	backendType service.BackendType,

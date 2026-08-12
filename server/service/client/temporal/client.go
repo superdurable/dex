@@ -177,6 +177,14 @@ func (t *temporalClient) IsNotFoundError(err error) bool {
 	return ok
 }
 
+func (t *temporalClient) IsUnknownUpdateError(err error, updateName string) bool {
+	return strings.HasPrefix(err.Error(), fmt.Sprintf("unknown update %s. KnownUpdates=", updateName))
+}
+
+func (t *temporalClient) IsAcceptedUpdateCompletedWorkflowError(err error) bool {
+	return strings.Contains(err.Error(), "AcceptedUpdateCompletedWorkflow")
+}
+
 func (t *temporalClient) isQueryFailedError(err error) bool {
 	var serviceError *serviceerror.QueryFailed
 	ok := errors.As(err, &serviceError)
@@ -581,6 +589,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 	builder := historybuilder.NewBuilder(workflowID, runID)
 	scheduledTypes := map[int64]string{}
 	localFallbackCounts := map[string]int{}
+	acceptedRpcUpdates := map[int64]*dexpb.InvokeRPCRequest{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
 		if err != nil {
@@ -590,6 +599,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 			builder,
 			scheduledTypes,
 			localFallbackCounts,
+			acceptedRpcUpdates,
 			event,
 		); err != nil {
 			return nil, err
@@ -630,6 +640,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
 	localFallbackCounts map[string]int,
+	acceptedRpcUpdates map[int64]*dexpb.InvokeRPCRequest,
 	event *history.HistoryEvent,
 ) error {
 	eventTime := event.GetEventTime().AsTime()
@@ -719,6 +730,34 @@ func (t *temporalClient) addTemporalHistoryEvent(
 			return err
 		}
 		builder.RecordSignal(event.GetEventId(), eventTime, &request)
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
+		attributes := event.GetWorkflowExecutionUpdateAcceptedEventAttributes()
+		acceptedRequest := attributes.GetAcceptedRequest()
+		if acceptedRequest.GetInput().GetName() != service.InvokeRpcUpdateType {
+			return nil
+		}
+		var request dexpb.InvokeRPCRequest
+		if err := t.dataConverter.FromPayloads(
+			acceptedRequest.GetInput().GetArgs(),
+			&request,
+		); err != nil {
+			return err
+		}
+		acceptedRpcUpdates[event.GetEventId()] = &request
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+		attributes := event.GetWorkflowExecutionUpdateCompletedEventAttributes()
+		request := acceptedRpcUpdates[attributes.GetAcceptedEventId()]
+		if request == nil || attributes.GetOutcome().GetSuccess() == nil {
+			return nil
+		}
+		var result dexpb.InvokeRpcUpdateResult
+		if err := t.dataConverter.FromPayloads(
+			attributes.GetOutcome().GetSuccess(),
+			&result,
+		); err != nil {
+			return err
+		}
+		builder.RecordInvokeRpcUpdate(event.GetEventId(), eventTime, request, &result)
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
 		var output dexpb.InterpreterWorkflowOutput
 		attributes := event.GetWorkflowExecutionCompletedEventAttributes()

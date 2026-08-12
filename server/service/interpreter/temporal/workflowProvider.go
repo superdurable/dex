@@ -211,7 +211,7 @@ func (w *workflowProvider) SetInvokeRPCUpdateHandler(
 	validator interfaces.InvokeRPCUpdateValidator,
 	handler interfaces.InvokeRPCUpdateHandler,
 ) error {
-	return setUpdateHandler(ctx, service.ExecuteOptimisticLockingRpcUpdateType, validator, handler)
+	return setUpdateHandler(ctx, service.InvokeRpcUpdateType, validator, handler)
 }
 
 func (w *workflowProvider) SetWaitForStepCompletionUpdateHandler(

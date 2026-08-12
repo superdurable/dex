@@ -28,9 +28,9 @@ const (
 	IsStepExecutionCompletedQueryType = "IsStepExecutionCompleted"
 	PrepareRpcQueryType               = "PrepareRpcQueryType"
 
-	ExecuteOptimisticLockingRpcUpdateType = "ExecuteOptimisticLockingRpcUpdate"
-	WaitForStepCompletionUpdateType       = "WaitForStepCompletion"
-	WaitForAttributeUpdateType            = "WaitForAttribute"
+	InvokeRpcUpdateType             = "InvokeRpc"
+	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
+	WaitForAttributeUpdateType      = "WaitForAttribute"
 
 	SearchAttributeActiveStepTypes = "ActiveStepTypes"
 	SearchAttributeDexWorkflowType = "FlowType"

@@ -1176,10 +1176,10 @@ the only public request-ID override. Normal application code may instead leave
 it nil for an SDK-generated UUID. Other Client option types do not expose a
 request-ID field.
 
-SetAttributes and non-locking RPC use the ID for external-value offload
-ownership even though their workflow operations are not synchronous updates.
-Locking RPC and both wait methods use it as the Temporal update ID. The ID is
-not exposed in results.
+SetAttributes uses the ID for external-value offload ownership. Every Temporal
+InvokeRPC uses it for both external-value ownership and the `InvokeRpc` Update ID.
+The two wait methods also use it as their Temporal update ID. Cadence InvokeRPC
+uses it for external-value ownership. The ID is not exposed in results.
 
 ### StartFlow assembly
 
@@ -2392,7 +2392,7 @@ Request IDs:
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
 - no other Client option exposes a request-ID override;
 - transparent retries reuse it; and
-- locking RPC and the two wait operations use it as a Temporal update ID.
+- every Temporal RPC and the two wait operations use it as a Temporal update ID.
 
 ### Client result structs
 

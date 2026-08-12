@@ -949,12 +949,31 @@ func (s *serviceImpl) InvokeRPC(
 	if err := workerclient.RejectWorkerBlobIDs(req.GetInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	if len(req.GetLockAttributeKeys()) > 0 &&
-		s.client.GetBackendType() == service.BackendTypeCadence {
+	backendType := s.client.GetBackendType()
+	if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
-	runID := req.GetRunId()
-	if runID == "" {
+	if backendType == service.BackendTypeTemporal {
+		if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
+			return nil, makeInvalidRequestError(err.Error())
+		}
+		if err := blobstore.OffloadLargeValue(
+			ctx,
+			req.GetInput(),
+			req.GetFlowId(),
+			req.GetRequestId(),
+			s.blobStoreCfg.EffectiveThresholdInBytes(),
+			s.store,
+			s.blobStoreCfg.EffectiveEnabled(),
+		); err != nil {
+			return nil, s.handleError(err)
+		}
+	}
+	runID := ""
+	if backendType == service.BackendTypeCadence {
+		runID = req.GetRunId()
+	}
+	if runID == "" && backendType == service.BackendTypeCadence {
 		description, err := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), "", nil)
 		if err != nil {
 			return nil, s.handleError(err)
@@ -966,11 +985,37 @@ func (s *serviceImpl) InvokeRPC(
 	for attempt := 1; ; attempt++ {
 		response, err := s.doInvokeRPC(ctx, req, runID)
 		if err == nil {
+			if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
+				return nil, s.handleError(err)
+			}
 			return response, nil
 		}
-		if req.GetRunId() != "" || !s.client.IsNotFoundError(err) ||
+		unknownUpdate := backendType == service.BackendTypeTemporal &&
+			s.client.IsUnknownUpdateError(err, service.InvokeRpcUpdateType)
+		updateType, updateError := s.client.GetIfUpdateError(err, nil)
+		continueAsNewPreempted := backendType == service.BackendTypeTemporal &&
+			updateError && updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED
+		acceptedUpdateCompletedWorkflow := backendType == service.BackendTypeTemporal &&
+			s.client.IsAcceptedUpdateCompletedWorkflowError(err)
+		temporalCurrentRunRetry := backendType == service.BackendTypeTemporal &&
+			(s.client.IsNotFoundError(err) || unknownUpdate || continueAsNewPreempted ||
+				acceptedUpdateCompletedWorkflow)
+		if (backendType == service.BackendTypeCadence && req.GetRunId() != "") ||
+			(!s.client.IsNotFoundError(err) && !unknownUpdate && !continueAsNewPreempted &&
+				!acceptedUpdateCompletedWorkflow) ||
 			attempt >= retryPolicy.MaximumAttempts {
 			return nil, s.handleInvokeRPCError(err)
+		}
+		if temporalCurrentRunRetry {
+			if retryErr := waitForCANRetry(
+				ctx,
+				time.Time{},
+				time.Duration(retryPolicy.InitialIntervalSeconds)*time.Second,
+			); retryErr != nil {
+				return nil, s.handleError(retryErr)
+			}
+			runID = ""
+			continue
 		}
 		description, describeErr := s.client.DescribeWorkflowExecution(
 			ctx,
@@ -1005,8 +1050,8 @@ func (s *serviceImpl) doInvokeRPC(
 	req *dexpb.InvokeRPCRequest,
 	runID string,
 ) (*dexpb.InvokeRPCResponse, error) {
-	if len(req.GetLockAttributeKeys()) > 0 {
-		return s.handleRpcBySynchronousUpdate(ctx, req, runID)
+	if s.client.GetBackendType() == service.BackendTypeTemporal {
+		return s.doInvokeRpcUpdate(ctx, req, runID)
 	}
 
 	var preparation dexpb.PrepareRpcQueryResponse
@@ -1045,7 +1090,7 @@ func (s *serviceImpl) doInvokeRPC(
 			RecordEvents:     workerResponse.GetRecordEvents(),
 			PublishToChannel: workerResponse.GetPublishToChannel(),
 		}
-		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
+		if s.apiCfg.IncludeCadenceRPCInputOutputIntoHistory {
 			signalRequest.RpcInput = req.GetInput()
 			signalRequest.RpcOutput = workerResponse.GetOutput()
 		}
@@ -1069,7 +1114,7 @@ func (s *serviceImpl) handleInvokeRPCError(err error) error {
 	return s.handleError(err)
 }
 
-func (s *serviceImpl) handleRpcBySynchronousUpdate(
+func (s *serviceImpl) doInvokeRpcUpdate(
 	ctx context.Context,
 	req *dexpb.InvokeRPCRequest,
 	runID string,
@@ -1081,13 +1126,13 @@ func (s *serviceImpl) handleRpcBySynchronousUpdate(
 		req.GetFlowId(),
 		runID,
 		req.GetRequestId(),
-		service.ExecuteOptimisticLockingRpcUpdateType,
+		service.InvokeRpcUpdateType,
 		req,
 	); err != nil {
 		return nil, err
 	}
 	if result.GetResponse() == nil {
-		return nil, fmt.Errorf("locking RPC returned no response")
+		return nil, fmt.Errorf("InvokeRpc Update returned no response")
 	}
 	return result.GetResponse(), nil
 }

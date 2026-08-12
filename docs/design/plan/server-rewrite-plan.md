@@ -25,12 +25,12 @@ flowchart LR
   RPCs — they return gRPC `codes.Unimplemented`.
 - **Attribute locking:** retain WaitFor/Execute lock keys on `StepOptions`. For
   RPC, add a minimal lock surface — `repeated string
-  lock_attribute_keys` on `InvokeRPCRequest`. Non-empty → sync-update locking path
-  over those keys; empty → non-locking. Keeps the retained
+  lock_attribute_keys` on `InvokeRPCRequest`. Temporal uses one synchronous
+  `InvokeRpc` Update for both empty and non-empty lists. Keeps the retained
   `RPC_ACQUIRE_LOCK_FAILURE` + `skip_locking_rpc_reapply` meaningful. Because the
   locking path uses `SynchronousUpdateWorkflow`, a **non-empty `lock_attribute_keys`
-  is Temporal-only** — Cadence returns `codes.Unimplemented`; non-locking RPC still
-  works on Cadence via signal+query.
+  is Temporal-only** — Cadence returns `codes.Unimplemented`; non-locking RPC works
+  on Cadence via query, WorkerService, and conditional signal.
 - **Global versioning:** reset the interpreter `GlobalVersioner` to v1 and keep the
   mechanism as a forward determinism hook (do not remove versioning).
 - **Health:** implement both the IDL `HealthCheck` RPC and the standard
@@ -444,15 +444,16 @@ short-circuit these two RPCs — and any `InvokeRPC` with non-empty
 `lock_attribute_keys` — to `Unimplemented` before dialing.
 
 **RPC locking (`InvokeRPC`):** driven by the new `InvokeRPCRequest.lock_attribute_keys`
-(Phase 0). When non-empty, run the synchronous-update locking path; when empty, run
-the non-locking path. The validator returns `RPC_ACQUIRE_LOCK_FAILURE` / `Aborted`
-when any requested key is locked. The handler calls `LoadAttributes` to lock and
-load after awaiting all keys becoming unlocked, then releases the keys with `defer` on
-failure paths. On success, it unlocks and commits the validated whole result without
-a workflow yield. It never waits while partially holding keys. A locking worker
-response may write only keys in its normalized lock set. Any step/signal result
-touching those keys waits in its existing coroutine, then applies its whole
-side-effect batch after unlock. This replaces the old
+(Phase 0). Temporal always uses the synchronous `InvokeRpc` Update. The validator
+accepts an empty list and returns `RPC_ACQUIRE_LOCK_FAILURE` / `Aborted` when a
+requested key is locked. The handler calls `LoadAttributes`; an empty list reads all
+attributes without locking, while a non-empty list locks after awaiting all keys.
+On success, it unlocks and commits the validated whole result without a workflow
+yield. It never waits while partially holding keys. A locking worker response may
+write only keys in its normalized lock set. Any step/signal result touching those
+keys waits in its existing coroutine, then applies its whole side-effect batch after
+unlock. Cadence keeps its query, WorkerService, and conditional signal path for an
+empty list. This replaces the old
 `PersistenceLoadingPolicy.LockingKeys` surface; partial-loading types are gone (we
 always load all attributes).
 
@@ -471,7 +472,7 @@ always load all attributes).
   `SkipTimerSignalChannelName`, `TriggerContinueAsNewSignalChannelName`, query
   types) — string names stay in Go; the **payload messages** move to proto in
   Phase 2.5. Add update-type constants `WaitForStepCompletionUpdateType`,
-  `WaitForAttributeUpdateType` next to `ExecuteOptimisticLockingRpcUpdateType`.
+  `WaitForAttributeUpdateType`, and `InvokeRpcUpdateType`.
   Phase 2.5 replaces the remaining Go internal serializable structs with `dexpb`
   messages. Delete `InterpreterWorkflowInput.UseMemoForDataAttributes` from any
   interim Go struct and every constructor/call site; the Phase 2.5 proto
