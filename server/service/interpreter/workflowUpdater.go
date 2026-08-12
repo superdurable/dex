@@ -28,16 +28,23 @@ import (
 )
 
 type invokeRpcBootstrap struct {
-	provider           interfaces.WorkflowProvider
-	updater            *WorkflowUpdater
-	inflightOperations int
+	provider                    interfaces.WorkflowProvider
+	restoringContinueAsNewState bool
+	updater                     *WorkflowUpdater
+	inflightOperations          int
 }
 
-func newInvokeRpcBootstrap(provider interfaces.WorkflowProvider) *invokeRpcBootstrap {
+func newInvokeRpcBootstrap(
+	provider interfaces.WorkflowProvider,
+	restoringContinueAsNewState bool,
+) *invokeRpcBootstrap {
 	if provider == nil {
 		panic("invokeRpcBootstrap requires a provider")
 	}
-	return &invokeRpcBootstrap{provider: provider}
+	return &invokeRpcBootstrap{
+		provider:                    provider,
+		restoringContinueAsNewState: restoringContinueAsNewState,
+	}
 }
 
 func (b *invokeRpcBootstrap) register(ctx interfaces.UnifiedContext) error {
@@ -67,7 +74,7 @@ func (b *invokeRpcBootstrap) validate(
 			err.Error(),
 		)
 	}
-	if len(keys) > 0 {
+	if len(keys) > 0 && b.restoringContinueAsNewState {
 		return b.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
 			"continue-as-new is restoring locked attributes",

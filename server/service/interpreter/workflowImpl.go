@@ -49,7 +49,7 @@ func (i *Interpreter) StartEngineFlow(
 	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
-	invokeRpcBootstrap := newInvokeRpcBootstrap(provider)
+	invokeRpcBootstrap := newInvokeRpcBootstrap(provider, input.GetIsResumeFromContinueAsNew())
 	if err := invokeRpcBootstrap.register(ctx); err != nil {
 		return nil, err
 	}

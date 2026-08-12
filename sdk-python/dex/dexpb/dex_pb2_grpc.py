@@ -62,11 +62,11 @@ class FlowServiceStub:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys: API calls WorkerService then may signal;
+    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
+    calls. Cadence uses query + WorkerService + optional signal when
+    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    non-empty LockAttributeKeys: Temporal sync update; same worker mapping via
-    handleError; Cadence → Unimplemented.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Timeout →
     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
@@ -227,11 +227,11 @@ class FlowServiceServicer:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys: API calls WorkerService then may signal;
+    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
+    calls. Cadence uses query + WorkerService + optional signal when
+    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    non-empty LockAttributeKeys: Temporal sync update; same worker mapping via
-    handleError; Cadence → Unimplemented.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Timeout →
     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
@@ -521,11 +521,11 @@ class FlowService:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — empty LockAttributeKeys: API calls WorkerService then may signal;
+    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
+    calls. Cadence uses query + WorkerService + optional signal when
+    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
-    non-empty LockAttributeKeys: Temporal sync update; same worker mapping via
-    handleError; Cadence → Unimplemented.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Timeout →
     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
