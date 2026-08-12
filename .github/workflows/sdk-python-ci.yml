@@ -60,7 +60,7 @@ jobs:
         working-directory: sdk-python
         enable-cache: true
     - name: Install dependencies
-      run: uv sync --locked
+      run: uv sync --locked --reinstall-package dex-python-sdk
     - name: Test contracts
       run: uv run --frozen pytest tests/test_contracts.py
     - name: Check static types with mypy
@@ -167,7 +167,7 @@ jobs:
         working-directory: sdk-python
         enable-cache: true
     - name: Install dependencies
-      run: uv sync --locked
+      run: uv sync --locked --reinstall-package dex-python-sdk
     - name: Run Python and dexcli dev integration coverage
       run: ./run-integration-tests.sh --coverage
     - name: Upload Python integration coverage to Codecov
