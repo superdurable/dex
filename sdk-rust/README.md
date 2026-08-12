@@ -189,6 +189,25 @@ then removes the temporary state. Each Worker synchronizes its registered
 Indexed Attributes before listening; failure or the default two-minute
 deadline aborts startup.
 
+### Measure integration coverage
+
+Install `cargo-llvm-cov`, then run the same integration suite with Rust source
+coverage:
+
+```bash
+cargo install cargo-llvm-cov --locked
+./run-integration-tests.sh --coverage
+```
+
+Only the `integ` and `cross_sdk` integration test targets contribute execution
+data. Test sources and dependencies are excluded from the report by
+`cargo-llvm-cov`; coverage is reported for the production `dex-sdk` crate.
+
+The LCOV report is written to `coverage/lcov.info`, and the browser report
+starts at `coverage/html/index.html`. CI uploads the LCOV report with the
+`sdk-rust-integration` flag and retains the full report as the
+`sdk-rust-integration-coverage` Actions artifact.
+
 ## Releases
 
 Publish `dex-sdk`, `dex-blob-cache`, and `dex-protocol` by creating a GitHub
