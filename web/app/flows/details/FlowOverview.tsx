@@ -161,7 +161,8 @@ export function FlowOverview({
                       {step.lastFailureInfo && Object.keys(step.lastFailureInfo).length > 0 && (
                         <div className="semantic-subsection">
                           <h5>Last failure</h5>
-                          <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded />
+                          {/* Pending backend attempts exclude local fallback attempts, so hide them until cumulative values are available. */}
+                          <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded showAttempt={false} />
                         </div>
                       )}
                     </div>

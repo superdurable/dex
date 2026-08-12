@@ -458,9 +458,11 @@ function StepDecisionContent({ value }: { value: unknown }) {
 export function FailureContent({
   value,
   stackInitiallyExpanded = false,
+  showAttempt = true,
 }: {
   value: unknown;
   stackInitiallyExpanded?: boolean;
+  showAttempt?: boolean;
 }) {
   const failure = asData(value);
   if (!hasData(failure)) return null;
@@ -479,7 +481,7 @@ export function FailureContent({
   return (
     <div className="semantic-alert failure-alert">
       <Fields compact stacked values={[
-        ['Attempt', failure.attempt],
+        ['Attempt', showAttempt ? failure.attempt : undefined],
         ['Error type', backendError],
         ['Detail', serverDetail],
         ['Worker error type', details.originalWorkerErrorType],

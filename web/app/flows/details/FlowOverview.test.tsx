@@ -60,6 +60,7 @@ describe('live Flow state failures', () => {
     );
 
     expect(markup).toContain('Last failure');
+    expect(markup).not.toContain('Attempt');
     expect(markup).toContain('Error type');
     expect(markup).not.toContain('Backend error');
     expect(markup).toContain('Worker method failed');
