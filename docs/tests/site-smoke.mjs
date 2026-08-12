@@ -14,7 +14,6 @@ assert.match(home, />Services</);
 assert.match(home, /github-star-link/);
 assert.match(home, /Toggle color theme/);
 assert.match(home, />Book a call</);
-assert.match(home, /product-bar/);
 assert.match(home, />Dex OSS</);
 assert.match(home, />Dex Cloud \/ BYOC</);
 
@@ -22,8 +21,12 @@ const navbar = home.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(navbar, />Team</);
 assert.match(home, /footer-links[\s\S]*?>Team</);
 
-const productMenu = home.match(/product-switcher-menu[\s\S]*?<\/div>/)?.[0] ?? '';
-assert.doesNotMatch(productMenu, /Coming Soon/);
+assert.doesNotMatch(home, /product-bar/);
+const docsMenu = home.match(/<nav class="brand-navbar-center"[\s\S]*?<\/nav>/)?.[0] ?? '';
+assert.match(docsMenu, />Docs</);
+assert.match(docsMenu, />Dex OSS</);
+assert.match(docsMenu, />Dex Cloud \/ BYOC</);
+assert.doesNotMatch(docsMenu, /Coming Soon/);
 assert.match(cloud, /Dex Cloud \/ BYOC/);
 assert.match(cloud, /Coming Soon/);
 assert.match(cloud, /Explore Dex OSS Docs/);

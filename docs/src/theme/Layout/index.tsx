@@ -9,7 +9,6 @@ import Navbar from '@theme/Navbar';
 import Footer from '@theme/Footer';
 import LayoutProvider from '@theme/Layout/Provider';
 import ErrorPageContent from '@theme/ErrorPageContent';
-import ProductBar from '@site/src/components/ProductBar';
 import type {Props} from '@theme/Layout';
 import styles from './styles.module.css';
 
@@ -23,7 +22,6 @@ export default function Layout(props: Props): ReactNode {
       <SkipToContent />
       <AnnouncementBar />
       <Navbar />
-      <ProductBar />
       <div
         id={SkipToContentFallbackId}
         className={clsx(

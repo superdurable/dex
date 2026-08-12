@@ -93,10 +93,13 @@ const config: Config = {
           target: '_self',
         },
         {
-          to: '/',
+          type: 'dropdown',
           label: 'Docs',
           position: 'left',
-          activeBasePath: '/',
+          items: [
+            {label: 'Dex OSS', to: '/', activeBasePath: '/'},
+            {label: 'Dex Cloud / BYOC', to: '/cloud', activeBasePath: '/cloud'},
+          ],
         },
         {
           type: 'dropdown',
