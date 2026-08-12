@@ -3,6 +3,7 @@ examples/go/dex-samples
 examples/go/deepverify
 sdk-typescript/node_modules/
 sdk-rust/target/
+sdk-rust/coverage/
 sdk-typescript/dist/
 sdk-java/publication-smoke-test/target/
 sdk-typescript/coverage/
