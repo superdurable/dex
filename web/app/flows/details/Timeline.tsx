@@ -14,7 +14,7 @@ import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { buildTimelineStepLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
-import { eventTitle } from './EventDetails';
+import { eventTitle, eventTypeLabel } from './EventDetails';
 
 interface StepLinkPath {
   id: string;
@@ -289,7 +289,7 @@ export function Timeline({
                     </h3>
                     {executionSummary(event) && <p>{executionSummary(event)}</p>}
                   </div>
-                  <span className={`event-type tone-${eventTone(event)}`}>{event.type}</span>
+                  <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
                 </header>
                 <EventHighlights event={event} />
               </div>

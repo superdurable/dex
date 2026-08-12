@@ -126,4 +126,10 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
+
+  /**
+   * <code>bool is_set_attribute_api = 8;</code>
+   * @return The isSetAttributeApi.
+   */
+  boolean getIsSetAttributeApi();
 }

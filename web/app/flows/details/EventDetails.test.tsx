@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { STEP_EVENT_INPUT_UNAVAILABLE } from '@/lib/unavailable';
-import { SemanticEventDetails } from './EventDetails';
+import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
 
 function executeEvent(durability: number): FlowHistoryEvent {
   return {
@@ -44,6 +44,13 @@ function executeEvent(durability: number): FlowHistoryEvent {
       },
     },
   };
+}
+
+function waitForEvent(waitForCondition?: Record<string, unknown>): FlowHistoryEvent {
+  const event = executeEvent(1);
+  event.type = 'StepWaitForCompleted';
+  event.payload.output = waitForCondition ? { waitForCondition } : {};
+  return event;
 }
 
 function renderDetails(
@@ -334,6 +341,62 @@ describe('selected step event details', () => {
 
     expect(markup).toContain('Fail flow');
     expect(markup).toContain('rpc-account');
+  });
+
+  it('describes one WaitFor condition without an allOf or anyOf rule', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ANY_COMPLETED',
+      channelConditions: [{ conditionId: 1, channelName: 'approval' }],
+    }));
+
+    expect(markup).toContain('Single condition');
+    expect(markup).not.toContain('Any completed');
+    expect(markup).not.toContain('All completed');
+  });
+
+  it('explains that an empty WaitFor condition skips waiting immediately', () => {
+    const markup = renderDetails(waitForEvent());
+
+    expect(markup).toContain('Empty condition — skips WaitFor immediately');
+    expect(markup).not.toContain('All completed');
+  });
+
+  it('preserves the completion rule for multiple WaitFor conditions', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ANY_COMPLETED',
+      channelConditions: [{ conditionId: 1, channelName: 'approval' }],
+      timerConditions: [{ conditionId: 2, durationSeconds: 30 }],
+    }));
+
+    expect(markup).toContain('Any completed');
+    expect(markup).not.toContain('Single condition');
+  });
+});
+
+describe('RPC event details', () => {
+  it('renders external SetAttributes without exposing its system RPC', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 9,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'RpcExecutionCompleted',
+      payload: {
+        isSetAttributeApi: true,
+        upsertAttributes: [{
+          key: 'order-status',
+          value: { stringValue: 'complete' },
+        }],
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(eventTitle(event)).toBe('Attributes updated');
+    expect(eventTypeLabel(event)).toBe('SetAttributes');
+    expect(markup).toContain('Updated attributes');
+    expect(markup).toContain('order-status');
+    expect(markup).toContain('complete');
+    expect(markup).not.toContain('RPC call');
+    expect(markup).not.toContain('RPC name');
   });
 });
 

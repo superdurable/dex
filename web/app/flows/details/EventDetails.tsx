@@ -53,10 +53,20 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
 };
 
 export function eventTitle(event: FlowHistoryEvent): string {
+  if (isSetAttributesEvent(event)) return 'Attributes updated';
   if (event.type === 'FlowStartedOrContinued' && hasData(asData(event.payload.continuedStart))) {
     return 'Flow continued';
   }
   return eventTitles[event.type];
+}
+
+export function eventTypeLabel(event: FlowHistoryEvent): string {
+  return isSetAttributesEvent(event) ? 'SetAttributes' : event.type;
+}
+
+function isSetAttributesEvent(event: FlowHistoryEvent): boolean {
+  return event.type === 'RpcExecutionCompleted'
+    && event.payload.isSetAttributeApi === true;
 }
 
 function asData(value: unknown): Data {
@@ -307,10 +317,16 @@ function WaitingConditionView({ value }: { value: unknown }) {
   );
 }
 
-function WaitingConditionContent({ value }: { value: unknown }) {
+function WaitingConditionContent({
+  value,
+  showEmpty = false,
+}: {
+  value: unknown;
+  showEmpty?: boolean;
+}) {
   const { timezone } = usePreferences();
   const condition = asData(value);
-  if (!hasData(condition)) return null;
+  if (!hasData(condition) && !showEmpty) return null;
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
   const combinations = asDataArray(condition.conditionCombinations);
@@ -318,7 +334,7 @@ function WaitingConditionContent({ value }: { value: unknown }) {
     <>
       <Fields values={[[
         'Completion rule',
-        waitingConditionTypeLabel(condition.waitingConditionType),
+        waitingConditionCompletionRule(condition, channels.length + timers.length),
       ]]} />
       {channels.length > 0 && (
         <div className="semantic-records">
@@ -358,6 +374,12 @@ function WaitingConditionContent({ value }: { value: unknown }) {
       )}
     </>
   );
+}
+
+function waitingConditionCompletionRule(condition: Data, conditionCount: number): string {
+  if (conditionCount === 0) return 'Empty condition — skips WaitFor immediately';
+  if (conditionCount === 1) return 'Single condition';
+  return waitingConditionTypeLabel(condition.waitingConditionType);
 }
 
 function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {
@@ -592,10 +614,10 @@ function StepMethodDetails({
       </DetailSection>
       <DetailSection title={isPending ? 'Status' : 'Output'}>
         {isPending && <Fields values={[['Activity phase', pendingPhaseLabel(payload.phase)]]} />}
-        {isWaitFor && hasData(asData(output.waitForCondition)) ? (
+        {event.type === 'StepWaitForCompleted' ? (
           <div className="semantic-subsection">
             <h5>WaitFor condition</h5>
-            <WaitingConditionContent value={output.waitForCondition} />
+            <WaitingConditionContent value={output.waitForCondition} showEmpty />
           </div>
         ) : !isWaitFor && hasData(asData(output.stepDecision)) ? (
           <div className="semantic-subsection">
@@ -773,6 +795,14 @@ function RPCDetails({ payload }: { payload: Data }) {
   );
 }
 
+function SetAttributesDetails({ payload }: { payload: Data }) {
+  return (
+    <DetailSection title="Updated attributes">
+      <KeyValues values={payload.upsertAttributes} emptyLabel="No attributes updated" />
+    </DetailSection>
+  );
+}
+
 export function SemanticEventDetails({
   event,
   history = [event],
@@ -791,6 +821,7 @@ export function SemanticEventDetails({
       : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
+  if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
   if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} />;
   return (
     <DetailSection title="Published messages">

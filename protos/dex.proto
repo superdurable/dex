@@ -625,6 +625,7 @@ message RpcExecutionCompletedEvent {
   repeated AttributeWrite upsert_attributes = 5;
   repeated KV record_events = 6;
   repeated ChannelMessage publish_to_channel = 7;
+  bool is_set_attribute_api = 8;
 }
 
 message ChannelExternalPublishEvent {
@@ -1120,6 +1121,7 @@ message ExecuteRpcSignalRequest {
   StepDecision step_decision = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  bool is_set_attribute_api = 8;
 }
 
 message SkipTimerSignalRequest {
