@@ -19,25 +19,14 @@ import (
 func mapRegisteredWait(
 	flow *registeredFlow,
 	wait *Wait,
-) (*dexpb.WaitingCondition, *dexpb.StepMovement, error) {
+) (*dexpb.WaitingCondition, error) {
 	if wait == nil {
-		return nil, nil, fmt.Errorf("dex: WaitFor returned nil")
+		return nil, fmt.Errorf("dex: WaitFor returned nil")
 	}
 	if err := validateRegisteredWait(flow, wait); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	waiting, err := mapWait(wait)
-	if err != nil {
-		return nil, nil, err
-	}
-	if wait.transient == nil {
-		return waiting, nil, nil
-	}
-	transient, err := mapTransientMovement(flow, *wait.transient)
-	if err != nil {
-		return nil, nil, err
-	}
-	return waiting, transient, nil
+	return mapWait(wait)
 }
 
 func validateRegisteredWait(flow *registeredFlow, wait *Wait) error {
@@ -76,33 +65,6 @@ func validateRegisteredCondition(flow *registeredFlow, condition Condition) erro
 	}
 	_, err := physicalName(concrete.channelName, concrete.instance, concrete.isMap)
 	return err
-}
-
-func mapTransientMovement(
-	flow *registeredFlow,
-	movement StepMovement,
-) (*dexpb.StepMovement, error) {
-	target, err := flow.resolveMovement(movement)
-	if err != nil {
-		return nil, err
-	}
-	if !target.skipWaitFor {
-		return nil, fmt.Errorf("dex: transient step %q must be execute-only", target.stepType)
-	}
-	options := mergeStepOptions(target.options, movement.options)
-	if options != nil &&
-		(options.WaitForFailure == ProceedOnWaitForFailure || options.ExecuteFailure != nil) {
-		return nil, fmt.Errorf("dex: transient step %q cannot proceed on failure", target.stepType)
-	}
-	mapped, err := mapRegisteredMovement(flow, movement)
-	if err != nil {
-		return nil, err
-	}
-	if mapped.StepOptions == nil {
-		mapped.StepOptions = &dexpb.StepOptions{}
-	}
-	mapped.StepOptions.SkipWaitFor = true
-	return mapped, nil
 }
 
 func mapRegisteredDecision(

@@ -53,10 +53,11 @@ func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.Activ
 		scheduled = time.Now()
 	}
 	return interfaces.ActivityInfo{
-		ScheduledTime:   scheduled,
-		ActivityID:      info.ActivityID,
-		Attempt:         info.Attempt + 1, // Cadence attempts are 0-based; Temporal is 1-based.
-		IsLocalActivity: len(info.TaskToken) == 0,
+		ScheduledTime:    scheduled,
+		ActivityID:       info.ActivityID,
+		Attempt:          info.Attempt + 1, // Cadence attempts are 0-based; Temporal is 1-based.
+		IsLocalActivity:  len(info.TaskToken) == 0,
+		HeartbeatTimeout: info.HeartbeatTimeout,
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,

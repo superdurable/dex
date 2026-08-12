@@ -30,7 +30,6 @@ type Wait struct {
 	kind         waitKind
 	conditions   []Condition
 	combinations []ConditionCombination
-	transient    *StepMovement
 }
 
 // SkipWaitImmediately asks Dex to invoke Execute without evaluating WaitFor conditions.
@@ -57,11 +56,6 @@ func AnyOf(conditions ...Condition) *Wait {
 // Every Condition requires a non-empty user-provided ID.
 func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
-}
-
-func withTransientMovement(wait *Wait, movement StepMovement) *Wait {
-	wait.transient = &movement
-	return wait
 }
 
 // Condition represents one durable Timer or Channel predicate.

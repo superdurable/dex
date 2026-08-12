@@ -133,10 +133,7 @@ function sourceMovements(event: FlowHistoryEvent): Data[] {
     return asDataArray(asData(event.payload.stepDecision).nextSteps);
   }
   const output = asData(event.payload.output);
-  const movements = asDataArray(asData(output.stepDecision).nextSteps);
-  const transientMovement = asData(output.transientStepMovement);
-  if (hasData(transientMovement)) movements.push(transientMovement);
-  return movements;
+  return asDataArray(asData(output.stepDecision).nextSteps);
 }
 
 function selectStepMovement(

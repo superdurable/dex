@@ -287,8 +287,7 @@ message StepMethodEventContext {
   google.protobuf.Timestamp started_time = 6;
   google.protobuf.Duration duration = 7;
   StepMethodOptions method_options = 8;
-  optional bool is_transient_step = 9;
-  StepMethodFailure last_failure_info = 10;
+  StepMethodFailure last_failure_info = 9;
 }
 
 message StepWaitForCompletedOutput {
@@ -297,7 +296,6 @@ message StepWaitForCompletedOutput {
   repeated ChannelMessage publish_to_channel = 3;
   repeated KV record_events = 4;
   repeated KV upsert_step_execution_locals = 5;
-  StepMovement transient_step_movement = 6;
 }
 
 message StepExecuteCompletedOutput {
@@ -399,14 +397,6 @@ transition backoff；regular Activity 扣除 local 已用 budget，并按累计 
 Pending method 是独立 semantic event，使用 Activity scheduled event ID，并以
 `SCHEDULED` 或 `STARTED` 标识关闭前最后一个已持久化的 lifecycle 阶段。
 
-Transient step：
-
-- 有独立 `step_execution_id`；
-- lineage 指向产生它的 WaitFor step；
-- 只有 Execute event；
-- `is_transient_step=true`；
-- Execute 的 DeadEnd 只结束 transient branch，不表示 Flow Closed。
-
 ### 6.6 RPC 和 channel
 
 ```proto
@@ -475,7 +465,7 @@ message InternalLocalStepActivityFailure {
 ```
 
 - `InternalLocalActivityInput` 是 workflow provider 只给 local activity 的第二个参数，
-  用于携带当前 run start time 和无法从 local marker 恢复的 method options；
+  用于携带当前 run start time 和 method options；
 - `InternalAsyncStepInputSnapshot` 是成功 local activity 写入 external storage 的 protobuf，
   保存准确发送给 worker 的 request 和 method options；
 - regular failure 使用单一 `InternalActivityError` detail；local failure 使用单一
@@ -484,7 +474,7 @@ message InternalLocalStepActivityFailure {
   `server_detail`，activity 错误设置 `activity_error`；service client 在公开边界统一生成
   `ServiceErrorResponse`；
 - fallback regular activity 只在 request `Context` 中保存累计 attempt 和首次 attempt 时间，
-  不重复保存 method options；
+  method options 从 local failure metadata 恢复；
 - SYNC regular activity 同一个第二参数位置传 `nil`，可以产生极小 null payload；
 - ASYNC local activity 传 `InternalLocalActivityInput`，fallback regular activity 传 `nil`。
 
@@ -619,7 +609,7 @@ message DebugDumpResponse {
 当前 `StepExecutionToResumeMap` 在 Execute 返回后才删除。为了让 map membership 精确表示 WAITING，需要把删除时点移到 Execute 开始前：
 
 ```text
-WaitFor/Transient running       -> ACTIVE，map 中不存在
+WaitFor running                 -> ACTIVE，map 中不存在
 Waiting on conditions          -> WAITING，map 中存在
 Execute running                -> ACTIVE，Execute 前从 map 删除
 Completed/Failed               -> 不在 active counter 中
@@ -695,7 +685,7 @@ Timeline：
 
 - 只展示 Dex semantic events；
 - 默认倒序，最新 event 位于顶部；
-- 选中 step execution 的第一个 method event 时，连回 Flow start/continued、RPC、Step decision、transient movement 或 recovery source；
+- 选中 step execution 的第一个 method event 时，连回 Flow start/continued、RPC、Step decision 或 recovery source；
 - 只渲染与 selected event 相连的 source/WaitFor-to-Execute links，端点落在 event card 并上下错开；
 - 同一个 step execution 的 WaitForCondition started 和 Execute 用独立 lane 连线；
 - completed/failed method event 展开统一的 Input、Output、Context；
@@ -709,7 +699,7 @@ Selected event：
 - `Context`：execution ID、from、durability、final attempt、started、duration、step options，
   以及可选的 SYNC last failure；
 - failure 将 `backend_error` 显示为独占一行的 “Error type”，并显示 attempt 和可选的结构化 Dex/worker details；
-- UI 不显示 previous attempts 或 transient-step 字段；
+- UI 不显示 previous attempts；
 - SYNC 和 ASYNC 使用完全相同的 renderer；
 - Raw JSON tab 使用 hydrated public event，不泄露 internal snapshot 或 blob location。
 
@@ -725,10 +715,9 @@ Phase 2 使用 `server/integ/`：
 - `estimate_page_size=1` 强制覆盖跨 native page 的不完整 operation 聚合。
 - starting、RPC、fan-out、Continue-As-New lineage。
 - Continue-As-New 首事件展示 carried steps、resume state、channel messages、attributes 和 completed outputs。
-- transient step 只有 Execute event，DeadEnd 不产生 FlowClosed。
 - Wait：立即命中、long poll、timeout、terminal 和 Continue-As-New。
 - Current state：WaitFor/Execute 为 ACTIVE，condition wait 为 WAITING。
-- Current state：CAN-resumed waiting step、queued resume request 和 transient Execute。
+- Current state：CAN-resumed waiting step 和 queued resume request。
 - Execute 前移除 resume entry 后，CAN drain 不丢 step 或重复执行。
 - Temporal/Cadence × SYNC/ASYNC：WaitFor/Execute 显示调用时 step input、attributes 和 condition results。
 - SYNC scheduled input 和 ASYNC snapshot 都映射为完全相同的 `input/output/context` shape。

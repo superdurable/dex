@@ -19,15 +19,16 @@ import (
 )
 
 type SignalReceiver struct {
-	provider           interfaces.WorkflowProvider
-	timerProcessor     interfaces.TimerProcessor
-	flowConfiger       *config.FlowConfiger
-	channelStore       *ChannelStore
-	stepRequestQueue   *StepRequestQueue
-	persistenceManager *PersistenceManager
-	subFlowTracker     *SubFlowTracker
-	stopFlowRequested  bool
-	stopFlowErr        error
+	provider              interfaces.WorkflowProvider
+	timerProcessor        interfaces.TimerProcessor
+	flowConfiger          *config.FlowConfiger
+	channelStore          *ChannelStore
+	stepRequestQueue      *StepRequestQueue
+	stepExecutionRegistry *stepExecutionRegistry
+	persistenceManager    *PersistenceManager
+	subFlowTracker        *SubFlowTracker
+	stopFlowRequested     bool
+	stopFlowErr           error
 }
 
 func NewSignalReceiver(
@@ -35,20 +36,25 @@ func NewSignalReceiver(
 	provider interfaces.WorkflowProvider,
 	channelStore *ChannelStore,
 	stepRequestQueue *StepRequestQueue,
+	stepExecutionRegistry *stepExecutionRegistry,
 	persistenceManager *PersistenceManager,
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *config.FlowConfiger,
 	subFlowTracker *SubFlowTracker,
 ) *SignalReceiver {
+	if stepExecutionRegistry == nil {
+		panic("signal receiver requires a step execution registry")
+	}
 	sr := &SignalReceiver{
-		provider:           provider,
-		timerProcessor:     timerProcessor,
-		flowConfiger:       flowConfiger,
-		channelStore:       channelStore,
-		stepRequestQueue:   stepRequestQueue,
-		persistenceManager: persistenceManager,
-		subFlowTracker:     subFlowTracker,
+		provider:              provider,
+		timerProcessor:        timerProcessor,
+		flowConfiger:          flowConfiger,
+		channelStore:          channelStore,
+		stepRequestQueue:      stepRequestQueue,
+		stepExecutionRegistry: stepExecutionRegistry,
+		persistenceManager:    persistenceManager,
+		subFlowTracker:        subFlowTracker,
 	}
 
 	//The thread waits until a StopWorkflowSignalChannelName signal has been
@@ -202,18 +208,9 @@ func NewSignalReceiver(
 			}
 			if received {
 				continueAsNewCounter.IncSignalsReceived()
-				if err := sr.persistenceManager.ApplyAttributeWrites(
-					ctx,
-					val.GetUpsertAttributes(),
-				); err != nil {
+				if err := sr.processExecuteRPC(ctx, &val); err != nil {
 					sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
 					continue
-				}
-				sr.channelStore.ProcessPublishing(val.GetPublishToChannel())
-				if val.GetStepDecision() != nil {
-					sr.stepRequestQueue.AddStepStartRequests(
-						val.GetStepDecision().GetNextSteps(),
-					)
 				}
 			} else {
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
@@ -287,23 +284,40 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.ExecuteRpcSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			if err := sr.persistenceManager.ApplyAttributeWrites(
-				ctx,
-				val.GetUpsertAttributes(),
-			); err != nil {
+			if err := sr.processExecuteRPC(ctx, &val); err != nil {
 				sr.provider.GetLogger(ctx).Error("apply RPC result failed", "error", err)
 				continue
-			}
-			sr.channelStore.ProcessPublishing(val.GetPublishToChannel())
-			if val.GetStepDecision() != nil {
-				sr.stepRequestQueue.AddStepStartRequests(
-					val.GetStepDecision().GetNextSteps(),
-				)
 			}
 		} else {
 			break
 		}
 	}
+}
+
+func (sr *SignalReceiver) processExecuteRPC(
+	ctx interfaces.UnifiedContext,
+	request *dexpb.ExecuteRpcSignalRequest,
+) error {
+	if err := sr.persistenceManager.ApplyAttributeWrites(
+		ctx,
+		request.GetUpsertAttributes(),
+	); err != nil {
+		return err
+	}
+	sr.channelStore.ProcessPublishing(request.GetPublishToChannel())
+	decision := request.GetStepDecision()
+	if decision == nil {
+		return nil
+	}
+	rpcSource := service.GetFromStepExecutionIdForRPC(request.GetRpcName())
+	if err := sr.stepExecutionRegistry.CancelSelected(
+		decision,
+		rpcSource,
+	); err != nil {
+		return err
+	}
+	sr.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
+	return nil
 }
 
 func (sr *SignalReceiver) failInvalidFlowConfig(err error) {

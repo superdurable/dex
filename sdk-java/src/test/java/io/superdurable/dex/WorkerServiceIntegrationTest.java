@@ -15,6 +15,7 @@
 package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -34,6 +35,7 @@ import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
+import io.superdurable.gen.InvokeWorkerRPCResponse;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
@@ -50,11 +52,12 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -383,6 +386,104 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
+    void mapsImmutableCancellationSelectorsAndHeartbeatTimeout() throws Exception {
+        final BridgeFlow flow = new BridgeFlow();
+        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
+        try {
+            final InvokeExecuteMethodResponse cancellation = running.client.invokeExecuteMethod(
+                    executeRequest(concrete("cancel")));
+            assertEquals(
+                    Collections.singletonList("BridgeOtherStep"),
+                    cancellation.getStepDecision().getCancelStepTypesList());
+            assertEquals(
+                    Collections.singletonList("BridgeStep"),
+                    cancellation.getStepDecision().getCancelSiblingStepTypesList());
+            assertTrue(flow.start.baseDecision.get().getCancelingSteps().isEmpty());
+            assertTrue(flow.start.baseDecision.get().getCancelingSiblingSteps().isEmpty());
+
+            final InvokeWorkerRPCResponse rpcCancellation = running.client.invokeWorkerRPC(
+                    rpcRequest("cancel"));
+            assertEquals(
+                    Collections.singletonList("BridgeOtherStep"),
+                    rpcCancellation.getStepDecision().getCancelStepTypesList());
+            assertEquals(
+                    Collections.singletonList("BridgeStep"),
+                    rpcCancellation.getStepDecision().getCancelSiblingStepTypesList());
+            assertEquals(
+                    "BridgeStep",
+                    rpcCancellation.getStepDecision().getNextSteps(0).getStepType());
+            assertTrue(flow.baseRpcResult.get().getCancelingSteps().isEmpty());
+            assertTrue(flow.baseRpcResult.get().getCancelingSiblingSteps().isEmpty());
+
+            final InvokeExecuteMethodResponse heartbeat = running.client.invokeExecuteMethod(
+                    executeRequest(concrete("heartbeat")));
+            assertEquals(
+                    10,
+                    heartbeat.getStepDecision()
+                            .getNextSteps(0)
+                            .getStepOptions()
+                            .getHeartbeatTimeoutSeconds());
+
+            final InvokeExecuteMethodResponse disabled = running.client.invokeExecuteMethod(
+                    executeRequest(concrete("heartbeat-zero")));
+            assertEquals(
+                    0,
+                    disabled.getStepDecision()
+                            .getNextSteps(0)
+                            .getStepOptions()
+                            .getHeartbeatTimeoutSeconds());
+
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("cancel-foreign"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("cancel-null"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("heartbeat-fraction"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("heartbeat-negative"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("heartbeat-overflow"))));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWorkerRPC(rpcRequest("cancel-foreign")));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWorkerRPC(rpcRequest("cancel-null")));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void grpcCancellationInterruptsHandlerAndUpdatesContext() throws Exception {
+        final BridgeFlow flow = new BridgeFlow();
+        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
+        try {
+            final ListenableFuture<InvokeExecuteMethodResponse> response =
+                    WorkerServiceGrpc.newFutureStub(running.channel)
+                            .withWaitForReady()
+                            .withDeadlineAfter(10, TimeUnit.SECONDS)
+                            .invokeExecuteMethod(executeRequest(concrete("block")));
+            assertTrue(flow.start.blockStarted.await(5, TimeUnit.SECONDS));
+            response.cancel(true);
+            assertTrue(flow.start.cancellationObserved.await(5, TimeUnit.SECONDS));
+            assertTrue(flow.start.contextReportedCancellation.get());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
     void hydratesBlobValuesThroughTheJavaCacheInterface() throws Exception {
         final AtomicInteger loads = new AtomicInteger();
         final int flowPort = availablePort();
@@ -545,6 +646,15 @@ final class WorkerServiceIntegrationTest {
                 .build();
     }
 
+    private static InvokeWorkerRPCRequest rpcRequest(final String input) {
+        return InvokeWorkerRPCRequest.newBuilder()
+                .setContext(context())
+                .setFlowType("BridgeFlow")
+                .setRpcName("cancellationRpc")
+                .setInput(concrete(input))
+                .build();
+    }
+
     private static io.superdurable.gen.Context context() {
         return io.superdurable.gen.Context.newBuilder()
                 .setFlowId("flow-1")
@@ -639,15 +749,18 @@ final class WorkerServiceIntegrationTest {
 
     private static class BridgeFlow implements Flow<String> {
         private final Channel<Void> commands = Channel.define("commands", Void.class);
-        private final BridgeStep start = new BridgeStep(commands);
+        private final BridgeOtherStep other = new BridgeOtherStep();
+        private final BridgeStep start = new BridgeStep(commands, other);
         private final Attribute<String> status = Attribute.define(
                 "status",
                 String.class,
                 new AttributeIndex(AttributeIndex.Type.KEYWORD, "JavaWorkerStatus"));
+        private final AtomicReference<RPCResult<String>> baseRpcResult =
+                new AtomicReference<RPCResult<String>>();
 
         @Override
         public StepList<String> getSteps() {
-            return StepList.startStep(start);
+            return StepList.startStep(start).otherSteps(other);
         }
 
         @Override
@@ -661,6 +774,26 @@ final class WorkerServiceIntegrationTest {
             throw new CheckedBridgeException("checked RPC failure");
         }
 
+        @RPC
+        public RPCResult<String> cancellationRpc(final Context context, final String input) {
+            if ("cancel-foreign".equals(input)) {
+                return RPCResult.of(input)
+                        .withCancelingSteps(new BridgeOtherStep());
+            }
+            if ("cancel-null".equals(input)) {
+                return RPCResult.of(input)
+                        .withCancelingSteps((Step<?>[]) null);
+            }
+            final RPCResult<String> base = RPCResult.of(
+                    input,
+                    StepMovement.of(start, "next"));
+            baseRpcResult.set(base);
+            return base.withCancelingSiblingSteps(other, start, other)
+                    .withCancelingSteps(other, other)
+                    .withCancelingSteps()
+                    .withCancelingSiblingSteps();
+        }
+
         @Override
         public PersistenceSchema getPersistenceSchema() {
             return PersistenceSchema.of(status, commands);
@@ -669,10 +802,18 @@ final class WorkerServiceIntegrationTest {
 
     private static final class BridgeStep implements Step<String> {
         private final AtomicReference<String> handlerThread = new AtomicReference<String>();
+        private final AtomicReference<StepDecision> baseDecision =
+                new AtomicReference<StepDecision>();
+        private final AtomicReference<Boolean> contextReportedCancellation =
+                new AtomicReference<Boolean>(Boolean.FALSE);
+        private final CountDownLatch blockStarted = new CountDownLatch(1);
+        private final CountDownLatch cancellationObserved = new CountDownLatch(1);
         private final Channel<Void> commands;
+        private final BridgeOtherStep other;
 
-        private BridgeStep(final Channel<Void> commands) {
+        private BridgeStep(final Channel<Void> commands, final BridgeOtherStep other) {
             this.commands = commands;
+            this.other = other;
         }
 
         @Override
@@ -743,7 +884,67 @@ final class WorkerServiceIntegrationTest {
             if ("invalid".equals(input)) {
                 return StepDecision.goToMulti();
             }
+            if ("cancel".equals(input)) {
+                final StepDecision base = StepDecision.gracefulComplete(input);
+                baseDecision.set(base);
+                return base.withCancelingSiblingSteps(other, this, other)
+                        .withCancelingSteps(other, other)
+                        .withCancelingSteps()
+                        .withCancelingSiblingSteps();
+            }
+            if ("cancel-foreign".equals(input)) {
+                return StepDecision.gracefulComplete()
+                        .withCancelingSteps(new BridgeOtherStep());
+            }
+            if ("cancel-null".equals(input)) {
+                return StepDecision.gracefulComplete()
+                        .withCancelingSteps((Step<?>[]) null);
+            }
+            if ("heartbeat".equals(input)) {
+                return heartbeatDecision(Duration.ofSeconds(10));
+            }
+            if ("heartbeat-zero".equals(input)) {
+                return heartbeatDecision(Duration.ZERO);
+            }
+            if ("heartbeat-fraction".equals(input)) {
+                return heartbeatDecision(Duration.ofMillis(1500));
+            }
+            if ("heartbeat-negative".equals(input)) {
+                return heartbeatDecision(Duration.ofSeconds(-1));
+            }
+            if ("heartbeat-overflow".equals(input)) {
+                return heartbeatDecision(Duration.ofSeconds((long) Integer.MAX_VALUE + 1));
+            }
+            if ("block".equals(input)) {
+                blockStarted.countDown();
+                try {
+                    Thread.sleep(TimeUnit.MINUTES.toMillis(1));
+                } catch (InterruptedException canceled) {
+                    contextReportedCancellation.set(context.isCancellationRequested());
+                    cancellationObserved.countDown();
+                    Thread.currentThread().interrupt();
+                }
+            }
             return StepDecision.gracefulComplete(input);
+        }
+
+        private StepDecision heartbeatDecision(final Duration timeout) {
+            return StepDecision.goToMulti(StepMovement.of(
+                    other,
+                    "next",
+                    StepOptions.newBuilder().heartbeatTimeout(timeout).build()));
+        }
+    }
+
+    private static final class BridgeOtherStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.deadEnd();
         }
     }
 

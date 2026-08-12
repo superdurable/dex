@@ -40,6 +40,7 @@ type ActivityInfo struct {
 	ActivityID        string
 	Attempt           int32 // Attempt starts from 1, and increased by 1 for every retry if retry policy is specified.
 	IsLocalActivity   bool  // Whether the activity is at local activity
+	HeartbeatTimeout  time.Duration
 	WorkflowExecution WorkflowExecution
 }
 
@@ -132,6 +133,7 @@ type WorkflowProvider interface {
 	IsCanceledError(err error) bool
 	IsContinueAsNewError(err error) bool
 	NewDisconnectedContext(ctx UnifiedContext) UnifiedContext
+	WithCancel(parent UnifiedContext) (UnifiedContext, func())
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeyword(ctx UnifiedContext, key string) (string, error)
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

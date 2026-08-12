@@ -147,7 +147,7 @@ function StepNodeLabel({
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
   const showWaitFor = Boolean(
     node.waitFor || node.pendingWaitFor
-      || (!node.transient && !skipsWaitFor(node) && node.active && !node.execute),
+      || (!skipsWaitFor(node) && node.active && !node.execute),
   );
   return (
     <div className="graph-step-label">

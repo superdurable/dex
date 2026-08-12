@@ -75,8 +75,7 @@ func executeActivityInputWithAttemptContext(
 		panic("step activity request required")
 	}
 	return &dexpb.InvokeExecuteMethodActivityInput{
-		WorkerTarget:    input.GetWorkerTarget(),
-		IsTransientStep: input.GetIsTransientStep(),
+		WorkerTarget: input.GetWorkerTarget(),
 		Request: &dexpb.InvokeExecuteMethodRequest{
 			Context:          stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
 			FlowType:         request.GetFlowType(),

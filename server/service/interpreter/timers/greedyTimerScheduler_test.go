@@ -64,6 +64,12 @@ func (p *fakeWorkflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedCont
 	return ctx
 }
 
+func (p *fakeWorkflowProvider) WithCancel(
+	ctx interfaces.UnifiedContext,
+) (interfaces.UnifiedContext, func()) {
+	return ctx, func() {}
+}
+
 func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interfaces.WorkflowInfo {
 	return interfaces.WorkflowInfo{}
 }

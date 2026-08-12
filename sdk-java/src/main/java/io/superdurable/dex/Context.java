@@ -93,6 +93,19 @@ public interface Context {
     int getAttempt();
 
     /**
+     * Reports whether Dex requested cancellation of the current Step execution.
+     *
+     * <p>Cancellation is cooperative. Regular activities configured with a heartbeat timeout can
+     * observe this promptly; without heartbeats a handler may continue until its RPC or activity
+     * timeout. Dex also interrupts the handler thread, so blocking code should handle
+     * {@link InterruptedException} and return promptly. External side effects already committed by
+     * application code cannot be rolled back.
+     *
+     * @return {@code true} after cancellation is requested or the handler thread is interrupted
+     */
+    boolean isCancellationRequested();
+
+    /**
      * Reports whether any timer condition in the current wait has fired.
      *
      * @return {@code true} when at least one timer fired

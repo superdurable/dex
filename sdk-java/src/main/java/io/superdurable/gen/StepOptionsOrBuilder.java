@@ -178,4 +178,10 @@ public interface StepOptionsOrBuilder extends
    */
   com.google.protobuf.ByteString
       getExecuteLockAttributeKeysBytes(int index);
+
+  /**
+   * <code>int32 heartbeat_timeout_seconds = 14;</code>
+   * @return The heartbeatTimeoutSeconds.
+   */
+  int getHeartbeatTimeoutSeconds();
 }

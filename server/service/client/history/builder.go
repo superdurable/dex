@@ -35,7 +35,7 @@ type Builder struct {
 	startEvent           *dexpb.FlowHistoryEvent
 	continueDumpPages    map[int32][]byte
 	continueDumpTotal    int32
-	transientSteps       map[string]bool
+	canceledActivities   map[int64]struct{}
 }
 
 type scheduledActivity struct {
@@ -66,7 +66,7 @@ func NewBuilder(flowID string, runID string) *Builder {
 		scheduledActivities:  map[int64]*scheduledActivity{},
 		pendingLocalFailures: map[string]*pendingLocalActivityFailure{},
 		continueDumpPages:    map[int32][]byte{},
-		transientSteps:       map[string]bool{},
+		canceledActivities:   map[int64]struct{}{},
 	}
 }
 
@@ -214,13 +214,14 @@ func (b *Builder) RecordLocalActivityFailed(
 	failure *dexpb.StepMethodFailure,
 	metadata *dexpb.InternalLocalStepActivityFailure,
 ) {
-	if metadata.GetLocalActivityMetadata().GetCurrentStepExecutionId() == "" {
+	stepExecutionID := metadata.GetLocalActivityMetadata().GetCurrentStepExecutionId()
+	if stepExecutionID == "" {
 		return
 	}
 	failure.Attempt = metadata.GetAttempt()
 	b.pendingLocalFailures[localFailureKey(
 		method,
-		metadata.GetLocalActivityMetadata().GetCurrentStepExecutionId(),
+		stepExecutionID,
 	)] = &pendingLocalActivityFailure{
 		eventID:   eventID,
 		eventTime: eventTime,
@@ -238,6 +239,10 @@ func (b *Builder) RecordActivityCompleted(
 	executeOutput *dexpb.InvokeExecuteMethodActivityOutput,
 ) error {
 	scheduled := b.scheduledActivities[scheduledEventID]
+	if _, wasCanceled := b.canceledActivities[scheduledEventID]; wasCanceled {
+		delete(b.scheduledActivities, scheduledEventID)
+		return nil
+	}
 	if scheduled == nil {
 		return fmt.Errorf("scheduled activity %d is missing", scheduledEventID)
 	}
@@ -246,7 +251,6 @@ func (b *Builder) RecordActivityCompleted(
 	case scheduled.waitInput != nil && waitOutput != nil:
 		request := scheduled.waitInput.GetRequest()
 		response := waitOutput.GetResponse()
-		b.recordTransientStep(response.GetTransientStepMovement())
 		b.events = append(b.events, newEvent(
 			eventID,
 			eventTime,
@@ -258,7 +262,6 @@ func (b *Builder) RecordActivityCompleted(
 						request.GetContext(),
 						request.GetStepType(),
 						scheduled.durability,
-						false,
 						startedTime,
 						eventTime,
 						finalAttempt,
@@ -282,7 +285,6 @@ func (b *Builder) RecordActivityCompleted(
 						request.GetContext(),
 						request.GetStepType(),
 						scheduled.durability,
-						scheduled.executeInput.GetIsTransientStep(),
 						startedTime,
 						eventTime,
 						finalAttempt,
@@ -306,6 +308,10 @@ func (b *Builder) RecordActivityFailed(
 	failure *dexpb.StepMethodFailure,
 ) error {
 	scheduled := b.scheduledActivities[scheduledEventID]
+	if _, wasCanceled := b.canceledActivities[scheduledEventID]; wasCanceled {
+		delete(b.scheduledActivities, scheduledEventID)
+		return nil
+	}
 	if scheduled == nil {
 		return fmt.Errorf("scheduled activity %d is missing", scheduledEventID)
 	}
@@ -325,7 +331,6 @@ func (b *Builder) RecordActivityFailed(
 						request.GetContext(),
 						request.GetStepType(),
 						scheduled.durability,
-						false,
 						startedTime,
 						eventTime,
 						finalAttempt,
@@ -348,7 +353,6 @@ func (b *Builder) RecordActivityFailed(
 						request.GetContext(),
 						request.GetStepType(),
 						scheduled.durability,
-						scheduled.executeInput.GetIsTransientStep(),
 						startedTime,
 						eventTime,
 						finalAttempt,
@@ -365,6 +369,10 @@ func (b *Builder) RecordActivityFailed(
 	return nil
 }
 
+func (b *Builder) RecordActivityCanceled(scheduledEventID int64) {
+	b.canceledActivities[scheduledEventID] = struct{}{}
+}
+
 func (b *Builder) RecordLocalWaitCompleted(
 	eventID int64,
 	eventTime time.Time,
@@ -372,7 +380,6 @@ func (b *Builder) RecordLocalWaitCompleted(
 	finalAttempt int32,
 ) {
 	response := output.GetResponse()
-	b.recordTransientStep(response.GetTransientStepMovement())
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
@@ -381,7 +388,6 @@ func (b *Builder) RecordLocalWaitCompleted(
 				Output: waitCompletedOutput(response),
 				Context: localStepMethodEventContext(
 					response.GetLocalActivityMetadata(),
-					false,
 					finalAttempt,
 				),
 			},
@@ -397,7 +403,6 @@ func (b *Builder) RecordLocalExecuteCompleted(
 ) {
 	response := output.GetResponse()
 	localMetadata := response.GetLocalActivityMetadata()
-	isTransient := b.consumeTransientStep(localMetadata)
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
@@ -406,7 +411,6 @@ func (b *Builder) RecordLocalExecuteCompleted(
 				Output: executeCompletedOutput(response),
 				Context: localStepMethodEventContext(
 					localMetadata,
-					isTransient,
 					finalAttempt,
 				),
 			},
@@ -437,9 +441,13 @@ func (b *Builder) RecordSignal(
 		))
 		return
 	}
-	rpcName := rpcNameFromDecision(request.GetStepDecision())
-	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
+	rpcNameFromMovement := rpcNameFromDecision(request.GetStepDecision())
+	if !request.GetIsSetAttributeApi() && rpcNameFromMovement == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
 		return
+	}
+	rpcName := request.GetRpcName()
+	if rpcName == "" {
+		rpcName = rpcNameFromMovement
 	}
 	b.events = append(b.events, newEvent(
 		eventID,
@@ -488,7 +496,10 @@ func (b *Builder) RecordClose(
 	eventTime time.Time,
 	payload *dexpb.FlowClosedHistoryEvent,
 ) {
-	b.events = append(b.events, b.pendingStepMethodEvents(eventTime)...)
+	b.events = append(
+		b.events,
+		b.pendingStepMethodEvents(eventTime, shouldIncludeCanceledActivities(payload.GetFlowStatus()))...,
+	)
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
@@ -496,9 +507,27 @@ func (b *Builder) RecordClose(
 	))
 }
 
-func (b *Builder) pendingStepMethodEvents(closedTime time.Time) []*dexpb.FlowHistoryEvent {
+func shouldIncludeCanceledActivities(flowStatus dexpb.FlowStatus) bool {
+	switch flowStatus {
+	case dexpb.FlowStatus_FLOW_STATUS_CANCELED,
+		dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
+		dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *Builder) pendingStepMethodEvents(
+	closedTime time.Time,
+	includeCanceledActivities bool,
+) []*dexpb.FlowHistoryEvent {
 	scheduledEventIDs := make([]int64, 0, len(b.scheduledActivities))
 	for scheduledEventID := range b.scheduledActivities {
+		_, wasCanceled := b.canceledActivities[scheduledEventID]
+		if wasCanceled && !includeCanceledActivities {
+			continue
+		}
 		scheduledEventIDs = append(scheduledEventIDs, scheduledEventID)
 	}
 	sort.Slice(scheduledEventIDs, func(left int, right int) bool {
@@ -547,10 +576,6 @@ func (b *Builder) flushLocalFailures() {
 		metadata := pending.metadata
 		localMetadata := metadata.GetLocalActivityMetadata()
 		startedTime := time.Unix(metadata.GetFirstAttemptTimestamp(), 0)
-		isTransient := false
-		if pending.method == blobstore.StepEventInputMethodExecute {
-			isTransient = b.consumeTransientStep(localMetadata)
-		}
 		context := stepMethodEventContext(
 			&dexpb.Context{
 				StepExecutionId:     localMetadata.GetCurrentStepExecutionId(),
@@ -558,7 +583,6 @@ func (b *Builder) flushLocalFailures() {
 			},
 			stepTypeFromExecutionID(localMetadata.GetCurrentStepExecutionId()),
 			dexpb.StepDurability_STEP_DURABILITY_ASYNC,
-			isTransient,
 			startedTime,
 			pending.eventTime,
 			metadata.GetAttempt(),
@@ -658,7 +682,6 @@ func (s *scheduledActivity) pendingStepMethodEvent(
 			request.GetContext(),
 			request.GetStepType(),
 			s.durability,
-			false,
 			startedTime,
 			closedTime,
 			finalAttempt,
@@ -675,7 +698,6 @@ func (s *scheduledActivity) pendingStepMethodEvent(
 			request.GetContext(),
 			request.GetStepType(),
 			s.durability,
-			s.executeInput.GetIsTransientStep(),
 			startedTime,
 			closedTime,
 			finalAttempt,
@@ -715,32 +737,6 @@ func (s *scheduledActivity) executionTiming() (time.Time, int32) {
 
 func (s *scheduledActivity) previousAttempts() int32 {
 	return s.priorAttemptCount
-}
-
-func (b *Builder) recordTransientStep(movement *dexpb.StepMovement) {
-	if movement == nil {
-		return
-	}
-	b.transientSteps[transientStepKey(
-		movement.GetFromStepExecutionIdInternalOnly(),
-		movement.GetStepType(),
-	)] = true
-}
-
-func (b *Builder) consumeTransientStep(input *dexpb.LocalActivityMetadata) bool {
-	key := transientStepKey(
-		input.GetFromStepExecutionId(),
-		stepTypeFromExecutionID(input.GetCurrentStepExecutionId()),
-	)
-	if !b.transientSteps[key] {
-		return false
-	}
-	delete(b.transientSteps, key)
-	return true
-}
-
-func transientStepKey(fromStepExecutionID string, stepType string) string {
-	return fromStepExecutionID + "\x00" + stepType
 }
 
 func newEvent(
@@ -802,7 +798,6 @@ func waitCompletedOutput(response *dexpb.InvokeWaitForMethodResponse) *dexpb.Ste
 		PublishToChannel:          response.GetPublishToChannel(),
 		RecordEvents:              response.GetRecordEvents(),
 		UpsertStepExecutionLocals: response.GetUpsertStepExeLocals(),
-		TransientStepMovement:     response.GetTransientStepMovement(),
 	}
 }
 
@@ -820,7 +815,6 @@ func stepMethodEventContext(
 	context *dexpb.Context,
 	stepType string,
 	durability dexpb.StepDurability,
-	isTransient bool,
 	startedTime time.Time,
 	completedTime time.Time,
 	finalAttempt int32,
@@ -836,14 +830,12 @@ func stepMethodEventContext(
 		StartedTime:         timestamppb.New(startedTime),
 		Duration:            durationpb.New(completedTime.Sub(startedTime)),
 		MethodOptions:       methodOptions,
-		IsTransientStep:     &isTransient,
 		LastFailureInfo:     lastFailure,
 	}
 }
 
 func localStepMethodEventContext(
 	input *dexpb.LocalActivityMetadata,
-	isTransient bool,
 	finalAttempt int32,
 ) *dexpb.StepMethodEventContext {
 	if finalAttempt <= 0 {
@@ -855,7 +847,6 @@ func localStepMethodEventContext(
 		StepType:            stepTypeFromExecutionID(input.GetCurrentStepExecutionId()),
 		Durability:          dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 		FinalAttempt:        finalAttempt,
-		IsTransientStep:     &isTransient,
 	}
 }
 

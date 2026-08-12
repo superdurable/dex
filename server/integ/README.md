@@ -17,3 +17,11 @@ schema refresh recovery, and additive columns.
 
 In-process tests use an isolated local Blob Store with the default 1 KiB
 offload threshold. S3-specific tests replace it with MinIO.
+
+Step cancellation coverage runs against both Temporal and Cadence. It verifies
+Flow-wide and sibling selectors; queued and active executions; local and
+regular activities; heartbeat-driven handler cancellation;
+fire-and-continue behavior; late-result suppression;
+continue-as-new; Step and RPC producers; signal and synchronous-update RPC
+delivery; same-RPC sibling lineage; snapshot exclusion of RPC next Steps;
+and clean active state.

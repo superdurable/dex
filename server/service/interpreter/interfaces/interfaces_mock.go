@@ -1,9 +1,5 @@
-// Modifications Copyright (c) 2026 Super Durable, Inc.
-
-// Modifications after the Legacy Cutoff are licensed under the
-// Super Durable Source License 1.0.
-// Legacy Materials remain under their original licenses.
-// See LICENSE and LEGACY_NOTICES.md.
+// Legacy Materials in this file remain under their original licenses.
+// See LEGACY_NOTICES.md.
 
 // Modifications Copyright (c) 2026 Super Durable, Inc.
 //
@@ -508,6 +504,21 @@ func (mr *MockWorkflowProviderMockRecorder) GetPendingThreadNames() *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingThreadNames", reflect.TypeOf((*MockWorkflowProvider)(nil).GetPendingThreadNames))
 }
 
+// GetSearchAttributeKeyword mocks base method.
+func (m *MockWorkflowProvider) GetSearchAttributeKeyword(ctx UnifiedContext, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSearchAttributeKeyword", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSearchAttributeKeyword indicates an expected call of GetSearchAttributeKeyword.
+func (mr *MockWorkflowProviderMockRecorder) GetSearchAttributeKeyword(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSearchAttributeKeyword", reflect.TypeOf((*MockWorkflowProvider)(nil).GetSearchAttributeKeyword), ctx, key)
+}
+
 // GetSearchAttributeKeywordArray mocks base method.
 func (m *MockWorkflowProvider) GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -605,6 +616,20 @@ func (mr *MockWorkflowProviderMockRecorder) IsApplicationError(err interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsApplicationError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsApplicationError), err)
 }
 
+// IsCanceledError mocks base method.
+func (m *MockWorkflowProvider) IsCanceledError(err error) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCanceledError", err)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsCanceledError indicates an expected call of IsCanceledError.
+func (mr *MockWorkflowProviderMockRecorder) IsCanceledError(err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsCanceledError), err)
+}
+
 // IsContinueAsNewError mocks base method.
 func (m *MockWorkflowProvider) IsContinueAsNewError(err error) bool {
 	m.ctrl.T.Helper()
@@ -617,6 +642,20 @@ func (m *MockWorkflowProvider) IsContinueAsNewError(err error) bool {
 func (mr *MockWorkflowProviderMockRecorder) IsContinueAsNewError(err interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsContinueAsNewError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsContinueAsNewError), err)
+}
+
+// IsReplaying mocks base method.
+func (m *MockWorkflowProvider) IsReplaying(ctx UnifiedContext) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsReplaying", ctx)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsReplaying indicates an expected call of IsReplaying.
+func (mr *MockWorkflowProviderMockRecorder) IsReplaying(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReplaying", reflect.TypeOf((*MockWorkflowProvider)(nil).IsReplaying), ctx)
 }
 
 // MapToFlowResultError mocks base method.
@@ -633,48 +672,6 @@ func (m *MockWorkflowProvider) MapToFlowResultError(err error) (dexpb.FlowErrorT
 func (mr *MockWorkflowProviderMockRecorder) MapToFlowResultError(err interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MapToFlowResultError", reflect.TypeOf((*MockWorkflowProvider)(nil).MapToFlowResultError), err)
-}
-
-// IsCanceledError mocks base method.
-func (m *MockWorkflowProvider) IsCanceledError(err error) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsCanceledError", err)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsCanceledError indicates an expected call of IsCanceledError.
-func (mr *MockWorkflowProviderMockRecorder) IsCanceledError(err interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsCanceledError), err)
-}
-
-// NewDisconnectedContext mocks base method.
-func (m *MockWorkflowProvider) NewDisconnectedContext(ctx UnifiedContext) UnifiedContext {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewDisconnectedContext", ctx)
-	ret0, _ := ret[0].(UnifiedContext)
-	return ret0
-}
-
-// NewDisconnectedContext indicates an expected call of NewDisconnectedContext.
-func (mr *MockWorkflowProviderMockRecorder) NewDisconnectedContext(ctx interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewDisconnectedContext", reflect.TypeOf((*MockWorkflowProvider)(nil).NewDisconnectedContext), ctx)
-}
-
-// IsReplaying mocks base method.
-func (m *MockWorkflowProvider) IsReplaying(ctx UnifiedContext) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsReplaying", ctx)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsReplaying indicates an expected call of IsReplaying.
-func (mr *MockWorkflowProviderMockRecorder) IsReplaying(ctx interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReplaying", reflect.TypeOf((*MockWorkflowProvider)(nil).IsReplaying), ctx)
 }
 
 // MapToRecoveryError mocks base method.
@@ -704,6 +701,20 @@ func (m *MockWorkflowProvider) NewCanceledError(reason string) error {
 func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewCanceledError), reason)
+}
+
+// NewDisconnectedContext mocks base method.
+func (m *MockWorkflowProvider) NewDisconnectedContext(ctx UnifiedContext) UnifiedContext {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewDisconnectedContext", ctx)
+	ret0, _ := ret[0].(UnifiedContext)
+	return ret0
+}
+
+// NewDisconnectedContext indicates an expected call of NewDisconnectedContext.
+func (mr *MockWorkflowProviderMockRecorder) NewDisconnectedContext(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewDisconnectedContext", reflect.TypeOf((*MockWorkflowProvider)(nil).NewDisconnectedContext), ctx)
 }
 
 // NewFlowError mocks base method.
@@ -886,6 +897,21 @@ func (m *MockWorkflowProvider) WithActivityOptions(ctx UnifiedContext, options A
 func (mr *MockWorkflowProviderMockRecorder) WithActivityOptions(ctx, options interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithActivityOptions", reflect.TypeOf((*MockWorkflowProvider)(nil).WithActivityOptions), ctx, options)
+}
+
+// WithCancel mocks base method.
+func (m *MockWorkflowProvider) WithCancel(parent UnifiedContext) (UnifiedContext, func()) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithCancel", parent)
+	ret0, _ := ret[0].(UnifiedContext)
+	ret1, _ := ret[1].(func())
+	return ret0, ret1
+}
+
+// WithCancel indicates an expected call of WithCancel.
+func (mr *MockWorkflowProviderMockRecorder) WithCancel(parent interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithCancel", reflect.TypeOf((*MockWorkflowProvider)(nil).WithCancel), parent)
 }
 
 // MockReceiveChannel is a mock of ReceiveChannel interface.

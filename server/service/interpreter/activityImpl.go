@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -48,6 +49,13 @@ type Activities struct {
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
 	subFlowResolver  *SubFlowReuseResolver
+}
+
+type activityHeartbeat struct {
+	provider interfaces.ActivityProvider
+	ctx      context.Context
+	done     chan struct{}
+	waiter   sync.WaitGroup
 }
 
 func NewActivities(
@@ -106,6 +114,8 @@ func (a *Activities) InvokeWaitForMethod(
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
+	heartbeat := startActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.stop()
 	req := waitForMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -122,7 +132,6 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
-	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
@@ -141,16 +150,18 @@ func (a *Activities) InvokeWaitForMethod(
 
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
+	if ctx.Err() == context.Canceled {
+		return nil, context.Canceled
+	}
+	if callCtx.Err() == context.Canceled {
+		return nil, context.Canceled
+	}
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
-		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
-	}
-	if err := validateTransientStepMovement(resp.GetTransientStepMovement()); err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
@@ -180,21 +191,6 @@ func (a *Activities) InvokeWaitForMethod(
 		return nil, newServerActivityFailure(provider, err, localActivityFailure)
 	}
 
-	transientStep := resp.GetTransientStepMovement()
-	if transientStep != nil {
-		transientStep.FromStepExecutionIdInternalOnly = req.GetContext().GetStepExecutionId()
-		transientStep.RecoveryErrorInternalOnly = nil
-		if err := a.reuseOrOffloadStepInput(
-			ctx,
-			transientStep,
-			originalStepInputBlob,
-			req.GetStepInput(),
-			activityInfo.WorkflowExecution.ID,
-			activityInvocationId(activityInfo),
-		); err != nil {
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
-		}
-	}
 	resp.LocalActivityMetadata = nil
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityMetadata = composeLocalActivityMetadata(req.GetContext())
@@ -274,6 +270,8 @@ func (a *Activities) InvokeExecuteMethod(
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
+	heartbeat := startActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.stop()
 	req := executeMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -315,12 +313,18 @@ func (a *Activities) InvokeExecuteMethod(
 
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
+	if ctx.Err() == context.Canceled {
+		return nil, context.Canceled
+	}
+	if callCtx.Err() == context.Canceled {
+		return nil, context.Canceled
+	}
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	if err := validateExecuteResponse(resp, input.GetIsTransientStep()); err != nil {
+	if err := validateExecuteResponse(resp); err != nil {
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := a.persistStepEventInput(
@@ -426,6 +430,48 @@ func workerContextForAttempt(workerContext *dexpb.Context) *dexpb.Context {
 		FromStepExecutionId:   workerContext.GetFromStepExecutionId(),
 		RecoveryError:         workerContext.GetRecoveryError(),
 	}
+}
+
+func startActivityHeartbeat(
+	provider interfaces.ActivityProvider,
+	ctx context.Context,
+	info interfaces.ActivityInfo,
+) *activityHeartbeat {
+	if info.IsLocalActivity || info.HeartbeatTimeout <= 0 {
+		return nil
+	}
+	heartbeat := &activityHeartbeat{
+		provider: provider,
+		ctx:      ctx,
+		done:     make(chan struct{}),
+	}
+	heartbeat.waiter.Add(1)
+	go heartbeat.run()
+	return heartbeat
+}
+
+func (h *activityHeartbeat) run() {
+	defer h.waiter.Done()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			h.provider.RecordHeartbeat(h.ctx)
+		case <-h.done:
+			return
+		case <-h.ctx.Done():
+			return
+		}
+	}
+}
+
+func (h *activityHeartbeat) stop() {
+	if h == nil {
+		return
+	}
+	close(h.done)
+	h.waiter.Wait()
 }
 
 func (a *Activities) persistStepEventInput(
@@ -951,17 +997,9 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
 }
 
-func validateExecuteResponse(
-	resp *dexpb.InvokeExecuteMethodResponse,
-	isTransientStep bool,
-) error {
+func validateExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
 	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
 		return err
-	}
-	if isTransientStep {
-		if err := validateTransientDeadEndDecision(resp.GetStepDecision()); err != nil {
-			return err
-		}
 	}
 	return validateWorkerExecuteResponse(resp)
 }
@@ -992,6 +1030,16 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 	for index, movement := range decision.GetNextSteps() {
 		if movement == nil || movement.GetStepType() == "" {
 			return fmt.Errorf("next step at index %d is invalid", index)
+		}
+	}
+	for index, stepType := range decision.GetCancelStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel step type at index %d is invalid", index)
+		}
+	}
+	for index, stepType := range decision.GetCancelSiblingStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel sibling step type at index %d is invalid", index)
 		}
 	}
 	if closeDecision := decision.GetCloseDecision(); closeDecision != nil {
@@ -1043,43 +1091,6 @@ func validateCloseDecision(closeDecision *dexpb.CloseDecision, nextStepCount int
 		}
 	default:
 		return fmt.Errorf("close decision type is unspecified")
-	}
-	return nil
-}
-
-func validateTransientStepMovement(movement *dexpb.StepMovement) error {
-	if movement == nil {
-		return nil
-	}
-	if movement.GetStepType() == "" {
-		return fmt.Errorf("transient step type is empty")
-	}
-	options := movement.GetStepOptions()
-	if !options.GetSkipWaitFor() {
-		return fmt.Errorf("transient step must skip WaitFor")
-	}
-	if options.GetWaitForFailurePolicy() ==
-		dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE {
-		return fmt.Errorf("transient step cannot proceed on WaitFor failure")
-	}
-	if options.GetExecuteFailurePolicy() ==
-		dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP {
-		return fmt.Errorf("transient step cannot proceed on Execute failure")
-	}
-	if options.GetExecuteFailureProceedStepType() != "" {
-		return fmt.Errorf("transient step cannot configure an Execute failure step")
-	}
-	if options.GetExecuteFailureProceedStepOptions() != nil {
-		return fmt.Errorf("transient step cannot configure Execute failure step options")
-	}
-	return nil
-}
-
-func validateTransientDeadEndDecision(decision *dexpb.StepDecision) error {
-	if decision == nil || len(decision.GetNextSteps()) != 0 ||
-		decision.GetCloseDecision().GetCloseDecisionType() !=
-			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END {
-		return fmt.Errorf("transient step requires a DeadEnd close decision")
 	}
 	return nil
 }

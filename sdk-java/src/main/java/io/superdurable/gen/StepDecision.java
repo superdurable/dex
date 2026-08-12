@@ -29,6 +29,10 @@ private static final long serialVersionUID = 0L;
   }
   private StepDecision() {
     nextSteps_ = java.util.Collections.emptyList();
+    cancelStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    cancelSiblingStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -117,6 +121,80 @@ private static final long serialVersionUID = 0L;
     return closeDecision_ == null ? io.superdurable.gen.CloseDecision.getDefaultInstance() : closeDecision_;
   }
 
+  public static final int CANCEL_STEP_TYPES_FIELD_NUMBER = 3;
+  @SuppressWarnings("serial")
+  private com.google.protobuf.LazyStringArrayList cancelStepTypes_ =
+      com.google.protobuf.LazyStringArrayList.emptyList();
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @return A list containing the cancelStepTypes.
+   */
+  public com.google.protobuf.ProtocolStringList
+      getCancelStepTypesList() {
+    return cancelStepTypes_;
+  }
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @return The count of cancelStepTypes.
+   */
+  public int getCancelStepTypesCount() {
+    return cancelStepTypes_.size();
+  }
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @param index The index of the element to return.
+   * @return The cancelStepTypes at the given index.
+   */
+  public java.lang.String getCancelStepTypes(int index) {
+    return cancelStepTypes_.get(index);
+  }
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the cancelStepTypes at the given index.
+   */
+  public com.google.protobuf.ByteString
+      getCancelStepTypesBytes(int index) {
+    return cancelStepTypes_.getByteString(index);
+  }
+
+  public static final int CANCEL_SIBLING_STEP_TYPES_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private com.google.protobuf.LazyStringArrayList cancelSiblingStepTypes_ =
+      com.google.protobuf.LazyStringArrayList.emptyList();
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @return A list containing the cancelSiblingStepTypes.
+   */
+  public com.google.protobuf.ProtocolStringList
+      getCancelSiblingStepTypesList() {
+    return cancelSiblingStepTypes_;
+  }
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @return The count of cancelSiblingStepTypes.
+   */
+  public int getCancelSiblingStepTypesCount() {
+    return cancelSiblingStepTypes_.size();
+  }
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @param index The index of the element to return.
+   * @return The cancelSiblingStepTypes at the given index.
+   */
+  public java.lang.String getCancelSiblingStepTypes(int index) {
+    return cancelSiblingStepTypes_.get(index);
+  }
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the cancelSiblingStepTypes at the given index.
+   */
+  public com.google.protobuf.ByteString
+      getCancelSiblingStepTypesBytes(int index) {
+    return cancelSiblingStepTypes_.getByteString(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -137,6 +215,12 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(2, getCloseDecision());
     }
+    for (int i = 0; i < cancelStepTypes_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, cancelStepTypes_.getRaw(i));
+    }
+    for (int i = 0; i < cancelSiblingStepTypes_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, cancelSiblingStepTypes_.getRaw(i));
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -153,6 +237,22 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getCloseDecision());
+    }
+    {
+      int dataSize = 0;
+      for (int i = 0; i < cancelStepTypes_.size(); i++) {
+        dataSize += computeStringSizeNoTag(cancelStepTypes_.getRaw(i));
+      }
+      size += dataSize;
+      size += 1 * getCancelStepTypesList().size();
+    }
+    {
+      int dataSize = 0;
+      for (int i = 0; i < cancelSiblingStepTypes_.size(); i++) {
+        dataSize += computeStringSizeNoTag(cancelSiblingStepTypes_.getRaw(i));
+      }
+      size += dataSize;
+      size += 1 * getCancelSiblingStepTypesList().size();
     }
     return size;
   }
@@ -185,6 +285,10 @@ private static final long serialVersionUID = 0L;
       if (!getCloseDecision()
           .equals(other.getCloseDecision())) return false;
     }
+    if (!getCancelStepTypesList()
+        .equals(other.getCancelStepTypesList())) return false;
+    if (!getCancelSiblingStepTypesList()
+        .equals(other.getCancelSiblingStepTypesList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -203,6 +307,14 @@ private static final long serialVersionUID = 0L;
     if (hasCloseDecision()) {
       hash = (37 * hash) + CLOSE_DECISION_FIELD_NUMBER;
       hash = (53 * hash) + getCloseDecision().hashCode();
+    }
+    if (getCancelStepTypesCount() > 0) {
+      hash = (37 * hash) + CANCEL_STEP_TYPES_FIELD_NUMBER;
+      hash = (53 * hash) + getCancelStepTypesList().hashCode();
+    }
+    if (getCancelSiblingStepTypesCount() > 0) {
+      hash = (37 * hash) + CANCEL_SIBLING_STEP_TYPES_FIELD_NUMBER;
+      hash = (53 * hash) + getCancelSiblingStepTypesList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -354,6 +466,10 @@ private static final long serialVersionUID = 0L;
         closeDecisionBuilder_.dispose();
         closeDecisionBuilder_ = null;
       }
+      cancelStepTypes_ =
+          com.google.protobuf.LazyStringArrayList.emptyList();
+      cancelSiblingStepTypes_ =
+          com.google.protobuf.LazyStringArrayList.emptyList();
       return this;
     }
 
@@ -407,6 +523,14 @@ private static final long serialVersionUID = 0L;
             : closeDecisionBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        cancelStepTypes_.makeImmutable();
+        result.cancelStepTypes_ = cancelStepTypes_;
+      }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        cancelSiblingStepTypes_.makeImmutable();
+        result.cancelSiblingStepTypes_ = cancelSiblingStepTypes_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -450,6 +574,26 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasCloseDecision()) {
         mergeCloseDecision(other.getCloseDecision());
+      }
+      if (!other.cancelStepTypes_.isEmpty()) {
+        if (cancelStepTypes_.isEmpty()) {
+          cancelStepTypes_ = other.cancelStepTypes_;
+          bitField0_ |= 0x00000004;
+        } else {
+          ensureCancelStepTypesIsMutable();
+          cancelStepTypes_.addAll(other.cancelStepTypes_);
+        }
+        onChanged();
+      }
+      if (!other.cancelSiblingStepTypes_.isEmpty()) {
+        if (cancelSiblingStepTypes_.isEmpty()) {
+          cancelSiblingStepTypes_ = other.cancelSiblingStepTypes_;
+          bitField0_ |= 0x00000008;
+        } else {
+          ensureCancelSiblingStepTypesIsMutable();
+          cancelSiblingStepTypes_.addAll(other.cancelSiblingStepTypes_);
+        }
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -497,6 +641,16 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              ensureCancelStepTypesIsMutable();
+              cancelStepTypes_.add(input.readStringRequireUtf8());
+              break;
+            } // case 26
+            case 34: {
+              ensureCancelSiblingStepTypesIsMutable();
+              cancelSiblingStepTypes_.add(input.readStringRequireUtf8());
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -873,6 +1027,228 @@ private static final long serialVersionUID = 0L;
         closeDecision_ = null;
       }
       return closeDecisionBuilder_;
+    }
+
+    private com.google.protobuf.LazyStringArrayList cancelStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    private void ensureCancelStepTypesIsMutable() {
+      if (!cancelStepTypes_.isModifiable()) {
+        cancelStepTypes_ = new com.google.protobuf.LazyStringArrayList(cancelStepTypes_);
+      }
+      bitField0_ |= 0x00000004;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @return A list containing the cancelStepTypes.
+     */
+    public com.google.protobuf.ProtocolStringList
+        getCancelStepTypesList() {
+      cancelStepTypes_.makeImmutable();
+      return cancelStepTypes_;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @return The count of cancelStepTypes.
+     */
+    public int getCancelStepTypesCount() {
+      return cancelStepTypes_.size();
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param index The index of the element to return.
+     * @return The cancelStepTypes at the given index.
+     */
+    public java.lang.String getCancelStepTypes(int index) {
+      return cancelStepTypes_.get(index);
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the cancelStepTypes at the given index.
+     */
+    public com.google.protobuf.ByteString
+        getCancelStepTypesBytes(int index) {
+      return cancelStepTypes_.getByteString(index);
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param index The index to set the value at.
+     * @param value The cancelStepTypes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCancelStepTypes(
+        int index, java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureCancelStepTypesIsMutable();
+      cancelStepTypes_.set(index, value);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param value The cancelStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addCancelStepTypes(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureCancelStepTypesIsMutable();
+      cancelStepTypes_.add(value);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param values The cancelStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllCancelStepTypes(
+        java.lang.Iterable<java.lang.String> values) {
+      ensureCancelStepTypesIsMutable();
+      com.google.protobuf.AbstractMessageLite.Builder.addAll(
+          values, cancelStepTypes_);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCancelStepTypes() {
+      cancelStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+      bitField0_ = (bitField0_ & ~0x00000004);;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_step_types = 3;</code>
+     * @param value The bytes of the cancelStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addCancelStepTypesBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      ensureCancelStepTypesIsMutable();
+      cancelStepTypes_.add(value);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+
+    private com.google.protobuf.LazyStringArrayList cancelSiblingStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    private void ensureCancelSiblingStepTypesIsMutable() {
+      if (!cancelSiblingStepTypes_.isModifiable()) {
+        cancelSiblingStepTypes_ = new com.google.protobuf.LazyStringArrayList(cancelSiblingStepTypes_);
+      }
+      bitField0_ |= 0x00000008;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @return A list containing the cancelSiblingStepTypes.
+     */
+    public com.google.protobuf.ProtocolStringList
+        getCancelSiblingStepTypesList() {
+      cancelSiblingStepTypes_.makeImmutable();
+      return cancelSiblingStepTypes_;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @return The count of cancelSiblingStepTypes.
+     */
+    public int getCancelSiblingStepTypesCount() {
+      return cancelSiblingStepTypes_.size();
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param index The index of the element to return.
+     * @return The cancelSiblingStepTypes at the given index.
+     */
+    public java.lang.String getCancelSiblingStepTypes(int index) {
+      return cancelSiblingStepTypes_.get(index);
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the cancelSiblingStepTypes at the given index.
+     */
+    public com.google.protobuf.ByteString
+        getCancelSiblingStepTypesBytes(int index) {
+      return cancelSiblingStepTypes_.getByteString(index);
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param index The index to set the value at.
+     * @param value The cancelSiblingStepTypes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCancelSiblingStepTypes(
+        int index, java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureCancelSiblingStepTypesIsMutable();
+      cancelSiblingStepTypes_.set(index, value);
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param value The cancelSiblingStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addCancelSiblingStepTypes(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureCancelSiblingStepTypesIsMutable();
+      cancelSiblingStepTypes_.add(value);
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param values The cancelSiblingStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllCancelSiblingStepTypes(
+        java.lang.Iterable<java.lang.String> values) {
+      ensureCancelSiblingStepTypesIsMutable();
+      com.google.protobuf.AbstractMessageLite.Builder.addAll(
+          values, cancelSiblingStepTypes_);
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCancelSiblingStepTypes() {
+      cancelSiblingStepTypes_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+      bitField0_ = (bitField0_ & ~0x00000008);;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string cancel_sibling_step_types = 4;</code>
+     * @param value The bytes of the cancelSiblingStepTypes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addCancelSiblingStepTypesBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      ensureCancelSiblingStepTypesIsMutable();
+      cancelSiblingStepTypes_.add(value);
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepDecision)

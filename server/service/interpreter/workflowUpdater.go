@@ -28,20 +28,21 @@ import (
 )
 
 type WorkflowUpdater struct {
-	activities           *Activities
-	apiCfg               *config.ApiConfig
-	ctx                  interfaces.UnifiedContext
-	persistenceManager   *PersistenceManager
-	provider             interfaces.WorkflowProvider
-	continueAsNewer      *ContinueAsNewer
-	continueAsNewCounter *cont.ContinueAsNewCounter
-	channelStore         *ChannelStore
-	signalReceiver       *SignalReceiver
-	terminalCoordinator  *TerminalCoordinator
-	stepRequestQueue     *StepRequestQueue
-	stepExecutionCounter *StepExecutionCounter
-	flowConfiger         *interpreterconfig.FlowConfiger
-	basicInfo            service.BasicInfo
+	activities            *Activities
+	apiCfg                *config.ApiConfig
+	ctx                   interfaces.UnifiedContext
+	persistenceManager    *PersistenceManager
+	provider              interfaces.WorkflowProvider
+	continueAsNewer       *ContinueAsNewer
+	continueAsNewCounter  *cont.ContinueAsNewCounter
+	channelStore          *ChannelStore
+	signalReceiver        *SignalReceiver
+	terminalCoordinator   *TerminalCoordinator
+	stepRequestQueue      *StepRequestQueue
+	stepExecutionCounter  *StepExecutionCounter
+	stepExecutionRegistry *stepExecutionRegistry
+	flowConfiger          *interpreterconfig.FlowConfiger
+	basicInfo             service.BasicInfo
 }
 
 func NewWorkflowUpdater(
@@ -57,6 +58,7 @@ func NewWorkflowUpdater(
 	signalReceiver *SignalReceiver,
 	terminalCoordinator *TerminalCoordinator,
 	stepExecutionCounter *StepExecutionCounter,
+	stepExecutionRegistry *stepExecutionRegistry,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {
@@ -65,24 +67,25 @@ func NewWorkflowUpdater(
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
 		signalReceiver == nil || terminalCoordinator == nil ||
-		stepExecutionCounter == nil || flowConfiger == nil {
+		stepExecutionCounter == nil || stepExecutionRegistry == nil || flowConfiger == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
-		activities:           activities,
-		apiCfg:               apiCfg,
-		ctx:                  ctx,
-		persistenceManager:   persistenceManager,
-		provider:             provider,
-		continueAsNewer:      continueAsNewer,
-		continueAsNewCounter: continueAsNewCounter,
-		channelStore:         channelStore,
-		signalReceiver:       signalReceiver,
-		terminalCoordinator:  terminalCoordinator,
-		stepRequestQueue:     stepRequestQueue,
-		stepExecutionCounter: stepExecutionCounter,
-		flowConfiger:         flowConfiger,
-		basicInfo:            basicInfo,
+		activities:            activities,
+		apiCfg:                apiCfg,
+		ctx:                   ctx,
+		persistenceManager:    persistenceManager,
+		provider:              provider,
+		continueAsNewer:       continueAsNewer,
+		continueAsNewCounter:  continueAsNewCounter,
+		channelStore:          channelStore,
+		signalReceiver:        signalReceiver,
+		terminalCoordinator:   terminalCoordinator,
+		stepRequestQueue:      stepRequestQueue,
+		stepExecutionCounter:  stepExecutionCounter,
+		stepExecutionRegistry: stepExecutionRegistry,
+		flowConfiger:          flowConfiger,
+		basicInfo:             basicInfo,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
@@ -204,6 +207,13 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
+	rpcSource := service.GetFromStepExecutionIdForRPC(input.GetRpcName())
+	if err := u.stepExecutionRegistry.CancelSelected(
+		decision,
+		rpcSource,
+	); err != nil {
+		return nil, err
+	}
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{

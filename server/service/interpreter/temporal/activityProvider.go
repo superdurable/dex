@@ -59,10 +59,11 @@ func (a *activityProvider) NewLocalActivityError(
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {
 	info := activity.GetInfo(ctx)
 	return interfaces.ActivityInfo{
-		ScheduledTime:   info.ScheduledTime,
-		ActivityID:      info.ActivityID,
-		Attempt:         info.Attempt,
-		IsLocalActivity: info.IsLocalActivity,
+		ScheduledTime:    info.ScheduledTime,
+		ActivityID:       info.ActivityID,
+		Attempt:          info.Attempt,
+		IsLocalActivity:  info.IsLocalActivity,
+		HeartbeatTimeout: info.HeartbeatTimeout,
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,

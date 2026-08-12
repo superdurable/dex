@@ -30,4 +30,10 @@ public interface StepMethodOptionsOrBuilder extends
    * <code>.dex.RetryPolicy retry_policy = 2;</code>
    */
   io.superdurable.gen.RetryPolicyOrBuilder getRetryPolicyOrBuilder();
+
+  /**
+   * <code>int32 heartbeat_timeout_seconds = 3;</code>
+   * @return The heartbeatTimeoutSeconds.
+   */
+  int getHeartbeatTimeoutSeconds();
 }

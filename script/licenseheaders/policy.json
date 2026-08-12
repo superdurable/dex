@@ -106,7 +106,6 @@
     "server/integ/worker_target_update_test.go",
     "server/integ/workflow/channel_multivalue/routers.go",
     "server/integ/workflow/common/load_blobs.go",
-    "server/integ/workflow/transient_step/routers.go",
     "server/service/bootstrap/cadence.go",
     "server/service/bootstrap/metrics.go",
     "server/service/bootstrap/storage.go",

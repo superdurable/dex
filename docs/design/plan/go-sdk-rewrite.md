@@ -21,7 +21,6 @@ This plan is based on the current:
 - [`sdk-go/dex/options.go`](../../../sdk-go/dex/options.go)
 - [`sdk-go/dex/errors.go`](../../../sdk-go/dex/errors.go)
 - [`blob-cache-go/blobcache/cache.go`](../../../blob-cache-go/blobcache/cache.go)
-- [`docs/design/transient-step-movement.md`](../transient-step-movement.md)
 
 The old `sdk-go/dex` API is not a compatibility constraint. The product has not
 launched, so the rewrite removes obsolete Workflow/State/WaitUntil,
@@ -41,8 +40,6 @@ adding aliases.
   - only `at_least`: at least N, with no upper bound;
   - only `at_most`: zero through N;
   - both: the inclusive range.
-- WaitFor may carry one server-supported transient step movement. The Go SDK
-  uses this internally and does not expose it to applications.
 - `StepDecision` has normal next steps and a separate `CloseDecision`.
 - A normal Execute must return a non-nil, non-empty decision. Only conditional
   force-complete may combine a close decision with fallback next steps.
@@ -398,7 +395,6 @@ Phase 3 does not implement:
 - concrete invocation `Context` values;
 - buffered attribute, event, local, or channel commits;
 - method panic recovery or worker error conversion;
-- internal transient-step execution;
 - worker startup, readiness, draining, or shutdown;
 - FlowService client calls or RPC request-ID retries.
 
@@ -746,8 +742,7 @@ non-nil pointer and decodes the hydrated value. Missing locals return
 `found=false`.
 
 WaitFor may Set a local more than once; the last value wins and the response
-uses first-write key order. Execute and RPC reject Set. Internal transient
-Execute receives no locals and therefore cannot read source-step locals.
+uses first-write key order. Execute and RPC reject Set.
 
 `RecordEvent` requires a non-empty name. One name may be recorded once per
 method invocation; a duplicate returns an error without replacing the first
@@ -794,14 +789,6 @@ successful response contains:
 - published channel messages.
 
 The Worker never sets `local_activity_metadata`; that field is server-owned.
-
-Transient movement remains internal. `Wait` reserves an unexported optional
-movement used only by SDK-owned machinery. If present, the mapper requires a
-registered execute-only target, forces `skip_wait_for`, rejects failure-proceed
-options, and leaves lineage empty. Public Wait constructors cannot set it.
-Normal application WaitFor responses therefore omit
-`transient_step_movement`. The server remains authoritative for requiring a
-transient Execute to return only `DeadEnd()`.
 
 ### Execute response
 
@@ -875,7 +862,6 @@ Phase 4 does not implement:
 - automatic WorkerTarget registration or service discovery;
 - TLS WorkerService or FlowService transport;
 - public gRPC request/response types or a custom service registrar;
-- a public transient-step constructor;
 - custom value codecs or codec registries; or
 - blob-cache eviction, recovery, or capacity changes.
 
@@ -929,9 +915,6 @@ Cover these scenarios:
 11. Concurrent WaitFor, Execute, and RPC calls isolate invocation state under
     the race detector; graceful stop drains an in-flight handler and deadline
     expiry cancels it.
-12. The internal transient mapper emits valid skip options and rejects a
-    waiting target or failure-proceed configuration without exposing an
-    application constructor.
 
 Run Phase 4 verification through the Makefile:
 
@@ -1800,7 +1783,7 @@ if err != nil {
 
 `valuePtr` must be a non-nil pointer. `SetStepExecutionLocal` is valid in
 WaitFor; `GetStepExecutionLocal` is valid in Execute for the same step
-execution. Locals are unavailable to RPC and internal transient Execute.
+execution. Locals are unavailable to RPC.
 
 `RecordEvent` accepts arbitrary data because events are not read through the
 SDK. An event name may be recorded once per method invocation. Events do not
@@ -2075,15 +2058,6 @@ must not share an ID. Explicit IDs also remain useful for timer skipping.
 Channel values are read through the strongly typed channel handles.
 `Context.HasTimerFired` and `HasTimerFiredByIndex` expose timer completion
 without exporting proto-shaped condition result types.
-
-### Internal transient steps
-
-Transient steps are not part of the application-facing API. Phase 1 exports no
-transient movement type, constructor, Wait modifier, or option.
-
-Phase 4 must map the server feature internally. The internal target skips
-WaitFor, runs after source WaitFor writes commit, and must return only
-`DeadEnd()`.
 
 ### Step movements and close decisions
 
@@ -2802,7 +2776,7 @@ Go's return rules.
 2. Add the public declarations with unexported runtime fields.
 3. Add compile-time example coverage for generic interfaces and signatures.
 4. Keep registration-only generic handler adapters unexported.
-5. Keep raw condition results and transient-step machinery unexported.
+5. Keep raw condition results unexported.
 6. Delete old public API files only when their replacements compile in the same
    change; do not add compatibility aliases.
 7. Stop at the Phase 1 exit gate. Do not add registry or WorkerService code.
@@ -2866,8 +2840,7 @@ Later phases must add Temporal integration coverage for:
    caller-provided pointer;
 6. arbitrary event values are encoded and recorded once per invocation name;
 7. Flow method RPC registration, handler invocation, and optional next steps
-   map to the current server contract;
-8. internal transient movement mapping remains unavailable to application code.
+   map to the current server contract.
 
 Cadence execution is not required because the default Dex server image is
 Temporal-backed.

@@ -28,7 +28,9 @@ import io.superdurable.gen.WorkerServiceGrpc;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,6 +41,7 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     private static final byte[] STACK_TRACE_TRUNCATION_MARKER =
             "\n... stack trace truncated by Dex Java SDK ..."
                     .getBytes(StandardCharsets.UTF_8);
+    private static final Executor DIRECT_EXECUTOR = Runnable::run;
 
     private final WorkerDispatcher dispatcher;
     private final ExecutorService handlers;
@@ -77,10 +80,19 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     private <Response> void submit(
             final StreamObserver<Response> observer,
             final Invocation<Response> invocation) {
-        final Runnable task = Context.current().wrap(() -> invoke(observer, invocation));
+        final Context requestContext = Context.current();
+        final HandlerCancellation cancellation = new HandlerCancellation(requestContext);
+        final Runnable task = requestContext.wrap(() -> {
+            try {
+                invoke(observer, invocation);
+            } finally {
+                cancellation.complete();
+            }
+        });
         try {
-            handlers.execute(task);
+            cancellation.attach(handlers.submit(task));
         } catch (RejectedExecutionException rejected) {
+            cancellation.complete();
             observer.onError(Status.RESOURCE_EXHAUSTED
                     .withDescription("Java Worker handler capacity is exhausted")
                     .withCause(rejected)
@@ -95,6 +107,13 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
             observer.onNext(invocation.invoke());
             observer.onCompleted();
         } catch (Throwable failure) {
+            if (Context.current().isCancelled()) {
+                observer.onError(Status.CANCELLED
+                        .withDescription("Java Worker invocation canceled")
+                        .withCause(failure)
+                        .asRuntimeException());
+                return;
+            }
             LOGGER.log(Level.SEVERE, "Java Worker invocation failed", failure);
             observer.onError(mapFailure(failure));
         }
@@ -146,5 +165,49 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
 
     private interface Invocation<Response> {
         Response invoke() throws Throwable;
+    }
+
+    private static final class HandlerCancellation implements Context.CancellationListener {
+        private final Context context;
+        private Future<?> future;
+        private boolean isCompleted;
+
+        private HandlerCancellation(final Context context) {
+            this.context = context;
+            context.addListener(this, DIRECT_EXECUTOR);
+        }
+
+        synchronized void attach(final Future<?> value) {
+            if (isCompleted) {
+                value.cancel(true);
+                return;
+            }
+            future = value;
+            if (context.isCancelled()) {
+                value.cancel(true);
+            }
+        }
+
+        void complete() {
+            synchronized (this) {
+                isCompleted = true;
+                future = null;
+            }
+            context.removeListener(this);
+        }
+
+        @Override
+        public void cancelled(final Context ignored) {
+            final Future<?> running;
+            synchronized (this) {
+                isCompleted = true;
+                running = future;
+                future = null;
+            }
+            context.removeListener(this);
+            if (running != null) {
+                running.cancel(true);
+            }
+        }
     }
 }

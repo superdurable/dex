@@ -216,49 +216,6 @@ describe('timeline', () => {
     }]);
   });
 
-  it('links transient movement and failure recovery sources', () => {
-    const waitFor = event(10, 'StepWaitForCompleted', 'wait-1');
-    waitFor.payload.output = {
-      transientStepMovement: { stepType: 'transient' },
-    };
-    const transient = event(15, 'StepExecuteCompleted', 'transient-1');
-    transient.payload.context = {
-      ...transient.payload.context as Record<string, unknown>,
-      fromStepExecutionId: 'wait-1',
-      stepType: 'transient',
-    };
-    const failed = event(20, 'StepExecuteFailed', 'transient-1');
-    const recovery = event(25, 'StepExecuteCompleted', 'recovery-1');
-    recovery.payload.context = {
-      ...recovery.payload.context as Record<string, unknown>,
-      fromStepExecutionId: 'transient-1',
-      stepType: 'recovery',
-    };
-
-    expect(buildTimelineLinks([waitFor, transient, failed, recovery])
-      .filter((link) => link.kind === 'lineage'))
-      .toEqual([
-        {
-          kind: 'lineage',
-          stepExecutionId: 'transient-1',
-          fromEventId: 10,
-          toEventId: 15,
-          label: 'wait-1 transient movement to transient-1 first event',
-          elapsedDurationMs: null,
-          lane: 0,
-        },
-        {
-          kind: 'lineage',
-          stepExecutionId: 'recovery-1',
-          fromEventId: 20,
-          toEventId: 25,
-          label: 'transient-1 failure recovery to recovery-1 first event',
-          elapsedDurationMs: null,
-          lane: 0,
-        },
-      ]);
-  });
-
   it('links RPC and continued-run sources', () => {
     const rpc: FlowHistoryEvent = {
       eventId: 5,

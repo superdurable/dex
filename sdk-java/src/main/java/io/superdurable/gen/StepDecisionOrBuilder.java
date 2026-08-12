@@ -48,4 +48,54 @@ public interface StepDecisionOrBuilder extends
    * <code>.dex.CloseDecision close_decision = 2;</code>
    */
   io.superdurable.gen.CloseDecisionOrBuilder getCloseDecisionOrBuilder();
+
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @return A list containing the cancelStepTypes.
+   */
+  java.util.List<java.lang.String>
+      getCancelStepTypesList();
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @return The count of cancelStepTypes.
+   */
+  int getCancelStepTypesCount();
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @param index The index of the element to return.
+   * @return The cancelStepTypes at the given index.
+   */
+  java.lang.String getCancelStepTypes(int index);
+  /**
+   * <code>repeated string cancel_step_types = 3;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the cancelStepTypes at the given index.
+   */
+  com.google.protobuf.ByteString
+      getCancelStepTypesBytes(int index);
+
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @return A list containing the cancelSiblingStepTypes.
+   */
+  java.util.List<java.lang.String>
+      getCancelSiblingStepTypesList();
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @return The count of cancelSiblingStepTypes.
+   */
+  int getCancelSiblingStepTypesCount();
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @param index The index of the element to return.
+   * @return The cancelSiblingStepTypes at the given index.
+   */
+  java.lang.String getCancelSiblingStepTypes(int index);
+  /**
+   * <code>repeated string cancel_sibling_step_types = 4;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the cancelSiblingStepTypes at the given index.
+   */
+  com.google.protobuf.ByteString
+      getCancelSiblingStepTypesBytes(int index);
 }

@@ -182,5 +182,15 @@ func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 	if decision.GetCloseDecision() != nil {
 		return fmt.Errorf("closing flow in RPC is not supported yet")
 	}
+	for index, stepType := range decision.GetCancelStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel step type at index %d is invalid", index)
+		}
+	}
+	for index, stepType := range decision.GetCancelSiblingStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel sibling step type at index %d is invalid", index)
+		}
+	}
 	return nil
 }

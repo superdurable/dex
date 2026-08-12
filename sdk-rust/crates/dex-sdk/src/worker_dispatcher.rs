@@ -86,7 +86,6 @@ impl WorkerDispatcher {
                 upsert_step_exe_locals: locals,
                 record_events: events,
                 publish_to_channel: publications,
-                transient_step_movement: None,
             })
         })
         .await
@@ -177,6 +176,8 @@ impl WorkerDispatcher {
                         HandlerError::invalid_step_result(flow.name, None, "rpc", error)
                     })?,
                     close_decision: None,
+                    cancel_step_types: Vec::new(),
+                    cancel_sibling_step_types: Vec::new(),
                 })
             };
             let (attributes, _, events, publications) = context.take_outputs();
@@ -350,6 +351,7 @@ fn map_step_options_without_recovery(
             .iter()
             .map(|lock| lock.physical_name())
             .collect(),
+        heartbeat_timeout_seconds: 0,
     })
 }
 
@@ -429,6 +431,8 @@ fn map_decision(
             Ok(ProtoStepDecision {
                 next_steps: map_movements(flow, movements)?,
                 close_decision: None,
+                cancel_step_types: Vec::new(),
+                cancel_sibling_step_types: Vec::new(),
             })
         }
         StepDecisionKind::GracefulComplete(output) => close_decision(
@@ -450,6 +454,8 @@ fn map_decision(
                 conditional_channel_names: Vec::new(),
                 close_input: None,
             }),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }),
         StepDecisionKind::ForceCompleteIfChannelsEmpty {
             output,
@@ -465,6 +471,8 @@ fn map_decision(
                     .collect(),
                 close_input: Some(output.encode().map_err(handler_error)?),
             }),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }),
     }
 }
@@ -480,6 +488,8 @@ fn close_decision(
             conditional_channel_names: Vec::new(),
             close_input: Some(output),
         }),
+        cancel_step_types: Vec::new(),
+        cancel_sibling_step_types: Vec::new(),
     })
 }
 

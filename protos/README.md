@@ -36,6 +36,31 @@ one `next_steps` fallback. Other close types cannot include channel names or
 next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
 accepts no input.
 
+## Step execution cancellation
+
+`StepDecision.cancel_step_types` selects all queued or active executions of the
+exact Step types in the current Flow. `cancel_sibling_step_types` additionally
+requires the target and producer to have the same scheduling source. A Step
+producer uses its `from_step_execution_id`; an RPC producer uses the reserved
+`__rpc/<rpcName>` source, so sibling selection matches Steps scheduled by
+invocations of that same RPC name. Selectors are resolved from one snapshot
+after the producer's successful side effects commit and before its next
+movements are enqueued. Missing, completed, and previously canceled executions
+are no-ops. Selection does not recurse into descendants or match future
+executions.
+
+A queued movement receives its normal Step execution ID before being marked
+complete. Dex invokes each active target's workflow cancellation handler;
+backend activity results that arrive after logical cancellation do not affect
+Flow state. Cancellation does not add a Dex semantic history event.
+
+`StepOptions.heartbeat_timeout_seconds` applies to regular wait-for and execute
+activities. Zero disables heartbeats. Local activities ignore it, while an
+ASYNC fallback to a regular activity uses it. Dex calls the backend SDK
+heartbeat API once per second while the regular Step activity is active and leaves request
+throttling to the SDK. Effective regular and local method history retains the
+value in `StepMethodOptions`.
+
 ## Search flows
 
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
@@ -67,7 +92,8 @@ external storage. A local failure that exhausts its retry budget before regular
 fallback has no snapshot and sets `input.unavailable=true`, as do missing or
 cleaned-up snapshots.
 
-Each event context includes the effective method timeout and retry policy.
+Each event context includes the effective method timeout, heartbeat timeout,
+and retry policy.
 Regular Activity options come from scheduled metadata; local Activity options
 are retained with the stored request. Regular Activity input messages remain
 unchanged and use a null second Activity argument.
@@ -126,7 +152,8 @@ history client converts its activity error to `ServiceErrorResponse`; backend
 timeouts normally expose only `backend_error`.
 
 `LocalActivityMetadata` stores marker lineage only.
-`InternalLocalActivityInput` is the local-only runtime argument.
+`InternalLocalActivityInput` is the local-only runtime argument carrying the
+run start time and method options.
 `InternalLocalStepActivityFailure` carries the local attempt count, first
 attempt time, original method options, and nested `InternalActivityError` as one
 failure detail. A regular activity carries one `InternalActivityError` detail.
@@ -149,18 +176,6 @@ They do not expose workflow tasks, activities, markers, or raw backend events.
 When a flow closes before a regular Step activity finishes, semantic history
 emits `step_wait_for_pending` or `step_execute_pending` at its scheduled event
 ID. Its time and phase report whether the backend activity started.
-
-### Transient step movement
-
-`InvokeWaitForMethodResponse.transient_step_movement` optionally runs one
-skip-WaitFor step before the returned waiting condition starts. The movement
-cannot configure failure-proceed behavior, and its Execute method must return a
-DeadEnd close decision without next steps.
-
-The server applies WaitFor writes before the transient Execute. It normalizes
-timer deadlines and makes the source step resumable only after the transient
-step succeeds. Continue-as-new may be requested during the transient Execute,
-but the run transition waits for that Execute to finish.
 
 ## Codegen
 

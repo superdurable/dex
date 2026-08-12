@@ -1,0 +1,117 @@
+---
+title: Step execution cancellation
+---
+
+# Step execution cancellation
+
+## Why you need it
+
+Parallel work often has a winner: the first acceptable quote, the fastest
+replica, or the first branch that reaches quorum. Once the result is durable,
+the remaining work should stop consuming capacity and must not produce a late
+decision that changes the Flow.
+
+## Java example
+
+Return the winner's normal next action and select losing Step types in the same
+immutable decision:
+
+```java
+@Override
+public StepDecision execute(Context context, Quote quote) {
+    return StepDecision.goTo(recordQuote, quote)
+            .withCancelingSiblingSteps(carrierA, carrierB)
+            .withCancelingSteps(globalQuoteTimeout);
+}
+```
+
+`withCancelingSteps(...)` selects all queued or active executions of the exact
+registered Step types in the current Flow. `withCancelingSiblingSteps(...)`
+selects only targets with the same `Context.getFromStepExecutionId()` as the
+winner. Sibling selection is useful when several independent fan-outs reuse the
+same Step classes.
+
+An RPC can cancel executions with the same fluent methods on `RPCResult`:
+
+```java
+@RPC(name = "acceptQuote")
+public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
+    return RPCResult.of(
+                    QuoteStatus.ACCEPTED,
+                    StepMovement.of(recordQuote, quote))
+            .withCancelingSiblingSteps(carrierA, carrierB)
+            .withCancelingSteps(globalQuoteTimeout);
+}
+```
+
+For an RPC result, sibling means the target was scheduled by an invocation of
+the same RPC name. Dex represents that lineage with `__rpc/<rpcName>`.
+
+Long-running regular Steps should use a heartbeat timeout and cooperate with
+cancellation:
+
+```java
+private final StepOptions options = StepOptions.newBuilder()
+        .heartbeatTimeout(Duration.ofSeconds(10))
+        .build();
+
+@Override
+public StepDecision execute(Context context, Job job) {
+    while (!context.isCancellationRequested()) {
+        try {
+            processBatch(job);
+        } catch (InterruptedException canceled) {
+            Thread.currentThread().interrupt();
+            break;
+        }
+    }
+    return StepDecision.deadEnd();
+}
+```
+
+## Snapshot and completion semantics
+
+Dex commits the producer's successful Attribute and Channel writes, removes a
+Step producer from the candidate set, and resolves both selectors against one
+snapshot of queued and active executions. Next Steps created by that Step
+decision or RPC result are not in the snapshot. Targets that are absent,
+completed, or already canceled are successful no-ops.
+Selectors do not recursively cancel descendant Steps or affect future
+executions of a selected Step type.
+
+Cancellation wins when the interpreter applies the resolved snapshot. Dex
+immediately applies the winner's next or close action and does not wait for
+target handlers to return. A target does not retry, follow a failure policy,
+publish output, write Flow state, or schedule recovery Steps. Responses arriving
+after cancellation are ignored. Attribute and Channel side effects committed by
+an earlier wait-for call remain committed.
+
+Cancellation is cooperative at the application boundary. It cannot roll back
+an external API call or database transaction that application code already
+committed. Java handlers receive thread interruption and can inspect
+`Context.isCancellationRequested()`. Heartbeats make cancellation reach a
+regular activity promptly; without them the Flow still proceeds, but a handler
+may run until its natural return or timeout.
+
+Dex calls the backend SDK heartbeat API once per second while the regular Step
+activity is active. Temporal and Cadence throttle the actual requests sent to the service;
+Dex does not derive another interval from the configured heartbeat timeout.
+
+Temporal eager regular activities still need heartbeats for prompt handler
+cancellation. Eager execution reduces activity dispatch latency; it does not
+change the SDK's heartbeat-based cancellation delivery described by the
+[Temporal Go SDK activity options](https://github.com/temporalio/sdk-go/blob/main/internal/activity.go).
+
+## State and history
+
+Canceled executions disappear from active Flow state. A queued target receives
+its normal execution number before cancellation completes. Cancellation does not
+add a Dex semantic history event; regular activity cancellation remains visible
+only in the backend workflow history.
+
+## Traditional workarounds
+
+Without this abstraction, teams maintain winner flags, poll those flags from
+workers, suppress late writes in every code path, and reconcile queue records
+after crashes. That coordination is difficult to make atomic with the winning
+branch's durable decision.

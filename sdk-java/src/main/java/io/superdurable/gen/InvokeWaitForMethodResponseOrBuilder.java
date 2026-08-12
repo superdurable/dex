@@ -147,19 +147,4 @@ public interface InvokeWaitForMethodResponseOrBuilder extends
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
-
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 7;</code>
-   * @return Whether the transientStepMovement field is set.
-   */
-  boolean hasTransientStepMovement();
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 7;</code>
-   * @return The transientStepMovement.
-   */
-  io.superdurable.gen.StepMovement getTransientStepMovement();
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 7;</code>
-   */
-  io.superdurable.gen.StepMovementOrBuilder getTransientStepMovementOrBuilder();
 }

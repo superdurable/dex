@@ -191,8 +191,7 @@ function producesStepType(event: FlowHistoryEvent, targetStepType: string): bool
   const output = record(event.payload.output);
   const stepDecision = record(output.stepDecision);
   const nextSteps = Array.isArray(stepDecision.nextSteps) ? stepDecision.nextSteps : [];
-  if (nextSteps.some((movement) => record(movement).stepType === targetStepType)) return true;
-  return record(output.transientStepMovement).stepType === targetStepType;
+  return nextSteps.some((movement) => record(movement).stepType === targetStepType);
 }
 
 function lineageSourceLabel(event: FlowHistoryEvent): string {
@@ -203,7 +202,6 @@ function lineageSourceLabel(event: FlowHistoryEvent): string {
     return `RPC ${String(event.payload.rpcName || '')}`.trim();
   }
   const stepExecutionId = executionID(event);
-  if (event.type === 'StepWaitForCompleted') return `${stepExecutionId} transient movement`;
   if (event.type === 'StepExecuteFailed') return `${stepExecutionId} failure recovery`;
   return `${stepExecutionId} decision`;
 }

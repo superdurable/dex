@@ -167,6 +167,16 @@ func testRPCStepLineageAcrossContinueAsNew(
 			return workerHandler.GetTestResult().InvokeHistory[deadend.State1+"_execute"] > 0
 		}, 30*time.Second, 50*time.Millisecond)
 	}
+	require.Eventually(t, func() bool {
+		return isExecuteLineagePersisted(
+			ctx,
+			runtime.FlowClient,
+			flowID,
+			startResponse.GetRunId(),
+			deadend.State1+"-1",
+			service.GetFromStepExecutionIdForRPC(deadend.RPCTriggerState),
+		)
+	}, 30*time.Second, 50*time.Millisecond)
 
 	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
@@ -184,6 +194,51 @@ func testRPCStepLineageAcrossContinueAsNew(
 		service.GetFromStepExecutionIdForRPC(deadend.RPCTriggerState),
 		lineage[deadend.State1+"-1"],
 	)
+}
+
+func isExecuteLineagePersisted(
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+	stepExecutionID string,
+	fromStepExecutionID string,
+) bool {
+	visitedRunIDs := map[string]struct{}{}
+	for runID != "" {
+		if _, isVisited := visitedRunIDs[runID]; isVisited {
+			return false
+		}
+		visitedRunIDs[runID] = struct{}{}
+		nextRunID := ""
+		var pageToken []byte
+		for {
+			response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+				FlowId:        flowID,
+				RunId:         runID,
+				NextPageToken: pageToken,
+			})
+			if err != nil {
+				return false
+			}
+			for _, event := range response.GetEvents() {
+				execute := event.GetStepExecuteCompleted()
+				if execute.GetContext().GetStepExecutionId() == stepExecutionID &&
+					execute.GetContext().GetFromStepExecutionId() == fromStepExecutionID {
+					return true
+				}
+				if continuedToRunID := event.GetFlowClosed().GetContinuedToRunId(); continuedToRunID != "" {
+					nextRunID = continuedToRunID
+				}
+			}
+			pageToken = response.GetNextPageToken()
+			if len(pageToken) == 0 {
+				break
+			}
+		}
+		runID = nextRunID
+	}
+	return false
 }
 
 func collectStepLineage(

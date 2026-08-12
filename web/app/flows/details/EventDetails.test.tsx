@@ -40,7 +40,6 @@ function executeEvent(durability: number): FlowHistoryEvent {
           timeoutSeconds: 10,
           retryPolicy: { maximumAttempts: 3 },
         },
-        isTransientStep: true,
       },
     },
   };
@@ -80,7 +79,6 @@ describe('selected step event details', () => {
     expect(markup).toContain(`${durability === 1 ? 'sync' : 'async'}`);
     expect(markup).toContain('3ms');
     expect(markup).toContain('10s');
-    expect(markup).not.toContain('Transient');
     expect(markup).not.toContain('previousAttempt');
   });
 

@@ -115,7 +115,7 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return nil, err
 	}
-	waiting, transient, err := mapRegisteredWait(flow, wait)
+	waiting, err := mapRegisteredWait(flow, wait)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
@@ -125,12 +125,11 @@ func (service *workerService) invokeWaitForMethod(
 		})
 	}
 	return &dexpb.InvokeWaitForMethodResponse{
-		UpsertAttributes:      invocation.mappedAttributeWrites(),
-		WaitingCondition:      waiting,
-		UpsertStepExeLocals:   invocation.mappedLocalWrites(),
-		RecordEvents:          invocation.recordedEvents,
-		PublishToChannel:      invocation.publications,
-		TransientStepMovement: transient,
+		UpsertAttributes:    invocation.mappedAttributeWrites(),
+		WaitingCondition:    waiting,
+		UpsertStepExeLocals: invocation.mappedLocalWrites(),
+		RecordEvents:        invocation.recordedEvents,
+		PublishToChannel:    invocation.publications,
 	}, nil
 }
 

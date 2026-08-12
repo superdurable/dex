@@ -86,6 +86,17 @@ private static final long serialVersionUID = 0L;
     return retryPolicy_ == null ? io.superdurable.gen.RetryPolicy.getDefaultInstance() : retryPolicy_;
   }
 
+  public static final int HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER = 3;
+  private int heartbeatTimeoutSeconds_ = 0;
+  /**
+   * <code>int32 heartbeat_timeout_seconds = 3;</code>
+   * @return The heartbeatTimeoutSeconds.
+   */
+  @java.lang.Override
+  public int getHeartbeatTimeoutSeconds() {
+    return heartbeatTimeoutSeconds_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -106,6 +117,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(2, getRetryPolicy());
     }
+    if (heartbeatTimeoutSeconds_ != 0) {
+      output.writeInt32(3, heartbeatTimeoutSeconds_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -117,6 +131,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getRetryPolicy());
+    }
+    if (heartbeatTimeoutSeconds_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(3, heartbeatTimeoutSeconds_);
     }
     return size;
   }
@@ -149,6 +167,8 @@ private static final long serialVersionUID = 0L;
       if (!getRetryPolicy()
           .equals(other.getRetryPolicy())) return false;
     }
+    if (getHeartbeatTimeoutSeconds()
+        != other.getHeartbeatTimeoutSeconds()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -166,6 +186,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + RETRY_POLICY_FIELD_NUMBER;
       hash = (53 * hash) + getRetryPolicy().hashCode();
     }
+    hash = (37 * hash) + HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER;
+    hash = (53 * hash) + getHeartbeatTimeoutSeconds();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -309,6 +331,7 @@ private static final long serialVersionUID = 0L;
         retryPolicyBuilder_.dispose();
         retryPolicyBuilder_ = null;
       }
+      heartbeatTimeoutSeconds_ = 0;
       return this;
     }
 
@@ -352,6 +375,9 @@ private static final long serialVersionUID = 0L;
             : retryPolicyBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.heartbeatTimeoutSeconds_ = heartbeatTimeoutSeconds_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -372,6 +398,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasRetryPolicy()) {
         mergeRetryPolicy(other.getRetryPolicy());
+      }
+      if (other.getHeartbeatTimeoutSeconds() != 0) {
+        setHeartbeatTimeoutSeconds(other.getHeartbeatTimeoutSeconds());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -411,6 +440,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 24: {
+              heartbeatTimeoutSeconds_ = input.readInt32();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 24
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -579,6 +613,38 @@ private static final long serialVersionUID = 0L;
         retryPolicy_ = null;
       }
       return retryPolicyBuilder_;
+    }
+
+    private int heartbeatTimeoutSeconds_ ;
+    /**
+     * <code>int32 heartbeat_timeout_seconds = 3;</code>
+     * @return The heartbeatTimeoutSeconds.
+     */
+    @java.lang.Override
+    public int getHeartbeatTimeoutSeconds() {
+      return heartbeatTimeoutSeconds_;
+    }
+    /**
+     * <code>int32 heartbeat_timeout_seconds = 3;</code>
+     * @param value The heartbeatTimeoutSeconds to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeartbeatTimeoutSeconds(int value) {
+
+      heartbeatTimeoutSeconds_ = value;
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>int32 heartbeat_timeout_seconds = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeartbeatTimeoutSeconds() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      heartbeatTimeoutSeconds_ = 0;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepMethodOptions)

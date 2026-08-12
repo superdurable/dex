@@ -130,6 +130,14 @@ func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
 	return formatStepExecutionId(stepType, executionNumber)
 }
 
+func (e *StepExecutionCounter) MarkQueuedStepExecutionCanceled(
+	step *dexpb.StepMovement,
+) {
+	stepType := step.GetStepType()
+	e.stepTypeStartedCounts[stepType]++
+	e.continueAsNewCounter.IncExecutedStepExecution(step.GetStepOptions().GetSkipWaitFor())
+}
+
 func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 	requests []StepRequest,
 ) error {
