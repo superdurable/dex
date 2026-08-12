@@ -96,8 +96,8 @@ the interpreter synthesizes one from the backend application or timeout type.
 `WorkerErrorResponse.retry_after_seconds` requests the next retry interval.
 The value is copied through
 `ErrorResponse.original_worker_retry_after_seconds`. Temporal applies it to
-the next Activity retry. Cadence cannot apply a dynamic interval, so it stops
-retrying that Step method and evaluates the configured failure policy.
+the next Activity retry. Cadence rejects a nonzero value with an
+`INVALID_USER_FLOW_CODE` validation error from the Step method Activity.
 
 `ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a

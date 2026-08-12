@@ -17,6 +17,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/grpc/codes"
@@ -536,7 +537,11 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 			return activityError
 		})
 
-	require.ErrorIs(t, composeActivityError(provider, inputError), activityError)
+	require.ErrorIs(
+		t,
+		composeActivityError(provider, service.BackendTypeTemporal, inputError),
+		activityError,
+	)
 	require.Equal(t, "dial failed", errorResponse.GetDetail())
 	require.Equal(
 		t,
@@ -572,7 +577,11 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 			return activityError
 		})
 
-	require.ErrorIs(t, composeActivityError(provider, grpcStatus.Err()), activityError)
+	require.ErrorIs(
+		t,
+		composeActivityError(provider, service.BackendTypeTemporal, grpcStatus.Err()),
+		activityError,
+	)
 	require.Empty(t, errorResponse.GetDetail())
 	require.Equal(
 		t,
@@ -584,6 +593,45 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
 	require.Equal(t, "worker stack", errorResponse.GetOriginalWorkerErrorStackTrace())
 	require.Equal(t, int32(17), errorResponse.GetOriginalWorkerRetryAfterSeconds())
+}
+
+func TestComposeActivityErrorRejectsRetryAfterOnCadence(t *testing.T) {
+	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
+	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
+		&dexpb.WorkerErrorResponse{RetryAfterSeconds: 17},
+	)
+	require.NoError(t, err)
+
+	activityError := errors.New("activity error")
+	var errorResponse *dexpb.ErrorResponse
+	provider.EXPECT().
+		NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
+			gomock.Any(),
+		).
+		DoAndReturn(func(
+			_ dexpb.FlowErrorType,
+			response *dexpb.ErrorResponse,
+		) error {
+			errorResponse = response
+			return activityError
+		})
+
+	require.ErrorIs(
+		t,
+		composeActivityError(provider, service.BackendTypeCadence, grpcStatus.Err()),
+		activityError,
+	)
+	require.Equal(
+		t,
+		"WorkerErrorResponse.retry_after_seconds requires the Temporal backend",
+		errorResponse.GetDetail(),
+	)
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		errorResponse.GetSubStatus(),
+	)
 }
 
 func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
@@ -604,7 +652,11 @@ func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
 			return activityError
 		})
 
-	require.ErrorIs(t, composeActivityError(provider, inputError), activityError)
+	require.ErrorIs(
+		t,
+		composeActivityError(provider, service.BackendTypeTemporal, inputError),
+		activityError,
+	)
 	require.Equal(t, inputError.Error(), errorResponse.GetDetail())
 	require.Equal(
 		t,

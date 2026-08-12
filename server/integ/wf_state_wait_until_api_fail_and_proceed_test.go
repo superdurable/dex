@@ -145,7 +145,7 @@ func TestStateApiRetryAfterTemporal(t *testing.T) {
 	require.Less(t, workerHandler.GetRetryAttemptGap(), 5*time.Second)
 }
 
-func TestStateApiRetryAfterCadenceStopsRetry(t *testing.T) {
+func TestStateApiRetryAfterCadenceFailsValidation(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
@@ -168,16 +168,25 @@ func TestStateApiRetryAfterCadenceStopsRetry(t *testing.T) {
 		},
 		StepOptions: &dexpb.StepOptions{
 			WaitForRetryPolicy: &dexpb.RetryPolicy{
-				InitialIntervalSeconds: 10,
-				MaximumAttempts:        3,
+				MaximumAttempts: 1,
 			},
-			WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
 		},
 		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
-	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
 	require.NoError(t, err)
 
-	require.Equal(t, map[string]int64{"S1_waitFor": 1, "S1_execute": 1}, workerHandler.GetTestResult().InvokeHistory)
+	require.Equal(t, map[string]int64{"S1_waitFor": 1}, workerHandler.GetTestResult().InvokeHistory)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
+		response.GetErrorType(),
+	)
+	require.Contains(
+		t,
+		response.GetErrorMessage(),
+		"WorkerErrorResponse.retry_after_seconds requires the Temporal backend",
+	)
 }

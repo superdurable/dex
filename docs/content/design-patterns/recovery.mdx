@@ -65,17 +65,16 @@ accepts replay of the earlier method after recovery has begun.
 ## Dynamic retry delay
 
 Java Steps can request the next retry interval while preserving the original
-failure:
+attempt failure:
 
 ```java
-throw RetryAfterException.after(Duration.ofSeconds(30), failure);
+throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 ```
 
 Temporal applies this value to the next Activity retry without changing retry
-limits or method timeouts. Cadence cannot apply a dynamic interval; Dex stops
-retrying that method and evaluates its failure policy. In both cases the
-original cause, rather than `RetryAfterException`, is exposed as the Worker
-error.
+limits or method timeouts. Cadence rejects a dynamic interval with an
+`INVALID_USER_FLOW_CODE` validation error. On Temporal, the current attempt
+failure, rather than `RetryAfterException`, is exposed as the Worker error.
 
 ## Backend failures
 

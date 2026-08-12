@@ -423,7 +423,7 @@ func (i *Interpreter) StartEngineFlow(
 							errToFailWf = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
-						recoveryError, mappingErr := provider.WorkerError(stepExeErr)
+						recoveryError, mappingErr := provider.MapToWorkerError(stepExeErr)
 						if mappingErr != nil {
 							errToFailWf = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
@@ -909,7 +909,7 @@ func (i *Interpreter) processStepExecution(
 	)
 	if waitForMethErr != nil {
 		conditionResults.WaitForFailed = true
-		recoveryError, mappingErr := provider.WorkerError(waitForMethErr)
+		recoveryError, mappingErr := provider.MapToWorkerError(waitForMethErr)
 		if mappingErr != nil {
 			return nil, service.StepExecutionStatusInternalError, mappingErr
 		}

@@ -21,8 +21,8 @@ func GetFromStepExecutionIdForRPC(rpcName string) string {
 	return rpcStepSourcePrefix + rpcName
 }
 
-// SetFromStepExecutionID overwrites worker-provided movement sources.
-func SetFromStepExecutionID(decision *dexpb.StepDecision, source string) {
+// SetFromStepExecutionIDForStepDecision overwrites worker-provided movement sources.
+func SetFromStepExecutionIDForStepDecision(decision *dexpb.StepDecision, source string) {
 	for _, movement := range decision.GetNextSteps() {
 		if movement != nil {
 			movement.FromStepExecutionIdInternalOnly = source
