@@ -326,7 +326,7 @@ function WaitingConditionContent({ value }: { value: unknown }) {
     <>
       <Fields values={[[
         'Completion rule',
-        waitingConditionTypeLabel(condition.waitingConditionType),
+        waitingConditionCompletionRule(condition, channels.length + timers.length),
       ]]} />
       {channels.length > 0 && (
         <div className="semantic-records">
@@ -366,6 +366,12 @@ function WaitingConditionContent({ value }: { value: unknown }) {
       )}
     </>
   );
+}
+
+function waitingConditionCompletionRule(condition: Data, conditionCount: number): string {
+  if (conditionCount === 0) return 'Empty condition — skips WaitFor immediately';
+  if (conditionCount === 1) return 'Single condition';
+  return waitingConditionTypeLabel(condition.waitingConditionType);
 }
 
 function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {

@@ -46,6 +46,13 @@ function executeEvent(durability: number): FlowHistoryEvent {
   };
 }
 
+function waitForEvent(waitForCondition: Record<string, unknown>): FlowHistoryEvent {
+  const event = executeEvent(1);
+  event.type = 'StepWaitForCompleted';
+  event.payload.output = { waitForCondition };
+  return event;
+}
+
 function renderDetails(
   event: FlowHistoryEvent,
   history: FlowHistoryEvent[] = [event],
@@ -334,6 +341,37 @@ describe('selected step event details', () => {
 
     expect(markup).toContain('Fail flow');
     expect(markup).toContain('rpc-account');
+  });
+
+  it('describes one WaitFor condition without an allOf or anyOf rule', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ANY_COMPLETED',
+      channelConditions: [{ conditionId: 1, channelName: 'approval' }],
+    }));
+
+    expect(markup).toContain('Single condition');
+    expect(markup).not.toContain('Any completed');
+    expect(markup).not.toContain('All completed');
+  });
+
+  it('explains that an empty WaitFor condition skips waiting immediately', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
+    }));
+
+    expect(markup).toContain('Empty condition — skips WaitFor immediately');
+    expect(markup).not.toContain('All completed');
+  });
+
+  it('preserves the completion rule for multiple WaitFor conditions', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ANY_COMPLETED',
+      channelConditions: [{ conditionId: 1, channelName: 'approval' }],
+      timerConditions: [{ conditionId: 2, durationSeconds: 30 }],
+    }));
+
+    expect(markup).toContain('Any completed');
+    expect(markup).not.toContain('Single condition');
   });
 });
 
