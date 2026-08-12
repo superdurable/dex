@@ -49,34 +49,16 @@ As a coding framework, Dex provides three SDKs to use with:
 * [Dex Golang SDK](https://github.com/superdurable/dex/tree/main/sdk-go) and [samples](https://github.com/superdurable/dex/tree/main/examples/go)
 * [Dex Python SDK](https://github.com/superdurable/dex-python-sdk) and [samples](https://github.com/superdurable/dex/tree/main/examples/python)
 
-The Dex SDKs required a server to run against. See below options to run the server locally. See [Dex wiki](https://github.com/superdurable/dex/wiki) for production 
-
-## Using all-in-one docker image
-
-This is the simplest option to run the server locally for development.
-
-Run the docker command to start the container for:
-* DEX service: http://localhost:8801/
-```shell
-docker pull superdurable/dex-server-lite:latest && docker run -p 8801:8801 -e AUTO_FIX_WORKER_URL=host.docker.internal --add-host host.docker.internal:host-gateway -it superdurable/dex-server-lite:latest
-```
-
-## Using docker image & docker-compose
-
-This option runs the internal workflow backend in a separate container.
-
-Checkout this repo, and run:
+The Dex SDKs connect to Dex Server. For local development, install and start
+the complete Dex environment with `dexcli`:
 
 ```shell
-docker pull superdurable/dex-server:latest && docker-compose -f ./docker-compose/docker-compose.yml up
+brew install superdurable/tap/dexcli
+dexcli dev
 ```
 
-This starts the complete Dex service stack:
-* DEX service: http://localhost:8801/
-
-Dex Server creates its system indexes at startup. Application Workers create
-their registered Indexed Attributes before listening, so no backend CLI setup
-is required.
+`dexcli dev` supervises Dex Server, Dex Web, and the internal workflow backend.
+See the [CLI README](../cli/README.md) for endpoints and persistence options.
 
 ## Production
 Check the [wiki](https://github.com/superdurable/dex/wiki/Dex-Server-Operations#how-to-deploy).

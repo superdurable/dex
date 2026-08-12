@@ -9,7 +9,7 @@ Here is the repository layout if you are interested to learn about it:
 * `cmd/` the code to bootstrap the server -- loading config and connect to Cadence/Temporal service, and start Dex API
   and interpreter service
 * `config/` the config to start the server, and also config template to start the Docker image
-* `docker-compose/` the docker compose file to start a full Dex server with Temporal dependency
+* `docker-compose/` Compose files for server integration-test dependencies
 * `gen/dexpb/` the generated protobuf/gRPC stubs from [`protos/dex.proto`](../protos/dex.proto)
 * `integ/` the end to end integration tests.
     * `workflow/` the Dex workflows that are written without SDK(just implemented the REST APIs)
@@ -69,23 +69,33 @@ deduplication scope. SDK support remains deferred during the server rewrite.
 Memo is reserved for worker-target and request-id metadata. Never store attributes
 in Memo.
 
-# How to run server or integration test
+# How to run server or integration tests
 
-## Prepare Cadence/Temporal environment
-Dex server depends on Cadence or Temporal. You need at least one to be ready for running with Dex .
-Or maybe both just for testing to ensure the code works for both Cadence and Temporal. 
+## Run the local Dex environment
 
-### Option 1: Run with our docker-compose file (Recommended)
+For normal local development, install and run `dexcli`:
+
+```shell
+brew install superdurable/tap/dexcli
+dexcli dev
+```
+
+This starts Dex Server, Dex Web, and the internal Temporal backend. See
+[`../cli/README.md`](../cli/README.md) for configuration options.
+
+## Prepare standalone server dependencies
+
+The Compose files below start integration-test dependencies only. They do not
+start Dex Server.
+
+### Repository Cadence and Temporal dependencies
 
 Start with shutting down already running dependencies: `docker compose -f docker-compose/integ-dependencies.yml down`
 
-Then simply run `docker compose -f docker-compose/integ-dependencies.yml up`. It will:
+Then run `docker compose -f docker-compose/integ-dependencies.yml up` to start
+both Cadence and Temporal.
 
-* Start both Cadence & Temporal as dependencies
-* Let Dex Server create its system indexes
-* Let test Workers synchronize their persistence-schema indexes
-
-### Option 2: Run with your own Temporal service
+### External Temporal service
 
 First of all, you need a Temporal service if you haven't had it:
 
@@ -100,7 +110,7 @@ and add visibility indexes. Dex Server synchronizes `FlowType` and
 The default deadline is two minutes and is configurable with
 `interpreter.attributeIndexSyncTimeout`.
 
-### Option 3: Run with your own Cadence service
+### External Cadence service
 
 1. You can run a local Cadence server following the [instructions](https://github.com/uber/cadence/tree/master/docker)
 
@@ -116,13 +126,10 @@ Dex polls Cadence visibility after registration with exponential backoff until
 the configured deadline. `KEYWORD_ARRAY` uses Cadence's multi-valued Keyword
 representation and `TEXT` uses String.
 
-## Run the server
+## Run the standalone server
 
-For the shortest Temporal setup with Dex Web, run `dexcli dev` from the
-repository root after building `cli/dexcli`. See [`../cli/README.md`](../cli/README.md).
-
-The standalone server binary continues to support full Temporal and Cadence
-YAML configuration through the same `service/bootstrap` package.
+The standalone server binary supports full Temporal and Cadence YAML
+configuration through the same `service/bootstrap` package.
 
 The first step you may want to explore is to run it locally!
 

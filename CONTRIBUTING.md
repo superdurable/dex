@@ -50,7 +50,8 @@ make -C server unitTests
 ### Go SDK
 
 ```bash
-make -C sdk-go ci-tests   # may start docker compose under sdk-go/integ
+make -C sdk-go ci-tests
+make -C sdk-go e2eTests  # starts an isolated dexcli dev environment
 ```
 
 ### Blob Cache Go
