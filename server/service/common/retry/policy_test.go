@@ -26,6 +26,7 @@ func TestConvertCadenceActivityRetryPolicyNilMatchesTemporalDefaults(t *testing.
 	require.Equal(t, int32(0), policy.MaximumAttempts)
 	require.Equal(t, 2.0, policy.BackoffCoefficient)
 	require.Equal(t, time.Hour*24*365, policy.ExpirationInterval)
+	require.Contains(t, policy.NonRetriableErrorReasons, CadenceRetryAfterErrorReason)
 }
 
 func TestConvertCadenceActivityRetryPolicyHonorsExplicitMaximumAttempts(t *testing.T) {

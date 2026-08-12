@@ -6,27 +6,27 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.InternalTimerStatus}
+ * <pre>
+ * PendingStepMethodPhase reports the latest persisted backend lifecycle event.
+ * </pre>
+ *
+ * Protobuf enum {@code dex.PendingStepMethodPhase}
  */
 @com.google.protobuf.Generated
-public enum InternalTimerStatus
+public enum PendingStepMethodPhase
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>INTERNAL_TIMER_STATUS_UNSPECIFIED = 0;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_UNSPECIFIED = 0;</code>
    */
-  INTERNAL_TIMER_STATUS_UNSPECIFIED(0),
+  PENDING_STEP_METHOD_PHASE_UNSPECIFIED(0),
   /**
-   * <code>INTERNAL_TIMER_STATUS_PENDING = 1;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_SCHEDULED = 1;</code>
    */
-  INTERNAL_TIMER_STATUS_PENDING(1),
+  PENDING_STEP_METHOD_PHASE_SCHEDULED(1),
   /**
-   * <code>INTERNAL_TIMER_STATUS_FIRED = 2;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_STARTED = 2;</code>
    */
-  INTERNAL_TIMER_STATUS_FIRED(2),
-  /**
-   * <code>INTERNAL_TIMER_STATUS_SKIPPED = 3;</code>
-   */
-  INTERNAL_TIMER_STATUS_SKIPPED(3),
+  PENDING_STEP_METHOD_PHASE_STARTED(2),
   UNRECOGNIZED(-1),
   ;
 
@@ -37,24 +37,20 @@ public enum InternalTimerStatus
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "InternalTimerStatus");
+      "PendingStepMethodPhase");
   }
   /**
-   * <code>INTERNAL_TIMER_STATUS_UNSPECIFIED = 0;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_UNSPECIFIED = 0;</code>
    */
-  public static final int INTERNAL_TIMER_STATUS_UNSPECIFIED_VALUE = 0;
+  public static final int PENDING_STEP_METHOD_PHASE_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>INTERNAL_TIMER_STATUS_PENDING = 1;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_SCHEDULED = 1;</code>
    */
-  public static final int INTERNAL_TIMER_STATUS_PENDING_VALUE = 1;
+  public static final int PENDING_STEP_METHOD_PHASE_SCHEDULED_VALUE = 1;
   /**
-   * <code>INTERNAL_TIMER_STATUS_FIRED = 2;</code>
+   * <code>PENDING_STEP_METHOD_PHASE_STARTED = 2;</code>
    */
-  public static final int INTERNAL_TIMER_STATUS_FIRED_VALUE = 2;
-  /**
-   * <code>INTERNAL_TIMER_STATUS_SKIPPED = 3;</code>
-   */
-  public static final int INTERNAL_TIMER_STATUS_SKIPPED_VALUE = 3;
+  public static final int PENDING_STEP_METHOD_PHASE_STARTED_VALUE = 2;
 
 
   public final int getNumber() {
@@ -71,7 +67,7 @@ public enum InternalTimerStatus
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static InternalTimerStatus valueOf(int value) {
+  public static PendingStepMethodPhase valueOf(int value) {
     return forNumber(value);
   }
 
@@ -79,25 +75,24 @@ public enum InternalTimerStatus
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static InternalTimerStatus forNumber(int value) {
+  public static PendingStepMethodPhase forNumber(int value) {
     switch (value) {
-      case 0: return INTERNAL_TIMER_STATUS_UNSPECIFIED;
-      case 1: return INTERNAL_TIMER_STATUS_PENDING;
-      case 2: return INTERNAL_TIMER_STATUS_FIRED;
-      case 3: return INTERNAL_TIMER_STATUS_SKIPPED;
+      case 0: return PENDING_STEP_METHOD_PHASE_UNSPECIFIED;
+      case 1: return PENDING_STEP_METHOD_PHASE_SCHEDULED;
+      case 2: return PENDING_STEP_METHOD_PHASE_STARTED;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<InternalTimerStatus>
+  public static com.google.protobuf.Internal.EnumLiteMap<PendingStepMethodPhase>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      InternalTimerStatus> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<InternalTimerStatus>() {
-          public InternalTimerStatus findValueByNumber(int number) {
-            return InternalTimerStatus.forNumber(number);
+      PendingStepMethodPhase> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<PendingStepMethodPhase>() {
+          public PendingStepMethodPhase findValueByNumber(int number) {
+            return PendingStepMethodPhase.forNumber(number);
           }
         };
 
@@ -115,12 +110,12 @@ public enum InternalTimerStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(16);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
   }
 
-  private static final InternalTimerStatus[] VALUES = values();
+  private static final PendingStepMethodPhase[] VALUES = values();
 
-  public static InternalTimerStatus valueOf(
+  public static PendingStepMethodPhase valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -134,10 +129,10 @@ public enum InternalTimerStatus
 
   private final int value;
 
-  private InternalTimerStatus(int value) {
+  private PendingStepMethodPhase(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.InternalTimerStatus)
+  // @@protoc_insertion_point(enum_scope:dex.PendingStepMethodPhase)
 }
 

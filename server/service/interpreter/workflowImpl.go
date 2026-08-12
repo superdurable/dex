@@ -277,6 +277,7 @@ func (i *Interpreter) StartEngineFlow(
 				input.GetStepInput(),
 				input.GetStepOptions(),
 				service.StartingStepFromStepExecutionId,
+				nil,
 			)
 		}
 
@@ -422,12 +423,21 @@ func (i *Interpreter) StartEngineFlow(
 							errToFailWf = err
 						}
 					} else if stepExecutionStatus == service.StepExecutionStatusFailedAndProceed {
+						recoveryError, mappingErr := provider.WorkerError(stepExeErr)
+						if mappingErr != nil {
+							errToFailWf = provider.NewFlowError(
+								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+								&dexpb.ErrorResponse{Detail: mappingErr.Error()},
+							)
+							return
+						}
 						options := step.GetStepOptions()
 						stepRequestQueue.AddSingleStepStartRequest(
 							options.GetExecuteFailureProceedStepType(),
 							step.StepInput,
 							options.ExecuteFailureProceedStepOptions,
 							stepExeId,
+							recoveryError,
 						)
 						// finally, mark state completed and may also update activeStepType search attribute
 						continueAsNewer.RemoveActiveStep(stepExeId)
@@ -655,6 +665,7 @@ func (i *Interpreter) processStepExecution(
 		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
 		StepExecutionId:      stepExeId,
 		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
+		RecoveryError:        step.GetRecoveryErrorInternalOnly(),
 	}
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -898,7 +909,11 @@ func (i *Interpreter) processStepExecution(
 	)
 	if waitForMethErr != nil {
 		conditionResults.WaitForFailed = true
-		// TODO pass the errWaitForMethod to execute method
+		recoveryError, mappingErr := provider.WorkerError(waitForMethErr)
+		if mappingErr != nil {
+			return nil, service.StepExecutionStatusInternalError, mappingErr
+		}
+		executionContext.RecoveryError = recoveryError
 	}
 
 	return i.invokeExecuteMethod(
@@ -947,6 +962,7 @@ func (i *Interpreter) processTransientStepExecution(
 		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
 		StepExecutionId:      stepExecutionId,
 		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
+		RecoveryError:        step.GetRecoveryErrorInternalOnly(),
 	}
 	decision, status, err := i.invokeExecuteMethod(
 		ctx,
@@ -1051,7 +1067,7 @@ func (i *Interpreter) invokeExecuteMethod(
 
 	if exeMethErr != nil {
 		if shouldProceedOnExecuteMethodError(step) {
-			return nil, service.StepExecutionStatusFailedAndProceed, nil
+			return nil, service.StepExecutionStatusFailedAndProceed, exeMethErr
 		}
 		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
 	}

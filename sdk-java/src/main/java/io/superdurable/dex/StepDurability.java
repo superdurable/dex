@@ -34,7 +34,7 @@ package io.superdurable.dex;
  * <p>Failure policies use a safer server default. When
  * {@link StepOptions.Builder#waitForFailure} allows execution to proceed after a wait-for failure,
  * or {@link StepOptions.Builder#onExecuteFailureProceedTo} routes an execute failure to a recovery
- * Step, Dex prefers {@link #SYNC} for the affected method. A Flow-wide durability setting does not
+ * Step, Dex defaults to {@link #SYNC} for the affected method. A Flow-wide durability setting does not
  * override that server choice. The application may still select {@link #ASYNC} explicitly in the
  * relevant {@link StepOptions} when its business semantics accept the replay risk.
  *
@@ -64,7 +64,7 @@ public enum StepDurability {
      * Uses the applicable Flow configuration or the server's failure-policy safety choice.
      *
      * <p>For an ordinary Step method with no Flow-level override, this resolves to the server default,
-     * which is {@link #ASYNC}. For a method using a proceed-on-failure policy, Dex instead prefers
+     * which is {@link #ASYNC}. For a method using a proceed-on-failure policy, Dex instead defaults to
      * {@link #SYNC}; only an explicit method-level choice in {@link StepOptions} overrides that safety
      * choice.
      */

@@ -52,6 +52,7 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.Context.class, io.superdurable.gen.Context.Builder.class);
   }
 
+  private int bitField0_;
   public static final int FLOW_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object flowId_ = "";
@@ -249,6 +250,44 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int RECOVERY_ERROR_FIELD_NUMBER = 8;
+  private io.superdurable.gen.WorkerErrorResponse recoveryError_;
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * @return Whether the recoveryError field is set.
+   */
+  @java.lang.Override
+  public boolean hasRecoveryError() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * @return The recoveryError.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerErrorResponse getRecoveryError() {
+    return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+  }
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder() {
+    return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -284,6 +323,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 7, fromStepExecutionId_);
     }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(8, getRecoveryError());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -311,6 +353,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(7, fromStepExecutionId_);
+    }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(8, getRecoveryError());
     }
     return size;
   }
@@ -350,6 +396,11 @@ private static final long serialVersionUID = 0L;
         != other.getAttempt()) return false;
     if (!getFromStepExecutionId()
         .equals(other.getFromStepExecutionId())) return false;
+    if (hasRecoveryError() != other.hasRecoveryError()) return false;
+    if (hasRecoveryError()) {
+      if (!getRecoveryError()
+          .equals(other.getRecoveryError())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -377,6 +428,10 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getAttempt();
     hash = (37 * hash) + FROM_STEP_EXECUTION_ID_FIELD_NUMBER;
     hash = (53 * hash) + getFromStepExecutionId().hashCode();
+    if (hasRecoveryError()) {
+      hash = (37 * hash) + RECOVERY_ERROR_FIELD_NUMBER;
+      hash = (53 * hash) + getRecoveryError().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -496,13 +551,19 @@ private static final long serialVersionUID = 0L;
 
     // Construct using io.superdurable.gen.Context.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetRecoveryErrorFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -515,6 +576,11 @@ private static final long serialVersionUID = 0L;
       firstAttemptTimestamp_ = 0L;
       attempt_ = 0;
       fromStepExecutionId_ = "";
+      recoveryError_ = null;
+      if (recoveryErrorBuilder_ != null) {
+        recoveryErrorBuilder_.dispose();
+        recoveryErrorBuilder_ = null;
+      }
       return this;
     }
 
@@ -569,6 +635,14 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000040) != 0)) {
         result.fromStepExecutionId_ = fromStepExecutionId_;
       }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.recoveryError_ = recoveryErrorBuilder_ == null
+            ? recoveryError_
+            : recoveryErrorBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -611,6 +685,9 @@ private static final long serialVersionUID = 0L;
         fromStepExecutionId_ = other.fromStepExecutionId_;
         bitField0_ |= 0x00000040;
         onChanged();
+      }
+      if (other.hasRecoveryError()) {
+        mergeRecoveryError(other.getRecoveryError());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -673,6 +750,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 58
+            case 66: {
+              input.readMessage(
+                  internalGetRecoveryErrorFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 66
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1092,6 +1176,163 @@ private static final long serialVersionUID = 0L;
       bitField0_ |= 0x00000040;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.WorkerErrorResponse recoveryError_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> recoveryErrorBuilder_;
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * @return Whether the recoveryError field is set.
+     */
+    public boolean hasRecoveryError() {
+      return ((bitField0_ & 0x00000080) != 0);
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * @return The recoveryError.
+     */
+    public io.superdurable.gen.WorkerErrorResponse getRecoveryError() {
+      if (recoveryErrorBuilder_ == null) {
+        return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+      } else {
+        return recoveryErrorBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public Builder setRecoveryError(io.superdurable.gen.WorkerErrorResponse value) {
+      if (recoveryErrorBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        recoveryError_ = value;
+      } else {
+        recoveryErrorBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public Builder setRecoveryError(
+        io.superdurable.gen.WorkerErrorResponse.Builder builderForValue) {
+      if (recoveryErrorBuilder_ == null) {
+        recoveryError_ = builderForValue.build();
+      } else {
+        recoveryErrorBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public Builder mergeRecoveryError(io.superdurable.gen.WorkerErrorResponse value) {
+      if (recoveryErrorBuilder_ == null) {
+        if (((bitField0_ & 0x00000080) != 0) &&
+          recoveryError_ != null &&
+          recoveryError_ != io.superdurable.gen.WorkerErrorResponse.getDefaultInstance()) {
+          getRecoveryErrorBuilder().mergeFrom(value);
+        } else {
+          recoveryError_ = value;
+        }
+      } else {
+        recoveryErrorBuilder_.mergeFrom(value);
+      }
+      if (recoveryError_ != null) {
+        bitField0_ |= 0x00000080;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public Builder clearRecoveryError() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      recoveryError_ = null;
+      if (recoveryErrorBuilder_ != null) {
+        recoveryErrorBuilder_.dispose();
+        recoveryErrorBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public io.superdurable.gen.WorkerErrorResponse.Builder getRecoveryErrorBuilder() {
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return internalGetRecoveryErrorFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder() {
+      if (recoveryErrorBuilder_ != null) {
+        return recoveryErrorBuilder_.getMessageOrBuilder();
+      } else {
+        return recoveryError_ == null ?
+            io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+      }
+    }
+    /**
+     * <pre>
+     * Previous Step method failure supplied only to its configured recovery method.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> 
+        internalGetRecoveryErrorFieldBuilder() {
+      if (recoveryErrorBuilder_ == null) {
+        recoveryErrorBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder>(
+                getRecoveryError(),
+                getParentForChildren(),
+                isClean());
+        recoveryError_ = null;
+      }
+      return recoveryErrorBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.Context)

@@ -31,6 +31,8 @@ func TestStateApiFailAndProceedTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestStateApiFailAndProceed(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
 		smallWaitForFastTest()
+		doTestStateApiFailAndProceed(t, service.BackendTypeTemporal, asyncDurabilityConfig())
+		smallWaitForFastTest()
 	}
 }
 
@@ -42,6 +44,8 @@ func TestStateApiFailAndProceedCadence(t *testing.T) {
 		doTestStateApiFailAndProceed(t, service.BackendTypeCadence, nil)
 		smallWaitForFastTest()
 		doTestStateApiFailAndProceed(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
+		smallWaitForFastTest()
+		doTestStateApiFailAndProceed(t, service.BackendTypeCadence, asyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -100,4 +104,80 @@ func doTestStateApiFailAndProceed(
 
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
 	require.Empty(t, resp.GetResults())
+}
+
+func TestStateApiRetryAfterTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	workerHandler := wf_state_api_fail_and_proceed.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowId := wf_state_api_fail_and_proceed.FlowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           wf_state_api_fail_and_proceed.FlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      wf_state_api_fail_and_proceed.Step1,
+		StepInput: &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: wf_state_api_fail_and_proceed.RetryOnceInput},
+		},
+		StepOptions: &dexpb.StepOptions{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 10,
+				MaximumAttempts:        2,
+			},
+			WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]int64{"S1_waitFor": 2, "S1_execute": 1}, workerHandler.GetTestResult().InvokeHistory)
+	require.GreaterOrEqual(t, workerHandler.GetRetryAttemptGap(), 500*time.Millisecond)
+	require.Less(t, workerHandler.GetRetryAttemptGap(), 5*time.Second)
+}
+
+func TestStateApiRetryAfterCadenceStopsRetry(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	workerHandler := wf_state_api_fail_and_proceed.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeCadence})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowId := wf_state_api_fail_and_proceed.FlowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           wf_state_api_fail_and_proceed.FlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      wf_state_api_fail_and_proceed.Step1,
+		StepInput: &dexpb.Value{
+			Kind: &dexpb.Value_StringValue{StringValue: wf_state_api_fail_and_proceed.RetryFailureInput},
+		},
+		StepOptions: &dexpb.StepOptions{
+			WaitForRetryPolicy: &dexpb.RetryPolicy{
+				InitialIntervalSeconds: 10,
+				MaximumAttempts:        3,
+			},
+			WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]int64{"S1_waitFor": 1, "S1_execute": 1}, workerHandler.GetTestResult().InvokeHistory)
 }

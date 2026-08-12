@@ -83,4 +83,31 @@ public interface ContextOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFromStepExecutionIdBytes();
+
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * @return Whether the recoveryError field is set.
+   */
+  boolean hasRecoveryError();
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * @return The recoveryError.
+   */
+  io.superdurable.gen.WorkerErrorResponse getRecoveryError();
+  /**
+   * <pre>
+   * Previous Step method failure supplied only to its configured recovery method.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   */
+  io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder();
 }

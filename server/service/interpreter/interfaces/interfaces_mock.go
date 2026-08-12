@@ -615,6 +615,21 @@ func (mr *MockWorkflowProviderMockRecorder) IsApplicationError(err interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsApplicationError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsApplicationError), err)
 }
 
+// WorkerError mocks base method.
+func (m *MockWorkflowProvider) WorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WorkerError", err)
+	ret0, _ := ret[0].(*dexpb.WorkerErrorResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// WorkerError indicates an expected call of WorkerError.
+func (mr *MockWorkflowProviderMockRecorder) WorkerError(err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkerError", reflect.TypeOf((*MockWorkflowProvider)(nil).WorkerError), err)
+}
+
 // IsContinueAsNewError mocks base method.
 func (m *MockWorkflowProvider) IsContinueAsNewError(err error) bool {
 	m.ctrl.T.Helper()

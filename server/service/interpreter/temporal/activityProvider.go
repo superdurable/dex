@@ -12,6 +12,7 @@ package temporal
 
 import (
 	"context"
+	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
@@ -29,7 +30,14 @@ func (a *activityProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
 	errorResponse *dexpb.ErrorResponse,
 ) error {
-	return temporal.NewApplicationError("", errType.String(), errorResponse)
+	return temporal.NewApplicationErrorWithOptions(
+		"",
+		errType.String(),
+		temporal.ApplicationErrorOptions{
+			Details:        []interface{}{errorResponse},
+			NextRetryDelay: time.Duration(errorResponse.GetOriginalWorkerRetryAfterSeconds()) * time.Second,
+		},
+	)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

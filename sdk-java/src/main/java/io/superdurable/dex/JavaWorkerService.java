@@ -15,6 +15,7 @@ import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
+import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
@@ -100,18 +101,24 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     }
 
     private Throwable mapFailure(final Throwable failure) {
-        final String message = failure.getMessage() == null
-                ? failure.toString()
-                : failure.getMessage();
-        final WorkerErrorResponse details = WorkerErrorResponse.newBuilder()
+        final RetryAfterException retryAfter = failure instanceof RetryAfterException
+                ? (RetryAfterException) failure
+                : null;
+        final Throwable reportedFailure = retryAfter == null ? failure : retryAfter.getCause();
+        final String message = reportedFailure.getMessage() == null
+                ? reportedFailure.toString()
+                : reportedFailure.getMessage();
+        final WorkerErrorResponse.Builder details = WorkerErrorResponse.newBuilder()
                 .setDetail(message)
-                .setErrorType(failure.getClass().getName())
-                .setStackTrace(stackTrace(failure))
-                .build();
+                .setErrorType(reportedFailure.getClass().getName())
+                .setStackTrace(stackTrace(reportedFailure));
+        if (retryAfter != null) {
+            details.setRetryAfterSeconds((int) retryAfter.getRetryAfter().getSeconds());
+        }
         final com.google.rpc.Status status = com.google.rpc.Status.newBuilder()
-                .setCode(grpcErrorStatusMapping.statusFor(failure).value())
+                .setCode(grpcErrorStatusMapping.statusFor(reportedFailure).value())
                 .setMessage(message)
-                .addDetails(Any.pack(details))
+                .addDetails(Any.pack(details.build()))
                 .build();
         return StatusProto.toStatusRuntimeException(status);
     }

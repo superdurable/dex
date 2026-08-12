@@ -65,6 +65,21 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 	executeOverride := &dexpb.StepOptions{ExecuteDurabilityOverride: dexpb.StepDurability_STEP_DURABILITY_SYNC}
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(executeOverride))
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(executeOverride))
+
+	waitRecovery := &dexpb.StepOptions{
+		WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+	}
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveWaitForDurability(waitRecovery))
+	waitRecovery.WaitForDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(waitRecovery))
+
+	executeRecovery := &dexpb.StepOptions{
+		ExecuteFailurePolicy:          dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+		ExecuteFailureProceedStepType: "recovery",
+	}
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(executeRecovery))
+	executeRecovery.ExecuteDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(executeRecovery))
 }
 
 func TestFlowConfiger_UpdateByAPIPartialOverride(t *testing.T) {

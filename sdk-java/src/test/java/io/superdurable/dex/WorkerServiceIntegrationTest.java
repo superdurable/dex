@@ -25,6 +25,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
+import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.FlowServiceGrpc;
@@ -48,6 +49,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -217,6 +219,76 @@ final class WorkerServiceIntegrationTest {
         } finally {
             running.close();
         }
+    }
+
+    @Test
+    void preservesRetryAfterAndOriginalFailure() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeExecuteMethod(
+                            executeRequest(concrete("retry-after"))));
+            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
+                    .getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertEquals(BridgeFailureException.class.getName(), details.getErrorType());
+            assertEquals("retry later", details.getDetail());
+            assertEquals(7, details.getRetryAfterSeconds());
+            assertTrue(details.getStackTrace().contains(BridgeFailureException.class.getName()));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void validatesRetryAfter() {
+        final RuntimeException cause = new RuntimeException("failure");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(null, cause));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(Duration.ZERO, cause));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(Duration.ofSeconds(-1), cause));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(Duration.ofMillis(1500), cause));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(
+                        Duration.ofSeconds((long) Integer.MAX_VALUE + 1), cause));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryAfterException.after(Duration.ofSeconds(1), null));
+    }
+
+    @Test
+    void exposesRecoveryErrorFromContext() {
+        final InvocationContext context = new InvocationContext(
+                InvocationContext.Method.EXECUTE,
+                new Registry(Collections.<Flow<?>>singletonList(new BridgeFlow()))
+                        .getFlow("BridgeFlow"),
+                io.superdurable.gen.Context.newBuilder()
+                        .setRecoveryError(WorkerErrorResponse.newBuilder()
+                                .setDetail("worker detail")
+                                .setErrorType("worker type")
+                                .setStackTrace("worker stack")
+                                .setRetryAfterSeconds(9))
+                        .build(),
+                new ValueMapper(new ObjectMapper()),
+                Collections.<KV>emptyList(),
+                Collections.<KV>emptyList(),
+                null,
+                Collections.<String, ChannelInfo>emptyMap());
+
+        final WorkerError recoveryError = context.getRecoveryError();
+        assertEquals("worker detail", recoveryError.getDetail());
+        assertEquals("worker type", recoveryError.getErrorType());
+        assertEquals("worker stack", recoveryError.getStackTrace());
+        assertEquals(Duration.ofSeconds(9), recoveryError.getRetryAfter());
     }
 
     @Test
@@ -649,6 +721,11 @@ final class WorkerServiceIntegrationTest {
             handlerThread.set(Thread.currentThread().getName());
             if ("fail".equals(input)) {
                 throw new BridgeFailureException("bridge failed");
+            }
+            if ("retry-after".equals(input)) {
+                throw RetryAfterException.after(
+                        Duration.ofSeconds(7),
+                        new BridgeFailureException("retry later"));
             }
             if ("checked".equals(input)) {
                 WorkerServiceIntegrationTest.<RuntimeException>throwUnchecked(

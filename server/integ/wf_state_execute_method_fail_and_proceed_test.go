@@ -44,6 +44,13 @@ func TestStateExecuteMethodFailAndProceedTemporal(t *testing.T) {
 		doTestStateExecuteMethodFailAndProceed(
 			t,
 			service.BackendTypeTemporal,
+			asyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
+		smallWaitForFastTest()
+		doTestStateExecuteMethodFailAndProceed(
+			t,
+			service.BackendTypeTemporal,
 			syncDurabilityConfig(),
 			dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 		)
@@ -70,7 +77,76 @@ func TestStateExecuteMethodFailAndProceedCadence(t *testing.T) {
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()
+		doTestStateExecuteMethodFailAndProceed(
+			t,
+			service.BackendTypeCadence,
+			asyncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
+		)
+		smallWaitForFastTest()
+		doTestStateExecuteMethodFailAndProceed(
+			t,
+			service.BackendTypeCadence,
+			syncDurabilityConfig(),
+			dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+		)
+		smallWaitForFastTest()
 	}
+}
+
+func TestStateExecuteTimeoutRecoveryTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestStateExecuteTimeoutRecovery(t, service.BackendTypeTemporal)
+}
+
+func TestStateExecuteTimeoutRecoveryCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	doTestStateExecuteTimeoutRecovery(t, service.BackendTypeCadence)
+}
+
+func doTestStateExecuteTimeoutRecovery(t *testing.T, backendType service.BackendType) {
+	workerHandler := wf_execute_method_fail_and_proceed.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowId := wf_execute_method_fail_and_proceed.FlowType + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           wf_execute_method_fail_and_proceed.FlowType,
+		FlowTimeoutSeconds: 10,
+		StartStepType:      wf_execute_method_fail_and_proceed.Step1,
+		StepInput: &dexpb.Value{
+			Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+				Encoding: wf_execute_method_fail_and_proceed.InputDataEncoding,
+				Payload:  []byte(wf_execute_method_fail_and_proceed.TimeoutInputData),
+			}},
+		},
+		StepOptions: &dexpb.StepOptions{
+			SkipWaitFor:                      true,
+			ExecuteTimeoutSeconds:            1,
+			ExecuteRetryPolicy:               &dexpb.RetryPolicy{MaximumAttempts: 1},
+			ExecuteFailurePolicy:             dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+			ExecuteFailureProceedStepType:    wf_execute_method_fail_and_proceed.StepRecover,
+			ExecuteFailureProceedStepOptions: &dexpb.StepOptions{SkipWaitFor: true},
+		},
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowId})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	require.Equal(t, map[string]int64{
+		"S1_execute":      1,
+		"Recover_execute": 1,
+	}, workerHandler.GetTestResult().InvokeHistory)
 }
 
 func doTestStateExecuteMethodFailAndProceed(
@@ -136,6 +212,9 @@ func doTestStateExecuteMethodFailAndProceed(
 	expectedExecute := int64(1)
 	if executeDurabilityOverride == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
 		expectedExecute = 2
+		if backendType == service.BackendTypeCadence {
+			expectedExecute = 3
+		}
 	}
 	require.Equal(t, map[string]int64{
 		"S1_execute":      expectedExecute,

@@ -159,6 +159,7 @@ func (a *Activities) InvokeWaitForMethod(
 	transientStep := resp.GetTransientStepMovement()
 	if transientStep != nil {
 		transientStep.FromStepExecutionIdInternalOnly = req.GetContext().GetStepExecutionId()
+		transientStep.RecoveryErrorInternalOnly = nil
 		if err := a.reuseOrOffloadStepInput(
 			ctx,
 			transientStep,
@@ -990,6 +991,7 @@ func composeActivityError(provider interfaces.ActivityProvider, err error) error
 		}
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 		errorResponse.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
+		errorResponse.OriginalWorkerRetryAfterSeconds = workerError.GetRetryAfterSeconds()
 	}
 	if !workerErrorFound {
 		errorResponse.Detail = detail

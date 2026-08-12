@@ -168,6 +168,17 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int RETRY_AFTER_SECONDS_FIELD_NUMBER = 4;
+  private int retryAfterSeconds_ = 0;
+  /**
+   * <code>int32 retry_after_seconds = 4;</code>
+   * @return The retryAfterSeconds.
+   */
+  @java.lang.Override
+  public int getRetryAfterSeconds() {
+    return retryAfterSeconds_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -191,6 +202,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 3, stackTrace_);
     }
+    if (retryAfterSeconds_ != 0) {
+      output.writeInt32(4, retryAfterSeconds_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -203,6 +217,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stackTrace_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(3, stackTrace_);
+    }
+    if (retryAfterSeconds_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(4, retryAfterSeconds_);
     }
     return size;
   }
@@ -234,6 +252,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getErrorType())) return false;
     if (!getStackTrace()
         .equals(other.getStackTrace())) return false;
+    if (getRetryAfterSeconds()
+        != other.getRetryAfterSeconds()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -251,6 +271,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getErrorType().hashCode();
     hash = (37 * hash) + STACK_TRACE_FIELD_NUMBER;
     hash = (53 * hash) + getStackTrace().hashCode();
+    hash = (37 * hash) + RETRY_AFTER_SECONDS_FIELD_NUMBER;
+    hash = (53 * hash) + getRetryAfterSeconds();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -385,6 +407,7 @@ private static final long serialVersionUID = 0L;
       detail_ = "";
       errorType_ = "";
       stackTrace_ = "";
+      retryAfterSeconds_ = 0;
       return this;
     }
 
@@ -427,6 +450,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000004) != 0)) {
         result.stackTrace_ = stackTrace_;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.retryAfterSeconds_ = retryAfterSeconds_;
+      }
     }
 
     @java.lang.Override
@@ -455,6 +481,9 @@ private static final long serialVersionUID = 0L;
         stackTrace_ = other.stackTrace_;
         bitField0_ |= 0x00000004;
         onChanged();
+      }
+      if (other.getRetryAfterSeconds() != 0) {
+        setRetryAfterSeconds(other.getRetryAfterSeconds());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -497,6 +526,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 32: {
+              retryAfterSeconds_ = input.readInt32();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 32
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -726,6 +760,38 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       stackTrace_ = value;
       bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+
+    private int retryAfterSeconds_ ;
+    /**
+     * <code>int32 retry_after_seconds = 4;</code>
+     * @return The retryAfterSeconds.
+     */
+    @java.lang.Override
+    public int getRetryAfterSeconds() {
+      return retryAfterSeconds_;
+    }
+    /**
+     * <code>int32 retry_after_seconds = 4;</code>
+     * @param value The retryAfterSeconds to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRetryAfterSeconds(int value) {
+
+      retryAfterSeconds_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>int32 retry_after_seconds = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRetryAfterSeconds() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      retryAfterSeconds_ = 0;
       onChanged();
       return this;
     }

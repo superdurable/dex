@@ -12,10 +12,12 @@ package wf_state_api_fail_and_proceed
 
 import (
 	"context"
-	"github.com/superdurable/dex/integ/workflow/common"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,14 +29,22 @@ import (
  *		- The step will fail and proceed to StepRecover which will gracefully complete flow
  */
 const (
-	FlowType    = "wf_state_api_fail_and_proceed"
-	Step1       = "S1"
-	StepRecover = "Recover"
+	FlowType          = "wf_state_api_fail_and_proceed"
+	Step1             = "S1"
+	StepRecover       = "Recover"
+	RetryOnceInput    = "retry-once"
+	RetryFailureInput = "retry-failure"
+	errorDetail       = "waitFor method failure"
+	errorType         = "WaitForFailure"
+	errorStack        = "waitFor stack"
+	retryAfter        = int32(1)
 )
 
 type handler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	invokeHistory sync.Map
+	invokeHistory     sync.Map
+	attemptTimesMutex sync.Mutex
+	attemptTimes      []time.Time
 }
 
 func NewHandler() *handler {
@@ -60,7 +70,19 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if request.GetStepType() == Step1 {
-		return nil, status.Error(codes.InvalidArgument, "waitFor method failure")
+		stepInput := request.GetStepInput().GetStringValue()
+		if stepInput == RetryOnceInput {
+			h.attemptTimesMutex.Lock()
+			h.attemptTimes = append(h.attemptTimes, time.Now())
+			h.attemptTimesMutex.Unlock()
+			if request.GetContext().GetAttempt() > 1 {
+				return &dexpb.InvokeWaitForMethodResponse{}, nil
+			}
+		}
+		if stepInput == RetryOnceInput || stepInput == RetryFailureInput {
+			return nil, workerFailure(retryAfter)
+		}
+		return nil, workerFailure(0)
 	}
 
 	panic("should not get here")
@@ -83,8 +105,18 @@ func (h *handler) InvokeExecuteMethod(
 	}
 
 	conditionResults := request.GetConditionResults()
-	if conditionResults == nil || !conditionResults.GetWaitForFailed() {
+	if request.GetStepInput().GetStringValue() == RetryOnceInput {
+		if conditionResults.GetWaitForFailed() || request.GetContext().GetRecoveryError() != nil {
+			panic("successful waitFor retry must not set a recovery error")
+		}
+	} else if conditionResults == nil || !conditionResults.GetWaitForFailed() {
 		panic("wait_for_failed should be true")
+	} else {
+		expectedRetryAfter := int32(0)
+		if request.GetStepInput().GetStringValue() == RetryFailureInput {
+			expectedRetryAfter = retryAfter
+		}
+		validateRecoveryError(request.GetContext().GetRecoveryError(), expectedRetryAfter)
 	}
 
 	return &dexpb.InvokeExecuteMethodResponse{
@@ -92,6 +124,39 @@ func (h *handler) InvokeExecuteMethod(
 			CloseDecision: common.GracefulCompleteDecision(nil),
 		},
 	}, nil
+}
+
+func (h *handler) GetRetryAttemptGap() time.Duration {
+	h.attemptTimesMutex.Lock()
+	defer h.attemptTimesMutex.Unlock()
+	if len(h.attemptTimes) != 2 {
+		return 0
+	}
+	return h.attemptTimes[1].Sub(h.attemptTimes[0])
+}
+
+func workerFailure(retryAfterSeconds int32) error {
+	workerStatus, err := status.New(codes.InvalidArgument, errorDetail).WithDetails(
+		&dexpb.WorkerErrorResponse{
+			Detail:            errorDetail,
+			ErrorType:         errorType,
+			StackTrace:        errorStack,
+			RetryAfterSeconds: retryAfterSeconds,
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+	return workerStatus.Err()
+}
+
+func validateRecoveryError(recoveryError *dexpb.WorkerErrorResponse, retryAfterSeconds int32) {
+	if recoveryError.GetDetail() != errorDetail ||
+		recoveryError.GetErrorType() != errorType ||
+		recoveryError.GetStackTrace() != errorStack ||
+		recoveryError.GetRetryAfterSeconds() != retryAfterSeconds {
+		panic(fmt.Sprintf("waitFor recovery error is not correct: %v", recoveryError))
+	}
 }
 
 func (h *handler) GetTestResult() common.TestResult {

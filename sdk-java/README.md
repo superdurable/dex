@@ -104,6 +104,31 @@ including causes and suppressed exceptions. Dex persists at most 16 KiB of the
 UTF-8 stack and appends a truncation marker without splitting a character. The
 Worker log keeps the complete local stack.
 
+Failure-policy recovery exposes the previous method error through
+`context.getRecoveryError()`. Wait-for recovery passes the error directly to
+execute in the same run. Execute recovery passes it to both methods of the
+configured recovery Step, including when that Step starts after
+continue-as-new:
+
+```java
+WorkerError error = context.getRecoveryError();
+if (error != null) {
+    logger.warn("Recovering from " + error.getErrorType() + ": " + error.getDetail());
+}
+```
+
+To override the next Temporal retry interval, throw a retry request with the
+original failure as its cause:
+
+```java
+throw RetryAfterException.after(Duration.ofSeconds(30), failure);
+```
+
+The delay must be a positive whole number of seconds in the signed 32-bit
+range. Retry limits and method timeouts remain unchanged. Cadence cannot honor
+dynamic retry intervals; it stops retrying that method and applies its Step
+failure policy while preserving the original cause in `getRecoveryError()`.
+
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
 Use `StepList.empty()` when a Flow has no Steps, or
