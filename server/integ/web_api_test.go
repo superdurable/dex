@@ -91,6 +91,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("force-closed-pending-step", func(t *testing.T) {
 		testWebForceClosedPendingStep(t, backendType)
 	})
+	t.Run("force-closed-pending-wait-for", func(t *testing.T) {
+		testWebForceClosedPendingWaitFor(t, backendType)
+	})
 	for _, method := range []string{"wait-for", "execute"} {
 		t.Run("sync-last-failure-"+method, func(t *testing.T) {
 			testWebSyncLastFailure(t, backendType, method, false)
@@ -184,6 +187,112 @@ func testWebForceClosedPendingStep(t *testing.T, backendType service.BackendType
 	require.Equal(t, cooperativeStopStepType+"-1", methodContext.GetStepExecutionId())
 	require.Equal(t, service.StartingStepFromStepExecutionId, methodContext.GetFromStepExecutionId())
 	require.Equal(t, cooperativeStopStepType, methodContext.GetStepType())
+	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, methodContext.GetDurability())
+	require.Equal(t, int32(1), methodContext.GetFinalAttempt())
+	require.NoError(t, methodContext.GetStartedTime().CheckValid())
+	require.NoError(t, methodContext.GetDuration().CheckValid())
+	require.Equal(t, methodContext.GetStartedTime(), pendingEvent.GetEventTime())
+}
+
+type webPendingWaitForHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	waitForStartedOnce sync.Once
+	waitForStarted     chan struct{}
+}
+
+func newWebPendingWaitForHandler() *webPendingWaitForHandler {
+	return &webPendingWaitForHandler{waitForStarted: make(chan struct{})}
+}
+
+func (h *webPendingWaitForHandler) InvokeWaitForMethod(
+	ctx context.Context,
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	h.waitForStartedOnce.Do(func() { close(h.waitForStarted) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (h *webPendingWaitForHandler) InvokeExecuteMethod(
+	context.Context,
+	*dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	return nil, status.Error(codes.Internal, "Execute should not start")
+}
+
+func testWebForceClosedPendingWaitFor(t *testing.T, backendType service.BackendType) {
+	handler := newWebPendingWaitForHandler()
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := "web-force-closed-pending-wait-for-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "pending-wait-for",
+		FlowTimeoutSeconds: 20,
+		StartStepType:      "waiting-step",
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.waitForStarted:
+	case <-ctx.Done():
+		require.FailNow(t, "WaitFor did not start", ctx.Err())
+	}
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		RunId:    startResponse.GetRunId(),
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId: flowID,
+		RunId:  startResponse.GetRunId(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TERMINATED, result.GetFlowStatus())
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		startResponse.GetRunId(),
+	)
+	var closed *dexpb.FlowClosedHistoryEvent
+	var pendingEvent *dexpb.FlowHistoryEvent
+	for _, event := range events {
+		if event.GetFlowClosed() != nil {
+			closed = event.GetFlowClosed()
+		}
+		if event.GetStepWaitForPending() != nil {
+			pendingEvent = event
+		}
+		require.Nil(t, event.GetStepWaitForCompleted())
+		require.Nil(t, event.GetStepWaitForFailed())
+		require.Nil(t, event.GetStepExecutePending())
+	}
+	require.NotNil(t, closed)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TERMINATED, closed.GetFlowStatus())
+	require.NotNil(t, pendingEvent)
+	require.Less(t, pendingEvent.GetEventId(), events[len(events)-1].GetEventId())
+	require.NoError(t, pendingEvent.GetEventTime().CheckValid())
+	pending := pendingEvent.GetStepWaitForPending()
+	require.Contains(t, []dexpb.PendingStepMethodPhase{
+		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_SCHEDULED,
+		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_STARTED,
+	}, pending.GetPhase())
+	require.NotNil(t, pending.GetInput())
+	require.False(t, pending.GetInput().GetUnavailable())
+	methodContext := pending.GetContext()
+	require.Equal(t, "waiting-step-1", methodContext.GetStepExecutionId())
+	require.Equal(t, service.StartingStepFromStepExecutionId, methodContext.GetFromStepExecutionId())
+	require.Equal(t, "waiting-step", methodContext.GetStepType())
 	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, methodContext.GetDurability())
 	require.Equal(t, int32(1), methodContext.GetFinalAttempt())
 	require.NoError(t, methodContext.GetStartedTime().CheckValid())
