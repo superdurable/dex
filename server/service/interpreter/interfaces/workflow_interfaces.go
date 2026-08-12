@@ -98,7 +98,7 @@ type WorkflowProvider interface {
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
-	WorkerError(err error) (*dexpb.WorkerErrorResponse, error)
+	MapToWorkerError(err error) (*dexpb.WorkerErrorResponse, error)
 	IsContinueAsNewError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

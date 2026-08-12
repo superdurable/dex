@@ -13,26 +13,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/common/retry"
 	"go.uber.org/cadence"
 	"go.uber.org/cadence/.gen/go/shared"
 	"go.uber.org/cadence/workflow"
 )
-
-func TestActivityProviderRejectsRetryAfter(t *testing.T) {
-	errorResponse := &dexpb.ErrorResponse{OriginalWorkerRetryAfterSeconds: 7}
-	err := (&activityProvider{}).NewFlowError(
-		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-		errorResponse,
-	)
-
-	var customError *cadence.CustomError
-	require.ErrorAs(t, err, &customError)
-	require.Equal(t, retry.CadenceRetryAfterErrorReason, customError.Reason())
-	var decoded *dexpb.ErrorResponse
-	require.NoError(t, customError.Details(&decoded))
-	require.Equal(t, errorResponse, decoded)
-}
 
 func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	provider := &workflowProvider{}
@@ -47,7 +31,7 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 		original,
 	)
 
-	workerError, err := provider.WorkerError(workerFailure)
+	workerError, err := provider.MapToWorkerError(workerFailure)
 	require.NoError(t, err)
 	require.Equal(t, "worker detail", workerError.GetDetail())
 	require.Equal(t, "worker type", workerError.GetErrorType())
@@ -55,7 +39,7 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
 	timeoutFailure := workflow.NewTimeoutError(shared.TimeoutTypeStartToClose)
-	timeoutError, err := provider.WorkerError(timeoutFailure)
+	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
 	require.NoError(t, err)
 	require.Equal(t, shared.TimeoutTypeStartToClose.String(), timeoutError.GetErrorType())
 	require.NotEmpty(t, timeoutError.GetDetail())

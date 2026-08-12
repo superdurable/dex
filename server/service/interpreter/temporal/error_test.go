@@ -47,7 +47,7 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 		*original,
 	)
 
-	workerError, err := provider.WorkerError(workerFailure)
+	workerError, err := provider.MapToWorkerError(workerFailure)
 	require.NoError(t, err)
 	require.Equal(t, "worker detail", workerError.GetDetail())
 	require.Equal(t, "worker type", workerError.GetErrorType())
@@ -55,7 +55,7 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
 	timeoutFailure := temporalsdk.NewTimeoutError(enums.TIMEOUT_TYPE_START_TO_CLOSE, nil)
-	timeoutError, err := provider.WorkerError(timeoutFailure)
+	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
 	require.NoError(t, err)
 	require.Equal(t, enums.TIMEOUT_TYPE_START_TO_CLOSE.String(), timeoutError.GetErrorType())
 	require.NotEmpty(t, timeoutError.GetDetail())

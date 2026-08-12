@@ -18,9 +18,6 @@ import (
 	"go.uber.org/cadence/workflow"
 )
 
-// CadenceRetryAfterErrorReason marks retry-after as unsupported by Cadence.
-const CadenceRetryAfterErrorReason = "__dex_retry_after__"
-
 func ConvertCadenceWorkflowRetryPolicy(policy *dexpb.FlowRetryPolicy) *workflow.RetryPolicy {
 	if policy == nil {
 		return nil
@@ -51,12 +48,11 @@ func ConvertCadenceActivityRetryPolicy(policy *dexpb.RetryPolicy) *workflow.Retr
 	}
 
 	return &workflow.RetryPolicy{
-		InitialInterval:          time.Second * time.Duration(initial),
-		MaximumInterval:          time.Second * time.Duration(maxInterval),
-		MaximumAttempts:          maxAttempts,
-		BackoffCoefficient:       float64(backoff),
-		ExpirationInterval:       expirationInterval,
-		NonRetriableErrorReasons: []string{CadenceRetryAfterErrorReason},
+		InitialInterval:    time.Second * time.Duration(initial),
+		MaximumInterval:    time.Second * time.Duration(maxInterval),
+		MaximumAttempts:    maxAttempts,
+		BackoffCoefficient: float64(backoff),
+		ExpirationInterval: expirationInterval,
 	}
 }
 

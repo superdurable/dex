@@ -67,7 +67,7 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
-func (w *workflowProvider) WorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
+func (w *workflowProvider) MapToWorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
 	var timeoutError *temporal.TimeoutError
 	if errors.As(err, &timeoutError) {
 		return &dexpb.WorkerErrorResponse{

@@ -17,33 +17,33 @@ import java.time.Duration;
  *
  * <p>Throw the value returned by {@link #after(Duration, Throwable)} from wait-for or execute. On
  * Temporal, the delay overrides only the next retry interval; retry limits and timeouts remain
- * unchanged. Cadence cannot honor a dynamic interval, so Dex stops retrying that method and applies
- * its configured failure policy. The original cause remains the reported Worker error.
+ * unchanged, and the current attempt failure remains the reported Worker error. Cadence rejects
+ * dynamic retry intervals with a Flow validation error.
  *
  * <pre>{@code
- * throw RetryAfterException.after(Duration.ofSeconds(30), failure);
+ * throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
  * }</pre>
  */
 public final class RetryAfterException extends RuntimeException {
     private final Duration retryAfter;
 
-    private RetryAfterException(final Duration retryAfter, final Throwable cause) {
-        super(cause.getMessage(), cause);
+    private RetryAfterException(final Duration retryAfter, final Throwable currentCause) {
+        super(currentCause.getMessage(), currentCause);
         this.retryAfter = retryAfter;
     }
 
     /**
-     * Creates a retry request while preserving the original failure.
+     * Creates a retry request while preserving the current attempt failure.
      *
      * @param retryAfter the positive whole-second delay before the next attempt
-     * @param cause the original Step method failure reported to Dex
+     * @param currentCause the current Step method attempt failure reported to Dex
      * @return an exception to throw from the Step method
      * @throws IllegalArgumentException if the delay is null, nonpositive, fractional, or exceeds
-     *         the signed 32-bit seconds range, or if the cause is null
+     *         the signed 32-bit seconds range, or if the current cause is null
      */
     public static RetryAfterException after(
             final Duration retryAfter,
-            final Throwable cause) {
+            final Throwable currentCause) {
         if (retryAfter == null
                 || retryAfter.isZero()
                 || retryAfter.isNegative()
@@ -52,10 +52,10 @@ public final class RetryAfterException extends RuntimeException {
             throw new IllegalArgumentException(
                     "retryAfter must be positive whole seconds within int32");
         }
-        if (cause == null) {
-            throw new IllegalArgumentException("cause is required");
+        if (currentCause == null) {
+            throw new IllegalArgumentException("currentCause is required");
         }
-        return new RetryAfterException(retryAfter, cause);
+        return new RetryAfterException(retryAfter, currentCause);
     }
 
     /**

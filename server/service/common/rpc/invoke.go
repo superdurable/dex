@@ -87,7 +87,7 @@ func InvokeWorkerRpc(
 	if err := validateWorkerRpcResponse(resp); err != nil {
 		return nil, err
 	}
-	service.SetFromStepExecutionID(
+	service.SetFromStepExecutionIDForStepDecision(
 		resp.GetStepDecision(),
 		service.GetFromStepExecutionIdForRPC(req.GetRpcName()),
 	)

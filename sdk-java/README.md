@@ -118,16 +118,15 @@ if (error != null) {
 ```
 
 To override the next Temporal retry interval, throw a retry request with the
-original failure as its cause:
+current attempt failure as its cause:
 
 ```java
-throw RetryAfterException.after(Duration.ofSeconds(30), failure);
+throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 ```
 
 The delay must be a positive whole number of seconds in the signed 32-bit
-range. Retry limits and method timeouts remain unchanged. Cadence cannot honor
-dynamic retry intervals; it stops retrying that method and applies its Step
-failure policy while preserving the original cause in `getRecoveryError()`.
+range. Retry limits and method timeouts remain unchanged. Cadence rejects a
+dynamic retry interval with an `INVALID_USER_FLOW_CODE` validation error.
 
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.

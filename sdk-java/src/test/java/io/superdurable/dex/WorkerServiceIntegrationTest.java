@@ -243,23 +243,23 @@ final class WorkerServiceIntegrationTest {
 
     @Test
     void validatesRetryAfter() {
-        final RuntimeException cause = new RuntimeException("failure");
+        final RuntimeException currentCause = new RuntimeException("failure");
         assertThrows(
                 IllegalArgumentException.class,
-                () -> RetryAfterException.after(null, cause));
+                () -> RetryAfterException.after(null, currentCause));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> RetryAfterException.after(Duration.ZERO, cause));
+                () -> RetryAfterException.after(Duration.ZERO, currentCause));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> RetryAfterException.after(Duration.ofSeconds(-1), cause));
+                () -> RetryAfterException.after(Duration.ofSeconds(-1), currentCause));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> RetryAfterException.after(Duration.ofMillis(1500), cause));
+                () -> RetryAfterException.after(Duration.ofMillis(1500), currentCause));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> RetryAfterException.after(
-                        Duration.ofSeconds((long) Integer.MAX_VALUE + 1), cause));
+                        Duration.ofSeconds((long) Integer.MAX_VALUE + 1), currentCause));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> RetryAfterException.after(Duration.ofSeconds(1), null));
