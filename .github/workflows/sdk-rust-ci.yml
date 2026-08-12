@@ -9,6 +9,7 @@ on:
       - "server/**"
       - "protos/**"
       - "web/**"
+      - "codecov.yml"
       - ".github/workflows/sdk-rust-ci.yml"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "server/**"
       - "protos/**"
       - "web/**"
+      - "codecov.yml"
       - ".github/workflows/sdk-rust-ci.yml"
   workflow_dispatch:
 
@@ -70,9 +72,12 @@ jobs:
         run: cargo test --workspace --locked
 
   integration:
-    name: Integration tests
+    name: Integration coverage
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
     timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: sdk-rust
@@ -94,8 +99,26 @@ jobs:
         uses: temporalio/setup-temporal@v0
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
-      - name: Run integration tests
-        run: ./run-integration-tests.sh
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run integration coverage
+        run: ./run-integration-tests.sh --coverage
+      - name: Upload Rust integration coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./sdk-rust/coverage/lcov.info
+          flags: sdk-rust-integration
+          name: sdk-rust-integration
+          use_oidc: true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-rust-integration-coverage
+          path: sdk-rust/coverage/
+          if-no-files-found: ignore
       - name: Upload service logs
         if: always()
         uses: actions/upload-artifact@v7

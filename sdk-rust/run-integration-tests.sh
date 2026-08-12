@@ -10,6 +10,16 @@
 
 set -euo pipefail
 
+coverage=false
+if [[ "${1:-}" == "--coverage" ]]; then
+  coverage=true
+  shift
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "usage: $0 [--coverage]" >&2
+  exit 2
+fi
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 dex_port="${DEX_INTEG_DEX_PORT:-18821}"
@@ -77,9 +87,22 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-DEX_SERVER_ADDRESS="$dex_address" cargo test -p dex-sdk \
-  --test integ \
-  --test cross_sdk \
-  -- \
-  --ignored \
-  --test-threads=1
+if $coverage; then
+  cargo llvm-cov clean --workspace
+  DEX_SERVER_ADDRESS="$dex_address" cargo llvm-cov --no-report -p dex-sdk \
+    --test integ \
+    --test cross_sdk \
+    -- \
+    --ignored \
+    --test-threads=1
+  mkdir -p coverage
+  cargo llvm-cov report -p dex-sdk --lcov --output-path coverage/lcov.info
+  cargo llvm-cov report -p dex-sdk --html --output-dir coverage
+else
+  DEX_SERVER_ADDRESS="$dex_address" cargo test -p dex-sdk \
+    --test integ \
+    --test cross_sdk \
+    -- \
+    --ignored \
+    --test-threads=1
+fi

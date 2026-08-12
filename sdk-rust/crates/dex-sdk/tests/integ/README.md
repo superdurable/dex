@@ -31,6 +31,9 @@ Run all scenarios against an isolated `dexcli dev` stack from `sdk-rust`:
 ./run-integration-tests.sh
 ```
 
+To collect production `dex-sdk` coverage from only these integration targets,
+install `cargo-llvm-cov` and run `./run-integration-tests.sh --coverage`.
+
 Go's erased `ChannelDef` variant has no Rust counterpart: Rust keeps typed
 `Channel<T>` values through registration, so the runtime channel scenario does
 not need a second type-erased test. Go's pointer/value Flow cases likewise map
