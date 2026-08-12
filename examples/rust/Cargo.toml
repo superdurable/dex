@@ -1,0 +1,16 @@
+[package]
+name = "dex-examples-rust"
+version = "0.0.0"
+edition = "2024"
+publish = false
+rust-version = "1.97"
+
+[dependencies]
+dex-sdk = "=0.0.2"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[lints.rust]
+unsafe_code = "forbid"
