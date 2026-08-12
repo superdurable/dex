@@ -1,44 +1,37 @@
 import React, {type ReactNode} from 'react';
-import {ErrorCauseBoundary, useThemeConfig} from '@docusaurus/theme-common';
-import {splitNavbarItems, useNavbarMobileSidebar} from '@docusaurus/theme-common/internal';
-import NavbarItem, {type Props as NavbarItemConfig} from '@theme/NavbarItem';
+import {useNavbarMobileSidebar} from '@docusaurus/theme-common/internal';
 import NavbarColorModeToggle from '@theme/Navbar/ColorModeToggle';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarLogo from '@theme/Navbar/Logo';
+import BrandMenu from '@site/src/components/BrandMenu';
 import GitHubStarNavbarItem from '@site/src/components/GitHubStarNavbarItem';
-
-function NavbarItems({items}: {items: NavbarItemConfig[]}): ReactNode {
-  return items.map((item, index) => (
-    <ErrorCauseBoundary
-      key={index}
-      onError={(error) => new Error(`Unable to render navbar item: ${JSON.stringify(item)}`, {cause: error})}>
-      <NavbarItem {...item} />
-    </ErrorCauseBoundary>
-  ));
-}
+import {BOOKING_URL, DOC_ITEMS, SERVICE_ITEMS} from '@site/src/components/brandNavigation';
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
-  const items = useThemeConfig().navbar.items as NavbarItemConfig[];
-  const [leftItems, rightItems] = splitNavbarItems(items);
-  const bookingItems = rightItems.filter((item) => item.className === 'header-booking-link');
-  const utilityItems = rightItems.filter((item) => item.className !== 'header-booking-link');
 
   return (
     <div className="navbar__inner brand-navbar-inner">
       <div className="brand-navbar-start">
-        {!mobileSidebar.disabled && <NavbarMobileSidebarToggle />}
         <NavbarLogo />
       </div>
-      <nav className="brand-navbar-center" aria-label="Primary navigation">
-        <NavbarItems items={leftItems} />
-      </nav>
-      <div className="brand-navbar-actions">
-        <NavbarItems items={utilityItems} />
+      <nav className="desktop-nav" aria-label="Primary navigation">
+        <a href="https://superdurable.io/dex">Dex</a>
+        <BrandMenu label="Docs" items={DOC_ITEMS} />
+        <BrandMenu label="Services" items={SERVICE_ITEMS} />
         <GitHubStarNavbarItem />
+      </nav>
+      <div className="header-actions">
         <NavbarColorModeToggle />
-        <NavbarItems items={bookingItems} />
+        <a className="button button-small header-cta" href={BOOKING_URL} target="_blank" rel="noreferrer">
+          Book a call <span aria-hidden="true">↗</span>
+        </a>
       </div>
+      {!mobileSidebar.disabled && (
+        <div className="mobile-navbar-toggle">
+          <NavbarMobileSidebarToggle />
+        </div>
+      )}
     </div>
   );
 }

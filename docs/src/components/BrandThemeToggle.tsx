@@ -33,9 +33,11 @@ export default function BrandThemeToggle({
       onClick={toggleTheme}
       aria-label="Toggle color theme"
       title="Toggle color theme">
-      <span className="theme-toggle-icon" aria-hidden="true">
-        <span className="theme-toggle-moon">◐</span>
-        <span className="theme-toggle-sun">☀</span>
+      <span className="theme-toggle-icon theme-toggle-moon" aria-hidden="true">
+        ◐
+      </span>
+      <span className="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
+        ☀
       </span>
       <span className="theme-toggle-night">Night</span>
       <span className="theme-toggle-light">Light</span>
