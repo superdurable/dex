@@ -1,25 +1,22 @@
 import React, {type ReactNode} from 'react';
-import {useThemeConfig} from '@docusaurus/theme-common';
 import {useNavbarMobileSidebar} from '@docusaurus/theme-common/internal';
-import NavbarItem, {type Props as NavbarItemConfig} from '@theme/NavbarItem';
+import BrandMenu from '@site/src/components/BrandMenu';
 import GitHubStarNavbarItem from '@site/src/components/GitHubStarNavbarItem';
+import {BOOKING_URL, DOC_ITEMS, SERVICE_ITEMS} from '@site/src/components/brandNavigation';
 
 export default function NavbarMobilePrimaryMenu(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
-  const items = useThemeConfig().navbar.items as NavbarItemConfig[];
-  const booking = items.filter((item) => item.className === 'header-booking-link');
-  const primary = items.filter((item) => item.className !== 'header-booking-link');
   const close = () => mobileSidebar.toggle();
 
   return (
-    <ul className="menu__list">
-      {primary.map((item, index) => (
-        <NavbarItem mobile {...item} onClick={close} key={index} />
-      ))}
+    <ul className="menu__list brand-mobile-nav">
+      <li className="menu__list-item"><a className="menu__link" href="https://superdurable.io/dex" onClick={close}>Dex</a></li>
+      <li className="menu__list-item"><BrandMenu label="Docs" items={DOC_ITEMS} mobile onNavigate={close} /></li>
+      <li className="menu__list-item"><BrandMenu label="Services" items={SERVICE_ITEMS} mobile onNavigate={close} /></li>
       <GitHubStarNavbarItem mobile onClick={close} />
-      {booking.map((item, index) => (
-        <NavbarItem mobile {...item} onClick={close} key={`booking-${index}`} />
-      ))}
+      <li className="menu__list-item">
+        <a className="button header-booking-link" href={BOOKING_URL} target="_blank" rel="noreferrer" onClick={close}>Book a call <span aria-hidden="true">↗</span></a>
+      </li>
     </ul>
   );
 }

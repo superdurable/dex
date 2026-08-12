@@ -5,7 +5,7 @@ export default function Footer(): ReactNode {
   return (
     <footer className="site-footer">
       <div className="footer-brand">
-        <a href="https://superdurable.io/" aria-label="Super Durable home"><Brand /></a>
+        <a className="wordmark" href="https://superdurable.io/" aria-label="Super Durable home"><Brand /></a>
         <p>Simple, reliable and efficient solutions to complex problems.</p>
       </div>
       <div className="footer-links">

@@ -5,13 +5,13 @@ export default function Brand(): ReactNode {
   const logo = useBaseUrl('/img/brand/super-durable-logo.png');
 
   return (
-    <span className="brand-lockup">
+    <>
       <span className="brand-symbol" aria-hidden="true">
         <img src={logo} alt="" />
       </span>
       <span className="wordmark-text">
         <span>SUPER</span> DURABLE
       </span>
-    </span>
+    </>
   );
 }
