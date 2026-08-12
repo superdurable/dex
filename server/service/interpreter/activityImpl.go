@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
@@ -103,15 +104,14 @@ func (a *Activities) InvokeWaitForMethod(
 	if req.Context == nil {
 		req.Context = &dexpb.Context{}
 	}
-	activityFailure := newStepActivityFailure(
-		req.GetContext(),
-		req.GetStepType(),
-		false,
+	activityAttempt := retry.NewStepActivityAttempt(
 		input.GetRetryContext(),
-		activityInfo,
+		activityInfo.ScheduledTime,
+		activityInfo.Attempt,
+		activityInfo.IsLocalActivity,
 	)
-	req.Context.Attempt = activityFailure.GetAttempt()
-	req.Context.FirstAttemptTimestamp = activityFailure.GetRetryContext().GetFirstAttemptTimestamp()
+	activityAttempt.ApplyToWorkerContext(req.GetContext())
+	activityFailure := activityAttempt.FailureDetails(req.GetContext(), req.GetStepType(), false)
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
@@ -223,15 +223,18 @@ func (a *Activities) InvokeExecuteMethod(
 	if req.Context == nil {
 		req.Context = &dexpb.Context{}
 	}
-	activityFailure := newStepActivityFailure(
+	activityAttempt := retry.NewStepActivityAttempt(
+		input.GetRetryContext(),
+		activityInfo.ScheduledTime,
+		activityInfo.Attempt,
+		activityInfo.IsLocalActivity,
+	)
+	activityAttempt.ApplyToWorkerContext(req.GetContext())
+	activityFailure := activityAttempt.FailureDetails(
 		req.GetContext(),
 		req.GetStepType(),
 		input.GetIsTransientStep(),
-		input.GetRetryContext(),
-		activityInfo,
 	)
-	req.Context.Attempt = activityFailure.GetAttempt()
-	req.Context.FirstAttemptTimestamp = activityFailure.GetRetryContext().GetFirstAttemptTimestamp()
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
@@ -323,33 +326,6 @@ func (a *Activities) InvokeExecuteMethod(
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
 	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
-}
-
-func newStepActivityFailure(
-	requestContext *dexpb.Context,
-	stepType string,
-	isTransientStep bool,
-	retryContext *dexpb.InternalStepActivityRetryContext,
-	activityInfo interfaces.ActivityInfo,
-) *dexpb.InternalLocalStepActivityFailure {
-	if retryContext == nil {
-		retryContext = &dexpb.InternalStepActivityRetryContext{
-			FirstAttemptTimestamp: activityInfo.ScheduledTime.Unix(),
-		}
-	}
-	if retryContext.GetFirstAttemptTimestamp() <= 0 {
-		retryContext.FirstAttemptTimestamp = activityInfo.ScheduledTime.Unix()
-	}
-	failure := &dexpb.InternalLocalStepActivityFailure{
-		StepType:        stepType,
-		IsTransientStep: isTransientStep,
-		RetryContext:    retryContext,
-		Attempt:         retryContext.GetPreviousAttempts() + activityInfo.Attempt,
-	}
-	if activityInfo.IsLocalActivity {
-		failure.LocalActivityInput = composeLocalActivityInput(requestContext)
-	}
-	return failure
 }
 
 func (a *Activities) persistStepEventInput(

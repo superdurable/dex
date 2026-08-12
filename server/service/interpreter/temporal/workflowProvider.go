@@ -346,8 +346,11 @@ func (w *workflowProvider) ExecuteActivity(
 		if !optionsFound {
 			return err
 		}
-		previousAttempts, ok := temporalLocalActivityAttempt(err)
-		if !ok {
+		previousAttempts, attemptMetadataFound, attemptErr := temporalLocalActivityAttempt(err)
+		if attemptErr != nil {
+			return attemptErr
+		}
+		if !attemptMetadataFound {
 			return err
 		}
 		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
@@ -402,16 +405,19 @@ func temporalLocalActivityOptions(options interfaces.ActivityOptions) workflow.L
 	}
 }
 
-func temporalLocalActivityAttempt(err error) (int32, bool) {
+func temporalLocalActivityAttempt(err error) (int32, bool, error) {
 	var applicationError *temporal.ApplicationError
 	if !errors.As(err, &applicationError) || !applicationError.HasDetails() {
-		return 0, false
+		return 0, false, nil
 	}
 	var response dexpb.ErrorResponse
-	if detailErr := applicationError.Details(&response); detailErr != nil || response.GetAttempt() <= 0 {
-		return 0, false
+	if detailErr := applicationError.Details(&response); detailErr != nil {
+		return 0, false, fmt.Errorf("decode Temporal local Step failure details: %w", detailErr)
 	}
-	return response.GetAttempt(), true
+	if response.GetAttempt() <= 0 {
+		return 0, false, nil
+	}
+	return response.GetAttempt(), true, nil
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(
