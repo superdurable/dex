@@ -57,8 +57,10 @@ export type HistoryEventType =
   | 'FlowClosed'
   | 'StepWaitForCompleted'
   | 'StepWaitForFailed'
+  | 'StepWaitForPending'
   | 'StepExecuteCompleted'
   | 'StepExecuteFailed'
+  | 'StepExecutePending'
   | 'RpcExecutionCompleted'
   | 'ChannelExternalPublish';
 
@@ -107,9 +109,8 @@ export interface StepGraphNode {
   fromStepExecutionId?: string;
   waitFor?: FlowHistoryEvent;
   execute?: FlowHistoryEvent;
-  pendingWaitFor?: Record<string, unknown>;
-  pendingExecute?: Record<string, unknown>;
-  pendingEvent?: FlowHistoryEvent;
+  pendingWaitFor?: FlowHistoryEvent;
+  pendingExecute?: FlowHistoryEvent;
   active?: ActiveStepExecution;
   transient?: boolean;
 }

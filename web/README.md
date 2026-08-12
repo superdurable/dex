@@ -71,8 +71,8 @@ steps, channels, completed outputs, stop, and reset. Timeline and Step graph kee
 Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
-Methods interrupted by a forced close remain visible as Pending with their last
-persisted Scheduled or Started phase in the Flow Closed details.
+Methods interrupted by a forced close remain visible as Pending Timeline events
+with their last persisted Scheduled or Started phase.
 Timeline and Step graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.

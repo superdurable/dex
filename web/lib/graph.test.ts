@@ -116,23 +116,20 @@ describe('step graph', () => {
         fromStepExecutionId: '__start__',
         stepType: 'charge',
       }),
-      event(2, 'FlowClosed', {}, {
-        pendingStepMethods: [{
-          method: 2,
-          phase: 2,
-          context: {
-            stepExecutionId: 'charge-1',
-            fromStepExecutionId: '__start__',
-            stepType: 'charge',
-          },
-        }],
+      event(2, 'StepExecutePending', {
+        stepExecutionId: 'charge-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'charge',
+      }, {
+        phase: 2,
       }),
+      event(3, 'FlowClosed'),
     ]);
 
     const node = graph.nodes.find((candidate) => candidate.id === 'charge-1');
     expect(node?.status).toBe('Pending');
     expect(node?.waitFor?.type).toBe('StepWaitForCompleted');
-    expect(node?.pendingExecute?.phase).toBe(2);
-    expect(node?.pendingEvent?.type).toBe('FlowClosed');
+    expect(node?.pendingExecute?.payload.phase).toBe(2);
+    expect(node?.pendingExecute?.type).toBe('StepExecutePending');
   });
 });

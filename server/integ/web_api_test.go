@@ -157,18 +157,23 @@ func testWebForceClosedPendingStep(t *testing.T, backendType service.BackendType
 		startResponse.GetRunId(),
 	)
 	var closed *dexpb.FlowClosedHistoryEvent
+	var pendingEvent *dexpb.FlowHistoryEvent
 	for _, event := range events {
 		if event.GetFlowClosed() != nil {
 			closed = event.GetFlowClosed()
+		}
+		if event.GetStepExecutePending() != nil {
+			pendingEvent = event
 		}
 		require.Nil(t, event.GetStepExecuteCompleted())
 		require.Nil(t, event.GetStepExecuteFailed())
 	}
 	require.NotNil(t, closed)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TERMINATED, closed.GetFlowStatus())
-	require.Len(t, closed.GetPendingStepMethods(), 1)
-	pending := closed.GetPendingStepMethods()[0]
-	require.Equal(t, dexpb.StepMethodKind_STEP_METHOD_KIND_EXECUTE, pending.GetMethod())
+	require.NotNil(t, pendingEvent)
+	require.Less(t, pendingEvent.GetEventId(), events[len(events)-1].GetEventId())
+	require.NoError(t, pendingEvent.GetEventTime().CheckValid())
+	pending := pendingEvent.GetStepExecutePending()
 	require.Contains(t, []dexpb.PendingStepMethodPhase{
 		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_SCHEDULED,
 		dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_STARTED,
@@ -183,6 +188,7 @@ func testWebForceClosedPendingStep(t *testing.T, backendType service.BackendType
 	require.Equal(t, int32(1), methodContext.GetFinalAttempt())
 	require.NoError(t, methodContext.GetStartedTime().CheckValid())
 	require.NoError(t, methodContext.GetDuration().CheckValid())
+	require.Equal(t, methodContext.GetStartedTime(), pendingEvent.GetEventTime())
 }
 
 func testWebParallelSameTypeFailures(t *testing.T, backendType service.BackendType) {

@@ -105,9 +105,9 @@ IDs are omitted from the response map so callers can render them as unavailable.
 History events describe flows, step methods, RPCs, and channel publications.
 They do not expose workflow tasks, activities, markers, or raw backend events.
 
-When a flow closes before a regular Step activity finishes, the close event's
-`pending_step_methods` preserves each unresolved WaitFor or Execute input,
-context, and whether its backend activity was only scheduled or had started.
+When a flow closes before a regular Step activity finishes, semantic history
+emits `step_wait_for_pending` or `step_execute_pending` at its scheduled event
+ID. Its time and phase report whether the backend activity started.
 
 ### Transient step movement
 

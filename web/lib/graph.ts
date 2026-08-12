@@ -19,8 +19,10 @@ export const END_NODE_ID = '__end__';
 const stepEventTypes = new Set([
   'StepWaitForCompleted',
   'StepWaitForFailed',
+  'StepWaitForPending',
   'StepExecuteCompleted',
   'StepExecuteFailed',
+  'StepExecutePending',
 ]);
 
 function stepContext(event: FlowHistoryEvent): Record<string, unknown> {
@@ -30,12 +32,6 @@ function stepContext(event: FlowHistoryEvent): Record<string, unknown> {
 
 function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
-}
-
-function dataArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
-    : [];
 }
 
 function previousRunID(events: FlowHistoryEvent[]): string {
@@ -60,40 +56,15 @@ export function buildStepGraph(
   });
 
   for (const event of events) {
-    if (event.type === 'FlowClosed') {
-      for (const pending of dataArray(event.payload.pendingStepMethods)) {
-        const info = pending.context && typeof pending.context === 'object'
-          ? pending.context as Record<string, unknown>
-          : {};
-        const id = stringField(info.stepExecutionId);
-        if (!id) continue;
-        const existing = nodes.get(id);
-        const isWaitFor = pending.method === 1;
-        nodes.set(id, {
-          id,
-          label: stringField(info.stepType) || id,
-          kind: 'step',
-          status: 'Pending',
-          stepType: stringField(info.stepType),
-          fromStepExecutionId: stringField(info.fromStepExecutionId) || START_NODE_ID,
-          waitFor: existing?.waitFor,
-          execute: existing?.execute,
-          pendingWaitFor: isWaitFor ? pending : existing?.pendingWaitFor,
-          pendingExecute: isWaitFor ? existing?.pendingExecute : pending,
-          pendingEvent: event,
-          transient: info.isTransientStep === true || existing?.transient,
-        });
-      }
-      continue;
-    }
     if (!stepEventTypes.has(event.type)) continue;
     const info = stepContext(event);
     const id = stringField(info.stepExecutionId);
     if (!id) continue;
     const existing = nodes.get(id);
     const failed = event.type.endsWith('Failed');
-    const waitFor = event.type.startsWith('StepWaitFor') ? event : existing?.waitFor;
-    const execute = event.type.startsWith('StepExecute') ? event : existing?.execute;
+    const pending = event.type.endsWith('Pending');
+    const waitFor = event.type.startsWith('StepWaitFor') && !pending ? event : existing?.waitFor;
+    const execute = event.type.startsWith('StepExecute') && !pending ? event : existing?.execute;
     if (event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
       closingStepExecutionIDs.add(id);
     }
@@ -101,11 +72,13 @@ export function buildStepGraph(
       id,
       label: stringField(info.stepType) || id,
       kind: 'step',
-      status: failed ? 'Failed' : execute ? 'Completed' : 'Waiting',
+      status: pending ? 'Pending' : failed ? 'Failed' : execute ? 'Completed' : 'Waiting',
       stepType: stringField(info.stepType),
       fromStepExecutionId: stringField(info.fromStepExecutionId) || START_NODE_ID,
       waitFor,
       execute,
+      pendingWaitFor: event.type === 'StepWaitForPending' ? event : existing?.pendingWaitFor,
+      pendingExecute: event.type === 'StepExecutePending' ? event : existing?.pendingExecute,
       transient: info.isTransientStep === true,
     });
   }
@@ -123,7 +96,6 @@ export function buildStepGraph(
       execute: existing?.execute,
       pendingWaitFor: existing?.pendingWaitFor,
       pendingExecute: existing?.pendingExecute,
-      pendingEvent: existing?.pendingEvent,
       active,
       transient: existing?.transient,
     });

@@ -153,7 +153,7 @@ function StepNodeLabel({
           <MethodSection
             name="WaitFor"
             status={waitForStatus(node)}
-            event={node.waitFor ?? (node.pendingWaitFor ? node.pendingEvent : undefined)}
+            event={node.waitFor ?? node.pendingWaitFor}
             onSelect={onSelect}
           >
             {(timerCount > 0 || channelCount > 0) && (
@@ -177,7 +177,7 @@ function StepNodeLabel({
         <MethodSection
           name="Execute"
           status={executeStatus(node)}
-          event={node.execute ?? (node.pendingExecute ? node.pendingEvent : undefined)}
+          event={node.execute ?? node.pendingExecute}
           onSelect={onSelect}
         />
       </div>
@@ -265,7 +265,7 @@ export function StepGraph({
           maxZoom={2}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
-            onSelectEvent(model.execute ?? model.waitFor ?? model.pendingEvent ?? null);
+            onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
           nodesDraggable
         >

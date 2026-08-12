@@ -393,7 +393,7 @@ func (b *Builder) RecordClose(
 	eventTime time.Time,
 	payload *dexpb.FlowClosedHistoryEvent,
 ) {
-	payload.PendingStepMethods = append(payload.PendingStepMethods, b.pendingStepMethods(eventTime)...)
+	b.events = append(b.events, b.pendingStepMethodEvents(eventTime)...)
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
@@ -401,7 +401,7 @@ func (b *Builder) RecordClose(
 	))
 }
 
-func (b *Builder) pendingStepMethods(closedTime time.Time) []*dexpb.PendingStepMethod {
+func (b *Builder) pendingStepMethodEvents(closedTime time.Time) []*dexpb.FlowHistoryEvent {
 	scheduledEventIDs := make([]int64, 0, len(b.scheduledActivities))
 	for scheduledEventID := range b.scheduledActivities {
 		scheduledEventIDs = append(scheduledEventIDs, scheduledEventID)
@@ -409,14 +409,14 @@ func (b *Builder) pendingStepMethods(closedTime time.Time) []*dexpb.PendingStepM
 	sort.Slice(scheduledEventIDs, func(left int, right int) bool {
 		return scheduledEventIDs[left] < scheduledEventIDs[right]
 	})
-	pendingMethods := make([]*dexpb.PendingStepMethod, 0, len(scheduledEventIDs))
+	pendingEvents := make([]*dexpb.FlowHistoryEvent, 0, len(scheduledEventIDs))
 	for _, scheduledEventID := range scheduledEventIDs {
-		pendingMethods = append(
-			pendingMethods,
-			b.scheduledActivities[scheduledEventID].pendingStepMethod(closedTime),
+		pendingEvents = append(
+			pendingEvents,
+			b.scheduledActivities[scheduledEventID].pendingStepMethodEvent(scheduledEventID, closedTime),
 		)
 	}
-	return pendingMethods
+	return pendingEvents
 }
 
 func (b *Builder) EventsInRange(
@@ -472,49 +472,55 @@ func (b *Builder) populateContinuedStart() error {
 	return nil
 }
 
-func (s *scheduledActivity) pendingStepMethod(closedTime time.Time) *dexpb.PendingStepMethod {
+func (s *scheduledActivity) pendingStepMethodEvent(
+	scheduledEventID int64,
+	closedTime time.Time,
+) *dexpb.FlowHistoryEvent {
 	startedTime, finalAttempt := s.executionTiming()
 	phase := dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_STARTED
+	eventTime := s.firstStartedTime
 	if s.firstStartedTime.IsZero() {
 		phase = dexpb.PendingStepMethodPhase_PENDING_STEP_METHOD_PHASE_SCHEDULED
+		eventTime = s.scheduledTime
+	}
+	payload := &dexpb.StepMethodPendingEvent{
+		Phase: phase,
 	}
 	switch {
 	case s.waitInput != nil:
 		request := s.waitInput.GetRequest()
-		return &dexpb.PendingStepMethod{
-			Method: dexpb.StepMethodKind_STEP_METHOD_KIND_WAIT_FOR,
-			Input:  waitEventInput(request),
-			Context: stepMethodEventContext(
-				request.GetContext(),
-				request.GetStepType(),
-				s.durability,
-				false,
-				startedTime,
-				closedTime,
-				finalAttempt,
-				s.methodOptions,
-				s.lastFailure,
-			),
-			Phase: phase,
-		}
+		payload.Input = waitEventInput(request)
+		payload.Context = stepMethodEventContext(
+			request.GetContext(),
+			request.GetStepType(),
+			s.durability,
+			false,
+			startedTime,
+			closedTime,
+			finalAttempt,
+			s.methodOptions,
+			s.lastFailure,
+		)
+		return newEvent(scheduledEventID, eventTime, &dexpb.FlowHistoryEvent_StepWaitForPending{
+			StepWaitForPending: payload,
+		})
 	case s.executeInput != nil:
 		request := s.executeInput.GetRequest()
-		return &dexpb.PendingStepMethod{
-			Method: dexpb.StepMethodKind_STEP_METHOD_KIND_EXECUTE,
-			Input:  executeEventInput(request),
-			Context: stepMethodEventContext(
-				request.GetContext(),
-				request.GetStepType(),
-				s.durability,
-				s.executeInput.GetIsTransientStep(),
-				startedTime,
-				closedTime,
-				finalAttempt,
-				s.methodOptions,
-				s.lastFailure,
-			),
-			Phase: phase,
-		}
+		payload.Input = executeEventInput(request)
+		payload.Context = stepMethodEventContext(
+			request.GetContext(),
+			request.GetStepType(),
+			s.durability,
+			s.executeInput.GetIsTransientStep(),
+			startedTime,
+			closedTime,
+			finalAttempt,
+			s.methodOptions,
+			s.lastFailure,
+		)
+		return newEvent(scheduledEventID, eventTime, &dexpb.FlowHistoryEvent_StepExecutePending{
+			StepExecutePending: payload,
+		})
 	default:
 		panic("scheduled step activity has no method input")
 	}
@@ -587,6 +593,10 @@ func newEvent(
 	case *dexpb.FlowHistoryEvent_StepExecuteCompleted:
 		event.Payload = payload
 	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
+		event.Payload = payload
+	case *dexpb.FlowHistoryEvent_StepWaitForPending:
+		event.Payload = payload
+	case *dexpb.FlowHistoryEvent_StepExecutePending:
 		event.Payload = payload
 	case *dexpb.FlowHistoryEvent_RpcExecutionCompleted:
 		event.Payload = payload

@@ -36,6 +36,7 @@ interface StepLinkLayout {
 }
 
 function eventTone(event: FlowHistoryEvent) {
+  if (event.type.endsWith('Pending')) return 'pending';
   if (event.type.endsWith('Failed')) return 'failed';
   if (event.type === 'StepWaitForCompleted') return 'waiting';
   if (event.type.endsWith('Completed')) return 'completed';
@@ -54,6 +55,13 @@ function executionSummary(event: FlowHistoryEvent): string {
   if (!context || typeof context !== 'object') return '';
   const info = context as Record<string, unknown>;
   return [info.stepType, info.stepExecutionId].filter(Boolean).join(' · ');
+}
+
+function pendingPhase(event: FlowHistoryEvent): string {
+  if (!event.type.endsWith('Pending')) return '';
+  if (event.payload.phase === 1) return 'Scheduled';
+  if (event.payload.phase === 2) return 'Started';
+  return 'Pending';
 }
 
 function previousRunID(event: FlowHistoryEvent): string {
@@ -297,17 +305,15 @@ function EventHighlights({ event }: { event: FlowHistoryEvent }) {
   const context = event.payload.context as Record<string, unknown> | undefined;
   const output = event.payload.output as Record<string, unknown> | undefined;
   const failure = output?.failure as Record<string, unknown> | undefined;
-  const pendingCount = Array.isArray(event.payload.pendingStepMethods)
-    ? event.payload.pendingStepMethods.length
-    : 0;
-  if (!context && !failure && pendingCount === 0) return null;
+  const activityPhase = pendingPhase(event);
+  if (!context && !failure && !activityPhase) return null;
   const backendError = typeof failure?.backendError === 'string'
     && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.backendError)
     : failure?.backendError;
   return (
     <div className="event-highlights">
-      {pendingCount > 0 && <span>Pending step methods <b>{pendingCount}</b></span>}
+      {activityPhase && <span>Activity phase <b>{activityPhase}</b></span>}
       {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
       {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}
       {typeof backendError === 'string' && backendError && (

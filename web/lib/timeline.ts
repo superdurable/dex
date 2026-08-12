@@ -32,7 +32,11 @@ export function buildTimelineStepLinks(events: FlowHistoryEvent[]): TimelineStep
       pendingWaitFor.set(stepExecutionId, event);
       continue;
     }
-    if (event.type !== 'StepExecuteCompleted' && event.type !== 'StepExecuteFailed') continue;
+    if (
+      event.type !== 'StepExecuteCompleted'
+      && event.type !== 'StepExecuteFailed'
+      && event.type !== 'StepExecutePending'
+    ) continue;
     const waitForEvent = pendingWaitFor.get(stepExecutionId);
     if (!waitForEvent) continue;
     links.push({
