@@ -18,6 +18,7 @@ from .shared import unique_id
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 
+
 def test_sync_multi_output_flow() -> None:
     flow = MultiOutputFlow()
     with DexDevTestEnvironment(flow) as environment:
@@ -32,8 +33,10 @@ def test_sync_multi_output_flow() -> None:
         assert outputs[flow.int_step.get_step_type()].decode(int) == 42
         assert all(completion.step_execution_id for completion in result.completions)
 
+
 def test_async_multi_output_flow() -> None:
     asyncio.run(_test_async_multi_output_flow())
+
 
 async def _test_async_multi_output_flow() -> None:
     flow = MultiOutputFlow()

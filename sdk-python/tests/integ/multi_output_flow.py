@@ -19,15 +19,18 @@ from dex import (
     graceful_complete,
 )
 
+
 class MultiOutputStringStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         return graceful_complete("branch-one")
 
+
 class MultiOutputIntStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         return graceful_complete(42)
+
 
 class MultiOutputStartStep(Step[None]):
     def __init__(
@@ -44,6 +47,7 @@ class MultiOutputStartStep(Step[None]):
             StepMovement.of(self.string_step, None),
             StepMovement.of(self.int_step, None),
         )
+
 
 class MultiOutputFlow(Flow[None]):
     def __init__(self) -> None:
