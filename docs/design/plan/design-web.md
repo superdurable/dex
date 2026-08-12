@@ -382,8 +382,12 @@ local snapshot 不存在、external storage 未启用或数据已清理时，ser
 | ASYNC success | LocalActivity marker result | 一个 completed event |
 | ASYNC local failure + fallback success | failure marker + regular Activity lifecycle | 一个 completed event；不展示 local failure |
 | ASYNC local failure + fallback failure | failure marker + regular Activity failure | 一个 failed event；只展示 terminal failure |
+| Flow 在 regular Activity 完成前关闭 | Activity scheduled/started + Flow closed | 一个 pending method event 和一个 close event |
 
 `durability` 表示请求的 Dex durability。ASYNC fallback 最终由 regular Activity 完成时仍返回 `STEP_DURABILITY_ASYNC`。
+
+Pending method 是独立 semantic event，使用 Activity scheduled event ID，并以
+`SCHEDULED` 或 `STARTED` 标识关闭前最后一个已持久化的 lifecycle 阶段。
 
 Transient step：
 

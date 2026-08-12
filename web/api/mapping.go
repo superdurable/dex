@@ -67,6 +67,10 @@ func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 		eventType, payload = "StepExecuteCompleted", value.StepExecuteCompleted
 	case *dexpb.FlowHistoryEvent_StepExecuteFailed:
 		eventType, payload = "StepExecuteFailed", value.StepExecuteFailed
+	case *dexpb.FlowHistoryEvent_StepWaitForPending:
+		eventType, payload = "StepWaitForPending", value.StepWaitForPending
+	case *dexpb.FlowHistoryEvent_StepExecutePending:
+		eventType, payload = "StepExecutePending", value.StepExecutePending
 	case *dexpb.FlowHistoryEvent_RpcExecutionCompleted:
 		eventType, payload = "RpcExecutionCompleted", value.RpcExecutionCompleted
 	case *dexpb.FlowHistoryEvent_ChannelExternalPublish:

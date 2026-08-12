@@ -84,6 +84,12 @@ class FlowErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_INTERNAL: _ClassVar[FlowErrorType]
 
+class PendingStepMethodPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PENDING_STEP_METHOD_PHASE_UNSPECIFIED: _ClassVar[PendingStepMethodPhase]
+    PENDING_STEP_METHOD_PHASE_SCHEDULED: _ClassVar[PendingStepMethodPhase]
+    PENDING_STEP_METHOD_PHASE_STARTED: _ClassVar[PendingStepMethodPhase]
+
 class ActiveStepPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     ACTIVE_STEP_PHASE_UNSPECIFIED: _ClassVar[ActiveStepPhase]
@@ -190,6 +196,9 @@ FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW: FlowErrorType
 FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType
 FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType
 FLOW_ERROR_TYPE_INTERNAL: FlowErrorType
+PENDING_STEP_METHOD_PHASE_UNSPECIFIED: PendingStepMethodPhase
+PENDING_STEP_METHOD_PHASE_SCHEDULED: PendingStepMethodPhase
+PENDING_STEP_METHOD_PHASE_STARTED: PendingStepMethodPhase
 ACTIVE_STEP_PHASE_UNSPECIFIED: ActiveStepPhase
 ACTIVE_STEP_PHASE_ACTIVE: ActiveStepPhase
 ACTIVE_STEP_PHASE_WAITING: ActiveStepPhase
@@ -693,7 +702,7 @@ class GetHistoryEventsResponse(_message.Message):
     def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowHistoryEvent(_message.Message):
-    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish")
+    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_OR_CONTINUED_FIELD_NUMBER: _ClassVar[int]
@@ -704,6 +713,8 @@ class FlowHistoryEvent(_message.Message):
     STEP_EXECUTE_FAILED_FIELD_NUMBER: _ClassVar[int]
     RPC_EXECUTION_COMPLETED_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_EXTERNAL_PUBLISH_FIELD_NUMBER: _ClassVar[int]
+    STEP_WAIT_FOR_PENDING_FIELD_NUMBER: _ClassVar[int]
+    STEP_EXECUTE_PENDING_FIELD_NUMBER: _ClassVar[int]
     event_id: int
     event_time: _timestamp_pb2.Timestamp
     flow_started_or_continued: FlowStartedOrContinuedHistoryEvent
@@ -714,7 +725,9 @@ class FlowHistoryEvent(_message.Message):
     step_execute_failed: StepExecuteFailedEvent
     rpc_execution_completed: RpcExecutionCompletedEvent
     channel_external_publish: ChannelExternalPublishEvent
-    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ...) -> None: ...
+    step_wait_for_pending: StepMethodPendingEvent
+    step_execute_pending: StepMethodPendingEvent
+    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
     __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "initial_start", "continued_start")
@@ -780,6 +793,16 @@ class FlowClosedHistoryEvent(_message.Message):
     error_message: str
     continued_to_run_id: str
     def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ..., continued_to_run_id: _Optional[str] = ...) -> None: ...
+
+class StepMethodPendingEvent(_message.Message):
+    __slots__ = ("input", "context", "phase")
+    INPUT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    input: StepMethodEventInput
+    context: StepMethodEventContext
+    phase: PendingStepMethodPhase
+    def __init__(self, input: _Optional[_Union[StepMethodEventInput, _Mapping]] = ..., context: _Optional[_Union[StepMethodEventContext, _Mapping]] = ..., phase: _Optional[_Union[PendingStepMethodPhase, str]] = ...) -> None: ...
 
 class StepMethodFailure(_message.Message):
     __slots__ = ("backend_error", "details", "attempt")

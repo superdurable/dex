@@ -28,7 +28,7 @@ interface StepNodeData extends Record<string, unknown> {
   model: StepGraphNode;
 }
 
-type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Completed' | 'Failed' | 'Not started';
+type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Not started';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -80,6 +80,7 @@ function ConditionIcon({ type }: { type: 'timer' | 'channel' }) {
 
 function waitForStatus(node: StepGraphNode): MethodStatus {
   if (node.waitFor?.type === 'StepWaitForFailed') return 'Failed';
+  if (node.pendingWaitFor) return 'Pending';
   if (node.active?.phase === 'Waiting') return 'Waiting';
   if (node.waitFor) return 'Started';
   if (node.active) return 'Running';
@@ -88,6 +89,7 @@ function waitForStatus(node: StepGraphNode): MethodStatus {
 
 function executeStatus(node: StepGraphNode): MethodStatus {
   if (node.execute?.type === 'StepExecuteFailed') return 'Failed';
+  if (node.pendingExecute) return 'Pending';
   if (node.execute) return 'Completed';
   if (node.active?.phase === 'Active' && node.waitFor) return 'Running';
   return 'Not started';
@@ -136,7 +138,8 @@ function StepNodeLabel({
   const channels = [...new Set(channelNames(condition))];
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
   const showWaitFor = Boolean(
-    node.waitFor || (!node.transient && !skipsWaitFor(node) && node.active && !node.execute),
+    node.waitFor || node.pendingWaitFor
+      || (!node.transient && !skipsWaitFor(node) && node.active && !node.execute),
   );
   return (
     <div className="graph-step-label">
@@ -150,7 +153,7 @@ function StepNodeLabel({
           <MethodSection
             name="WaitFor"
             status={waitForStatus(node)}
-            event={node.waitFor}
+            event={node.waitFor ?? node.pendingWaitFor}
             onSelect={onSelect}
           >
             {(timerCount > 0 || channelCount > 0) && (
@@ -174,7 +177,7 @@ function StepNodeLabel({
         <MethodSection
           name="Execute"
           status={executeStatus(node)}
-          event={node.execute}
+          event={node.execute ?? node.pendingExecute}
           onSelect={onSelect}
         />
       </div>
@@ -248,7 +251,7 @@ export function StepGraph({
           <h2>Step graph</h2>
         </div>
         <div className="graph-legend">
-          {['Active', 'Waiting', 'Completed', 'Failed'].map((status) => (
+          {['Active', 'Waiting', 'Pending', 'Completed', 'Failed'].map((status) => (
             <span key={status}><i className={`legend-${status.toLowerCase()}`} />{status}</span>
           ))}
         </div>
@@ -262,7 +265,7 @@ export function StepGraph({
           maxZoom={2}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
-            onSelectEvent(model.execute ?? model.waitFor ?? null);
+            onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
           nodesDraggable
         >

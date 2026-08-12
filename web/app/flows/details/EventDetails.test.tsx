@@ -400,6 +400,34 @@ describe('RPC event details', () => {
   });
 });
 
+describe('pending step method details', () => {
+  it('renders an Execute left pending by a forced close', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 14,
+      eventTime: '2026-08-05T23:44:35Z',
+      type: 'StepExecutePending',
+      payload: {
+        phase: 2,
+        input: { stepInput: { stringValue: 'charge' } },
+        context: {
+          stepExecutionId: 'charge-1',
+          fromStepExecutionId: 'authorize-1',
+          stepType: 'charge',
+          durability: 1,
+          finalAttempt: 1,
+          duration: '3s',
+        },
+      },
+    };
+
+    const markup = renderDetails(event);
+    expect(markup).toContain('Activity phase');
+    expect(markup).toContain('Started');
+    expect(markup).toContain('charge-1');
+    expect(markup).toContain('3s');
+  });
+});
+
 describe('flow start event details', () => {
   it('renders the configured flow timeout', () => {
     const event: FlowHistoryEvent = {

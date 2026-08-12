@@ -72,6 +72,21 @@ describe('timeline', () => {
     expect(links[0].conditionWaitDurationMs).toBe(7250);
   });
 
+  it('pairs WaitFor with an Execute left pending by flow closure', () => {
+    const links = buildTimelineStepLinks([
+      event(10, 'StepWaitForCompleted', 'A-1', '2026-08-03T20:00:00.000Z'),
+      event(14, 'StepExecutePending', 'A-1', '2026-08-03T20:00:07.250Z', '2026-08-03T20:00:07.250Z'),
+      event(15, 'FlowClosed', '', '2026-08-03T20:00:08.000Z'),
+    ]);
+    expect(links).toEqual([{
+      stepExecutionId: 'A-1',
+      waitForEventId: 10,
+      executeEventId: 14,
+      conditionWaitDurationMs: 7250,
+      lane: 0,
+    }]);
+  });
+
   it('ignores WaitFor failures and unpaired Execute events', () => {
     expect(buildTimelineStepLinks([
       event(1, 'StepWaitForFailed', 'A-1'),

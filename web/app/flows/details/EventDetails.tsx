@@ -44,8 +44,10 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   FlowClosed: 'Flow closed',
   StepWaitForCompleted: 'WaitForCondition started',
   StepWaitForFailed: 'WaitFor failed',
+  StepWaitForPending: 'WaitFor pending',
   StepExecuteCompleted: 'Execute completed',
   StepExecuteFailed: 'Execute failed',
+  StepExecutePending: 'Execute pending',
   RpcExecutionCompleted: 'RPC completed',
   ChannelExternalPublish: 'Channel published',
 };
@@ -581,6 +583,7 @@ function StepMethodDetails({
   const context = asData(payload.context);
   const lastFailure = asData(context.lastFailureInfo);
   const isWaitFor = event.type.startsWith('StepWaitFor');
+  const isPending = event.type.endsWith('Pending');
   const hasInput = payload.input !== undefined && input.unavailable !== true;
   return (
     <>
@@ -609,7 +612,8 @@ function StepMethodDetails({
           </>
         ) : <p className="muted">No input</p>}
       </DetailSection>
-      <DetailSection title="Output">
+      <DetailSection title={isPending ? 'Status' : 'Output'}>
+        {isPending && <Fields values={[['Activity phase', pendingPhaseLabel(payload.phase)]]} />}
         {event.type === 'StepWaitForCompleted' ? (
           <div className="semantic-subsection">
             <h5>WaitFor condition</h5>
@@ -769,6 +773,12 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
       )}
     </>
   );
+}
+
+function pendingPhaseLabel(value: unknown): string {
+  if (value === 1) return 'Scheduled';
+  if (value === 2) return 'Started';
+  return 'Unspecified';
 }
 
 function RPCDetails({ payload }: { payload: Data }) {

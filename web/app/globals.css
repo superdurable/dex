@@ -1754,6 +1754,11 @@ pre {
   box-shadow: 0 0 0 1px var(--danger);
 }
 
+.timeline-dot.tone-pending {
+  background: #7c5ad6;
+  box-shadow: 0 0 0 1px #7c5ad6;
+}
+
 .event-card {
   margin-bottom: 15px;
   padding: 13px;
@@ -1818,6 +1823,11 @@ pre {
 .event-type.tone-completed {
   color: var(--brand-dark);
   background: var(--brand-soft);
+}
+
+.event-type.tone-pending {
+  color: #59409b;
+  background: #eee9fb;
 }
 
 .timeline-dot.tone-waiting {
@@ -1978,6 +1988,10 @@ pre {
   background: #d39732;
 }
 
+.legend-pending {
+  background: #8c6fc4;
+}
+
 .legend-completed {
   background: #4e81a9;
 }
@@ -2017,6 +2031,10 @@ pre {
 
 .react-flow__node.node-waiting {
   border-color: #d39732;
+}
+
+.react-flow__node.node-pending {
+  border-color: #8c6fc4;
 }
 
 .react-flow__node.node-failed {
@@ -2205,6 +2223,10 @@ pre {
 
 .graph-method-failed strong {
   color: var(--danger);
+}
+
+.graph-method-pending strong {
+  color: #6f4ea8;
 }
 
 .graph-method-execute strong {

@@ -482,6 +482,8 @@ message FlowHistoryEvent {
     StepExecuteFailedEvent step_execute_failed = 25;
     RpcExecutionCompletedEvent rpc_execution_completed = 26;
     ChannelExternalPublishEvent channel_external_publish = 27;
+    StepMethodPendingEvent step_wait_for_pending = 28;
+    StepMethodPendingEvent step_execute_pending = 29;
   }
 }
 
@@ -519,6 +521,20 @@ message FlowClosedHistoryEvent {
   FlowErrorType error_type = 3;
   string error_message = 4;
   string continued_to_run_id = 5;
+}
+
+// PendingStepMethodPhase reports the latest persisted backend lifecycle event.
+enum PendingStepMethodPhase {
+  PENDING_STEP_METHOD_PHASE_UNSPECIFIED = 0;
+  PENDING_STEP_METHOD_PHASE_SCHEDULED = 1;
+  PENDING_STEP_METHOD_PHASE_STARTED = 2;
+}
+
+// StepMethodPendingEvent describes a regular Step activity unresolved at flow closure.
+message StepMethodPendingEvent {
+  StepMethodEventInput input = 1;
+  StepMethodEventContext context = 2;
+  PendingStepMethodPhase phase = 3;
 }
 
 message StepMethodFailure {

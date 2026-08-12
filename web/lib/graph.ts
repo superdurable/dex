@@ -19,8 +19,10 @@ export const END_NODE_ID = '__end__';
 const stepEventTypes = new Set([
   'StepWaitForCompleted',
   'StepWaitForFailed',
+  'StepWaitForPending',
   'StepExecuteCompleted',
   'StepExecuteFailed',
+  'StepExecutePending',
 ]);
 
 function stepContext(event: FlowHistoryEvent): Record<string, unknown> {
@@ -60,8 +62,9 @@ export function buildStepGraph(
     if (!id) continue;
     const existing = nodes.get(id);
     const failed = event.type.endsWith('Failed');
-    const waitFor = event.type.startsWith('StepWaitFor') ? event : existing?.waitFor;
-    const execute = event.type.startsWith('StepExecute') ? event : existing?.execute;
+    const pending = event.type.endsWith('Pending');
+    const waitFor = event.type.startsWith('StepWaitFor') && !pending ? event : existing?.waitFor;
+    const execute = event.type.startsWith('StepExecute') && !pending ? event : existing?.execute;
     if (event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
       closingStepExecutionIDs.add(id);
     }
@@ -69,11 +72,13 @@ export function buildStepGraph(
       id,
       label: stringField(info.stepType) || id,
       kind: 'step',
-      status: failed ? 'Failed' : execute ? 'Completed' : 'Waiting',
+      status: pending ? 'Pending' : failed ? 'Failed' : execute ? 'Completed' : 'Waiting',
       stepType: stringField(info.stepType),
       fromStepExecutionId: stringField(info.fromStepExecutionId) || START_NODE_ID,
       waitFor,
       execute,
+      pendingWaitFor: event.type === 'StepWaitForPending' ? event : existing?.pendingWaitFor,
+      pendingExecute: event.type === 'StepExecutePending' ? event : existing?.pendingExecute,
       transient: info.isTransientStep === true,
     });
   }
@@ -89,6 +94,8 @@ export function buildStepGraph(
       fromStepExecutionId: active.fromStepExecutionId || START_NODE_ID,
       waitFor: existing?.waitFor,
       execute: existing?.execute,
+      pendingWaitFor: existing?.pendingWaitFor,
+      pendingExecute: existing?.pendingExecute,
       active,
       transient: existing?.transient,
     });
