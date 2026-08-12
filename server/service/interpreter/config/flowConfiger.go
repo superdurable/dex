@@ -97,18 +97,37 @@ func (fc *FlowConfiger) EffectiveActiveStepSearchMode() dexpb.ActiveStepSearchMo
 
 // ResolveWaitForDurability resolves the durability for a step's WaitFor activity.
 func (fc *FlowConfiger) ResolveWaitForDurability(opts *dexpb.StepOptions) dexpb.StepDurability {
-	return resolveDurability(opts.GetWaitForDurabilityOverride(), fc.config.GetStepDurability())
+	return resolveDurability(
+		opts.GetWaitForDurabilityOverride(),
+		opts.GetWaitForFailurePolicy() ==
+			dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
+		fc.config.GetStepDurability(),
+	)
 }
 
 // ResolveExecuteDurability resolves the durability for a step's Execute activity.
 func (fc *FlowConfiger) ResolveExecuteDurability(opts *dexpb.StepOptions) dexpb.StepDurability {
-	return resolveDurability(opts.GetExecuteDurabilityOverride(), fc.config.GetStepDurability())
+	recoveryEnabled := opts.GetExecuteFailurePolicy() ==
+		dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP &&
+		opts.GetExecuteFailureProceedStepType() != ""
+	return resolveDurability(
+		opts.GetExecuteDurabilityOverride(),
+		recoveryEnabled,
+		fc.config.GetStepDurability(),
+	)
 }
 
-// resolveDurability applies step, flow, then synchronous precedence.
-func resolveDurability(override, flowLevel dexpb.StepDurability) dexpb.StepDurability {
+// resolveDurability applies step, recovery, flow, then synchronous precedence.
+func resolveDurability(
+	override dexpb.StepDurability,
+	recoveryEnabled bool,
+	flowLevel dexpb.StepDurability,
+) dexpb.StepDurability {
 	if override != dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
 		return override
+	}
+	if recoveryEnabled {
+		return dexpb.StepDurability_STEP_DURABILITY_SYNC
 	}
 	if flowLevel != dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
 		return flowLevel

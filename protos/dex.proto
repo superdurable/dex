@@ -175,6 +175,8 @@ message Context {
   int32 attempt = 6;
   // Step execution that scheduled this execution, or a reserved source.
   string from_step_execution_id = 7;
+  // Previous Step method failure supplied only to its configured recovery method.
+  WorkerErrorResponse recovery_error = 8;
 }
 
 message LocalActivityInput {
@@ -785,6 +787,7 @@ message ErrorResponse {
   string original_worker_error_type = 4;
   int32 original_worker_error_status = 5;
   string original_worker_error_stack_trace = 6;
+  int32 original_worker_retry_after_seconds = 7;
 }
 
 enum ErrorSubStatus {
@@ -800,6 +803,7 @@ message WorkerErrorResponse {
   string detail = 1;
   string error_type = 2;
   string stack_trace = 3;
+  int32 retry_after_seconds = 4;
 }
 
 message ChannelInfo {
@@ -888,6 +892,8 @@ message StepMovement {
   StepOptions step_options = 3;
   // Server-owned scheduling source; workers must leave this empty.
   string from_step_execution_id_internal_only = 4;
+  // Server-owned error passed only to an Execute failure recovery Step.
+  WorkerErrorResponse recovery_error_internal_only = 5;
 }
 
 enum WaitingConditionType {

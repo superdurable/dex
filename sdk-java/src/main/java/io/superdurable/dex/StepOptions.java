@@ -180,7 +180,7 @@ public final class StepOptions {
         /**
          * Sets the action taken after wait-for retries are exhausted.
          *
-         * <p>When {@link WaitForFailurePolicy#PROCEED} is selected, Dex prefers
+         * <p>When {@link WaitForFailurePolicy#PROCEED} is selected, Dex defaults to
          * {@link StepDurability#SYNC} for the wait-for method so the recorded failure is not lost after
          * the execute method begins. The Flow-wide durability setting does not override this safety
          * choice. The application may still choose {@link StepDurability#ASYNC} explicitly through
@@ -201,7 +201,7 @@ public final class StepOptions {
          * <p>The recovery Step receives {@code null} input. Its input type should therefore accept
          * {@code null}, commonly {@link Void}.
          *
-         * <p>Dex prefers {@link StepDurability#SYNC} for the execute method that owns this policy. The
+         * <p>Dex defaults to {@link StepDurability#SYNC} for the execute method that owns this policy. The
          * Flow-wide durability setting does not override this safety choice. The application may still
          * select {@link StepDurability#ASYNC} explicitly through {@link #executeDurability} when it
          * accepts that an extreme failure after the recovery Step begins can cause Dex to execute the
@@ -243,7 +243,7 @@ public final class StepOptions {
          * Overrides durability for this Step's wait-for method result.
          *
          * <p>This method-level value takes precedence over {@link FlowConfig}'s default and Dex's
-         * {@link StepDurability#SYNC} preference when {@link #waitForFailure} selects
+         * {@link StepDurability#SYNC} default when {@link #waitForFailure} selects
          * {@link WaitForFailurePolicy#PROCEED}. Asynchronous durability reduces latency and improves
          * server persistence batching, but an unpersisted result can be lost during an extreme failure
          * and the wait-for method can run again after execution has already begun. See
@@ -261,7 +261,7 @@ public final class StepOptions {
          * Overrides durability for this Step's execute method result.
          *
          * <p>This method-level value takes precedence over {@link FlowConfig}'s default and Dex's
-         * {@link StepDurability#SYNC} preference when this builder also uses
+         * {@link StepDurability#SYNC} default when this builder also uses
          * {@link #onExecuteFailureProceedTo(Step)}. The application may choose
          * {@link StepDurability#ASYNC} when it accepts that an extreme failure after recovery begins
          * can cause the earlier Step to execute again. See {@link StepDurability} for latency and

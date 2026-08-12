@@ -189,6 +189,44 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int RECOVERY_ERROR_INTERNAL_ONLY_FIELD_NUMBER = 5;
+  private io.superdurable.gen.WorkerErrorResponse recoveryErrorInternalOnly_;
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * @return Whether the recoveryErrorInternalOnly field is set.
+   */
+  @java.lang.Override
+  public boolean hasRecoveryErrorInternalOnly() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * @return The recoveryErrorInternalOnly.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerErrorResponse getRecoveryErrorInternalOnly() {
+    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+  }
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
+    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -215,6 +253,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionIdInternalOnly_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, fromStepExecutionIdInternalOnly_);
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(5, getRecoveryErrorInternalOnly());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -232,6 +273,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionIdInternalOnly_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, fromStepExecutionIdInternalOnly_);
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getRecoveryErrorInternalOnly());
     }
     return size;
   }
@@ -271,6 +316,11 @@ private static final long serialVersionUID = 0L;
     }
     if (!getFromStepExecutionIdInternalOnly()
         .equals(other.getFromStepExecutionIdInternalOnly())) return false;
+    if (hasRecoveryErrorInternalOnly() != other.hasRecoveryErrorInternalOnly()) return false;
+    if (hasRecoveryErrorInternalOnly()) {
+      if (!getRecoveryErrorInternalOnly()
+          .equals(other.getRecoveryErrorInternalOnly())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -294,6 +344,10 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + FROM_STEP_EXECUTION_ID_INTERNAL_ONLY_FIELD_NUMBER;
     hash = (53 * hash) + getFromStepExecutionIdInternalOnly().hashCode();
+    if (hasRecoveryErrorInternalOnly()) {
+      hash = (37 * hash) + RECOVERY_ERROR_INTERNAL_ONLY_FIELD_NUMBER;
+      hash = (53 * hash) + getRecoveryErrorInternalOnly().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -426,6 +480,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetStepInputFieldBuilder();
         internalGetStepOptionsFieldBuilder();
+        internalGetRecoveryErrorInternalOnlyFieldBuilder();
       }
     }
     @java.lang.Override
@@ -444,6 +499,11 @@ private static final long serialVersionUID = 0L;
         stepOptionsBuilder_ = null;
       }
       fromStepExecutionIdInternalOnly_ = "";
+      recoveryErrorInternalOnly_ = null;
+      if (recoveryErrorInternalOnlyBuilder_ != null) {
+        recoveryErrorInternalOnlyBuilder_.dispose();
+        recoveryErrorInternalOnlyBuilder_ = null;
+      }
       return this;
     }
 
@@ -496,6 +556,12 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.fromStepExecutionIdInternalOnly_ = fromStepExecutionIdInternalOnly_;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.recoveryErrorInternalOnly_ = recoveryErrorInternalOnlyBuilder_ == null
+            ? recoveryErrorInternalOnly_
+            : recoveryErrorInternalOnlyBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -526,6 +592,9 @@ private static final long serialVersionUID = 0L;
         fromStepExecutionIdInternalOnly_ = other.fromStepExecutionIdInternalOnly_;
         bitField0_ |= 0x00000008;
         onChanged();
+      }
+      if (other.hasRecoveryErrorInternalOnly()) {
+        mergeRecoveryErrorInternalOnly(other.getRecoveryErrorInternalOnly());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -577,6 +646,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetRecoveryErrorInternalOnlyFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -998,6 +1074,163 @@ private static final long serialVersionUID = 0L;
       bitField0_ |= 0x00000008;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.WorkerErrorResponse recoveryErrorInternalOnly_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> recoveryErrorInternalOnlyBuilder_;
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * @return Whether the recoveryErrorInternalOnly field is set.
+     */
+    public boolean hasRecoveryErrorInternalOnly() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * @return The recoveryErrorInternalOnly.
+     */
+    public io.superdurable.gen.WorkerErrorResponse getRecoveryErrorInternalOnly() {
+      if (recoveryErrorInternalOnlyBuilder_ == null) {
+        return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+      } else {
+        return recoveryErrorInternalOnlyBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public Builder setRecoveryErrorInternalOnly(io.superdurable.gen.WorkerErrorResponse value) {
+      if (recoveryErrorInternalOnlyBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        recoveryErrorInternalOnly_ = value;
+      } else {
+        recoveryErrorInternalOnlyBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public Builder setRecoveryErrorInternalOnly(
+        io.superdurable.gen.WorkerErrorResponse.Builder builderForValue) {
+      if (recoveryErrorInternalOnlyBuilder_ == null) {
+        recoveryErrorInternalOnly_ = builderForValue.build();
+      } else {
+        recoveryErrorInternalOnlyBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public Builder mergeRecoveryErrorInternalOnly(io.superdurable.gen.WorkerErrorResponse value) {
+      if (recoveryErrorInternalOnlyBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          recoveryErrorInternalOnly_ != null &&
+          recoveryErrorInternalOnly_ != io.superdurable.gen.WorkerErrorResponse.getDefaultInstance()) {
+          getRecoveryErrorInternalOnlyBuilder().mergeFrom(value);
+        } else {
+          recoveryErrorInternalOnly_ = value;
+        }
+      } else {
+        recoveryErrorInternalOnlyBuilder_.mergeFrom(value);
+      }
+      if (recoveryErrorInternalOnly_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public Builder clearRecoveryErrorInternalOnly() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      recoveryErrorInternalOnly_ = null;
+      if (recoveryErrorInternalOnlyBuilder_ != null) {
+        recoveryErrorInternalOnlyBuilder_.dispose();
+        recoveryErrorInternalOnlyBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public io.superdurable.gen.WorkerErrorResponse.Builder getRecoveryErrorInternalOnlyBuilder() {
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return internalGetRecoveryErrorInternalOnlyFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
+      if (recoveryErrorInternalOnlyBuilder_ != null) {
+        return recoveryErrorInternalOnlyBuilder_.getMessageOrBuilder();
+      } else {
+        return recoveryErrorInternalOnly_ == null ?
+            io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+      }
+    }
+    /**
+     * <pre>
+     * Server-owned error passed only to an Execute failure recovery Step.
+     * </pre>
+     *
+     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> 
+        internalGetRecoveryErrorInternalOnlyFieldBuilder() {
+      if (recoveryErrorInternalOnlyBuilder_ == null) {
+        recoveryErrorInternalOnlyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder>(
+                getRecoveryErrorInternalOnly(),
+                getParentForChildren(),
+                isClean());
+        recoveryErrorInternalOnly_ = null;
+      }
+      return recoveryErrorInternalOnlyBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepMovement)

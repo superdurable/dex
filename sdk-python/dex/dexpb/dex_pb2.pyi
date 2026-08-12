@@ -304,7 +304,7 @@ class IndexConfig(_message.Message):
     def __init__(self, enable: _Optional[bool] = ..., type: _Optional[_Union[IndexType, str]] = ..., index_key: _Optional[str] = ...) -> None: ...
 
 class Context(_message.Message):
-    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt", "from_step_execution_id")
+    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt", "from_step_execution_id", "recovery_error")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -312,6 +312,7 @@ class Context(_message.Message):
     FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
+    RECOVERY_ERROR_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     flow_started_timestamp: int
@@ -319,7 +320,8 @@ class Context(_message.Message):
     first_attempt_timestamp: int
     attempt: int
     from_step_execution_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ...) -> None: ...
+    recovery_error: WorkerErrorResponse
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ..., recovery_error: _Optional[_Union[WorkerErrorResponse, _Mapping]] = ...) -> None: ...
 
 class LocalActivityInput(_message.Message):
     __slots__ = ("current_step_execution_id", "from_step_execution_id")
@@ -1180,30 +1182,34 @@ class HealthInfo(_message.Message):
     def __init__(self, condition: _Optional[str] = ..., hostname: _Optional[str] = ..., duration: _Optional[int] = ...) -> None: ...
 
 class ErrorResponse(_message.Message):
-    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace")
+    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace", "original_worker_retry_after_seconds")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     SUB_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_DETAIL_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_WORKER_RETRY_AFTER_SECONDS_FIELD_NUMBER: _ClassVar[int]
     detail: str
     sub_status: ErrorSubStatus
     original_worker_error_detail: str
     original_worker_error_type: str
     original_worker_error_status: int
     original_worker_error_stack_trace: str
-    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ...) -> None: ...
+    original_worker_retry_after_seconds: int
+    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ..., original_worker_retry_after_seconds: _Optional[int] = ...) -> None: ...
 
 class WorkerErrorResponse(_message.Message):
-    __slots__ = ("detail", "error_type", "stack_trace")
+    __slots__ = ("detail", "error_type", "stack_trace", "retry_after_seconds")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
+    RETRY_AFTER_SECONDS_FIELD_NUMBER: _ClassVar[int]
     detail: str
     error_type: str
     stack_trace: str
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ...) -> None: ...
+    retry_after_seconds: int
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ...) -> None: ...
 
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)
@@ -1333,16 +1339,18 @@ class CloseDecision(_message.Message):
     def __init__(self, close_decision_type: _Optional[_Union[CloseDecisionType, str]] = ..., conditional_channel_names: _Optional[_Iterable[str]] = ..., close_input: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class StepMovement(_message.Message):
-    __slots__ = ("step_type", "step_input", "step_options", "from_step_execution_id_internal_only")
+    __slots__ = ("step_type", "step_input", "step_options", "from_step_execution_id_internal_only", "recovery_error_internal_only")
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_INTERNAL_ONLY_FIELD_NUMBER: _ClassVar[int]
+    RECOVERY_ERROR_INTERNAL_ONLY_FIELD_NUMBER: _ClassVar[int]
     step_type: str
     step_input: Value
     step_options: StepOptions
     from_step_execution_id_internal_only: str
-    def __init__(self, step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., from_step_execution_id_internal_only: _Optional[str] = ...) -> None: ...
+    recovery_error_internal_only: WorkerErrorResponse
+    def __init__(self, step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., from_step_execution_id_internal_only: _Optional[str] = ..., recovery_error_internal_only: _Optional[_Union[WorkerErrorResponse, _Mapping]] = ...) -> None: ...
 
 class ConditionCombination(_message.Message):
     __slots__ = ("condition_ids",)

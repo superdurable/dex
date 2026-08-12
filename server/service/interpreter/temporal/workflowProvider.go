@@ -67,6 +67,61 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
+func (w *workflowProvider) WorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
+	var timeoutError *temporal.TimeoutError
+	if errors.As(err, &timeoutError) {
+		return &dexpb.WorkerErrorResponse{
+			Detail:    timeoutError.Message(),
+			ErrorType: timeoutError.TimeoutType().String(),
+		}, nil
+	}
+
+	var applicationError *temporal.ApplicationError
+	if errors.As(err, &applicationError) {
+		errorResponse := &dexpb.ErrorResponse{}
+		if applicationError.HasDetails() {
+			if detailsErr := applicationError.Details(errorResponse); detailsErr != nil {
+				return nil, fmt.Errorf("decode Temporal Step failure details: %w", detailsErr)
+			}
+		}
+		return temporalWorkerError(errorResponse, applicationError.Message(), applicationError.Type()), nil
+	}
+
+	return &dexpb.WorkerErrorResponse{Detail: err.Error(), ErrorType: err.Error()}, nil
+}
+
+func temporalWorkerError(
+	errorResponse *dexpb.ErrorResponse,
+	backendDetail string,
+	backendType string,
+) *dexpb.WorkerErrorResponse {
+	if errorResponse.GetOriginalWorkerErrorStatus() != 0 ||
+		errorResponse.GetOriginalWorkerErrorDetail() != "" ||
+		errorResponse.GetOriginalWorkerErrorType() != "" ||
+		errorResponse.GetOriginalWorkerErrorStackTrace() != "" ||
+		errorResponse.GetOriginalWorkerRetryAfterSeconds() != 0 {
+		detail := errorResponse.GetOriginalWorkerErrorDetail()
+		if detail == "" {
+			detail = backendDetail
+		}
+		errorType := errorResponse.GetOriginalWorkerErrorType()
+		if errorType == "" {
+			errorType = backendType
+		}
+		return &dexpb.WorkerErrorResponse{
+			Detail:            detail,
+			ErrorType:         errorType,
+			StackTrace:        errorResponse.GetOriginalWorkerErrorStackTrace(),
+			RetryAfterSeconds: errorResponse.GetOriginalWorkerRetryAfterSeconds(),
+		}
+	}
+	detail := errorResponse.GetDetail()
+	if detail == "" {
+		detail = backendDetail
+	}
+	return &dexpb.WorkerErrorResponse{Detail: detail, ErrorType: backendType}
+}
+
 func (w *workflowProvider) IsContinueAsNewError(err error) bool {
 	return workflow.IsContinueAsNewError(err)
 }

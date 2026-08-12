@@ -4,4 +4,29 @@ title: Step options
 
 # Step options
 
-Step options control WaitFor/Execute loading, lock keys, retry policies, and durability (`SYNC` / `ASYNC`). They replace older WorkflowStateOptions.
+Step options control WaitFor/Execute loading, lock keys, retry policies, failure
+recovery, and durability (`SYNC` / `ASYNC`). They replace older
+WorkflowStateOptions.
+
+## Recovery durability
+
+Dex resolves each Step method's durability in this order:
+
+1. The method's explicit Step option.
+2. `SYNC` when the method has a configured failure-policy recovery path.
+3. The FlowConfig durability.
+4. The server default.
+
+A WaitFor recovery path is `PROCEED`, which invokes Execute after WaitFor
+retries are exhausted. An Execute recovery path is `PROCEED` with a configured
+recovery Step. FlowConfig cannot change the recovery default to `ASYNC`; set an
+explicit method-level override only when replaying the failed method after
+recovery begins is acceptable.
+
+## Recovery errors
+
+The recovery method receives the final failure in its invocation Context.
+WaitFor passes it directly to Execute in the same workflow run. Execute attaches
+it to the configured recovery Step, where it survives queueing and
+continue-as-new. Backend timeouts and other failures without a Worker response
+are represented with the corresponding Temporal or Cadence error type.

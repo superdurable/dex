@@ -85,6 +85,20 @@ inside structured failure details. `StepMethodFailure` does not retain a
 separate backend stack. The Java Worker caps its UTF-8 value at 16 KiB; other
 Worker SDKs may omit the field.
 
+`Context.recovery_error` carries the final failure that selected a recovery
+path. A failed WaitFor method passes it directly to Execute in the same run.
+A failed Execute method stores it in the server-owned
+`StepMovement.recovery_error_internal_only`, so the configured recovery Step
+retains the error while queued and across continue-as-new. Worker-provided
+movements cannot set this internal field. If no `WorkerErrorResponse` exists,
+the interpreter synthesizes one from the backend application or timeout type.
+
+`WorkerErrorResponse.retry_after_seconds` requests the next retry interval.
+The value is copied through
+`ErrorResponse.original_worker_retry_after_seconds`. Temporal applies it to
+the next Activity retry. Cadence cannot apply a dynamic interval, so it stops
+retrying that Step method and evaluates the configured failure policy.
+
 `ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a
 `WorkerErrorResponse` use `detail`. Consumers should prefer the original Worker

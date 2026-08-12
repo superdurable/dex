@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.uber.org/cadence"
 	"go.uber.org/cadence/activity"
@@ -33,6 +34,9 @@ func (a *activityProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
 	errorResponse *dexpb.ErrorResponse,
 ) error {
+	if errorResponse.GetOriginalWorkerRetryAfterSeconds() > 0 {
+		return cadence.NewCustomError(retry.CadenceRetryAfterErrorReason, errorResponse)
+	}
 	return cadence.NewCustomError(errType.String(), errorResponse)
 }
 

@@ -66,6 +66,64 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
+func (w *workflowProvider) WorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
+	var timeoutError *workflow.TimeoutError
+	if errors.As(err, &timeoutError) {
+		return &dexpb.WorkerErrorResponse{
+			Detail:    timeoutError.Error(),
+			ErrorType: timeoutError.TimeoutType().String(),
+		}, nil
+	}
+
+	var customError *cadence.CustomError
+	if errors.As(err, &customError) {
+		var errorResponse *dexpb.ErrorResponse
+		if customError.HasDetails() {
+			if detailsErr := customError.Details(&errorResponse); detailsErr != nil {
+				return nil, fmt.Errorf("decode Cadence Step failure details: %w", detailsErr)
+			}
+		}
+		if errorResponse == nil {
+			errorResponse = &dexpb.ErrorResponse{}
+		}
+		return cadenceWorkerError(errorResponse, customError.Error(), customError.Reason()), nil
+	}
+
+	return &dexpb.WorkerErrorResponse{Detail: err.Error(), ErrorType: err.Error()}, nil
+}
+
+func cadenceWorkerError(
+	errorResponse *dexpb.ErrorResponse,
+	backendDetail string,
+	backendType string,
+) *dexpb.WorkerErrorResponse {
+	if errorResponse.GetOriginalWorkerErrorStatus() != 0 ||
+		errorResponse.GetOriginalWorkerErrorDetail() != "" ||
+		errorResponse.GetOriginalWorkerErrorType() != "" ||
+		errorResponse.GetOriginalWorkerErrorStackTrace() != "" ||
+		errorResponse.GetOriginalWorkerRetryAfterSeconds() != 0 {
+		detail := errorResponse.GetOriginalWorkerErrorDetail()
+		if detail == "" {
+			detail = backendDetail
+		}
+		errorType := errorResponse.GetOriginalWorkerErrorType()
+		if errorType == "" {
+			errorType = backendType
+		}
+		return &dexpb.WorkerErrorResponse{
+			Detail:            detail,
+			ErrorType:         errorType,
+			StackTrace:        errorResponse.GetOriginalWorkerErrorStackTrace(),
+			RetryAfterSeconds: errorResponse.GetOriginalWorkerRetryAfterSeconds(),
+		}
+	}
+	detail := errorResponse.GetDetail()
+	if detail == "" {
+		detail = backendDetail
+	}
+	return &dexpb.WorkerErrorResponse{Detail: detail, ErrorType: backendType}
+}
+
 func (w *workflowProvider) IsContinueAsNewError(err error) bool {
 	var continueAsNewError *workflow.ContinueAsNewError
 	return errors.As(err, &continueAsNewError)
@@ -292,16 +350,47 @@ func (w *workflowProvider) ExecuteActivity(
 	}
 	switch durability {
 	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
-		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		err = workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		return normalizeCadenceRetryAfterError(err)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
 		err = workflow.ExecuteLocalActivity(wfCtx, activity, localArgs...).Get(wfCtx, valuePtr)
 		if err == nil {
 			return nil
 		}
-		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		if isCadenceRetryAfterError(err) {
+			return normalizeCadenceRetryAfterError(err)
+		}
+		err = workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		return normalizeCadenceRetryAfterError(err)
 	default:
 		return fmt.Errorf("unsupported step durability %s", durability)
 	}
+}
+
+func normalizeCadenceRetryAfterError(err error) error {
+	if err == nil || !isCadenceRetryAfterError(err) {
+		return err
+	}
+	var customError *cadence.CustomError
+	if !errors.As(err, &customError) {
+		panic("retry-after error lost its Cadence custom error")
+	}
+	var errorResponse *dexpb.ErrorResponse
+	if !customError.HasDetails() {
+		return fmt.Errorf("Cadence retry-after error has no details")
+	}
+	if detailsErr := customError.Details(&errorResponse); detailsErr != nil {
+		return fmt.Errorf("decode Cadence retry-after details: %w", detailsErr)
+	}
+	return cadence.NewCustomError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		errorResponse,
+	)
+}
+
+func isCadenceRetryAfterError(err error) bool {
+	var customError *cadence.CustomError
+	return errors.As(err, &customError) && customError.Reason() == retry.CadenceRetryAfterErrorReason
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

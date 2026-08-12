@@ -60,6 +60,7 @@ func TestStepRequestQueueDumpAndOwnership(t *testing.T) {
 		&dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "input"}},
 		&dexpb.StepOptions{SkipWaitFor: true},
 		"source",
+		nil,
 	)
 
 	starts := queue.GetAllStepStartRequests()

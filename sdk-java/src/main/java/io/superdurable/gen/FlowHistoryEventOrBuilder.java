@@ -151,5 +151,35 @@ public interface FlowHistoryEventOrBuilder extends
    */
   io.superdurable.gen.ChannelExternalPublishEventOrBuilder getChannelExternalPublishOrBuilder();
 
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   * @return Whether the stepWaitForPending field is set.
+   */
+  boolean hasStepWaitForPending();
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   * @return The stepWaitForPending.
+   */
+  io.superdurable.gen.StepMethodPendingEvent getStepWaitForPending();
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   */
+  io.superdurable.gen.StepMethodPendingEventOrBuilder getStepWaitForPendingOrBuilder();
+
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   * @return Whether the stepExecutePending field is set.
+   */
+  boolean hasStepExecutePending();
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   * @return The stepExecutePending.
+   */
+  io.superdurable.gen.StepMethodPendingEvent getStepExecutePending();
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   */
+  io.superdurable.gen.StepMethodPendingEventOrBuilder getStepExecutePendingOrBuilder();
+
   io.superdurable.gen.FlowHistoryEvent.PayloadCase getPayloadCase();
 }

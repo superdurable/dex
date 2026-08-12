@@ -71,4 +71,31 @@ public interface StepMovementOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFromStepExecutionIdInternalOnlyBytes();
+
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * @return Whether the recoveryErrorInternalOnly field is set.
+   */
+  boolean hasRecoveryErrorInternalOnly();
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * @return The recoveryErrorInternalOnly.
+   */
+  io.superdurable.gen.WorkerErrorResponse getRecoveryErrorInternalOnly();
+  /**
+   * <pre>
+   * Server-owned error passed only to an Execute failure recovery Step.
+   * </pre>
+   *
+   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   */
+  io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorInternalOnlyOrBuilder();
 }

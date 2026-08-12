@@ -12,10 +12,13 @@ package wf_execute_method_fail_and_proceed
 
 import (
 	"context"
-	"github.com/superdurable/dex/integ/workflow/common"
+	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,7 +37,11 @@ const (
 	Step1             = "S1"
 	StepRecover       = "Recover"
 	InputData         = "test-data"
+	TimeoutInputData  = "timeout-data"
 	InputDataEncoding = "test-encoding"
+	errorDetail       = "test-error"
+	errorType         = "ExecuteFailure"
+	errorStack        = "execute stack"
 )
 
 type handler struct {
@@ -56,7 +63,7 @@ func (h *handler) InvokeWaitForMethod(
 }
 
 func (h *handler) InvokeExecuteMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
 	common.LogRequest("received execute request, ", request)
@@ -73,14 +80,23 @@ func (h *handler) InvokeExecuteMethod(
 
 	stepInput := request.GetStepInput()
 	encoding, data := objValueParts(stepInput)
-	if data != InputData || encoding != InputDataEncoding {
+	if (data != InputData && data != TimeoutInputData) || encoding != InputDataEncoding {
 		panic("input is not correct: " + data + ", " + encoding)
 	}
 
 	if request.GetStepType() == Step1 {
-		return nil, status.Error(codes.InvalidArgument, "test-error")
+		if data == TimeoutInputData {
+			time.Sleep(2 * time.Second)
+			return nil, ctx.Err()
+		}
+		return nil, workerFailure()
 	}
 	if request.GetStepType() == StepRecover {
+		if data == TimeoutInputData {
+			validateTimeoutRecoveryError(request.GetContext().GetRecoveryError())
+		} else {
+			validateRecoveryError(request.GetContext().GetRecoveryError())
+		}
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{
 				CloseDecision: common.GracefulCompleteDecision(nil),
@@ -89,6 +105,39 @@ func (h *handler) InvokeExecuteMethod(
 	}
 
 	panic("should not get here")
+}
+
+func validateTimeoutRecoveryError(recoveryError *dexpb.WorkerErrorResponse) {
+	normalizedType := strings.ReplaceAll(strings.ToUpper(recoveryError.GetErrorType()), "_", "")
+	if recoveryError.GetDetail() == "" ||
+		!strings.Contains(normalizedType, "STARTTOCLOSE") ||
+		recoveryError.GetStackTrace() != "" ||
+		recoveryError.GetRetryAfterSeconds() != 0 {
+		panic(fmt.Sprintf("execute timeout recovery error is not correct: %v", recoveryError))
+	}
+}
+
+func workerFailure() error {
+	workerStatus, err := status.New(codes.InvalidArgument, errorDetail).WithDetails(
+		&dexpb.WorkerErrorResponse{
+			Detail:     errorDetail,
+			ErrorType:  errorType,
+			StackTrace: errorStack,
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+	return workerStatus.Err()
+}
+
+func validateRecoveryError(recoveryError *dexpb.WorkerErrorResponse) {
+	if recoveryError.GetDetail() != errorDetail ||
+		recoveryError.GetErrorType() != errorType ||
+		recoveryError.GetStackTrace() != errorStack ||
+		recoveryError.GetRetryAfterSeconds() != 0 {
+		panic(fmt.Sprintf("execute recovery error is not correct: %v", recoveryError))
+	}
 }
 
 func objValueParts(value *dexpb.Value) (encoding string, data string) {

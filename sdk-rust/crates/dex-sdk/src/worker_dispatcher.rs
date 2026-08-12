@@ -506,6 +506,7 @@ fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<
         step_input: Some(step_input),
         step_options: Some(map_step_options(flow, options)?),
         from_step_execution_id_internal_only: String::new(),
+        recovery_error_internal_only: None,
     })
 }
 

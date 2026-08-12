@@ -68,6 +68,17 @@ public interface Context {
     String getFromStepExecutionId();
 
     /**
+     * Returns the previous Step method failure that caused this recovery invocation.
+     *
+     * <p>For wait-for recovery, execute receives the failed wait-for method's final error. For an
+     * execute recovery Step, both wait-for and execute receive the failed execute method's final
+     * error. A recovery Step whose own wait-for fails receives that newer failure in execute.
+     *
+     * @return the recovery error, or {@code null} for a normal Step or RPC invocation
+     */
+    WorkerError getRecoveryError();
+
+    /**
      * Returns when the first attempt of the current method began.
      *
      * @return the first-attempt timestamp

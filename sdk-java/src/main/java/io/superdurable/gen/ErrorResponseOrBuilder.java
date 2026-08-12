@@ -74,4 +74,10 @@ public interface ErrorResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getOriginalWorkerErrorStackTraceBytes();
+
+  /**
+   * <code>int32 original_worker_retry_after_seconds = 7;</code>
+   * @return The originalWorkerRetryAfterSeconds.
+   */
+  int getOriginalWorkerRetryAfterSeconds();
 }

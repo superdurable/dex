@@ -63,6 +63,8 @@ private static final long serialVersionUID = 0L;
     STEP_EXECUTE_FAILED(25),
     RPC_EXECUTION_COMPLETED(26),
     CHANNEL_EXTERNAL_PUBLISH(27),
+    STEP_WAIT_FOR_PENDING(28),
+    STEP_EXECUTE_PENDING(29),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -88,6 +90,8 @@ private static final long serialVersionUID = 0L;
         case 25: return STEP_EXECUTE_FAILED;
         case 26: return RPC_EXECUTION_COMPLETED;
         case 27: return CHANNEL_EXTERNAL_PUBLISH;
+        case 28: return STEP_WAIT_FOR_PENDING;
+        case 29: return STEP_EXECUTE_PENDING;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -388,6 +392,68 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.ChannelExternalPublishEvent.getDefaultInstance();
   }
 
+  public static final int STEP_WAIT_FOR_PENDING_FIELD_NUMBER = 28;
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   * @return Whether the stepWaitForPending field is set.
+   */
+  @java.lang.Override
+  public boolean hasStepWaitForPending() {
+    return payloadCase_ == 28;
+  }
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   * @return The stepWaitForPending.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodPendingEvent getStepWaitForPending() {
+    if (payloadCase_ == 28) {
+       return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+    }
+    return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodPendingEventOrBuilder getStepWaitForPendingOrBuilder() {
+    if (payloadCase_ == 28) {
+       return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+    }
+    return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+  }
+
+  public static final int STEP_EXECUTE_PENDING_FIELD_NUMBER = 29;
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   * @return Whether the stepExecutePending field is set.
+   */
+  @java.lang.Override
+  public boolean hasStepExecutePending() {
+    return payloadCase_ == 29;
+  }
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   * @return The stepExecutePending.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodPendingEvent getStepExecutePending() {
+    if (payloadCase_ == 29) {
+       return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+    }
+    return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.StepMethodPendingEventOrBuilder getStepExecutePendingOrBuilder() {
+    if (payloadCase_ == 29) {
+       return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+    }
+    return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -432,6 +498,12 @@ private static final long serialVersionUID = 0L;
     if (payloadCase_ == 27) {
       output.writeMessage(27, (io.superdurable.gen.ChannelExternalPublishEvent) payload_);
     }
+    if (payloadCase_ == 28) {
+      output.writeMessage(28, (io.superdurable.gen.StepMethodPendingEvent) payload_);
+    }
+    if (payloadCase_ == 29) {
+      output.writeMessage(29, (io.superdurable.gen.StepMethodPendingEvent) payload_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -475,6 +547,14 @@ private static final long serialVersionUID = 0L;
     if (payloadCase_ == 27) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(27, (io.superdurable.gen.ChannelExternalPublishEvent) payload_);
+    }
+    if (payloadCase_ == 28) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(28, (io.superdurable.gen.StepMethodPendingEvent) payload_);
+    }
+    if (payloadCase_ == 29) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(29, (io.superdurable.gen.StepMethodPendingEvent) payload_);
     }
     return size;
   }
@@ -541,6 +621,14 @@ private static final long serialVersionUID = 0L;
         if (!getChannelExternalPublish()
             .equals(other.getChannelExternalPublish())) return false;
         break;
+      case 28:
+        if (!getStepWaitForPending()
+            .equals(other.getStepWaitForPending())) return false;
+        break;
+      case 29:
+        if (!getStepExecutePending()
+            .equals(other.getStepExecutePending())) return false;
+        break;
       case 0:
       default:
     }
@@ -594,6 +682,14 @@ private static final long serialVersionUID = 0L;
       case 27:
         hash = (37 * hash) + CHANNEL_EXTERNAL_PUBLISH_FIELD_NUMBER;
         hash = (53 * hash) + getChannelExternalPublish().hashCode();
+        break;
+      case 28:
+        hash = (37 * hash) + STEP_WAIT_FOR_PENDING_FIELD_NUMBER;
+        hash = (53 * hash) + getStepWaitForPending().hashCode();
+        break;
+      case 29:
+        hash = (37 * hash) + STEP_EXECUTE_PENDING_FIELD_NUMBER;
+        hash = (53 * hash) + getStepExecutePending().hashCode();
         break;
       case 0:
       default:
@@ -765,6 +861,12 @@ private static final long serialVersionUID = 0L;
       if (channelExternalPublishBuilder_ != null) {
         channelExternalPublishBuilder_.clear();
       }
+      if (stepWaitForPendingBuilder_ != null) {
+        stepWaitForPendingBuilder_.clear();
+      }
+      if (stepExecutePendingBuilder_ != null) {
+        stepExecutePendingBuilder_.clear();
+      }
       payloadCase_ = 0;
       payload_ = null;
       return this;
@@ -849,6 +951,14 @@ private static final long serialVersionUID = 0L;
           channelExternalPublishBuilder_ != null) {
         result.payload_ = channelExternalPublishBuilder_.build();
       }
+      if (payloadCase_ == 28 &&
+          stepWaitForPendingBuilder_ != null) {
+        result.payload_ = stepWaitForPendingBuilder_.build();
+      }
+      if (payloadCase_ == 29 &&
+          stepExecutePendingBuilder_ != null) {
+        result.payload_ = stepExecutePendingBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -900,6 +1010,14 @@ private static final long serialVersionUID = 0L;
         }
         case CHANNEL_EXTERNAL_PUBLISH: {
           mergeChannelExternalPublish(other.getChannelExternalPublish());
+          break;
+        }
+        case STEP_WAIT_FOR_PENDING: {
+          mergeStepWaitForPending(other.getStepWaitForPending());
+          break;
+        }
+        case STEP_EXECUTE_PENDING: {
+          mergeStepExecutePending(other.getStepExecutePending());
           break;
         }
         case PAYLOAD_NOT_SET: {
@@ -1000,6 +1118,20 @@ private static final long serialVersionUID = 0L;
               payloadCase_ = 27;
               break;
             } // case 218
+            case 226: {
+              input.readMessage(
+                  internalGetStepWaitForPendingFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              payloadCase_ = 28;
+              break;
+            } // case 226
+            case 234: {
+              input.readMessage(
+                  internalGetStepExecutePendingFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              payloadCase_ = 29;
+              break;
+            } // case 234
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2319,6 +2451,290 @@ private static final long serialVersionUID = 0L;
       payloadCase_ = 27;
       onChanged();
       return channelExternalPublishBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder> stepWaitForPendingBuilder_;
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     * @return Whether the stepWaitForPending field is set.
+     */
+    @java.lang.Override
+    public boolean hasStepWaitForPending() {
+      return payloadCase_ == 28;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     * @return The stepWaitForPending.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodPendingEvent getStepWaitForPending() {
+      if (stepWaitForPendingBuilder_ == null) {
+        if (payloadCase_ == 28) {
+          return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      } else {
+        if (payloadCase_ == 28) {
+          return stepWaitForPendingBuilder_.getMessage();
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    public Builder setStepWaitForPending(io.superdurable.gen.StepMethodPendingEvent value) {
+      if (stepWaitForPendingBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        payload_ = value;
+        onChanged();
+      } else {
+        stepWaitForPendingBuilder_.setMessage(value);
+      }
+      payloadCase_ = 28;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    public Builder setStepWaitForPending(
+        io.superdurable.gen.StepMethodPendingEvent.Builder builderForValue) {
+      if (stepWaitForPendingBuilder_ == null) {
+        payload_ = builderForValue.build();
+        onChanged();
+      } else {
+        stepWaitForPendingBuilder_.setMessage(builderForValue.build());
+      }
+      payloadCase_ = 28;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    public Builder mergeStepWaitForPending(io.superdurable.gen.StepMethodPendingEvent value) {
+      if (stepWaitForPendingBuilder_ == null) {
+        if (payloadCase_ == 28 &&
+            payload_ != io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance()) {
+          payload_ = io.superdurable.gen.StepMethodPendingEvent.newBuilder((io.superdurable.gen.StepMethodPendingEvent) payload_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          payload_ = value;
+        }
+        onChanged();
+      } else {
+        if (payloadCase_ == 28) {
+          stepWaitForPendingBuilder_.mergeFrom(value);
+        } else {
+          stepWaitForPendingBuilder_.setMessage(value);
+        }
+      }
+      payloadCase_ = 28;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    public Builder clearStepWaitForPending() {
+      if (stepWaitForPendingBuilder_ == null) {
+        if (payloadCase_ == 28) {
+          payloadCase_ = 0;
+          payload_ = null;
+          onChanged();
+        }
+      } else {
+        if (payloadCase_ == 28) {
+          payloadCase_ = 0;
+          payload_ = null;
+        }
+        stepWaitForPendingBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    public io.superdurable.gen.StepMethodPendingEvent.Builder getStepWaitForPendingBuilder() {
+      return internalGetStepWaitForPendingFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodPendingEventOrBuilder getStepWaitForPendingOrBuilder() {
+      if ((payloadCase_ == 28) && (stepWaitForPendingBuilder_ != null)) {
+        return stepWaitForPendingBuilder_.getMessageOrBuilder();
+      } else {
+        if (payloadCase_ == 28) {
+          return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_wait_for_pending = 28;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder> 
+        internalGetStepWaitForPendingFieldBuilder() {
+      if (stepWaitForPendingBuilder_ == null) {
+        if (!(payloadCase_ == 28)) {
+          payload_ = io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+        }
+        stepWaitForPendingBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder>(
+                (io.superdurable.gen.StepMethodPendingEvent) payload_,
+                getParentForChildren(),
+                isClean());
+        payload_ = null;
+      }
+      payloadCase_ = 28;
+      onChanged();
+      return stepWaitForPendingBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder> stepExecutePendingBuilder_;
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     * @return Whether the stepExecutePending field is set.
+     */
+    @java.lang.Override
+    public boolean hasStepExecutePending() {
+      return payloadCase_ == 29;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     * @return The stepExecutePending.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodPendingEvent getStepExecutePending() {
+      if (stepExecutePendingBuilder_ == null) {
+        if (payloadCase_ == 29) {
+          return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      } else {
+        if (payloadCase_ == 29) {
+          return stepExecutePendingBuilder_.getMessage();
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    public Builder setStepExecutePending(io.superdurable.gen.StepMethodPendingEvent value) {
+      if (stepExecutePendingBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        payload_ = value;
+        onChanged();
+      } else {
+        stepExecutePendingBuilder_.setMessage(value);
+      }
+      payloadCase_ = 29;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    public Builder setStepExecutePending(
+        io.superdurable.gen.StepMethodPendingEvent.Builder builderForValue) {
+      if (stepExecutePendingBuilder_ == null) {
+        payload_ = builderForValue.build();
+        onChanged();
+      } else {
+        stepExecutePendingBuilder_.setMessage(builderForValue.build());
+      }
+      payloadCase_ = 29;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    public Builder mergeStepExecutePending(io.superdurable.gen.StepMethodPendingEvent value) {
+      if (stepExecutePendingBuilder_ == null) {
+        if (payloadCase_ == 29 &&
+            payload_ != io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance()) {
+          payload_ = io.superdurable.gen.StepMethodPendingEvent.newBuilder((io.superdurable.gen.StepMethodPendingEvent) payload_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          payload_ = value;
+        }
+        onChanged();
+      } else {
+        if (payloadCase_ == 29) {
+          stepExecutePendingBuilder_.mergeFrom(value);
+        } else {
+          stepExecutePendingBuilder_.setMessage(value);
+        }
+      }
+      payloadCase_ = 29;
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    public Builder clearStepExecutePending() {
+      if (stepExecutePendingBuilder_ == null) {
+        if (payloadCase_ == 29) {
+          payloadCase_ = 0;
+          payload_ = null;
+          onChanged();
+        }
+      } else {
+        if (payloadCase_ == 29) {
+          payloadCase_ = 0;
+          payload_ = null;
+        }
+        stepExecutePendingBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    public io.superdurable.gen.StepMethodPendingEvent.Builder getStepExecutePendingBuilder() {
+      return internalGetStepExecutePendingFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.StepMethodPendingEventOrBuilder getStepExecutePendingOrBuilder() {
+      if ((payloadCase_ == 29) && (stepExecutePendingBuilder_ != null)) {
+        return stepExecutePendingBuilder_.getMessageOrBuilder();
+      } else {
+        if (payloadCase_ == 29) {
+          return (io.superdurable.gen.StepMethodPendingEvent) payload_;
+        }
+        return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodPendingEvent step_execute_pending = 29;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder> 
+        internalGetStepExecutePendingFieldBuilder() {
+      if (stepExecutePendingBuilder_ == null) {
+        if (!(payloadCase_ == 29)) {
+          payload_ = io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
+        }
+        stepExecutePendingBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodPendingEvent, io.superdurable.gen.StepMethodPendingEvent.Builder, io.superdurable.gen.StepMethodPendingEventOrBuilder>(
+                (io.superdurable.gen.StepMethodPendingEvent) payload_,
+                getParentForChildren(),
+                isClean());
+        payload_ = null;
+      }
+      payloadCase_ = 29;
+      onChanged();
+      return stepExecutePendingBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowHistoryEvent)

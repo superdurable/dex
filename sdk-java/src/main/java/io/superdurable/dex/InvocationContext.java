@@ -109,6 +109,13 @@ final class InvocationContext implements Context {
     }
 
     @Override
+    public WorkerError getRecoveryError() {
+        return metadata.hasRecoveryError()
+                ? WorkerError.fromProto(metadata.getRecoveryError())
+                : null;
+    }
+
+    @Override
     public Instant getFirstAttemptAt() {
         return Instant.ofEpochSecond(metadata.getFirstAttemptTimestamp());
     }

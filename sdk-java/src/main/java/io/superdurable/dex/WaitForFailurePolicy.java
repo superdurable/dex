@@ -15,7 +15,7 @@ package io.superdurable.dex;
  *
  * <p>Set this value with {@link StepOptions.Builder#waitForFailure}. Proceeding calls
  * {@link Step#execute(Context, Object)} after the wait-for failure, allowing user code to inspect
- * {@link Context#waitForMethodFailed()} and recover explicitly. Dex prefers
+ * {@link Context#waitForMethodFailed()} and recover explicitly. Dex defaults to
  * {@link StepDurability#SYNC} for a wait-for method using {@link #PROCEED}; a Flow-wide durability
  * setting does not override that safety choice. Applications may explicitly select
  * {@link StepDurability#ASYNC} with {@link StepOptions.Builder#waitForDurability} when they accept
@@ -28,7 +28,7 @@ public enum WaitForFailurePolicy {
     /**
      * Continues to the execute method after recording the wait-for failure.
      *
-     * <p>Dex prefers synchronous durability for this failure transition unless the application
+     * <p>Dex defaults to synchronous durability for this failure transition unless the application
      * explicitly selects a different wait-for durability in {@link StepOptions}.
      */
     PROCEED

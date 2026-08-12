@@ -45,4 +45,10 @@ public interface WorkerErrorResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getStackTraceBytes();
+
+  /**
+   * <code>int32 retry_after_seconds = 4;</code>
+   * @return The retryAfterSeconds.
+   */
+  int getRetryAfterSeconds();
 }

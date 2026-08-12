@@ -40,6 +40,10 @@ func (p *fakeWorkflowProvider) IsApplicationError(error) bool {
 	return false
 }
 
+func (p *fakeWorkflowProvider) WorkerError(error) (*dexpb.WorkerErrorResponse, error) {
+	return nil, nil
+}
+
 func (p *fakeWorkflowProvider) IsContinueAsNewError(error) bool {
 	return false
 }

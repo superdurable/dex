@@ -85,6 +85,27 @@ func TestTemporalMapOneofRoundTrip(t *testing.T) {
 	require.True(t, proto.Equal(in, out))
 }
 
+func TestTemporalRecoveryErrorRoundTrip(t *testing.T) {
+	dc := NewTemporalDataConverter()
+	input := &dexpb.InvokeExecuteMethodActivityInput{
+		Request: &dexpb.InvokeExecuteMethodRequest{
+			Context: &dexpb.Context{
+				RecoveryError: &dexpb.WorkerErrorResponse{
+					Detail:            "failure",
+					ErrorType:         "Failure",
+					StackTrace:        "stack",
+					RetryAfterSeconds: 3,
+				},
+			},
+		},
+	}
+	payload, err := dc.ToPayload(input)
+	require.NoError(t, err)
+	output := &dexpb.InvokeExecuteMethodActivityInput{}
+	require.NoError(t, dc.FromPayload(payload, output))
+	require.True(t, proto.Equal(input, output))
+}
+
 func TestTemporalJSONEscapeHatchForNonProto(t *testing.T) {
 	dc := NewTemporalDataConverter()
 	in := plainNonProtoStruct{FlowType: "should-be-json"}
