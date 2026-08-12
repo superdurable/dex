@@ -6,6 +6,7 @@ license-file.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Go-compatible DXBC blob cache for Dex SDKs"
+publish = ["crates-io"]
 
 [dependencies]
 crc32c.workspace = true

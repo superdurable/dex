@@ -1,0 +1,144 @@
+name: Publish Rust SDK to crates.io
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - "sdk-rust/**"
+      - ".github/workflows/sdk-rust-publish.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Rust SDK release version
+        required: true
+        type: string
+      publish:
+        description: Publish the validated crates to crates.io
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-rust-publish-${{ github.event.release.tag_name || inputs.version || github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: "1.88.0"
+
+jobs:
+  prepare:
+    name: Validate release
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'sdk-rust/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sdk-rust
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Resolve release version
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            version="${RELEASE_TAG#sdk-rust/v}"
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "Release tag must point to a commit on main" >&2
+              exit 1
+            fi
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${DISPATCH_VERSION}"
+            if [[ "${DISPATCH_PUBLISH}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
+              echo "Manual publishing is allowed only from main" >&2
+              exit 1
+            fi
+          else
+            version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid Rust SDK release version: ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Stamp package versions from release
+        run: >-
+          python scripts/stamp_release_version.py
+          '${{ steps.release.outputs.version }}'
+          --stage-protocol
+      - name: Validate stamped workspace
+        run: cargo metadata --locked --no-deps --format-version 1
+      - name: Build publishable crates
+        run: >-
+          cargo package --locked --allow-dirty
+          -p dex-blob-cache
+          -p dex-protocol
+          -p dex-sdk
+      - name: Upload crate archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: dex-rust-crates-${{ steps.release.outputs.version }}
+          path: sdk-rust/target/package/*.crate
+          if-no-files-found: error
+
+  publish:
+    name: Publish Rust crates
+    if: github.event_name == 'release' || inputs.publish == true
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdk-rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Stamp package versions from release
+        run: >-
+          python scripts/stamp_release_version.py
+          '${{ needs.prepare.outputs.version }}'
+          --stage-protocol
+      - name: Validate crates.io credentials
+        shell: bash
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          [[ -n "${CRATES_IO_TOKEN}" ]] || { echo 'CRATES_IO_TOKEN is missing' >&2; exit 1; }
+      - name: Publish dex-blob-cache
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --locked --allow-dirty -p dex-blob-cache
+      - name: Publish dex-protocol
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --locked --allow-dirty -p dex-protocol
+      - name: Publish dex-sdk
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --locked --allow-dirty -p dex-sdk
