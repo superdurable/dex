@@ -183,22 +183,17 @@ implemented. Python owns its gRPC transport; the native bridge is limited to
 the shared BlobCache. Design notes:
 [`docs/design/plan/python-sdk-async-apis.md`](../docs/design/plan/python-sdk-async-apis.md).
 
-## Running dex-server locally
+## Running Dex locally
 
-### Option 1: use docker compose
-See [dex README](https://github.com/superdurable/dex#using-docker-image--docker-compose)
+Install and start the complete local environment with `dexcli`:
 
-### Option 2: VSCode Dev Container
+```bash
+brew install superdurable/tap/dexcli
+dexcli dev
+```
 
-Dev Container is an easy way to get dex-server running locally. Follow these steps to launch a dev container:
-- Install Docker, VSCode, and [VSCode Dev Container plugin](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
-- Open the project in VSCode.
-    ```bash
-    cd dex-python-sdk
-    code .
-    ```
-- Launch the Remote-Containers: Reopen in Container command from Command Palette (Ctrl + Shift + P). You can also click in the bottom left corner to access the remote container menu.
-- Once the dev container starts, dex-server will be listening on port 8801.
+Dex Server listens on `127.0.0.1:8801`. See the
+[CLI README](../cli/README.md) for endpoints and persistence options.
 
 ## How To Contribute
 
