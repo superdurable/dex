@@ -391,94 +391,6 @@ summary:focus-visible {
   transform: translateY(-2px);
 }
 
-.product-bar {
-  position: relative;
-  z-index: 19;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink-soft) 82%, transparent);
-  backdrop-filter: blur(16px);
-}
-
-.product-bar-inner {
-  display: flex;
-  width: min(var(--content-max), 100%);
-  min-height: 52px;
-  margin: 0 auto;
-  padding: 0 var(--page-gutter);
-  align-items: center;
-  gap: 24px;
-}
-
-.product-bar-label {
-  color: var(--muted);
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.6rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-}
-
-.product-switcher {
-  position: relative;
-}
-
-.product-switcher summary {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 11px;
-  border-radius: 999px;
-  color: var(--forest);
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 650;
-  list-style: none;
-}
-
-.product-switcher summary::-webkit-details-marker {
-  display: none;
-}
-
-.product-switcher summary:hover,
-.product-switcher[open] summary {
-  background: var(--lime-soft);
-}
-
-.product-switcher summary span {
-  color: #79b92a;
-  transition: transform 180ms ease;
-}
-
-.product-switcher[open] summary span {
-  transform: rotate(180deg);
-}
-
-.product-switcher-menu {
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
-  display: grid;
-  width: 240px;
-  padding: 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  background: var(--surface-solid);
-  box-shadow: 0 24px 60px var(--shadow);
-}
-
-.product-switcher-menu a {
-  padding: 12px 13px;
-  border-radius: 9px;
-  color: var(--muted-strong);
-  font-size: 0.8rem;
-}
-
-.product-switcher-menu a:hover,
-.product-switcher-menu a.active {
-  background: var(--lime-soft);
-  color: var(--forest);
-  text-decoration: none;
-}
-
 .main-wrapper {
   background: transparent;
 }
@@ -805,19 +717,6 @@ code {
 
   .wordmark-text {
     display: none;
-  }
-
-  .product-bar-inner {
-    min-height: 48px;
-    gap: 12px;
-  }
-
-  .product-bar-label {
-    display: none;
-  }
-
-  .product-switcher-menu {
-    width: min(240px, calc(100vw - 44px));
   }
 
   .site-footer {
