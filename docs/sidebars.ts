@@ -98,6 +98,7 @@ const sidebars: SidebarsConfig = {
       label: 'References',
       link: {type: 'doc', id: 'references/index'},
       items: [
+        'references/cli',
         'references/client-apis',
         'references/persistence',
         'references/rpc',
