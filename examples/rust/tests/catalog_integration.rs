@@ -1,0 +1,116 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/*
+ * Copyright (c) 2022-2026 Super Durable, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::collections::HashSet;
+
+use dex_examples_rust::patterns::{
+    cron::CronScheduleFlow,
+    drain_channels::{DrainInternalChannelsFlow, DrainSignalChannelsFlow},
+    entity_store::UserProfileFlow,
+    interruptible::InterruptibleExecutionFlow,
+    intervention::ManualInterventionFlow,
+    parallel::{ParallelStatesWithAwaitFlow, SimpleParallelStatesFlow},
+    parent_child::ParentFlowV2,
+    polling::{BackoffPollingFlow, SimplePollingFlow},
+    recovery::FailureRecoveryFlow,
+    reminders::ReminderFlow,
+    resettable_timer::ResettableTimerFlow,
+    scalable_parallel::{ChildFlow, ParentFlow, RequestReceiverFlow},
+    timeout::FlowGracefulTimeout,
+    wait_for_state_completion::WaitForStateCompletionFlow,
+};
+use dex_examples_rust::workflow::{
+    engagement::EngagementFlow,
+    job_post::JobPostFlow,
+    microservices::OrchestrationFlow,
+    money_transfer::MoneyTransferFlow,
+    polling::PollingFlow,
+    shortlist_candidates::{EmployerOptInFlow, ShortlistFlow},
+    signup::UserSignupFlow,
+    subscription::SubscriptionFlow,
+};
+use dex_examples_rust::{PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, create_example_registry};
+use dex_sdk::Flow;
+
+#[test]
+fn catalog_matches_every_cross_language_example() {
+    let product_flows = [
+        MoneyTransferFlow::default().flow_type(),
+        OrchestrationFlow::default().flow_type(),
+        EngagementFlow::default().flow_type(),
+        SubscriptionFlow::default().flow_type(),
+        PollingFlow::default().flow_type(),
+        UserSignupFlow::default().flow_type(),
+        JobPostFlow::default().flow_type(),
+        EmployerOptInFlow::default().flow_type(),
+        ShortlistFlow::default().flow_type(),
+    ];
+    let pattern_flows = [
+        CronScheduleFlow::default().flow_type(),
+        DrainInternalChannelsFlow::default().flow_type(),
+        DrainSignalChannelsFlow::default().flow_type(),
+        InterruptibleExecutionFlow::default().flow_type(),
+        ManualInterventionFlow::default().flow_type(),
+        SimpleParallelStatesFlow::default().flow_type(),
+        ParallelStatesWithAwaitFlow::default().flow_type(),
+        ParentFlowV2::default().flow_type(),
+        SimplePollingFlow::default().flow_type(),
+        BackoffPollingFlow::default().flow_type(),
+        FailureRecoveryFlow::default().flow_type(),
+        ReminderFlow::default().flow_type(),
+        ResettableTimerFlow::default().flow_type(),
+        ChildFlow::default().flow_type(),
+        ParentFlow::default().flow_type(),
+        RequestReceiverFlow::default().flow_type(),
+        UserProfileFlow::default().flow_type(),
+        FlowGracefulTimeout::default().flow_type(),
+        WaitForStateCompletionFlow::default().flow_type(),
+    ];
+
+    assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
+    assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 28);
+    assert_eq!(
+        product_flows
+            .into_iter()
+            .chain(pattern_flows)
+            .collect::<HashSet<_>>()
+            .len(),
+        28
+    );
+    create_example_registry().expect("all 28 example Flow definitions must register together");
+}
+
+#[test]
+fn manifest_uses_the_published_sdk_only() {
+    let manifest = include_str!("../Cargo.toml");
+    assert!(manifest.contains("dex-sdk = \"=0.0.2\""));
+    assert!(!manifest.contains("path ="));
+}
