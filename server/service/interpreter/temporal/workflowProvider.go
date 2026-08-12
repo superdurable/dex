@@ -331,7 +331,7 @@ func (w *workflowProvider) ExecuteActivity(
 		options, optionsFound := interfaces.ActivityOptionsFromContext(ctx)
 		localCtx := workflow.WithLocalActivityOptions(wfCtx, temporalLocalActivityOptions(options))
 		firstAttemptTime := workflow.Now(wfCtx)
-		retryContext, stepActivity := interfaces.InitializeStepActivityRetryContext(
+		retryContext, isStepMethodActivity := interfaces.InitializeStepActivityRetryContext(
 			regularInput,
 			options,
 			firstAttemptTime,
@@ -340,7 +340,7 @@ func (w *workflowProvider) ExecuteActivity(
 		if err == nil {
 			return nil
 		}
-		if !stepActivity {
+		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
 		if !optionsFound {

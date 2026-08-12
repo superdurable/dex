@@ -113,6 +113,9 @@ Keep a struct's methods in one primary file. Do not split its method set across 
   `servermetrics` or `mongostore`.
 - Use descriptive variable names. Receivers and `i j k n err ctx ok t mu wg id r
   w ch` are the only accepted one- or two-letter names.
+- Boolean variables and constants, and methods returning booleans, must use
+  predicate names such as `isXxx`, `hasXxx`, `canXxx`, `shouldXxx`, or
+  `supportsXxx`, following the language's capitalization conventions.
 
 ## Nil and Config Fields
 
