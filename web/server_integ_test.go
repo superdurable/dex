@@ -35,6 +35,7 @@ type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
 	waitStarted       chan struct{}
 	waitCanceled      chan struct{}
+	searchRequests    chan *dexpb.SearchFlowsRequest
 	loadBlobsRequests chan *dexpb.LoadBlobsRequest
 	loadBlobsError    error
 	stopRequests      chan *dexpb.StopFlowRequest
@@ -90,6 +91,43 @@ func TestWebServerMapsGRPCErrors(t *testing.T) {
 	decodeResponse(t, response, &result)
 	if result.Error != "invalid flow" || result.GRPCCode != int32(codes.InvalidArgument) {
 		t.Fatalf("unexpected error response: %+v", result)
+	}
+}
+
+func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
+	service := &flowService{
+		searchRequests: make(chan *dexpb.SearchFlowsRequest, 2),
+	}
+	harness := newHarness(t, service)
+
+	testCases := []struct {
+		name      string
+		body      string
+		wantQuery string
+	}{
+		{
+			name:      "empty query",
+			body:      `{"pageSize":10}`,
+			wantQuery: `WorkflowType = "Engine"`,
+		},
+		{
+			name:      "user query",
+			body:      `{"query":"ExecutionStatus = \"Running\"","pageSize":10}`,
+			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine")`,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := postJSON(t, harness.http.URL+"/api/flows/search", testCase.body)
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("search status = %d", response.StatusCode)
+			}
+			request := <-service.searchRequests
+			if request.GetQuery() != testCase.wantQuery {
+				t.Fatalf("query = %q, want %q", request.GetQuery(), testCase.wantQuery)
+			}
+		})
 	}
 }
 
@@ -234,9 +272,12 @@ func TestWebServerStopsFlow(t *testing.T) {
 }
 
 func (s *flowService) SearchFlows(
-	context.Context,
-	*dexpb.SearchFlowsRequest,
+	_ context.Context,
+	request *dexpb.SearchFlowsRequest,
 ) (*dexpb.SearchFlowsResponse, error) {
+	if s.searchRequests != nil {
+		s.searchRequests <- request
+	}
 	return &dexpb.SearchFlowsResponse{
 		FlowRuns: []*dexpb.SearchFlowsResponseEntry{{
 			FlowId:   "checkout-1",
