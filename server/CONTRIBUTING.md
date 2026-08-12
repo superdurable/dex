@@ -193,6 +193,26 @@ make ci-cadence-integ-test totalPartitions=5 partitionNum=0
 the complete suite. Each CI partition uses an independent runner and backend
 stack.
 
+### Measure integration coverage
+
+Run the main Temporal and Cadence integration suite with Go coverage:
+
+```shell
+make integrationCoverage
+```
+
+The report measures production packages under `./service/...` from integration
+tests only. It does not run `unitTests`. Open `coverage/index.html` for annotated
+source, or inspect `coverage/coverage.txt` for per-function totals.
+`coverage/coverage.out` is the profile format uploaded by CI.
+
+Server CI also instruments the Attribute Store, Blob Store, Web API, Temporal,
+and Cadence integration jobs. Each matrix partition publishes binary Go coverage
+data, and the `Integration coverage` job merges every successful partition before
+uploading one report to Codecov. The upload uses the `server-integration` flag
+and GitHub OIDC. The merged HTML, text, and profile reports are available in the
+`server-integration-coverage` Actions artifact.
+
 To debug the failed test, search for `--- FAIL` in the output logs (in GitHub Action, click "view raw logs"") 
 
 ### Pending Step failures

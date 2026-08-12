@@ -6,12 +6,14 @@ on:
     paths:
       - "server/**"
       - "protos/**"
+      - "codecov.yml"
       - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-ci.yml"
   pull_request:
     paths:
       - "server/**"
       - "protos/**"
+      - "codecov.yml"
       - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-ci.yml"
   workflow_dispatch:
@@ -54,7 +56,15 @@ jobs:
       - name: Attribute Store integration tests
         env:
           GOWORK: "off"
-        run: make attributeStoreIntegTests
+        run: make attributeStoreIntegTests integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-attribute-store
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
@@ -77,7 +87,15 @@ jobs:
       - name: Blob Store integration tests
         env:
           GOWORK: "off"
-        run: make blobStoreIntegTests
+        run: make blobStoreIntegTests integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-blob-store
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
@@ -110,7 +128,15 @@ jobs:
       - name: Web API integration tests
         env:
           GOWORK: "off"
-        run: make ${{ matrix.make_target }}
+        run: make ${{ matrix.make_target }} integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-web-api-${{ matrix.backend }}
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
@@ -137,7 +163,15 @@ jobs:
       - name: Temporal integ tests
         env:
           GOWORK: "off"
-        run: make ci-temporal-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }}
+        run: make ci-temporal-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }} integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-temporal-${{ matrix.partition }}
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
@@ -164,7 +198,60 @@ jobs:
       - name: Cadence integ tests
         env:
           GOWORK: "off"
-        run: make ci-cadence-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }}
+        run: make ci-cadence-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }} integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-cadence-${{ matrix.partition }}
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
+  integration-coverage:
+    name: Integration coverage
+    needs:
+      - attribute-store-integ
+      - blob-store-integ
+      - web-api-integ
+      - temporal-integ
+      - cadence-integ
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Download integration coverage data
+        uses: actions/download-artifact@v7
+        with:
+          pattern: server-integration-coverage-*
+          path: server/coverage-raw
+      - name: Merge integration coverage
+        run: ./script/merge-integ-coverage.sh coverage coverage-raw/*
+      - name: Upload server integration coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./server/coverage/coverage.out
+          flags: server-integration
+          name: server-integration
+          use_oidc: true
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage
+          path: server/coverage/
+          if-no-files-found: ignore
