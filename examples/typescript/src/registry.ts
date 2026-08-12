@@ -32,7 +32,7 @@ import { resettableTimerFlow } from "./patterns/workflow/resettabletimer/resetta
 import { childFlow } from "./patterns/workflow/scalableparallel/child-flow.js";
 import { parentFlow } from "./patterns/workflow/scalableparallel/parent-flow.js";
 import { requestReceiverFlow } from "./patterns/workflow/scalableparallel/request-receiver-flow.js";
-import { storageFlow } from "./patterns/workflow/storage/storage-flow.js";
+import { userProfileFlow } from "./patterns/workflow/entitystore/user-profile-flow.js";
 import { flowGracefulTimeout } from "./patterns/workflow/timeout/flow-graceful-timeout.js";
 import { waitForStateCompletionFlow } from "./patterns/workflow/waitforstatecompletion/wait-for-state-completion-flow.js";
 import { engagementFlow } from "./workflow/engagement/engagement-flow.js";
@@ -71,7 +71,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   childFlow,
   parentFlow,
   requestReceiverFlow,
-  storageFlow,
+  userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,
 ];
@@ -106,7 +106,7 @@ export {
   childFlow,
   parentFlow,
   requestReceiverFlow,
-  storageFlow,
+  userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,
 };

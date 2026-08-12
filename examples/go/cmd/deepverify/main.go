@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,12 +42,12 @@ import (
 	"github.com/superdurable/dex/examples/go/workflows/microservices"
 	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
 	drainsignal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/signal"
+	"github.com/superdurable/dex/examples/go/workflows/patterns/entitystore"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/parallel"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/scalableparallel"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/storage"
 	"github.com/superdurable/dex/examples/go/workflows/patterns/waitforstatecompletion"
 	"github.com/superdurable/dex/examples/go/workflows/polling"
 	"github.com/superdurable/dex/examples/go/workflows/service"
@@ -240,7 +241,7 @@ func runPatternScenarios(
 		{"pattern/backoff-polling", func() result { return verifyBackoffPolling(ctx, client, stamp) }},
 		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
-		{"pattern/storage", func() result { return verifyStorage(ctx, client, stamp) }},
+		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
 		{"pattern/intervention-retry", func() result { return verifyInterventionRetry(ctx, client, stamp) }},
 		{"pattern/intervention-skip", func() result { return verifyInterventionSkip(ctx, client, stamp) }},
 		{"pattern/parallel-simple", func() result { return verifyParallelSimple(ctx, client, stamp) }},
@@ -849,59 +850,73 @@ func verifyReminder(ctx context.Context, client *dex.Client, stamp string) resul
 	return pass(name, "reminder tick + Accept completed")
 }
 
-func verifyStorage(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/storage"
-	key := "dv-key-" + stamp
-	value := "dv-val-" + stamp
-	if err := ensureStorage(ctx, client); err != nil {
-		return fail(name, "ensure start", err)
+func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/entity-store"
+	flowID := "dv-user-" + stamp
+	profile := entitystore.UserProfile{
+		DisplayName:    "Ada Lovelace",
+		Email:          "ada-" + stamp + "@example.com",
+		MarketingOptIn: true,
+		Credits:        120,
+		Weight:         59.5,
+		LastLoggedIn:   time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC),
+		Metadata: entitystore.UserProfileMetadata{
+			Source: "deepverify",
+			Tags:   []string{"example", "pro"},
+		},
+	}
+	attributes, err := entitystore.InitialAttributes(profile)
+	if err != nil {
+		return fail(name, "initial attributes", err)
+	}
+	options := hourStartOptions()
+	options.Attributes = attributes
+	options.ConfigOverride = &dex.FlowConfig{
+		AttributeStoreName: ptr.Any(entitystore.StoreName),
+	}
+	if _, err := client.StartFlow(ctx, workflows.UserProfile, flowID, nil, options); err != nil {
+		return fail(name, "start", err)
 	}
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, storage.StorageFlowID, workflows.Storage.AddItem,
-		storage.AddStorageItemRequest{Key: key, Value: value},
+		ctx, flowID, workflows.UserProfile.UpdateProfile,
+		entitystore.UserProfile{
+			DisplayName:    "Ada Byron",
+			Email:          profile.Email,
+			MarketingOptIn: false,
+			Credits:        180,
+			Weight:         60.25,
+			LastLoggedIn:   time.Date(2026, 8, 12, 9, 45, 0, 0, time.UTC),
+			Metadata: entitystore.UserProfileMetadata{
+				Source: "deepverify",
+				Tags:   []string{"example", "enterprise"},
+			},
+		},
 		&none, dex.InvokeOptions{},
 	); err != nil {
-		return fail(name, "add", err)
+		return fail(name, "update", err)
 	}
-	var got string
+	var got entitystore.UserProfile
 	if err := client.InvokeRPC(
-		ctx, storage.StorageFlowID, workflows.Storage.GetItem, key, &got, dex.InvokeOptions{},
+		ctx, flowID, workflows.UserProfile.GetProfile, nil, &got, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get", err)
 	}
-	if got != value {
-		return fail(name, "got="+got, nil)
+	if got.DisplayName != "Ada Byron" || got.Email != profile.Email || got.MarketingOptIn ||
+		got.Credits != 180 || got.Weight != 60.25 ||
+		!got.LastLoggedIn.Equal(time.Date(2026, 8, 12, 9, 45, 0, 0, time.UTC)) ||
+		!reflect.DeepEqual(got.Metadata, entitystore.UserProfileMetadata{
+			Source: "deepverify",
+			Tags:   []string{"example", "enterprise"},
+		}) {
+		return fail(name, fmt.Sprintf("unexpected profile: %+v", got), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, storage.StorageFlowID, workflows.Storage.RemoveItem, key, &none, dex.InvokeOptions{},
+		ctx, flowID, workflows.UserProfile.ClearProfile, nil, &none, dex.InvokeOptions{},
 	); err != nil {
-		return fail(name, "remove", err)
+		return fail(name, "clear", err)
 	}
-	got = "still-here"
-	if err := client.InvokeRPC(
-		ctx, storage.StorageFlowID, workflows.Storage.GetItem, key, &got, dex.InvokeOptions{},
-	); err != nil {
-		return fail(name, "get after remove", err)
-	}
-	if got != "" {
-		return fail(name, "expected empty after remove, got="+got, nil)
-	}
-	return pass(name, "add+get+remove round-trip on "+storage.StorageFlowID)
-}
-
-func ensureStorage(ctx context.Context, client *dex.Client) error {
-	_, err := client.StartFlow(
-		ctx, workflows.Storage, storage.StorageFlowID, nil, hourStartOptions(),
-	)
-	if err == nil {
-		return nil
-	}
-	var duplicate *dex.FlowAlreadyStartedError
-	if errors.As(err, &duplicate) {
-		return nil
-	}
-	return err
+	return pass(name, "create+update+get+clear on "+flowID)
 }
 
 func verifyInterventionRetry(ctx context.Context, client *dex.Client, stamp string) result {

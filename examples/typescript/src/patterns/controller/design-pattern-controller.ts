@@ -18,9 +18,9 @@ import type { Express, Router } from "express";
 import { Router as createRouter } from "express";
 
 import {
-  FlowAlreadyStartedError,
   FlowNotActiveError,
   IdReusePolicy,
+  InitialAttribute,
   StepExecutionId,
   type Client,
 } from "@superdurable/dex";
@@ -30,9 +30,14 @@ import type { BackoffPollingFlow } from "../workflow/polling/backoff-polling-flo
 import type { SimplePollingFlow } from "../workflow/polling/simple-polling-flow.js";
 import type { InterruptibleExecutionFlow } from "../workflow/interruptible/interruptible-execution-flow.js";
 import type { ReminderFlow } from "../workflow/reminders/reminder-flow.js";
-import type { StorageFlow } from "../workflow/storage/storage-flow.js";
-import { StorageFlow as StorageFlowClass } from "../workflow/storage/storage-flow.js";
-import type { AddStorageItemRequest } from "../workflow/storage/add-storage-item-request.js";
+import {
+  ENTITY_STORE_NAME,
+  type UserProfileFlow,
+} from "../workflow/entitystore/user-profile-flow.js";
+import type {
+  UserProfile,
+  UserProfileRequest,
+} from "../workflow/entitystore/user-profile.js";
 import type { ManualInterventionFlow } from "../workflow/intervention/manual-intervention-flow.js";
 import type { ResettableTimerFlow } from "../workflow/resettabletimer/resettable-timer-flow.js";
 import type { SimpleParallelStatesFlow } from "../workflow/parallel/simple-parallel-states-flow.js";
@@ -50,7 +55,7 @@ export interface DesignPatternFlows {
   readonly backoffPollingFlow: BackoffPollingFlow;
   readonly interruptibleExecutionFlow: InterruptibleExecutionFlow;
   readonly reminderFlow: ReminderFlow;
-  readonly storageFlow: StorageFlow;
+  readonly userProfileFlow: UserProfileFlow;
   readonly manualInterventionFlow: ManualInterventionFlow;
   readonly resettableTimerFlow: ResettableTimerFlow;
   readonly simpleParallelStatesFlow: SimpleParallelStatesFlow;
@@ -139,40 +144,49 @@ export function registerDesignPatternRoutes(
     response.send("done");
   });
 
-  router.post("/storage/add", async (request, response) => {
-    const body = request.body as AddStorageItemRequest;
-    await invokeStorageRpc(client, flows, (flowId) =>
-      client.invokeRPC(
-        flows.storageFlow.addItem,
-        flowId,
-        body,
-      ),
-    );
-    response.send("Added storage item");
+  router.post("/entity-store/profile", async (request, response) => {
+    const body = request.body as UserProfileRequest;
+    const userId = requiredString(body.userId, "userId");
+    const profile = profileFromRequest(body);
+    await client.startFlow(flows.userProfileFlow, userId, undefined, startOptions({
+      attributes: [
+        InitialAttribute.of(flows.userProfileFlow.displayName, profile.displayName),
+        InitialAttribute.of(flows.userProfileFlow.email, profile.email),
+        InitialAttribute.of(
+          flows.userProfileFlow.marketingOptIn,
+          profile.marketingOptIn,
+        ),
+        InitialAttribute.of(flows.userProfileFlow.credits, BigInt(profile.credits)),
+        InitialAttribute.of(flows.userProfileFlow.weight, profile.weight),
+        InitialAttribute.of(
+          flows.userProfileFlow.lastLoggedInTime,
+          profile.lastLoggedInTime,
+        ),
+        InitialAttribute.of(flows.userProfileFlow.metadata, profile.metadata),
+      ],
+      configOverride: { attributeStoreName: ENTITY_STORE_NAME },
+    }));
+    response.status(201).json({ userId, ...profile });
   });
 
-  router.get("/storage/get", async (request, response) => {
-    const itemKey = String(request.query.itemKey ?? "");
-    const itemValue = await invokeStorageRpc(client, flows, (flowId) =>
-      client.invokeRPC(
-        flows.storageFlow.getItem,
-        flowId,
-        itemKey,
-      ),
-    );
-    response.send(`Item: ${itemValue}`);
+  router.post("/entity-store/profile/update", async (request, response) => {
+    const body = request.body as UserProfileRequest;
+    const userId = requiredString(body.userId, "userId");
+    const profile = profileFromRequest(body);
+    await client.invokeRPC(flows.userProfileFlow.updateProfile, userId, profile);
+    response.json({ userId, ...profile });
   });
 
-  router.post("/storage/remove", async (request, response) => {
-    const itemKey = String(request.query.itemKey ?? "");
-    await invokeStorageRpc(client, flows, (flowId) =>
-      client.invokeRPC(
-        flows.storageFlow.removeItem,
-        flowId,
-        itemKey,
-      ),
-    );
-    response.send("Removed storage item");
+  router.get("/entity-store/profile", async (request, response) => {
+    const userId = requiredString(request.query.userId, "userId");
+    const profile = await client.invokeRPC(flows.userProfileFlow.getProfile, userId);
+    response.json({ userId, ...profile });
+  });
+
+  router.post("/entity-store/profile/clear", async (request, response) => {
+    const userId = requiredString(request.query.userId, "userId");
+    await client.invokeRPC(flows.userProfileFlow.clearProfile, userId);
+    response.send("cleared");
   });
 
   router.get("/intervention/start", async (request, response) => {
@@ -344,42 +358,47 @@ export function registerDesignPatternRoutes(
   (app as Router).use(router);
 }
 
-async function invokeStorageRpc<T>(
-  client: Client,
-  flows: DesignPatternFlows,
-  action: (flowId: string) => Promise<T>,
-  attemptRestart = true,
-): Promise<T> {
-  const flowId = StorageFlowClass.getStorageFlowId();
-  try {
-    return await action(flowId);
-  } catch (error) {
-    if (!attemptRestart) {
-      throw error;
-    }
-    const missing = error instanceof FlowNotActiveError;
-    const message = error instanceof Error ? error.message : String(error);
-    const staleWorker =
-      /RPC ".*?" is not registered in flow "StorageFlow"/.test(message) ||
-      /connect: connection refused/.test(message) ||
-      /Error while dialing/.test(message) ||
-      /Deadline exceeded/i.test(message) ||
-      /timed out/i.test(message);
-    if (!missing && !staleWorker) {
-      throw error;
-    }
-    try {
-      await client.stopFlow(flowId);
-    } catch {
-      // Flow may already be gone.
-    }
-    try {
-      await client.startFlow(flows.storageFlow, flowId, undefined, startOptions());
-    } catch (startError) {
-      if (!(startError instanceof FlowAlreadyStartedError)) {
-        throw startError;
-      }
-    }
-    return invokeStorageRpc(client, flows, action, false);
+function requiredString(value: unknown, name: string): string {
+  const result = String(value ?? "").trim();
+  if (result.length === 0) {
+    throw new Error(`${name} is required`);
   }
+  return result;
+}
+
+function profileFromRequest(request: UserProfileRequest): UserProfile {
+  if (typeof request.marketingOptIn !== "boolean") {
+    throw new Error("marketingOptIn must be a boolean");
+  }
+  return {
+    displayName: requiredString(request.displayName, "displayName"),
+    email: requiredString(request.email, "email"),
+    marketingOptIn: request.marketingOptIn,
+    credits: requiredSafeInteger(request.credits, "credits"),
+    weight: requiredFiniteNumber(request.weight, "weight"),
+    lastLoggedInTime: requiredDate(request.lastLoggedInTime, "lastLoggedInTime"),
+    metadata: request.metadata,
+  };
+}
+
+function requiredSafeInteger(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`${name} must be a safe integer`);
+  }
+  return value;
+}
+
+function requiredFiniteNumber(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+  return value;
+}
+
+function requiredDate(value: unknown, name: string): Date {
+  const result = new Date(String(value ?? ""));
+  if (Number.isNaN(result.getTime())) {
+    throw new Error(`${name} must be an ISO datetime`);
+  }
+  return result;
 }

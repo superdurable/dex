@@ -48,7 +48,7 @@ import {
   resettableTimerFlow,
   simpleParallelStatesFlow,
   simplePollingFlow,
-  storageFlow,
+  userProfileFlow,
   waitForStateCompletionFlow,
 } from "./registry.js";
 
@@ -95,7 +95,7 @@ export async function startSampleServer(): Promise<SampleServer> {
     backoffPollingFlow,
     interruptibleExecutionFlow,
     reminderFlow,
-    storageFlow,
+    userProfileFlow,
     manualInterventionFlow,
     resettableTimerFlow,
     simpleParallelStatesFlow,

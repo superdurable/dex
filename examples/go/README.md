@@ -1,6 +1,6 @@
 # Dex Go examples
 
-These examples target `github.com/superdurable/dex/sdk-go v0.1.1`.
+These examples target `github.com/superdurable/dex/sdk-go v0.1.3`.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
 
@@ -101,6 +101,6 @@ All under [`workflows/patterns`](./workflows/patterns), HTTP under `/design-patt
 - [Reminders](./workflows/patterns/reminders)
 - [Resettable timer](./workflows/patterns/resettabletimer)
 - [Scalable parallel](./workflows/patterns/scalableparallel)
-- [Storage singleton](./workflows/patterns/storage)
+- [Entity Store user profiles](./workflows/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./workflows/patterns/timeout)
 - [Wait for state completion](./workflows/patterns/waitforstatecompletion)

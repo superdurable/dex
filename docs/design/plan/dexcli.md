@@ -29,6 +29,15 @@ dexcli dev --temporal-address localhost:7233
 
 此时不启动、不关闭 local Temporal；只管理 Dex Server 和 Dex Web。
 
+本地 Attribute Store 使用标准 Dex YAML 的 `attributeStore` section：
+
+```bash
+dexcli dev --attribute-store-config ./attribute-store.yaml
+```
+
+CLI 只从该文件读取 Attribute Store 配置；API、Temporal、Web 和 blob store
+仍由 `dexcli dev` 的本地参数管理。
+
 最终安装和运行不要求用户手动安装或启动 Node.js。Node.js 只用于构建 React/TypeScript 前端。
 
 ## 2. 非目标

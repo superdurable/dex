@@ -147,12 +147,12 @@ func prepareIntegrationTables(t *testing.T, postgres, mysql *sql.DB) {
 		{postgres, `CREATE TABLE flow_attributes (
 flow_id TEXT PRIMARY KEY,
 name VARCHAR(32), count_value BIGINT, ratio DOUBLE PRECISION, active BOOLEAN,
-json_value JSONB, binary_value BYTEA, nullable_value TEXT)`},
+logged_at TIMESTAMPTZ, json_value JSONB, binary_value BYTEA, nullable_value TEXT)`},
 		{mysql, `DROP TABLE IF EXISTS flow_attributes`},
 		{mysql, `CREATE TABLE flow_attributes (
 flow_id VARCHAR(255) PRIMARY KEY,
 name VARCHAR(32), count_value BIGINT, ratio DOUBLE, active BOOLEAN,
-json_value JSON, binary_value BLOB, nullable_value TEXT)`},
+logged_at TIMESTAMP NULL, json_value JSON, binary_value BLOB, nullable_value TEXT)`},
 	}
 	for _, statement := range statements {
 		_, err := statement.database.ExecContext(context.Background(), statement.query)
@@ -170,6 +170,7 @@ func writeIntegrationBatch(t *testing.T, manager *Manager, configName, flowID st
 			{ConfigName: configName, Key: "count_value", Value: intValue(42)},
 			{ConfigName: configName, Key: "ratio", Value: doubleValue(2.5)},
 			{ConfigName: configName, Key: "active", Value: boolValue(true)},
+			{ConfigName: configName, Key: "logged_at", Value: objectValue("json", `"2026-08-11T15:30:00Z"`)},
 			{ConfigName: configName, Key: "json_value", Value: objectValue("json", `{"ok":true}`)},
 			{ConfigName: configName, Key: "binary_value", Value: objectValue("proto", "bytes")},
 			{ConfigName: configName, Key: "nullable_value", Value: nullValue()},
@@ -191,19 +192,21 @@ func assertIntegrationRow(t *testing.T, database *sql.DB, flowID string) {
 		countValue    int64
 		ratio         float64
 		active        bool
+		loggedAt      time.Time
 		jsonValue     []byte
 		binaryValue   []byte
 		nullableValue sql.NullString
 	)
 	err := database.QueryRowContext(context.Background(),
-		"SELECT name, count_value, ratio, active, json_value, binary_value, nullable_value FROM flow_attributes WHERE flow_id = "+placeholder,
+		"SELECT name, count_value, ratio, active, logged_at, json_value, binary_value, nullable_value FROM flow_attributes WHERE flow_id = "+placeholder,
 		flowID,
-	).Scan(&name, &countValue, &ratio, &active, &jsonValue, &binaryValue, &nullableValue)
+	).Scan(&name, &countValue, &ratio, &active, &loggedAt, &jsonValue, &binaryValue, &nullableValue)
 	require.NoError(t, err)
 	require.Equal(t, "latest", name)
 	require.Equal(t, int64(42), countValue)
 	require.Equal(t, 2.5, ratio)
 	require.True(t, active)
+	require.Equal(t, time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC), loggedAt.UTC())
 	require.JSONEq(t, `{"ok":true}`, string(jsonValue))
 	require.Equal(t, []byte("bytes"), binaryValue)
 	require.False(t, nullableValue.Valid)

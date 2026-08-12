@@ -191,6 +191,10 @@ func (s *supervisor) startDexRuntime(
 	exits chan<- componentExit,
 	blobStoreDirectory string,
 ) (*bootstrap.Runtime, error) {
+	attributeStoreConfig, err := s.cfg.loadAttributeStoreConfig()
+	if err != nil {
+		return nil, err
+	}
 	dexConfig := &config.Config{
 		Log: config.Logger{
 			Stdout:   true,
@@ -223,6 +227,7 @@ func (s *supervisor) startDexRuntime(
 				InternalServiceTarget: listener.Addr().String(),
 			},
 		},
+		AttributeStore: attributeStoreConfig,
 	}
 	dexRuntime, err := bootstrap.New(dexConfig, &bootstrap.Options{
 		Services:        bootstrap.Services{API: true, Interpreter: true},

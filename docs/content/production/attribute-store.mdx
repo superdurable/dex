@@ -58,6 +58,8 @@ retried, depending on whether validation or SQL execution detects the change.
 - `int64`: signed integer or scale-zero numeric, with range/precision enforced
 - double: floating or numeric
 - bool: PostgreSQL boolean; MySQL boolean, `tinyint(1)`, or `bit(1)`
+- SDK datetime: RFC3339 or JSON epoch seconds; PostgreSQL timestamp with time zone,
+  MySQL timestamp or datetime
 - JSON object: JSON/JSONB, after payload validation
 - other object: PostgreSQL bytea or MySQL binary/varbinary/blob
 - null: nullable columns only

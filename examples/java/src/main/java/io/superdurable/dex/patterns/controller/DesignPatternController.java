@@ -19,6 +19,7 @@ package io.superdurable.dex.patterns.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
@@ -39,8 +40,9 @@ import io.superdurable.dex.patterns.workflow.recovery.FailureRecoveryWorkflowInp
 import io.superdurable.dex.patterns.workflow.reminders.ReminderFlow;
 import io.superdurable.dex.patterns.workflow.resettabletimer.ResettableTimerFlow;
 import io.superdurable.dex.patterns.workflow.scalableparallel.RequestReceiverFlow;
-import io.superdurable.dex.patterns.workflow.storage.AddStorageItemRequest;
-import io.superdurable.dex.patterns.workflow.storage.StorageFlow;
+import io.superdurable.dex.patterns.workflow.entitystore.UserProfile;
+import io.superdurable.dex.patterns.workflow.entitystore.UserProfileFlow;
+import io.superdurable.dex.patterns.workflow.entitystore.UserProfileRequest;
 import io.superdurable.dex.patterns.workflow.timeout.FlowGracefulTimeout;
 import io.superdurable.dex.patterns.workflow.waitforstatecompletion.JobSeekerData;
 import io.superdurable.dex.patterns.workflow.waitforstatecompletion.WaitForStateCompletionFlow;
@@ -63,7 +65,7 @@ public class DesignPatternController {
     private final BackoffPollingFlow backoffPollingFlow;
     private final InterruptibleExecutionFlow interruptibleExecutionFlow;
     private final ReminderFlow reminderFlow;
-    private final StorageFlow storageFlow;
+    private final UserProfileFlow userProfileFlow;
     private final ManualInterventionFlow manualInterventionFlow;
     private final ResettableTimerFlow resettableTimerFlow;
     private final SimpleParallelStatesFlow simpleParallelStatesFlow;
@@ -82,7 +84,7 @@ public class DesignPatternController {
             final BackoffPollingFlow backoffPollingFlow,
             final InterruptibleExecutionFlow interruptibleExecutionFlow,
             final ReminderFlow reminderFlow,
-            final StorageFlow storageFlow,
+            final UserProfileFlow userProfileFlow,
             final ManualInterventionFlow manualInterventionFlow,
             final ResettableTimerFlow resettableTimerFlow,
             final SimpleParallelStatesFlow simpleParallelStatesFlow,
@@ -99,7 +101,7 @@ public class DesignPatternController {
         this.backoffPollingFlow = backoffPollingFlow;
         this.interruptibleExecutionFlow = interruptibleExecutionFlow;
         this.reminderFlow = reminderFlow;
-        this.storageFlow = storageFlow;
+        this.userProfileFlow = userProfileFlow;
         this.manualInterventionFlow = manualInterventionFlow;
         this.resettableTimerFlow = resettableTimerFlow;
         this.simpleParallelStatesFlow = simpleParallelStatesFlow;
@@ -171,67 +173,49 @@ public class DesignPatternController {
         return ResponseEntity.ok("done");
     }
 
-    @PostMapping("/storage/add")
-    ResponseEntity<String> addStorageItem(@RequestBody final AddStorageItemRequest request) {
-        final StorageFlow stub =
-                client.newRpcStub(StorageFlow.class, StorageFlow.getStorageFlowId());
-        invokeStorageRpc(stub::addItem, request, true);
-        return ResponseEntity.ok("Added storage item");
+    @PostMapping("/entity-store/profile")
+    ResponseEntity<String> createUserProfile(@RequestBody final UserProfileRequest request) {
+        final UserProfile profile = request.toProfile();
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .timeout(Duration.ofHours(1))
+                .addAttribute(userProfileFlow.displayName, profile.displayName)
+                .addAttribute(userProfileFlow.email, profile.email)
+                .addAttribute(userProfileFlow.marketingOptIn, profile.marketingOptIn)
+                .addAttribute(userProfileFlow.credits, profile.credits)
+                .addAttribute(userProfileFlow.weight, profile.weight)
+                .addAttribute(userProfileFlow.lastLoggedInTime, profile.lastLoggedInTime)
+                .addAttribute(userProfileFlow.metadata, profile.metadata)
+                .configOverride(FlowConfig.newBuilder()
+                        .attributeStoreName(UserProfileFlow.STORE_NAME)
+                        .build())
+                .build();
+        final String runId = client.startFlow(
+                userProfileFlow,
+                request.userId,
+                null,
+                options);
+        return ResponseEntity.ok(runId);
     }
 
-    @GetMapping("/storage/get")
-    ResponseEntity<String> getStorageItem(@RequestParam final String itemKey) {
-        final StorageFlow stub =
-                client.newRpcStub(StorageFlow.class, StorageFlow.getStorageFlowId());
-        final String itemValue = invokeStorageRpc(stub::getItem, itemKey, true);
-        return ResponseEntity.ok("Item: " + itemValue);
+    @PostMapping("/entity-store/profile/update")
+    ResponseEntity<String> updateUserProfile(@RequestBody final UserProfileRequest request) {
+        final UserProfileFlow stub =
+                client.newRpcStub(UserProfileFlow.class, request.userId);
+        client.invokeRPC(stub::updateProfile, request.toProfile());
+        return ResponseEntity.ok("Updated user profile");
     }
 
-    @PostMapping("/storage/remove")
-    ResponseEntity<String> removeStorageItem(@RequestParam final String itemKey) {
-        final StorageFlow stub =
-                client.newRpcStub(StorageFlow.class, StorageFlow.getStorageFlowId());
-        invokeStorageRpc(stub::removeItem, itemKey, true);
-        return ResponseEntity.ok("Removed storage item");
+    @GetMapping("/entity-store/profile")
+    ResponseEntity<UserProfile> getUserProfile(@RequestParam final String userId) {
+        final UserProfileFlow stub = client.newRpcStub(UserProfileFlow.class, userId);
+        return ResponseEntity.ok(client.invokeRPC(stub::getProfile));
     }
 
-    private <I> void invokeStorageRpc(
-            final io.superdurable.dex.RpcDefinitions.RpcProc1<I> rpcStubMethod,
-            final I input,
-            final boolean attemptStart) {
-        try {
-            client.invokeRPC(rpcStubMethod, input);
-        } catch (final FlowNotActiveException inactive) {
-            if (attemptStart) {
-                client.startFlow(
-                        storageFlow,
-                        StorageFlow.getStorageFlowId(),
-                        null,
-                        ExampleFlows.startOptions());
-                invokeStorageRpc(rpcStubMethod, input, false);
-            } else {
-                throw inactive;
-            }
-        }
-    }
-
-    private <I, O> O invokeStorageRpc(
-            final io.superdurable.dex.RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
-            final I input,
-            final boolean attemptStart) {
-        try {
-            return client.invokeRPC(rpcStubMethod, input);
-        } catch (final FlowNotActiveException inactive) {
-            if (attemptStart) {
-                client.startFlow(
-                        storageFlow,
-                        StorageFlow.getStorageFlowId(),
-                        null,
-                        ExampleFlows.startOptions());
-                return invokeStorageRpc(rpcStubMethod, input, false);
-            }
-            throw inactive;
-        }
+    @PostMapping("/entity-store/profile/clear")
+    ResponseEntity<String> clearUserProfile(@RequestParam final String userId) {
+        final UserProfileFlow stub = client.newRpcStub(UserProfileFlow.class, userId);
+        client.invokeRPC(stub::clearProfile);
+        return ResponseEntity.ok("Cleared user profile");
     }
 
     @GetMapping("/intervention/start")

@@ -367,6 +367,11 @@ libraries, validates Gradle and Maven consumers, signs every artifact, and
 closes and releases the Central staging repository. Manual dispatch requires
 the same `X.Y.Z` version as an explicit input.
 
+After the workflow succeeds, wait for the version and its artifacts to appear
+in the canonical [Maven Central directory](https://repo1.maven.org/maven2/io/superdurable/dex-sdk/)
+before updating examples or downstream dependencies. Secondary indexes such as
+MVN Repository and Javadoc may become available later.
+
 If you'd like to test your changes to the SDK with the workflows in the
 [samples](https://github.com/superdurable/dex/tree/main/examples/java) repo,
 use the local publishing command:

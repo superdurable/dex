@@ -1,6 +1,6 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:0.0.3` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:0.0.5` (`io.superdurable.dex`).
 
 The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP
 controller on port `8080`. One Registry and disk BlobCache are shared by its
@@ -59,6 +59,6 @@ HTTP under `/design-pattern/...`:
 - Reminders
 - Resettable timer
 - Scalable parallel
-- Storage singleton
+- [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/workflow/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for state completion

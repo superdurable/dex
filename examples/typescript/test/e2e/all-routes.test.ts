@@ -301,13 +301,41 @@ test("design-pattern reminder start accept optout", async () => {
   );
 });
 
-test("design-pattern storage add get remove", async () => {
-  const key = id("key");
-  requireOk(await post("/design-pattern/storage/add", { key, value: "v1" }), "storage add");
-  requireOk(await get("/design-pattern/storage/get", { itemKey: key }), "storage get");
+test("design-pattern entity store profile lifecycle", async () => {
+  const userId = id("user");
   requireOk(
-    await post("/design-pattern/storage/remove", undefined, { itemKey: key }),
-    "storage remove",
+    await post("/design-pattern/entity-store/profile", {
+      userId,
+      displayName: "Ada Lovelace",
+      email: "ada@example.com",
+      marketingOptIn: true,
+      credits: 120,
+      weight: 59.5,
+      lastLoggedInTime: "2026-08-11T15:30:00Z",
+      metadata: { source: "e2e", tags: ["example", "pro"] },
+    }),
+    "entity store create",
+  );
+  requireOk(
+    await post("/design-pattern/entity-store/profile/update", {
+      userId,
+      displayName: "Ada Byron",
+      email: "ada.byron@example.com",
+      marketingOptIn: false,
+      credits: 180,
+      weight: 60.25,
+      lastLoggedInTime: "2026-08-12T09:45:00Z",
+      metadata: { source: "e2e", tags: ["example", "enterprise"] },
+    }),
+    "entity store update",
+  );
+  requireOk(
+    await get("/design-pattern/entity-store/profile", { userId }),
+    "entity store get",
+  );
+  requireOk(
+    await post("/design-pattern/entity-store/profile/clear", undefined, { userId }),
+    "entity store clear",
   );
 });
 

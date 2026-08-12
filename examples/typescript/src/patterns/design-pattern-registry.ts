@@ -32,7 +32,7 @@ import { resettableTimerFlow } from "./workflow/resettabletimer/resettable-timer
 import { childFlow } from "./workflow/scalableparallel/child-flow.js";
 import { parentFlow } from "./workflow/scalableparallel/parent-flow.js";
 import { requestReceiverFlow } from "./workflow/scalableparallel/request-receiver-flow.js";
-import { storageFlow } from "./workflow/storage/storage-flow.js";
+import { userProfileFlow } from "./workflow/entitystore/user-profile-flow.js";
 import { flowGracefulTimeout } from "./workflow/timeout/flow-graceful-timeout.js";
 import { waitForStateCompletionFlow } from "./workflow/waitforstatecompletion/wait-for-state-completion-flow.js";
 
@@ -54,7 +54,7 @@ export function createDesignPatternRegistry(): Registry {
     childFlow,
     parentFlow,
     requestReceiverFlow,
-    storageFlow,
+    userProfileFlow,
     flowGracefulTimeout,
     waitForStateCompletionFlow,
   ]);
