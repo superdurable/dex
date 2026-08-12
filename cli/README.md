@@ -1,6 +1,8 @@
 # Dex CLI
 
 `dexcli` starts a complete local Dex development environment with one command.
+It also gives humans and AI agents a JSON-first interface to every public Dex
+FlowService API without requiring a browser.
 
 ## Install
 
@@ -81,6 +83,72 @@ must exist and be reachable before startup.
 Operators hosting Dex can use the retained backend compatibility flags for
 external mode, namespaces, and internal ports. Dex does not print those
 endpoints, and application developers do not need them.
+
+## Operate flows
+
+Commands connect to `127.0.0.1:8801` by default. Override the target with
+`--server host:port` or `DEX_FLOW_SERVICE_ADDRESS`; the flag takes precedence.
+
+```bash
+dexcli health
+dexcli flow search --query 'FlowStatus = "Running"'
+dexcli flow inspect order-123 --all-history
+dexcli flow watch order-123 --follow-runs
+```
+
+JSON is the default and stable machine-readable output. Use `--output table`
+for terminal-oriented output. Large strings and objects are loaded from Dex's
+blob store by default. To inspect only their references and avoid the additional
+request, pass `--no-hydrate`:
+
+```bash
+dexcli flow history order-123 --no-hydrate
+```
+
+The friendly Flow commands are:
+
+```text
+dexcli flow search [--query QUERY] [--page-size N] [--page-token TOKEN] [--all]
+dexcli flow summary FLOW_ID [--run-id RUN_ID]
+dexcli flow state FLOW_ID [--run-id RUN_ID]
+dexcli flow history FLOW_ID [--run-id RUN_ID] [--start-event-id N]
+                    [--page-size N] [--page-token BASE64] [--all]
+dexcli flow inspect FLOW_ID [--run-id RUN_ID] [--all-history]
+dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N] [--follow-runs]
+dexcli flow stop FLOW_ID --run-id RUN_ID
+                 --type cancel|terminate|fail [--reason TEXT] --yes
+dexcli flow reset FLOW_ID --run-id RUN_ID
+                  --type beginning|history-event-id|history-event-time|step-type|step-execution-id
+                  [--target VALUE] --reason TEXT --yes
+```
+
+With the default JSON output, `watch` writes one object per line and exits when
+the run becomes terminal.
+`--follow-runs` continues into the current run after Continue-As-New. Stop and
+reset require both an exact run ID and `--yes`, including in non-interactive use.
+
+## Call any FlowService API
+
+The installed binary contains the protobuf descriptor for its FlowService
+version. Agents can discover and invoke every public RPC without server-side
+gRPC reflection:
+
+```bash
+dexcli api list
+dexcli api describe GetAttributes
+dexcli api call GetAttributes --data '{"flowId":"order-123","allKeys":true}'
+dexcli api call SetAttributes --data @request.json --yes
+printf '%s' '{"flowId":"order-123"}' | dexcli api call GetFlowSummary --data -
+```
+
+`api call` accepts canonical protobuf JSON: lower-camel-case field names, enum
+names, and base64-encoded bytes. Unlike friendly Flow commands, it deliberately
+does not hydrate or reshape values. Mutating RPCs require `--yes`.
+
+Successful commands write only their result to stdout. Failures write a JSON
+object to stderr with the operation, error kind, gRPC code/name, and status
+details when supplied. Usage and missing-confirmation failures exit with status
+2; connection and RPC failures exit with status 1.
 
 ## Build and test
 

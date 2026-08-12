@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
 )
 
@@ -30,8 +31,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		command.WriteError(os.Stderr, err)
+		os.Exit(command.ExitCode(err))
 	}
 }
 
@@ -50,7 +51,7 @@ func run(ctx context.Context, args []string) error {
 		printUsage(os.Stdout)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q; run dexcli help", args[0])
+		return command.NewApp(os.Stdin, os.Stdout, os.Stderr).Execute(ctx, args)
 	}
 }
 
@@ -59,5 +60,8 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
+	fmt.Fprintln(output, "  health    Check Dex FlowService health")
+	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
+	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(output, "  version   Print version information")
 }

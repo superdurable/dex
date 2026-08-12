@@ -20,6 +20,14 @@ Dex step inputs and large values persist by default in `$HOME/.dex/blobs`.
 
 See [cli/README.md](cli/README.md) for Dex endpoints and persistence options.
 
+Operate Dex without a browser using the same installed binary:
+
+```bash
+dexcli flow search
+dexcli flow inspect <flow-id>
+dexcli api list
+```
+
 Product documentation: [https://docs.superdurable.io](https://docs.superdurable.io)
 (source in [`docs/`](docs/)).
 
