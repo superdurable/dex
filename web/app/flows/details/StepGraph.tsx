@@ -59,7 +59,7 @@ function skipsWaitFor(node: StepGraphNode): boolean {
   return Boolean(options && typeof options === 'object' && (options as Record<string, unknown>).skipWaitFor === true);
 }
 
-function ConditionIcon({ type }: { type: 'timer' | 'channel' }) {
+function ConditionIcon({ type }: { type: 'timer' | 'channel' | 'subflow' }) {
   if (type === 'timer') {
     return (
       <svg aria-hidden="true" className="graph-condition-icon" viewBox="0 0 16 16">
@@ -68,12 +68,19 @@ function ConditionIcon({ type }: { type: 'timer' | 'channel' }) {
       </svg>
     );
   }
-  return (
+  if (type === 'channel') return (
     <svg aria-hidden="true" className="graph-condition-icon" viewBox="0 0 16 16">
       <circle cx="4" cy="4" r="1.7" />
       <circle cx="12" cy="8" r="1.7" />
       <circle cx="4" cy="12" r="1.7" />
       <path d="M5.7 4.7 10.3 7M5.7 11.3 10.3 9" />
+    </svg>
+  );
+  return (
+    <svg aria-hidden="true" className="graph-condition-icon" viewBox="0 0 16 16">
+      <rect x="2" y="3" width="5" height="4" rx="1" />
+      <rect x="9" y="9" width="5" height="4" rx="1" />
+      <path d="M7 5h2.5a2 2 0 0 1 2 2v2" />
     </svg>
   );
 }
@@ -135,6 +142,7 @@ function StepNodeLabel({
   const condition = waitingCondition(node);
   const timerCount = conditionCount(condition, 'timerConditions');
   const channelCount = conditionCount(condition, 'channelConditions');
+  const subFlowCount = conditionCount(condition, 'subFlowConditions');
   const channels = [...new Set(channelNames(condition))];
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
   const showWaitFor = Boolean(
@@ -156,7 +164,7 @@ function StepNodeLabel({
             event={node.waitFor ?? node.pendingWaitFor}
             onSelect={onSelect}
           >
-            {(timerCount > 0 || channelCount > 0) && (
+            {(timerCount > 0 || channelCount > 0 || subFlowCount > 0) && (
               <small className="graph-conditions">
                 {timerCount > 0 && (
                   <i title={`${timerCount} timer condition${timerCount === 1 ? '' : 's'}`}>
@@ -168,6 +176,12 @@ function StepNodeLabel({
                   <i title={channelSummary}>
                     <ConditionIcon type="channel" />
                     <span>{channelSummary}</span>
+                  </i>
+                )}
+                {subFlowCount > 0 && (
+                  <i title={`${subFlowCount} SubFlow condition${subFlowCount === 1 ? '' : 's'}`}>
+                    <ConditionIcon type="subflow" />
+                    {subFlowCount} SubFlow{subFlowCount === 1 ? '' : 's'}
                   </i>
                 )}
               </small>
@@ -182,6 +196,24 @@ function StepNodeLabel({
         />
       </div>
     </div>
+  );
+}
+
+function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
+  const target = flow.subFlowStatus !== 'RUNNING' && flow.runId
+    ? `/flows/${encodeURIComponent(flow.flowId ?? '')}/${encodeURIComponent(flow.runId)}`
+    : `/flows/${encodeURIComponent(flow.flowId ?? '')}`;
+  return (
+    <Link
+      className="graph-sub-flow-link nodrag nopan"
+      to={target}
+      aria-label={`Open SubFlow ${flow.flowId ?? ''}`}
+    >
+      <span><ConditionIcon type="subflow" />SubFlow · {flow.subFlowStatus}</span>
+      <b>{flow.flowType ?? flow.label}</b>
+      <code title={flow.flowId}>{flow.flowId}</code>
+      {flow.reuseResolution && <small>{flow.reuseResolution.replaceAll('_', ' ')}</small>}
+    </Link>
   );
 }
 
@@ -218,6 +250,8 @@ export function StepGraph({
         model: node,
         label: node.kind === 'step' ? (
           <StepNodeLabel node={node} onSelect={onSelectEvent} />
+        ) : node.kind === 'subflow' ? (
+          <SubFlowNodeLabel flow={node} />
         ) : (
           <div className="graph-node-label">
             <span>{node.kind === 'source' ? 'Source' : node.kind === 'terminal' ? 'Terminal' : node.status}</span>
@@ -254,6 +288,7 @@ export function StepGraph({
           {['Active', 'Waiting', 'Pending', 'Completed', 'Failed'].map((status) => (
             <span key={status}><i className={`legend-${status.toLowerCase()}`} />{status}</span>
           ))}
+          <span><i className="legend-subflow" />SubFlow</span>
         </div>
       </div>
       <div className="graph-canvas">
@@ -265,6 +300,7 @@ export function StepGraph({
           maxZoom={2}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
+            if (model.kind === 'subflow') return;
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
           nodesDraggable

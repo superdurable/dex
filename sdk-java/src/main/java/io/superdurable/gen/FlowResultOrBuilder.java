@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface WaitForFlowResponseOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.WaitForFlowResponse)
+public interface FlowResultOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.FlowResult)
     com.google.protobuf.MessageOrBuilder {
 
   /**
@@ -67,4 +67,39 @@ public interface WaitForFlowResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getErrorMessageBytes();
+
+  /**
+   * <code>string flow_id = 5;</code>
+   * @return The flowId.
+   */
+  java.lang.String getFlowId();
+  /**
+   * <code>string flow_id = 5;</code>
+   * @return The bytes for flowId.
+   */
+  com.google.protobuf.ByteString
+      getFlowIdBytes();
+
+  /**
+   * <code>string run_id = 6;</code>
+   * @return The runId.
+   */
+  java.lang.String getRunId();
+  /**
+   * <code>string run_id = 6;</code>
+   * @return The bytes for runId.
+   */
+  com.google.protobuf.ByteString
+      getRunIdBytes();
+
+  /**
+   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+   * @return The enum numeric value on the wire for startResolution.
+   */
+  int getStartResolutionValue();
+  /**
+   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+   * @return The startResolution.
+   */
+  io.superdurable.gen.SubFlowStartResolution getStartResolution();
 }

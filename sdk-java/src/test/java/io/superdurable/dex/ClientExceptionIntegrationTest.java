@@ -27,7 +27,6 @@ import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
@@ -42,7 +41,6 @@ import io.superdurable.gen.StopFlowRequest;
 import io.superdurable.gen.StepCompletionOutput;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
-import io.superdurable.gen.WaitForFlowResponse;
 import io.superdurable.gen.WaitForStepCompletionRequest;
 import io.superdurable.gen.WaitForStepCompletionResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -136,7 +134,7 @@ final class ClientExceptionIntegrationTest {
 
     @Test
     void returnsEveryStepCompletionAndRejectsAmbiguousSingleOutput() {
-        final WaitForFlowResult result = client.waitForFlow("multi", Duration.ofSeconds(1));
+        final FlowResult result = client.waitForFlow("multi", Duration.ofSeconds(1));
 
         assertEquals(2, result.getCompletions().size());
         assertEquals("First", result.getCompletions().get(0).getStepType());
@@ -155,9 +153,7 @@ final class ClientExceptionIntegrationTest {
                 () -> client.waitForFlow("empty", Duration.ofSeconds(1))
                         .getSingleOutput(String.class));
 
-        final FlowUncompletedException failure = assertThrows(
-                FlowUncompletedException.class,
-                () -> client.waitForFlow("failed", Duration.ofSeconds(1)));
+        final FlowResult failure = client.waitForFlow("failed", Duration.ofSeconds(1));
         assertEquals("run-failed", failure.getRunId());
         assertEquals("Second-2", failure.getCompletions().get(1).getStepExecutionId());
         assertArrayEquals(
@@ -291,15 +287,18 @@ final class ClientExceptionIntegrationTest {
         @Override
         public void waitForFlow(
                 final WaitForFlowRequest request,
-                final StreamObserver<WaitForFlowResponse> observer) {
+                final StreamObserver<io.superdurable.gen.FlowResult> observer) {
             if ("multi".equals(request.getFlowId())
                     || "single".equals(request.getFlowId())
                     || "empty".equals(request.getFlowId())
                     || "failed".equals(request.getFlowId())) {
-                final WaitForFlowResponse.Builder response = WaitForFlowResponse.newBuilder()
-                        .setFlowStatus("failed".equals(request.getFlowId())
-                                ? io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED
-                                : io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED);
+                final io.superdurable.gen.FlowResult.Builder response =
+                        io.superdurable.gen.FlowResult.newBuilder()
+                                .setFlowId(request.getFlowId())
+                                .setRunId("run-" + request.getFlowId())
+                                .setFlowStatus("failed".equals(request.getFlowId())
+                                        ? io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED
+                                        : io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED);
                 if (!"empty".equals(request.getFlowId())) {
                     response.addResults(StepCompletionOutput.newBuilder()
                             .setCompletedStepType("First")

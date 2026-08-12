@@ -63,6 +63,8 @@ type WorkflowInfo struct {
 	WorkflowExecutionTimeout time.Duration
 	FirstRunID               string
 	CurrentRunID             string
+	Attempt                  int32
+	CronSchedule             string
 }
 
 type ActivityOptions struct {
@@ -126,7 +128,9 @@ type WorkflowProvider interface {
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
 	MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error)
+	IsCanceledError(err error) bool
 	IsContinueAsNewError(err error) bool
+	NewDisconnectedContext(ctx UnifiedContext) UnifiedContext
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error

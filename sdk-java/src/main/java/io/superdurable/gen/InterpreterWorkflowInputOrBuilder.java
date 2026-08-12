@@ -127,4 +127,19 @@ public interface InterpreterWorkflowInputOrBuilder extends
    * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
    */
   io.superdurable.gen.ContinueAsNewInputOrBuilder getContinueAsNewInputOrBuilder();
+
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   * @return Whether the subFlowParent field is set.
+   */
+  boolean hasSubFlowParent();
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   * @return The subFlowParent.
+   */
+  io.superdurable.gen.SubFlowParent getSubFlowParent();
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   */
+  io.superdurable.gen.SubFlowParentOrBuilder getSubFlowParentOrBuilder();
 }

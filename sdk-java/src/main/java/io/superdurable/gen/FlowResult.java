@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.WaitForFlowResponse}
+ * Protobuf type {@code dex.FlowResult}
  */
 @com.google.protobuf.Generated
-public final class WaitForFlowResponse extends
+public final class FlowResult extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.WaitForFlowResponse)
-    WaitForFlowResponseOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.FlowResult)
+    FlowResultOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,35 +21,38 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "WaitForFlowResponse");
+      "FlowResult");
   }
-  // Use WaitForFlowResponse.newBuilder() to construct.
-  private WaitForFlowResponse(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use FlowResult.newBuilder() to construct.
+  private FlowResult(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private WaitForFlowResponse() {
+  private FlowResult() {
     flowStatus_ = 0;
     results_ = java.util.Collections.emptyList();
     errorType_ = 0;
     errorMessage_ = "";
+    flowId_ = "";
+    runId_ = "";
+    startResolution_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.WaitForFlowResponse.class, io.superdurable.gen.WaitForFlowResponse.Builder.class);
+            io.superdurable.gen.FlowResult.class, io.superdurable.gen.FlowResult.Builder.class);
   }
 
   public static final int FLOW_STATUS_FIELD_NUMBER = 1;
@@ -168,6 +171,102 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int FLOW_ID_FIELD_NUMBER = 5;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object flowId_ = "";
+  /**
+   * <code>string flow_id = 5;</code>
+   * @return The flowId.
+   */
+  @java.lang.Override
+  public java.lang.String getFlowId() {
+    java.lang.Object ref = flowId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      flowId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string flow_id = 5;</code>
+   * @return The bytes for flowId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFlowIdBytes() {
+    java.lang.Object ref = flowId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      flowId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int RUN_ID_FIELD_NUMBER = 6;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object runId_ = "";
+  /**
+   * <code>string run_id = 6;</code>
+   * @return The runId.
+   */
+  @java.lang.Override
+  public java.lang.String getRunId() {
+    java.lang.Object ref = runId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      runId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string run_id = 6;</code>
+   * @return The bytes for runId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRunIdBytes() {
+    java.lang.Object ref = runId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      runId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int START_RESOLUTION_FIELD_NUMBER = 7;
+  private int startResolution_ = 0;
+  /**
+   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+   * @return The enum numeric value on the wire for startResolution.
+   */
+  @java.lang.Override public int getStartResolutionValue() {
+    return startResolution_;
+  }
+  /**
+   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+   * @return The startResolution.
+   */
+  @java.lang.Override public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
+    io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
+    return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -194,6 +293,15 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, errorMessage_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 5, flowId_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, runId_);
+    }
+    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
+      output.writeEnum(7, startResolution_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -218,6 +326,16 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, errorMessage_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, flowId_);
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, runId_);
+    }
+    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(7, startResolution_);
+    }
     return size;
   }
   @java.lang.Override
@@ -237,10 +355,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.WaitForFlowResponse)) {
+    if (!(obj instanceof io.superdurable.gen.FlowResult)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.WaitForFlowResponse other = (io.superdurable.gen.WaitForFlowResponse) obj;
+    io.superdurable.gen.FlowResult other = (io.superdurable.gen.FlowResult) obj;
 
     if (flowStatus_ != other.flowStatus_) return false;
     if (!getResultsList()
@@ -248,6 +366,11 @@ private static final long serialVersionUID = 0L;
     if (errorType_ != other.errorType_) return false;
     if (!getErrorMessage()
         .equals(other.getErrorMessage())) return false;
+    if (!getFlowId()
+        .equals(other.getFlowId())) return false;
+    if (!getRunId()
+        .equals(other.getRunId())) return false;
+    if (startResolution_ != other.startResolution_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -269,49 +392,55 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + errorType_;
     hash = (37 * hash) + ERROR_MESSAGE_FIELD_NUMBER;
     hash = (53 * hash) + getErrorMessage().hashCode();
+    hash = (37 * hash) + FLOW_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getFlowId().hashCode();
+    hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getRunId().hashCode();
+    hash = (37 * hash) + START_RESOLUTION_FIELD_NUMBER;
+    hash = (53 * hash) + startResolution_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(byte[] data)
+  public static io.superdurable.gen.FlowResult parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.FlowResult parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -319,26 +448,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.WaitForFlowResponse parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.FlowResult parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.WaitForFlowResponse parseDelimitedFrom(
+  public static io.superdurable.gen.FlowResult parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.WaitForFlowResponse parseFrom(
+  public static io.superdurable.gen.FlowResult parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -351,7 +480,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.WaitForFlowResponse prototype) {
+  public static Builder newBuilder(io.superdurable.gen.FlowResult prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -367,26 +496,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.WaitForFlowResponse}
+   * Protobuf type {@code dex.FlowResult}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.WaitForFlowResponse)
-      io.superdurable.gen.WaitForFlowResponseOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.FlowResult)
+      io.superdurable.gen.FlowResultOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.WaitForFlowResponse.class, io.superdurable.gen.WaitForFlowResponse.Builder.class);
+              io.superdurable.gen.FlowResult.class, io.superdurable.gen.FlowResult.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.WaitForFlowResponse.newBuilder()
+    // Construct using io.superdurable.gen.FlowResult.newBuilder()
     private Builder() {
 
     }
@@ -410,23 +539,26 @@ private static final long serialVersionUID = 0L;
       bitField0_ = (bitField0_ & ~0x00000002);
       errorType_ = 0;
       errorMessage_ = "";
+      flowId_ = "";
+      runId_ = "";
+      startResolution_ = 0;
       return this;
     }
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForFlowResponse_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowResult_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForFlowResponse getDefaultInstanceForType() {
-      return io.superdurable.gen.WaitForFlowResponse.getDefaultInstance();
+    public io.superdurable.gen.FlowResult getDefaultInstanceForType() {
+      return io.superdurable.gen.FlowResult.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForFlowResponse build() {
-      io.superdurable.gen.WaitForFlowResponse result = buildPartial();
+    public io.superdurable.gen.FlowResult build() {
+      io.superdurable.gen.FlowResult result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -434,15 +566,15 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForFlowResponse buildPartial() {
-      io.superdurable.gen.WaitForFlowResponse result = new io.superdurable.gen.WaitForFlowResponse(this);
+    public io.superdurable.gen.FlowResult buildPartial() {
+      io.superdurable.gen.FlowResult result = new io.superdurable.gen.FlowResult(this);
       buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartialRepeatedFields(io.superdurable.gen.WaitForFlowResponse result) {
+    private void buildPartialRepeatedFields(io.superdurable.gen.FlowResult result) {
       if (resultsBuilder_ == null) {
         if (((bitField0_ & 0x00000002) != 0)) {
           results_ = java.util.Collections.unmodifiableList(results_);
@@ -454,7 +586,7 @@ private static final long serialVersionUID = 0L;
       }
     }
 
-    private void buildPartial0(io.superdurable.gen.WaitForFlowResponse result) {
+    private void buildPartial0(io.superdurable.gen.FlowResult result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.flowStatus_ = flowStatus_;
@@ -465,20 +597,29 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.errorMessage_ = errorMessage_;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.flowId_ = flowId_;
+      }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.runId_ = runId_;
+      }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.startResolution_ = startResolution_;
+      }
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.WaitForFlowResponse) {
-        return mergeFrom((io.superdurable.gen.WaitForFlowResponse)other);
+      if (other instanceof io.superdurable.gen.FlowResult) {
+        return mergeFrom((io.superdurable.gen.FlowResult)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.WaitForFlowResponse other) {
-      if (other == io.superdurable.gen.WaitForFlowResponse.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.FlowResult other) {
+      if (other == io.superdurable.gen.FlowResult.getDefaultInstance()) return this;
       if (other.flowStatus_ != 0) {
         setFlowStatusValue(other.getFlowStatusValue());
       }
@@ -515,6 +656,19 @@ private static final long serialVersionUID = 0L;
         errorMessage_ = other.errorMessage_;
         bitField0_ |= 0x00000008;
         onChanged();
+      }
+      if (!other.getFlowId().isEmpty()) {
+        flowId_ = other.flowId_;
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      if (!other.getRunId().isEmpty()) {
+        runId_ = other.runId_;
+        bitField0_ |= 0x00000020;
+        onChanged();
+      }
+      if (other.startResolution_ != 0) {
+        setStartResolutionValue(other.getStartResolutionValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -570,6 +724,21 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 42: {
+              flowId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
+            case 50: {
+              runId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
+            case 56: {
+              startResolution_ = input.readEnum();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1003,23 +1172,219 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.WaitForFlowResponse)
+    private java.lang.Object flowId_ = "";
+    /**
+     * <code>string flow_id = 5;</code>
+     * @return The flowId.
+     */
+    public java.lang.String getFlowId() {
+      java.lang.Object ref = flowId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        flowId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string flow_id = 5;</code>
+     * @return The bytes for flowId.
+     */
+    public com.google.protobuf.ByteString
+        getFlowIdBytes() {
+      java.lang.Object ref = flowId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        flowId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string flow_id = 5;</code>
+     * @param value The flowId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      flowId_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_id = 5;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowId() {
+      flowId_ = getDefaultInstance().getFlowId();
+      bitField0_ = (bitField0_ & ~0x00000010);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_id = 5;</code>
+     * @param value The bytes for flowId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      flowId_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object runId_ = "";
+    /**
+     * <code>string run_id = 6;</code>
+     * @return The runId.
+     */
+    public java.lang.String getRunId() {
+      java.lang.Object ref = runId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        runId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string run_id = 6;</code>
+     * @return The bytes for runId.
+     */
+    public com.google.protobuf.ByteString
+        getRunIdBytes() {
+      java.lang.Object ref = runId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        runId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string run_id = 6;</code>
+     * @param value The runId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRunId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      runId_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string run_id = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRunId() {
+      runId_ = getDefaultInstance().getRunId();
+      bitField0_ = (bitField0_ & ~0x00000020);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string run_id = 6;</code>
+     * @param value The bytes for runId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRunIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      runId_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+
+    private int startResolution_ = 0;
+    /**
+     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+     * @return The enum numeric value on the wire for startResolution.
+     */
+    @java.lang.Override public int getStartResolutionValue() {
+      return startResolution_;
+    }
+    /**
+     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+     * @param value The enum numeric value on the wire for startResolution to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStartResolutionValue(int value) {
+      startResolution_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+     * @return The startResolution.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
+      io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
+      return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+     * @param value The startResolution to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setStartResolution(io.superdurable.gen.SubFlowStartResolution value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000040;
+      startResolution_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStartResolution() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      startResolution_ = 0;
+      onChanged();
+      return this;
+    }
+
+    // @@protoc_insertion_point(builder_scope:dex.FlowResult)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.WaitForFlowResponse)
-  private static final io.superdurable.gen.WaitForFlowResponse DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.FlowResult)
+  private static final io.superdurable.gen.FlowResult DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.WaitForFlowResponse();
+    DEFAULT_INSTANCE = new io.superdurable.gen.FlowResult();
   }
 
-  public static io.superdurable.gen.WaitForFlowResponse getDefaultInstance() {
+  public static io.superdurable.gen.FlowResult getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<WaitForFlowResponse>
-      PARSER = new com.google.protobuf.AbstractParser<WaitForFlowResponse>() {
+  private static final com.google.protobuf.Parser<FlowResult>
+      PARSER = new com.google.protobuf.AbstractParser<FlowResult>() {
     @java.lang.Override
-    public WaitForFlowResponse parsePartialFrom(
+    public FlowResult parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1038,17 +1403,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<WaitForFlowResponse> parser() {
+  public static com.google.protobuf.Parser<FlowResult> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<WaitForFlowResponse> getParserForType() {
+  public com.google.protobuf.Parser<FlowResult> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.WaitForFlowResponse getDefaultInstanceForType() {
+  public io.superdurable.gen.FlowResult getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

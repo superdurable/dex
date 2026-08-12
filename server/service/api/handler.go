@@ -115,7 +115,7 @@ func (h *handler) LoadBlobs(
 func (h *handler) WaitForFlow(
 	ctx context.Context,
 	req *dexpb.WaitForFlowRequest,
-) (*dexpb.WaitForFlowResponse, error) {
+) (*dexpb.FlowResult, error) {
 	return h.svc.WaitForFlow(ctx, req)
 }
 

@@ -47,6 +47,8 @@ private static final long serialVersionUID = 0L;
     switch (number) {
       case 1:
         return internalGetCompletedTimerConditions();
+      case 2:
+        return internalGetCompletedSubFlowResults();
       default:
         throw new RuntimeException(
             "Invalid map field number: " + number);
@@ -199,6 +201,85 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
     return map.get(key);
   }
 
+  public static final int COMPLETED_SUB_FLOW_RESULTS_FIELD_NUMBER = 2;
+  private static final class CompletedSubFlowResultsDefaultEntryHolder {
+    static final com.google.protobuf.MapEntry<
+        java.lang.Integer, io.superdurable.gen.FlowResult> defaultEntry =
+            com.google.protobuf.MapEntry
+            .<java.lang.Integer, io.superdurable.gen.FlowResult>newDefaultInstance(
+                io.superdurable.gen.DexProto.internal_static_dex_StepExecutionCompletedConditions_CompletedSubFlowResultsEntry_descriptor, 
+                com.google.protobuf.WireFormat.FieldType.INT32,
+                0,
+                com.google.protobuf.WireFormat.FieldType.MESSAGE,
+                io.superdurable.gen.FlowResult.getDefaultInstance());
+  }
+  @SuppressWarnings("serial")
+  private com.google.protobuf.MapField<
+      java.lang.Integer, io.superdurable.gen.FlowResult> completedSubFlowResults_;
+  private com.google.protobuf.MapField<java.lang.Integer, io.superdurable.gen.FlowResult>
+  internalGetCompletedSubFlowResults() {
+    if (completedSubFlowResults_ == null) {
+      return com.google.protobuf.MapField.emptyMapField(
+          CompletedSubFlowResultsDefaultEntryHolder.defaultEntry);
+    }
+    return completedSubFlowResults_;
+  }
+  public int getCompletedSubFlowResultsCount() {
+    return internalGetCompletedSubFlowResults().getMap().size();
+  }
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  @java.lang.Override
+  public boolean containsCompletedSubFlowResults(
+      int key) {
+
+    return internalGetCompletedSubFlowResults().getMap().containsKey(key);
+  }
+  /**
+   * Use {@link #getCompletedSubFlowResultsMap()} instead.
+   */
+  @java.lang.Override
+  @java.lang.Deprecated
+  public java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> getCompletedSubFlowResults() {
+    return getCompletedSubFlowResultsMap();
+  }
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  @java.lang.Override
+  public java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> getCompletedSubFlowResultsMap() {
+    return internalGetCompletedSubFlowResults().getMap();
+  }
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  @java.lang.Override
+  public /* nullable */
+io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrDefault(
+      int key,
+      /* nullable */
+io.superdurable.gen.FlowResult defaultValue) {
+
+    java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> map =
+        internalGetCompletedSubFlowResults().getMap();
+    return map.containsKey(key) ? map.get(key) : defaultValue;
+  }
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrThrow(
+      int key) {
+
+    java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> map =
+        internalGetCompletedSubFlowResults().getMap();
+    if (!map.containsKey(key)) {
+      throw new java.lang.IllegalArgumentException();
+    }
+    return map.get(key);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -219,6 +300,12 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
         internalGetCompletedTimerConditions(),
         CompletedTimerConditionsDefaultEntryHolder.defaultEntry,
         1);
+    com.google.protobuf.GeneratedMessage
+      .serializeIntegerMapTo(
+        output,
+        internalGetCompletedSubFlowResults(),
+        CompletedSubFlowResultsDefaultEntryHolder.defaultEntry,
+        2);
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -232,6 +319,16 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
           .buildPartial();
       size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(1, completedTimerConditions__);
+    }
+    for (java.util.Map.Entry<java.lang.Integer, io.superdurable.gen.FlowResult> entry
+         : internalGetCompletedSubFlowResults().getMap().entrySet()) {
+      com.google.protobuf.MapEntry<java.lang.Integer, io.superdurable.gen.FlowResult>
+      completedSubFlowResults__ = CompletedSubFlowResultsDefaultEntryHolder.defaultEntry.newBuilderForType()
+          .setKey(entry.getKey())
+          .setValue(entry.getValue())
+          .buildPartial();
+      size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(2, completedSubFlowResults__);
     }
     return size;
   }
@@ -259,6 +356,8 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
 
     if (!internalGetCompletedTimerConditions().equals(
         other.internalGetCompletedTimerConditions())) return false;
+    if (!internalGetCompletedSubFlowResults().equals(
+        other.internalGetCompletedSubFlowResults())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -273,6 +372,10 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
     if (!internalGetCompletedTimerConditions().getMap().isEmpty()) {
       hash = (37 * hash) + COMPLETED_TIMER_CONDITIONS_FIELD_NUMBER;
       hash = (53 * hash) + internalGetCompletedTimerConditions().hashCode();
+    }
+    if (!internalGetCompletedSubFlowResults().getMap().isEmpty()) {
+      hash = (37 * hash) + COMPLETED_SUB_FLOW_RESULTS_FIELD_NUMBER;
+      hash = (53 * hash) + internalGetCompletedSubFlowResults().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -389,6 +492,8 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
       switch (number) {
         case 1:
           return internalGetCompletedTimerConditions();
+        case 2:
+          return internalGetCompletedSubFlowResults();
         default:
           throw new RuntimeException(
               "Invalid map field number: " + number);
@@ -400,6 +505,8 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
       switch (number) {
         case 1:
           return internalGetMutableCompletedTimerConditions();
+        case 2:
+          return internalGetMutableCompletedSubFlowResults();
         default:
           throw new RuntimeException(
               "Invalid map field number: " + number);
@@ -428,6 +535,7 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
       super.clear();
       bitField0_ = 0;
       internalGetMutableCompletedTimerConditions().clear();
+      internalGetMutableCompletedSubFlowResults().clear();
       return this;
     }
 
@@ -465,6 +573,9 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
         result.completedTimerConditions_ = internalGetCompletedTimerConditions();
         result.completedTimerConditions_.makeImmutable();
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.completedSubFlowResults_ = internalGetCompletedSubFlowResults().build(CompletedSubFlowResultsDefaultEntryHolder.defaultEntry);
+      }
     }
 
     @java.lang.Override
@@ -482,6 +593,9 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
       internalGetMutableCompletedTimerConditions().mergeFrom(
           other.internalGetCompletedTimerConditions());
       bitField0_ |= 0x00000001;
+      internalGetMutableCompletedSubFlowResults().mergeFrom(
+          other.internalGetCompletedSubFlowResults());
+      bitField0_ |= 0x00000002;
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -517,6 +631,15 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
               bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 18: {
+              com.google.protobuf.MapEntry<java.lang.Integer, io.superdurable.gen.FlowResult>
+              completedSubFlowResults__ = input.readMessage(
+                  CompletedSubFlowResultsDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
+              internalGetMutableCompletedSubFlowResults().ensureBuilderMap().put(
+                  completedSubFlowResults__.getKey(), completedSubFlowResults__.getValue());
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -740,6 +863,161 @@ io.superdurable.gen.InternalTimerStatus defaultValue) {
           .putAll(values);
       bitField0_ |= 0x00000001;
       return this;
+    }
+
+    private static final class CompletedSubFlowResultsConverter implements com.google.protobuf.MapFieldBuilder.Converter<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder, io.superdurable.gen.FlowResult> {
+      @java.lang.Override
+      public io.superdurable.gen.FlowResult build(io.superdurable.gen.FlowResultOrBuilder val) {
+        if (val instanceof io.superdurable.gen.FlowResult) { return (io.superdurable.gen.FlowResult) val; }
+        return ((io.superdurable.gen.FlowResult.Builder) val).build();
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.MapEntry<java.lang.Integer, io.superdurable.gen.FlowResult> defaultEntry() {
+        return CompletedSubFlowResultsDefaultEntryHolder.defaultEntry;
+      }
+    };
+    private static final CompletedSubFlowResultsConverter completedSubFlowResultsConverter = new CompletedSubFlowResultsConverter();
+
+    private com.google.protobuf.MapFieldBuilder<
+        java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder, io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder> completedSubFlowResults_;
+    private com.google.protobuf.MapFieldBuilder<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder, io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder>
+        internalGetCompletedSubFlowResults() {
+      if (completedSubFlowResults_ == null) {
+        return new com.google.protobuf.MapFieldBuilder<>(completedSubFlowResultsConverter);
+      }
+      return completedSubFlowResults_;
+    }
+    private com.google.protobuf.MapFieldBuilder<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder, io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder>
+        internalGetMutableCompletedSubFlowResults() {
+      if (completedSubFlowResults_ == null) {
+        completedSubFlowResults_ = new com.google.protobuf.MapFieldBuilder<>(completedSubFlowResultsConverter);
+      }
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return completedSubFlowResults_;
+    }
+    public int getCompletedSubFlowResultsCount() {
+      return internalGetCompletedSubFlowResults().ensureBuilderMap().size();
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    @java.lang.Override
+    public boolean containsCompletedSubFlowResults(
+        int key) {
+
+      return internalGetCompletedSubFlowResults().ensureBuilderMap().containsKey(key);
+    }
+    /**
+     * Use {@link #getCompletedSubFlowResultsMap()} instead.
+     */
+    @java.lang.Override
+    @java.lang.Deprecated
+    public java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> getCompletedSubFlowResults() {
+      return getCompletedSubFlowResultsMap();
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    @java.lang.Override
+    public java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> getCompletedSubFlowResultsMap() {
+      return internalGetCompletedSubFlowResults().getImmutableMap();
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    @java.lang.Override
+    public /* nullable */
+io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrDefault(
+        int key,
+        /* nullable */
+io.superdurable.gen.FlowResult defaultValue) {
+
+      java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder> map = internalGetMutableCompletedSubFlowResults().ensureBuilderMap();
+      return map.containsKey(key) ? completedSubFlowResultsConverter.build(map.get(key)) : defaultValue;
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrThrow(
+        int key) {
+
+      java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder> map = internalGetMutableCompletedSubFlowResults().ensureBuilderMap();
+      if (!map.containsKey(key)) {
+        throw new java.lang.IllegalArgumentException();
+      }
+      return completedSubFlowResultsConverter.build(map.get(key));
+    }
+    public Builder clearCompletedSubFlowResults() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      internalGetMutableCompletedSubFlowResults().clear();
+      return this;
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    public Builder removeCompletedSubFlowResults(
+        int key) {
+
+      internalGetMutableCompletedSubFlowResults().ensureBuilderMap()
+          .remove(key);
+      return this;
+    }
+    /**
+     * Use alternate mutation accessors instead.
+     */
+    @java.lang.Deprecated
+    public java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult>
+        getMutableCompletedSubFlowResults() {
+      bitField0_ |= 0x00000002;
+      return internalGetMutableCompletedSubFlowResults().ensureMessageMap();
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    public Builder putCompletedSubFlowResults(
+        int key,
+        io.superdurable.gen.FlowResult value) {
+
+      if (value == null) { throw new NullPointerException("map value"); }
+      internalGetMutableCompletedSubFlowResults().ensureBuilderMap()
+          .put(key, value);
+      bitField0_ |= 0x00000002;
+      return this;
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    public Builder putAllCompletedSubFlowResults(
+        java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult> values) {
+      for (java.util.Map.Entry<java.lang.Integer, io.superdurable.gen.FlowResult> e : values.entrySet()) {
+        if (e.getKey() == null || e.getValue() == null) {
+          throw new NullPointerException();
+        }
+      }
+      internalGetMutableCompletedSubFlowResults().ensureBuilderMap()
+          .putAll(values);
+      bitField0_ |= 0x00000002;
+      return this;
+    }
+    /**
+     * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+     */
+    public io.superdurable.gen.FlowResult.Builder putCompletedSubFlowResultsBuilderIfAbsent(
+        int key) {
+      java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResultOrBuilder> builderMap = internalGetMutableCompletedSubFlowResults().ensureBuilderMap();
+      io.superdurable.gen.FlowResultOrBuilder entry = builderMap.get(key);
+      if (entry == null) {
+        entry = io.superdurable.gen.FlowResult.newBuilder();
+        builderMap.put(key, entry);
+      }
+      if (entry instanceof io.superdurable.gen.FlowResult) {
+        entry = ((io.superdurable.gen.FlowResult) entry).toBuilder();
+        builderMap.put(key, entry);
+      }
+      return (io.superdurable.gen.FlowResult.Builder) entry;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepExecutionCompletedConditions)

@@ -69,6 +69,7 @@ func (i *Interpreter) StartEngineFlow(
 	var outputCollector *OutputCollector
 	var continueAsNewer *ContinueAsNewer
 	var attributeSynchronizer *AttributeSynchronizer
+	var resumeInfos []*dexpb.StepExecutionResumeInfo
 	if input.GetIsResumeFromContinueAsNew() {
 		previous, err := i.LoadInternalsFromPreviousRun(
 			ctx,
@@ -79,6 +80,7 @@ func (i *Interpreter) StartEngineFlow(
 		if err != nil {
 			return nil, err
 		}
+		resumeInfos = previous.GetStepExecutionsToResume()
 
 		// The below initialization order should be the same as for non-continueAsNew
 
@@ -174,6 +176,7 @@ func (i *Interpreter) StartEngineFlow(
 			attributeSynchronizer,
 		)
 	}
+	subFlowTracker := newSubFlowTracker(resumeInfos)
 	signalReceiver = NewSignalReceiver(
 		ctx,
 		provider,
@@ -183,6 +186,7 @@ func (i *Interpreter) StartEngineFlow(
 		timerProcessor,
 		continueAsNewCounter,
 		flowConfiger,
+		subFlowTracker,
 	)
 	attributeSynchronizer.Start()
 
@@ -224,6 +228,13 @@ func (i *Interpreter) StartEngineFlow(
 
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
+		if shouldReportSubFlowCompletion(provider, ctx, input.GetSubFlowParent(), retErr) {
+			if reportErr := i.reportSubFlowCompletion(
+				ctx, provider, input.GetSubFlowParent(), outputCollector.GetAll(), retErr,
+			); reportErr != nil {
+				retErr = reportErr
+			}
+		}
 		if provider.IsReplaying(ctx) {
 			return
 		}
@@ -366,6 +377,7 @@ func (i *Interpreter) StartEngineFlow(
 						flowConfiger,
 						globalVersioner,
 						signalReceiver,
+						subFlowTracker,
 					)
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
 						errToFailWf = stepExeErr
@@ -657,6 +669,7 @@ func (i *Interpreter) processStepExecution(
 	flowConfiger *interpreterconfig.FlowConfiger,
 	globalVersioner *GlobalVersioner,
 	signalReceiver *SignalReceiver,
+	subFlowTracker *subFlowTracker,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -685,6 +698,7 @@ func (i *Interpreter) processStepExecution(
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
+	completedSubFlowResults := map[int32]*dexpb.FlowResult{}
 
 	isResumeFromContinueAsNew := stepRequest.IsResumeRequest()
 
@@ -715,6 +729,9 @@ func (i *Interpreter) processStepExecution(
 		if resumeRequest.GetCompletedConditions() != nil &&
 			resumeRequest.GetCompletedConditions().GetCompletedTimerConditions() != nil {
 			completedTimerConditions = resumeRequest.GetCompletedConditions().GetCompletedTimerConditions()
+		}
+		if tracked := subFlowTracker.completed(stepExeId); tracked != nil {
+			completedSubFlowResults = tracked
 		}
 	} else {
 		if step.StepOptions != nil {
@@ -804,6 +821,25 @@ func (i *Interpreter) processStepExecution(
 	if waitingCondition == nil {
 		waitingCondition = &dexpb.WaitingCondition{}
 	}
+	if len(waitingCondition.GetSubFlowConditions()) > 0 {
+		if !isResumeFromContinueAsNew {
+			subFlowTracker.register(stepExeId, waitingCondition, completedSubFlowResults)
+			starter := newSubFlowStarter(
+				provider,
+				i.activities,
+				subFlowTracker,
+				stepExeId,
+				info.WorkflowExecution.ID,
+				flowConfiger.Get(),
+				waitingCondition,
+			)
+			if err := starter.startAll(ctx); err != nil {
+				return nil, service.StepExecutionStatusInternalError, err
+			}
+		} else if subFlowTracker.completed(stepExeId) == nil {
+			subFlowTracker.register(stepExeId, waitingCondition, completedSubFlowResults)
+		}
+	}
 
 	waitForThreads := map[string]bool{}
 
@@ -860,6 +896,7 @@ func (i *Interpreter) processStepExecution(
 			Step:            step,
 			CompletedConditions: &dexpb.StepExecutionCompletedConditions{
 				CompletedTimerConditions: completedTimerConditions,
+				CompletedSubFlowResults:  completedSubFlowResults,
 			},
 			WaitingCondition: waitingCondition,
 			StepExeLocals:    stepExeLocals,
@@ -875,6 +912,7 @@ func (i *Interpreter) processStepExecution(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
+			completedSubFlowResults,
 		)
 		return conditionMet || signalReceiver.IsStopFlowRequested() || continueAsNewCounter.IsThresholdMet()
 	})
@@ -909,7 +947,9 @@ func (i *Interpreter) processStepExecution(
 		waitingCondition,
 		completedTimerConditions,
 		consumed,
+		completedSubFlowResults,
 	)
+	subFlowTracker.unregister(stepExeId)
 	if waitForMethErr != nil {
 		conditionResults.WaitForFailed = true
 		recoveryError, mappingErr := provider.MapToRecoveryError(waitForMethErr)
@@ -934,6 +974,77 @@ func (i *Interpreter) processStepExecution(
 		stepExeLocals,
 		false,
 		globalVersioner,
+	)
+}
+
+func shouldReportSubFlowCompletion(
+	provider interfaces.WorkflowProvider,
+	ctx interfaces.UnifiedContext,
+	parent *dexpb.SubFlowParent,
+	flowErr error,
+) bool {
+	if parent == nil || provider.IsContinueAsNewError(flowErr) {
+		return false
+	}
+	if provider.IsCanceledError(flowErr) {
+		return true
+	}
+	info := provider.GetWorkflowInfo(ctx)
+	if info.CronSchedule != "" {
+		return false
+	}
+	retryPolicy := parent.GetRetryPolicy()
+	if flowErr == nil || retryPolicy == nil {
+		return true
+	}
+	return retryPolicy.GetMaximumAttempts() > 0 && info.Attempt >= retryPolicy.GetMaximumAttempts()
+}
+
+func (i *Interpreter) reportSubFlowCompletion(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	parent *dexpb.SubFlowParent,
+	outputs []*dexpb.StepCompletionOutput,
+	flowErr error,
+) error {
+	info := provider.GetWorkflowInfo(ctx)
+	result := &dexpb.FlowResult{
+		FlowId:     info.WorkflowExecution.ID,
+		RunId:      info.WorkflowExecution.RunID,
+		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+		Results:    outputs,
+	}
+	if flowErr != nil {
+		result.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
+		if provider.IsCanceledError(flowErr) {
+			result.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_CANCELED
+		}
+		if errorType, errorResponse, ok := provider.GetFlowError(flowErr); ok {
+			result.ErrorType = errorType
+			result.ErrorMessage = errorResponse.GetDetail()
+		} else {
+			result.ErrorMessage = flowErr.Error()
+		}
+		ctx = provider.NewDisconnectedContext(ctx)
+	}
+	ctx = provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
+		StartToCloseTimeout:                 30 * time.Second,
+		LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
+	})
+	var deliveryResult dexpb.SubFlowCompletionDeliveryResult
+	return provider.ExecuteLocalActivity(
+		&deliveryResult,
+		ctx,
+		i.activities.ReportSubFlowCompletion,
+		&dexpb.ReportSubFlowCompletionActivityInput{
+			ParentFlowId: parent.GetFlowId(),
+			Signal: &dexpb.SubFlowCompletionSignalRequest{
+				StepExecutionId:     parent.GetStepExecutionId(),
+				SubFlowIndex:        parent.GetSubFlowIndex(),
+				NormalizedRequestId: parent.GetNormalizedRequestId(),
+				Result:              result,
+			},
+		},
 	)
 }
 

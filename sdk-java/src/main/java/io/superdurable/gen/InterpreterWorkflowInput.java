@@ -290,6 +290,32 @@ private static final long serialVersionUID = 0L;
     return continueAsNewInput_ == null ? io.superdurable.gen.ContinueAsNewInput.getDefaultInstance() : continueAsNewInput_;
   }
 
+  public static final int SUB_FLOW_PARENT_FIELD_NUMBER = 12;
+  private io.superdurable.gen.SubFlowParent subFlowParent_;
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   * @return Whether the subFlowParent field is set.
+   */
+  @java.lang.Override
+  public boolean hasSubFlowParent() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   * @return The subFlowParent.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.SubFlowParent getSubFlowParent() {
+    return subFlowParent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : subFlowParent_;
+  }
+  /**
+   * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.SubFlowParentOrBuilder getSubFlowParentOrBuilder() {
+    return subFlowParent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : subFlowParent_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -327,6 +353,9 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000008) != 0)) {
       output.writeMessage(11, getContinueAsNewInput());
+    }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      output.writeMessage(12, getSubFlowParent());
     }
     getUnknownFields().writeTo(output);
   }
@@ -366,6 +395,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000008) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(11, getContinueAsNewInput());
+    }
+    if (((bitField0_ & 0x00000010) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(12, getSubFlowParent());
     }
     return size;
   }
@@ -419,6 +452,11 @@ private static final long serialVersionUID = 0L;
       if (!getContinueAsNewInput()
           .equals(other.getContinueAsNewInput())) return false;
     }
+    if (hasSubFlowParent() != other.hasSubFlowParent()) return false;
+    if (hasSubFlowParent()) {
+      if (!getSubFlowParent()
+          .equals(other.getSubFlowParent())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -456,6 +494,10 @@ private static final long serialVersionUID = 0L;
     if (hasContinueAsNewInput()) {
       hash = (37 * hash) + CONTINUE_AS_NEW_INPUT_FIELD_NUMBER;
       hash = (53 * hash) + getContinueAsNewInput().hashCode();
+    }
+    if (hasSubFlowParent()) {
+      hash = (37 * hash) + SUB_FLOW_PARENT_FIELD_NUMBER;
+      hash = (53 * hash) + getSubFlowParent().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -592,6 +634,7 @@ private static final long serialVersionUID = 0L;
         internalGetInitAttributesFieldBuilder();
         internalGetConfigFieldBuilder();
         internalGetContinueAsNewInputFieldBuilder();
+        internalGetSubFlowParentFieldBuilder();
       }
     }
     @java.lang.Override
@@ -627,6 +670,11 @@ private static final long serialVersionUID = 0L;
       if (continueAsNewInputBuilder_ != null) {
         continueAsNewInputBuilder_.dispose();
         continueAsNewInputBuilder_ = null;
+      }
+      subFlowParent_ = null;
+      if (subFlowParentBuilder_ != null) {
+        subFlowParentBuilder_.dispose();
+        subFlowParentBuilder_ = null;
       }
       return this;
     }
@@ -708,6 +756,12 @@ private static final long serialVersionUID = 0L;
             : continueAsNewInputBuilder_.build();
         to_bitField0_ |= 0x00000008;
       }
+      if (((from_bitField0_ & 0x00000100) != 0)) {
+        result.subFlowParent_ = subFlowParentBuilder_ == null
+            ? subFlowParent_
+            : subFlowParentBuilder_.build();
+        to_bitField0_ |= 0x00000010;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -773,6 +827,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasContinueAsNewInput()) {
         mergeContinueAsNewInput(other.getContinueAsNewInput());
+      }
+      if (other.hasSubFlowParent()) {
+        mergeSubFlowParent(other.getSubFlowParent());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -856,6 +913,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000080;
               break;
             } // case 90
+            case 98: {
+              input.readMessage(
+                  internalGetSubFlowParentFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000100;
+              break;
+            } // case 98
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1783,6 +1847,127 @@ private static final long serialVersionUID = 0L;
         continueAsNewInput_ = null;
       }
       return continueAsNewInputBuilder_;
+    }
+
+    private io.superdurable.gen.SubFlowParent subFlowParent_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder> subFlowParentBuilder_;
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     * @return Whether the subFlowParent field is set.
+     */
+    public boolean hasSubFlowParent() {
+      return ((bitField0_ & 0x00000100) != 0);
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     * @return The subFlowParent.
+     */
+    public io.superdurable.gen.SubFlowParent getSubFlowParent() {
+      if (subFlowParentBuilder_ == null) {
+        return subFlowParent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : subFlowParent_;
+      } else {
+        return subFlowParentBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public Builder setSubFlowParent(io.superdurable.gen.SubFlowParent value) {
+      if (subFlowParentBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        subFlowParent_ = value;
+      } else {
+        subFlowParentBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public Builder setSubFlowParent(
+        io.superdurable.gen.SubFlowParent.Builder builderForValue) {
+      if (subFlowParentBuilder_ == null) {
+        subFlowParent_ = builderForValue.build();
+      } else {
+        subFlowParentBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public Builder mergeSubFlowParent(io.superdurable.gen.SubFlowParent value) {
+      if (subFlowParentBuilder_ == null) {
+        if (((bitField0_ & 0x00000100) != 0) &&
+          subFlowParent_ != null &&
+          subFlowParent_ != io.superdurable.gen.SubFlowParent.getDefaultInstance()) {
+          getSubFlowParentBuilder().mergeFrom(value);
+        } else {
+          subFlowParent_ = value;
+        }
+      } else {
+        subFlowParentBuilder_.mergeFrom(value);
+      }
+      if (subFlowParent_ != null) {
+        bitField0_ |= 0x00000100;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public Builder clearSubFlowParent() {
+      bitField0_ = (bitField0_ & ~0x00000100);
+      subFlowParent_ = null;
+      if (subFlowParentBuilder_ != null) {
+        subFlowParentBuilder_.dispose();
+        subFlowParentBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public io.superdurable.gen.SubFlowParent.Builder getSubFlowParentBuilder() {
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return internalGetSubFlowParentFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    public io.superdurable.gen.SubFlowParentOrBuilder getSubFlowParentOrBuilder() {
+      if (subFlowParentBuilder_ != null) {
+        return subFlowParentBuilder_.getMessageOrBuilder();
+      } else {
+        return subFlowParent_ == null ?
+            io.superdurable.gen.SubFlowParent.getDefaultInstance() : subFlowParent_;
+      }
+    }
+    /**
+     * <code>.dex.SubFlowParent sub_flow_parent = 12;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder> 
+        internalGetSubFlowParentFieldBuilder() {
+      if (subFlowParentBuilder_ == null) {
+        subFlowParentBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder>(
+                getSubFlowParent(),
+                getParentForChildren(),
+                isClean());
+        subFlowParent_ = null;
+      }
+      return subFlowParentBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InterpreterWorkflowInput)

@@ -71,6 +71,7 @@ type errorHandler interface {
 	GetRunIdFromWorkflowAlreadyStartedError(error) (string, bool)
 	IsNotFoundError(error) bool
 	IsUnknownUpdateError(error, string) bool
+	IsWorkflowClosedOrNotFoundError(error) bool
 	IsRequestTimeoutError(error) bool
 	IsWorkflowTimeoutError(error) bool
 }

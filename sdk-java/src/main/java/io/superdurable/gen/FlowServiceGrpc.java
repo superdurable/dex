@@ -205,28 +205,28 @@ public final class FlowServiceGrpc {
   }
 
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.WaitForFlowRequest,
-      io.superdurable.gen.WaitForFlowResponse> getWaitForFlowMethod;
+      io.superdurable.gen.FlowResult> getWaitForFlowMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "WaitForFlow",
       requestType = io.superdurable.gen.WaitForFlowRequest.class,
-      responseType = io.superdurable.gen.WaitForFlowResponse.class,
+      responseType = io.superdurable.gen.FlowResult.class,
       methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
   public static io.grpc.MethodDescriptor<io.superdurable.gen.WaitForFlowRequest,
-      io.superdurable.gen.WaitForFlowResponse> getWaitForFlowMethod() {
-    io.grpc.MethodDescriptor<io.superdurable.gen.WaitForFlowRequest, io.superdurable.gen.WaitForFlowResponse> getWaitForFlowMethod;
+      io.superdurable.gen.FlowResult> getWaitForFlowMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.WaitForFlowRequest, io.superdurable.gen.FlowResult> getWaitForFlowMethod;
     if ((getWaitForFlowMethod = FlowServiceGrpc.getWaitForFlowMethod) == null) {
       synchronized (FlowServiceGrpc.class) {
         if ((getWaitForFlowMethod = FlowServiceGrpc.getWaitForFlowMethod) == null) {
           FlowServiceGrpc.getWaitForFlowMethod = getWaitForFlowMethod =
-              io.grpc.MethodDescriptor.<io.superdurable.gen.WaitForFlowRequest, io.superdurable.gen.WaitForFlowResponse>newBuilder()
+              io.grpc.MethodDescriptor.<io.superdurable.gen.WaitForFlowRequest, io.superdurable.gen.FlowResult>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "WaitForFlow"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.superdurable.gen.WaitForFlowRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.superdurable.gen.WaitForFlowResponse.getDefaultInstance()))
+                  io.superdurable.gen.FlowResult.getDefaultInstance()))
               .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("WaitForFlow"))
               .build();
         }
@@ -765,7 +765,7 @@ public final class FlowServiceGrpc {
     /**
      */
     default void waitForFlow(io.superdurable.gen.WaitForFlowRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForFlowResponse> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.FlowResult> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getWaitForFlowMethod(), responseObserver);
     }
 
@@ -952,7 +952,7 @@ public final class FlowServiceGrpc {
     /**
      */
     public void waitForFlow(io.superdurable.gen.WaitForFlowRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForFlowResponse> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.FlowResult> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getWaitForFlowMethod(), getCallOptions()), request, responseObserver);
     }
@@ -1133,7 +1133,7 @@ public final class FlowServiceGrpc {
 
     /**
      */
-    public io.superdurable.gen.WaitForFlowResponse waitForFlow(io.superdurable.gen.WaitForFlowRequest request) {
+    public io.superdurable.gen.FlowResult waitForFlow(io.superdurable.gen.WaitForFlowRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getWaitForFlowMethod(), getCallOptions(), request);
     }
@@ -1306,7 +1306,7 @@ public final class FlowServiceGrpc {
 
     /**
      */
-    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.WaitForFlowResponse> waitForFlow(
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.FlowResult> waitForFlow(
         io.superdurable.gen.WaitForFlowRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
           getChannel().newCall(getWaitForFlowMethod(), getCallOptions()), request);
@@ -1490,7 +1490,7 @@ public final class FlowServiceGrpc {
           break;
         case METHODID_WAIT_FOR_FLOW:
           serviceImpl.waitForFlow((io.superdurable.gen.WaitForFlowRequest) request,
-              (io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForFlowResponse>) responseObserver);
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.FlowResult>) responseObserver);
           break;
         case METHODID_SEARCH_FLOWS:
           serviceImpl.searchFlows((io.superdurable.gen.SearchFlowsRequest) request,
@@ -1613,7 +1613,7 @@ public final class FlowServiceGrpc {
           io.grpc.stub.ServerCalls.asyncUnaryCall(
             new MethodHandlers<
               io.superdurable.gen.WaitForFlowRequest,
-              io.superdurable.gen.WaitForFlowResponse>(
+              io.superdurable.gen.FlowResult>(
                 service, METHODID_WAIT_FOR_FLOW)))
         .addMethod(
           getSearchFlowsMethod(),

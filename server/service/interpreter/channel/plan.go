@@ -35,10 +35,12 @@ func Plan(
 	waitingCondition *dexpb.WaitingCondition,
 	availability ChannelAvailability,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
+	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
 ) (*MatchPlan, bool) {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
-	if len(timers)+len(channels) == 0 {
+	subFlows := waitingCondition.GetSubFlowConditions()
+	if len(timers)+len(channels)+len(subFlows) == 0 {
 		// Nothing to wait for.
 		return &MatchPlan{}, true
 	}
@@ -55,6 +57,14 @@ func Plan(
 			completedTimers[int(idx)] = true
 		}
 	}
+	completedSubFlows := map[int]bool{}
+	if len(completedSubFlowConditions) > 0 {
+		for idx, result := range completedSubFlowConditions[0] {
+			if result != nil && isTerminalFlowStatus(result.GetFlowStatus()) {
+				completedSubFlows[int(idx)] = true
+			}
+		}
+	}
 
 	for _, matchCandidate := range buildTriggerCandidates(waitingCondition) {
 		if plan, ok := checkTriggerCandidate(
@@ -62,6 +72,7 @@ func Plan(
 			normalizedConditions,
 			availability,
 			completedTimers,
+			completedSubFlows,
 		); ok {
 			return plan, true
 		}
@@ -83,6 +94,7 @@ type normalizedChannelCondition struct {
 type triggerCandidate struct {
 	timerIndexes   []int
 	channelIndexes []int
+	subFlowIndexes []int
 }
 
 func buildTriggerCandidates(
@@ -90,6 +102,7 @@ func buildTriggerCandidates(
 ) []triggerCandidate {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
+	subFlows := waitingCondition.GetSubFlowConditions()
 	switch waitingCondition.GetWaitingConditionType() {
 	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED:
 		// ALL has one candidate containing every condition.
@@ -100,18 +113,24 @@ func buildTriggerCandidates(
 		for i := range channels {
 			all.channelIndexes = append(all.channelIndexes, i)
 		}
+		for i := range subFlows {
+			all.subFlowIndexes = append(all.subFlowIndexes, i)
+		}
 		return []triggerCandidate{all}
 
 	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
 		// ANY has one candidate per condition.
 		//
 		// Canonical order: timers by declaration, then channels by declaration.
-		candidates := make([]triggerCandidate, 0, len(timers)+len(channels))
+		candidates := make([]triggerCandidate, 0, len(timers)+len(channels)+len(subFlows))
 		for i := range timers {
 			candidates = append(candidates, triggerCandidate{timerIndexes: []int{i}})
 		}
 		for i := range channels {
 			candidates = append(candidates, triggerCandidate{channelIndexes: []int{i}})
+		}
+		for i := range subFlows {
+			candidates = append(candidates, triggerCandidate{subFlowIndexes: []int{i}})
 		}
 		return candidates
 
@@ -125,6 +144,10 @@ func buildTriggerCandidates(
 		for i, channelCondition := range channels {
 			channelIndexById[channelCondition.GetConditionId()] = i
 		}
+		subFlowIndexByID := make(map[string]int, len(subFlows))
+		for i, subFlowCondition := range subFlows {
+			subFlowIndexByID[subFlowCondition.GetConditionId()] = i
+		}
 		combinations := waitingCondition.GetConditionCombinations()
 		candidates := make([]triggerCandidate, 0, len(combinations))
 		for _, combination := range combinations {
@@ -136,6 +159,11 @@ func buildTriggerCandidates(
 					matchCandidate.channelIndexes = append(
 						matchCandidate.channelIndexes,
 						channelIndex,
+					)
+				} else if subFlowIndex, ok := subFlowIndexByID[conditionId]; ok {
+					matchCandidate.subFlowIndexes = append(
+						matchCandidate.subFlowIndexes,
+						subFlowIndex,
 					)
 				}
 			}
@@ -157,9 +185,15 @@ func checkTriggerCandidate(
 	normalizedConditions []normalizedChannelCondition,
 	availability ChannelAvailability,
 	completedTimers map[int]bool,
+	completedSubFlows map[int]bool,
 ) (*MatchPlan, bool) {
 	for _, timerIndex := range candidateToCheck.timerIndexes {
 		if !completedTimers[timerIndex] {
+			return nil, false
+		}
+	}
+	for _, subFlowIndex := range candidateToCheck.subFlowIndexes {
+		if !completedSubFlows[subFlowIndex] {
 			return nil, false
 		}
 	}
@@ -246,11 +280,12 @@ func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondit
 	return normalized
 }
 
-// BuildConditionResults reports timer states and consumed channel values.
+// BuildConditionResults reports timer, channel, and SubFlow states.
 func BuildConditionResults(
 	waitingCondition *dexpb.WaitingCondition,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*dexpb.Value,
+	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
 ) *dexpb.ConditionResults {
 	results := &dexpb.ConditionResults{}
 	for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
@@ -275,7 +310,30 @@ func BuildConditionResults(
 		}
 		results.ChannelResults = append(results.ChannelResults, channelResult)
 	}
+	completedSubFlows := map[int32]*dexpb.FlowResult{}
+	if len(completedSubFlowConditions) > 0 {
+		completedSubFlows = completedSubFlowConditions[0]
+	}
+	for subFlowIndex, subFlowCondition := range waitingCondition.GetSubFlowConditions() {
+		result := completedSubFlows[int32(subFlowIndex)]
+		if result == nil {
+			result = &dexpb.FlowResult{
+				FlowId:          subFlowCondition.GetFlowId(),
+				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+				StartResolution: subFlowCondition.GetStartResolution(),
+			}
+		} else {
+			result.StartResolution = subFlowCondition.GetStartResolution()
+		}
+		results.SubFlowResults = append(results.SubFlowResults, result)
+	}
 	return results
+}
+
+func isTerminalFlowStatus(status dexpb.FlowStatus) bool {
+	return status != dexpb.FlowStatus_FLOW_STATUS_RUNNING &&
+		status != dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW &&
+		status != dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED
 }
 
 // sortInts sorts triggerCandidate indexes deterministically.

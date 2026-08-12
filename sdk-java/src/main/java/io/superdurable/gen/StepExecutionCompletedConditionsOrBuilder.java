@@ -65,4 +65,38 @@ io.superdurable.gen.InternalTimerStatus         defaultValue);
    */
   int getCompletedTimerConditionsValueOrThrow(
       int key);
+
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  int getCompletedSubFlowResultsCount();
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  boolean containsCompletedSubFlowResults(
+      int key);
+  /**
+   * Use {@link #getCompletedSubFlowResultsMap()} instead.
+   */
+  @java.lang.Deprecated
+  java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult>
+  getCompletedSubFlowResults();
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  java.util.Map<java.lang.Integer, io.superdurable.gen.FlowResult>
+  getCompletedSubFlowResultsMap();
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  /* nullable */
+io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrDefault(
+      int key,
+      /* nullable */
+io.superdurable.gen.FlowResult defaultValue);
+  /**
+   * <code>map&lt;int32, .dex.FlowResult&gt; completed_sub_flow_results = 2;</code>
+   */
+  io.superdurable.gen.FlowResult getCompletedSubFlowResultsOrThrow(
+      int key);
 }

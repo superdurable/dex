@@ -45,6 +45,7 @@ const (
 	UpdateConfigSignalChannelName         = DexSystemConstPrefix + "UpdateWorkflowConfig"
 	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
 	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
+	SubFlowCompletionSignalChannelName    = DexSystemConstPrefix + "SubFlowCompletion"
 
 	WorkerAddressMemoKey = DexSystemConstPrefix + "WorkerAddress"
 	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"

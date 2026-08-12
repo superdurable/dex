@@ -104,7 +104,8 @@ function isWaitingCondition(value: unknown): boolean {
   const data = asData(value);
   return 'waitingConditionType' in data
     || 'channelConditions' in data
-    || 'timerConditions' in data;
+    || 'timerConditions' in data
+    || 'subFlowConditions' in data;
 }
 
 function isKeyValueList(value: unknown): boolean {
@@ -124,6 +125,7 @@ function WaitingConditionStructured({ value }: { value: unknown }) {
   const condition = asData(value);
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
+  const subFlows = asDataArray(condition.subFlowConditions);
   return (
     <div className="structured-value">
       <Fields values={[[
@@ -147,6 +149,17 @@ function WaitingConditionStructured({ value }: { value: unknown }) {
             ['Condition ID', timer.conditionId],
             ['Fires at', unixTime(timer.firingUnixTimestampSeconds, timezone)],
             ['Delay', isPresent(timer.durationSeconds) ? `${timer.durationSeconds}s` : undefined],
+          ]} />
+        </div>
+      ))}
+      {subFlows.map((subFlow, index) => (
+        <div className="semantic-record sub-flow-record" key={`${String(subFlow.flowId)}-${index}`}>
+          <strong>{displayValue(subFlow.flowType)}</strong>
+          <Fields values={[
+            ['Flow ID', subFlow.flowId],
+            ['Condition ID', subFlow.conditionId],
+            ['Index', subFlow.subFlowIndex],
+            ['Resolution', subFlow.startResolution],
           ]} />
         </div>
       ))}

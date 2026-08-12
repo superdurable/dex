@@ -13,11 +13,11 @@ package io.superdurable.dex;
 import java.time.Duration;
 
 /**
- * Represents one timer or Channel condition used by a {@link Wait}.
+ * Represents one Timer, Channel, or SubFlow condition used by a {@link Wait}.
  *
  * <p>Applications create conditions through fluent domain factories such as
- * {@link Timer#byDuration} and {@link Channel#forOne}; a condition is immutable and is interpreted
- * by Dex when a Step returns its wait definition.
+ * {@link Timer#byDuration}, {@link Channel#forOne}, and {@link SubFlow#run}; a condition is immutable
+ * and is interpreted by Dex when a Step returns its wait definition.
  *
  * <pre>{@code
  * Condition deadline = Timer.byDuration(Duration.ofMinutes(5), "deadline");
@@ -28,7 +28,8 @@ import java.time.Duration;
 public final class Condition {
     enum Kind {
         TIMER,
-        CHANNEL
+        CHANNEL,
+        SUB_FLOW
     }
 
     private final Kind kind;
@@ -38,6 +39,9 @@ public final class Condition {
     private final Integer atLeast;
     private final Integer atMost;
     private final Duration duration;
+    private final Class<? extends Flow<?>> subFlowClass;
+    private final Object subFlowInput;
+    private final SubFlowOptions subFlowOptions;
 
     private Condition(
             final Kind kind,
@@ -46,7 +50,10 @@ public final class Condition {
             final String instance,
             final Integer atLeast,
             final Integer atMost,
-            final Duration duration) {
+            final Duration duration,
+            final Class<? extends Flow<?>> subFlowClass,
+            final Object subFlowInput,
+            final SubFlowOptions subFlowOptions) {
         this.kind = kind;
         this.conditionId = conditionId;
         this.channelName = channelName;
@@ -54,6 +61,9 @@ public final class Condition {
         this.atLeast = atLeast;
         this.atMost = atMost;
         this.duration = duration;
+        this.subFlowClass = subFlowClass;
+        this.subFlowInput = subFlowInput;
+        this.subFlowOptions = subFlowOptions;
     }
 
     static Condition timer(final Duration duration) {
@@ -64,7 +74,8 @@ public final class Condition {
         if (duration == null || duration.isNegative()) {
             throw new IllegalArgumentException("non-negative duration is required");
         }
-        return new Condition(Kind.TIMER, conditionId, null, null, null, null, duration);
+        return new Condition(
+                Kind.TIMER, conditionId, null, null, null, null, duration, null, null, null);
     }
 
     static Condition channel(
@@ -83,7 +94,31 @@ public final class Condition {
                 instance,
                 atLeast,
                 atMost,
+                null,
+                null,
+                null,
                 null);
+    }
+
+    static Condition subFlow(
+            final Class<? extends Flow<?>> flowClass,
+            final Object input,
+            final SubFlowOptions options) {
+        if (flowClass == null) {
+            throw new IllegalArgumentException("SubFlow class is required");
+        }
+        final SubFlowOptions effective = options == null ? SubFlowOptions.newBuilder().build() : options;
+        return new Condition(
+                Kind.SUB_FLOW,
+                effective.getConditionId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                flowClass,
+                input,
+                effective);
     }
 
     Kind getKind() {
@@ -112,5 +147,17 @@ public final class Condition {
 
     Duration getDuration() {
         return duration;
+    }
+
+    Class<? extends Flow<?>> getSubFlowClass() {
+        return subFlowClass;
+    }
+
+    Object getSubFlowInput() {
+        return subFlowInput;
+    }
+
+    SubFlowOptions getSubFlowOptions() {
+        return subFlowOptions;
     }
 }

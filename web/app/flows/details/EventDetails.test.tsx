@@ -377,6 +377,73 @@ describe('selected step event details', () => {
     expect(markup).toContain('Any completed');
     expect(markup).not.toContain('Single condition');
   });
+
+  it('renders a keyboard-accessible SubFlow link card with reuse details', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
+      subFlowConditions: [{
+        flowType: 'ChildFlow',
+        flowId: 'SubFlow-parent-Parent-1-0',
+        subFlowIndex: 0,
+        startResolution: 2,
+        options: { reusePolicy: 1 },
+      }],
+    }));
+
+    expect(markup).toContain('href="/flows/SubFlow-parent-Parent-1-0"');
+    expect(markup).toContain('aria-label="Open SubFlow SubFlow-parent-Parent-1-0"');
+    expect(markup).toContain('Attached running');
+    expect(markup).toContain('Attach');
+  });
+
+  it('renders complete SubFlow options and terminal outputs', () => {
+    const event = executeEvent(1);
+    event.payload.input = {
+      conditionResults: { subFlowResults: [{
+        flowId: 'SubFlow-parent-Parent-1-0',
+        runId: 'child-run',
+        flowStatus: 3,
+        startResolution: 1,
+        errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
+        errorMessage: 'child failed',
+        results: [{
+          completedStepType: 'ChildStep',
+          completedStepExecutionId: 'ChildStep-1',
+          completedStepOutput: { stringValue: 'partial output' },
+        }],
+      }] },
+    };
+    const wait = waitForEvent({
+      subFlowConditions: [{
+        flowType: 'ChildFlow',
+        flowId: 'SubFlow-parent-Parent-1-0',
+        stepInput: { intValue: 7 },
+        stepOptions: { skipWaitFor: true },
+        options: {
+          retryPolicy: { initialIntervalSeconds: 2, maximumAttempts: 4 },
+          attributes: [{ key: 'region', value: { stringValue: 'west' } }],
+          flowConfigOverride: { continueAsNewThreshold: 20 },
+        },
+      }],
+    });
+
+    const waitMarkup = renderDetails(wait);
+    expect(waitMarkup).toContain('Retry initial interval');
+    expect(waitMarkup).toContain('2s');
+    expect(waitMarkup).toContain('Starting Step options');
+    expect(waitMarkup).toContain('Initial Attributes');
+    expect(waitMarkup).toContain('region');
+    expect(waitMarkup).toContain('Flow configuration override');
+    expect(waitMarkup).toContain('continueAsNewThreshold');
+
+    const resultMarkup = renderDetails(event);
+    expect(resultMarkup).toContain('href="/flows/SubFlow-parent-Parent-1-0/child-run"');
+    expect(resultMarkup).toContain('Worker method failed');
+    expect(resultMarkup).toContain('child failed');
+    expect(resultMarkup).toContain('Started');
+    expect(resultMarkup).toContain('ChildStep-1');
+    expect(resultMarkup).toContain('partial output');
+  });
 });
 
 describe('RPC event details', () => {

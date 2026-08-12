@@ -29,6 +29,8 @@ import {
   flowErrorTypeLabel,
   flowStatusLabel,
   grpcStatusLabel,
+  subFlowReusePolicyLabel,
+  subFlowStartResolutionLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -330,12 +332,13 @@ function WaitingConditionContent({
   if (!hasData(condition) && !showEmpty) return null;
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
+  const subFlows = asDataArray(condition.subFlowConditions);
   const combinations = asDataArray(condition.conditionCombinations);
   return (
     <>
       <Fields values={[[
         'Completion rule',
-        waitingConditionCompletionRule(condition, channels.length + timers.length),
+        waitingConditionCompletionRule(condition, channels.length + timers.length + subFlows.length),
       ]]} />
       {channels.length > 0 && (
         <div className="semantic-records">
@@ -362,6 +365,13 @@ function WaitingConditionContent({
                 ['Fires at', unixTime(timer.firingUnixTimestampSeconds, timezone)],
               ]} />
             </div>
+          ))}
+        </div>
+      )}
+      {subFlows.length > 0 && (
+        <div className="semantic-records sub-flow-records">
+          {subFlows.map((subFlow, index) => (
+            <SubFlowRecord value={subFlow} index={index} key={`${String(subFlow.flowId)}-${index}`} />
           ))}
         </div>
       )}
@@ -397,6 +407,7 @@ function ConditionResultsContent({ value, showEmpty = false }: { value: unknown;
   }
   const channels = asDataArray(results.channelResults);
   const timers = asDataArray(results.timerResults);
+  const subFlows = asDataArray(results.subFlowResults);
   return (
     <>
       {results.waitForFailed === true && <p className="semantic-alert">WaitFor failed</p>}
@@ -422,8 +433,86 @@ function ConditionResultsContent({ value, showEmpty = false }: { value: unknown;
             ]} />
           </div>
         ))}
+        {subFlows.map((subFlow, index) => (
+          <SubFlowResultRecord value={subFlow} index={index} key={`${String(subFlow.flowId)}-${index}`} />
+        ))}
       </div>
     </>
+  );
+}
+
+function SubFlowRecord({ value, index }: { value: Data; index: number }) {
+  const options = asData(value.options);
+  const retry = asData(options.retryPolicy);
+  const flowId = typeof value.flowId === 'string' ? value.flowId : '';
+  return (
+    <a
+      className="semantic-record sub-flow-record"
+      href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
+      aria-label={`Open SubFlow ${flowId || index + 1}`}
+    >
+      <strong><SubFlowIcon />{displayValue(value.flowType)}</strong>
+      <Fields values={[
+        ['Flow ID', value.flowId],
+        ['Condition ID', value.conditionId],
+        ['Index', value.subFlowIndex],
+        ['Reuse policy', subFlowReusePolicyLabel(options.reusePolicy)],
+        ['Reuse resolution', subFlowStartResolutionLabel(value.startResolution)],
+        ['Timeout', seconds(options.flowTimeoutSeconds)],
+        ['Start delay', seconds(options.flowStartDelaySeconds)],
+        ['Cron schedule', options.cronSchedule],
+        ['Retry initial interval', seconds(retry.initialIntervalSeconds)],
+        ['Retry backoff coefficient', retry.backoffCoefficient],
+        ['Retry maximum interval', seconds(retry.maximumIntervalSeconds)],
+        ['Retry maximum attempts', retry.maximumAttempts],
+      ]} />
+      <ValueBlock label="Input" value={value.stepInput} />
+      <ValueBlock label="Starting Step options" value={value.stepOptions} />
+      <ValueBlock label="Flow configuration override" value={options.flowConfigOverride} />
+      {asDataArray(options.attributes).length > 0 && (
+        <div className="semantic-subsection">
+          <h5>Initial Attributes</h5>
+          <KeyValues values={options.attributes} />
+        </div>
+      )}
+    </a>
+  );
+}
+
+function SubFlowResultRecord({ value, index }: { value: Data; index: number }) {
+  const flowId = typeof value.flowId === 'string' ? value.flowId : '';
+  const runId = typeof value.runId === 'string' ? value.runId : '';
+  const running = value.flowStatus === 'FLOW_STATUS_RUNNING' || value.flowStatus === 1;
+  const target = runId && !running
+    ? `/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(runId)}`
+    : `/flows/${encodeURIComponent(flowId)}`;
+  return (
+    <a
+      className="semantic-record sub-flow-record"
+      href={flowId ? target : '#'}
+      aria-label={`Open SubFlow result ${flowId || index + 1}`}
+    >
+      <strong><SubFlowIcon />SubFlow {index + 1}</strong>
+      <Fields values={[
+        ['Flow ID', value.flowId],
+        ['Run ID', value.runId],
+        ['Status', flowStatusLabel(value.flowStatus)],
+        ['Reuse resolution', subFlowStartResolutionLabel(value.startResolution)],
+        ['Failure type', isPresent(value.errorType) ? flowErrorTypeLabel(value.errorType) : undefined],
+        ['Failure', value.errorMessage],
+      ]} />
+      <StepOutputs values={value.results} />
+    </a>
+  );
+}
+
+function SubFlowIcon() {
+  return (
+    <svg aria-hidden="true" className="sub-flow-icon" viewBox="0 0 16 16">
+      <rect x="2" y="3" width="5" height="4" rx="1" />
+      <rect x="9" y="9" width="5" height="4" rx="1" />
+      <path d="M7 5h2.5a2 2 0 0 1 2 2v2" />
+    </svg>
   );
 }
 

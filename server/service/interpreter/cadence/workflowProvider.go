@@ -140,9 +140,38 @@ func cadenceRecoveryError(
 	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
 
+func (w *workflowProvider) GetFlowError(err error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
+	var applicationError *cadence.CustomError
+	if !errors.As(err, &applicationError) {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+	}
+	value, ok := dexpb.FlowErrorType_value[applicationError.Reason()]
+	if !ok {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+	}
+	response := &dexpb.ErrorResponse{}
+	if detailsErr := applicationError.Details(response); detailsErr != nil {
+		response.Detail = err.Error()
+	}
+	return dexpb.FlowErrorType(value), response, true
+}
+
+func (w *workflowProvider) IsCanceledError(err error) bool {
+	return cadence.IsCanceledError(err)
+}
+
 func (w *workflowProvider) IsContinueAsNewError(err error) bool {
 	var continueAsNewError *workflow.ContinueAsNewError
 	return errors.As(err, &continueAsNewError)
+}
+
+func (w *workflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext) interfaces.UnifiedContext {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to cadence workflow context")
+	}
+	disconnected, _ := workflow.NewDisconnectedContext(wfCtx)
+	return interfaces.NewUnifiedContext(disconnected)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
@@ -182,7 +211,7 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		panic("cannot convert to cadence workflow context")
 	}
 	info := workflow.GetInfo(wfCtx)
-	return interfaces.WorkflowInfo{
+	workflowInfo := interfaces.WorkflowInfo{
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,
@@ -191,7 +220,12 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		WorkflowExecutionTimeout: time.Duration(info.ExecutionStartToCloseTimeoutSeconds) * time.Second,
 		FirstRunID:               info.WorkflowExecution.RunID, // Cadence does not provide FirstRunID TODO https://github.com/uber-go/cadence-client/issues/1371 use firstRunID when available
 		CurrentRunID:             info.WorkflowExecution.RunID,
+		Attempt:                  info.Attempt + 1,
 	}
+	if info.CronSchedule != nil {
+		workflowInfo.CronSchedule = *info.CronSchedule
+	}
+	return workflowInfo
 }
 
 func (w *workflowProvider) GetSearchAttributeKeywordArray(

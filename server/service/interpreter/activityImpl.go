@@ -25,10 +25,14 @@ import (
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/grpctarget"
+	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/workerclient"
+	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -43,6 +47,7 @@ type Activities struct {
 	attributeStore   *attributestore.Manager
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
+	subFlowResolver  *subFlowReuseResolver
 }
 
 func NewActivities(
@@ -71,6 +76,7 @@ func NewActivities(
 		attributeStore:   attributeStore,
 		eventHandler:     eventHandler,
 		cfg:              cfg,
+		subFlowResolver:  newSubFlowReuseResolver(unifiedClient),
 	}
 }
 
@@ -144,6 +150,12 @@ func (a *Activities) InvokeWaitForMethod(
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
+	normalizeSubFlowConditions(
+		resp.GetWaitingCondition(),
+		req.GetContext().GetFlowId(),
+		req.GetContext().GetStepExecutionId(),
+		activityInfo.WorkflowExecution.RunID,
+	)
 	if err := validateTransientStepMovement(resp.GetTransientStepMovement()); err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
@@ -472,6 +484,173 @@ func (a *Activities) InvokeWorkerRPC(
 		}
 	}
 	return out, nil
+}
+
+func (a *Activities) StartSubFlow(
+	ctx context.Context, input *dexpb.StartSubFlowActivityInput,
+) (*dexpb.StartSubFlowActivityOutput, error) {
+	condition := input.GetCondition()
+	if condition == nil || condition.GetFlowId() == "" || condition.GetNormalizedRequestId() == "" {
+		return nil, fmt.Errorf("SubFlow condition requires server-normalized identity")
+	}
+	if err := blobstore.ValidateWorkflowId(condition.GetFlowId()); err != nil {
+		return nil, err
+	}
+	options := condition.GetOptions()
+	if options.GetFlowTimeoutSeconds() < 0 || options.GetFlowStartDelaySeconds() < 0 {
+		return nil, fmt.Errorf("SubFlow timeout and start delay must be non-negative")
+	}
+	if err := workerclient.RejectWorkerBlobIDs(condition.GetStepInput()); err != nil {
+		return nil, err
+	}
+	if err := workerclient.ValidateAttributeWrites(options.GetAttributes()); err != nil {
+		return nil, err
+	}
+
+	parentFlowConfig := input.GetParentFlowConfig()
+	if parentFlowConfig == nil {
+		return nil, fmt.Errorf("SubFlow start requires the parent FlowConfig")
+	}
+	flowConfig, err := buildSubFlowConfig(parentFlowConfig, options.GetFlowConfigOverride())
+	if err != nil {
+		return nil, err
+	}
+	if configName := flowConfig.GetAttributeSyncConfigName(); configName != "" && !a.attributeStore.HasStore(configName) {
+		return nil, fmt.Errorf("Attribute Store %q is unavailable", configName)
+	}
+	if err := blobstore.OffloadLargeValue(
+		ctx,
+		condition.GetStepInput(),
+		condition.GetFlowId(),
+		condition.GetNormalizedRequestId(),
+		a.cfg.BlobStore.EffectiveThresholdInBytes(),
+		a.blobStore,
+		a.cfg.BlobStore.EffectiveEnabled(),
+	); err != nil {
+		return nil, err
+	}
+	if err := blobstore.OffloadLargeAttributeWrites(
+		ctx,
+		options.GetAttributes(),
+		condition.GetFlowId(),
+		condition.GetNormalizedRequestId(),
+		a.cfg.BlobStore.EffectiveThresholdInBytes(),
+		a.blobStore,
+		a.cfg.BlobStore.EffectiveEnabled(),
+	); err != nil {
+		return nil, err
+	}
+
+	workflowOptions := buildSubFlowStartOptions(condition, flowConfig)
+	workflowInput := &dexpb.InterpreterWorkflowInput{
+		FlowType:       condition.GetFlowType(),
+		StartStepType:  condition.GetStartStepType(),
+		StepInput:      condition.GetStepInput(),
+		StepOptions:    condition.GetStepOptions(),
+		InitAttributes: options.GetAttributes(),
+		Config:         flowConfig,
+		SubFlowParent:  input.GetParent(),
+	}
+	return a.subFlowResolver.resolve(ctx, condition, workflowOptions, workflowInput)
+}
+
+func (a *Activities) ReportSubFlowCompletion(
+	ctx context.Context, input *dexpb.ReportSubFlowCompletionActivityInput,
+) (*dexpb.SubFlowCompletionDeliveryResult, error) {
+	err := a.unifiedClient.SignalWorkflow(
+		ctx, input.GetParentFlowId(), "", service.SubFlowCompletionSignalChannelName, input.GetSignal(),
+	)
+	if err == nil {
+		return &dexpb.SubFlowCompletionDeliveryResult{
+			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED,
+		}, nil
+	}
+	if a.unifiedClient.IsWorkflowClosedOrNotFoundError(err) {
+		return &dexpb.SubFlowCompletionDeliveryResult{
+			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND,
+		}, nil
+	}
+	return nil, fmt.Errorf("report SubFlow completion: %w", err)
+}
+
+func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, error) {
+	if parent == nil {
+		parent = config.DefaultWorkflowConfig
+	}
+	flowConfig := &dexpb.FlowConfig{
+		ActiveStepSearchMode:         parent.ActiveStepSearchMode,
+		ContinueAsNewThreshold:       parent.ContinueAsNewThreshold,
+		ContinueAsNewPageSizeInBytes: parent.ContinueAsNewPageSizeInBytes,
+		StepDurability:               parent.StepDurability,
+		WorkerTarget:                 parent.WorkerTarget,
+		AttributeSyncConfigName:      parent.AttributeSyncConfigName,
+	}
+	if override != nil {
+		if override.ActiveStepSearchMode != nil {
+			flowConfig.ActiveStepSearchMode = override.ActiveStepSearchMode
+		}
+		if override.ContinueAsNewThreshold != nil {
+			flowConfig.ContinueAsNewThreshold = override.ContinueAsNewThreshold
+		}
+		if override.ContinueAsNewPageSizeInBytes != nil {
+			flowConfig.ContinueAsNewPageSizeInBytes = override.ContinueAsNewPageSizeInBytes
+		}
+		if override.StepDurability != nil {
+			flowConfig.StepDurability = override.StepDurability
+		}
+		if override.WorkerTarget != nil {
+			flowConfig.WorkerTarget = override.WorkerTarget
+		}
+		if override.AttributeSyncConfigName != nil {
+			flowConfig.AttributeSyncConfigName = override.AttributeSyncConfigName
+		}
+	}
+	if err := interpreterconfig.ValidateFlowConfig(flowConfig); err != nil {
+		return nil, err
+	}
+	workerTarget, err := grpctarget.NormalizeWorkerTarget(flowConfig.GetWorkerTarget())
+	if err != nil {
+		return nil, err
+	}
+	flowConfig.WorkerTarget = workerTarget
+	return flowConfig, nil
+}
+
+func buildSubFlowStartOptions(
+	condition *dexpb.SubFlowCondition, flowConfig *dexpb.FlowConfig,
+) uclient.StartWorkflowOptions {
+	options := condition.GetOptions()
+	workflowOptions := uclient.StartWorkflowOptions{
+		ID:                       condition.GetFlowId(),
+		TaskQueue:                service.TaskQueue,
+		WorkflowExecutionTimeout: time.Duration(options.GetFlowTimeoutSeconds()) * time.Second,
+		IdReusePolicy:            ptr.Any(subFlowIDReusePolicy(options.GetReusePolicy())),
+		RetryPolicy:              options.GetRetryPolicy(),
+		SearchAttributes:         index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
+		Memo: map[string]interface{}{
+			service.WorkerAddressMemoKey: &dexpb.EncodedObject{Payload: []byte(flowConfig.GetWorkerTarget().GetAddress())},
+			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(condition.GetNormalizedRequestId())},
+		},
+	}
+	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetFlowType()
+	if options.GetCronSchedule() != "" {
+		workflowOptions.CronSchedule = ptr.Any(options.GetCronSchedule())
+	}
+	if options.GetFlowStartDelaySeconds() > 0 {
+		workflowOptions.WorkflowStartDelay = ptr.Any(time.Duration(options.GetFlowStartDelaySeconds()) * time.Second)
+	}
+	return workflowOptions
+}
+
+func subFlowIDReusePolicy(policy dexpb.SubFlowReusePolicy) dexpb.IdReusePolicy {
+	switch effectiveSubFlowReusePolicy(policy) {
+	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ATTACH:
+		return dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE
+	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART:
+		return dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING
+	default:
+		return dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY
+	}
 }
 
 // CleanupBlobsAfterAllRunsDeleted deletes blobs after the backend removes every run.
@@ -939,6 +1118,45 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		}
 	}
 
+	for i, subFlowCondition := range waiting.GetSubFlowConditions() {
+		if subFlowCondition == nil {
+			return fmt.Errorf("SubFlow condition at index %d is nil", i)
+		}
+		if err := registerWaitingConditionId(
+			declaredIds,
+			subFlowCondition.GetConditionId(),
+			"SubFlow",
+			conditionIdsRequired,
+		); err != nil {
+			return err
+		}
+		if subFlowCondition.GetFlowType() == "" || subFlowCondition.GetStartStepType() == "" {
+			return fmt.Errorf("SubFlow condition at index %d requires Flow and starting Step types", i)
+		}
+		if subFlowCondition.GetSubFlowIndex() != int32(i) {
+			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())
+		}
+		if subFlowCondition.GetFlowId() != "" || subFlowCondition.GetNormalizedRequestId() != "" {
+			return fmt.Errorf("SubFlow condition at index %d sets server-owned identity", i)
+		}
+		if subFlowCondition.GetOptions().GetFlowTimeoutSeconds() < 0 ||
+			subFlowCondition.GetOptions().GetFlowStartDelaySeconds() < 0 {
+			return fmt.Errorf("SubFlow condition at index %d has a negative duration", i)
+		}
+		reusePolicy := subFlowCondition.GetOptions().GetReusePolicy()
+		if _, known := dexpb.SubFlowReusePolicy_name[int32(reusePolicy)]; !known {
+			return fmt.Errorf("SubFlow condition at index %d has an unknown reuse policy", i)
+		}
+		if err := workerclient.RejectWorkerBlobIDs(subFlowCondition.GetStepInput()); err != nil {
+			return err
+		}
+		if err := workerclient.RejectWorkerAttributeWriteBlobIDs(
+			subFlowCondition.GetOptions().GetAttributes(),
+		); err != nil {
+			return err
+		}
+	}
+
 	switch waiting.GetWaitingConditionType() {
 	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
@@ -953,6 +1171,22 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		return fmt.Errorf("unknown waiting_condition_type %d", waiting.GetWaitingConditionType())
 	}
 	return nil
+}
+
+func normalizeSubFlowConditions(
+	waiting *dexpb.WaitingCondition,
+	parentFlowID string,
+	stepExecutionID string,
+	parentRunID string,
+) {
+	if waiting == nil {
+		return
+	}
+	normalizedRequestID := parentRunID + stepExecutionID
+	for index, condition := range waiting.GetSubFlowConditions() {
+		condition.FlowId = fmt.Sprintf("SubFlow-%s-%s-%d", parentFlowID, stepExecutionID, index)
+		condition.NormalizedRequestId = normalizedRequestID
+	}
 }
 
 func registerWaitingConditionId(

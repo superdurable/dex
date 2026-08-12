@@ -48,8 +48,20 @@ func (p *fakeWorkflowProvider) MapToRecoveryError(error) (*dexpb.RecoveryErrorIn
 	return nil, nil
 }
 
+func (p *fakeWorkflowProvider) GetFlowError(error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
+	return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+}
+
+func (p *fakeWorkflowProvider) IsCanceledError(error) bool {
+	return false
+}
+
 func (p *fakeWorkflowProvider) IsContinueAsNewError(error) bool {
 	return false
+}
+
+func (p *fakeWorkflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext) interfaces.UnifiedContext {
+	return ctx
 }
 
 func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interfaces.WorkflowInfo {

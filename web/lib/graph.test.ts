@@ -132,4 +132,74 @@ describe('step graph', () => {
     expect(node?.pendingExecute?.payload.phase).toBe(2);
     expect(node?.pendingExecute?.type).toBe('StepExecutePending');
   });
+
+  it('creates linked SubFlow leaf nodes with terminal run identity', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepWaitForCompleted', {
+        stepExecutionId: 'Parent-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Parent',
+      }, {
+        output: { waitForCondition: { subFlowConditions: [{
+          flowType: 'ChildFlow',
+          flowId: 'SubFlow-parent-Parent-1-0',
+          startResolution: 1,
+        }] } },
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'Parent-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Parent',
+      }, {
+        input: { conditionResults: { subFlowResults: [{
+          flowId: 'SubFlow-parent-Parent-1-0',
+          runId: 'child-run',
+          flowStatus: 2,
+        }] } },
+      }),
+    ]);
+
+    const subFlow = graph.nodes.find((node) => node.kind === 'subflow');
+    expect(subFlow).toMatchObject({
+      parentStepId: 'Parent-1',
+      flowId: 'SubFlow-parent-Parent-1-0',
+      runId: 'child-run',
+      flowType: 'ChildFlow',
+      subFlowStatus: 'COMPLETED',
+      reuseResolution: 'Started',
+    });
+    expect(graph.edges).toContainEqual({
+      id: 'Parent-1->__subflow:Parent-1:0',
+      source: 'Parent-1',
+      target: '__subflow:Parent-1:0',
+    });
+  });
+
+  it('uses terminal SubFlow results restored in active continue-as-new state', () => {
+    const graph = buildStepGraph([], [{
+      stepExecutionId: 'Parent-1',
+      fromStepExecutionId: '__start__',
+      stepType: 'Parent',
+      phase: 'Waiting',
+      stepExecutionLocals: [],
+      timers: [],
+      waitingCondition: { subFlowConditions: [{
+        flowType: 'ChildFlow',
+        flowId: 'SubFlow-parent-Parent-1-0',
+        startResolution: 3,
+      }] },
+      completedConditions: { completedSubFlowResults: { 0: {
+        flowId: 'SubFlow-parent-Parent-1-0',
+        runId: 'child-run',
+        flowStatus: 3,
+      } } },
+    }]);
+
+    expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
+      status: 'Failed',
+      runId: 'child-run',
+      subFlowStatus: 'FAILED',
+      reuseResolution: 'Attached terminal',
+    });
+  });
 });

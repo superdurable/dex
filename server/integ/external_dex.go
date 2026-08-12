@@ -157,7 +157,7 @@ func (client *externalDexFlowClient) WaitForFlow(
 	ctx context.Context,
 	request *dexpb.WaitForFlowRequest,
 	options ...grpc.CallOption,
-) (*dexpb.WaitForFlowResponse, error) {
+) (*dexpb.FlowResult, error) {
 	if request.WaitTimeSeconds == 0 || request.WaitTimeSeconds > client.maxWaitSeconds {
 		request.WaitTimeSeconds = client.maxWaitSeconds
 	}

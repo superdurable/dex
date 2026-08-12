@@ -67,6 +67,55 @@ export function flowStatusLabel(value: unknown): string {
   });
 }
 
+export function subFlowStatusName(value: unknown): string {
+  return enumLabel(value, {
+    0: 'UNSPECIFIED',
+    1: 'RUNNING',
+    2: 'COMPLETED',
+    3: 'FAILED',
+    4: 'TIMEOUT',
+    5: 'TERMINATED',
+    6: 'CANCELED',
+    7: 'CONTINUED_AS_NEW',
+    FLOW_STATUS_UNSPECIFIED: 'UNSPECIFIED',
+    FLOW_STATUS_RUNNING: 'RUNNING',
+    FLOW_STATUS_COMPLETED: 'COMPLETED',
+    FLOW_STATUS_FAILED: 'FAILED',
+    FLOW_STATUS_TIMEOUT: 'TIMEOUT',
+    FLOW_STATUS_TERMINATED: 'TERMINATED',
+    FLOW_STATUS_CANCELED: 'CANCELED',
+    FLOW_STATUS_CONTINUED_AS_NEW: 'CONTINUED_AS_NEW',
+  });
+}
+
+export function subFlowReusePolicyLabel(value: unknown): string {
+  return enumLabel(value, {
+    0: 'Unspecified',
+    1: 'Attach',
+    2: 'Restart if previous exits abnormally',
+    3: 'Always restart',
+    SUB_FLOW_REUSE_POLICY_UNSPECIFIED: 'Unspecified',
+    SUB_FLOW_REUSE_POLICY_ATTACH: 'Attach',
+    SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY:
+      'Restart if previous exits abnormally',
+    SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART: 'Always restart',
+  });
+}
+
+export function subFlowStartResolutionLabel(value: unknown): string | undefined {
+  if (value == null || value === 0 || value === 'SUB_FLOW_START_RESOLUTION_UNSPECIFIED') {
+    return undefined;
+  }
+  return enumLabel(value, {
+    1: 'Started',
+    2: 'Attached running',
+    3: 'Attached terminal',
+    SUB_FLOW_START_RESOLUTION_STARTED: 'Started',
+    SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING: 'Attached running',
+    SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL: 'Attached terminal',
+  });
+}
+
 export function flowErrorTypeLabel(value: unknown): string {
   return enumLabel(value, {
     0: 'Unspecified',

@@ -92,6 +92,11 @@ func (t *cadenceClient) IsUnknownUpdateError(error, string) bool {
 	return false
 }
 
+func (t *cadenceClient) IsWorkflowClosedOrNotFoundError(err error) bool {
+	var alreadyCompletedError *shared.WorkflowExecutionAlreadyCompletedError
+	return t.IsNotFoundError(err) || errors.As(err, &alreadyCompletedError)
+}
+
 func (t *cadenceClient) isQueryFailedError(err error) bool {
 	var serviceError *shared.QueryFailedError
 	ok := errors.As(err, &serviceError)
@@ -1121,9 +1126,20 @@ func mapToDexWorkflowStatus(status *shared.WorkflowExecutionCloseStatus) (dexpb.
 func (t *cadenceClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
 ) (resolvedRunID string, status dexpb.FlowStatus, err error) {
-	workflowRun := t.cClient.GetWorkflow(ctx, workflowID, runID)
+	resolvedRunID = runID
+	if resolvedRunID == "" {
+		description, describeErr := t.cClient.DescribeWorkflowExecution(ctx, workflowID, "")
+		if describeErr != nil {
+			err = describeErr
+			return
+		}
+		resolvedRunID = description.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+	}
+	workflowRun := t.cClient.GetWorkflow(ctx, workflowID, resolvedRunID)
 	err = workflowRun.Get(ctx, valuePtr)
-	resolvedRunID = workflowRun.GetRunID()
+	if workflowRun.GetRunID() != "" {
+		resolvedRunID = workflowRun.GetRunID()
+	}
 	switch {
 	case err == nil:
 		status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED

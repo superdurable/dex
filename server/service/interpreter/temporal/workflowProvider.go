@@ -140,8 +140,37 @@ func temporalRecoveryError(
 	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
 
+func (w *workflowProvider) GetFlowError(err error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
+	var applicationError *temporal.ApplicationError
+	if !errors.As(err, &applicationError) {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+	}
+	value, ok := dexpb.FlowErrorType_value[applicationError.Type()]
+	if !ok {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+	}
+	response := &dexpb.ErrorResponse{}
+	if detailsErr := applicationError.Details(response); detailsErr != nil {
+		response.Detail = err.Error()
+	}
+	return dexpb.FlowErrorType(value), response, true
+}
+
+func (w *workflowProvider) IsCanceledError(err error) bool {
+	return temporal.IsCanceledError(err)
+}
+
 func (w *workflowProvider) IsContinueAsNewError(err error) bool {
 	return workflow.IsContinueAsNewError(err)
+}
+
+func (w *workflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext) interfaces.UnifiedContext {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	disconnected, _ := workflow.NewDisconnectedContext(wfCtx)
+	return interfaces.NewUnifiedContext(disconnected)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
@@ -190,6 +219,8 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		WorkflowExecutionTimeout: info.WorkflowExecutionTimeout,
 		FirstRunID:               info.FirstRunID,
 		CurrentRunID:             info.WorkflowExecution.RunID,
+		Attempt:                  info.Attempt,
+		CronSchedule:             info.CronSchedule,
 	}
 }
 

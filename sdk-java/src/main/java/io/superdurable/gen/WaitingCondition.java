@@ -32,6 +32,7 @@ private static final long serialVersionUID = 0L;
     timerConditions_ = java.util.Collections.emptyList();
     channelConditions_ = java.util.Collections.emptyList();
     conditionCombinations_ = java.util.Collections.emptyList();
+    subFlowConditions_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -193,6 +194,47 @@ private static final long serialVersionUID = 0L;
     return conditionCombinations_.get(index);
   }
 
+  public static final int SUB_FLOW_CONDITIONS_FIELD_NUMBER = 5;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.SubFlowCondition> subFlowConditions_;
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.SubFlowCondition> getSubFlowConditionsList() {
+    return subFlowConditions_;
+  }
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.SubFlowConditionOrBuilder> 
+      getSubFlowConditionsOrBuilderList() {
+    return subFlowConditions_;
+  }
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  @java.lang.Override
+  public int getSubFlowConditionsCount() {
+    return subFlowConditions_.size();
+  }
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.SubFlowCondition getSubFlowConditions(int index) {
+    return subFlowConditions_.get(index);
+  }
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.SubFlowConditionOrBuilder getSubFlowConditionsOrBuilder(
+      int index) {
+    return subFlowConditions_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -218,6 +260,9 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < conditionCombinations_.size(); i++) {
       output.writeMessage(4, conditionCombinations_.get(i));
+    }
+    for (int i = 0; i < subFlowConditions_.size(); i++) {
+      output.writeMessage(5, subFlowConditions_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -254,6 +299,15 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+
+        {
+          final int count = subFlowConditions_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(subFlowConditions_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -285,6 +339,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getChannelConditionsList())) return false;
     if (!getConditionCombinationsList()
         .equals(other.getConditionCombinationsList())) return false;
+    if (!getSubFlowConditionsList()
+        .equals(other.getSubFlowConditionsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -309,6 +365,10 @@ private static final long serialVersionUID = 0L;
     if (getConditionCombinationsCount() > 0) {
       hash = (37 * hash) + CONDITION_COMBINATIONS_FIELD_NUMBER;
       hash = (53 * hash) + getConditionCombinationsList().hashCode();
+    }
+    if (getSubFlowConditionsCount() > 0) {
+      hash = (37 * hash) + SUB_FLOW_CONDITIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getSubFlowConditionsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -463,6 +523,13 @@ private static final long serialVersionUID = 0L;
         conditionCombinationsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000008);
+      if (subFlowConditionsBuilder_ == null) {
+        subFlowConditions_ = java.util.Collections.emptyList();
+      } else {
+        subFlowConditions_ = null;
+        subFlowConditionsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000010);
       return this;
     }
 
@@ -522,6 +589,15 @@ private static final long serialVersionUID = 0L;
         result.conditionCombinations_ = conditionCombinations_;
       } else {
         result.conditionCombinations_ = conditionCombinationsBuilder_.build();
+      }
+      if (subFlowConditionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0)) {
+          subFlowConditions_ = java.util.Collections.unmodifiableList(subFlowConditions_);
+          bitField0_ = (bitField0_ & ~0x00000010);
+        }
+        result.subFlowConditions_ = subFlowConditions_;
+      } else {
+        result.subFlowConditions_ = subFlowConditionsBuilder_.build();
       }
     }
 
@@ -625,6 +701,32 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (subFlowConditionsBuilder_ == null) {
+        if (!other.subFlowConditions_.isEmpty()) {
+          if (subFlowConditions_.isEmpty()) {
+            subFlowConditions_ = other.subFlowConditions_;
+            bitField0_ = (bitField0_ & ~0x00000010);
+          } else {
+            ensureSubFlowConditionsIsMutable();
+            subFlowConditions_.addAll(other.subFlowConditions_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.subFlowConditions_.isEmpty()) {
+          if (subFlowConditionsBuilder_.isEmpty()) {
+            subFlowConditionsBuilder_.dispose();
+            subFlowConditionsBuilder_ = null;
+            subFlowConditions_ = other.subFlowConditions_;
+            bitField0_ = (bitField0_ & ~0x00000010);
+            subFlowConditionsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetSubFlowConditionsFieldBuilder() : null;
+          } else {
+            subFlowConditionsBuilder_.addAllMessages(other.subFlowConditions_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -695,6 +797,19 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 34
+            case 42: {
+              io.superdurable.gen.SubFlowCondition m =
+                  input.readMessage(
+                      io.superdurable.gen.SubFlowCondition.parser(),
+                      extensionRegistry);
+              if (subFlowConditionsBuilder_ == null) {
+                ensureSubFlowConditionsIsMutable();
+                subFlowConditions_.add(m);
+              } else {
+                subFlowConditionsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1482,6 +1597,246 @@ private static final long serialVersionUID = 0L;
         conditionCombinations_ = null;
       }
       return conditionCombinationsBuilder_;
+    }
+
+    private java.util.List<io.superdurable.gen.SubFlowCondition> subFlowConditions_ =
+      java.util.Collections.emptyList();
+    private void ensureSubFlowConditionsIsMutable() {
+      if (!((bitField0_ & 0x00000010) != 0)) {
+        subFlowConditions_ = new java.util.ArrayList<io.superdurable.gen.SubFlowCondition>(subFlowConditions_);
+        bitField0_ |= 0x00000010;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.SubFlowCondition, io.superdurable.gen.SubFlowCondition.Builder, io.superdurable.gen.SubFlowConditionOrBuilder> subFlowConditionsBuilder_;
+
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public java.util.List<io.superdurable.gen.SubFlowCondition> getSubFlowConditionsList() {
+      if (subFlowConditionsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(subFlowConditions_);
+      } else {
+        return subFlowConditionsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public int getSubFlowConditionsCount() {
+      if (subFlowConditionsBuilder_ == null) {
+        return subFlowConditions_.size();
+      } else {
+        return subFlowConditionsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public io.superdurable.gen.SubFlowCondition getSubFlowConditions(int index) {
+      if (subFlowConditionsBuilder_ == null) {
+        return subFlowConditions_.get(index);
+      } else {
+        return subFlowConditionsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder setSubFlowConditions(
+        int index, io.superdurable.gen.SubFlowCondition value) {
+      if (subFlowConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.set(index, value);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder setSubFlowConditions(
+        int index, io.superdurable.gen.SubFlowCondition.Builder builderForValue) {
+      if (subFlowConditionsBuilder_ == null) {
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder addSubFlowConditions(io.superdurable.gen.SubFlowCondition value) {
+      if (subFlowConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.add(value);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder addSubFlowConditions(
+        int index, io.superdurable.gen.SubFlowCondition value) {
+      if (subFlowConditionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.add(index, value);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder addSubFlowConditions(
+        io.superdurable.gen.SubFlowCondition.Builder builderForValue) {
+      if (subFlowConditionsBuilder_ == null) {
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.add(builderForValue.build());
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder addSubFlowConditions(
+        int index, io.superdurable.gen.SubFlowCondition.Builder builderForValue) {
+      if (subFlowConditionsBuilder_ == null) {
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder addAllSubFlowConditions(
+        java.lang.Iterable<? extends io.superdurable.gen.SubFlowCondition> values) {
+      if (subFlowConditionsBuilder_ == null) {
+        ensureSubFlowConditionsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, subFlowConditions_);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder clearSubFlowConditions() {
+      if (subFlowConditionsBuilder_ == null) {
+        subFlowConditions_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000010);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public Builder removeSubFlowConditions(int index) {
+      if (subFlowConditionsBuilder_ == null) {
+        ensureSubFlowConditionsIsMutable();
+        subFlowConditions_.remove(index);
+        onChanged();
+      } else {
+        subFlowConditionsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public io.superdurable.gen.SubFlowCondition.Builder getSubFlowConditionsBuilder(
+        int index) {
+      return internalGetSubFlowConditionsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public io.superdurable.gen.SubFlowConditionOrBuilder getSubFlowConditionsOrBuilder(
+        int index) {
+      if (subFlowConditionsBuilder_ == null) {
+        return subFlowConditions_.get(index);  } else {
+        return subFlowConditionsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.SubFlowConditionOrBuilder> 
+         getSubFlowConditionsOrBuilderList() {
+      if (subFlowConditionsBuilder_ != null) {
+        return subFlowConditionsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(subFlowConditions_);
+      }
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public io.superdurable.gen.SubFlowCondition.Builder addSubFlowConditionsBuilder() {
+      return internalGetSubFlowConditionsFieldBuilder().addBuilder(
+          io.superdurable.gen.SubFlowCondition.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public io.superdurable.gen.SubFlowCondition.Builder addSubFlowConditionsBuilder(
+        int index) {
+      return internalGetSubFlowConditionsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.SubFlowCondition.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+     */
+    public java.util.List<io.superdurable.gen.SubFlowCondition.Builder> 
+         getSubFlowConditionsBuilderList() {
+      return internalGetSubFlowConditionsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.SubFlowCondition, io.superdurable.gen.SubFlowCondition.Builder, io.superdurable.gen.SubFlowConditionOrBuilder> 
+        internalGetSubFlowConditionsFieldBuilder() {
+      if (subFlowConditionsBuilder_ == null) {
+        subFlowConditionsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.SubFlowCondition, io.superdurable.gen.SubFlowCondition.Builder, io.superdurable.gen.SubFlowConditionOrBuilder>(
+                subFlowConditions_,
+                ((bitField0_ & 0x00000010) != 0),
+                getParentForChildren(),
+                isClean());
+        subFlowConditions_ = null;
+      }
+      return subFlowConditionsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.WaitingCondition)
