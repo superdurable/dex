@@ -118,7 +118,7 @@ class FlowServiceStub:
         self.WaitForFlow = channel.unary_unary(
                 '/dex.FlowService/WaitForFlow',
                 request_serializer=dex__pb2.WaitForFlowRequest.SerializeToString,
-                response_deserializer=dex__pb2.WaitForFlowResponse.FromString,
+                response_deserializer=dex__pb2.FlowResult.FromString,
                 _registered_method=True)
         self.SearchFlows = channel.unary_unary(
                 '/dex.FlowService/SearchFlows',
@@ -407,7 +407,7 @@ def add_FlowServiceServicer_to_server(servicer, server):
             'WaitForFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.WaitForFlow,
                     request_deserializer=dex__pb2.WaitForFlowRequest.FromString,
-                    response_serializer=dex__pb2.WaitForFlowResponse.SerializeToString,
+                    response_serializer=dex__pb2.FlowResult.SerializeToString,
             ),
             'SearchFlows': grpc.unary_unary_rpc_method_handler(
                     servicer.SearchFlows,
@@ -718,7 +718,7 @@ class FlowService:
             target,
             '/dex.FlowService/WaitForFlow',
             dex__pb2.WaitForFlowRequest.SerializeToString,
-            dex__pb2.WaitForFlowResponse.FromString,
+            dex__pb2.FlowResult.FromString,
             options,
             channel_credentials,
             insecure,

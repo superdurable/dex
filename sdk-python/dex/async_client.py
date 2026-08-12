@@ -980,7 +980,7 @@ class AsyncClient:
         self,
         flow_id: str,
         timeout: timedelta | None,
-    ) -> pb.WaitForFlowResponse:
+    ) -> pb.FlowResult:
         request = pb.WaitForFlowRequest(
             flow_id=require_name(flow_id),
             needs_results=True,
@@ -988,7 +988,7 @@ class AsyncClient:
         if timeout is not None:
             request.wait_time_seconds = self._seconds32(timeout)
         response = cast(
-            pb.WaitForFlowResponse,
+            pb.FlowResult,
             await self._call(
                 self._service.WaitForFlow,
                 request,
