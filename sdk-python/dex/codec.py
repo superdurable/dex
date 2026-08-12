@@ -34,10 +34,10 @@ class WireKind(Enum):
     """Identify the protocol representation carried by an encoded Value.
 
     Attributes:
-        STRING: A UTF-8 string scalar.
-        BOOL: A Boolean scalar.
-        INT64: A signed 64-bit integer scalar.
-        DOUBLE: A finite IEEE-754 double scalar.
+        STRING: A UTF-8 string value.
+        BOOL: A Boolean value.
+        INT64: A signed 64-bit integer value.
+        DOUBLE: A finite IEEE-754 double value.
         BYTES: An uninterpreted byte sequence.
         JSON: A canonical JSON document stored as text.
     """
@@ -56,7 +56,7 @@ class Value:
 
     Attributes:
         kind: The wire representation used for ``data``.
-        data: The scalar, bytes, or JSON text payload compatible with ``kind``.
+        data: The primitive value, bytes, or JSON text payload compatible with ``kind``.
     """
 
     kind: WireKind
@@ -120,7 +120,7 @@ class Codec(Protocol[ValueT]):
 
 
 @dataclass(frozen=True)
-class _ScalarCodec(Generic[ValueT]):
+class _PrimitiveCodec(Generic[ValueT]):
     type_name: str
     wire_kind: WireKind
     expected_type: type[Any]
@@ -161,15 +161,17 @@ def _validate_double(value: float) -> None:
 
 
 #: The built-in UTF-8 ``str`` codec.
-STRING: Codec[str] = _ScalarCodec("str", WireKind.STRING, str)
+STRING: Codec[str] = _PrimitiveCodec("str", WireKind.STRING, str)
 #: The built-in strict ``bool`` codec; integers are not accepted as Booleans.
-BOOL: Codec[bool] = _ScalarCodec("bool", WireKind.BOOL, bool)
+BOOL: Codec[bool] = _PrimitiveCodec("bool", WireKind.BOOL, bool)
 #: The built-in signed 64-bit ``int`` codec; larger values raise OverflowError.
-INT64: Codec[int] = _ScalarCodec("int", WireKind.INT64, int, _validate_int64)
+INT64: Codec[int] = _PrimitiveCodec("int", WireKind.INT64, int, _validate_int64)
 #: The built-in finite ``float`` codec; NaN and infinities are rejected.
-DOUBLE: Codec[float] = _ScalarCodec("float", WireKind.DOUBLE, float, _validate_double)
+DOUBLE: Codec[float] = _PrimitiveCodec(
+    "float", WireKind.DOUBLE, float, _validate_double
+)
 #: The built-in raw ``bytes`` codec.
-BYTES: Codec[bytes] = _ScalarCodec("bytes", WireKind.BYTES, bytes)
+BYTES: Codec[bytes] = _PrimitiveCodec("bytes", WireKind.BYTES, bytes)
 
 
 @dataclass(frozen=True)
@@ -285,7 +287,7 @@ class CodecRegistry:
     """Resolve codecs for type hints used by registered SDK definitions.
 
     Explicit registrations take precedence over built-ins. The default registry
-    supports scalar types, ``None``, ``datetime``, dataclasses, enums, and typed
+    supports primitive types, ``None``, ``datetime``, dataclasses, enums, and typed
     list, tuple, mapping, and sequence containers.
 
     Examples:

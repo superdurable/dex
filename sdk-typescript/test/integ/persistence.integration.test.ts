@@ -78,7 +78,7 @@ test("Client sets every indexed attribute kind", async () => {
   });
 });
 
-test("Client sets scalar, mapped, and model data attributes", async () => {
+test("Client sets primitive, mapped, and model data attributes", async () => {
   const flow = new SetAttributesFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("set-data-attributes");
@@ -90,7 +90,7 @@ test("Client sets scalar, mapped, and model data attributes", async () => {
     const waiting = client.waitForAttributeEqual(id, flow.data, "query-start", 30_000);
     await client.setAttribute(id, flow.data, "query-start");
     await waiting;
-    const waitingMap = client.waitForAttributeMapEqual(
+    const waitingMap = client.waitForAttributeEqual(
       id,
       flow.dataMap,
       "special / key",
@@ -102,15 +102,15 @@ test("Client sets scalar, mapped, and model data attributes", async () => {
     await waitingMap;
     await assert.rejects(
       client.waitForAttributeEqual(id, flow.model, { value: 8 }, 30_000),
-      /only scalar/,
+      /only string, boolean, or number values/,
     );
     await assert.rejects(
       client.waitForAttributeEqual(id, new Attribute("bytes", bytesCodec), new Uint8Array([1]), 30_000),
-      /only scalar/,
+      /only string, boolean, or number values/,
     );
     await assert.rejects(
       client.waitForAttributeEqual(id, new Attribute("null", voidCodec), undefined, 30_000),
-      /only scalar/,
+      /only string, boolean, or number values/,
     );
     await client.setAttribute(id, flow.model, { value: 7 });
     await client.publish(id, flow.proceed, undefined);

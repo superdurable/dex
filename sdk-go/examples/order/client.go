@@ -158,7 +158,7 @@ func getItemQuantity(
 	flowID string,
 ) (int, bool, error) {
 	var quantity int
-	found, err := client.GetAttributeMap(
+	found, err := client.GetAttributeMapInstance(
 		ctx,
 		flowID,
 		ItemQuantities,
@@ -186,7 +186,7 @@ func setItemQuantity(
 	client *dex.Client,
 	flowID string,
 ) error {
-	return client.SetAttributeMap(
+	return client.SetAttributeMapInstance(
 		ctx,
 		flowID,
 		ItemQuantities,
@@ -214,7 +214,7 @@ func waitForItemQuantity(
 	client *dex.Client,
 	flowID string,
 ) error {
-	return client.WaitForAttributeMapEqual(
+	return client.WaitForAttributeMapInstanceEqual(
 		ctx,
 		flowID,
 		ItemQuantities,

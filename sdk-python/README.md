@@ -55,7 +55,7 @@ registry = dex.Registry((flow,))
 ```
 
 Registry derives codecs from declared Python types and handler annotations.
-Built-in scalar types and dataclasses need no codec arguments. Register an
+Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
 `PersistenceSchema.of(...)` accepts attributes and channels together and
 partitions them by definition type.
@@ -125,9 +125,9 @@ instead of raw Flow, Step, or RPC strings.
 `Wait.any_combination_of` must have a non-empty user ID; the same Condition
 instance may appear in multiple combinations.
 
-Both `Client` and `AsyncClient` provide `wait_for_attribute_equal` and
-`wait_for_attribute_map_equal`. They target the current run and accept only
-string, bool, int, or float wire values. JSON objects, bytes, and null fail
+Both `Client` and `AsyncClient` provide singleton and AttributeMap-instance
+overloads of `wait_for_attribute_equal`. They target the current run and accept
+only string, bool, int, or float wire values. JSON objects, bytes, and null fail
 before transport. `AttributeMap.get_map_size/get_all_instance_keys` include
 buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and

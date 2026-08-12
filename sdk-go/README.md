@@ -108,10 +108,11 @@ Condition ID and Dex evaluates them normally. Every Condition in `AnyComboOf`
 must use `WithConditionID`. Reusing the same Condition value across combinations
 is supported, while duplicate IDs on distinct Conditions are rejected.
 
-Clients wait on scalar Attribute equality in the current run with
-`WaitForAttributeEqual` or `WaitForAttributeMapEqual`. Expected values must
-encode as string, bool, integer, or double; JSON, bytes, and null fail before
-the RPC is sent.
+Clients wait on singleton Attribute equality in the current run with
+`WaitForAttributeEqual` or `WaitForAttributeMapInstanceEqual`. Client-side map
+reads and writes use `GetAttributeMapInstance` and `SetAttributeMapInstance`.
+Expected values must encode as string, bool, integer, or double; JSON, bytes,
+and null fail before the RPC is sent.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -340,7 +341,7 @@ an attribute.
 
 Keyword and text indexes accept valid UTF-8 strings. Keyword-array indexes
 accept slices containing valid UTF-8 strings. Int, double, and bool indexes
-accept their matching Go scalar families. Datetime indexes accept `time.Time`
+accept their matching Go primitive types. Datetime indexes accept `time.Time`
 or RFC3339Nano strings, including UTC `Z` and numeric offsets. Fractional
 seconds are preserved. Numeric strings are not treated as Unix nanoseconds.
 Initial indexed values are validated by `dex.InitialAttribute` and

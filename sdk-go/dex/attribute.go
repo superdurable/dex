@@ -15,7 +15,7 @@ import "github.com/superdurable/dex/sdk-go/gen/dexpb"
 // Attribute defines a typed persisted value.
 //
 // Declare an Attribute once, include it in the Flow's PersistenceSchema, and reuse the same value
-// from Step and RPC code. Values use the SDK's native scalar and JSON encoding rules.
+// from Step and RPC code. Values use the SDK's primitive and JSON encoding rules.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
 //
 // Example:

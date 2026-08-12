@@ -954,13 +954,13 @@ func (client *Client) GetAttribute(
 	return client.getAttribute(ctx, flowID, attribute, "", false, valuePtr)
 }
 
-// GetAttributeMap decodes one AttributeMap instance into valuePtr.
+// GetAttributeMapInstance decodes one AttributeMap instance into valuePtr.
 //
 // instance must be non-empty and valuePtr must be a non-nil pointer matching the
 // registered value type. The result is false with a nil error when that instance has
 // not been set; valuePtr is then unchanged. Validation, decoding, registration,
 // hydration, not-found Flow, context, transport, and server failures return errors.
-func (client *Client) GetAttributeMap(
+func (client *Client) GetAttributeMapInstance(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
@@ -1050,12 +1050,12 @@ func (client *Client) SetAttribute(
 	return client.setAttribute(ctx, flowID, attribute, "", false, value)
 }
 
-// SetAttributeMap writes one AttributeMap instance on an active Flow.
+// SetAttributeMapInstance writes one AttributeMap instance on an active Flow.
 //
 // instance must be non-empty and value must match the registered value type. The
 // server applies the write atomically for this instance. Validation, serialization,
 // registration, inactive-Flow, context, transport, and server failures return errors.
-func (client *Client) SetAttributeMap(
+func (client *Client) SetAttributeMapInstance(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
@@ -1210,9 +1210,9 @@ func (client *Client) setAttributes(
 	return translateRPCError(err, "SetAttributes", flowID, flowTargetActive)
 }
 
-// WaitForAttributeEqual blocks until a singleton Attribute equals value.
+// WaitForAttributeEqual blocks until a singleton Attribute equals expected.
 //
-// value must match the registered Attribute type. options controls the server-side
+// expected must match the registered Attribute type. options controls the server-side
 // long-poll duration. A nil error means equality was observed. LongPollTimeoutError
 // means the condition was not observed and the call may be repeated. Validation,
 // serialization, inactive-Flow, context, transport, and server failures also return
@@ -1221,7 +1221,7 @@ func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
-	value any,
+	expected any,
 	options WaitOptions,
 ) error {
 	return client.waitForAttributeEqual(
@@ -1230,23 +1230,23 @@ func (client *Client) WaitForAttributeEqual(
 		attribute,
 		"",
 		false,
-		value,
+		expected,
 		options,
 	)
 }
 
-// WaitForAttributeMapEqual blocks until one AttributeMap instance equals value.
+// WaitForAttributeMapInstanceEqual blocks until one AttributeMap instance equals expected.
 //
-// instance must be non-empty and value must match the registered type. options
+// instance must be non-empty and expected must match the registered type. options
 // controls the server-side long-poll duration. A nil error means equality was
 // observed. LongPollTimeoutError is retryable. Validation, serialization,
 // inactive-Flow, context, transport, and server failures also return errors.
-func (client *Client) WaitForAttributeMapEqual(
+func (client *Client) WaitForAttributeMapInstanceEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
-	value any,
+	expected any,
 	options WaitOptions,
 ) error {
 	return client.waitForAttributeEqual(
@@ -1255,7 +1255,7 @@ func (client *Client) WaitForAttributeMapEqual(
 		attribute,
 		instance,
 		true,
-		value,
+		expected,
 		options,
 	)
 }
@@ -1266,7 +1266,7 @@ func (client *Client) waitForAttributeEqual(
 	attribute AttributeDef,
 	instance string,
 	isMap bool,
-	value any,
+	expected any,
 	options WaitOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
@@ -1280,12 +1280,12 @@ func (client *Client) waitForAttributeEqual(
 	if err != nil {
 		return err
 	}
-	encoded, err := encodeValue(value)
+	encoded, err := encodeValue(expected)
 	if err != nil {
 		return err
 	}
-	if !isScalarValue(encoded) {
-		return fmt.Errorf("dex: WaitForAttributeEqual supports only scalar values")
+	if !isPrimitiveValue(encoded) {
+		return fmt.Errorf("dex: WaitForAttributeEqual supports only string, boolean, or number values")
 	}
 	timeout, err := mapWaitOptions(options)
 	if err != nil {
@@ -1308,7 +1308,7 @@ func (client *Client) waitForAttributeEqual(
 	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
 }
 
-func isScalarValue(value *dexpb.Value) bool {
+func isPrimitiveValue(value *dexpb.Value) bool {
 	switch value.GetKind().(type) {
 	case *dexpb.Value_StringValue,
 		*dexpb.Value_BoolValue,

@@ -176,7 +176,7 @@ public final class PersistenceTest {
                     "query-start");
             waiting.get(30, TimeUnit.SECONDS);
             final CompletableFuture<Void> waitingMap = CompletableFuture.runAsync(
-                    () -> environment.client().waitForAttributeMapEqual(
+                    () -> environment.client().waitForAttributeEqual(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.dataMap,
                             "special / key",
@@ -278,7 +278,7 @@ public final class PersistenceTest {
                 SET_ATTRIBUTES_WORKFLOW.data,
                 "value",
                 Duration.ofSeconds(30));
-        client.waitForAttributeMapEqual(
+        client.waitForAttributeEqual(
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.dataMap,
                 "one",

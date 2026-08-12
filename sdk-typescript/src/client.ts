@@ -66,7 +66,7 @@ import {
   type StopFlowOptions,
   type TimerId,
 } from "./options.js";
-import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
+import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { requireName } from "./validation.js";
@@ -723,26 +723,24 @@ export class Client {
   }
 
   /**
-   * Waits until a scalar Attribute in the current run equals the expected value.
+   * Waits until a singleton Attribute in the current run equals the expected value.
    * Generates a request ID and rejects JSON, bytes, and null before transport.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
-   * @param attribute - Registered scalar Attribute to observe.
+   * @param attribute - Registered singleton Attribute to observe.
    * @param expected - String, boolean, integer, or number value to await.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
    */
-  public async waitForAttributeEqual<T>(
+  public waitForAttributeEqual<T>(
     flowId: string,
     attribute: Attribute<T>,
     expected: T,
     timeoutMs: number,
-  ): Promise<void> {
-    await this.waitForAttributeValue(flowId, attribute, undefined, expected, timeoutMs);
-  }
+  ): Promise<void>;
 
   /**
-   * Waits until one scalar AttributeMap instance in the current run matches.
-   * Scalar restrictions and timeout errors match `waitForAttributeEqual`.
+   * Waits until one AttributeMap instance in the current run matches.
+   * Primitive-value restrictions and timeout errors match `waitForAttributeEqual`.
    * @typeParam T - AttributeMap value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered AttributeMap to observe.
@@ -750,21 +748,47 @@ export class Client {
    * @param expected - String, boolean, integer, or number value to await.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
    */
-  public async waitForAttributeMapEqual<T>(
+  public waitForAttributeEqual<T>(
     flowId: string,
     attribute: AttributeMap<T>,
     instance: string,
     expected: T,
     timeoutMs: number,
+  ): Promise<void>;
+
+  /**
+   * Waits until a singleton Attribute or AttributeMap instance equals the expected value.
+   * @param flowId - Non-empty active Flow ID.
+   * @param attribute - Registered Attribute or AttributeMap to observe.
+   * @param args - Expected value and timeout, optionally preceded by a map instance.
+   */
+  public async waitForAttributeEqual(
+    flowId: string,
+    attribute: Attribute<unknown> | AttributeMap<unknown>,
+    ...args: unknown[]
   ): Promise<void> {
-    await this.waitForAttributeValue(flowId, attribute, instance, expected, timeoutMs);
+    if (attribute instanceof Attribute) {
+      if (args.length !== 2 || typeof args[1] !== "number") {
+        throw new TypeError("waitForAttributeEqual received invalid Attribute arguments");
+      }
+      await this.waitForAttributeValue(flowId, attribute, undefined, args[0], args[1]);
+      return;
+    }
+    if (attribute instanceof AttributeMap) {
+      if (args.length !== 3 || typeof args[0] !== "string" || typeof args[2] !== "number") {
+        throw new TypeError("waitForAttributeEqual received invalid AttributeMap arguments");
+      }
+      await this.waitForAttributeValue(flowId, attribute, args[0], args[1], args[2]);
+      return;
+    }
+    throw new TypeError("waitForAttributeEqual received an invalid Attribute definition");
   }
 
-  private async waitForAttributeValue<T>(
+  private async waitForAttributeValue(
     flowId: string,
-    attribute: Attribute<T> | AttributeMap<T>,
+    attribute: Attribute<unknown> | AttributeMap<unknown>,
     instance: string | undefined,
-    expected: T,
+    expected: unknown,
     timeoutMs: number,
   ): Promise<void> {
     const value = encodeValue(attribute.codec, expected);
@@ -774,7 +798,9 @@ export class Client {
       value.kind?.$case !== "intValue" &&
       value.kind?.$case !== "doubleValue"
     ) {
-      throw new TypeError("waitForAttributeEqual supports only scalar values");
+      throw new TypeError(
+        "waitForAttributeEqual supports only string, boolean, or number values",
+      );
     }
     await unary<Empty>(
       { operation: "waitForAttributeEqual", flowId, requirement: "active" },

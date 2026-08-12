@@ -468,13 +468,13 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, "ready", status)
 	var quantity int
-	found, err = client.GetAttributeMap(ctx, "order-1", clientTestItems, "sku-1", &quantity)
+	found, err = client.GetAttributeMapInstance(ctx, "order-1", clientTestItems, "sku-1", &quantity)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, 3, quantity)
 
 	require.NoError(t, client.SetAttribute(ctx, "order-1", clientTestStatus, "done"))
-	require.NoError(t, client.SetAttributeMap(ctx, "order-1", clientTestItems, "sku-1", 4))
+	require.NoError(t, client.SetAttributeMapInstance(ctx, "order-1", clientTestItems, "sku-1", 4))
 	require.Len(t, service.setRequests, 2)
 	require.True(t, service.setRequests[0].Attributes[0].GetSyncConfig().GetEnabled())
 	require.Nil(t, service.setRequests[1].Attributes[0].SyncConfig)

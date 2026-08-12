@@ -20,7 +20,7 @@ export type Value =
   | Readonly<{
       /** Boolean wire discriminator. */
       kind: "bool";
-      /** Boolean scalar payload. */
+      /** Boolean payload. */
       data: boolean;
     }>
   | Readonly<{

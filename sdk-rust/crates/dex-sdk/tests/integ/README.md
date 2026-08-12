@@ -52,4 +52,4 @@ one-to-one Java suite.
 
 Local contract tests also cover malformed rich details, fallible registration,
 invalid Step-result worker metadata, user-owned Condition IDs, and map
-introspection. Persistence integration covers scalar Attribute equality waits.
+introspection. Persistence integration covers singleton Attribute equality waits.

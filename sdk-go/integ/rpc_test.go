@@ -176,7 +176,7 @@ func TestRPCFlow(t *testing.T) {
 		)
 	}()
 	go func() {
-		waitErrors <- integClient.WaitForAttributeMapEqual(
+		waitErrors <- integClient.WaitForAttributeMapInstanceEqual(
 			ctx,
 			flowID,
 			rpcFlowWaitMap,
@@ -202,21 +202,21 @@ func TestRPCFlow(t *testing.T) {
 		rpcFlowBytes,
 		[]byte("value"),
 		dex.WaitOptions{Timeout: time.Second},
-	), "only scalar")
+	), "only string, boolean, or number values")
 	require.ErrorContains(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		rpcFlowNull,
 		nil,
 		dex.WaitOptions{Timeout: time.Second},
-	), "only scalar")
+	), "only string, boolean, or number values")
 	require.ErrorContains(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		persistenceData,
 		persistenceModel{},
 		dex.WaitOptions{Timeout: time.Second},
-	), "only scalar")
+	), "only string, boolean, or number values")
 
 	var failedOutput int
 	err = integClient.InvokeRPC(

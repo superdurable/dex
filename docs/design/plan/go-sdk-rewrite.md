@@ -1168,7 +1168,7 @@ entry methods. The Client generates one random UUID for:
 - every SetAttributes call, including the single-attribute helpers;
 - every InvokeRPC, whether it is locking or non-locking;
 - every WaitForStepCompletion call; and
-- every WaitForAttributeEqual or WaitForAttributeMapEqual call.
+- every WaitForAttributeEqual or WaitForAttributeMapInstanceEqual call.
 
 A non-nil StartFlow override must be non-empty. It may be a stable business
 identifier, supports a logical retry spanning separate Client calls, and is
@@ -1272,7 +1272,7 @@ instance. It preserves request order on the wire and returns opaque Values
 keyed by concrete attribute name. An empty list returns an empty map without an
 RPC.
 
-SetAttribute and SetAttributeMap use the definition's registered index config.
+SetAttribute and SetAttributeMapInstance use the definition's registered index config.
 SetAttributes validates and encodes every `AttributeWrite`, rejects duplicate
 physical keys, generates one request ID, and sends one batch. An empty batch is
 a successful local no-op. Encoding completes before the RPC, so no partial
@@ -1311,7 +1311,7 @@ appear in the public invocation response.
 
 ### Wait, lifecycle, and administrative operations
 
-WaitForAttributeEqual and WaitForAttributeMapEqual resolve the definition,
+WaitForAttributeEqual and WaitForAttributeMapInstanceEqual resolve the definition,
 encode the expected concrete value, and generate one request ID. The map form
 requires an instance. Index configuration is irrelevant to equality. Only
 string, bool, integer, and double wire values are accepted; object, bytes, and
@@ -2291,7 +2291,7 @@ func (client *Client) GetAttribute(
 	valuePtr any,
 ) (found bool, err error)
 
-func (client *Client) GetAttributeMap(
+func (client *Client) GetAttributeMapInstance(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
@@ -2306,7 +2306,7 @@ func (client *Client) SetAttribute(
 	value any,
 ) error
 
-func (client *Client) SetAttributeMap(
+func (client *Client) SetAttributeMapInstance(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
@@ -2318,16 +2318,16 @@ func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
-	value any,
+	expected any,
 	options WaitOptions,
 ) error
 
-func (client *Client) WaitForAttributeMapEqual(
+func (client *Client) WaitForAttributeMapInstanceEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
-	value any,
+	expected any,
 	options WaitOptions,
 ) error
 ```

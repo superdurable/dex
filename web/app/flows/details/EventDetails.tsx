@@ -104,7 +104,7 @@ function decodedValue(value: unknown): unknown {
   }
 }
 
-function displayScalar(value: unknown): string {
+function displayValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string' || typeof value === 'number') return String(value);
@@ -141,7 +141,7 @@ function Fields({
       {visible.map(([label, value, wide]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
-          <dd>{displayScalar(value)}</dd>
+          <dd>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -164,7 +164,7 @@ function ValueBlock({
       <span>{label}</span>
       {decoded && typeof decoded === 'object'
         ? <pre>{JSON.stringify(decoded, null, 2)}</pre>
-        : <code>{displayScalar(decoded)}</code>}
+        : <code>{displayValue(decoded)}</code>}
     </div>
   );
 }
@@ -176,7 +176,7 @@ function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?: strin
     <div className="semantic-records">
       {entries.map((entry, index) => (
         <div className="semantic-record" key={`${String(entry.key)}-${index}`}>
-          <strong>{displayScalar(entry.key)}</strong>
+          <strong>{displayValue(entry.key)}</strong>
           <ValueBlock label="Value" value={entry.value} />
         </div>
       ))}
@@ -191,7 +191,7 @@ function ChannelMessages({ values }: { values: unknown }) {
     <div className="semantic-records">
       {messages.map((message, index) => (
         <div className="semantic-record channel-record" key={`${String(message.channelName)}-${index}`}>
-          <strong><ChannelIcon />{displayScalar(message.channelName)}</strong>
+          <strong><ChannelIcon />{displayValue(message.channelName)}</strong>
           <ValueBlock label="Message" value={message.value} />
         </div>
       ))}
@@ -322,7 +322,7 @@ function WaitingConditionContent({ value }: { value: unknown }) {
         <div className="semantic-records">
           {channels.map((channel, index) => (
             <div className="semantic-record channel-record" key={`${String(channel.channelName)}-${index}`}>
-              <strong><ChannelIcon />{displayScalar(channel.channelName)}</strong>
+              <strong><ChannelIcon />{displayValue(channel.channelName)}</strong>
               <Fields values={[
                 ['Condition ID', channel.conditionId],
                 ['At least', channel.atLeast],
@@ -378,7 +378,7 @@ function ConditionResultsContent({ value, showEmpty = false }: { value: unknown;
       <div className="semantic-records">
         {channels.map((channel, index) => (
           <div className="semantic-record channel-record" key={`${String(channel.channelName)}-${index}`}>
-            <strong><ChannelIcon />{displayScalar(channel.channelName)}</strong>
+            <strong><ChannelIcon />{displayValue(channel.channelName)}</strong>
             <Fields values={[
               ['Condition ID', channel.conditionId],
               ['Status', conditionStatusLabel(channel.conditionStatus)],
@@ -647,7 +647,7 @@ function protobufDuration(value: unknown): string | undefined {
       (Number.isFinite(nanos) ? nanos / 1_000_000 : 0),
     );
   }
-  return displayScalar(value);
+  return displayValue(value);
 }
 
 function InitialStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
@@ -737,7 +737,7 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
       {(isPresent(payload.errorMessage) || (errorType && errorType !== 'Unspecified')) && (
         <DetailSection title="Failure">
           <div className="semantic-alert">
-            <strong>{displayScalar(payload.errorMessage)}</strong>
+            <strong>{displayValue(payload.errorMessage)}</strong>
             <Fields values={[['Type', errorType]]} />
           </div>
         </DetailSection>

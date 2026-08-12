@@ -796,14 +796,14 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a scalar Attribute equals the expected value or the wait duration expires.
+     * Blocks until a singleton Attribute equals the expected value or the wait duration expires.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param expected the expected string, boolean, integer, or floating-point value
      * @param timeout the nonnegative whole-second wait duration
      * @param <T> the Attribute value type
-     * @throws IllegalArgumentException if the expected value is not a supported scalar
+     * @throws IllegalArgumentException if the expected value is not a string, Boolean, or number
      * @throws LongPollTimeoutException if the timeout expires before the value matches
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
@@ -813,11 +813,11 @@ public final class Client implements AutoCloseable {
             final Attribute<T> attribute,
             final T expected,
             final Duration timeout) {
-        waitForAttributeEqual(flowId, attribute, null, expected, timeout);
+        waitForAttributeValue(flowId, attribute, null, expected, timeout);
     }
 
     /**
-     * Blocks until a scalar Attribute-map instance equals the expected value.
+     * Blocks until an AttributeMap instance equals the expected value.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute-map definition
@@ -825,30 +825,30 @@ public final class Client implements AutoCloseable {
      * @param expected the expected string, boolean, integer, or floating-point value
      * @param timeout the nonnegative whole-second wait duration
      * @param <T> the Attribute value type
-     * @throws IllegalArgumentException if the expected value is not a supported scalar
+     * @throws IllegalArgumentException if the expected value is not a string, Boolean, or number
      * @throws LongPollTimeoutException if the timeout expires before the value matches
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
-    public <T> void waitForAttributeMapEqual(
+    public <T> void waitForAttributeEqual(
             final String flowId,
             final AttributeMap<T> attribute,
             final String instance,
             final T expected,
             final Duration timeout) {
-        waitForAttributeEqual(flowId, attribute, instance, expected, timeout);
+        waitForAttributeValue(flowId, attribute, instance, expected, timeout);
     }
 
-    private void waitForAttributeEqual(
+    private void waitForAttributeValue(
             final String flowId,
             final PersistenceDefinition attribute,
             final String instance,
             final Object expected,
             final Duration timeout) {
         final Value encoded = values.encode(expected);
-        if (!isScalar(encoded)) {
+        if (!isPrimitiveValue(encoded)) {
             throw new IllegalArgumentException(
-                    "waitForAttributeEqual supports only scalar values");
+                    "waitForAttributeEqual supports only string, Boolean, or number values");
         }
         final String key = instance == null
                 ? attribute.getName()
@@ -867,7 +867,7 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
-    private static boolean isScalar(final Value value) {
+    private static boolean isPrimitiveValue(final Value value) {
         switch (value.getKindCase()) {
             case STRING_VALUE:
             case BOOL_VALUE:

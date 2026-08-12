@@ -238,7 +238,7 @@ impl Client {
     /// Reads one Attribute-map instance from the current run.
     ///
     /// Returns `Ok(None)` when the instance is absent.
-    pub fn get_attribute_map<T: Value>(
+    pub fn get_attribute_map_instance<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
@@ -275,7 +275,7 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
-    pub fn set_attribute_map<T: Value>(
+    pub fn set_attribute_map_instance<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
@@ -620,7 +620,7 @@ impl Client {
         )
     }
 
-    /// Blocks until a scalar Attribute in the current run equals `expected`.
+    /// Blocks until a singleton Attribute in the current run equals `expected`.
     ///
     /// String, bool, integer, and double values are supported. Object, bytes,
     /// and null values return [`SdkError::InvalidArgument`] before transport.
@@ -635,11 +635,11 @@ impl Client {
         self.wait_for_attribute_value(flow_id, attribute.name(), &expected, timeout)
     }
 
-    /// Blocks until one scalar AttributeMap instance equals `expected`.
+    /// Blocks until one AttributeMap instance equals `expected`.
     ///
-    /// This targets the current run and otherwise has the same scalar,
+    /// This targets the current run and otherwise has the same primitive-value,
     /// timeout, request-ID, and error behavior as `wait_for_attribute_equal`.
-    pub fn wait_for_attribute_map_equal<T: Value>(
+    pub fn wait_for_attribute_map_instance_equal<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
@@ -671,7 +671,7 @@ impl Client {
                 | Some(dex_protocol::dex::value::Kind::DoubleValue(_))
         ) {
             return Err(invalid(
-                "wait_for_attribute_equal supports only scalar values",
+                "wait_for_attribute_equal supports only string, boolean, or number values",
             ));
         }
         let wait_time_seconds = seconds32(timeout)?;

@@ -268,7 +268,7 @@ fn persistence_contract_round_trips_all_values_and_search_index() {
         Some(11),
         environment
             .client
-            .get_attribute_map(&flow_id, &workflow.data_map, "one")
+            .get_attribute_map_instance(&flow_id, &workflow.data_map, "one")
             .expect("get persisted AttributeMap value")
     );
     assert_eq!(

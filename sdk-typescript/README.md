@@ -87,7 +87,7 @@ disables future synchronization while retaining protocol presence.
 Condition IDs. Every Condition in `Wait.anyCombinationOf` needs a non-empty
 user ID; the same Condition object may be reused across combinations.
 
-`Client.waitForAttributeEqual` and `waitForAttributeMapEqual` target the current
+`Client.waitForAttributeEqual` overloads target the current
 run and accept only string, boolean, integer, or double wire values. JSON,
 bytes, and null reject before transport. `AttributeMap.getMapSize` and
 `getAllInstanceKeys` include buffered sets and deletes. The matching

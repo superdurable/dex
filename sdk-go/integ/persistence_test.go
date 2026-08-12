@@ -265,7 +265,7 @@ func TestPersistenceFlow(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, input, data)
 	var item int
-	found, err = integClient.GetAttributeMap(ctx, flowID, persistenceMap, "one", &item)
+	found, err = integClient.GetAttributeMapInstance(ctx, flowID, persistenceMap, "one", &item)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, 11, item)
