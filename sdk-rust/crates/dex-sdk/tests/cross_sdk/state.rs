@@ -140,7 +140,8 @@ fn execute_recovery_contract_preserves_input_type_and_completes() {
         "this is flow step 2",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete Go execute-recovery Flow")
     );
 }
@@ -192,7 +193,8 @@ fn wait_for_method_timeout_reports_timeout_message() {
 fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> SdkError {
     environment
         .client
-        .wait_for_flow_with_timeout::<i32>(flow_id, Duration::from_secs(15))
+        .wait_for_flow_with_timeout(flow_id, Duration::from_secs(15))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("Flow must not complete")
 }
 
@@ -207,13 +209,13 @@ fn assert_worker_failure(
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run_id);
             assert_eq!(FlowStatus::Failed, status);
             assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
             assert!(message.as_deref().is_some_and(message_matches));
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }

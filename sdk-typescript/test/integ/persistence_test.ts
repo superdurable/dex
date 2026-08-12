@@ -38,6 +38,6 @@ export async function compilePersistenceWrites(client: Client): Promise<void> {
   await client.setAttribute("set-attributes", flow.integer, 1);
   await client.setAttribute("set-attributes", flow.bool, true);
   await client.setAttribute("set-attributes", flow.keywords, ["one", "two"]);
-  const output: string = await client.waitForFlow("set-attributes", stringCodec);
+  const output: string = await client.waitForFlow("set-attributes").then((result) => result.singleOutput(stringCodec));
   void output;
 }

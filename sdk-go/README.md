@@ -277,6 +277,14 @@ a stable business identifier spanning separate calls.
 Client is safe for concurrent calls. `Close` is idempotent and closes only its
 owned gRPC connection. Calls after Close return a local error.
 
+`WaitForFlow` hydrates every requested completion before returning. Decode one
+known output with `result.DecodeSingleOutput(&output)`; it returns a local error
+unless exactly one completion exists. For multiple outputs, match
+`result.Completions` by `StepType` or `StepExecutionID`, then call
+`completion.Output.Decode(&target)`. The slice preserves server collection
+order, but parallel branch order is not deterministic. No-output Flows return
+an empty slice.
+
 Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 

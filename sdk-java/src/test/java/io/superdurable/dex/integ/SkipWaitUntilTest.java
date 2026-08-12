@@ -48,22 +48,19 @@ public final class SkipWaitUntilTest {
                             .build())
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, input, options);
-            assertEquals(input + 2, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(input + 2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
     void compileExecuteOnlySteps(final Client client) {
         client.startFlow(WORKFLOW, "execute-only", 0);
-        final Integer output = client.waitForFlow("execute-only", Integer.class);
+        final Integer output = client.waitForFlow("execute-only").getSingleOutput(Integer.class);
         consume(output);
     }
 
     void compileMixedWaitStyles(final Client client) {
         client.startFlow(MIXED_WAIT_WORKFLOW, "mixed-wait", 0);
-        final Integer output = client.waitForFlow("mixed-wait", Integer.class);
+        final Integer output = client.waitForFlow("mixed-wait").getSingleOutput(Integer.class);
         consume(output);
     }
 

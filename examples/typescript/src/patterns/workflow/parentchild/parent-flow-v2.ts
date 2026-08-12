@@ -142,7 +142,6 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
     try {
       await getClient().waitForFlow(
         input.childWFId,
-        voidCodec,
         Math.max(input.timerSeconds, 1) * 1000,
       );
     } catch (error) {

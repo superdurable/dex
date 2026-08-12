@@ -98,7 +98,7 @@ import java.util.concurrent.TimeUnit;
  *     String runId = client.startFlow(orderFlow, "order-123", input);
  *     OrderFlow rpc = client.newRpcStub(OrderFlow.class, "order-123", runId);
  *     OrderStatus status = client.invokeRPC(rpc::getStatus);
- *     OrderOutput output = client.waitForFlow("order-123", OrderOutput.class);
+ *     OrderOutput output = client.waitForFlow("order-123").getSingleOutput(OrderOutput.class);
  * }
  * }</pre>
  */
@@ -564,58 +564,33 @@ public final class Client implements AutoCloseable {
      * {@link FlowStatus#COMPLETED}.
      *
      * @param flowId the target Flow ID
+     * @return all output-bearing Step completions in server collection order
      * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
-    public void waitForFlow(final String flowId) {
-        waitForFlowResponse(flowId, null);
+    public WaitForFlowResult waitForFlow(final String flowId) {
+        return waitForFlow(flowId, null);
     }
 
     /**
-     * Blocks until a Flow reaches a terminal status and decodes output only for
-     * {@link FlowStatus#COMPLETED}.
+     * Blocks for a bounded duration until a Flow reaches a terminal status and returns every
+     * output-bearing Step completion only for {@link FlowStatus#COMPLETED}.
      *
      * @param flowId the target Flow ID
-     * @param outputType the concrete Java output class
-     * @param <O> the expected output type
-     * @return the latest completed Step output, or {@code null} when no output was recorded
-     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
-     * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise cannot complete the wait request
-     */
-    public <O> O waitForFlow(final String flowId, final Class<O> outputType) {
-        return waitForFlow(flowId, outputType, null);
-    }
-
-    /**
-     * Blocks for a bounded duration until a Flow reaches a terminal status and decodes output only
-     * for {@link FlowStatus#COMPLETED}.
-     *
-     * @param flowId the target Flow ID
-     * @param outputType the concrete Java output class
      * @param timeout the nonnegative whole-second long-poll duration, or {@code null} for no bound
-     * @param <O> the expected output type
-     * @return the latest completed Step output, or {@code null} when no output was recorded
+     * @return all output-bearing Step completions in server collection order
      * @throws LongPollTimeoutException if {@code timeout} expires while the Flow remains running
      * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
-    public <O> O waitForFlow(
+    public WaitForFlowResult waitForFlow(
             final String flowId,
-            final Class<O> outputType,
             final Duration timeout) {
         final WaitForFlowResponse response = waitForFlowResponse(flowId, timeout);
-        for (int index = response.getResultsCount() - 1; index >= 0; index--) {
-            if (response.getResults(index).hasCompletedStepOutput()) {
-                return values.decode(
-                        hydrator.hydrate(response.getResults(index).getCompletedStepOutput()),
-                        outputType);
-            }
-        }
-        return null;
+        return new WaitForFlowResult(mapStepCompletions(response.getResultsList()));
     }
 
     /**
@@ -1061,10 +1036,21 @@ public final class Client implements AutoCloseable {
                     mapFlowStatus(response.getFlowStatus()),
                     mapFlowErrorType(response.getErrorType()),
                     response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
-                    hydrator.hydrateStepOutputs(response.getResultsList()),
-                    (value, resultType) -> values.decode(value, resultType));
+                    mapStepCompletions(response.getResultsList()));
         }
         return response;
+    }
+
+    private List<StepCompletion> mapStepCompletions(
+            final List<io.superdurable.gen.StepCompletionOutput> outputs) {
+        final List<StepCompletion> completions = new ArrayList<StepCompletion>();
+        for (io.superdurable.gen.StepCompletionOutput completion
+                : hydrator.hydrateStepOutputs(outputs)) {
+            completions.add(new StepCompletion(
+                    completion,
+                    (value, outputType) -> values.decode(value, outputType)));
+        }
+        return completions;
     }
 
     FlowStartOptions mapStartOptions(final StartFlowOptions options) {

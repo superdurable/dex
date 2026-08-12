@@ -49,5 +49,5 @@ def compile_persistence_writes(client: Client) -> None:
     client.wait_for_attribute_equal(
         "set-attributes", flow.data_map, "one", "value", timedelta(seconds=30)
     )
-    output: str = client.wait_for_flow("set-attributes", str)
+    output: str = client.wait_for_flow("set-attributes").single_output(str)
     del output

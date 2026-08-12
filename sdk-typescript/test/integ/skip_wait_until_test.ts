@@ -14,12 +14,12 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileExecuteOnlySteps(client: Client): Promise<void> {
   await client.startFlow(flows.EXECUTE_ONLY, "execute-only", 0);
-  const output: number = await client.waitForFlow("execute-only", doubleCodec);
+  const output: number = await client.waitForFlow("execute-only").then((result) => result.singleOutput(doubleCodec));
   void output;
 }
 
 export async function compileMixedWaitStyles(client: Client): Promise<void> {
   await client.startFlow(flows.MIXED_WAIT, "mixed-wait", 0);
-  const output: number = await client.waitForFlow("mixed-wait", doubleCodec);
+  const output: number = await client.waitForFlow("mixed-wait").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

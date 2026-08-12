@@ -17,7 +17,7 @@ def compile_signal_channel(client: Client) -> None:
     flow = ConditionalCompleteFlow()
     client.start_flow(flow, "conditional-signal", True)
     client.publish("conditional-signal", flow.signal, None)
-    output: int = client.wait_for_flow("conditional-signal", int)
+    output: int = client.wait_for_flow("conditional-signal").single_output(int)
     del output
 
 

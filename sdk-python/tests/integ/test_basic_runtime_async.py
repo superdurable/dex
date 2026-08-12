@@ -10,7 +10,7 @@
 
 import asyncio
 from datetime import timedelta
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
@@ -19,9 +19,9 @@ from dex import (
     FlowConfig,
     FlowDefinitionError,
     FlowErrorType,
+    FlowNotFoundError,
     FlowStatus,
     FlowUncompletedError,
-    FlowNotFoundError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
@@ -52,7 +52,9 @@ async def _basic_workflow() -> None:
         flow_id = unique_id("basic")
         options = StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
         await environment.client.start_flow(flow, flow_id, 0, options)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
         with pytest.raises(FlowAlreadyStartedError):
             await environment.client.start_flow(flow, flow_id, 0, options)
 
@@ -71,11 +73,15 @@ async def _basic_workflow_abnormal_exit_reuse() -> None:
         )
         failed_run = await environment.client.start_flow(abnormal, flow_id, 0, options)
         with pytest.raises(FlowUncompletedError) as captured:
-            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
+            (
+                await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+            ).single_output(int)
         assert captured.value.run_id == failed_run
         assert captured.value.status is FlowStatus.FAILED
         await environment.client.start_flow(basic, flow_id, 0, options)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
 
 
 def test_empty_input_workflow() -> None:
@@ -87,13 +93,15 @@ async def _empty_input_workflow() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("empty-input")
         await environment.client.start_flow(flow, flow_id, None)
-        assert (
-            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) is None
-        )
+        assert not (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).completions
         with pytest.raises(FlowNotFoundError):
-            await environment.client.wait_for_flow(
-                unique_id("missing"), int, timedelta(seconds=1)
-            )
+            (
+                await environment.client.wait_for_flow(
+                    unique_id("missing"), timedelta(seconds=1)
+                )
+            ).single_output(int)
 
 
 def test_custom_flow_type() -> None:
@@ -108,10 +116,9 @@ async def _custom_flow_type() -> None:
         await environment.client.start_flow(flow, flow_id, None)
         completed = await environment.client.wait_for_flow(
             flow_id,
-            cast(type[Any], type(None)),
             WAIT_TIMEOUT,
         )
-        assert completed is None
+        assert not completed.completions
         with pytest.raises(
             FlowDefinitionError, match="Flow instance is not registered"
         ):
@@ -129,7 +136,9 @@ async def _model_input_workflow() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("model-input")
         await environment.client.start_flow(flow, flow_id, ModelInput(value=10))
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 10
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 10
         with pytest.raises(ValueMappingError):
             await environment.client.start_flow(
                 flow,
@@ -150,7 +159,9 @@ async def _flow_config_override() -> None:
             config_override=FlowConfig(continue_as_new_threshold=1)
         )
         await environment.client.start_flow(flow, flow_id, 0, options)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
 
 
 def test_describe_missing_flow() -> None:
@@ -193,7 +204,9 @@ async def _wait_for_step_completion() -> None:
             StepExecutionId("BasicSecondStep"),
             WAIT_TIMEOUT,
         )
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 7
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 7
 
 
 def test_proceed_on_wait_failure() -> None:
@@ -206,9 +219,8 @@ async def _proceed_on_wait_failure() -> None:
         flow_id = unique_id("proceed-on-wait-failure")
         await environment.client.start_flow(flow, flow_id, "input")
         assert (
-            await environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
-            == "input-recovered"
-        )
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(str) == "input-recovered"
 
 
 def test_mixed_wait_styles() -> None:
@@ -220,7 +232,9 @@ async def _mixed_wait_styles() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("mixed-wait")
         await environment.client.start_flow(flow, flow_id, 0)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
 
 
 def test_movement_options_do_not_mutate_step_defaults() -> None:
@@ -233,7 +247,9 @@ async def _movement_options_do_not_mutate_step_defaults() -> None:
         flow_id = unique_id("immutable-options")
         await environment.client.start_flow(flow, flow_id, 0)
         with pytest.raises(FlowUncompletedError) as captured:
-            await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
+            (
+                await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+            ).single_output(int)
         assert captured.value.status is FlowStatus.FAILED
         assert captured.value.error_type is FlowErrorType.WORKER_API_FAILED
         assert str(captured.value) == "expected wait failure 2"

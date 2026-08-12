@@ -36,7 +36,7 @@ fn test_basic_timer_workflow() {
         .expect("wait for Timer Step");
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete timer Flow");
     let elapsed = started_at.elapsed();
     assert!(
@@ -54,6 +54,6 @@ fn compile_timer_and_step_wait(client: &Client) -> SdkResult<()> {
         StepExecutionId::of(&workflow.start),
         Duration::from_secs(10),
     )?;
-    let _: () = client.wait_for_flow("timer")?;
+    let _ = client.wait_for_flow("timer")?;
     Ok(())
 }

@@ -14,11 +14,7 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileWaitAndFlowTimeouts(client: Client): Promise<void> {
   await client.startFlow(flows.SIGNAL, "wait-timeout", 0, { timeoutMs: 1_000 });
-  const output: number = await client.waitForFlow(
-    "wait-timeout",
-    doubleCodec,
-    1,
-  );
+  const output: number = await client.waitForFlow("wait-timeout", 1).then((result) => result.singleOutput(doubleCodec));
   void output;
 }
 

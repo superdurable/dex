@@ -43,7 +43,7 @@ test("unknown any-combination condition fails the Flow", async () => {
     const id = flowId("any-combination-fail");
     const runId = await client.startFlow(flow, id, 5);
     const failure = await expectError(
-      client.waitForFlow(id, doubleCodec, 30_000),
+      client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)),
       FlowUncompletedError,
     );
     assert.equal(failure.runId, runId);
@@ -67,7 +67,7 @@ for (const useSignal of [true, false]) {
       } else {
         await client.invokeRPC(flow.publishToInternalChannel, id);
       }
-      assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 1);
+      assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 1);
     });
   });
 }
@@ -77,7 +77,7 @@ test("internal channels coordinate concurrent Steps", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("basic-internal");
     await client.startFlow(flow, id, 1);
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 2);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   });
 });
 
@@ -87,7 +87,7 @@ test("external messages satisfy an internal waiting channel", async () => {
     const id = flowId("waiting-internal");
     await client.startFlow(flow, id, 1);
     await client.publish(id, flow.channel, 2, 3);
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 6);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 6);
   });
 });
 
@@ -97,7 +97,7 @@ test("RPC starts a Flow without a start Step", async () => {
     const id = flowId("no-start");
     await client.startFlow(flow, id, undefined);
     assert.equal(await client.invokeRPC(flow.invoke, id, "rpc-input"), 100);
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 1);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 1);
   });
 });
 
@@ -117,7 +117,7 @@ test("RPC moves a dead-end Flow to completion", async () => {
     const id = flowId("dead-end");
     await client.startFlow(flow, id, undefined);
     assert.equal(await client.invokeRPC(flow.invoke, id, "rpc-input"), 100);
-    assert.equal(await client.waitForFlow(id, voidCodec, 30_000), undefined);
+    assert.equal((await client.waitForFlow(id, 30_000)).completions.length, 0);
   });
 });
 
@@ -134,7 +134,7 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
       StepExecutionId.of("SignalCombinationStep"),
       TimerId.byConditionId("test-timer-id"),
     );
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 6);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 6);
     await expectError(client.publish(id, flow.first, 8), FlowNotActiveError);
   });
 });
@@ -146,7 +146,7 @@ test("execute-only Steps survive Continue-As-New", async () => {
     await client.startFlow(flow, id, 0, {
       configOverride: { continueAsNewThreshold: 1 },
     });
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 2);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   });
 });
 
@@ -156,7 +156,7 @@ test("movement Step options override defaults", async () => {
     const id = flowId("state-options-override");
     await client.startFlow(flow, id, "input");
     assert.equal(
-      await client.waitForFlow(id, stringCodec, 30_000),
+      await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)),
       "input_state1_start_state1_decide_state2_start_state2_decide",
     );
   });
@@ -167,7 +167,7 @@ test("timeouts, retries, durability, and locks compose", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("state-options");
     await client.startFlow(flow, id, undefined);
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "success");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "success");
   });
 });
 
@@ -179,7 +179,7 @@ for (const [name, flow] of [
     await withEnvironment([flow], async ({ client }) => {
       const id = flowId(`state-recovery-${name}`);
       await client.startFlow(flow, id, 5);
-      assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 10);
+      assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 10);
     });
   });
 }

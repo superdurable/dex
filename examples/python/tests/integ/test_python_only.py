@@ -17,14 +17,14 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import AsyncClient
-
+from dex_examples.ai_agent_email.ai_agent_flow import STATUS_WAITING
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.ai_agent_email.ai_agent_flow import STATUS_WAITING
 from dex_examples.resourcecontrol.controller_flow import SPOT_INSTANCE_IDS
 from dex_examples.resourcecontrol.request import Request
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
+
+from dex import AsyncClient
 
 pytestmark = pytest.mark.integ
 
@@ -39,7 +39,9 @@ async def test_basic_approve_completes(
     appended = await client.invoke_rpc(app.basic.append_string, flow_id, "hello")
     assert "hello" in appended
     await client.invoke_rpc(app.basic.approve, flow_id)
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "approved"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "approved"
 
 
 async def test_resourcecontrol_enqueue(
@@ -55,7 +57,9 @@ async def test_resourcecontrol_enqueue(
         start_options(),
     )
     request = Request(new_flow_id("req"), "payload")
-    assert await client.invoke_rpc(app.controller.enqueue, controller_id, request) is True
+    assert (
+        await client.invoke_rpc(app.controller.enqueue, controller_id, request) is True
+    )
 
     async def controller_running() -> bool:
         info = await client.describe_flow(controller_id)

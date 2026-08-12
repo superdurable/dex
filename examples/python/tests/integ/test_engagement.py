@@ -17,14 +17,14 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import AsyncClient
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
 from dex_examples.workflow.engagement.engagement_input import EngagementInput
 from dex_examples.workflow.engagement.status import Status
 from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute
+
+from dex import AsyncClient
 
 pytestmark = pytest.mark.integ
 
@@ -51,7 +51,9 @@ async def test_engagement_accept_completes_the_flow(
     assert await client.invoke_rpc(app.engagement.accept, flow_id, "sounds good") is (
         Status.ACCEPTED
     )
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "done"
 
 
 async def test_engagement_decline_then_accept(
@@ -71,11 +73,13 @@ async def test_engagement_decline_then_accept(
     assert await client.invoke_rpc(app.engagement.decline, flow_id, "not now") is (
         Status.DECLINED
     )
-    assert await client.invoke_rpc(app.engagement.accept, flow_id, "changed my mind") is (
-        Status.ACCEPTED
-    )
+    assert await client.invoke_rpc(
+        app.engagement.accept, flow_id, "changed my mind"
+    ) is (Status.ACCEPTED)
 
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "done"
     description = await client.invoke_rpc(app.engagement.describe, flow_id)
     assert description.notes == ";not now;changed my mind"
 
@@ -98,4 +102,6 @@ async def test_engagement_opt_out_of_reminders(
 
     # Opting out ends the reminder loop but leaves the engagement open.
     await client.invoke_rpc(app.engagement.accept, flow_id, "")
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "done"

@@ -16,7 +16,7 @@ from .waiting_internal_channel_flow import WaitingInternalChannelFlow
 
 def compile_basic_internal_channel(client: Client) -> None:
     client.start_flow(BasicInternalChannelFlow(), "basic-internal", 1)
-    output: int = client.wait_for_flow("basic-internal", int)
+    output: int = client.wait_for_flow("basic-internal").single_output(int)
     del output
 
 
@@ -24,5 +24,5 @@ def compile_waiting_internal_channel(client: Client) -> None:
     flow = WaitingInternalChannelFlow()
     client.start_flow(flow, "waiting-internal", 1)
     client.publish("waiting-internal", flow.channel, 2, 3)
-    output: int = client.wait_for_flow("waiting-internal", int)
+    output: int = client.wait_for_flow("waiting-internal").single_output(int)
     del output

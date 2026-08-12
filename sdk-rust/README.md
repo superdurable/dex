@@ -45,6 +45,27 @@ include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
+`Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
+`WaitForFlowResult` after hydrating every output-bearing completion. Use the
+strict helper for a single-output Flow:
+
+```rust
+let output: OrderResult = client.wait_for_flow(flow_id)?.single_output()?;
+
+let result = client.wait_for_flow(flow_id)?;
+for completion in result.completions() {
+    if completion.step_type == "ChargeCard" {
+        let receipt: Receipt = completion.decode()?;
+    }
+}
+```
+
+The completion slice preserves server collection order, but parallel branch
+order is not deterministic. No-output Flows return an empty slice;
+`single_output` returns `SdkError::InvalidArgument` for zero or multiple
+completions. `SdkError::FlowUncompleted` carries the same hydrated completion
+metadata for partial outputs.
+
 Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
 `reset_flow`) use `FlowNotFound`; operations requiring a running Flow use
 `FlowNotActive`. Each remote variant owns a `ServiceError`, available through

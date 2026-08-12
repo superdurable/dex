@@ -82,7 +82,8 @@ fn handler_attempt_metadata_is_available_in_both_methods() {
         3,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete handler-context Flow")
     );
 }

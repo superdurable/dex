@@ -45,10 +45,7 @@ public class PollingIntegTest {
         environment.client().publish(flowId, flow.taskACompleted, (Void) null);
         environment.client().publish(flowId, flow.taskBCompleted, (Void) null);
 
-        final String output = environment.client().waitForFlow(
-                flowId,
-                String.class,
-                Duration.ofSeconds(45));
+        final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("all tasks completed", output);
 
         final Integer pollCount = environment.client().getAttribute(flowId, flow.currentPolls);

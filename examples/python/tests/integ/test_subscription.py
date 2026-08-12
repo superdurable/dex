@@ -17,13 +17,13 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import AsyncClient
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.workflow.subscription.customer import Customer
 from dex_examples.workflow.subscription.subscription import Subscription
 from tests.integ.conftest import WAIT_TIMEOUT, wait_until
+
+from dex import AsyncClient
 
 pytestmark = pytest.mark.integ
 
@@ -54,7 +54,9 @@ async def test_subscription_bills_every_period_then_ends(
     flow_id = new_flow_id("subscription")
     await client.start_flow(app.subscription, flow_id, customer(2, 2), start_options())
 
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription ended"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "subscription ended"
 
 
 async def test_subscription_describe_returns_the_stored_plan(
@@ -78,7 +80,9 @@ async def test_subscription_describe_returns_the_stored_plan(
     assert subscription.billing_period_charge == 100
 
     await client.publish(flow_id, app.subscription.cancel_subscription, None)
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "subscription canceled"
 
 
 async def test_subscription_update_charge_amount(
@@ -107,4 +111,6 @@ async def test_subscription_update_charge_amount(
     await wait_until("the new charge amount to be applied", charge_updated)
 
     await client.publish(flow_id, app.subscription.cancel_subscription, None)
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "subscription canceled"

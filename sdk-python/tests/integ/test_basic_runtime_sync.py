@@ -18,9 +18,9 @@ from dex import (
     FlowConfig,
     FlowDefinitionError,
     FlowErrorType,
+    FlowNotFoundError,
     FlowStatus,
     FlowUncompletedError,
-    FlowNotFoundError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
@@ -47,7 +47,10 @@ def test_basic_workflow() -> None:
         flow_id = unique_id("basic")
         options = StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
         environment.client.start_flow(flow, flow_id, 0, options)
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 2
+        )
         with pytest.raises(FlowAlreadyStartedError):
             environment.client.start_flow(flow, flow_id, 0, options)
 
@@ -62,11 +65,14 @@ def test_basic_workflow_abnormal_exit_reuse() -> None:
         )
         failed_run = environment.client.start_flow(abnormal, flow_id, 0, options)
         with pytest.raises(FlowUncompletedError) as captured:
-            environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
         assert captured.value.run_id == failed_run
         assert captured.value.status is FlowStatus.FAILED
         environment.client.start_flow(basic, flow_id, 0, options)
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 2
+        )
 
 
 def test_empty_input_workflow() -> None:
@@ -74,11 +80,11 @@ def test_empty_input_workflow() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("empty-input")
         environment.client.start_flow(flow, flow_id, None)
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) is None
+        assert not environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).completions
         with pytest.raises(FlowNotFoundError):
             environment.client.wait_for_flow(
-                unique_id("missing"), int, timedelta(seconds=1)
-            )
+                unique_id("missing"), timedelta(seconds=1)
+            ).single_output(int)
 
 
 def test_custom_flow_type() -> None:
@@ -87,9 +93,7 @@ def test_custom_flow_type() -> None:
         flow_id = unique_id("type-specified")
         assert flow.get_flow_type() == "test-customized-flow-type"
         environment.client.start_flow(flow, flow_id, None)
-        assert (
-            environment.client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT) is None
-        )
+        assert environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).completions == ()
         with pytest.raises(
             FlowDefinitionError, match="Flow instance is not registered"
         ):
@@ -103,7 +107,10 @@ def test_model_input_workflow() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("model-input")
         environment.client.start_flow(flow, flow_id, ModelInput(value=10))
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 10
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 10
+        )
         with pytest.raises(ValueMappingError):
             environment.client.start_flow(
                 flow,
@@ -120,7 +127,10 @@ def test_flow_config_override() -> None:
             config_override=FlowConfig(continue_as_new_threshold=1)
         )
         environment.client.start_flow(flow, flow_id, 0, options)
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 2
+        )
 
 
 def test_describe_missing_flow() -> None:
@@ -149,7 +159,10 @@ def test_wait_for_step_completion() -> None:
             StepExecutionId("BasicSecondStep"),
             WAIT_TIMEOUT,
         )
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 7
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 7
+        )
 
 
 def test_proceed_on_wait_failure() -> None:
@@ -158,7 +171,7 @@ def test_proceed_on_wait_failure() -> None:
         flow_id = unique_id("proceed-on-wait-failure")
         environment.client.start_flow(flow, flow_id, "input")
         assert (
-            environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "input-recovered"
         )
 
@@ -168,7 +181,10 @@ def test_mixed_wait_styles() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("mixed-wait")
         environment.client.start_flow(flow, flow_id, 0)
-        assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
+            == 2
+        )
 
 
 def test_movement_options_do_not_mutate_step_defaults() -> None:
@@ -177,7 +193,7 @@ def test_movement_options_do_not_mutate_step_defaults() -> None:
         flow_id = unique_id("immutable-options")
         environment.client.start_flow(flow, flow_id, 0)
         with pytest.raises(FlowUncompletedError) as captured:
-            environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)
         assert captured.value.status is FlowStatus.FAILED
         assert captured.value.error_type is FlowErrorType.WORKER_API_FAILED
         assert str(captured.value) == "expected wait failure 2"

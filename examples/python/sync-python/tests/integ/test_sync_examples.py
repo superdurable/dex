@@ -17,8 +17,6 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import Client, FlowStatus, IdReusePolicy, StartFlowOptions
-
 from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
 from dex_examples.workflow.engagement.engagement_input import EngagementInput
 from dex_examples.workflow.engagement.status import Status
@@ -34,6 +32,8 @@ from sync_examples.wait import (
     wait_until,
 )
 
+from dex import Client, FlowStatus, IdReusePolicy, StartFlowOptions
+
 pytestmark = pytest.mark.integ
 
 
@@ -47,7 +47,7 @@ def test_basic_approve_completes(
     appended = client.invoke_rpc(app.basic.append_string, flow_id, "hello")
     assert "hello" in appended
     client.invoke_rpc(app.basic.approve, flow_id)
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "approved"
+    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "approved"
 
 
 def test_money_transfer_completes_the_saga(
@@ -58,7 +58,7 @@ def test_money_transfer_completes_the_saga(
     flow_id = new_flow_id("sync-money")
     request = TransferRequest("from-account", "to-account", 100, "test-notes")
     client.start_flow(app.money_transfer, flow_id, request, start_options())
-    output = client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+    output = client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
     assert "transfer is done" in output
     assert "from from-account to to-account for amount 100" in output
 
@@ -82,7 +82,7 @@ def test_engagement_accept_completes(
     assert client.invoke_rpc(app.engagement.accept, flow_id, "sounds good") is (
         Status.ACCEPTED
     )
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "done"
 
 
 def test_subscription_describe_and_cancel(
@@ -110,7 +110,10 @@ def test_subscription_describe_and_cancel(
     )
     assert subscription.billing_period_charge == 100
     client.publish(flow_id, app.subscription.cancel_subscription, None)
-    assert client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "subscription canceled"
+    assert (
+        client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
+        == "subscription canceled"
+    )
 
 
 def test_parent_child_starts_a_child(

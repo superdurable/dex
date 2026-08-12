@@ -31,7 +31,8 @@ fn test_basic_internal_channel() {
         3,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete internal-channel Flow")
     );
 }
@@ -56,7 +57,8 @@ fn test_waiting_internal_channel() {
         6,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete waiting-channel Flow")
     );
 }
@@ -64,10 +66,10 @@ fn test_waiting_internal_channel() {
 #[allow(dead_code)]
 fn compile_internal_channels(client: &Client) -> SdkResult<()> {
     client.start_flow(&InternalChannelWorkflow::new(), "basic-internal", 1)?;
-    let _: i32 = client.wait_for_flow("basic-internal")?;
+    let _: i32 = client.wait_for_flow("basic-internal")?.single_output()?;
     let workflow = InternalChannelWaitingWorkflow::new();
     client.start_flow(&workflow, "waiting-internal", 1)?;
     client.publish_many("waiting-internal", &workflow.channel, [2, 3])?;
-    let _: i32 = client.wait_for_flow("waiting-internal")?;
+    let _: i32 = client.wait_for_flow("waiting-internal")?.single_output()?;
     Ok(())
 }

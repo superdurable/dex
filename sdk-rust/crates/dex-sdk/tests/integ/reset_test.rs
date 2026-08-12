@@ -101,13 +101,22 @@ fn assert_completed_with_attributes(
     flow_id: &str,
     expects_attribute_map_value: bool,
 ) {
-    assert_eq!(
-        2,
-        environment
-            .client
-            .wait_for_flow_with_timeout::<i32>(flow_id, Duration::from_secs(10))
-            .expect("complete reset Flow")
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(flow_id, Duration::from_secs(10))
+        .expect("complete reset Flow");
+    assert_eq!(2, result.completions().len());
+    assert_ne!(
+        result.completions()[0].step_execution_id,
+        result.completions()[1].step_execution_id
     );
+    let mut outputs = result
+        .completions()
+        .iter()
+        .map(|completion| completion.decode::<i32>().expect("decode reset output"))
+        .collect::<Vec<_>>();
+    outputs.sort_unstable();
+    assert_eq!(vec![1, 2], outputs);
     assert_eq!(
         FlowStatus::Completed,
         environment
@@ -163,18 +172,19 @@ fn assert_reset_times_out_without_attributes(
 ) {
     match environment
         .client
-        .wait_for_flow_with_timeout::<i32>(flow_id, Duration::from_secs(10))
+        .wait_for_flow_with_timeout(flow_id, Duration::from_secs(10))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("reset Flow without reapplied input must time out")
     {
         SdkError::FlowUncompleted {
             run_id,
             status,
-            result_count,
+            completions,
             ..
         } => {
             assert_eq!(reset_run_id, run_id);
             assert_eq!(FlowStatus::TimedOut, status);
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }

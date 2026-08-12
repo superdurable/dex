@@ -16,7 +16,7 @@ from .state_recovery_no_wait_flow import StateRecoveryNoWaitFlow
 
 def compile_wait_and_execute_recovery(client: Client) -> None:
     client.start_flow(StateRecoveryFlow(), "state-recovery", 1)
-    output: int = client.wait_for_flow("state-recovery", int)
+    output: int = client.wait_for_flow("state-recovery").single_output(int)
     del output
 
 
@@ -26,5 +26,5 @@ def compile_execute_only_recovery(client: Client) -> None:
         "state-recovery-no-wait",
         1,
     )
-    output: int = client.wait_for_flow("state-recovery-no-wait", int)
+    output: int = client.wait_for_flow("state-recovery-no-wait").single_output(int)
     del output

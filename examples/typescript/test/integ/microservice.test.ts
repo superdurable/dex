@@ -56,6 +56,6 @@ test("microserviceStartRpcAndChannel", async () => {
   assert.equal(previous, "initial-data");
 
   await environment.client.publish(flowId, flow.ready, undefined);
-  const output = await environment.client.waitForFlow(flowId, stringCodec, 45_000);
+  const output = await environment.client.waitForFlow(flowId, 45_000).then((result) => result.singleOutput(stringCodec));
   assert.equal(output, "updated-data");
 });

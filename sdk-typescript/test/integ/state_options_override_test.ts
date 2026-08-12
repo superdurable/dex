@@ -14,6 +14,6 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileMovementOptionsOverride(client: Client): Promise<void> {
   await client.startFlow(flows.STATE_OPTIONS_OVERRIDE, "options-override", "input");
-  const output: string = await client.waitForFlow("options-override", stringCodec);
+  const output: string = await client.waitForFlow("options-override").then((result) => result.singleOutput(stringCodec));
   void output;
 }

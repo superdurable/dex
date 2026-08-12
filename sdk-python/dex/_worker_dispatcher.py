@@ -279,11 +279,19 @@ class WorkerDispatcher:
             mapped.next_steps.extend(self._map_movements(flow, decision.movements))
         elif decision.kind is DecisionKind.GRACEFUL_COMPLETE:
             mapped.close_decision.CopyFrom(
-                self._close(pb.CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE, decision.output)
+                self._close(
+                    pb.CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+                    decision.output,
+                    decision._has_output(),
+                )
             )
         elif decision.kind is DecisionKind.FORCE_COMPLETE:
             mapped.close_decision.CopyFrom(
-                self._close(pb.CLOSE_DECISION_TYPE_FORCE_COMPLETE, decision.output)
+                self._close(
+                    pb.CLOSE_DECISION_TYPE_FORCE_COMPLETE,
+                    decision.output,
+                    decision._has_output(),
+                )
             )
         elif decision.kind is DecisionKind.FORCE_FAIL:
             mapped.close_decision.CopyFrom(
@@ -314,11 +322,16 @@ class WorkerDispatcher:
             raise ValueError("unsupported StepDecision kind")
         return mapped
 
-    def _close(self, close_type: int, output: object) -> pb.CloseDecision:
-        return pb.CloseDecision(
-            close_decision_type=cast(Any, close_type),
-            close_input=self._values.encode_dynamic(output),
-        )
+    def _close(
+        self,
+        close_type: int,
+        output: object,
+        has_output: bool = True,
+    ) -> pb.CloseDecision:
+        close = pb.CloseDecision(close_decision_type=cast(Any, close_type))
+        if has_output:
+            close.close_input.CopyFrom(self._values.encode_dynamic(output))
+        return close
 
     def _map_movements(
         self,

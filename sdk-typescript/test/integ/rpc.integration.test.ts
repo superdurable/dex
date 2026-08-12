@@ -55,7 +55,7 @@ test("RPC without persistence wakes the waiting Step", async () => {
     const id = flowId("rpc-no-persistence");
     await client.startFlow(flow, id, 999);
     await client.invokeRPC(flow.noPersistence, id);
-    assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 2);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   });
 });
 
@@ -155,7 +155,7 @@ async function assertRpcCompletion(
   id: string,
   expectedValue: string,
 ): Promise<void> {
-  assert.equal(await client.waitForFlow(id, doubleCodec, 30_000), 2);
+  assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   assert.equal(await client.getAttribute(id, flow.data), expectedValue);
   assert.equal(await client.getAttribute(id, flow.keyword), expectedValue);
   assert.equal(await client.getAttribute(id, flow.integer), RpcFlow.RPC_OUTPUT);

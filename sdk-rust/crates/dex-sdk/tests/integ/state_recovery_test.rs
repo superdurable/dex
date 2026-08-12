@@ -31,7 +31,8 @@ fn test_state_api_fail_and_recovery_workflow() {
         10,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete state-recovery Flow")
     );
 }
@@ -51,7 +52,8 @@ fn test_state_api_fail_and_recovery_no_wait_until_workflow() {
         10,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete execute-only recovery Flow")
     );
 }
@@ -60,7 +62,7 @@ fn test_state_api_fail_and_recovery_no_wait_until_workflow() {
 fn compile_wait_and_execute_recovery(client: &Client) -> SdkResult<()> {
     let workflow = StateRecoveryWorkflow::new();
     client.start_flow(&workflow, "state-recovery", 1)?;
-    let output: i32 = client.wait_for_flow("state-recovery")?;
+    let output: i32 = client.wait_for_flow("state-recovery")?.single_output()?;
     let _ = output;
     Ok(())
 }
@@ -69,7 +71,9 @@ fn compile_wait_and_execute_recovery(client: &Client) -> SdkResult<()> {
 fn compile_execute_only_recovery(client: &Client) -> SdkResult<()> {
     let workflow = StateRecoveryNoWaitWorkflow::new();
     client.start_flow(&workflow, "state-recovery-no-wait", 1)?;
-    let output: i32 = client.wait_for_flow("state-recovery-no-wait")?;
+    let output: i32 = client
+        .wait_for_flow("state-recovery-no-wait")?
+        .single_output()?;
     let _ = output;
     Ok(())
 }

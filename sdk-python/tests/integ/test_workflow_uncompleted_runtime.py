@@ -25,10 +25,10 @@ from dex import (
 from .empty_decision_flow import EmptyDecisionFlow
 from .environment import DexDevTestEnvironment
 from .force_fail_flow import ForceFailFlow
+from .shared import unique_id
 from .signal_flow import SignalFlow
 from .state_failure_flow import StateFailureFlow
 from .state_timeout_flow import StateTimeoutFlow
-from .shared import unique_id
 
 
 def test_flow_wait_timeout() -> None:
@@ -39,7 +39,6 @@ def test_flow_wait_timeout() -> None:
         with pytest.raises(LongPollTimeoutError) as captured:
             environment.client.wait_for_flow(
                 flow_id,
-                int,
                 timedelta(seconds=1),
             )
         assert captured.value.flow_id == flow_id
@@ -119,7 +118,7 @@ def test_worker_api_failure() -> None:
         assert failure.status is FlowStatus.FAILED
         assert failure.error_type is FlowErrorType.WORKER_API_FAILED
         assert "test api failing" in str(failure)
-        assert len(failure.results) == 0
+        assert len(failure.completions) == 0
 
 
 def test_worker_api_timeout() -> None:
@@ -132,7 +131,7 @@ def test_worker_api_timeout() -> None:
         assert failure.status is FlowStatus.FAILED
         assert failure.error_type is FlowErrorType.WORKER_API_FAILED
         assert "timeout" in str(failure).lower()
-        assert len(failure.results) == 0
+        assert len(failure.completions) == 0
 
 
 def test_empty_decision_fails_flow() -> None:
@@ -145,7 +144,7 @@ def test_empty_decision_fails_flow() -> None:
         assert failure.status is FlowStatus.FAILED
         assert failure.error_type is FlowErrorType.WORKER_API_FAILED
         assert "go_to_multi requires a movement" in str(failure)
-        assert len(failure.results) == 0
+        assert len(failure.completions) == 0
 
 
 def wait_for_failure(
@@ -155,7 +154,6 @@ def wait_for_failure(
     with pytest.raises(FlowUncompletedError) as captured:
         environment.client.wait_for_flow(
             flow_id,
-            int,
             timedelta(seconds=15),
         )
     return captured.value
@@ -172,4 +170,4 @@ def assert_failure(
     assert failure.status is status
     assert failure.error_type is error_type
     assert failure.args[0] == message
-    assert len(failure.results) == 0
+    assert len(failure.completions) == 0

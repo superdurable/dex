@@ -154,6 +154,7 @@ func integrationFlows() []dex.Flow {
 	return []dex.Flow{
 		abnormalExitFlow{},
 		basicFlow{},
+		multiOutputFlow{},
 		proceedOnWaitForFailureFlow{},
 		executeRecoveryFlow{},
 		interStepFlow{},

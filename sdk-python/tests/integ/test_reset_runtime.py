@@ -52,13 +52,12 @@ def test_reset_can_skip_rpc_or_channel_reapply(locking: bool) -> None:
         with pytest.raises(FlowUncompletedError) as captured:
             environment.client.wait_for_flow(
                 flow_id,
-                str,
                 timedelta(seconds=10),
             )
         failure = captured.value
         assert failure.run_id == reset_run_id
         assert failure.status is FlowStatus.TIMED_OUT
-        assert len(failure.results) == 0
+        assert len(failure.completions) == 0
         assert environment.client.get_attribute(flow_id, flow.data) is None
         assert environment.client.get_attribute(flow_id, flow.keyword) is None
         assert environment.client.get_attribute(flow_id, flow.counter) is None
@@ -100,10 +99,8 @@ def assert_completed_with_attributes(
     flow_id: str,
 ) -> None:
     assert (
-        environment.client.wait_for_flow(
-            flow_id,
-            str,
-            timedelta(seconds=10),
+        environment.client.wait_for_flow(flow_id, timedelta(seconds=10)).single_output(
+            str
         )
         == "lock complete"
     )

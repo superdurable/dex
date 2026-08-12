@@ -198,8 +198,14 @@ func (service *clientTestFlowService) LoadBlobs(
 			return nil, err
 		}
 		if found {
-			values[blobID.value] = &dexpb.Value{
-				Kind: &dexpb.Value_StringValue{StringValue: "hydrated"},
+			if blobID.isObjectOrString {
+				values[blobID.value] = &dexpb.Value{Kind: &dexpb.Value_ObjValue{
+					ObjValue: &dexpb.EncodedObject{Encoding: rawBytesEncoding, Payload: []byte("done")},
+				}}
+			} else {
+				values[blobID.value] = &dexpb.Value{
+					Kind: &dexpb.Value_StringValue{StringValue: "hydrated"},
+				}
 			}
 		}
 	}
@@ -291,6 +297,31 @@ func (service *clientTestFlowService) WaitForFlow(
 					Kind: &dexpb.Value_StringValue{StringValue: "partial"},
 				},
 			}},
+		}, nil
+	}
+	if request.FlowId == "multi" {
+		return &dexpb.WaitForFlowResponse{
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+			Results: []*dexpb.StepCompletionOutput{
+				{
+					CompletedStepType:        "First",
+					CompletedStepExecutionId: "First-1",
+					CompletedStepOutput: &dexpb.Value{
+						Kind: &dexpb.Value_InternalBlobIdForStringValue{
+							InternalBlobIdForStringValue: "first-completion-blob",
+						},
+					},
+				},
+				{
+					CompletedStepType:        "Second",
+					CompletedStepExecutionId: "Second-2",
+					CompletedStepOutput: &dexpb.Value{
+						Kind: &dexpb.Value_InternalBlobIdForObjValue{
+							InternalBlobIdForObjValue: "second-completion-blob",
+						},
+					},
+				},
+			},
 		}, nil
 	}
 	return &dexpb.WaitForFlowResponse{
@@ -581,6 +612,21 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	var completion string
 	require.NoError(t, result.Completions[0].Output.Decode(&completion))
 	require.Equal(t, "hydrated", completion)
+	require.NoError(t, result.DecodeSingleOutput(&completion))
+
+	multi, err := client.WaitForFlow(ctx, "multi", WaitForFlowOptions{NeedsResults: true})
+	require.NoError(t, err)
+	require.Len(t, multi.Completions, 2)
+	require.Equal(t, "First", multi.Completions[0].StepType)
+	require.Equal(t, "Second-2", multi.Completions[1].StepExecutionID)
+	var firstCompletion string
+	require.NoError(t, multi.Completions[0].Output.Decode(&firstCompletion))
+	require.Equal(t, "hydrated", firstCompletion)
+	var secondCompletion []byte
+	require.NoError(t, multi.Completions[1].Output.Decode(&secondCompletion))
+	require.Equal(t, []byte("done"), secondCompletion)
+	require.ErrorContains(t, multi.DecodeSingleOutput(&completion), "exactly one Step output")
+	require.ErrorContains(t, (WaitForFlowResult{}).DecodeSingleOutput(&completion), "found 0")
 
 	page, err := client.SearchFlows(ctx, "status = 'ready'", 10, "")
 	require.NoError(t, err)

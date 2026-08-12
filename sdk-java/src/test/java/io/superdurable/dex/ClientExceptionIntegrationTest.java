@@ -27,14 +27,20 @@ import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
+import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.gen.ErrorResponse;
+import io.superdurable.gen.EncodedObject;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
+import io.superdurable.gen.LoadBlobsRequest;
+import io.superdurable.gen.LoadBlobsResponse;
 import io.superdurable.gen.StopFlowRequest;
+import io.superdurable.gen.StepCompletionOutput;
+import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForFlowResponse;
 import io.superdurable.gen.WaitForStepCompletionRequest;
@@ -51,6 +57,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -113,7 +120,7 @@ final class ClientExceptionIntegrationTest {
     void mapsLongPollTimeoutAcrossWaitOperations() {
         final LongPollTimeoutException flowTimeout = assertThrows(
                 LongPollTimeoutException.class,
-                () -> client.waitForFlow("timeout", Void.class, Duration.ofSeconds(1)));
+                () -> client.waitForFlow("timeout", Duration.ofSeconds(1)).getSingleOutput(Void.class));
         assertEquals("timeout", flowTimeout.getFlowId());
         assertEquals(Status.Code.DEADLINE_EXCEEDED, flowTimeout.getCode());
 
@@ -125,6 +132,37 @@ final class ClientExceptionIntegrationTest {
                         Duration.ofSeconds(1)));
         assertEquals("step-timeout", stepTimeout.getFlowId());
         assertEquals(Status.Code.DEADLINE_EXCEEDED, stepTimeout.getCode());
+    }
+
+    @Test
+    void returnsEveryStepCompletionAndRejectsAmbiguousSingleOutput() {
+        final WaitForFlowResult result = client.waitForFlow("multi", Duration.ofSeconds(1));
+
+        assertEquals(2, result.getCompletions().size());
+        assertEquals("First", result.getCompletions().get(0).getStepType());
+        assertEquals("First-1", result.getCompletions().get(0).getStepExecutionId());
+        assertEquals("one", result.getCompletions().get(0).getOutput(String.class));
+        assertArrayEquals(
+                ByteString.copyFromUtf8("done").toByteArray(),
+                result.getCompletions().get(1).getOutput(byte[].class));
+        assertThrows(IllegalStateException.class, () -> result.getSingleOutput(String.class));
+        assertEquals(
+                "one",
+                client.waitForFlow("single", Duration.ofSeconds(1))
+                        .getSingleOutput(String.class));
+        assertThrows(
+                IllegalStateException.class,
+                () -> client.waitForFlow("empty", Duration.ofSeconds(1))
+                        .getSingleOutput(String.class));
+
+        final FlowUncompletedException failure = assertThrows(
+                FlowUncompletedException.class,
+                () -> client.waitForFlow("failed", Duration.ofSeconds(1)));
+        assertEquals("run-failed", failure.getRunId());
+        assertEquals("Second-2", failure.getCompletions().get(1).getStepExecutionId());
+        assertArrayEquals(
+                ByteString.copyFromUtf8("done").toByteArray(),
+                failure.getCompletions().get(1).getOutput(byte[].class));
     }
 
     @Test
@@ -174,6 +212,16 @@ final class ClientExceptionIntegrationTest {
         public void getFlowSummary(
                 final GetFlowSummaryRequest request,
                 final StreamObserver<GetFlowSummaryResponse> observer) {
+            if ("failed".equals(request.getFlowId())) {
+                observer.onNext(GetFlowSummaryResponse.newBuilder()
+                        .setFlowExecutionId(io.superdurable.gen.FlowExecutionID.newBuilder()
+                                .setFlowId("failed")
+                                .setRunId("run-failed"))
+                        .setFlowStatus(io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED)
+                        .build());
+                observer.onCompleted();
+                return;
+            }
             if ("no-details".equals(request.getFlowId())) {
                 observer.onError(Status.NOT_FOUND
                         .withDescription("plain failure")
@@ -244,10 +292,60 @@ final class ClientExceptionIntegrationTest {
         public void waitForFlow(
                 final WaitForFlowRequest request,
                 final StreamObserver<WaitForFlowResponse> observer) {
+            if ("multi".equals(request.getFlowId())
+                    || "single".equals(request.getFlowId())
+                    || "empty".equals(request.getFlowId())
+                    || "failed".equals(request.getFlowId())) {
+                final WaitForFlowResponse.Builder response = WaitForFlowResponse.newBuilder()
+                        .setFlowStatus("failed".equals(request.getFlowId())
+                                ? io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED
+                                : io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED);
+                if (!"empty".equals(request.getFlowId())) {
+                    response.addResults(StepCompletionOutput.newBuilder()
+                            .setCompletedStepType("First")
+                            .setCompletedStepExecutionId("First-1")
+                            .setCompletedStepOutput(Value.newBuilder()
+                                    .setInternalBlobIdForStringValue("first-blob")));
+                }
+                if ("multi".equals(request.getFlowId()) || "failed".equals(request.getFlowId())) {
+                    response.addResults(StepCompletionOutput.newBuilder()
+                            .setCompletedStepType("Second")
+                            .setCompletedStepExecutionId("Second-2")
+                            .setCompletedStepOutput(Value.newBuilder()
+                                    .setInternalBlobIdForObjValue("second-blob")));
+                }
+                observer.onNext(response.build());
+                observer.onCompleted();
+                return;
+            }
             observer.onError(error(
                     Status.Code.DEADLINE_EXCEEDED,
                     io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
                     "long poll timed out"));
+        }
+
+        @Override
+        public void loadBlobs(
+                final LoadBlobsRequest request,
+                final StreamObserver<LoadBlobsResponse> observer) {
+            final LoadBlobsResponse.Builder response = LoadBlobsResponse.newBuilder();
+            for (final Value value : request.getValuesList()) {
+                if (value.hasInternalBlobIdForStringValue()) {
+                    response.putValues(
+                            value.getInternalBlobIdForStringValue(),
+                            Value.newBuilder().setStringValue("one").build());
+                } else {
+                    response.putValues(
+                            value.getInternalBlobIdForObjValue(),
+                            Value.newBuilder()
+                                    .setObjValue(EncodedObject.newBuilder()
+                                            .setEncoding("rawbytes")
+                                            .setPayload(ByteString.copyFromUtf8("done")))
+                                    .build());
+                }
+            }
+            observer.onNext(response.build());
+            observer.onCompleted();
         }
 
         @Override

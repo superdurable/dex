@@ -37,6 +37,10 @@ mod internal_channel_test;
 mod internal_channel_waiting_workflow;
 #[path = "integ/internal_channel_workflow.rs"]
 mod internal_channel_workflow;
+#[path = "integ/multi_output_test.rs"]
+mod multi_output_test;
+#[path = "integ/multi_output_workflow.rs"]
+mod multi_output_workflow;
 #[path = "integ/no_start_state_dead_end_workflow.rs"]
 mod no_start_state_dead_end_workflow;
 #[path = "integ/no_start_state_test.rs"]

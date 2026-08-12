@@ -30,7 +30,8 @@ fn test_state_options_override_workflow() {
         "input_state1_start_state1_decide_state2_start_state2_decide",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete options-override Flow")
     );
 }
@@ -39,7 +40,7 @@ fn test_state_options_override_workflow() {
 fn compile_movement_options_override(client: &Client) -> SdkResult<()> {
     let workflow = StateOptionsOverrideWorkflow::new();
     client.start_flow(&workflow, "options-override", "input".to_string())?;
-    let output: String = client.wait_for_flow("options-override")?;
+    let output: String = client.wait_for_flow("options-override")?.single_output()?;
     drop(output);
     Ok(())
 }

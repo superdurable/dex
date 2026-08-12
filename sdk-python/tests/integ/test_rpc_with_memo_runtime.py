@@ -96,7 +96,9 @@ def assert_rpc_completion(
     flow_id: str,
     expected_value: str,
 ) -> None:
-    assert environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+    assert (
+        environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int) == 2
+    )
     assert environment.client.get_attribute(flow_id, flow.data) == expected_value
     assert environment.client.get_attribute(flow_id, flow.keyword) == expected_value
     assert environment.client.get_attribute(flow_id, flow.integer) == RpcFlow.RPC_OUTPUT

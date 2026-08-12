@@ -154,10 +154,7 @@ public class ParentFlowV2 implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final WaitForChildInput input) {
             try {
-                client().waitForFlow(
-                        input.childWFId,
-                        Object.class,
-                        Duration.ofSeconds(Math.max(input.timerSeconds, 1)));
+                client().waitForFlow(input.childWFId, Duration.ofSeconds(Math.max(input.timerSeconds, 1))).getSingleOutput(Object.class);
             } catch (final LongPollTimeoutException e) {
                 return StepDecision.goTo(
                         awaitChildWorkflowCompletion,

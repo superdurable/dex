@@ -14,10 +14,16 @@ Package: `@superdurable/dex` (examples target **^0.1.3+**).
 ```typescript
 async execute(_context: Context, childId: string): Promise<StepDecision> {
   await getClient().startFlow(childFlow, childId, input);
-  const output = await getClient().waitForFlow(childId, stringCodec, 5_000);
+  const result = await getClient().waitForFlow(childId, 5_000);
+  const output = result.singleOutput(stringCodec);
   return gracefulComplete(output);
 }
 ```
+
+`waitForFlow` returns a read-only collection of hydrated Step completions. A
+Flow with one output can use `singleOutput(codec)`. For multiple outputs, match
+`stepType` or `stepExecutionId` and call `completion.decode(codec)`. Do not use
+array position as a parallel-branch contract.
 
 Synchronous handlers remain valid. Do **not** block the event loop (`Atomics.wait`, `spawnSync`). Prefer short `waitForFlow` timeouts plus Step retry over one unbounded poll.
 

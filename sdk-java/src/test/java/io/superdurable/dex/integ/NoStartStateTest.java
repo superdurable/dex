@@ -23,7 +23,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("dex-dev")
 public final class NoStartStateTest {
@@ -48,10 +48,7 @@ public final class NoStartStateTest {
             assertEquals(
                     NoStartStateWorkflow.RPC_OUTPUT,
                     environment.client().invokeRPC(stub::invoke, "rpc-input"));
-            assertEquals(1, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(1, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -85,10 +82,10 @@ public final class NoStartStateTest {
             assertEquals(
                     NoStartStateDeadEndWorkflow.RPC_OUTPUT,
                     environment.client().invokeRPC(stub::invoke, "rpc-input"));
-            assertNull(environment.client().waitForFlow(
-                    flowId,
-                    Void.class,
-                    Duration.ofSeconds(30)));
+            assertTrue(environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getCompletions()
+                    .isEmpty());
         }
     }
 

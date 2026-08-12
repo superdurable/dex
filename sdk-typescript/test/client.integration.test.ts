@@ -13,10 +13,12 @@ import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
 
 import {
   Client,
+  FlowUncompletedError,
   Registry,
   StepList,
   jsonCodec,
   rpc,
+  stringCodec,
   type BlobCache,
   type Context,
   type Flow,
@@ -26,6 +28,7 @@ import {
 } from "../src/index.js";
 import {
   FlowServiceService,
+  FlowErrorType as ProtoFlowErrorType,
   FlowStatus,
   Value,
   type FlowServiceServer,
@@ -99,27 +102,59 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       callback(null, { output: hydratedOutput });
     },
     waitForFlow(
-      _call: { request: WaitForFlowRequest },
+      call: { request: WaitForFlowRequest },
       callback: sendUnaryData<WaitForFlowResponse>,
     ) {
+      const results = [
+        {
+          completedStepType: "Start",
+          completedStepExecutionId: "Start-1",
+          completedStepOutput: Value.create({
+            kind: { $case: "internalBlobIdForObjValue" as const, value: "blob-1" },
+          }),
+        },
+        {
+          completedStepType: "Finish",
+          completedStepExecutionId: "Finish-2",
+          completedStepOutput: Value.create({
+            kind: { $case: "internalBlobIdForStringValue" as const, value: "blob-2" },
+          }),
+        },
+      ];
       callback(null, {
-        flowStatus: FlowStatus.FLOW_STATUS_COMPLETED,
-        results: [
-          {
-            completedStepType: "Start",
-            completedStepExecutionId: "Start-1",
-            completedStepOutput: Value.create({
-              kind: { $case: "internalBlobIdForObjValue", value: "blob-1" },
-            }),
-          },
-        ],
-        errorType: 0,
-        errorMessage: "",
+        flowStatus: call.request.flowId === "failed"
+          ? FlowStatus.FLOW_STATUS_FAILED
+          : FlowStatus.FLOW_STATUS_COMPLETED,
+        results: call.request.flowId === "empty"
+          ? []
+          : call.request.flowId === "single"
+            ? results.slice(0, 1)
+            : results,
+        errorType: call.request.flowId === "failed"
+          ? ProtoFlowErrorType.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW
+          : ProtoFlowErrorType.FLOW_ERROR_TYPE_UNSPECIFIED,
+        errorMessage: call.request.flowId === "failed" ? "failed by test" : "",
       });
     },
     loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {
-      assert.equal((call.request as LoadBlobsRequest).values.length, 1);
-      callback(null, { values: { "blob-1": hydratedOutput } });
+      assert.equal((call.request as LoadBlobsRequest).values.length, 2);
+      callback(null, {
+        values: {
+          "blob-1": hydratedOutput,
+          "blob-2": Value.create({ kind: { $case: "stringValue", value: "done" } }),
+        },
+      });
+    },
+    getFlowSummary(_call, callback) {
+      callback(null, {
+        flowExecutionId: { flowId: "failed", runId: "run-failed" },
+        firstRunId: "run-failed",
+        requestId: "request-failed",
+        flowType: "TestFlow",
+        flowStatus: FlowStatus.FLOW_STATUS_FAILED,
+        startTime: new Date(1_000),
+        closeTime: new Date(2_000),
+      });
     },
   } as Partial<FlowServiceServer> as FlowServiceServer);
 
@@ -134,11 +169,33 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.deepEqual(await client.invokeRPC(flow.accept, "flow-1", { message: "hello" }), {
       accepted: true,
     });
-    assert.deepEqual(await client.waitForFlow("flow-1", outputCodec), { accepted: true });
+    const result = await client.waitForFlow("flow-1");
+    assert.equal(result.completions.length, 2);
+    assert.equal(result.completions[0]?.stepType, "Start");
+    assert.equal(result.completions[0]?.stepExecutionId, "Start-1");
+    assert.deepEqual(result.completions[0]?.decode(outputCodec), { accepted: true });
+    assert.equal(result.completions[1]?.decode(stringCodec), "done");
+    assert.throws(() => result.singleOutput(outputCodec), /exactly one Step output/);
+    assert.deepEqual((await client.waitForFlow("single")).singleOutput(outputCodec), {
+      accepted: true,
+    });
+    const empty = await client.waitForFlow("empty");
+    assert.throws(() => empty.singleOutput(stringCodec), /found 0/);
+    await assert.rejects(
+      client.waitForFlow("failed"),
+      (error: unknown) => {
+        assert.ok(error instanceof FlowUncompletedError);
+        assert.equal(error.runId, "run-failed");
+        assert.equal(error.completions[1]?.stepExecutionId, "Finish-2");
+        assert.equal(error.completions[1]?.decode(stringCodec), "done");
+        return true;
+      },
+    );
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.rpc?.rpcName, "accept");
     assert.equal(cache.get("blob-1") === undefined, false);
+    assert.equal(cache.get("blob-2") === undefined, false);
   } finally {
     await client.close();
     await shutdown(server);

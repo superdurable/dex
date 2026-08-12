@@ -17,13 +17,11 @@ package io.superdurable.dex.exceptions;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.gen.StepCompletionOutput;
-import io.superdurable.gen.Value;
+import io.superdurable.dex.StepCompletion;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.BiFunction;
 
 /**
  * Thrown by {@link Client#waitForFlow(String)} when the Flow being waited for reaches a terminal
@@ -31,15 +29,14 @@ import java.util.function.BiFunction;
  *
  * <p>All {@code waitForFlow} overloads throw this exception instead of returning normally for that
  * status. The exception preserves the run identity, terminal status, Flow error category, message,
- * and any completed Step outputs returned by Dex. Use {@link #getResult} with a concrete class to
- * decode a selected result.
+ * and any completed Step outputs returned by Dex. Each {@link StepCompletion} retains the Step
+ * identity and decodes its own output.
  */
 public final class FlowUncompletedException extends RuntimeException {
     private final String runId;
     private final FlowStatus status;
     private final FlowErrorType errorType;
-    private final List<StepCompletionOutput> results;
-    private final BiFunction<Value, Class<?>, Object> decoder;
+    private final List<StepCompletion> completions;
 
     /**
      * Creates an exception for a Flow that reached a terminal status other than
@@ -49,23 +46,20 @@ public final class FlowUncompletedException extends RuntimeException {
      * @param status the terminal Flow status, which is not {@link FlowStatus#COMPLETED}
      * @param errorType the Flow error category, or {@code null} when unavailable
      * @param message the server-provided completion detail
-     * @param results completed Step outputs returned by Dex
-     * @param decoder the SDK decoder used by {@link #getResult(int, Class)}
+     * @param completions completed Step outputs returned by Dex
      */
     public FlowUncompletedException(
             final String runId,
             final FlowStatus status,
             final FlowErrorType errorType,
             final String message,
-            final List<StepCompletionOutput> results,
-            final BiFunction<Value, Class<?>, Object> decoder) {
+            final List<StepCompletion> completions) {
         super(message);
         this.runId = runId;
         this.status = status;
         this.errorType = errorType;
-        this.results = Collections.unmodifiableList(
-                new ArrayList<StepCompletionOutput>(results));
-        this.decoder = decoder;
+        this.completions = Collections.unmodifiableList(
+                new ArrayList<StepCompletion>(completions));
     }
 
     /**
@@ -96,26 +90,11 @@ public final class FlowUncompletedException extends RuntimeException {
     }
 
     /**
-     * Returns the number of completed Step outputs carried by this exception.
+     * Returns all output-bearing Step completions carried by this exception.
      *
-     * @return the result count
+     * @return an immutable list in server collection order
      */
-    public int getResultCount() {
-        return results.size();
-    }
-
-    /**
-     * Decodes one completed Step output.
-     *
-     * @param index the zero-based result index
-     * @param resultType the concrete Java class used for decoding
-     * @param <T> the requested result type
-     * @return the decoded result
-     * @throws IndexOutOfBoundsException if {@code index} is outside the available results
-     */
-    public <T> T getResult(final int index, final Class<T> resultType) {
-        return resultType.cast(decoder.apply(
-                results.get(index).getCompletedStepOutput(),
-                resultType));
+    public List<StepCompletion> getCompletions() {
+        return completions;
     }
 }

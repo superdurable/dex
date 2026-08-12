@@ -25,7 +25,9 @@ def test_unknown_condition_id_fails_flow() -> None:
         flow_id = unique_id("any-combination-fail")
         run_id = environment.client.start_flow(flow, flow_id, 5)
         with pytest.raises(FlowUncompletedError) as captured:
-            environment.client.wait_for_flow(flow_id, int, timedelta(seconds=30))
+            environment.client.wait_for_flow(
+                flow_id, timedelta(seconds=30)
+            ).single_output(int)
         failure = captured.value
         assert failure.run_id == run_id
         assert failure.status is FlowStatus.FAILED

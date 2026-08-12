@@ -40,7 +40,12 @@ import {
   type WaitForStepCompletionResponse,
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
-import { FlowErrorType, FlowUncompletedError, type FlowErrorType as FlowErrorTypeValue } from "./errors.js";
+import {
+  FlowErrorType,
+  FlowUncompletedError,
+  ValueMappingError,
+  type FlowErrorType as FlowErrorTypeValue,
+} from "./errors.js";
 import {
   registeredFlow,
   registeredRPC,
@@ -48,6 +53,11 @@ import {
   type RegisteredFlow,
   type Registry,
 } from "./flow.js";
+import {
+  createStepCompletions,
+  createWaitForFlowResult,
+  type WaitForFlowResult,
+} from "./flow-result.js";
 import { translateServiceError } from "./grpc-status.js";
 import {
   ActiveStepSearchMode,
@@ -86,7 +96,8 @@ const defaultServerAddress = "localhost:8801";
  * const client = new Client(registry, cache);
  * try {
  *   const runId = await client.startFlow(orders, "order-42", input);
- *   const result = await client.waitForFlow("order-42", orderResultCodec);
+ *   const result = await client.waitForFlow("order-42");
+ *   const output = result.singleOutput(orderResultCodec);
  * } finally { await client.close(); }
  * ```
  */
@@ -478,40 +489,18 @@ export class Client {
   }
 
   /**
-   * Waits for successful Flow completion without decoding output.
+   * Long-polls until a Flow closes and returns every output-bearing completion.
    * @param flowId - Non-empty existing Flow ID.
-   * @returns A promise resolved on successful completion.
-   */
-  public waitForFlow(flowId: string): Promise<void>;
-
-  /**
-   * Waits for successful Flow completion and decodes the latest Step output.
-   * @typeParam Output - Expected completion output type.
-   * @param flowId - Non-empty existing Flow ID.
-   * @param outputCodec - Codec for the expected output.
    * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
-   * @returns The decoded latest completed Step output.
-   */
-  public waitForFlow<Output>(
-    flowId: string,
-    outputCodec: Codec<Output>,
-    timeoutMs?: number,
-  ): Promise<Output>;
-
-  /**
-   * Long-polls until a Flow closes and optionally decodes output.
-   * @param flowId - Non-empty existing Flow ID.
-   * @param outputCodec - Optional codec for the latest output.
-   * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
-   * @returns Decoded output, or `undefined` when no codec was requested.
+   * @returns Immutable Step completions in server collection order.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
    * @throws {@link FlowUncompletedError} for a non-successful terminal status.
+   * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
    */
   public async waitForFlow(
     flowId: string,
-    outputCodec?: Codec<unknown>,
     timeoutMs?: number,
-  ): Promise<unknown> {
+  ): Promise<WaitForFlowResult> {
     const response = await unary<WaitForFlowResponse>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
       (callback) =>
@@ -519,7 +508,7 @@ export class Client {
           {
             flowId: requireName(flowId),
             runId: "",
-            needsResults: outputCodec !== undefined,
+            needsResults: true,
             waitTimeSeconds: seconds(timeoutMs),
           },
           callback,
@@ -527,27 +516,22 @@ export class Client {
     );
     if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
       const summary = await this.describeFlow(flowId);
-      const results = await this.hydrator.hydrateAll(
+      const values = await this.hydrator.hydrateAll(
         response.results.map((result) => result.completedStepOutput),
       );
+      const completions = createStepCompletions(response.results, values);
       throw new FlowUncompletedError(
         summary.runId,
         mapFlowStatus(response.flowStatus),
         mapFlowErrorType(response.errorType),
         response.errorMessage || undefined,
-        results,
+        completions,
       );
     }
-    if (outputCodec === undefined) {
-      return undefined;
-    }
-    for (let index = response.results.length - 1; index >= 0; index -= 1) {
-      const value = response.results[index]?.completedStepOutput;
-      if (value !== undefined) {
-        return decodeValue(outputCodec, await this.hydrator.hydrate(value));
-      }
-    }
-    throw new TypeError(`Flow ${flowId} completed without an output`);
+    const values = await this.hydrator.hydrateAll(
+      response.results.map((result) => result.completedStepOutput),
+    );
+    return createWaitForFlowResult(createStepCompletions(response.results, values));
   }
 
   /**

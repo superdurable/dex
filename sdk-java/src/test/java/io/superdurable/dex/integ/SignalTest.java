@@ -49,10 +49,7 @@ public final class SignalTest {
                     flowId,
                     StepExecutionId.of("SignalCombinationStep"),
                     TimerId.byConditionId("test-timer-id"));
-            assertEquals(6, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(6, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
                     FlowNotActiveException.class,
                     () -> environment.client().publish(flowId, WORKFLOW.first, 8));
@@ -69,7 +66,7 @@ public final class SignalTest {
                 "signal",
                 StepExecutionId.of("SignalCombinationStep"),
                 TimerId.byConditionId("test-timer-id"));
-        final Integer output = client.waitForFlow("signal", Integer.class);
+        final Integer output = client.waitForFlow("signal").getSingleOutput(Integer.class);
         consume(output);
     }
 
